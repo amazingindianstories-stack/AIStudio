@@ -93,7 +93,8 @@ export function DetailModal() {
             </div>
 
             {/* info panel */}
-            <aside className="scroll-thin flex w-full shrink-0 flex-col overflow-y-auto border-t border-line bg-ink-850 p-5 lg:w-[360px] lg:border-l lg:border-t-0">
+            <aside className="flex w-full shrink-0 flex-col overflow-hidden border-t border-line bg-ink-850 lg:w-[360px] lg:border-l lg:border-t-0">
+              <div className="scroll-thin flex flex-1 flex-col overflow-y-auto p-5 pb-6">
               <div className="mb-4 flex items-center gap-2">
                 <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand/30 to-accent/10 ring-1 ring-brand/30">
                   {item.kind === "image" ? (
@@ -164,8 +165,10 @@ export function DetailModal() {
                   </div>
                 </>
               )}
+              </div>
 
-              <div className="mt-auto flex flex-col gap-2">
+              {/* sticky bottom actions */}
+              <div className="flex flex-col gap-2 p-5 pt-2 border-t border-white/5 bg-ink-850/95 backdrop-blur z-10 shadow-[0_-10px_20px_rgba(0,0,0,0.2)]">
                 {item.kind === "image" && item.url && (
                   <button
                     onClick={() => {
