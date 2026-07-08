@@ -5,7 +5,6 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 import { put } from "@vercel/blob";
 import { eq } from "drizzle-orm";
-import { db, schema } from "../src/lib/db";
 
 function extToMime(ext: string): string {
   const e = ext.toLowerCase();
@@ -32,6 +31,7 @@ async function uploadLocalFile(localPath: string): Promise<string> {
     console.log(`Uploading ${key}...`);
     const { url } = await put(key, buffer, {
       access: "public",
+      token: process.env.PUBLIC_BLOB_READ_WRITE_TOKEN,
       addRandomSuffix: false,
       contentType: extToMime(ext),
     });
@@ -43,6 +43,7 @@ async function uploadLocalFile(localPath: string): Promise<string> {
 }
 
 async function run() {
+  const { db, schema } = await import("../src/lib/db");
   console.log("Migrating generations...");
   const gens = await db.select().from(schema.generations);
   

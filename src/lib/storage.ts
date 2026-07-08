@@ -18,6 +18,7 @@ export async function uploadBuffer(
 ): Promise<string> {
   const { url } = await put(key, buffer, {
     access: "public",
+    token: process.env.PUBLIC_BLOB_READ_WRITE_TOKEN,
     addRandomSuffix: false,
     contentType: extToMime(ext),
   });
@@ -85,7 +86,7 @@ export async function deleteByUrls(urls: string[]): Promise<void> {
     // We filter out any legacy local relative URLs that might crash the SDK.
     const validUrls = urls.filter((u) => u.startsWith("http"));
     if (validUrls.length > 0) {
-      await del(validUrls);
+      await del(validUrls, { token: process.env.PUBLIC_BLOB_READ_WRITE_TOKEN });
     }
   } catch (err) {
     // best effort deletion
