@@ -1,4 +1,20 @@
-import { put, del } from "@vercel/blob";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
+
+// Instantiate an S3 client.
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
+  },
+});
+
+const getBucket = () => process.env.AWS_S3_BUCKET_NAME || "aistudio-media-bucket";
 
 export const MEDIA_BUCKET = "media";
 
@@ -10,22 +26,27 @@ function extToMime(ext: string): string {
   return `image/${e || "png"}`;
 }
 
-/** Upload raw bytes; returns the public URL. */
+/** Upload raw bytes; returns the proxy URL. */
 export async function uploadBuffer(
   buffer: Buffer,
   key: string,
   ext: string
 ): Promise<string> {
-  const { url } = await put(key, buffer, {
-    access: "public",
-    token: process.env.PUBLIC_BLOB_READ_WRITE_TOKEN,
-    addRandomSuffix: false,
-    contentType: extToMime(ext),
+  const bucket = getBucket();
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: buffer,
+    ContentType: extToMime(ext),
+    CacheControl: "public, max-age=31536000",
   });
-  return url;
+
+  await s3.send(command);
+
+  return `/api/media/${key}`;
 }
 
-/** Upload a base64 payload; returns the public URL. */
+/** Upload a base64 payload; returns the proxy URL. */
 export async function uploadBase64(
   base64: string,
   key: string,
@@ -44,7 +65,7 @@ export function splitDataUrl(input: string): { ext: string; data: string } {
   return { ext: "png", data: input };
 }
 
-/** Download a remote URL (e.g. a provider video) and store it; returns URL. */
+/** Download a remote URL (e.g. a provider video) and store it; returns proxy URL. */
 export async function uploadFromUrl(
   url: string,
   key: string,
@@ -56,7 +77,7 @@ export async function uploadFromUrl(
   return uploadBuffer(buf, key, ext);
 }
 
-/** Read a stored object (public URL or path) back as base64 + mime. */
+/** Read a stored object (proxy URL or path) back as base64 + mime. */
 export async function readAsBase64(
   ref: string
 ): Promise<{ mimeType: string; data: string }> {
@@ -66,35 +87,59 @@ export async function readAsBase64(
     return { mimeType: "image/png", data: ref };
   }
 
-  // Handle legacy local URLs in dev mode
-  let targetUrl = ref;
-  if (ref.startsWith("/")) {
-    targetUrl = `http://localhost:${process.env.PORT || 3000}${ref}`;
+  // If it's our proxy URL, fetch it directly from the S3 bucket
+  if (ref.startsWith("/api/media/")) {
+    const key = ref.replace("/api/media/", "");
+    const command = new GetObjectCommand({
+      Bucket: getBucket(),
+      Key: key,
+    });
+    
+    const response = await s3.send(command);
+    if (!response.Body) throw new Error("Object body is empty");
+    
+    const byteArray = await response.Body.transformToByteArray();
+    const buffer = Buffer.from(byteArray);
+    
+    const mimeType = response.ContentType || "image/png";
+    return { mimeType, data: buffer.toString("base64") };
   }
 
-  const res = await fetch(targetUrl);
-  if (!res.ok) throw new Error(`Failed to read media (${res.status})`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  const mimeType = res.headers.get("content-type") || "image/png";
-  return { mimeType, data: buf.toString("base64") };
+  // Handle external HTTP URLs
+  if (ref.startsWith("http")) {
+    const res = await fetch(ref);
+    if (!res.ok) throw new Error(`Failed to read media (${res.status})`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    const mimeType = res.headers.get("content-type") || "image/png";
+    return { mimeType, data: buf.toString("base64") };
+  }
+
+  throw new Error(`Unsupported media reference format: ${ref}`);
 }
 
-/** Delete objects by their public URL or storage key. Best-effort. */
+/** Delete objects by their proxy URL. Best-effort. */
 export async function deleteByUrls(urls: string[]): Promise<void> {
-  try {
-    // Vercel Blob `del` takes public URLs
-    // We filter out any legacy local relative URLs that might crash the SDK.
-    const validUrls = urls.filter((u) => u.startsWith("http"));
-    if (validUrls.length > 0) {
-      await del(validUrls, { token: process.env.PUBLIC_BLOB_READ_WRITE_TOKEN });
+  const bucket = getBucket();
+  const deletePromises = urls.map(async (u) => {
+    try {
+      if (u.startsWith("/api/media/")) {
+        const key = u.replace("/api/media/", "");
+        const command = new DeleteObjectCommand({
+          Bucket: bucket,
+          Key: key,
+        });
+        await s3.send(command);
+      }
+    } catch (err) {
+      console.warn(`Failed to delete ${u}`, err);
     }
-  } catch (err) {
-    // best effort deletion
-  }
+  });
+
+  await Promise.allSettled(deletePromises);
 }
 
-/** Ensure the public media bucket exists (idempotent — used by seed). */
+/** Ensure the bucket exists. (Idempotent) */
 export async function ensureBucket(): Promise<void> {
-  // Vercel Blob doesn't require explicit bucket creation on disk
   return Promise.resolve();
 }
+
