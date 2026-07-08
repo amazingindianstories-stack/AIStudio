@@ -15,10 +15,22 @@
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 
 const MCP_URL = "https://mcp.higgsfield.ai/mcp";
 const TOKEN_URL = "https://mcp.higgsfield.ai/oauth2/token";
 const TOKEN_FILE = path.join(process.cwd(), ".higgsfield-mcp-token.json");
+
+// S3 config for token persistence in serverless environments
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
+  },
+});
+const S3_BUCKET = process.env.AWS_S3_BUCKET_NAME || "aistudio-media-bucket";
+const S3_TOKEN_KEY = "settings/higgsfield-mcp-token.json";
 
 // ── model id mapping (UI name → MCP model id) ───────────────────────────────
 const MODEL_IDS: Record<string, string> = {
@@ -44,17 +56,60 @@ interface TokenData {
 }
 let token: TokenData | null = null;
 
+async function readS3Token(): Promise<TokenData | null> {
+  if (!process.env.AWS_ACCESS_KEY_ID) return null;
+  try {
+    const cmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: S3_TOKEN_KEY });
+    const res = await s3.send(cmd);
+    if (!res.Body) return null;
+    const json = await res.Body.transformToString();
+    return JSON.parse(json) as TokenData;
+  } catch (e: any) {
+    return null;
+  }
+}
+
+async function writeS3Token(t: TokenData): Promise<void> {
+  if (!process.env.AWS_ACCESS_KEY_ID) return;
+  try {
+    const cmd = new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: S3_TOKEN_KEY,
+      Body: JSON.stringify(t),
+      ContentType: "application/json",
+    });
+    await s3.send(cmd);
+  } catch (e: any) {
+    console.error("[mcp] writeS3Token error:", e);
+  }
+}
+
 async function loadToken(): Promise<TokenData> {
   if (token) return token;
+
+  // 1. Try S3 first (centralized state for serverless)
+  const s3t = await readS3Token();
+  if (s3t) {
+    token = s3t;
+    return token;
+  }
+
+  // 2. Try env vars (fallback for first run)
   const envRefresh = process.env.HIGGSFIELD_MCP_REFRESH_TOKEN;
   const envClient = process.env.HIGGSFIELD_MCP_CLIENT_ID;
   if (envRefresh && envClient) {
     token = { access_token: "", refresh_token: envRefresh, client_id: envClient };
     return token;
   }
-  const raw = JSON.parse(await fs.readFile(TOKEN_FILE, "utf8"));
-  token = { ...raw, obtained_at: raw.obtained_at ?? Date.now() };
-  return token!;
+
+  // 3. Local FS fallback
+  try {
+    const raw = JSON.parse(await fs.readFile(TOKEN_FILE, "utf8"));
+    token = { ...raw, obtained_at: raw.obtained_at ?? Date.now() };
+    return token!;
+  } catch (e) {
+    throw new Error("No Higgsfield MCP token found in S3, env vars, or local file.");
+  }
 }
 
 async function refreshToken(): Promise<void> {
@@ -81,7 +136,9 @@ async function refreshToken(): Promise<void> {
     expires_in: j.expires_in,
     obtained_at: Date.now(),
   };
-  // best-effort persist (no-op on read-only hosts)
+
+  await writeS3Token(token); // Persist to S3
+
   try {
     await fs.writeFile(TOKEN_FILE, JSON.stringify(token, null, 2));
   } catch {
@@ -97,7 +154,14 @@ async function accessToken(): Promise<string> {
     (t.obtained_at && t.expires_in
       ? Date.now() > t.obtained_at + (t.expires_in - 300) * 1000
       : !t.access_token);
-  if (stale) await refreshToken();
+  if (stale) {
+    try {
+      await refreshToken();
+    } catch (e) {
+      token = null; // clear in-memory state so we re-fetch from S3 next time
+      throw e;
+    }
+  }
   return token!.access_token;
 }
 
