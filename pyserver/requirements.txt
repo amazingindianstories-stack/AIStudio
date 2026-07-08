@@ -1,0 +1,20 @@
+# Local identity-locked image generation (SDXL + InstantID) on Apple Silicon (MPS).
+# Installed into an isolated Python 3.11 venv via uv.
+torch>=2.3,<2.6
+torchvision
+diffusers>=0.27,<0.31
+transformers>=4.41,<4.46  # diffusers 0.30 imports symbols removed in transformers 5.x
+accelerate
+safetensors
+huggingface_hub
+einops
+# face analysis / identity embedding
+insightface==0.7.3
+onnxruntime
+cython
+opencv-python-headless
+numpy<2
+pillow
+# web service
+fastapi
+uvicorn[standard]

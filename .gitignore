@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+build
+.DS_Store
+*.log
+.env
+.env.local
+.env*.local
+/public/generations/*
+!/public/generations/.gitkeep
+/public/media/*
+!/public/media/.gitkeep
+/data/*.json
+pyserver/models/
