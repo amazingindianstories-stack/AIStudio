@@ -236,7 +236,10 @@ export const useStore = create<AppState>((set, get) => ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const item: GenerationItem = await res.json();
+      const item = await res.json();
+      if (!res.ok) {
+        throw new Error(item.error || `Server error: ${res.status}`);
+      }
       if (item?.id) {
         set((st) => ({
           items: [item, ...st.items.filter((i) => i.id !== item.id)],
@@ -247,8 +250,9 @@ export const useStore = create<AppState>((set, get) => ({
           pollVideo(item.id, set, get);
         }
       }
-    } catch (e) {
-      // surface as a soft failure card is overkill here; ignore
+    } catch (e: any) {
+      console.error("Generation request failed:", e);
+      alert(e.message || "Failed to start generation.");
     } finally {
       set({ generating: false });
     }

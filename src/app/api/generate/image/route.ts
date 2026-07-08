@@ -25,7 +25,7 @@ import { logActivity } from "@/lib/activity";
 import type { GenerationItem } from "@/lib/types";
 
 export const runtime = "nodejs";
-export const maxDuration = 120; // Nano Banana Pro high-res can take ~30–60s
+export const maxDuration = 60; // Nano Banana Pro high-res can take ~30–60s
 
 function resolutionToImageSize(res?: string): "1K" | "2K" | "4K" {
   if (res === "4K") return "4K";
