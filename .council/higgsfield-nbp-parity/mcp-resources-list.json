@@ -1,0 +1,76 @@
+{
+  "resources": [
+    {
+      "uri": "ui://higgsfield/virality-predictor.html",
+      "name": "ui://higgsfield/virality-predictor.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Virality Predictor Widget"
+    },
+    {
+      "uri": "ui://higgsfield/generation.html",
+      "name": "ui://higgsfield/generation.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Generation Widget"
+    },
+    {
+      "uri": "ui://higgsfield/job-list.html",
+      "name": "ui://higgsfield/job-list.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Job List Widget"
+    },
+    {
+      "uri": "ui://higgsfield/reference-elements.html",
+      "name": "ui://higgsfield/reference-elements.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Reference Elements Widget"
+    },
+    {
+      "uri": "ui://higgsfield/youtube-clipify.html",
+      "name": "ui://higgsfield/youtube-clipify.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Personal Clipper Widget"
+    },
+    {
+      "uri": "ui://higgsfield/reels-studio.html",
+      "name": "ui://higgsfield/reels-studio.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Shorts Studio Widget"
+    },
+    {
+      "uri": "ui://higgsfield/youtube-explainer-presets.html",
+      "name": "ui://higgsfield/youtube-explainer-presets.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "YouTube Explainer Presets Widget"
+    },
+    {
+      "uri": "ui://higgsfield/plans.html",
+      "name": "ui://higgsfield/plans.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Plans Widget"
+    },
+    {
+      "uri": "ui://higgsfield/presets.html",
+      "name": "ui://higgsfield/presets.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Higgsfield Presets"
+    },
+    {
+      "uri": "ui://higgsfield/media-upload.html",
+      "name": "ui://higgsfield/media-upload.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Higgsfield Media Upload"
+    },
+    {
+      "uri": "ui://higgsfield/voices.html",
+      "name": "ui://higgsfield/voices.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Higgsfield Voices"
+    },
+    {
+      "uri": "ui://higgsfield/voice-create.html",
+      "name": "ui://higgsfield/voice-create.html",
+      "mimeType": "text/html;profile=mcp-app",
+      "title": "Create Voice"
+    }
+  ]
+}

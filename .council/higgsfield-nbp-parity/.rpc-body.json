@@ -1,0 +1,1 @@
+{"jsonrpc":"2.0","method":"tools/call","params":{"name":"media_upload","arguments":{"method":"upload_url","filename":"ref-1.jpg","content_type":"image/jpeg"}},"id":9373210}

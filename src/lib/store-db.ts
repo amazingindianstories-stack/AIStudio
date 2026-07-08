@@ -1,4 +1,4 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, lt } from "drizzle-orm";
 import { db } from "./db";
 import { generations } from "./schema";
 import type { GenerationItem } from "./types";
@@ -64,11 +64,15 @@ function itemToValues(item: GenerationItem): typeof generations.$inferInsert {
   };
 }
 
-export async function readHistory(): Promise<GenerationItem[]> {
-  const rows = await db
-    .select()
-    .from(generations)
-    .orderBy(desc(generations.createdAt));
+export async function readHistory(
+  cursor?: number,
+  limitN = 20
+): Promise<GenerationItem[]> {
+  let query: any = db.select().from(generations);
+  if (cursor) {
+    query = query.where(lt(generations.createdAt, cursor));
+  }
+  const rows = await query.orderBy(desc(generations.createdAt)).limit(limitN);
   return rows.map(rowToItem);
 }
 
@@ -142,4 +146,51 @@ export async function clearProjectRefs(projectId: string): Promise<void> {
     .update(generations)
     .set({ projectId: null, folderId: null })
     .where(eq(generations.projectId, projectId));
+}
+
+// ---- QUEUE HELPERS ----
+
+import { and, sql } from "drizzle-orm";
+
+const MAX_CONCURRENT = 2;
+
+export async function getQueuePosition(id: string): Promise<{ position: number; status: string } | null> {
+  const item = await getItem(id);
+  if (!item) return null;
+  if (item.status !== "queued") return { position: 0, status: item.status };
+
+  // Count active running image jobs
+  const runningCountRes = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(generations)
+    .where(and(eq(generations.status, "running"), eq(generations.kind, "image")));
+  const running = Number(runningCountRes[0].count);
+
+  // Count older queued image jobs
+  const olderCountRes = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(generations)
+    .where(
+      and(
+        eq(generations.status, "queued"),
+        eq(generations.kind, "image"),
+        lt(generations.createdAt, item.createdAt)
+      )
+    );
+  const older = Number(olderCountRes[0].count);
+
+  const totalAhead = running + older;
+  const position = Math.max(0, totalAhead - (MAX_CONCURRENT - 1));
+
+  return { position, status: item.status };
+}
+
+export async function lockJob(id: string): Promise<boolean> {
+  // Atomic update: only lock if still queued
+  const res = await db
+    .update(generations)
+    .set({ status: "running", updatedAt: Date.now() })
+    .where(and(eq(generations.id, id), eq(generations.status, "queued")))
+    .returning({ id: generations.id });
+  return res.length > 0;
 }

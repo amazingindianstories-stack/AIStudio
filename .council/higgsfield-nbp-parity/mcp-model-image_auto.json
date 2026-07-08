@@ -1,0 +1,31 @@
+{
+  "id": "image_auto",
+  "name": "Auto",
+  "provider_name": "Higgsfield",
+  "description": "Auto-selects the best image model based on prompt intent",
+  "output_type": "image",
+  "parameters": [],
+  "medias": [
+    {
+      "name": "medias",
+      "type": "image",
+      "roles": [
+        "image"
+      ]
+    }
+  ],
+  "aspect_ratios": [
+    "1:1",
+    "4:3",
+    "3:4",
+    "16:9",
+    "9:16"
+  ],
+  "tags": [
+    "auto",
+    "smart",
+    "routing",
+    "editing",
+    "generation"
+  ]
+}

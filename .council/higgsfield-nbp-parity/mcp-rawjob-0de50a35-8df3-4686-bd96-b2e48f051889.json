@@ -1,0 +1,37 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "id: 0de50a35-8df3-4686-bd96-b2e48f051889\nstatus: completed\njob_set_type: nano_banana_2\npoll_after_seconds: null"
+    }
+  ],
+  "structuredContent": {
+    "raw_data": {
+      "id": "0de50a35-8df3-4686-bd96-b2e48f051889",
+      "status": "completed",
+      "job_set_type": "nano_banana_2",
+      "display_name": "Nano Banana Pro",
+      "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081231_0de50a35-8df3-4686-bd96-b2e48f051889.png",
+      "min_result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081231_0de50a35-8df3-4686-bd96-b2e48f051889_min.webp",
+      "h264_url": null,
+      "thumbnail_url": null,
+      "result_json": null,
+      "text": null,
+      "meta": null,
+      "created_at": 1783152751.612566,
+      "params": {
+        "width": 3168,
+        "height": 1344,
+        "aspect_ratio": "21:9",
+        "resolution": "2k",
+        "batch_size": 2,
+        "input_images": [],
+        "input_image": null,
+        "application": null,
+        "surface": null,
+        "prompt": "Create a richly propped but organic heritage Kolkata rooftop terrace, environment only, no people. The terrace belongs to a refurbished old Kolkata Bhawan. It should feel like a charming AirBnB rooftop that has been casually arranged over time, not professionally designed.\nInclude many lived-in props: terracotta pots, leafy plants, small palms, old wooden stools, low cane chairs, colorful but slightly faded cushions, one simple hanging hammock chair attached safely to existing old terrace wall hooks, a woven floor mat where two people could sit later, a low table with two empty glasses and a bottle, lanterns, old metal railing, and a visible rooftop water tank in the back corner. Keep everything believable for an old Kolkata terrace.\nLighting: soft warm practical lamps, a few string bulbs, dim yellow lanterns near the sitting area, cool blue-black skyline behind, humid haze, scattered city bokeh. The terrace floor should show worn cement texture and monsoon dampness.\nComposition: wide 21:9 cinematic frame, slightly elevated eye-level view, showing the sitting zone in foreground and Kolkata skyline beyond the parapet.\nNEGATIVE PROMPT:\nNo people, no characters, no modern rooftop café crowd, no luxury resort furniture, no bright white tiles, no artificial clean showroom look, no giant steel canopy, no long red/orange support beams, no random plastic décor, no over-bright fairy lights, no wedding setup, no text, no watermark.\nARRI Alexa 35, Cooke anamorphic, 2.39:1, soft highlight rolloff, open shadows, rich midtones, gentle film grain, slight haze.\nNEGATIVE PROMPT:\nNo people, no faces, no silhouettes, no Bollywood rooftop party, no nightclub lighting, no random intense red light, no futuristic neon skyline, no over-saturated blue/red, no modern luxury décor, no empty sterile terrace, no large pergola supported by long beams, no resort canopy, no fake CGI look, no text, no watermark."
+      },
+      "debug": null
+    }
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "id: bb2d8353-e76f-480b-bbb4-5952eac9ff87\nstatus: completed\njob_set_type: nano_banana_2\npoll_after_seconds: null"
+    }
+  ],
+  "structuredContent": {
+    "raw_data": {
+      "id": "bb2d8353-e76f-480b-bbb4-5952eac9ff87",
+      "status": "completed",
+      "job_set_type": "nano_banana_2",
+      "display_name": "Nano Banana Pro",
+      "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_123801_bb2d8353-e76f-480b-bbb4-5952eac9ff87.png",
+      "min_result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_123801_bb2d8353-e76f-480b-bbb4-5952eac9ff87_min.webp",
+      "h264_url": null,
+      "thumbnail_url": null,
+      "result_json": null,
+      "text": null,
+      "meta": null,
+      "created_at": 1782995881.604728,
+      "params": {
+        "width": 3168,
+        "height": 1344,
+        "aspect_ratio": "21:9",
+        "resolution": "2k",
+        "batch_size": 1,
+        "input_images": [
+          {
+            "id": "9fb0a612-ef66-450b-9b04-a3c52814d5f3",
+            "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_061609_9fb0a612-ef66-450b-9b04-a3c52814d5f3.png",
+            "type": "nano_banana_2_job"
+          }
+        ],
+        "input_image": null,
+        "application": null,
+        "surface": null,
+        "prompt": "Use the provided woman as a strict main character reference and do not alter her in any way. Keep her face, eyes, nose, lips, expression, hairstyle, saree, blouse, jewelry, drape, body proportions, skin tone, and overall appearance exactly the same. She stands centered in the foreground inside an ancient Indian king’s court, with a calm, regal, divine presence.\nPlace her in a grand Indian royal court interior with carved stone pillars, sacred haze, warm golden ceremonial light, and a huge royal door behind her, softly blurred in the background. On both the left and right sides, place rows of ministers, courtiers, and attendants standing in formal lines.\nImportant: the people behind her must not look like separate modern realistic people or photo extras. They should be rendered as background supporting characters in the same Unreal Engine 5 cinematic mythological style as the main character. Their look should feel cohesive, slightly stylized, mythic, elegant, and courtly, matching the same visual world. Keep them slightly softer, less detailed, and slightly out of focus so they remain clearly secondary. Their clothing should be traditional Indian royal court attire, with muted ceremonial colors, turbans, draped garments, and period styling. They should feel like court ministers and attendants from an Indian royal epic, not individually spotlighted portraits.\nThe main character must remain the clear focal point, with the background figures only adding scale, depth, and royal atmosphere. Preserve the overall mythic goddess-like elegance, sacred mood, and cinematic composition.\nRendering style: Unreal Engine 5 AAA cinematic 3D render, Ghost of Tsushima–inspired grounded mythic realism, Nanite micro-detail, Lumen global illumination, realistic subsurface scattering, PBR cloth fibers, subtle jewelry micro-scratches, crisp ambient occlusion, high-end character shader, realistic digital curly hair groom, detailed fabric weave, polished gold material. Shot on ARRI Alexa, anamorphic 21:9, ACES color pipeline, filmic contrast, smooth highlight rolloff, shallow depth of field, sharp focus on the main character’s eyes and face."
+      },
+      "debug": null
+    }
+  }
+}

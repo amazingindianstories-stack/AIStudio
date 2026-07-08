@@ -18,6 +18,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1081.0",
     "@vercel/blob": "^2.6.0",
     "clsx": "^2.1.1",
+    "codex": "^0.2.3",
     "drizzle-orm": "^0.45.2",
     "framer-motion": "^11.18.0",
     "google-auth-library": "^10.9.0",

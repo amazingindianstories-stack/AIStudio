@@ -1,0 +1,13 @@
+=== INSTRUCTION (text part sent first) ===
+THIS EXACT FACE and identity from @img1(image_1). She stands near a DJ booth in the corner of the nightclub from @img3(image_3), Speaker stacks behind her. She wears the exact outfit from @img2(image_2). Black onyx drop earrings and a delicate black choker. Red haze, silhouettes of dancers around her. Cinematic nightlife photography. @img1
+
+=== GROUP @img1 identity=false images=1 tiles=0 ===
+HEADER: @img1 — REFERENCE (reproduce this subject exactly; if a person, the same individual — identical facial features, never a lookalike):
+
+=== GROUP @img2 identity=false images=1 tiles=0 ===
+HEADER: @img2 — REFERENCE (reproduce this subject exactly; if a person, the same individual — identical facial features, never a lookalike):
+
+=== GROUP @img3 identity=false images=1 tiles=0 ===
+HEADER: @img3 — REFERENCE (reproduce this subject exactly; if a person, the same individual — identical facial features, never a lookalike):
+
+judgeFace present: false

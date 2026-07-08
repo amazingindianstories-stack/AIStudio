@@ -1,0 +1,37 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "id: 9130b29b-4049-4e7f-a410-b60d847f2719\nstatus: completed\njob_set_type: nano_banana_2\npoll_after_seconds: null"
+    }
+  ],
+  "structuredContent": {
+    "raw_data": {
+      "id": "9130b29b-4049-4e7f-a410-b60d847f2719",
+      "status": "completed",
+      "job_set_type": "nano_banana_2",
+      "display_name": "Nano Banana Pro",
+      "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081147_9130b29b-4049-4e7f-a410-b60d847f2719.png",
+      "min_result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081147_9130b29b-4049-4e7f-a410-b60d847f2719_min.webp",
+      "h264_url": null,
+      "thumbnail_url": null,
+      "result_json": null,
+      "text": null,
+      "meta": null,
+      "created_at": 1783152707.373301,
+      "params": {
+        "width": 3168,
+        "height": 1344,
+        "aspect_ratio": "21:9",
+        "resolution": "2k",
+        "batch_size": 2,
+        "input_images": [],
+        "input_image": null,
+        "application": null,
+        "surface": null,
+        "prompt": "Create a realistic Kolkata heritage rooftop terrace at 2 AM, no people. The terrace is on top of an old residential hotel / AirBnB building with aged colonial architecture visible around the edges: old parapet, worn plaster, arched stairwell door, iron railing, potted plants, wooden folding chairs, low table, cushions, woven floor mat, empty glass bottle, two glasses, and small everyday rooftop objects.\nLighting should organically combine deep blue night ambience, warm yellow tungsten lamps, and a soft red practical spill coming from a believable Kolkata source: a small red-lit signboard from a nearby street, a distant red shop sign, or a red festival bulb near the stairwell. The red should be subtle and motivated, not random. Warm yellow practicals should create the primary intimacy, while the cool blue skyline and humid night air give depth.\nBackground: old Kolkata rooftops, smaller high-rises far away, a few water tanks, antennae, clotheslines in the distance, scattered city lights, soft bokeh. The feeling is romantic, lived-in, and cinematic, not glossy.\nARRI Alexa 35, Cooke anamorphic, 2.39:1, soft highlight rolloff, open shadows, rich midtones, gentle film grain, slight haze.\nNEGATIVE PROMPT:\nNo people, no faces, no silhouettes, no Bollywood rooftop party, no nightclub lighting, no random intense red light, no futuristic neon skyline, no over-saturated blue/red, no modern luxury décor, no empty sterile terrace, no large pergola supported by long beams, no resort canopy, no fake CGI look, no text, no watermark."
+      },
+      "debug": null
+    }
+  }
+}

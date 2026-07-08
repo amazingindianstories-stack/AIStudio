@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Search,
@@ -35,6 +35,26 @@ export function HistoryPanel() {
   const clearSelection = useStore((s) => s.clearSelection);
   const moveItemsToProject = useStore((s) => s.moveItemsToProject);
   const projects = useStore((s) => s.projects);
+  const loadMoreHistory = useStore((s) => s.loadMoreHistory);
+  const hasMoreHistory = useStore((s) => s.hasMoreHistory);
+
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const observerTarget = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      async (entries) => {
+        if (entries[0].isIntersecting && hasMoreHistory && !isLoadingMore && !loading) {
+          setIsLoadingMore(true);
+          await loadMoreHistory();
+          setIsLoadingMore(false);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (observerTarget.current) observer.observe(observerTarget.current);
+    return () => observer.disconnect();
+  }, [hasMoreHistory, isLoadingMore, loadMoreHistory, loading]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -271,6 +291,15 @@ export function HistoryPanel() {
                     </div>
                   ))}
                 </AnimatePresence>
+                {/* Infinite Scroll Trigger */}
+                {hasMoreHistory && (
+                  <div
+                    ref={observerTarget}
+                    className="col-span-full h-20 w-full flex items-center justify-center opacity-50"
+                  >
+                    {isLoadingMore ? "Loading more..." : ""}
+                  </div>
+                )}
               </div>
             )}
           </div>

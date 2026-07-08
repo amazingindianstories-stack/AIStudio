@@ -1,0 +1,17 @@
+HTTP/1.1 200 OK
+Date: Wed, 08 Jul 2026 13:46:02 GMT
+Content-Type: text/event-stream
+Transfer-Encoding: chunked
+Connection: keep-alive
+x-xss-protection: 1; mode=block
+cache-control: no-cache
+cf-cache-status: DYNAMIC
+set-cookie: __cf_bm=RpaWsSVvGsHb2ITqg4AkNouhDkHnkiLFlmSrIOzC5hs-1783518362.113063-1.0.1.1-Tv955AugOVs4YflBwWf1L8r8lDShc1YfHCEOO59j0pzMniet.WRCAAajq_bfMImNKtjvZQb6hLNDZb6mHiSMV71pXEAyr18voCVeUy_a3tdUGLuYwcaOMt9GTO_o8lvj; HttpOnly; SameSite=None; Secure; Path=/; Domain=higgsfield.ai; Expires=Wed, 08 Jul 2026 14:16:02 GMT
+expect-ct: max-age=86400, enforce
+referrer-policy: same-origin
+x-content-type-options: nosniff
+x-frame-options: SAMEORIGIN
+Server: cloudflare
+CF-RAY: a17f88633b7e37a5-BOM
+alt-svc: h3=":443"; ma=86400
+

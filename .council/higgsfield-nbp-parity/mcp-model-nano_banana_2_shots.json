@@ -1,0 +1,31 @@
+{
+  "id": "nano_banana_2_shots",
+  "name": "Nano Banana Pro",
+  "provider_name": "",
+  "description": "",
+  "output_type": "image",
+  "parameters": [],
+  "medias": [
+    {
+      "name": "medias",
+      "type": "image",
+      "roles": [
+        "image_references"
+      ]
+    }
+  ],
+  "aspect_ratios": [
+    "auto",
+    "1:1",
+    "3:2",
+    "2:3",
+    "4:3",
+    "3:4",
+    "4:5",
+    "5:4",
+    "9:16",
+    "16:9",
+    "21:9"
+  ],
+  "tags": []
+}

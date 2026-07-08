@@ -1,0 +1,54 @@
+{
+  "id": "soul_cinematic",
+  "name": "Soul Cinema",
+  "provider_name": "Higgsfield",
+  "description": "Cinema-grade stills and concept art",
+  "output_type": "image",
+  "parameters": [
+    {
+      "name": "quality",
+      "required": "optional",
+      "type": "string",
+      "description": "Output quality tier shown as 1.5k or 2k",
+      "default": "2k",
+      "options": [
+        "1.5k",
+        "2k"
+      ]
+    },
+    {
+      "name": "soul_id",
+      "required": "optional",
+      "type": "string",
+      "description": "Soul Cinema Character ID for personalized cinematic generation."
+    }
+  ],
+  "medias": [
+    {
+      "name": "medias",
+      "type": "image",
+      "max": 1,
+      "roles": [
+        "image"
+      ]
+    }
+  ],
+  "aspect_ratios": [
+    "1:1",
+    "4:3",
+    "3:4",
+    "16:9",
+    "9:16",
+    "3:2",
+    "2:3",
+    "21:9"
+  ],
+  "tags": [
+    "cinematic",
+    "dramatic",
+    "concept-art",
+    "lighting",
+    "soul",
+    "film"
+  ]
+}

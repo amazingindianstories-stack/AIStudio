@@ -1,0 +1,115 @@
+{
+  "id": "topaz_image_generative",
+  "name": "Topaz",
+  "provider_name": "",
+  "description": "",
+  "output_type": "image",
+  "parameters": [
+    {
+      "name": "output_width",
+      "required": "required",
+      "type": "number",
+      "description": "Target output width in pixels.",
+      "min": 1
+    },
+    {
+      "name": "output_height",
+      "required": "required",
+      "type": "number",
+      "description": "Target output height in pixels.",
+      "min": 1
+    },
+    {
+      "name": "variant",
+      "required": "optional",
+      "type": "string",
+      "description": "Topaz generative upscale model variant.",
+      "options": [
+        "Standard MAX",
+        "Redefine",
+        "Recovery",
+        "Recovery V2"
+      ],
+      "default": "Redefine"
+    },
+    {
+      "name": "autoprompt",
+      "required": "optional",
+      "type": "bool",
+      "description": "Automatically generate a guiding prompt from the image.",
+      "default": true
+    },
+    {
+      "name": "creativity",
+      "required": "optional",
+      "type": "number",
+      "description": "Creativity level (1-6); higher adds more detail.",
+      "min": 1,
+      "max": 6,
+      "default": 1
+    },
+    {
+      "name": "texture",
+      "required": "optional",
+      "type": "number",
+      "description": "Texture strength (1-5).",
+      "min": 1,
+      "max": 5,
+      "default": 1
+    },
+    {
+      "name": "sharpen",
+      "required": "optional",
+      "type": "number",
+      "description": "Sharpening amount (0-1).",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "name": "denoise",
+      "required": "optional",
+      "type": "number",
+      "description": "Denoising amount (0-1).",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "name": "face_enhancement",
+      "required": "optional",
+      "type": "bool",
+      "description": "Enable face enhancement.",
+      "default": false
+    },
+    {
+      "name": "face_enhancement_creativity",
+      "required": "optional",
+      "type": "number",
+      "description": "Face enhancement creativity (0-1).",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "name": "face_enhancement_strength",
+      "required": "optional",
+      "type": "number",
+      "description": "Face enhancement strength (0-1).",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    }
+  ],
+  "medias": [
+    {
+      "name": "medias",
+      "type": "image",
+      "roles": [
+        "image_references"
+      ]
+    }
+  ],
+  "aspect_ratios": [],
+  "tags": []
+}

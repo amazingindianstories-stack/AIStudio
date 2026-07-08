@@ -41,6 +41,7 @@ interface ComposerState {
 
 interface AppState extends ComposerState {
   items: GenerationItem[];
+  hasMoreHistory: boolean;
   loading: boolean;
   generating: boolean;
   rightTab: RightTab;
@@ -83,6 +84,7 @@ interface AppState extends ComposerState {
 
   // data
   loadHistory: () => Promise<void>;
+  loadMoreHistory: () => Promise<void>;
   generate: () => Promise<void>;
   removeItem: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
@@ -139,6 +141,7 @@ export const useStore = create<AppState>((set, get) => ({
   referenceImages: [],
 
   items: [],
+  hasMoreHistory: true,
   loading: true,
   generating: false,
   rightTab: "project",
@@ -199,15 +202,36 @@ export const useStore = create<AppState>((set, get) => ({
       const res = await fetch("/api/history", { cache: "no-store" });
       const json = await res.json();
       const items: GenerationItem[] = json.items ?? [];
-      set({ items, loading: false });
+      const hasMoreHistory = items.length === 20; // limit is 20
+      set({ items, loading: false, hasMoreHistory });
       // resume polling for anything still in flight
       for (const it of items) {
         if (it.kind === "video" && (it.status === "running" || it.status === "queued")) {
           pollVideo(it.id, set, get);
+        } else if (it.kind === "image" && it.status === "queued") {
+          pollQueue(it.id, set, get);
         }
       }
     } catch {
       set({ loading: false });
+    }
+  },
+
+  loadMoreHistory: async () => {
+    const s = get();
+    if (!s.hasMoreHistory || s.items.length === 0) return;
+    const lastItem = s.items[s.items.length - 1];
+    try {
+      const res = await fetch(`/api/history?cursor=${lastItem.createdAt}`, { cache: "no-store" });
+      const json = await res.json();
+      const newItems: GenerationItem[] = json.items ?? [];
+      const hasMoreHistory = newItems.length === 20;
+      set((st) => ({
+        items: [...st.items, ...newItems],
+        hasMoreHistory,
+      }));
+    } catch (e) {
+      console.error("Failed to load more history:", e);
     }
   },
 
@@ -236,7 +260,7 @@ export const useStore = create<AppState>((set, get) => ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const item = await res.json();
+      const item: GenerationItem = await res.json();
       if (!res.ok) {
         throw new Error(item.error || `Server error: ${res.status}`);
       }
@@ -248,6 +272,8 @@ export const useStore = create<AppState>((set, get) => ({
         }));
         if (item.kind === "video" && (item.status === "running" || item.status === "queued")) {
           pollVideo(item.id, set, get);
+        } else if (item.kind === "image" && item.status === "queued") {
+          pollQueue(item.id, set, get);
         }
       }
     } catch (e: any) {
@@ -692,4 +718,49 @@ function pollVideo(
   };
 
   setTimeout(tick, 3000);
+}
+
+function pollQueue(
+  id: string,
+  set: (fn: (s: AppState) => Partial<AppState>) => void,
+  get: () => AppState
+) {
+  if (polling.has(id)) return;
+  polling.add(id);
+
+  const tick = async () => {
+    try {
+      const res = await fetch(`/api/queue/status?id=${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      const data = await res.json();
+      
+      if (data.status === "queued" && data.position === 0) {
+        // It's our turn!
+        const execRes = await fetch(`/api/queue/execute`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id }),
+        });
+        const finalItem: GenerationItem = await execRes.json();
+        if (finalItem?.id) {
+          set((s) => ({
+            items: s.items.map((i) => (i.id === finalItem.id ? { ...i, ...finalItem } : i)),
+          }));
+        }
+        polling.delete(id);
+        return; // done
+      } else if (data.status === "succeeded" || data.status === "failed") {
+        // Somehow finished already or failed
+        polling.delete(id);
+        return;
+      }
+      // Still queued and position > 0, wait and poll again
+    } catch {
+      /* keep trying */
+    }
+    setTimeout(tick, 3000);
+  };
+
+  setTimeout(tick, 1000);
 }

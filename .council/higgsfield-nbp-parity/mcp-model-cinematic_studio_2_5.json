@@ -1,0 +1,49 @@
+{
+  "id": "cinematic_studio_2_5",
+  "name": "Cinema Studio Image 2.5",
+  "provider_name": "Higgsfield",
+  "description": "Cinematic stills, up to 4K resolution",
+  "output_type": "image",
+  "parameters": [
+    {
+      "name": "resolution",
+      "required": "optional",
+      "type": "string",
+      "description": "Output resolution",
+      "default": "1k",
+      "options": [
+        "1k",
+        "2k",
+        "4k"
+      ]
+    }
+  ],
+  "medias": [
+    {
+      "name": "medias",
+      "type": "image",
+      "roles": [
+        "image"
+      ]
+    }
+  ],
+  "aspect_ratios": [
+    "1:1",
+    "3:2",
+    "2:3",
+    "4:3",
+    "3:4",
+    "4:5",
+    "5:4",
+    "16:9",
+    "9:16",
+    "21:9"
+  ],
+  "tags": [
+    "cinematic",
+    "4k",
+    "high-resolution",
+    "dramatic",
+    "film"
+  ]
+}

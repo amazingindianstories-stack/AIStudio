@@ -1,0 +1,98 @@
+{
+  "id": "topaz_image",
+  "name": "Topaz",
+  "provider_name": "",
+  "description": "",
+  "output_type": "image",
+  "parameters": [
+    {
+      "name": "output_width",
+      "required": "required",
+      "type": "number",
+      "description": "Target output width in pixels.",
+      "min": 1
+    },
+    {
+      "name": "output_height",
+      "required": "required",
+      "type": "number",
+      "description": "Target output height in pixels.",
+      "min": 1
+    },
+    {
+      "name": "face_enhancement",
+      "required": "optional",
+      "type": "bool",
+      "description": "Enable dedicated face enhancement.",
+      "default": false
+    },
+    {
+      "name": "face_enhancement_creativity",
+      "required": "optional",
+      "type": "number",
+      "description": "Face enhancement creativity (0-1). Applies when face_enhancement is enabled.",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "name": "face_enhancement_strength",
+      "required": "optional",
+      "type": "number",
+      "description": "Face enhancement strength (0-1). Applies when face_enhancement is enabled.",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "name": "variant",
+      "required": "optional",
+      "type": "string",
+      "description": "Topaz enhancement model.",
+      "options": [
+        "Standard V2",
+        "Low Resolution V2",
+        "CGI",
+        "High Fidelity V2",
+        "Text Refine"
+      ],
+      "default": "Standard V2"
+    },
+    {
+      "name": "sharpen",
+      "required": "optional",
+      "type": "number",
+      "description": "Sharpening amount (0-1).",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "name": "denoise",
+      "required": "optional",
+      "type": "number",
+      "description": "Denoising amount (0-1).",
+      "min": 0,
+      "max": 1,
+      "default": 0
+    },
+    {
+      "name": "folder_id",
+      "required": "optional",
+      "type": "string",
+      "description": "Destination folder id.",
+      "nullable": true
+    }
+  ],
+  "medias": [
+    {
+      "name": "medias",
+      "type": "image",
+      "roles": [
+        "image_references"
+      ]
+    }
+  ],
+  "aspect_ratios": [],
+  "tags": []
+}

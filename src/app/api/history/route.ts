@@ -8,8 +8,13 @@ import {
 
 export const runtime = "nodejs";
 
-export async function GET() {
-  const items = await readHistory();
+export async function GET(req: NextRequest) {
+  const cursor = req.nextUrl.searchParams.get("cursor");
+  const limit = req.nextUrl.searchParams.get("limit");
+  const cursorNum = cursor ? parseInt(cursor, 10) : undefined;
+  const limitNum = limit ? parseInt(limit, 10) : 20;
+  
+  const items = await readHistory(cursorNum, limitNum);
   return NextResponse.json({ items });
 }
 

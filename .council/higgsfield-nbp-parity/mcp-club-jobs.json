@@ -1,0 +1,227 @@
+[
+  {
+    "id": "0de50a35-8df3-4686-bd96-b2e48f051889",
+    "type": "image",
+    "status": "completed",
+    "model": "nano_banana_2",
+    "params": {
+      "prompt": "Create a richly propped but organic heritage Kolkata rooftop terrace, environment only, no people. The terrace belongs to a refurbished old Kolkata Bhawan. It should feel like a charming AirBnB rooftop that has been casually arranged over time, not professionally designed.\nInclude many lived-in props: terracotta pots, leafy plants, small palms, old wooden stools, low cane chairs, colorful but slightly faded cushions, one simple hanging hammock chair attached safely to existing old terrace wall hooks, a woven floor mat where two people could sit later, a low table with two empty glasses and a bottle, lanterns, old metal railing, and a visible rooftop water tank in the back corner. Keep everything believable for an old Kolkata terrace.\nLighting: soft warm practical lamps, a few string bulbs, dim yellow lanterns near the sitting area, cool blue-black skyline behind, humid haze, scattered city bokeh. The terrace floor should show worn cement texture and monsoon dampness.\nComposition: wide 21:9 cinematic frame, slightly elevated eye-level view, showing the sitting zone in foreground and Kolkata skyline beyond the parapet.\nNEGATIVE PROMPT:\nNo people, no characters, no modern rooftop café crowd, no luxury resort furniture, no bright white tiles, no artificial clean showroom look, no giant steel canopy, no long red/orange support beams, no random plastic décor, no over-bright fairy lights, no wedding setup, no text, no watermark.\nARRI Alexa 35, Cooke anamorphic, 2.39:1, soft highlight rolloff, open shadows, rich midtones, gentle film grain, slight haze.\nNEGATIVE PROMPT:\nNo people, no faces, no silhouettes, no Bollywood rooftop party, no nightclub lighting, no random intense red light, no futuristic neon skyline, no over-saturated blue/red, no modern luxury décor, no empty sterile terrace, no large pergola supported by long beams, no resort canopy, no fake CGI look, no text, no watermark.",
+      "aspect_ratio": "21:9",
+      "input_images": [],
+      "width": 3168,
+      "height": 1344,
+      "resolution": "2k",
+      "batch_size": 2,
+      "input_image": null,
+      "application": null,
+      "surface": null
+    },
+    "results": {
+      "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081231_0de50a35-8df3-4686-bd96-b2e48f051889.png",
+      "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081231_0de50a35-8df3-4686-bd96-b2e48f051889_min.webp"
+    },
+    "createdAt": 1783152751.612566
+  },
+  {
+    "id": "9130b29b-4049-4e7f-a410-b60d847f2719",
+    "type": "image",
+    "status": "completed",
+    "model": "nano_banana_2",
+    "params": {
+      "prompt": "Create a realistic Kolkata heritage rooftop terrace at 2 AM, no people. The terrace is on top of an old residential hotel / AirBnB building with aged colonial architecture visible around the edges: old parapet, worn plaster, arched stairwell door, iron railing, potted plants, wooden folding chairs, low table, cushions, woven floor mat, empty glass bottle, two glasses, and small everyday rooftop objects.\nLighting should organically combine deep blue night ambience, warm yellow tungsten lamps, and a soft red practical spill coming from a believable Kolkata source: a small red-lit signboard from a nearby street, a distant red shop sign, or a red festival bulb near the stairwell. The red should be subtle and motivated, not random. Warm yellow practicals should create the primary intimacy, while the cool blue skyline and humid night air give depth.\nBackground: old Kolkata rooftops, smaller high-rises far away, a few water tanks, antennae, clotheslines in the distance, scattered city lights, soft bokeh. The feeling is romantic, lived-in, and cinematic, not glossy.\nARRI Alexa 35, Cooke anamorphic, 2.39:1, soft highlight rolloff, open shadows, rich midtones, gentle film grain, slight haze.\nNEGATIVE PROMPT:\nNo people, no faces, no silhouettes, no Bollywood rooftop party, no nightclub lighting, no random intense red light, no futuristic neon skyline, no over-saturated blue/red, no modern luxury décor, no empty sterile terrace, no large pergola supported by long beams, no resort canopy, no fake CGI look, no text, no watermark.",
+      "aspect_ratio": "21:9",
+      "input_images": [],
+      "width": 3168,
+      "height": 1344,
+      "resolution": "2k",
+      "batch_size": 2,
+      "input_image": null,
+      "application": null,
+      "surface": null
+    },
+    "results": {
+      "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081147_9130b29b-4049-4e7f-a410-b60d847f2719.png",
+      "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081147_9130b29b-4049-4e7f-a410-b60d847f2719_min.webp"
+    },
+    "createdAt": 1783152707.373301
+  },
+  {
+    "id": "7b259f0f-d4ce-44f1-b595-72ef01cc8bb3",
+    "type": "image",
+    "status": "completed",
+    "model": "nano_banana_2",
+    "params": {
+      "prompt": "Create a realistic Kolkata heritage rooftop terrace at 2 AM, no people. The terrace is on top of an old residential hotel / AirBnB building with aged colonial architecture visible around the edges: old parapet, worn plaster, arched stairwell door, iron railing, potted plants, wooden folding chairs, low table, cushions, woven floor mat, empty glass bottle, two glasses, and small everyday rooftop objects.\nLighting should organically combine deep blue night ambience, warm yellow tungsten lamps, and a soft red practical spill coming from a believable Kolkata source: a small red-lit signboard from a nearby street, a distant red shop sign, or a red festival bulb near the stairwell. The red should be subtle and motivated, not random. Warm yellow practicals should create the primary intimacy, while the cool blue skyline and humid night air give depth.\nBackground: old Kolkata rooftops, smaller high-rises far away, a few water tanks, antennae, clotheslines in the distance, scattered city lights, soft bokeh. The feeling is romantic, lived-in, and cinematic, not glossy.\nARRI Alexa 35, Cooke anamorphic, 2.39:1, soft highlight rolloff, open shadows, rich midtones, gentle film grain, slight haze.\nNEGATIVE PROMPT:\nNo people, no faces, no silhouettes, no Bollywood rooftop party, no nightclub lighting, no random intense red light, no futuristic neon skyline, no over-saturated blue/red, no modern luxury décor, no empty sterile terrace, no large pergola supported by long beams, no resort canopy, no fake CGI look, no text, no watermark.",
+      "aspect_ratio": "21:9",
+      "input_images": [],
+      "width": 3168,
+      "height": 1344,
+      "resolution": "2k",
+      "batch_size": 2,
+      "input_image": null,
+      "application": null,
+      "surface": null
+    },
+    "results": {
+      "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081147_7b259f0f-d4ce-44f1-b595-72ef01cc8bb3.png",
+      "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_081147_7b259f0f-d4ce-44f1-b595-72ef01cc8bb3_min.webp"
+    },
+    "createdAt": 1783152707.373269
+  },
+  {
+    "id": "bb2d8353-e76f-480b-bbb4-5952eac9ff87",
+    "type": "image",
+    "status": "completed",
+    "model": "nano_banana_2",
+    "params": {
+      "prompt": "Use the provided woman as a strict main character reference and do not alter her in any way. Keep her face, eyes, nose, lips, expression, hairstyle, saree, blouse, jewelry, drape, body proportions, skin tone, and overall appearance exactly the same. She stands centered in the foreground inside an ancient Indian king’s court, with a calm, regal, divine presence.\nPlace her in a grand Indian royal court interior with carved stone pillars, sacred haze, warm golden ceremonial light, and a huge royal door behind her, softly blurred in the background. On both the left and right sides, place rows of ministers, courtiers, and attendants standing in formal lines.\nImportant: the people behind her must not look like separate modern realistic people or photo extras. They should be rendered as background supporting characters in the same Unreal Engine 5 cinematic mythological style as the main character. Their look should feel cohesive, slightly stylized, mythic, elegant, and courtly, matching the same visual world. Keep them slightly softer, less detailed, and slightly out of focus so they remain clearly secondary. Their clothing should be traditional Indian royal court attire, with muted ceremonial colors, turbans, draped garments, and period styling. They should feel like court ministers and attendants from an Indian royal epic, not individually spotlighted portraits.\nThe main character must remain the clear focal point, with the background figures only adding scale, depth, and royal atmosphere. Preserve the overall mythic goddess-like elegance, sacred mood, and cinematic composition.\nRendering style: Unreal Engine 5 AAA cinematic 3D render, Ghost of Tsushima–inspired grounded mythic realism, Nanite micro-detail, Lumen global illumination, realistic subsurface scattering, PBR cloth fibers, subtle jewelry micro-scratches, crisp ambient occlusion, high-end character shader, realistic digital curly hair groom, detailed fabric weave, polished gold material. Shot on ARRI Alexa, anamorphic 21:9, ACES color pipeline, filmic contrast, smooth highlight rolloff, shallow depth of field, sharp focus on the main character’s eyes and face.",
+      "aspect_ratio": "21:9",
+      "input_images": [
+        {
+          "id": "9fb0a612-ef66-450b-9b04-a3c52814d5f3",
+          "type": "nano_banana_2_job",
+          "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_061609_9fb0a612-ef66-450b-9b04-a3c52814d5f3.png"
+        }
+      ],
+      "width": 3168,
+      "height": 1344,
+      "resolution": "2k",
+      "batch_size": 1,
+      "input_image": null,
+      "application": null,
+      "surface": null
+    },
+    "results": {
+      "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_123801_bb2d8353-e76f-480b-bbb4-5952eac9ff87.png",
+      "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_123801_bb2d8353-e76f-480b-bbb4-5952eac9ff87_min.webp"
+    },
+    "createdAt": 1782995881.604728
+  },
+  {
+    "id": "ae4ad4f3-2da9-465f-ab87-437982a1c3c0",
+    "type": "image",
+    "status": "completed",
+    "model": "nano_banana_2",
+    "params": {
+      "prompt": "Use the provided woman as a strict main character reference and do not alter her in any way. Keep her face, eyes, nose, lips, expression, hairstyle, saree, blouse, jewelry, drape, body proportions, skin tone, and overall appearance exactly the same. She stands centered in the foreground inside an ancient Indian king’s court, with a calm, regal, divine presence.\nPlace her in a grand Indian royal court interior with carved stone pillars, sacred haze, warm golden ceremonial light, and a huge royal door behind her, softly blurred in the background. On both the left and right sides, place rows of ministers, courtiers, and attendants standing in formal lines.\nImportant: the people behind her must not look like separate modern realistic people or photo extras. They should be rendered as background supporting characters in the same Unreal Engine 5 cinematic mythological style as the main character. Their look should feel cohesive, slightly stylized, mythic, elegant, and courtly, matching the same visual world. Keep them slightly softer, less detailed, and slightly out of focus so they remain clearly secondary. Their clothing should be traditional Indian royal court attire, with muted ceremonial colors, turbans, draped garments, and period styling. They should feel like court ministers and attendants from an Indian royal epic, not individually spotlighted portraits.\nThe main character must remain the clear focal point, with the background figures only adding scale, depth, and royal atmosphere. Preserve the overall mythic goddess-like elegance, sacred mood, and cinematic composition.\nRendering style: Unreal Engine 5 AAA cinematic 3D render, Ghost of Tsushima–inspired grounded mythic realism, Nanite micro-detail, Lumen global illumination, realistic subsurface scattering, PBR cloth fibers, subtle jewelry micro-scratches, crisp ambient occlusion, high-end character shader, realistic digital curly hair groom, detailed fabric weave, polished gold material. Shot on ARRI Alexa, anamorphic 21:9, ACES color pipeline, filmic contrast, smooth highlight rolloff, shallow depth of field, sharp focus on the main character’s eyes and face.",
+      "aspect_ratio": "21:9",
+      "input_images": [
+        {
+          "id": "9fb0a612-ef66-450b-9b04-a3c52814d5f3",
+          "type": "nano_banana_2_job",
+          "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_061609_9fb0a612-ef66-450b-9b04-a3c52814d5f3.png"
+        }
+      ],
+      "width": 3168,
+      "height": 1344,
+      "resolution": "2k",
+      "batch_size": 1,
+      "input_image": null,
+      "application": null,
+      "surface": null
+    },
+    "results": {
+      "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_123754_ae4ad4f3-2da9-465f-ab87-437982a1c3c0.png",
+      "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_123754_ae4ad4f3-2da9-465f-ab87-437982a1c3c0_min.webp"
+    },
+    "createdAt": 1782995874.374826
+  },
+  {
+    "id": "aab75555-4361-4256-884c-46fa2ba0900b",
+    "type": "image",
+    "status": "completed",
+    "model": "nano_banana_2",
+    "params": {
+      "prompt": "Use the provided woman as a strict main character reference and do not alter her in any way. Keep her face, eyes, nose, lips, expression, hairstyle, saree, blouse, jewelry, drape, body proportions, skin tone, and overall appearance exactly the same. She stands centered in the foreground inside an ancient Indian king’s court, with a calm, regal, divine presence.\nPlace her in a grand Indian royal court interior with carved stone pillars, sacred haze, warm golden ceremonial light, and a huge royal door behind her, softly blurred in the background. On both the left and right sides, place rows of ministers, courtiers, and attendants standing in formal lines.\nImportant: the people behind her must not look like separate modern realistic people or photo extras. They should be rendered as background supporting characters in the same Unreal Engine 5 cinematic mythological style as the main character. Their look should feel cohesive, slightly stylized, mythic, elegant, and courtly, matching the same visual world. Keep them slightly softer, less detailed, and slightly out of focus so they remain clearly secondary. Their clothing should be traditional Indian royal court attire, with muted ceremonial colors, turbans, draped garments, and period styling. They should feel like court ministers and attendants from an Indian royal epic, not individually spotlighted portraits.\nThe main character must remain the clear focal point, with the background figures only adding scale, depth, and royal atmosphere. Preserve the overall mythic goddess-like elegance, sacred mood, and cinematic composition.\nRendering style: Unreal Engine 5 AAA cinematic 3D render, Ghost of Tsushima–inspired grounded mythic realism, Nanite micro-detail, Lumen global illumination, realistic subsurface scattering, PBR cloth fibers, subtle jewelry micro-scratches, crisp ambient occlusion, high-end character shader, realistic digital curly hair groom, detailed fabric weave, polished gold material. Shot on ARRI Alexa, anamorphic 21:9, ACES color pipeline, filmic contrast, smooth highlight rolloff, shallow depth of field, sharp focus on the main character’s eyes and face.",
+      "aspect_ratio": "21:9",
+      "input_images": [
+        {
+          "id": "9fb0a612-ef66-450b-9b04-a3c52814d5f3",
+          "type": "nano_banana_2_job",
+          "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_061609_9fb0a612-ef66-450b-9b04-a3c52814d5f3.png"
+        }
+      ],
+      "width": 3168,
+      "height": 1344,
+      "resolution": "2k",
+      "batch_size": 1,
+      "input_image": null,
+      "application": null,
+      "surface": null
+    },
+    "results": {
+      "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_123751_aab75555-4361-4256-884c-46fa2ba0900b.png",
+      "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_123751_aab75555-4361-4256-884c-46fa2ba0900b_min.webp"
+    },
+    "createdAt": 1782995871.037435
+  },
+  {
+    "id": "2d75cf7f-0f0a-42bb-9ca8-02f8b843f02c",
+    "type": "image",
+    "status": "completed",
+    "model": "nano_banana_2",
+    "params": {
+      "prompt": "Create an ultra-realistic old Kolkata bar / heritage restaurant interior with a few local customers seated quietly. The room has cream walls, dark wooden lower paneling, mustard-yellow tablecloths, old wooden chairs, red cushions, ceiling fans, wall lamps, framed pictures, large shuttered windows, faded curtains, and worn stone flooring.\nPlace a few middle-aged Indian men seated at tables, casually eating, talking softly, or looking at their phones. They should feel natural and ordinary, not posed. The bar should feel like a real old Kolkata institution during a slow afternoon, with modest service items on the tables: red napkin holders, condiment bottles, plates, glasses, menu cards, and simple cutlery.\nThe interior should look aged and authentic: chipped wall paint, worn furniture edges, slightly uneven lighting, old ceiling fans, visible switchboards, weathered window frames, and a lived-in colonial-era charm.\nLighting should be warm amber interior lamps mixed with soft daylight from the windows, creating a nostalgic Kolkata atmosphere.\nCamera: wide documentary-style interior shot, natural perspective, cinematic realism, soft shadows, realistic skin tones, no glamour.\nNegative prompt: no modern pub, no nightclub, no young party crowd, no luxury bar, no neon signs, no glossy designer furniture, no western cocktail lounge, no fantasy styling.",
+      "aspect_ratio": "21:9",
+      "input_images": [],
+      "width": 3168,
+      "height": 1344,
+      "resolution": "2k",
+      "batch_size": 1,
+      "input_image": null,
+      "application": null,
+      "surface": null
+    },
+    "results": {
+      "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260629_113535_2d75cf7f-0f0a-42bb-9ca8-02f8b843f02c.png",
+      "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260629_113535_2d75cf7f-0f0a-42bb-9ca8-02f8b843f02c_min.webp"
+    },
+    "createdAt": 1782732935.357266
+  },
+  {
+    "id": "b58e85bd-d872-4389-a687-25098639c336",
+    "type": "image",
+    "status": "completed",
+    "model": "nano_banana_2",
+    "params": {
+      "prompt": "Create a cinematic empty old bar interior in Kolkata during a quiet afternoon. The space should have high ceilings, slow ceiling fans, old cream plaster walls, dark brown wooden dado paneling, vintage wall lights, old framed artwork, and several square tables arranged across the room with yellow tablecloths.\nUse dark wooden chairs with red cushioned seats, slightly worn edges, polished but aged wood, old stone or marble flooring, and a few simple table items like tissue holders, condiment bottles, menu cards, and steel cutlery. The bar should feel like a classic old restaurant where time has slowed down.\nThere should be large colonial-style windows on one side, partially open wooden shutters, soft daylight spilling in, faded curtains, and gentle dust visible in the light. The overall feeling should be heritage Kolkata, modest, real, and atmospheric.\nCamera: wide interior angle from table height, slightly cinematic, showing depth across the room.\nLook: ultra-realistic, natural light, warm practical bulbs, soft shadows, filmic contrast, gentle texture, old-world realism.\nNegative prompt: no people, no modern restaurant, no shiny new furniture, no LED strip lighting, no luxury bar counter, no nightclub atmosphere, no exaggerated decoration.",
+      "aspect_ratio": "21:9",
+      "input_images": [],
+      "width": 3168,
+      "height": 1344,
+      "resolution": "2k",
+      "batch_size": 1,
+      "input_image": null,
+      "application": null,
+      "surface": null
+    },
+    "results": {
+      "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260629_113505_b58e85bd-d872-4389-a687-25098639c336.png",
+      "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260629_113505_b58e85bd-d872-4389-a687-25098639c336_min.webp"
+    },
+    "createdAt": 1782732905.037053
+  },
+  {
+    "id": "0ed6148f-1cd7-4912-a5d0-a8c282a6e96d",
+    "type": "image",
+    "status": "completed",
+    "model": "nano_banana_2",
+    "params": {
+      "prompt": "Create an ultra-realistic old Kolkata heritage bar interior, inspired by a classic colonial-era restaurant. The space has cream-colored aged walls, dark wooden wall paneling on the lower half, old wooden chairs, square dining tables covered with bright mustard-yellow tablecloths, red napkin holders, salt and pepper shakers, simple cutlery, and a quiet lived-in atmosphere.\nThe room should feel slightly old and functional, not luxury. Add large wooden-framed windows with shutters, faded floral curtains, old wall-mounted lamps, ceiling fans, framed pictures on the walls, worn stone flooring, dark wooden trim, and a slightly faded colonial charm. The bar should feel like it has existed for decades, with small imperfections, chipped paint, tired corners, and warm practical light.\nLighting should be warm amber interior light mixed with soft daylight coming through the windows. Mood should be nostalgic, calm, slightly melancholic, and authentically Kolkata.\nPhotorealistic, cinematic realism, natural textures, soft shadows, preserved details, no polished modern finish.\nNegative prompt: no modern café design, no luxury lounge, no neon bar, no nightclub, no glass skyscraper view, no modern furniture, no plastic chairs, no overly clean surfaces, no fantasy elements.",
+      "aspect_ratio": "21:9",
+      "input_images": [],
+      "width": 3168,
+      "height": 1344,
+      "resolution": "2k",
+      "batch_size": 1,
+      "input_image": null,
+      "application": null,
+      "surface": null
+    },
+    "results": {
+      "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260629_113457_0ed6148f-1cd7-4912-a5d0-a8c282a6e96d.png",
+      "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260629_113457_0ed6148f-1cd7-4912-a5d0-a8c282a6e96d_min.webp"
+    },
+    "createdAt": 1782732897.402707
+  }
+]

@@ -1,0 +1,1551 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "items[50]{id,type,status,model,url,createdAt}:\n  b8abe0f9-fbcd-44b8-802c-41cfb23f8825,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125904_b8abe0f9-fbcd-44b8-802c-41cfb23f8825.png\",1783515544.529383\n  5f979764-6a5e-4a99-a5ce-4c14eeb56d17,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125843_5f979764-6a5e-4a99-a5ce-4c14eeb56d17.png\",1783515523.056774\n  4618845b-170e-4d58-9631-897d94f51687,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125843_4618845b-170e-4d58-9631-897d94f51687.png\",1783515523.056741\n  c7c57c7b-d990-4fcd-8b5b-28fb306c26b6,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125506_c7c57c7b-d990-4fcd-8b5b-28fb306c26b6.png\",1783515306.710422\n  b862b9a6-0e4f-4005-8e31-feccdca1bd91,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125506_b862b9a6-0e4f-4005-8e31-feccdca1bd91.png\",1783515306.710389\n  f37d9a90-fa19-4c0e-b522-c7668a37a5d7,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124936_f37d9a90-fa19-4c0e-b522-c7668a37a5d7.png\",1783514976.814158\n  8e93084d-b1dd-4967-8ed6-6938e87f10bd,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124501_8e93084d-b1dd-4967-8ed6-6938e87f10bd.png\",1783514701.719897\n  9c1e949a-540f-4cd7-822f-ea0164ad98e5,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124501_9c1e949a-540f-4cd7-822f-ea0164ad98e5.png\",1783514701.719864\n  1d4b208d-df6c-4af1-b440-d36d08a56c80,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124341_1d4b208d-df6c-4af1-b440-d36d08a56c80.png\",1783514621.852362\n  07d8748a-679f-4df4-8bca-fe28a8ea91f6,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124341_07d8748a-679f-4df4-8bca-fe28a8ea91f6.png\",1783514621.85233\n  26f62090-2d12-4535-8ab0-294bdefa79bf,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_122255_26f62090-2d12-4535-8ab0-294bdefa79bf.png\",1783513375.071541\n  64dc6baf-ef8a-423a-a1aa-1366b6b75e2f,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_122143_64dc6baf-ef8a-423a-a1aa-1366b6b75e2f.png\",1783513303.456872\n  9b2457df-6966-4839-b01a-5dcfaa004d58,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_120623_9b2457df-6966-4839-b01a-5dcfaa004d58.png\",1783512383.614932\n  c1a12cbf-2547-4a66-b5d1-83f4b0159c68,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_120619_c1a12cbf-2547-4a66-b5d1-83f4b0159c68.png\",1783512379.558447\n  223b16f7-005a-4269-b658-855fa7b18be5,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_120554_223b16f7-005a-4269-b658-855fa7b18be5.png\",1783512354.874868\n  3b7a8181-6267-4a10-8d7e-299d7a48c02f,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115839_3b7a8181-6267-4a10-8d7e-299d7a48c02f.png\",1783511919.65807\n  b14a1136-7857-442e-ac88-65b7b449910c,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115838_b14a1136-7857-442e-ac88-65b7b449910c.png\",1783511918.182173\n  35dfca45-84ec-4c5e-a6e1-d1829c9f3dab,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115250_35dfca45-84ec-4c5e-a6e1-d1829c9f3dab.png\",1783511570.66549\n  c275836a-25a9-4d4b-8e05-53974566af72,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115058_c275836a-25a9-4d4b-8e05-53974566af72.png\",1783511458.009737\n  b4cb1477-b9ca-447e-8e51-b75e9fcea490,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_114629_b4cb1477-b9ca-447e-8e51-b75e9fcea490.png\",1783511189.768781\n  99ea6325-65d5-4f1a-8e35-55558a5481a0,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_113255_99ea6325-65d5-4f1a-8e35-55558a5481a0.png\",1783510375.688587\n  cfa905b9-9326-40d2-b301-07d7cab9b856,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_112953_cfa905b9-9326-40d2-b301-07d7cab9b856.png\",1783510193.001276\n  79eaf499-adcd-4162-8064-366472b6299e,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_105357_79eaf499-adcd-4162-8064-366472b6299e.png\",1783508037.183313\n  975bd9bf-5d9f-47e0-bdc4-b4a9794db7e0,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_102531_975bd9bf-5d9f-47e0-bdc4-b4a9794db7e0.png\",1783506331.131434\n  1d9b9012-5a81-4ee5-8768-8ba9638df04b,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_101736_1d9b9012-5a81-4ee5-8768-8ba9638df04b.png\",1783505856.575218\n  c0b30fdd-0ebe-47e8-82e9-7e8951437329,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_100848_c0b30fdd-0ebe-47e8-82e9-7e8951437329.png\",1783505328.153322\n  31604d13-418f-4363-be70-7c6969a7dae4,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_095211_31604d13-418f-4363-be70-7c6969a7dae4.png\",1783504331.173339\n  924e68ea-3727-4612-883f-9286569c3b83,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_094229_924e68ea-3727-4612-883f-9286569c3b83.png\",1783503749.303388\n  65108555-1964-421b-b7b5-72c398bb288c,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_092310_65108555-1964-421b-b7b5-72c398bb288c.png\",1783502590.199242\n  877465ce-26aa-403a-903d-08a36c3740dd,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_092310_877465ce-26aa-403a-903d-08a36c3740dd.png\",1783502590.199207\n  bca59083-fe14-41f0-8b6f-9d9158003f95,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_091830_bca59083-fe14-41f0-8b6f-9d9158003f95.png\",1783502310.554855\n  606e8075-a172-4b07-b9c3-f312bf0ca624,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_091830_606e8075-a172-4b07-b9c3-f312bf0ca624.png\",1783502310.55482\n  ea664536-da6c-4025-9751-cbb6fb7b01b5,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_090550_ea664536-da6c-4025-9751-cbb6fb7b01b5.png\",1783501550.163229\n  abf1e976-75b7-4ff6-9c60-ecbe060d911a,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_090550_abf1e976-75b7-4ff6-9c60-ecbe060d911a.png\",1783501550.163189\n  d86aad7a-94d0-44ac-ac33-6f6940323b5e,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_081008_d86aad7a-94d0-44ac-ac33-6f6940323b5e.png\",1783498208.060834\n  090d8a63-92c8-4031-87af-c13978041555,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_080615_090d8a63-92c8-4031-87af-c13978041555.png\",1783497975.168268\n  0510eb55-68e2-46ca-9b5c-0ec46874f4ca,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_075850_0510eb55-68e2-46ca-9b5c-0ec46874f4ca.png\",1783497530.491718\n  9d321526-933c-4d39-bb7f-bd14d949ac84,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_075850_9d321526-933c-4d39-bb7f-bd14d949ac84.png\",1783497530.491681\n  0a04db31-24e0-45d4-91cc-7597ebc3dcc2,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_075712_0a04db31-24e0-45d4-91cc-7597ebc3dcc2.png\",1783497432.954911\n  bd0de3b3-baae-4a2c-990d-6fbf27b780de,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_074900_bd0de3b3-baae-4a2c-990d-6fbf27b780de.png\",1783496940.242362\n  6da93a6d-09be-4819-a46e-13e0b8a578a3,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_074431_6da93a6d-09be-4819-a46e-13e0b8a578a3.png\",1783496671.277516\n  1d90c99e-f547-4fdb-9a00-745620d8b858,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_074000_1d90c99e-f547-4fdb-9a00-745620d8b858.png\",1783496400.517249\n  ff0f2e45-a81c-4efc-93e1-0c3b583f64de,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_073035_ff0f2e45-a81c-4efc-93e1-0c3b583f64de.png\",1783495835.117905\n  407597d5-8864-4acb-b48c-d3a61b64135c,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_073035_407597d5-8864-4acb-b48c-d3a61b64135c.png\",1783495835.117867\n  bbf0a416-4c87-4d08-9848-2e7e80e15396,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_071944_bbf0a416-4c87-4d08-9848-2e7e80e15396.png\",1783495184.195505\n  61537d82-de30-44a6-afaf-8c84de740baf,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_071230_61537d82-de30-44a6-afaf-8c84de740baf.png\",1783494750.936955\n  eb65ee3d-d3c7-457a-890e-23d8517dfab8,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_070938_eb65ee3d-d3c7-457a-890e-23d8517dfab8.png\",1783494578.717477\n  b9a0b5bd-3fe2-4e9d-a98d-a73203d2f69e,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_070615_b9a0b5bd-3fe2-4e9d-a98d-a73203d2f69e.png\",1783494375.945596\n  1373d1c0-f23e-4f19-8f1f-c157b30b6ce4,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_065927_1373d1c0-f23e-4f19-8f1f-c157b30b6ce4.png\",1783493967.725034\n  fec39126-ccaf-488e-a25d-f12447e27d4c,image,completed,nano_banana_2,\"https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_065925_fec39126-ccaf-488e-a25d-f12447e27d4c.png\",1783493965.295568\nnext_cursor: 1783493965.295568"
+    }
+  ],
+  "structuredContent": {
+    "items": [
+      {
+        "id": "b8abe0f9-fbcd-44b8-802c-41cfb23f8825",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create an ultra-realistic old heritage school classroom interior in the exact same moody aesthetic as the reference image. Keep the same overall composition, same camera placement, and same framing: a wide centered shot from the back half of the classroom looking toward the front teacher area, with strong symmetry and deep room perspective. The camera should be placed at seated eye level / slightly above desk height, facing straight toward the blackboard and teacher desk.\n\nCLASSROOM ARCHITECTURE:\nA tall narrow classroom with a very high vaulted ceiling, exposed dark wooden roof trusses, large interior arches, and old colonial / missionary school architecture. The ceiling should have a few hanging pendant lights and ceiling fans, but the practical lights should not dominate. The room should feel old, quiet, slightly dramatic, and realistic.\n\nLAYOUT:\nOn the RIGHT side of the classroom, place a row of tall arched wooden windows exactly in the spirit of the reference, extending along the wall. Some window panels can be slightly open. Cool blue ambient light should enter from these windows. Outside the windows, dense tropical greenery / palm leaves should be visible, just like an old school building surrounded by lush plants.\n\nOn the LEFT side of the classroom, make it a complete solid wall — no windows at all. This wall should have subtle school elements such as framed portraits, notice boards, educational charts, old framed certificates, or wall-mounted school display material. On this LEFT wall, place only ONE entrance door, and that door must be at the starting/front side of the wall from the camera angle — meaning near the teacher’s side/front of the classroom, on the left side of the blackboard wall zone. No other doors on the left wall.\n\nFRONT TEACHER AREA:\nAt the front center, place a large wall-mounted blackboard. The blackboard must be fixed on the wall, not on a stand. In front of it, place a simple wooden teacher podium / teacher desk centered. Around the front wall, include old cupboards, a small bookshelf, maps, a few framed portraits, and academic wall charts in a restrained and believable way.\n\nFURNITURE:\nFill the room with rows of old wooden student desks and benches, arranged neatly in perspective toward the front. The furniture should be dark polished wood, slightly aged, realistic, and grounded in an old-school aesthetic.\n\nLIGHTING — VERY IMPORTANT:\nMatch the exact lighting mood of the reference image. The room should be dim and atmospheric, lit mainly by cool blue natural ambient light coming through the right-side windows. The lighting should feel like early dawn / blue-hour morning or rainy low-light ambience. The room must stay dark overall, with soft cool illumination wrapping through the windows and faintly shaping the desks, walls, and teacher area. Do not make it bright. Do not make it sunny. Do not make it warm golden hour. The mood should stay cool, shadowy, moody, cinematic, and calm, with subtle visibility across the room. Keep the light realistic and soft but the image itself must remain crisp and detailed.\n\nSTYLE:\nUltra-realistic, 4K, sharp details, realistic wood texture, realistic wall texture, realistic shadows, cinematic old-school atmosphere, grounded, natural, no softness, no blur, no painterly look.\n\nNEGATIVE PROMPT:\nwindows on left wall, extra doors, more than one entrance door, bright daylight, warm sunlight, golden hour, overexposed room, modern classroom, plastic furniture, whiteboard, blackboard on stand, symmetrical windows on both sides, empty plain left wall with no school material, low detail, blur, soft image, fantasy look, CGI look, distorted perspective, wrong camera angle, off-center composition",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "79eaf499-adcd-4162-8064-366472b6299e",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_105357_79eaf499-adcd-4162-8064-366472b6299e.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125904_b8abe0f9-fbcd-44b8-802c-41cfb23f8825.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125904_b8abe0f9-fbcd-44b8-802c-41cfb23f8825_min.webp"
+        },
+        "createdAt": 1783515544.529383
+      },
+      {
+        "id": "5f979764-6a5e-4a99-a5ce-4c14eeb56d17",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Sitting on the Utility Room\nImage References\n<<<image_1>>> = MASTER LOCATION PLATE\n<<<image_2>>> = Naisha Character Reference\n<<<image_3>>> = Zain Character Reference\n<<<image_4>>> = Whisky Bottle Reference\n\nPrompt\nUse <<<image_1>>> as the master location plate.\nThis image is the environment.\nThe rooftop is locked.\nNothing about the location may be regenerated.\nDo not redesign the rooftop.\nDo not change the architecture.\nDo not create a new utility room.\nDo not move the camera.\nDo not reinterpret the environment.\nMaintain pixel-identical fidelity wherever the characters are not introduced.\nPreserve exactly:\nrooftop proportions\nutility room dimensions\nparapets\nflooring\npergola\nhanging chair\nFrench doors\nrailings\nplanter locations\nlantern locations\nskyline\natmospheric haze\nlighting\ncolor grading\nneon angel\nscaffold\noverall composition\nTreat <<<image_1>>> like an existing photographed film set.\n\nUse <<<image_2>>> as the exact reference for Naisha.\nHer face, hairstyle, clothing, proportions, jewellery and styling must match exactly.\nUse <<<image_3>>> as the exact reference for Zain.\nMatch his appearance exactly.\n\nPlace both characters on top of the existing utility room already present in <<<image_1>>>.\nDo not enlarge it.\nDo not redesign it.\nDo not relocate it.\nDo not alter its proportions.\n\nBoth sit near the front edge.\nTheir legs hang naturally over the side.\nThey sit comfortably close without posing.\nNaisha turns slightly toward Zain.\nZain looks back toward her.\nBoth hold whisky tumblers naturally.\n\nUse <<<image_4>>> for the whisky bottle.\nPlace the bottle casually behind them on the roof surface.\n\nThe oversized vintage neon angel remains exactly where it exists in Image 1.\nDo not change its size.\nDo not move it.\nDo not redesign it.\nIt continues glowing with deep cyan-blue neon and rich cobalt bloom, softly illuminating the surrounding haze.\n\nThe lighting remains identical to <<<image_1>>>.\nWarm tungsten lanterns illuminate the foreground.\nDeep ultramarine and cobalt night dominate the skyline.\nThe neon angel contributes a subtle cyan rim light.\nNo new light sources.\nNo lighting redesign.\n\nThe camera remains fixed.\nNo change in framing.\nNo change in focal length.\nNo crop changes.\nNo new composition.\nOnly add Naisha, Zain and the whisky bottle.\nEverything else remains exactly as shown in Image 1.\nPhotorealistic live-action, ARRI Alexa Mini LF, anamorphic cinema optics, physically accurate lighting, premium production design, realistic skin, realistic clothing folds, natural body language, cinematic feature-film realism.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "066e85f4-14bb-4a47-b929-52a20e37fe8b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/066e85f4-14bb-4a47-b929-52a20e37fe8b_resize.jpg"
+            },
+            {
+              "id": "5245115d-265b-4507-aa43-d19a24f3376b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/5245115d-265b-4507-aa43-d19a24f3376b_resize.jpg"
+            },
+            {
+              "id": "a4be6d9d-2355-44cd-9b16-0affcbca4b24",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/a4be6d9d-2355-44cd-9b16-0affcbca4b24.jpg"
+            },
+            {
+              "id": "99289263-590b-45eb-8fb9-6bea078ef888",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_094937_99289263-590b-45eb-8fb9-6bea078ef888.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125843_5f979764-6a5e-4a99-a5ce-4c14eeb56d17.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125843_5f979764-6a5e-4a99-a5ce-4c14eeb56d17_min.webp"
+        },
+        "createdAt": 1783515523.056774
+      },
+      {
+        "id": "4618845b-170e-4d58-9631-897d94f51687",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Sitting on the Utility Room\nImage References\n<<<image_1>>> = MASTER LOCATION PLATE\n<<<image_2>>> = Naisha Character Reference\n<<<image_3>>> = Zain Character Reference\n<<<image_4>>> = Whisky Bottle Reference\n\nPrompt\nUse <<<image_1>>> as the master location plate.\nThis image is the environment.\nThe rooftop is locked.\nNothing about the location may be regenerated.\nDo not redesign the rooftop.\nDo not change the architecture.\nDo not create a new utility room.\nDo not move the camera.\nDo not reinterpret the environment.\nMaintain pixel-identical fidelity wherever the characters are not introduced.\nPreserve exactly:\nrooftop proportions\nutility room dimensions\nparapets\nflooring\npergola\nhanging chair\nFrench doors\nrailings\nplanter locations\nlantern locations\nskyline\natmospheric haze\nlighting\ncolor grading\nneon angel\nscaffold\noverall composition\nTreat <<<image_1>>> like an existing photographed film set.\n\nUse <<<image_2>>> as the exact reference for Naisha.\nHer face, hairstyle, clothing, proportions, jewellery and styling must match exactly.\nUse <<<image_3>>> as the exact reference for Zain.\nMatch his appearance exactly.\n\nPlace both characters on top of the existing utility room already present in <<<image_1>>>.\nDo not enlarge it.\nDo not redesign it.\nDo not relocate it.\nDo not alter its proportions.\n\nBoth sit near the front edge.\nTheir legs hang naturally over the side.\nThey sit comfortably close without posing.\nNaisha turns slightly toward Zain.\nZain looks back toward her.\nBoth hold whisky tumblers naturally.\n\nUse <<<image_4>>> for the whisky bottle.\nPlace the bottle casually behind them on the roof surface.\n\nThe oversized vintage neon angel remains exactly where it exists in Image 1.\nDo not change its size.\nDo not move it.\nDo not redesign it.\nIt continues glowing with deep cyan-blue neon and rich cobalt bloom, softly illuminating the surrounding haze.\n\nThe lighting remains identical to <<<image_1>>>.\nWarm tungsten lanterns illuminate the foreground.\nDeep ultramarine and cobalt night dominate the skyline.\nThe neon angel contributes a subtle cyan rim light.\nNo new light sources.\nNo lighting redesign.\n\nThe camera remains fixed.\nNo change in framing.\nNo change in focal length.\nNo crop changes.\nNo new composition.\nOnly add Naisha, Zain and the whisky bottle.\nEverything else remains exactly as shown in Image 1.\nPhotorealistic live-action, ARRI Alexa Mini LF, anamorphic cinema optics, physically accurate lighting, premium production design, realistic skin, realistic clothing folds, natural body language, cinematic feature-film realism.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "066e85f4-14bb-4a47-b929-52a20e37fe8b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/066e85f4-14bb-4a47-b929-52a20e37fe8b_resize.jpg"
+            },
+            {
+              "id": "5245115d-265b-4507-aa43-d19a24f3376b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/5245115d-265b-4507-aa43-d19a24f3376b_resize.jpg"
+            },
+            {
+              "id": "a4be6d9d-2355-44cd-9b16-0affcbca4b24",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/a4be6d9d-2355-44cd-9b16-0affcbca4b24.jpg"
+            },
+            {
+              "id": "99289263-590b-45eb-8fb9-6bea078ef888",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_094937_99289263-590b-45eb-8fb9-6bea078ef888.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125843_4618845b-170e-4d58-9631-897d94f51687.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125843_4618845b-170e-4d58-9631-897d94f51687_min.webp"
+        },
+        "createdAt": 1783515523.056741
+      },
+      {
+        "id": "c7c57c7b-d990-4fcd-8b5b-28fb306c26b6",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Corner Conversation\n\nImage References\n<<<image_1>>>= MASTER LOCATION PLATE (authoritative rooftop environment)\n<<<image_2>>> = Naisha Character Reference\n<<<image_3>>> = Zain Character Reference\n<<<image_4>>> = Whisky Bottle Reference\n\nPrompt\nUse <<<image_1>>> as the master location plate. Treat it as a locked production still.\nDo not redesign, reinterpret or regenerate the rooftop.\nEvery architectural and environmental element from Image 1 must remain unchanged.\nMaintain exactly the same:\ncamera position\nfocal length\nperspective\nframing\nterrace dimensions\nparapet height\nflooring\npergola\nhanging chair\nFrench doors\nrailing\nplanter placement\nlantern placement\nskyline\natmospheric haze\ncolor grading\nlighting\nneon angel\nsteel scaffold\noverall composition\nThink of this as compositing two actors into an already photographed location rather than generating a new rooftop.\n\nUse <<<image_2>>> as the exact reference for Naisha.\nMatch her facial features, hairstyle, body proportions, skin tone, clothing, jewellery, footwear and overall appearance exactly.\nUse <<<image_3>>> as the exact reference for Zain.\nMatch his face, hair, proportions, sweater, jeans and footwear exactly.\n\nPlace both characters only in the far left corner of the terrace.\nNaisha rests naturally against the parapet wall, her back lightly touching the edge.\nHer body faces slightly toward Zain.\nShe looks at him with a relaxed, quiet smile.\nOne hand loosely holds a whisky tumbler.\n\nZain stands comfortably beside her.\nHis body is turned mostly toward Naisha.\nHe subtly favours the camera so only a small portion of his profile is visible while most of his back remains toward camera.\nHis stance should feel candid and completely unposed.\nHe also holds a whisky tumbler.\n\nUse <<<image_4>>> for the whisky bottle.\nPlace the bottle naturally on the parapet ledge between them.\n\nEverything else remains exactly as it exists in <<<image_1>>>.\nNo furniture moves.\nNo lantern moves.\nNo planter moves.\nNo architectural element changes.\nNo camera movement.\nNo additional props.\nNo additional lighting.\nNo redesign.\nNo reinterpretation.\nThe only difference from <<<image_1>>> is the addition of Naisha, Zain and the whisky bottle.\nPhotorealistic live-action, ARRI Alexa Mini LF, natural lens characteristics, realistic skin texture, physically accurate lighting, premium feature-film production design.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "066e85f4-14bb-4a47-b929-52a20e37fe8b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/066e85f4-14bb-4a47-b929-52a20e37fe8b_resize.jpg"
+            },
+            {
+              "id": "5245115d-265b-4507-aa43-d19a24f3376b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/5245115d-265b-4507-aa43-d19a24f3376b_resize.jpg"
+            },
+            {
+              "id": "a4be6d9d-2355-44cd-9b16-0affcbca4b24",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/a4be6d9d-2355-44cd-9b16-0affcbca4b24.jpg"
+            },
+            {
+              "id": "99289263-590b-45eb-8fb9-6bea078ef888",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_094937_99289263-590b-45eb-8fb9-6bea078ef888.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125506_c7c57c7b-d990-4fcd-8b5b-28fb306c26b6.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125506_c7c57c7b-d990-4fcd-8b5b-28fb306c26b6_min.webp"
+        },
+        "createdAt": 1783515306.710422
+      },
+      {
+        "id": "b862b9a6-0e4f-4005-8e31-feccdca1bd91",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Corner Conversation\n\nImage References\n<<<image_1>>>= MASTER LOCATION PLATE (authoritative rooftop environment)\n<<<image_2>>> = Naisha Character Reference\n<<<image_3>>> = Zain Character Reference\n<<<image_4>>> = Whisky Bottle Reference\n\nPrompt\nUse <<<image_1>>> as the master location plate. Treat it as a locked production still.\nDo not redesign, reinterpret or regenerate the rooftop.\nEvery architectural and environmental element from Image 1 must remain unchanged.\nMaintain exactly the same:\ncamera position\nfocal length\nperspective\nframing\nterrace dimensions\nparapet height\nflooring\npergola\nhanging chair\nFrench doors\nrailing\nplanter placement\nlantern placement\nskyline\natmospheric haze\ncolor grading\nlighting\nneon angel\nsteel scaffold\noverall composition\nThink of this as compositing two actors into an already photographed location rather than generating a new rooftop.\n\nUse <<<image_2>>> as the exact reference for Naisha.\nMatch her facial features, hairstyle, body proportions, skin tone, clothing, jewellery, footwear and overall appearance exactly.\nUse <<<image_3>>> as the exact reference for Zain.\nMatch his face, hair, proportions, sweater, jeans and footwear exactly.\n\nPlace both characters only in the far left corner of the terrace.\nNaisha rests naturally against the parapet wall, her back lightly touching the edge.\nHer body faces slightly toward Zain.\nShe looks at him with a relaxed, quiet smile.\nOne hand loosely holds a whisky tumbler.\n\nZain stands comfortably beside her.\nHis body is turned mostly toward Naisha.\nHe subtly favours the camera so only a small portion of his profile is visible while most of his back remains toward camera.\nHis stance should feel candid and completely unposed.\nHe also holds a whisky tumbler.\n\nUse <<<image_4>>> for the whisky bottle.\nPlace the bottle naturally on the parapet ledge between them.\n\nEverything else remains exactly as it exists in <<<image_1>>>.\nNo furniture moves.\nNo lantern moves.\nNo planter moves.\nNo architectural element changes.\nNo camera movement.\nNo additional props.\nNo additional lighting.\nNo redesign.\nNo reinterpretation.\nThe only difference from <<<image_1>>> is the addition of Naisha, Zain and the whisky bottle.\nPhotorealistic live-action, ARRI Alexa Mini LF, natural lens characteristics, realistic skin texture, physically accurate lighting, premium feature-film production design.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "066e85f4-14bb-4a47-b929-52a20e37fe8b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/066e85f4-14bb-4a47-b929-52a20e37fe8b_resize.jpg"
+            },
+            {
+              "id": "5245115d-265b-4507-aa43-d19a24f3376b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/5245115d-265b-4507-aa43-d19a24f3376b_resize.jpg"
+            },
+            {
+              "id": "a4be6d9d-2355-44cd-9b16-0affcbca4b24",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/a4be6d9d-2355-44cd-9b16-0affcbca4b24.jpg"
+            },
+            {
+              "id": "99289263-590b-45eb-8fb9-6bea078ef888",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_094937_99289263-590b-45eb-8fb9-6bea078ef888.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125506_b862b9a6-0e4f-4005-8e31-feccdca1bd91.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_125506_b862b9a6-0e4f-4005-8e31-feccdca1bd91_min.webp"
+        },
+        "createdAt": 1783515306.710389
+      },
+      {
+        "id": "f37d9a90-fa19-4c0e-b522-c7668a37a5d7",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Nano Banana Prompt — Opposite Axis Cathedral Interior, Looking Toward Entrance\nUse the provided image as the main architectural, lighting, camera, and aesthetic reference. Recreate the same Kolkata cathedral interior, but generate the opposite axis: the camera is now placed near the altar / idol area, looking back toward the main entrance of the church.\nCreate a wide cinematic interior shot from near the altar, facing the long central aisle toward the cathedral entrance doors. The perspective should feel like the reverse angle of the reference image, as if the viewer has walked to the front altar area and turned around to look back. Preserve the same grand Gothic cathedral architecture: tall pointed arches, ornate painted wall details, stained-glass windows, old cream-and-gold plaster, carved columns, wooden pews on both sides, balcony/gallery structures along the side walls, ceiling fans under the side galleries, decorative religious murals, aged cathedral texture, and the same sacred old Kolkata church atmosphere.\nThe central aisle should run from the foreground near the altar area toward the distant entrance. Wooden pews should be visible on both sides, aligned symmetrically, with strong depth perspective. The main entrance should be visible far in the background, framed by the tall cathedral arches and shadowed doorway. The door area should feel darker than the altar side, with soft exterior daylight barely glowing around the entrance edges.\nLighting must match the reference exactly: warm golden sunlight streaming diagonally through the side stained-glass windows, visible dust and haze in the air, soft volumetric light rays, gentle bloom, warm highlights on wooden pews, deep but open shadows, no harsh contrast. Keep the same morning cathedral glow, amber-gold shafts of light, sacred atmosphere, and subtle stained-glass color reflections. The light should feel natural and motivated from the windows, not artificial.\nCamera should be placed at approximately human eye level or slightly elevated near the altar/idol area, centered on the aisle, using a wide cinematic lens. Maintain the same wide-angle cathedral scale, deep perspective, symmetrical framing, and slight anamorphic softness. The composition should feel grand but real, not fantasy. The foreground may include a subtle hint of altar-side architecture at the edges, but the main focus is the long aisle leading toward the entrance.\nStyle: ultra-realistic cinematic photography, Kolkata cathedral interior, old Gothic architecture, warm sunrise light, natural haze, volumetric rays, detailed stained glass, aged plaster texture, carved columns, wooden pews, sacred quiet atmosphere, Hollywood film-grade realism, soft lens bloom, natural depth, high detail, no CGI look.\nImportant continuity rules:\nDo not redesign the cathedral. Do not change the architectural language. Do not add modern objects. Do not add people. Do not add extra decorations that are not consistent with the reference. Do not make the space look like a European cathedral; keep the same Kolkata heritage church feel. Keep the lighting, wall colors, stained-glass glow, pew layout, arches, side balconies, and cinematic atmosphere consistent with the reference image.\nNegative prompt:\nNo people, no priests, no tourists, no modern lights, no LED strips, no neon, no fantasy glow, no overexposed white light, no clean new cathedral look, no marble palace look, no extra statues blocking the aisle, no distorted arches, no warped pews, no mismatched architecture, no fisheye distortion, no cartoon, no CGI, no plastic texture, no HDR, no flat lighting, no dark horror mood, no blue night lighting.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "da44e109-a271-4237-a8dc-e2466d4eccfc",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260628_131749_da44e109-a271-4237-a8dc-e2466d4eccfc.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124936_f37d9a90-fa19-4c0e-b522-c7668a37a5d7.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124936_f37d9a90-fa19-4c0e-b522-c7668a37a5d7_min.webp"
+        },
+        "createdAt": 1783514976.814158
+      },
+      {
+        "id": "8e93084d-b1dd-4967-8ed6-6938e87f10bd",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "A highly cinematic, photorealistic live-action still of the same restored colonial Indian heritage rooftop terrace <<<image_1>>> at deep blue hour, surrounded by an expansive old-city skyline immersed in saturated cobalt and ultramarine night tones. Weathered lime plaster, aged terracotta flooring, handcrafted wrought-iron railings, warm lanterns, tropical palms in terracotta pots, restrained bougainvillea, closed French doors glowing with soft tungsten interior light, woven rattan seating beneath a timber pergola, and an authentic premium rooftop atmosphere. Rising dramatically beyond the skyline is the monumental vintage neon angel blowing a trumpet, mounted on a realistic rooftop steel structure. The neon glows with deep electric cyan-blue and cobalt illumination, casting subtle cool ambience into the surrounding haze like an iconic rooftop landmark.\nNaisha and Zain are seated together on top of the small rooftop utility room, positioned near its front edge with their legs hanging naturally over the side. Their posture feels relaxed, intimate and completely unforced, as though they've climbed up there simply to spend time together while overlooking the city. They sit comfortably close without exaggerated romantic posing.\nNaisha matches her character sheet <<<image_2>>> exactly: youthful Indian woman with expressive brown eyes, natural skin texture, dark hair tied into a low bun, fitted dark chocolate brown knit top with front tie opening, light blue relaxed jeans, delicate jewelry, realistic proportions and identical facial features. She casually holds a whiskey tumbler in one hand while looking outward toward the city or quietly toward Zain.\nZain matches his character sheet <<<image_3>>> exactly: young Indian man with naturally curly dark hair, expressive brown eyes, clean-shaven face, cream rib-knit sweater, relaxed light blue jeans and white sneakers. He also holds a whiskey tumbler comfortably in one hand. Slightly behind them on the rooftop surface rests the whisky bottle from the reference asset <<<image_4>>>, positioned casually rather than staged.\nThe composition emphasizes scale. The rooftop utility room occupies the foreground while the couple sits silhouetted against the vast city beyond. The enormous blue neon angel dominates the upper background, appearing almost monumental above them while remaining integrated into the city's architecture. The camera sits at a slightly lower perspective looking upward just enough to emphasize the skyline and neon landmark without becoming dramatic. Warm lantern light softly grazes the rooftop edges while the overwhelming ambience comes from the rich midnight blue sky, cool atmospheric haze and the cyan-blue glow of the vintage neon. The emotional tone is contemplative, intimate and quietly romantic, with balanced exposure, open shadow detail, physically accurate lighting, subtle film grain, premium live-action realism, ARRI Alexa Mini LF, 24mm anamorphic lens, and cinematic feature-film production design.\nFor both prompts: no additional people, no readable labels on the whisky bottle, no logos, no extra furniture, no modern rooftop clutter, no exaggerated poses, no fashion-shoot styling, no CGI appearance, no AI gloss, no cyberpunk elements, no fantasy architecture, no oversaturated warm tones, and maintain authentic Indian architectural realism throughout.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "066e85f4-14bb-4a47-b929-52a20e37fe8b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/066e85f4-14bb-4a47-b929-52a20e37fe8b_resize.jpg"
+            },
+            {
+              "id": "5245115d-265b-4507-aa43-d19a24f3376b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/5245115d-265b-4507-aa43-d19a24f3376b_resize.jpg"
+            },
+            {
+              "id": "a4be6d9d-2355-44cd-9b16-0affcbca4b24",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/a4be6d9d-2355-44cd-9b16-0affcbca4b24.jpg"
+            },
+            {
+              "id": "99289263-590b-45eb-8fb9-6bea078ef888",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_094937_99289263-590b-45eb-8fb9-6bea078ef888.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124501_8e93084d-b1dd-4967-8ed6-6938e87f10bd.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124501_8e93084d-b1dd-4967-8ed6-6938e87f10bd_min.webp"
+        },
+        "createdAt": 1783514701.719897
+      },
+      {
+        "id": "9c1e949a-540f-4cd7-822f-ea0164ad98e5",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "A highly cinematic, photorealistic live-action still of the same restored colonial Indian heritage rooftop terrace <<<image_1>>> at deep blue hour, surrounded by an expansive old-city skyline immersed in saturated cobalt and ultramarine night tones. Weathered lime plaster, aged terracotta flooring, handcrafted wrought-iron railings, warm lanterns, tropical palms in terracotta pots, restrained bougainvillea, closed French doors glowing with soft tungsten interior light, woven rattan seating beneath a timber pergola, and an authentic premium rooftop atmosphere. Rising dramatically beyond the skyline is the monumental vintage neon angel blowing a trumpet, mounted on a realistic rooftop steel structure. The neon glows with deep electric cyan-blue and cobalt illumination, casting subtle cool ambience into the surrounding haze like an iconic rooftop landmark.\nNaisha and Zain are seated together on top of the small rooftop utility room, positioned near its front edge with their legs hanging naturally over the side. Their posture feels relaxed, intimate and completely unforced, as though they've climbed up there simply to spend time together while overlooking the city. They sit comfortably close without exaggerated romantic posing.\nNaisha matches her character sheet <<<image_2>>> exactly: youthful Indian woman with expressive brown eyes, natural skin texture, dark hair tied into a low bun, fitted dark chocolate brown knit top with front tie opening, light blue relaxed jeans, delicate jewelry, realistic proportions and identical facial features. She casually holds a whiskey tumbler in one hand while looking outward toward the city or quietly toward Zain.\nZain matches his character sheet <<<image_3>>> exactly: young Indian man with naturally curly dark hair, expressive brown eyes, clean-shaven face, cream rib-knit sweater, relaxed light blue jeans and white sneakers. He also holds a whiskey tumbler comfortably in one hand. Slightly behind them on the rooftop surface rests the whisky bottle from the reference asset <<<image_4>>>, positioned casually rather than staged.\nThe composition emphasizes scale. The rooftop utility room occupies the foreground while the couple sits silhouetted against the vast city beyond. The enormous blue neon angel dominates the upper background, appearing almost monumental above them while remaining integrated into the city's architecture. The camera sits at a slightly lower perspective looking upward just enough to emphasize the skyline and neon landmark without becoming dramatic. Warm lantern light softly grazes the rooftop edges while the overwhelming ambience comes from the rich midnight blue sky, cool atmospheric haze and the cyan-blue glow of the vintage neon. The emotional tone is contemplative, intimate and quietly romantic, with balanced exposure, open shadow detail, physically accurate lighting, subtle film grain, premium live-action realism, ARRI Alexa Mini LF, 24mm anamorphic lens, and cinematic feature-film production design.\nFor both prompts: no additional people, no readable labels on the whisky bottle, no logos, no extra furniture, no modern rooftop clutter, no exaggerated poses, no fashion-shoot styling, no CGI appearance, no AI gloss, no cyberpunk elements, no fantasy architecture, no oversaturated warm tones, and maintain authentic Indian architectural realism throughout.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "066e85f4-14bb-4a47-b929-52a20e37fe8b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/066e85f4-14bb-4a47-b929-52a20e37fe8b_resize.jpg"
+            },
+            {
+              "id": "5245115d-265b-4507-aa43-d19a24f3376b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/5245115d-265b-4507-aa43-d19a24f3376b_resize.jpg"
+            },
+            {
+              "id": "a4be6d9d-2355-44cd-9b16-0affcbca4b24",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/a4be6d9d-2355-44cd-9b16-0affcbca4b24.jpg"
+            },
+            {
+              "id": "99289263-590b-45eb-8fb9-6bea078ef888",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_094937_99289263-590b-45eb-8fb9-6bea078ef888.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124501_9c1e949a-540f-4cd7-822f-ea0164ad98e5.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124501_9c1e949a-540f-4cd7-822f-ea0164ad98e5_min.webp"
+        },
+        "createdAt": 1783514701.719864
+      },
+      {
+        "id": "1d4b208d-df6c-4af1-b440-d36d08a56c80",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "A highly cinematic, photorealistic live-action still of a restored colonial Indian heritage rooftop terrace <<<image_1>>> during deep blue hour, overlooking an old Indian city immersed in layers of cool atmospheric haze. The terrace retains its warm, intimate luxury while the surrounding city is dominated by saturated cobalt, ultramarine, and midnight blue tones. Weathered cream lime-plastered walls, elegant closed arched French doors glowing softly with warm tungsten light, handcrafted wrought-iron railings, aged terracotta flooring, woven rattan furniture, a suspended egg chair beneath a timber pergola, large terracotta planters with tropical palms, restrained bougainvillea, vintage hurricane lanterns casting warm amber pools, and an uncluttered premium rooftop aesthetic. In the far background, towering above the skyline, a monumental vintage rooftop neon angel blowing a trumpet dominates the frame, mounted on a realistic steel support structure. The neon belongs to the same family as iconic mid-century rooftop hotel signs, glowing in a rich electric cyan-blue with deep cobalt bloom that softly illuminates the surrounding haze and subtly wraps the distant buildings.\nNaisha <<<image_2>>> stands in the far left corner of the terrace, gently leaning back against the low parapet wall with effortless confidence. Her posture is relaxed and intimate, one shoulder softly touching the parapet while her gaze remains fixed on Zain with a quiet smile. She holds a short whiskey tumbler loosely in one hand. She matches her character sheet exactly: youthful Indian woman with expressive brown eyes, delicate facial structure, natural skin texture, dark hair neatly tied into a low bun with loose flyaways, wearing the fitted dark chocolate brown knit top with the front keyhole tie detail, light blue relaxed straight-leg denim jeans, minimal jewelry including delicate earrings and necklace, understated makeup, realistic proportions, identical facial features, hairstyle, clothing fit and silhouette.\nStanding beside her is Zain <<<image_3>>>, positioned naturally with relaxed posture. He is turned primarily toward Naisha while subtly favouring the camera just enough for part of his face and expression to remain visible. From this camera angle, most of his back and shoulder are visible, creating a candid cinematic composition rather than a posed portrait. He casually holds a whiskey tumbler in one hand while looking toward Naisha. Between them, resting on the parapet ledge, sits the whisky bottle from the reference asset <<<image_4>>>. Zain matches his character sheet exactly: young Indian man with naturally curly dark hair, expressive brown eyes, clean-shaven face, defined jawline, warm medium complexion, wearing the cream rib-knit sweater, light blue relaxed-fit denim jeans and clean white sneakers, maintaining the exact proportions, hairstyle and facial structure from the character sheet.\nThe framing is a wide environmental composition rather than a portrait. The couple occupies only the left third of the frame, allowing the terrace architecture, lanterns, seating area, and vast city skyline to dominate the image. The oversized neon angel becomes the visual climax in the distant background, looming over the city while remaining physically believable. Warm amber foreground light contrasts against the overwhelming cool blue atmosphere of the night. Balanced HDR exposure, physically accurate lighting, subtle film grain, realistic atmospheric perspective, ARRI Alexa Mini LF, 28mm anamorphic lens, premium feature-film production design, tactile material realism, quiet romantic mood, candid body language, no posed fashion-editorial energy.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "066e85f4-14bb-4a47-b929-52a20e37fe8b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/066e85f4-14bb-4a47-b929-52a20e37fe8b_resize.jpg"
+            },
+            {
+              "id": "5245115d-265b-4507-aa43-d19a24f3376b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/5245115d-265b-4507-aa43-d19a24f3376b_resize.jpg"
+            },
+            {
+              "id": "a4be6d9d-2355-44cd-9b16-0affcbca4b24",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/a4be6d9d-2355-44cd-9b16-0affcbca4b24.jpg"
+            },
+            {
+              "id": "99289263-590b-45eb-8fb9-6bea078ef888",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_094937_99289263-590b-45eb-8fb9-6bea078ef888.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124341_1d4b208d-df6c-4af1-b440-d36d08a56c80.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124341_1d4b208d-df6c-4af1-b440-d36d08a56c80_min.webp"
+        },
+        "createdAt": 1783514621.852362
+      },
+      {
+        "id": "07d8748a-679f-4df4-8bca-fe28a8ea91f6",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "A highly cinematic, photorealistic live-action still of a restored colonial Indian heritage rooftop terrace <<<image_1>>> during deep blue hour, overlooking an old Indian city immersed in layers of cool atmospheric haze. The terrace retains its warm, intimate luxury while the surrounding city is dominated by saturated cobalt, ultramarine, and midnight blue tones. Weathered cream lime-plastered walls, elegant closed arched French doors glowing softly with warm tungsten light, handcrafted wrought-iron railings, aged terracotta flooring, woven rattan furniture, a suspended egg chair beneath a timber pergola, large terracotta planters with tropical palms, restrained bougainvillea, vintage hurricane lanterns casting warm amber pools, and an uncluttered premium rooftop aesthetic. In the far background, towering above the skyline, a monumental vintage rooftop neon angel blowing a trumpet dominates the frame, mounted on a realistic steel support structure. The neon belongs to the same family as iconic mid-century rooftop hotel signs, glowing in a rich electric cyan-blue with deep cobalt bloom that softly illuminates the surrounding haze and subtly wraps the distant buildings.\nNaisha <<<image_2>>> stands in the far left corner of the terrace, gently leaning back against the low parapet wall with effortless confidence. Her posture is relaxed and intimate, one shoulder softly touching the parapet while her gaze remains fixed on Zain with a quiet smile. She holds a short whiskey tumbler loosely in one hand. She matches her character sheet exactly: youthful Indian woman with expressive brown eyes, delicate facial structure, natural skin texture, dark hair neatly tied into a low bun with loose flyaways, wearing the fitted dark chocolate brown knit top with the front keyhole tie detail, light blue relaxed straight-leg denim jeans, minimal jewelry including delicate earrings and necklace, understated makeup, realistic proportions, identical facial features, hairstyle, clothing fit and silhouette.\nStanding beside her is Zain <<<image_3>>>, positioned naturally with relaxed posture. He is turned primarily toward Naisha while subtly favouring the camera just enough for part of his face and expression to remain visible. From this camera angle, most of his back and shoulder are visible, creating a candid cinematic composition rather than a posed portrait. He casually holds a whiskey tumbler in one hand while looking toward Naisha. Between them, resting on the parapet ledge, sits the whisky bottle from the reference asset <<<image_4>>>. Zain matches his character sheet exactly: young Indian man with naturally curly dark hair, expressive brown eyes, clean-shaven face, defined jawline, warm medium complexion, wearing the cream rib-knit sweater, light blue relaxed-fit denim jeans and clean white sneakers, maintaining the exact proportions, hairstyle and facial structure from the character sheet.\nThe framing is a wide environmental composition rather than a portrait. The couple occupies only the left third of the frame, allowing the terrace architecture, lanterns, seating area, and vast city skyline to dominate the image. The oversized neon angel becomes the visual climax in the distant background, looming over the city while remaining physically believable. Warm amber foreground light contrasts against the overwhelming cool blue atmosphere of the night. Balanced HDR exposure, physically accurate lighting, subtle film grain, realistic atmospheric perspective, ARRI Alexa Mini LF, 28mm anamorphic lens, premium feature-film production design, tactile material realism, quiet romantic mood, candid body language, no posed fashion-editorial energy.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "066e85f4-14bb-4a47-b929-52a20e37fe8b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/066e85f4-14bb-4a47-b929-52a20e37fe8b_resize.jpg"
+            },
+            {
+              "id": "5245115d-265b-4507-aa43-d19a24f3376b",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/5245115d-265b-4507-aa43-d19a24f3376b_resize.jpg"
+            },
+            {
+              "id": "a4be6d9d-2355-44cd-9b16-0affcbca4b24",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/a4be6d9d-2355-44cd-9b16-0affcbca4b24.jpg"
+            },
+            {
+              "id": "99289263-590b-45eb-8fb9-6bea078ef888",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260704_094937_99289263-590b-45eb-8fb9-6bea078ef888.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124341_07d8748a-679f-4df4-8bca-fe28a8ea91f6.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_124341_07d8748a-679f-4df4-8bca-fe28a8ea91f6_min.webp"
+        },
+        "createdAt": 1783514621.85233
+      },
+      {
+        "id": "26f62090-2d12-4535-8ab0-294bdefa79bf",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create the exact opposite-angle view of a vintage heritage school classroom, matching the attached classroom image as closely as possible in architecture, layout, mood, and lighting. The camera is placed near the green board / teacher’s area, looking back toward the rear of the classroom. Keep the classroom design unchanged: same long narrow room proportions, same high dark wooden pitched ceiling with exposed trusses, same Gothic stone arches, same cream walls, same tall arched wooden windows on both left and right walls, and the same lush tropical greenery visible outside the windows. Preserve the same arrangement of dark wooden student desks ( it should be exac t same )and chairs in neat rows with a central aisle; do not change chair positions it should face the camera , a. Show the classroom entrance clearly, but place the entrance door/gate on the side wall near the rear end of the room, not centered on the back wall. Add only wall-mounted notice boards/posters and framed school items on the walls; no extra floor objects, no clutter, no shelves on the floor. Match the lighting exactly to the reference atmosphere: moody pre-dawn 3–4 AM blue-toned lighting, very dim and cinematic, cool soft light coming through the windows, dark shadows, no warm sunlight, no bright morning light, no lighting change in mood, only the same deep blue early-morning atmosphere. The room should feel quiet, empty, realistic, and ultra-detailed, with a crisp high-resolution upscale look.\nNegative prompt:\nDo not change the classroom design, do not change the ceiling, windows, desk layout, or proportions, no center back entrance, no bright daylight, no warm golden light, no extra furniture, no extra objects on the floor, no people, no modern classroom elements, no exaggerated decorations, no different architecture, no different mood.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "79eaf499-adcd-4162-8064-366472b6299e",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_105357_79eaf499-adcd-4162-8064-366472b6299e.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_122255_26f62090-2d12-4535-8ab0-294bdefa79bf.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_122255_26f62090-2d12-4535-8ab0-294bdefa79bf_min.webp"
+        },
+        "createdAt": 1783513375.071541
+      },
+      {
+        "id": "64dc6baf-ef8a-423a-a1aa-1366b6b75e2f",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create the exact opposite-angle view of a vintage heritage school classroom, matching the attached classroom image as closely as possible in architecture, layout, mood, and lighting. The camera is placed near the green board / teacher’s area, looking back toward the rear of the classroom. Keep the classroom design unchanged: same long narrow room proportions, same high dark wooden pitched ceiling with exposed trusses, same Gothic stone arches, same cream walls, same tall arched wooden windows on both left and right walls, and the same lush tropical greenery visible outside the windows. Preserve the same arrangement of dark wooden student desks ( it should be exac t same )and chairs in neat rows with a central aisle; do not change chair positions, and make the front view of the chairs visible from this reverse angle. Show the classroom entrance clearly, but place the entrance door/gate on the side wall near the rear end of the room, not centered on the back wall. Add only wall-mounted notice boards/posters and framed school items on the walls; no extra floor objects, no clutter, no shelves on the floor. Match the lighting exactly to the reference atmosphere: moody pre-dawn 3–4 AM blue-toned lighting, very dim and cinematic, cool soft light coming through the windows, dark shadows, no warm sunlight, no bright morning light, no lighting change in mood, only the same deep blue early-morning atmosphere. The room should feel quiet, empty, realistic, and ultra-detailed, with a crisp high-resolution upscale look.\nNegative prompt:\nDo not change the classroom design, do not change the ceiling, windows, desk layout, or proportions, no center back entrance, no bright daylight, no warm golden light, no extra furniture, no extra objects on the floor, no people, no modern classroom elements, no exaggerated decorations, no different architecture, no different mood.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "79eaf499-adcd-4162-8064-366472b6299e",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_105357_79eaf499-adcd-4162-8064-366472b6299e.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_122143_64dc6baf-ef8a-423a-a1aa-1366b6b75e2f.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_122143_64dc6baf-ef8a-423a-a1aa-1366b6b75e2f_min.webp"
+        },
+        "createdAt": 1783513303.456872
+      },
+      {
+        "id": "9b2457df-6966-4839-b01a-5dcfaa004d58",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "<<<image_1>>> = base corridor\n<<<image_2>>> = lighting reference only\n\nRecreate <<<image_1>>> exactly: same architecture, framing, camera angle, hallway depth, staircase, arches, windows, ceiling beams, benches, bookshelves, notice boards, floor pattern, and stone texture.\n\nApply only the lighting mood from <<<image_2>>>: deep pre-dawn blue-hour atmosphere, cool blue ambient light through arched windows, darker shadows, subtle fluorescent spill, faint haze, dark tropical foliage visible outside.\n\nMake it ultra-crisp 8K, sharp stone walls, detailed wood beams, clean glass, realistic floor reflections, cinematic photorealism.\n\nNEGATIVE PROMPT: changed architecture, changed framing, moved staircase, extra objects, people, daylight, warm sunlight, blur, low detail, CGI look, text, watermark.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "f1bc8539-0610-4932-8062-138746a68d50",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_125813_f1bc8539-0610-4932-8062-138746a68d50.png"
+            },
+            {
+              "id": "c0b30fdd-0ebe-47e8-82e9-7e8951437329",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_100848_c0b30fdd-0ebe-47e8-82e9-7e8951437329.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_120623_9b2457df-6966-4839-b01a-5dcfaa004d58.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_120623_9b2457df-6966-4839-b01a-5dcfaa004d58_min.webp"
+        },
+        "createdAt": 1783512383.614932
+      },
+      {
+        "id": "c1a12cbf-2547-4a66-b5d1-83f4b0159c68",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "<<<image_1>>> = base corridor\n<<<image_2>>> = lighting reference only\n\nRecreate <<<image_1>>> exactly: same architecture, framing, camera angle, hallway depth, staircase, arches, windows, ceiling beams, benches, bookshelves, notice boards, floor pattern, and stone texture.\n\nApply only the lighting mood from <<<image_2>>>: deep pre-dawn blue-hour atmosphere, cool blue ambient light through arched windows, darker shadows, subtle fluorescent spill, faint haze, dark tropical foliage visible outside.\n\nMake it ultra-crisp 8K, sharp stone walls, detailed wood beams, clean glass, realistic floor reflections, cinematic photorealism.\n\nNEGATIVE PROMPT: changed architecture, changed framing, moved staircase, extra objects, people, daylight, warm sunlight, blur, low detail, CGI look, text, watermark.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "f1bc8539-0610-4932-8062-138746a68d50",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_125813_f1bc8539-0610-4932-8062-138746a68d50.png"
+            },
+            {
+              "id": "c0b30fdd-0ebe-47e8-82e9-7e8951437329",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_100848_c0b30fdd-0ebe-47e8-82e9-7e8951437329.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_120619_c1a12cbf-2547-4a66-b5d1-83f4b0159c68.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_120619_c1a12cbf-2547-4a66-b5d1-83f4b0159c68_min.webp"
+        },
+        "createdAt": 1783512379.558447
+      },
+      {
+        "id": "223b16f7-005a-4269-b658-855fa7b18be5",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Recreate the exact architecture, composition, framing, camera height, lens perspective, hallway proportions, staircase position, windows, arches, ceiling beams, benches, notice boards, bookshelves, flooring pattern, wall details, and overall layout of the original heritage corridor.\nDo not redesign or move any architectural element. Keep the scene perfectly faithful to the original.\nChange only the lighting and atmosphere to match a deep pre-dawn / blue-hour mood. The corridor should feel quiet and cinematic, illuminated primarily by soft cool ambient blue light entering through the large arched windows. Interior practical lights should be very subtle, with low-intensity cool-white fluorescent spill only where naturally present. The far staircase should recede gently into darkness. Increase shadow depth while preserving detail in the stone walls and wooden ceiling.\nReplace the bright daytime exterior visible through the windows with a dark blue pre-dawn garden, dense tropical foliage, and a softly moonlit campus atmosphere. Introduce a faint cinematic haze so the cool window light creates gentle volumetric shafts. Keep reflections on the checkered floor subtle and realistic.\nMaintain the same natural materials, textures, and heritage character. Increase micro-detail, sharpness, and texture fidelity throughout the stone masonry, wood beams, floor tiles, bookshelves, benches, glass, and metal fixtures.\nUltra-photorealistic, 8K, HDR, ultra-crisp, extremely high micro-contrast, razor-sharp architectural detail, realistic global illumination, natural filmic color grading, cinematic blue-hour atmosphere, premium architectural photography, no redesign, no composition changes.\nNEGATIVE PROMPT: daylight, sunrise, warm golden lighting, redesigned architecture, altered framing, changed perspective, extra windows, missing staircase, modern elements, clutter, people, blur, soft focus, CGI look, overexposed highlights, low detail, noise, artifacts, text, watermark.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "f1bc8539-0610-4932-8062-138746a68d50",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_125813_f1bc8539-0610-4932-8062-138746a68d50.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_120554_223b16f7-005a-4269-b658-855fa7b18be5.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_120554_223b16f7-005a-4269-b658-855fa7b18be5_min.webp"
+        },
+        "createdAt": 1783512354.874868
+      },
+      {
+        "id": "3b7a8181-6267-4a10-8d7e-299d7a48c02f",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "**PROMPT**\n\nUse **<<<image_1>>>** as the base image.\n\nRecreate the **exact same corridor, architecture, framing, camera angle, staircase, arches, windows, ceiling beams, benches, notice boards, bookshelves, floor pattern, and proportions**.\n\nChange only the lighting to a **deep pre-dawn blue-hour mood**: cool dark blue ambient light, dim corridor shadows, subtle cool-white fluorescent spill, faint moonlit garden visible through the windows, soft haze, gentle volumetric light from the arched windows, rich shadow detail, quiet cinematic atmosphere.\n\nMake it **crisp, clean, ultra-realistic, 8K upscale**, sharp stone texture, sharp wood texture, detailed floor reflections, realistic global illumination, premium cinematic architectural photography.\n\n**NEGATIVE PROMPT:** changed architecture, changed camera angle, changed staircase, changed windows, warm daylight, golden sunlight, people, clutter, blur, soft focus, CGI look, low detail, text, watermark.\n",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "f1bc8539-0610-4932-8062-138746a68d50",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_125813_f1bc8539-0610-4932-8062-138746a68d50.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115839_3b7a8181-6267-4a10-8d7e-299d7a48c02f.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115839_3b7a8181-6267-4a10-8d7e-299d7a48c02f_min.webp"
+        },
+        "createdAt": 1783511919.65807
+      },
+      {
+        "id": "b14a1136-7857-442e-ac88-65b7b449910c",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "**PROMPT**\n\nUse **<<<image_1>>>** as the base image.\n\nRecreate the **exact same corridor, architecture, framing, camera angle, staircase, arches, windows, ceiling beams, benches, notice boards, bookshelves, floor pattern, and proportions**.\n\nChange only the lighting to a **deep pre-dawn blue-hour mood**: cool dark blue ambient light, dim corridor shadows, subtle cool-white fluorescent spill, faint moonlit garden visible through the windows, soft haze, gentle volumetric light from the arched windows, rich shadow detail, quiet cinematic atmosphere.\n\nMake it **crisp, clean, ultra-realistic, 8K upscale**, sharp stone texture, sharp wood texture, detailed floor reflections, realistic global illumination, premium cinematic architectural photography.\n\n**NEGATIVE PROMPT:** changed architecture, changed camera angle, changed staircase, changed windows, warm daylight, golden sunlight, people, clutter, blur, soft focus, CGI look, low detail, text, watermark.\n",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "f1bc8539-0610-4932-8062-138746a68d50",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_125813_f1bc8539-0610-4932-8062-138746a68d50.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115838_b14a1136-7857-442e-ac88-65b7b449910c.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115838_b14a1136-7857-442e-ac88-65b7b449910c_min.webp"
+        },
+        "createdAt": 1783511918.182173
+      },
+      {
+        "id": "35dfca45-84ec-4c5e-a6e1-d1829c9f3dab",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the locked source image. Upscale this exact image to 8K high-fidelity quality without changing the composition, camera angle, framing, lighting, color palette, objects, or environment.\n\nEnhance only the image quality: sharper texture detail, cleaner edges, realistic wood grain, aged metal patina, chipped paint, scratches, dust, rust, window smudges, natural film grain, improved depth, and photorealistic 8K clarity.\n\nDo not redesign anything. Do not add people. Do not remove or change objects. Keep the image identical, only upscale and enhance fidelity.\n\nNEGATIVE PROMPT: new objects, changed tram design, modern train look, people, extra seats, changed lighting, over-sharpening, plastic texture, CGI look, cartoon style, warped windows, distorted benches, text, watermark dont change lighting.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "1d9b9012-5a81-4ee5-8768-8ba9638df04b",
+              "type": "nano_banana_2_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_101736_1d9b9012-5a81-4ee5-8768-8ba9638df04b.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115250_35dfca45-84ec-4c5e-a6e1-d1829c9f3dab.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115250_35dfca45-84ec-4c5e-a6e1-d1829c9f3dab_min.webp"
+        },
+        "createdAt": 1783511570.66549
+      },
+      {
+        "id": "c275836a-25a9-4d4b-8e05-53974566af72",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the locked source image. Upscale this exact image to 8K high-fidelity quality without changing the composition, camera angle, framing, lighting, color palette, objects, or environment.\n\n\nEnhance only the image quality: sharper texture detail, cleaner edges, realistic wood grain, aged metal patina, chipped paint, scratches, dust, rust, window smudges, natural film grain, improved depth, and photorealistic 8K clarity.\n\nDo not redesign anything. Do not add people. Do not remove or change objects. Keep the image identical, only upscale and enhance fidelity.\n\nNEGATIVE PROMPT: new objects, changed tram design, modern train look, people, extra seats, changed lighting, over-sharpening, plastic texture, CGI look, cartoon style, warped windows, distorted benches, text, watermark dont change lighting.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "1d9b9012-5a81-4ee5-8768-8ba9638df04b",
+              "type": "nano_banana_2_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_101736_1d9b9012-5a81-4ee5-8768-8ba9638df04b.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115058_c275836a-25a9-4d4b-8e05-53974566af72.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_115058_c275836a-25a9-4d4b-8e05-53974566af72_min.webp"
+        },
+        "createdAt": 1783511458.009737
+      },
+      {
+        "id": "b4cb1477-b9ca-447e-8e51-b75e9fcea490",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the locked source image. Upscale this exact image to 8K high-fidelity quality without changing the composition, camera angle, framing, lighting, color palette, objects, or environment.\n\n\nEnhance only the image quality: sharper texture detail, cleaner edges, realistic wood grain, aged metal patina, chipped paint, scratches, dust, rust, window smudges, soft golden highlights, natural film grain, improved depth, and photorealistic 8K clarity.\n\nDo not redesign anything. Do not add people. Do not remove or change objects. Keep the image identical, only upscale and enhance fidelity.\n\nNEGATIVE PROMPT: new objects, changed tram design, modern train look, people, extra seats, changed lighting, over-sharpening, plastic texture, CGI look, cartoon style, warped windows, distorted benches, text, watermark.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "1d9b9012-5a81-4ee5-8768-8ba9638df04b",
+              "type": "nano_banana_2_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_101736_1d9b9012-5a81-4ee5-8768-8ba9638df04b.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_114629_b4cb1477-b9ca-447e-8e51-b75e9fcea490.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_114629_b4cb1477-b9ca-447e-8e51-b75e9fcea490_min.webp"
+        },
+        "createdAt": 1783511189.768781
+      },
+      {
+        "id": "99ea6325-65d5-4f1a-8e35-55558a5481a0",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "make everything in focus, don't change anything apart from that",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "07cd02c7-4b59-4ab3-ab9d-8d053e02579c",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/07cd02c7-4b59-4ab3-ab9d-8d053e02579c_resize.jpg"
+            },
+            {
+              "id": "cfa905b9-9326-40d2-b301-07d7cab9b856",
+              "type": "nano_banana_2_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_112953_cfa905b9-9326-40d2-b301-07d7cab9b856.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_113255_99ea6325-65d5-4f1a-8e35-55558a5481a0.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_113255_99ea6325-65d5-4f1a-8e35-55558a5481a0_min.webp"
+        },
+        "createdAt": 1783510375.688587
+      },
+      {
+        "id": "cfa905b9-9326-40d2-b301-07d7cab9b856",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use the provided still as the base image. Remove only the two foreground characters, Zain and Naisha, completely from the frame. Reconstruct the empty Kolkata street behind them naturally and realistically.\nKeep the exact same camera angle, framing, lens compression, depth of field, sunrise lighting, warm golden color grade, haze, shadows, road perspective, tram tracks, buildings, shopfronts, background taxi, pedestrians, and overall cinematic atmosphere exactly as in the original still.\nAfter removing the characters, the street should look like it was always empty in the foreground. Fill the removed area with a believable continuation of the road surface, tram tracks, curb edges, building perspective, soft background blur, and natural street texture. Match the existing focus falloff and lens blur so the reconstructed area does not look sharp, patched, painted, or artificial.\nDo not change the environment design. Do not add new objects, new people, new vehicles, new signs, new street elements, or extra props. Do not alter the yellow taxi, background pedestrians, buildings, shutters, balconies, poles, warm sunlight, or haze. Preserve the same Hollywood film-grade cinematic look.\nThe final image should be a clean empty-background plate of the same Kolkata street, with no visible trace of Zain or Naisha, no ghosting, no shadows from removed characters, no body parts, no clothing remnants, no distortion, and no AI patch marks.\nNEGATIVE PROMPT\nDo not change lighting, do not change color grade, do not add people, do not add vehicles, do not add props, do not redesign the street, do not sharpen the background, do not flatten the depth of field, do not create warped tram tracks, do not leave character shadows, do not leave ghost silhouettes, do not create blurry patches, do not create painterly textures, do not make the image look AI-generated.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "07cd02c7-4b59-4ab3-ab9d-8d053e02579c",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/07cd02c7-4b59-4ab3-ab9d-8d053e02579c_resize.jpg"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_112953_cfa905b9-9326-40d2-b301-07d7cab9b856.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_112953_cfa905b9-9326-40d2-b301-07d7cab9b856_min.webp"
+        },
+        "createdAt": 1783510193.001276
+      },
+      {
+        "id": "79eaf499-adcd-4162-8064-366472b6299e",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the main classroom reference and @image2 as the lighting and atmosphere reference only.\n\nPrompt:\n\nCreate an image that is an exact ditto copy of <<<image_1>>>. Do not change the classroom in any way. Preserve the exact same classroom design, architecture, composition, framing, camera angle, perspective, proportions, layout, furniture placement, desk arrangement, podium position, blackboard position, cupboards, bookshelf, wall frames, notice boards, clock, ceiling shape, beams, arches, windows, open shutters, floor, and every visible detail exactly as in <<<image_1>>>.\n\nThe only change should be the lighting and atmosphere.\nUse @image2 only as a mood, lighting, and atmosphere reference. Match the same dark pre-dawn / night atmosphere of @image2. The light outside the classroom windows should feel exactly like @image2 — deep blue-black early-morning darkness, with a cool, moody, cinematic tone. The exterior visible through the windows should carry the same atmosphere as @image2, and the interior lighting should respond naturally to that outside light.\n\nGive the classroom interior a very low, cool, dim blue ambient spill coming from the windows, as if it is the same time and atmosphere as @image2. Keep the room dark, moody, subtle, and realistic, with the furniture and architecture still visible but not brightly lit. The walls, desks, podium, and floor should catch only a soft, minimal blue pre-dawn illumination. No warm morning light. No bright daylight. No redesign. Only lighting change.\n\nImportant instructions:\n\nDo not change the classroom design\nDo not move or replace anything\nDo not add or remove objects\nDo not change composition, framing, or perspective\nDo not change the architecture\nDo not add people\nDo not add extra props\nDo not stylize or redesign the space\nUse @image2 only for atmosphere and lighting\nKeep <<<image_1>>> structurally identical\nOnly the lighting should change\n\nGoal: an image that looks exactly like <<<image_1>>>, but with the same dark, cool, pre-dawn/night lighting atmosphere as @image2, with exterior and interior lighting fully matched.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "c54da126-cafc-4831-b228-155b495ff437",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_131220_c54da126-cafc-4831-b228-155b495ff437.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_105357_79eaf499-adcd-4162-8064-366472b6299e.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_105357_79eaf499-adcd-4162-8064-366472b6299e_min.webp"
+        },
+        "createdAt": 1783508037.183313
+      },
+      {
+        "id": "975bd9bf-5d9f-47e0-bdc4-b4a9794db7e0",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the main composition / architecture reference and <<<image_2>>> as the atmosphere / lighting reference.\n\nCreate the exact same image as <<<image_1>>> of the school corridor with the small visible exterior courtyard area, with no change at all to the corridor design, architecture, stone walls, arches, window shapes, wooden frames, staircase, benches, bookshelves, notice boards, floor pattern, ceiling structure, fans, wall lamps, plants, exterior foliage, camera angle, framing, perspective, lens feel, or overall composition.\n\nOnly change the lighting and atmosphere so that the scene feels like a point between <<<image_2>>> and early dawn — as if <<<image_2>>> is 10 minutes before and this image is 10 minutes after. It should still feel like very early pre-dawn blue hour, but with a little more light than <<<image_2>>>.\n\nMake it feel like around 4:10–4:20 AM, where night is still dominant but a very slight hint of morning has begun:\n\noutside light should remain cool, dark, moody, and blue-toned, very close to <<<image_2>>>\nhowever, increase the light slightly, so the exterior is just a little more visible\nthe sky should still be deep blue-black, but with a subtle early pre-dawn lift, not full night-black and not bright morning\nthe visible courtyard and exterior foliage should match this slightly brighter pre-dawn atmosphere\nthe corridor interior should receive a little more soft cool ambient spill from outside compared to <<<image_2>>>\ninterior stone walls, arches, floor, benches, bookshelves, and staircase should become slightly more readable, but still remain dim, shadowy, and low-key\nkeep the lighting natural and atmospheric, with very soft blue reflections on the floor and subtle definition in the dark areas\nthe scene should feel like night is ending very slowly, not sunrise, not morning daylight\n\nImportant:\n\ndo not redesign anything\ndo not move, remove, or add objects\ndo not change the composition\ndo not make it bright\ndo not add warm sunlight or orange dawn light\ndo not add fog, haze, people, text, extra props, or new light sources\ndo not make it look like evening or full morning\nkeep it ultra-realistic, cinematic, natural, and moody\npreserve the same quiet mysterious tone, only with a slightly increased pre-dawn brightness\n\nGoal: same corridor image as <<<image_1>>>, but with the same mood and direction as <<<image_2>>>, made slightly brighter so it feels like 10 minutes later than <<<image_2>>>, with the first faint hint of morning beginning while night still dominates.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "f1bc8539-0610-4932-8062-138746a68d50",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_125813_f1bc8539-0610-4932-8062-138746a68d50.png"
+            },
+            {
+              "id": "c0b30fdd-0ebe-47e8-82e9-7e8951437329",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_100848_c0b30fdd-0ebe-47e8-82e9-7e8951437329.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_102531_975bd9bf-5d9f-47e0-bdc4-b4a9794db7e0.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_102531_975bd9bf-5d9f-47e0-bdc4-b4a9794db7e0_min.webp"
+        },
+        "createdAt": 1783506331.131434
+      },
+      {
+        "id": "1d9b9012-5a81-4ee5-8768-8ba9638df04b",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use @image1 as the main composition / architecture reference and @image2 as the atmosphere / lighting reference.\n\nCreate the exact same image as @image1 of the school corridor with the small visible exterior courtyard area, with no change at all to the corridor design, architecture, stone walls, arches, window shapes, wooden frames, staircase, benches, bookshelves, notice boards, floor pattern, ceiling structure, fans, wall lamps, plants, exterior foliage, camera angle, framing, perspective, lens feel, or overall composition.\n\nOnly change the lighting and atmosphere so that the entire scene matches @image2 exactly.\n\nMake it feel like a deep pre-dawn / 3–4 AM night atmosphere:\n\noutside light should match @image2 exactly: very dark blue-black night, low visibility, moody, cinematic, heavy shadow, cool-toned darkness\nthe little exterior visible through the windows and arches should carry the same night mood, darkness level, and color temperature as @image2\nthe corridor interior lighting must feel naturally driven by that exterior atmosphere: very dim cool blue spill entering from outside, faint soft reflections on floor and stone, very subtle visibility on walls, arches, furniture, staircase, and plants\nkeep interior readable but significantly darker, not bright, not evenly lit\npreserve the mysterious quiet night mood, with the corridor mostly in shadow and only selective low-light definition\n\nImportant:\n\ndo not redesign anything\ndo not move or remove objects\ndo not brighten the image\ndo not add warm light\ndo not add fog, haze, people, text, extra props, or any new light sources\ndo not make it look like evening, dawn, or morning\nkeep it ultra-realistic, detailed, cinematic, natural, and dark\nmatch the outside night lighting and interior response precisely to @image2\n\nGoal: same corridor image as @image1, but fully transformed into the exact lighting, mood, darkness, and atmosphere of @image2.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "f1bc8539-0610-4932-8062-138746a68d50",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_125813_f1bc8539-0610-4932-8062-138746a68d50.png"
+            },
+            {
+              "id": "c0b30fdd-0ebe-47e8-82e9-7e8951437329",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_100848_c0b30fdd-0ebe-47e8-82e9-7e8951437329.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_101736_1d9b9012-5a81-4ee5-8768-8ba9638df04b.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_101736_1d9b9012-5a81-4ee5-8768-8ba9638df04b_min.webp"
+        },
+        "createdAt": 1783505856.575218
+      },
+      {
+        "id": "c0b30fdd-0ebe-47e8-82e9-7e8951437329",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the exact school corridor reference and <<<image_2>>> as the exact atmosphere and lighting reference. Recreate the same school corridor image from <<<image_1>>> with no change to corridor design, architecture, arches, windows, pillars, doors, benches, notice boards, wall texture, plants, exterior courtyard visibility, camera angle, framing, composition, perspective, or layout.\n\nOnly change the lighting and atmosphere to match <<<image_2>>> exactly. Make it a deep 3 AM night scene, very dark, cinematic, quiet, and low-light. The little exterior area visible outside the corridor should have the same dark blue-black night mood as <<<image_2>>>. Match the same sky darkness, shadow density, and muted night ambience.\n\nInside the corridor, lighting should feel naturally connected to the outside night atmosphere: very low cool blue night spill entering through the arches and windows, faint soft highlights on the floor, pillars, stone walls, benches, and plants, but most of the corridor should remain in shadow. The corridor should be visible but not clearly bright. Keep details readable only subtly, like real 3 AM darkness.\n\nPreserve all small details carefully: stone blocks, wooden doors, arched frames, window glass, benches, ceiling fans, notice boards, potted plants, floor texture, and exterior plants. No redesign, no people, no vehicles, no extra lights, no warm lights, no fog, no bloom, no over-brightening, no grey dawn, no morning look. Keep it ultra-realistic, dark, natural, and cinematic.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "d25f8dff-ba0e-43c9-b8f4-cccc83a1ffc1",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_130255_d25f8dff-ba0e-43c9-b8f4-cccc83a1ffc1.png"
+            },
+            {
+              "id": "d86aad7a-94d0-44ac-ac33-6f6940323b5e",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_081008_d86aad7a-94d0-44ac-ac33-6f6940323b5e.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_100848_c0b30fdd-0ebe-47e8-82e9-7e8951437329.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_100848_c0b30fdd-0ebe-47e8-82e9-7e8951437329_min.webp"
+        },
+        "createdAt": 1783505328.153322
+      },
+      {
+        "id": "31604d13-418f-4363-be70-7c6969a7dae4",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the main school reference and <<<image_2>>> as the atmosphere and lighting reference.\n\nRecreate the exact same school image from <<<image_1>>>. Do not change anything in the school design, architecture, facade details, windows, arches, courtyard layout, trees, plants, perspective, camera angle, framing, composition, proportions, or overall scene structure. Keep the image visually the same as <<<image_1>>>.\n\nOnly change the atmosphere, mood, and lighting so that it matches <<<image_2>>> exactly. Apply the same deep dark night ambience, same low-light cinematic mood, same shadow density, same dark blue-black sky, same overall darkness level, and same subtle night illumination as seen in <<<image_2>>>. The school should remain visible, but the entire scene should feel much darker and moodier, with the same night tone and lighting balance as <<<image_2>>>.\n\nImportant: preserve all details from <<<image_1>>> exactly, but transfer the lighting and atmosphere language of <<<image_2>>> onto it. No redesign, no added elements, no removed elements, no people, no vehicles, no extra lights, no fog, no bloom, no composition change. Keep it ultra-realistic, cinematic, dark, and natural.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "a5c5294c-dd69-49b9-a6fa-a38fba840280",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_075959_a5c5294c-dd69-49b9-a6fa-a38fba840280.png"
+            },
+            {
+              "id": "d86aad7a-94d0-44ac-ac33-6f6940323b5e",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_081008_d86aad7a-94d0-44ac-ac33-6f6940323b5e.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_095211_31604d13-418f-4363-be70-7c6969a7dae4.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_095211_31604d13-418f-4363-be70-7c6969a7dae4_min.webp"
+        },
+        "createdAt": 1783504331.173339
+      },
+      {
+        "id": "924e68ea-3727-4612-883f-9286569c3b83",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the main composition and architecture reference and <<<image_2>>> as the lighting, darkness, and atmosphere reference.\n\nRecreate the exact same school exterior from <<<image_1>>> with no change at all to the school building design, architecture, windows, arches, guard room, gate placement, trees, plants, paving, perspective, camera angle, framing, composition, proportions, or overall layout. The school, foreground, and all structural elements must stay visually identical to <<<image_1>>>.\n\nOnly make this one structural change:\nRemove all the black boundary fencing / iron grill sections in front and on both sides, and replace them with a full solid boundary wall continuing across the same areas, using the same stone / masonry material, texture, color, and style as the existing lower boundary wall, raised up to the same height level as the fencing.\n\nNow apply the exact same atmosphere, lighting, and night mood from <<<image_2>>>. The final image should have the same dark 3 AM / deep-night feeling, same moody low-light ambience, same dark sky feeling, same shadow density, same quiet cinematic atmosphere, and same overall darkness level as <<<image_2>>>. The school should be visible but very dark, not brightly lit. Keep the facade mostly in shadow, with only subtle low ambient night illumination so details are faintly readable. The sky should feel deep night, dark and moody, matching <<<image_2>>>.\n\nImportant:\n\nKeep the atmosphere exactly like <<<image_2>>>\nKeep the composition and school design exactly like <<<image_1>>>\nDo not redesign anything\nDo not add people, vehicles, extra lights, mist, bloom, or new objects\nPreserve all small details carefully: stone texture, windows, arches, foliage, guard room, gate, and wall texture\nRealistic cinematic look, high detail, natural shadows, deep-night mood.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "3b8e6bd0-49b9-42fe-8613-2e6ebf98037b",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260707_072336_3b8e6bd0-49b9-42fe-8613-2e6ebf98037b.png"
+            },
+            {
+              "id": "d86aad7a-94d0-44ac-ac33-6f6940323b5e",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_081008_d86aad7a-94d0-44ac-ac33-6f6940323b5e.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_094229_924e68ea-3727-4612-883f-9286569c3b83.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_094229_924e68ea-3727-4612-883f-9286569c3b83_min.webp"
+        },
+        "createdAt": 1783503749.303388
+      },
+      {
+        "id": "65108555-1964-421b-b7b5-72c398bb288c",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "REALISTIC NORTH KOLKATA ROOFTOP WITH ANGEL NEON IN DEPTH\nCreate a photorealistic cinematic night rooftop environment in North Kolkata, with a soft, real, grounded movie look. This should not feel like a fantasy rooftop, AI render, concept art, or overly designed set. It should feel like a real premium restored heritage building rooftop where a romantic night scene could happen.\nThis is an empty environment only.\nNo people, no characters, no silhouettes.\nENVIRONMENT\nA clean, well-maintained rooftop terrace of a heritage North Kolkata building, restored with care. The architecture should feel old Kolkata but premium: lime-plaster parapet walls, old cornice detailing, aged but maintained masonry, shuttered windows on surrounding buildings, warm apartment windows in the distance, small rooftop details, and soft humid night haze.\nThe terrace should be mostly open and playable, with enough space for later character blocking. It should not look abandoned, dirty, broken, or grungy. It should also not look like a modern luxury penthouse.\nInclude a small old-Kolkata-style pump / engine / store-room structure on the terrace, placed organically to one side or corner. It should feel like part of the building: plastered walls, simple wooden or metal door, old ventilation grille, maybe a low tiled or flat roof. Keep it subtle and realistic.\nDo not include a glass skylight, glass pyramid, glass roof structure, modern rooftop block, chimney, or water tank.\nNEON SIGNAGE IN BACKGROUND DEPTH\nIn the background, on a different nearby building, place a large rooftop neon sign of a flying angel blowing a trumpet. The sign is not part of the main terrace. It should sit slightly behind the terrace in depth, close enough that its light softly spills onto the main terrace floor and parapet.\nThe angel sign should feel like a real large physical rooftop sign: metal support frame, visible practical construction, slightly imperfect alignment, believable scale, realistic glow falloff.\nThe angel design should be graphic and readable: wings spread, robe flowing, trumpet extended forward. Keep the sign elegant and iconic, not cartoonish.\nNeon colour logic\nUse the same colour family as a classic cyan marquee hotel sign:\ndominant deep cyan / turquoise / aqua glow\nsoft neon tube edges\nsubtle practical bulb texture only where believable\nrealistic bloom, not overblown\ncool cyan spill on the terrace floor and parapet\nsoft haze catching the sign light\nAdd a small secondary sign near the lower part of the billboard structure:\nNO VACANCY\nBut very important:\n“NO” should be present but unlit / switched off / dark\n“VACANCY” should be lit in soft red neon\nThe red should be a small accent only, not overpowering the cyan mood.\nLIGHTING AND MOOD\nKeep the overall lighting soft, cinematic, realistic, and restrained.\nThe mood should be:\ndeep blue Kolkata night\nsubtle stars, not an exaggerated fantasy sky\ngentle cyan spill from the angel sign\nwarm window lights from surrounding North Kolkata buildings\nsoft humid haze\nrealistic low-light exposure\nopen shadows, rich midtones, soft highlights\nno harsh CGI glow\nno hyper-clean digital look\nThe rooftop should feel premium and atmospheric, but grounded in reality.\nCAMERA / COMPOSITION\nVery wide cinematic establishing shot, 21:9 aspect ratio.\nCamera at eye level or slightly low, not a drone shot. The foreground terrace should take up the lower half of the frame with clean negative space. The neon angel sign should sit in the background depth, large enough to influence the frame, but clearly on another building beyond the terrace.\nThe composition should feel like a real film location, not a poster or fantasy illustration.\nVISUAL STYLE\nPhotorealistic cinematic realism.\nARRI Alexa 35 style, Cooke anamorphic softness, natural low-light exposure, subtle film grain, soft halation, controlled bloom, realistic texture, realistic architecture, real-world Kolkata atmosphere.\nThe final result should feel like a live-action movie frame, not AI-generated.\nNEGATIVE PROMPT\nNo people, no characters, no silhouettes, no dancing couple, no fantasy rooftop, no AI render look, no cartoonish angel, no giant fake LED screen, no overly perfect bulb grid, no exaggerated glow, no over-saturated cyan, no fantasy starfield, no glass skylight, no glass pyramid, no chimney, no water tank, no modern penthouse, no futuristic rooftop, no cyberpunk city, no generic American rooftop, no Western skyline, no huge glass towers, no dirty abandoned terrace, no broken floor, no grungy decay, no clutter, no furniture, no phone numbers, no contact-us text, no extra signage, no “HOTEL ARKHAM” text, no “NO” lit up, no warm sunset lighting, no daylight, no watermark, no subtitles.\n",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_092310_65108555-1964-421b-b7b5-72c398bb288c.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_092310_65108555-1964-421b-b7b5-72c398bb288c_min.webp"
+        },
+        "createdAt": 1783502590.199242
+      },
+      {
+        "id": "877465ce-26aa-403a-903d-08a36c3740dd",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "REALISTIC NORTH KOLKATA ROOFTOP WITH ANGEL NEON IN DEPTH\nCreate a photorealistic cinematic night rooftop environment in North Kolkata, with a soft, real, grounded movie look. This should not feel like a fantasy rooftop, AI render, concept art, or overly designed set. It should feel like a real premium restored heritage building rooftop where a romantic night scene could happen.\nThis is an empty environment only.\nNo people, no characters, no silhouettes.\nENVIRONMENT\nA clean, well-maintained rooftop terrace of a heritage North Kolkata building, restored with care. The architecture should feel old Kolkata but premium: lime-plaster parapet walls, old cornice detailing, aged but maintained masonry, shuttered windows on surrounding buildings, warm apartment windows in the distance, small rooftop details, and soft humid night haze.\nThe terrace should be mostly open and playable, with enough space for later character blocking. It should not look abandoned, dirty, broken, or grungy. It should also not look like a modern luxury penthouse.\nInclude a small old-Kolkata-style pump / engine / store-room structure on the terrace, placed organically to one side or corner. It should feel like part of the building: plastered walls, simple wooden or metal door, old ventilation grille, maybe a low tiled or flat roof. Keep it subtle and realistic.\nDo not include a glass skylight, glass pyramid, glass roof structure, modern rooftop block, chimney, or water tank.\nNEON SIGNAGE IN BACKGROUND DEPTH\nIn the background, on a different nearby building, place a large rooftop neon sign of a flying angel blowing a trumpet. The sign is not part of the main terrace. It should sit slightly behind the terrace in depth, close enough that its light softly spills onto the main terrace floor and parapet.\nThe angel sign should feel like a real large physical rooftop sign: metal support frame, visible practical construction, slightly imperfect alignment, believable scale, realistic glow falloff.\nThe angel design should be graphic and readable: wings spread, robe flowing, trumpet extended forward. Keep the sign elegant and iconic, not cartoonish.\nNeon colour logic\nUse the same colour family as a classic cyan marquee hotel sign:\ndominant deep cyan / turquoise / aqua glow\nsoft neon tube edges\nsubtle practical bulb texture only where believable\nrealistic bloom, not overblown\ncool cyan spill on the terrace floor and parapet\nsoft haze catching the sign light\nAdd a small secondary sign near the lower part of the billboard structure:\nNO VACANCY\nBut very important:\n“NO” should be present but unlit / switched off / dark\n“VACANCY” should be lit in soft red neon\nThe red should be a small accent only, not overpowering the cyan mood.\nLIGHTING AND MOOD\nKeep the overall lighting soft, cinematic, realistic, and restrained.\nThe mood should be:\ndeep blue Kolkata night\nsubtle stars, not an exaggerated fantasy sky\ngentle cyan spill from the angel sign\nwarm window lights from surrounding North Kolkata buildings\nsoft humid haze\nrealistic low-light exposure\nopen shadows, rich midtones, soft highlights\nno harsh CGI glow\nno hyper-clean digital look\nThe rooftop should feel premium and atmospheric, but grounded in reality.\nCAMERA / COMPOSITION\nVery wide cinematic establishing shot, 21:9 aspect ratio.\nCamera at eye level or slightly low, not a drone shot. The foreground terrace should take up the lower half of the frame with clean negative space. The neon angel sign should sit in the background depth, large enough to influence the frame, but clearly on another building beyond the terrace.\nThe composition should feel like a real film location, not a poster or fantasy illustration.\nVISUAL STYLE\nPhotorealistic cinematic realism.\nARRI Alexa 35 style, Cooke anamorphic softness, natural low-light exposure, subtle film grain, soft halation, controlled bloom, realistic texture, realistic architecture, real-world Kolkata atmosphere.\nThe final result should feel like a live-action movie frame, not AI-generated.\nNEGATIVE PROMPT\nNo people, no characters, no silhouettes, no dancing couple, no fantasy rooftop, no AI render look, no cartoonish angel, no giant fake LED screen, no overly perfect bulb grid, no exaggerated glow, no over-saturated cyan, no fantasy starfield, no glass skylight, no glass pyramid, no chimney, no water tank, no modern penthouse, no futuristic rooftop, no cyberpunk city, no generic American rooftop, no Western skyline, no huge glass towers, no dirty abandoned terrace, no broken floor, no grungy decay, no clutter, no furniture, no phone numbers, no contact-us text, no extra signage, no “HOTEL ARKHAM” text, no “NO” lit up, no warm sunset lighting, no daylight, no watermark, no subtitles.\n",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_092310_877465ce-26aa-403a-903d-08a36c3740dd.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_092310_877465ce-26aa-403a-903d-08a36c3740dd_min.webp"
+        },
+        "createdAt": 1783502590.199207
+      },
+      {
+        "id": "bca59083-fe14-41f0-8b6f-9d9158003f95",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a very wide cinematic night rooftop environment with a deep cobalt-blue starry sky, cool cyan ambient light, soft atmospheric haze, and a premium empty terrace in an old Kolkata urban setting.\nThis is an environment-only generation.\nNo people. No characters.\nLOCATION / TERRACE DESIGN\nThe foreground terrace should feel like the rooftop of a well-maintained heritage North Kolkata building — elegant, spacious, premium, atmospheric, and slightly theatrical, while still believable as a real Kolkata rooftop.\nThe terrace should have:\na large open playable foreground\nclean flat terrace flooring\nlow parapet walls\nstrong negative space\na few minimal rooftop utility details, but overall a clean, uncluttered look\none small pump / engine / store-room type utility structure, integrated organically into the terrace, designed in a way that suits an old Kolkata heritage building\nthis utility structure should feel modest, practical, and visually compatible with the architecture — not industrial-modern\nthe terrace should feel maintained and premium, not broken, abandoned, or decayed\nIMPORTANT TERRACE EXCLUSIONS\nno glass skylight\nno glass pyramid / glass roof structure\nno bulky right-edge rooftop block\nno tall chimney\nno water tank\nBILLBOARD / NEON SIGN\nThe main visual feature should be a large rooftop billboard placed on another nearby building in the background, not on the same terrace as the foreground rooftop.\nThis billboard should feature:\na large flying angel figure blowing a trumpet\nwings spread, robe flowing, trumpet extended outward\nmounted on a visible billboard frame / scaffolding structure\npositioned slightly behind in depth\nclearly not part of the foreground terrace\nbut close enough that its glow creates visible cyan light spill across the main terrace floor and parapets\nANGEL SIGN LIGHTING\nThe angel sign should be colour coded in the exact same lighting family as the giant HOTEL ARKHAM sign from a noir rooftop frame, so that the mood does not change:\ndominant cool cyan / turquoise / aqua glow\nbright dotted marquee-bulb texture\nluminous retro billboard feel\nsoft halo / bloom around the sign\nsubtle atmospheric haze catching the light\nthe angel sign should feel like the primary cool light source in the composition\n“NO VACANCY” SIGN\nInclude a secondary neon sign mounted near the lower part of the billboard structure.\nVery important:\nthe sign should read NO VACANCY\nthe word “NO” should be present but unlit / switched off / dark\nthe word “VACANCY” should be illuminated in red neon\nthis creates the same moody red accent without changing the overall rooftop lighting balance\nSURROUNDING ARCHITECTURE\nThe surrounding buildings should feel unmistakably like North Kolkata, not generic Western city rooftops.\nInclude:\nold Kolkata residential / commercial buildings\ncolonial-era facade language\nparapets, cornices, old window rhythms, rooftop edges\na few softly glowing warm windows\natmospheric depth with slightly hazy silhouettes\nthe skyline should feel like old North Kolkata at night\nCOMPOSITION / CAMERA\nvery wide establishing shot\nslightly low angle or eye-level angle\nthe foreground terrace occupies a large portion of the frame\nthe billboard sits behind in depth and dominates the upper background\nmaintain strong scale, clean staging, and a powerful sense of neon light spill\nthe terrace should feel like an empty cinematic playing space waiting for scene action\nOVERALL MOOD\nThe final frame should feel:\ncinematic\npremium\nmoody\nromantic-noir\nquiet and empty\nslightly surreal\nelegant and stylized\nurban yet poetic\ncool-toned with strong cyan atmosphere and red accent contrast\nNEGATIVE PROMPT\nNo people, no characters, no dancing couple, no human figures, no furniture, no glass skylight, no glass pyramid roof, no water tank, no chimney, no bulky rooftop block on the right edge, no modern industrial rooftop clutter, no dirty broken terrace, no cracked run-down floor, no decayed walls, no cyberpunk overload, no extra billboards, no contact numbers, no “contact us” text, no multicolor rainbow neon, no generic Western skyline, no American rooftop language, no modern high-rise glass towers dominating the frame, no daylight, no sunset, no warm golden scene, no weak neon spill, no watermark, no subtitles.\n",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_091830_bca59083-fe14-41f0-8b6f-9d9158003f95.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_091830_bca59083-fe14-41f0-8b6f-9d9158003f95_min.webp"
+        },
+        "createdAt": 1783502310.554855
+      },
+      {
+        "id": "606e8075-a172-4b07-b9c3-f312bf0ca624",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a very wide cinematic night rooftop environment with a deep cobalt-blue starry sky, cool cyan ambient light, soft atmospheric haze, and a premium empty terrace in an old Kolkata urban setting.\nThis is an environment-only generation.\nNo people. No characters.\nLOCATION / TERRACE DESIGN\nThe foreground terrace should feel like the rooftop of a well-maintained heritage North Kolkata building — elegant, spacious, premium, atmospheric, and slightly theatrical, while still believable as a real Kolkata rooftop.\nThe terrace should have:\na large open playable foreground\nclean flat terrace flooring\nlow parapet walls\nstrong negative space\na few minimal rooftop utility details, but overall a clean, uncluttered look\none small pump / engine / store-room type utility structure, integrated organically into the terrace, designed in a way that suits an old Kolkata heritage building\nthis utility structure should feel modest, practical, and visually compatible with the architecture — not industrial-modern\nthe terrace should feel maintained and premium, not broken, abandoned, or decayed\nIMPORTANT TERRACE EXCLUSIONS\nno glass skylight\nno glass pyramid / glass roof structure\nno bulky right-edge rooftop block\nno tall chimney\nno water tank\nBILLBOARD / NEON SIGN\nThe main visual feature should be a large rooftop billboard placed on another nearby building in the background, not on the same terrace as the foreground rooftop.\nThis billboard should feature:\na large flying angel figure blowing a trumpet\nwings spread, robe flowing, trumpet extended outward\nmounted on a visible billboard frame / scaffolding structure\npositioned slightly behind in depth\nclearly not part of the foreground terrace\nbut close enough that its glow creates visible cyan light spill across the main terrace floor and parapets\nANGEL SIGN LIGHTING\nThe angel sign should be colour coded in the exact same lighting family as the giant HOTEL ARKHAM sign from a noir rooftop frame, so that the mood does not change:\ndominant cool cyan / turquoise / aqua glow\nbright dotted marquee-bulb texture\nluminous retro billboard feel\nsoft halo / bloom around the sign\nsubtle atmospheric haze catching the light\nthe angel sign should feel like the primary cool light source in the composition\n“NO VACANCY” SIGN\nInclude a secondary neon sign mounted near the lower part of the billboard structure.\nVery important:\nthe sign should read NO VACANCY\nthe word “NO” should be present but unlit / switched off / dark\nthe word “VACANCY” should be illuminated in red neon\nthis creates the same moody red accent without changing the overall rooftop lighting balance\nSURROUNDING ARCHITECTURE\nThe surrounding buildings should feel unmistakably like North Kolkata, not generic Western city rooftops.\nInclude:\nold Kolkata residential / commercial buildings\ncolonial-era facade language\nparapets, cornices, old window rhythms, rooftop edges\na few softly glowing warm windows\natmospheric depth with slightly hazy silhouettes\nthe skyline should feel like old North Kolkata at night\nCOMPOSITION / CAMERA\nvery wide establishing shot\nslightly low angle or eye-level angle\nthe foreground terrace occupies a large portion of the frame\nthe billboard sits behind in depth and dominates the upper background\nmaintain strong scale, clean staging, and a powerful sense of neon light spill\nthe terrace should feel like an empty cinematic playing space waiting for scene action\nOVERALL MOOD\nThe final frame should feel:\ncinematic\npremium\nmoody\nromantic-noir\nquiet and empty\nslightly surreal\nelegant and stylized\nurban yet poetic\ncool-toned with strong cyan atmosphere and red accent contrast\nNEGATIVE PROMPT\nNo people, no characters, no dancing couple, no human figures, no furniture, no glass skylight, no glass pyramid roof, no water tank, no chimney, no bulky rooftop block on the right edge, no modern industrial rooftop clutter, no dirty broken terrace, no cracked run-down floor, no decayed walls, no cyberpunk overload, no extra billboards, no contact numbers, no “contact us” text, no multicolor rainbow neon, no generic Western skyline, no American rooftop language, no modern high-rise glass towers dominating the frame, no daylight, no sunset, no warm golden scene, no weak neon spill, no watermark, no subtitles.\n",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_091830_606e8075-a172-4b07-b9c3-f312bf0ca624.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_091830_606e8075-a172-4b07-b9c3-f312bf0ca624_min.webp"
+        },
+        "createdAt": 1783502310.55482
+      },
+      {
+        "id": "ea664536-da6c-4025-9751-cbb6fb7b01b5",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a very wide cinematic night rooftop environment with the same overall mood as a stylized urban noir rooftop musical frame: deep cobalt-blue night sky filled with small stars, cool cyan ambient light, strong neon spill, and a clean open terrace foreground.\nThis is an empty rooftop environment only — no characters, no people.\nENVIRONMENT / LOCATION\nThe main terrace should feel like the rooftop of a well-maintained heritage North Kolkata building. It should feel elegant, premium, spacious, and slightly theatrical, but still believable as a real rooftop in old Kolkata.\nThe terrace should have:\na large open playable foreground\nclean flat terrace flooring\nlow parapet walls\na sense of generous negative space\na few subtle, organically placed rooftop utility elements, but not cluttered\none water tank placed naturally on the terrace, ideally tucked into one corner or one side, integrated organically into the composition\nthe terrace should feel clean and maintained, not broken, grungy, abandoned, or run-down\nno glass skylight\nno jutting glass roof structure\nno bulky utility room on the right edge\nno tall chimney structure on the terrace\nBILLBOARD / SIGNAGE\nThe key visual feature is a large rooftop billboard in the background, mounted on a different nearby building, not on the same terrace as the foreground rooftop.\nThis billboard should be:\na large neon angel figure blowing a trumpet\ninspired by a classic flying angel silhouette with wings spread and trumpet extended forward\nmounted on a visible billboard frame/scaffolding structure\npositioned slightly behind in depth, so it clearly belongs to another building\nclose enough that its neon light casts a strong cyan / turquoise light spill across the foreground terrace\nlarge enough to loom prominently in frame, just like a giant iconic rooftop sign\nVERY IMPORTANT COLOR / LIGHTING NOTE\nThe angel sign should not use random multicolor neon.\nIt should be color coded exactly in the same lighting family as the giant HOTEL ARKHAM sign from a noir rooftop frame:\ndominant cool cyan / turquoise / aqua neon glow\nbright dotted marquee-bulb texture across the sign\na luminous retro billboard quality\nsoft bloom and atmospheric haze around the sign\nthe sign should feel like the main source of cool light in the scene\nkeep the overall mood unchanged: moody, dreamy, cool, cinematic, romantic, urban-noir\nAlso include a small red “NO VACANCY” neon sign attached near the lower part of the billboard structure as a secondary accent, to preserve the same red-vs-cyan contrast.\nSURROUNDING ARCHITECTURE\nThe surrounding buildings beyond the terrace should feel like North Kolkata architecture, not generic American rooftops.\nInclude:\nold Kolkata residential/commercial building silhouettes\ncolonial-era facades\nweathered but dignified North Kolkata building massing\nparapets, cornices, terraces, old window rhythms\na few warm lit windows in surrounding buildings\noverall skyline should feel like old North Kolkata at night\nkeep the surrounding buildings atmospheric and slightly softened by haze\nCOMPOSITION / CAMERA\nvery wide establishing shot\nslightly low or eye-level angle\nthe foreground terrace occupies a large portion of the frame\nthe billboard sits behind in depth and dominates the upper background\nthe empty terrace should feel cinematic and stage-like, with strong negative space\npreserve a strong sense of scale, mood, and light spill\nOVERALL FEEL\nThe image should feel:\ncinematic\npremium\nmoody\nslightly surreal\nurban noir\nelegant and stylized\nquiet and empty\nvisually bold but not cluttered\nlike a rooftop space waiting for a scene to happen\nNEGATIVE PROMPT\nNo people, no characters, no dancing couple, no human figures, no furniture, no glass skylight, no glass pyramid structure, no rooftop room on the right edge, no chimney, no bulky modern utility block, no dirty ruined terrace, no broken floor, no cracked rundown heritage decay, no cyberpunk clutter, no extra billboards, no phone numbers, no “contact us” text, no warm sunset lighting, no daylight, no generic Western city skyline, no modern high-rise glass towers dominating the frame, no cartoonish angel, no multicolor rainbow sign, no weak neon spill, no cluttered rooftop props, no watermark, no subtitles.\n",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_090550_ea664536-da6c-4025-9751-cbb6fb7b01b5.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_090550_ea664536-da6c-4025-9751-cbb6fb7b01b5_min.webp"
+        },
+        "createdAt": 1783501550.163229
+      },
+      {
+        "id": "abf1e976-75b7-4ff6-9c60-ecbe060d911a",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a very wide cinematic night rooftop environment with the same overall mood as a stylized urban noir rooftop musical frame: deep cobalt-blue night sky filled with small stars, cool cyan ambient light, strong neon spill, and a clean open terrace foreground.\nThis is an empty rooftop environment only — no characters, no people.\nENVIRONMENT / LOCATION\nThe main terrace should feel like the rooftop of a well-maintained heritage North Kolkata building. It should feel elegant, premium, spacious, and slightly theatrical, but still believable as a real rooftop in old Kolkata.\nThe terrace should have:\na large open playable foreground\nclean flat terrace flooring\nlow parapet walls\na sense of generous negative space\na few subtle, organically placed rooftop utility elements, but not cluttered\none water tank placed naturally on the terrace, ideally tucked into one corner or one side, integrated organically into the composition\nthe terrace should feel clean and maintained, not broken, grungy, abandoned, or run-down\nno glass skylight\nno jutting glass roof structure\nno bulky utility room on the right edge\nno tall chimney structure on the terrace\nBILLBOARD / SIGNAGE\nThe key visual feature is a large rooftop billboard in the background, mounted on a different nearby building, not on the same terrace as the foreground rooftop.\nThis billboard should be:\na large neon angel figure blowing a trumpet\ninspired by a classic flying angel silhouette with wings spread and trumpet extended forward\nmounted on a visible billboard frame/scaffolding structure\npositioned slightly behind in depth, so it clearly belongs to another building\nclose enough that its neon light casts a strong cyan / turquoise light spill across the foreground terrace\nlarge enough to loom prominently in frame, just like a giant iconic rooftop sign\nVERY IMPORTANT COLOR / LIGHTING NOTE\nThe angel sign should not use random multicolor neon.\nIt should be color coded exactly in the same lighting family as the giant HOTEL ARKHAM sign from a noir rooftop frame:\ndominant cool cyan / turquoise / aqua neon glow\nbright dotted marquee-bulb texture across the sign\na luminous retro billboard quality\nsoft bloom and atmospheric haze around the sign\nthe sign should feel like the main source of cool light in the scene\nkeep the overall mood unchanged: moody, dreamy, cool, cinematic, romantic, urban-noir\nAlso include a small red “NO VACANCY” neon sign attached near the lower part of the billboard structure as a secondary accent, to preserve the same red-vs-cyan contrast.\nSURROUNDING ARCHITECTURE\nThe surrounding buildings beyond the terrace should feel like North Kolkata architecture, not generic American rooftops.\nInclude:\nold Kolkata residential/commercial building silhouettes\ncolonial-era facades\nweathered but dignified North Kolkata building massing\nparapets, cornices, terraces, old window rhythms\na few warm lit windows in surrounding buildings\noverall skyline should feel like old North Kolkata at night\nkeep the surrounding buildings atmospheric and slightly softened by haze\nCOMPOSITION / CAMERA\nvery wide establishing shot\nslightly low or eye-level angle\nthe foreground terrace occupies a large portion of the frame\nthe billboard sits behind in depth and dominates the upper background\nthe empty terrace should feel cinematic and stage-like, with strong negative space\npreserve a strong sense of scale, mood, and light spill\nOVERALL FEEL\nThe image should feel:\ncinematic\npremium\nmoody\nslightly surreal\nurban noir\nelegant and stylized\nquiet and empty\nvisually bold but not cluttered\nlike a rooftop space waiting for a scene to happen\nNEGATIVE PROMPT\nNo people, no characters, no dancing couple, no human figures, no furniture, no glass skylight, no glass pyramid structure, no rooftop room on the right edge, no chimney, no bulky modern utility block, no dirty ruined terrace, no broken floor, no cracked rundown heritage decay, no cyberpunk clutter, no extra billboards, no phone numbers, no “contact us” text, no warm sunset lighting, no daylight, no generic Western city skyline, no modern high-rise glass towers dominating the frame, no cartoonish angel, no multicolor rainbow sign, no weak neon spill, no cluttered rooftop props, no watermark, no subtitles.\n",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_090550_abf1e976-75b7-4ff6-9c60-ecbe060d911a.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_090550_abf1e976-75b7-4ff6-9c60-ecbe060d911a_min.webp"
+        },
+        "createdAt": 1783501550.163189
+      },
+      {
+        "id": "d86aad7a-94d0-44ac-ac33-6f6940323b5e",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the exact school reference. Recreate the same school exterior exactly, with no change to the building design, architecture, windows, guard room, gate placement, trees, plants, pavement, camera angle, framing, composition, perspective, or layout.\n\nOnly change the boundary and night lighting:\n\nRemove all black boundary fencing / iron grill sections in front and on both sides. Replace them with a full solid stone boundary wall continuing across the same areas, using the same stone / masonry material, texture, color, and style as the existing lower boundary wall, raised up to the same height as the current fencing.\n\nChange the scene to deep 3:00 AM night. The building should not be clearly visible; it should be mostly swallowed by darkness, with only faint shapes, outlines, stone texture hints, and small portions of facade barely readable. The sky should be near black / very deep navy, not blue morning, not grey dawn. Keep the school dark, silent, moody, and realistic, like a campus seen at 3 AM before sunrise.\n\nLighting should be extremely low: only very faint ambient night spill, subtle distant street-light falloff touching a few wall edges, very soft shadows, low contrast visibility, no bright highlights. The wall lighting must match the dark atmosphere and should not reveal the full building clearly. Keep the foreground, trees, and stone walls dim and natural.\n\nNo people, no vehicles, no extra lights, no redesign, no sunrise, no bright blue sky, no daylight look, no overexposed walls.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "504a175a-4774-4cc2-9079-b95941d9bd63",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_075413_504a175a-4774-4cc2-9079-b95941d9bd63.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_081008_d86aad7a-94d0-44ac-ac33-6f6940323b5e.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_081008_d86aad7a-94d0-44ac-ac33-6f6940323b5e_min.webp"
+        },
+        "createdAt": 1783498208.060834
+      },
+      {
+        "id": "090d8a63-92c8-4031-87af-c13978041555",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the exact reference for the school. Recreate the same school exterior exactly with no change to the building design, architecture, windows, guard room, gate placement, trees, plants, pavement, camera angle, framing, composition, perspective, or overall layout.\n\nOnly make these changes:\n\nRemove all black boundary fencing / iron grill sections in front and on both sides.\nReplace them with a full solid boundary wall continuing across those same areas, using the same stone / masonry material, texture, color, and style as the existing lower boundary wall, raised up to the same height as the current fencing.\nChange the time to 3:00 AM pre-dawn / full night. The scene should feel like deep night, not dawn and not evening.\nThe sky should be very dark, almost black with only a faint deep navy tone, less blue, no sunrise feel, no grey early morning feel.\nKeep the entire atmosphere quiet, moody, cinematic, and low-light, with a realistic 3 AM night ambience.\nAdd very subtle, low-intensity ambient night light so the school remains visible, but the image should still feel dark overall.\nThe light falling on the walls should be soft and minimal, matching the dark atmosphere — like faint spill from distant street lighting or a very subtle warm practical glow, gently brushing parts of the stone facade and boundary wall without making the scene bright.\nKeep the wall lighting controlled and localized, with soft falloff, so the building remains mostly in shadow and the mood stays night-like.\nMaintain realistic dark contrast, soft shadow detail, slightly damp / cool night feeling, and natural texture visibility in the stonework and vegetation.\n\nImportant: do not redesign anything, do not add people, do not add vehicles, do not add strong lights, do not make it look blue morning, and do not brighten the scene too much. The final image should feel like the same school at 3 AM, with a full boundary wall instead of fencing.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "504a175a-4774-4cc2-9079-b95941d9bd63",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_075413_504a175a-4774-4cc2-9079-b95941d9bd63.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_080615_090d8a63-92c8-4031-87af-c13978041555.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_080615_090d8a63-92c8-4031-87af-c13978041555_min.webp"
+        },
+        "createdAt": 1783497975.168268
+      },
+      {
+        "id": "0510eb55-68e2-46ca-9b5c-0ec46874f4ca",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a cinematic empty night rooftop environment in a wide establishing frame, with a deep blue starry sky, soft atmospheric haze, and a moody urban skyline with scattered warm-lit windows in surrounding buildings.\nThe shot should feel like a premium stylized rooftop location with a clean open terrace foreground, low parapet walls, a few subtle rooftop vents, and a single small utility-room-like structure in the right-side depth. This right-side structure should be simple, clean, and rectangular, with a door or vent detail, but no chimney, no pipe, and nothing protruding upward from its roof.\nCore Composition\nThe terrace itself should be the main playable foreground space: open, clean, and uncluttered, with a strong sense of depth and negative space.\nDo not include any glass skylight or glass structure jutting out of the terrace floor.\nThe terrace floor should feel smooth, broad, slightly reflective in a subtle way, and visually premium but not glossy.\nBillboard / Neon Sign\nThe main visual feature should be a large neon angel-with-trumpet billboard glowing in the background depth.\nVery important:\nthe neon angel billboard should not be mounted on the same terrace\nit should belong to another nearby rooftop / building slightly behind in depth\nit should still be close enough for cyan-turquoise light spill to wash onto the main terrace foreground\nthe billboard should feel organically placed in the city depth, not too far away, and not part of the playable terrace\nThe angel sign should be:\na large flying angel figure blowing a trumpet\ndesigned as a retro marquee / neon billboard\nglowing in the same cool cyan / turquoise / aqua color family\nwith bright dotted bulb-like internal light texture\nsurrounded by soft cyan haze and bloom\nlarge enough to loom prominently in the frame and dominate the mood\nBelow or near the angel billboard structure, include a small red neon “NO VACANCY” sign as a secondary accent element to preserve the same color contrast and noir mood.\nLighting / Mood\nThe overall mood should remain exactly in the same family as the previous successful results:\ncool cyan-blue ambient night lighting\nstrong cyan spill from the angel sign onto the terrace\nsoft red accent from the “NO VACANCY” sign\ndeep blue night sky with visible stars\nsubtle haze in the air\nwarm window lights in distant surrounding buildings\ncinematic, premium, moody, empty, atmospheric, slightly surreal, urban-noir feeling\nCamera / Framing\nUse a very wide cinematic establishing shot, eye-level to slightly low angle, with a balanced composition and strong depth.\nThe terrace foreground should feel spacious and empty.\nThe billboard should sit in the background depth, large in frame, but clearly separated from the terrace itself.\nImportant Environment Notes\nempty rooftop only\nno people\nno characters\nno furniture\nno dancing couple\nno glass skylight\nno chimney over the right-side structure\nbillboard in nearby background depth, not on same terrace\nmaintain same lighting mood and spill\nVisual Style\nUltra cinematic, premium stylized realism, elegant production design, clean environmental storytelling, subtle filmic haze, soft glow, rich night contrast, controlled negative space, and moody urban atmosphere.\nNEGATIVE PROMPT\nNo people, no characters, no couple, no dancing figures, no glass skylight, no glass roof structure on the terrace floor, no chimney, no roof pipe above the right-side utility structure, no billboard attached to the same terrace, no billboard too far away, no loss of cyan light spill on the terrace, no cluttered rooftop, no dirty broken terrace, no worn-out walls, no grunge decay, no cheap cyberpunk look, no extra signage, no contact numbers, no overly bright daylight, no sunset, no warm overall grade, no crowded skyline, no vehicles, no watermark, no subtitles, no text other than a small “NO VACANCY” sign.",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_075850_0510eb55-68e2-46ca-9b5c-0ec46874f4ca.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_075850_0510eb55-68e2-46ca-9b5c-0ec46874f4ca_min.webp"
+        },
+        "createdAt": 1783497530.491718
+      },
+      {
+        "id": "9d321526-933c-4d39-bb7f-bd14d949ac84",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a cinematic empty night rooftop environment in a wide establishing frame, with a deep blue starry sky, soft atmospheric haze, and a moody urban skyline with scattered warm-lit windows in surrounding buildings.\nThe shot should feel like a premium stylized rooftop location with a clean open terrace foreground, low parapet walls, a few subtle rooftop vents, and a single small utility-room-like structure in the right-side depth. This right-side structure should be simple, clean, and rectangular, with a door or vent detail, but no chimney, no pipe, and nothing protruding upward from its roof.\nCore Composition\nThe terrace itself should be the main playable foreground space: open, clean, and uncluttered, with a strong sense of depth and negative space.\nDo not include any glass skylight or glass structure jutting out of the terrace floor.\nThe terrace floor should feel smooth, broad, slightly reflective in a subtle way, and visually premium but not glossy.\nBillboard / Neon Sign\nThe main visual feature should be a large neon angel-with-trumpet billboard glowing in the background depth.\nVery important:\nthe neon angel billboard should not be mounted on the same terrace\nit should belong to another nearby rooftop / building slightly behind in depth\nit should still be close enough for cyan-turquoise light spill to wash onto the main terrace foreground\nthe billboard should feel organically placed in the city depth, not too far away, and not part of the playable terrace\nThe angel sign should be:\na large flying angel figure blowing a trumpet\ndesigned as a retro marquee / neon billboard\nglowing in the same cool cyan / turquoise / aqua color family\nwith bright dotted bulb-like internal light texture\nsurrounded by soft cyan haze and bloom\nlarge enough to loom prominently in the frame and dominate the mood\nBelow or near the angel billboard structure, include a small red neon “NO VACANCY” sign as a secondary accent element to preserve the same color contrast and noir mood.\nLighting / Mood\nThe overall mood should remain exactly in the same family as the previous successful results:\ncool cyan-blue ambient night lighting\nstrong cyan spill from the angel sign onto the terrace\nsoft red accent from the “NO VACANCY” sign\ndeep blue night sky with visible stars\nsubtle haze in the air\nwarm window lights in distant surrounding buildings\ncinematic, premium, moody, empty, atmospheric, slightly surreal, urban-noir feeling\nCamera / Framing\nUse a very wide cinematic establishing shot, eye-level to slightly low angle, with a balanced composition and strong depth.\nThe terrace foreground should feel spacious and empty.\nThe billboard should sit in the background depth, large in frame, but clearly separated from the terrace itself.\nImportant Environment Notes\nempty rooftop only\nno people\nno characters\nno furniture\nno dancing couple\nno glass skylight\nno chimney over the right-side structure\nbillboard in nearby background depth, not on same terrace\nmaintain same lighting mood and spill\nVisual Style\nUltra cinematic, premium stylized realism, elegant production design, clean environmental storytelling, subtle filmic haze, soft glow, rich night contrast, controlled negative space, and moody urban atmosphere.\nNEGATIVE PROMPT\nNo people, no characters, no couple, no dancing figures, no glass skylight, no glass roof structure on the terrace floor, no chimney, no roof pipe above the right-side utility structure, no billboard attached to the same terrace, no billboard too far away, no loss of cyan light spill on the terrace, no cluttered rooftop, no dirty broken terrace, no worn-out walls, no grunge decay, no cheap cyberpunk look, no extra signage, no contact numbers, no overly bright daylight, no sunset, no warm overall grade, no crowded skyline, no vehicles, no watermark, no subtitles, no text other than a small “NO VACANCY” sign.",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_075850_9d321526-933c-4d39-bb7f-bd14d949ac84.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_075850_9d321526-933c-4d39-bb7f-bd14d949ac84_min.webp"
+        },
+        "createdAt": 1783497530.491681
+      },
+      {
+        "id": "0a04db31-24e0-45d4-91cc-7597ebc3dcc2",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the exact reference. Recreate the same school exterior exactly as it is, with no change at all to the school building design, architecture, stone textures, guard room, gate placement, trees, plants, paving, camera angle, framing, composition, perspective, or overall layout. Keep the image visually identical to the reference in every structural way.\n\nOnly make these changes:\n\nRemove all black boundary fencing / iron grill sections in front and on both sides.\nReplace those fence areas with a full solid boundary wall that continues across the same positions, using the same stone / masonry material, color, and style as the existing lower boundary wall, raised up to the same height as the current fencing.\nChange the scene to a full night / pre-dawn 4:00 AM atmosphere. It should feel like deep night, not grey dawn. Make the sky very dark, almost black, with only a very slight hint of deep blue if needed. Overall mood should be dark, quiet, moody, and night-like.\nmatch the atmosphere and lighting to 4 am . the light falling on the building should also look like authentic 4AM dawn lighting   \nMaintain a realistic cinematic look, sharp detail, natural shadows, and exact composition fidelity. No extra elements, no people, no vehicles, no redesign, no additional lights unless naturally subtle.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "504a175a-4774-4cc2-9079-b95941d9bd63",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_075413_504a175a-4774-4cc2-9079-b95941d9bd63.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_075712_0a04db31-24e0-45d4-91cc-7597ebc3dcc2.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_075712_0a04db31-24e0-45d4-91cc-7597ebc3dcc2_min.webp"
+        },
+        "createdAt": 1783497432.954911
+      },
+      {
+        "id": "bd0de3b3-baae-4a2c-990d-6fbf27b780de",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as the exact reference. Recreate the same school exterior exactly as it is, with no change at all to the school building design, architecture, stone textures, guard room, gate placement, trees, plants, paving, camera angle, framing, composition, perspective, or overall layout. Keep the image visually identical to the reference in every structural way.\n\nOnly make these changes:\n\nRemove all black boundary fencing / iron grill sections in front and on both sides.\nReplace those fence areas with a full solid boundary wall that continues across the same positions, using the same stone / masonry material, color, and style as the existing lower boundary wall, raised up to the same height as the current fencing.\nChange the scene to a full night / pre-dawn 4:00 AM atmosphere. It should feel like deep night, not grey dawn. Make the sky very dark, almost black, with only a very slight hint of deep blue if needed. Overall mood should be dark, quiet, moody, and night-like.\nKeep the school still visible with subtle low ambient night illumination, but do not make it look like daytime or blue morning. It should clearly feel like 4 AM night.\n\nMaintain a realistic cinematic look, sharp detail, natural shadows, and exact composition fidelity. No extra elements, no people, no vehicles, no redesign, no additional lights unless naturally subtle.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "504a175a-4774-4cc2-9079-b95941d9bd63",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_075413_504a175a-4774-4cc2-9079-b95941d9bd63.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_074900_bd0de3b3-baae-4a2c-990d-6fbf27b780de.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_074900_bd0de3b3-baae-4a2c-990d-6fbf27b780de_min.webp"
+        },
+        "createdAt": 1783496940.242362
+      },
+      {
+        "id": "6da93a6d-09be-4819-a46e-13e0b8a578a3",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use @image1 as the exact reference. Recreate the same school exterior with no change at all to the school building design, architecture, guard room, gate position, road, trees, plants, camera angle, framing, composition, perspective, or overall layout. Keep everything identical to the reference image.\n\nOnly make these changes:\n\nRemove the black boundary fencing / iron grill sections visible in front and on the sides, and replace them with a full solid boundary wall that continues across those areas, using the same stone / masonry material and style as the existing lower boundary wall, raised up to the same height level as the current fencing.\nChange the time of day to darker early morning around 5:00 AM. Make the scene feel more pre-dawn: sky more black and deep charcoal, less blue, mood darker and quieter, while still keeping the school clearly visible. Keep a subtle early-morning ambient light, with low natural light and a moody dark atmosphere.\n\nMaintain a realistic cinematic look, sharp detail, natural textures, and the exact same visual composition. No extra elements, no people, no vehicles, no redesign.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "504a175a-4774-4cc2-9079-b95941d9bd63",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_075413_504a175a-4774-4cc2-9079-b95941d9bd63.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_074431_6da93a6d-09be-4819-a46e-13e0b8a578a3.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_074431_6da93a6d-09be-4819-a46e-13e0b8a578a3_min.webp"
+        },
+        "createdAt": 1783496671.277516
+      },
+      {
+        "id": "1d90c99e-f547-4fdb-9a00-745620d8b858",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Using <<<image_1>>> as the base image, move the camera to the exact opposite side of the current viewpoint, positioning it above the college building looking toward the main entrance and front courtyard. Create a high-altitude aerial drone shot from behind the building, maintaining the exact same architecture, roof design, materials, colors, courtyard layout, trees, surrounding Kolkata streets, neighboring buildings, and early dawn blue-hour lighting. The composition should feel like the reverse angle of the original image, as if the drone has flown over the college and is now looking back toward the front gate. Preserve all structural details with perfect continuity, realistic perspective, ultra-sharp textures, cinematic drone photography, photorealistic, 21:9, no changes to the environment, no new buildings, no text, no distortion.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "3b8e6bd0-49b9-42fe-8613-2e6ebf98037b",
+              "type": "nano_banana_2_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260707_072336_3b8e6bd0-49b9-42fe-8613-2e6ebf98037b.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_074000_1d90c99e-f547-4fdb-9a00-745620d8b858.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_074000_1d90c99e-f547-4fdb-9a00-745620d8b858_min.webp"
+        },
+        "createdAt": 1783496400.517249
+      },
+      {
+        "id": "ff0f2e45-a81c-4efc-93e1-0c3b583f64de",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a cinematic night rooftop environment with a strong vintage urban noir mood, composed as a very wide, slightly low-angle establishing shot across an empty rooftop under a deep blue starry night sky.\n\nThe setting is a large flat rooftop in an old city, with a clean open foreground plane, subtle rooftop texture, short parapet walls, a few rooftop vents and utility structures, a slanted skylight structure on the right side, and surrounding low-rise urban buildings in the background with scattered glowing warm windows. The skyline should feel quiet, moody, and atmospheric.\nThe main visual feature is a huge illuminated rooftop billboard structure positioned in the background depth, looming large over the frame.\n\nThe billboard should display a large angel figure blowing a trumpet — a flying angel silhouette with wings spread, robe flowing, and trumpet extended forward. The angel should feel iconic and graphic, like a bold rooftop sign.\n\nVery important: the angel billboard must use the same colour coding and lighting mood:\ndominant cyan / turquoise / aqua glow\nbright cool luminous face\ndotted internal bulb-light texture or marquee-light feel\nstrong cool cyan spill into the surrounding atmosphere\nkeep the same night mood and lighting balance\nAlso include a small red neon “NO VACANCY” sign mounted lower on the billboard structure, just like a secondary accent sign, to preserve the same colour contrast and rooftop mood.\nThe whole frame should feel like:\nempty rooftop environment only\nno people\nno characters\nno dancing couple\natmospheric, premium, cinematic, and slightly surreal\ngentle haze in the air\ncool cyan-blue ambient illumination from the billboard\nwarm window lights in the distant buildings\nopen foreground space\nstrong sense of depth and scale\nthe billboard should feel slightly behind the main terrace space, not integrated into the walkable foreground\nVisual style\nUltra cinematic, premium production design, stylized realism, moody rooftop atmosphere, controlled composition, dramatic negative space, soft glow, subtle haze, rich night contrast, clean silhouettes, elegant lighting.\nCamera / framing\nVery wide shot, slightly low angle, symmetrical-to-balanced composition, billboard dominating the upper middle/background of frame, open rooftop foreground, cinematic environmental establishing frame.\n\nNEGATIVE PROMPT\nNo characters, no people, no couple, no human figures, no dancing, no text saying “HOTEL ARKHAM”, no contact numbers, no cluttered rooftop, no dirty broken terrace, no daylight, no sunset, no warm overall grade, no overdesigned cyberpunk city, no excessive props, no extra billboards, no cartoonish cheap look, no flat lighting, no low-detail skyline, no crowd, no vehicles in frame, no watermark, no subtitles.",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_073035_ff0f2e45-a81c-4efc-93e1-0c3b583f64de.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_073035_ff0f2e45-a81c-4efc-93e1-0c3b583f64de_min.webp"
+        },
+        "createdAt": 1783495835.117905
+      },
+      {
+        "id": "407597d5-8864-4acb-b48c-d3a61b64135c",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a cinematic night rooftop environment with a strong vintage urban noir mood, composed as a very wide, slightly low-angle establishing shot across an empty rooftop under a deep blue starry night sky.\n\nThe setting is a large flat rooftop in an old city, with a clean open foreground plane, subtle rooftop texture, short parapet walls, a few rooftop vents and utility structures, a slanted skylight structure on the right side, and surrounding low-rise urban buildings in the background with scattered glowing warm windows. The skyline should feel quiet, moody, and atmospheric.\nThe main visual feature is a huge illuminated rooftop billboard structure positioned in the background depth, looming large over the frame.\n\nThe billboard should display a large angel figure blowing a trumpet — a flying angel silhouette with wings spread, robe flowing, and trumpet extended forward. The angel should feel iconic and graphic, like a bold rooftop sign.\n\nVery important: the angel billboard must use the same colour coding and lighting mood:\ndominant cyan / turquoise / aqua glow\nbright cool luminous face\ndotted internal bulb-light texture or marquee-light feel\nstrong cool cyan spill into the surrounding atmosphere\nkeep the same night mood and lighting balance\nAlso include a small red neon “NO VACANCY” sign mounted lower on the billboard structure, just like a secondary accent sign, to preserve the same colour contrast and rooftop mood.\nThe whole frame should feel like:\nempty rooftop environment only\nno people\nno characters\nno dancing couple\natmospheric, premium, cinematic, and slightly surreal\ngentle haze in the air\ncool cyan-blue ambient illumination from the billboard\nwarm window lights in the distant buildings\nopen foreground space\nstrong sense of depth and scale\nthe billboard should feel slightly behind the main terrace space, not integrated into the walkable foreground\nVisual style\nUltra cinematic, premium production design, stylized realism, moody rooftop atmosphere, controlled composition, dramatic negative space, soft glow, subtle haze, rich night contrast, clean silhouettes, elegant lighting.\nCamera / framing\nVery wide shot, slightly low angle, symmetrical-to-balanced composition, billboard dominating the upper middle/background of frame, open rooftop foreground, cinematic environmental establishing frame.\n\nNEGATIVE PROMPT\nNo characters, no people, no couple, no human figures, no dancing, no text saying “HOTEL ARKHAM”, no contact numbers, no cluttered rooftop, no dirty broken terrace, no daylight, no sunset, no warm overall grade, no overdesigned cyberpunk city, no excessive props, no extra billboards, no cartoonish cheap look, no flat lighting, no low-detail skyline, no crowd, no vehicles in frame, no watermark, no subtitles.",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 2,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_073035_407597d5-8864-4acb-b48c-d3a61b64135c.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_073035_407597d5-8864-4acb-b48c-d3a61b64135c_min.webp"
+        },
+        "createdAt": 1783495835.117867
+      },
+      {
+        "id": "bbf0a416-4c87-4d08-9848-2e7e80e15396",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use @image1 as exact reference. Keep the same French press design, same 8-view sheet layout, same white background, same camera angles, same proportions, same copper frame, same black handle, same glass body, same lid, same plunger, same lighting, and same overall look. Do not change anything in the French press design or sheet composition.\nOnly add a small amount of dark espresso / coffee liquid inside the glass container of the French press, filled only a little at the bottom, around 10–15% level, clearly visible in all relevant views. In the top views, show the liquid surface accurately. Keep the coffee realistic, rich dark brown, transparent at edges, with natural glass reflections. Maintain the same clean ultrarealistic product-sheet style. No text, no labels, no branding, no extra objects, no layout change, no design change.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "e4434808-8cc3-4a61-a189-b88aba179489",
+              "type": "image_job",
+              "url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260706_065419_e4434808-8cc3-4a61-a189-b88aba179489.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_071944_bbf0a416-4c87-4d08-9848-2e7e80e15396.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_071944_bbf0a416-4c87-4d08-9848-2e7e80e15396_min.webp"
+        },
+        "createdAt": 1783495184.195505
+      },
+      {
+        "id": "61537d82-de30-44a6-afaf-8c84de740baf",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as design reference. Create a clean ultrarealistic product turnaround sheet of the same coffee mug on a pure white seamless background. The mug should match the reference: plain sage green ceramic body, smooth glossy glaze, minimal rounded shape, slightly tapered body, rounded rim, clean curved handle, simple everyday premium mug design. Show the same mug in a clean 3x3 grid layout with all angles visible: front view, back view, left side view, right side view, top-down view, bottom view, front 3/4 view, rear 3/4 view, and slightly elevated perspective view. Do not write angle names or any text on the sheet. Keep the mug completely blank with no logo, no branding, no print, no letters, no numbers, no watermark, no extra props, no coffee, no spoon, no people. Sharp studio lighting, soft shadows, subtle ceramic reflections, premium catalog look.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "2d31d53b-093d-4df9-bbad-3c26c541e3e0",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/2d31d53b-093d-4df9-bbad-3c26c541e3e0.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_071230_61537d82-de30-44a6-afaf-8c84de740baf.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_071230_61537d82-de30-44a6-afaf-8c84de740baf_min.webp"
+        },
+        "createdAt": 1783494750.936955
+      },
+      {
+        "id": "eb65ee3d-d3c7-457a-890e-23d8517dfab8",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use <<<image_1>>> as design reference. Create a clean ultrarealistic product turnaround sheet of the same coffee mug on a pure white seamless background. The mug should match the reference: deep blue-black glossy ceramic mug, speckled turquoise glaze texture, dark brown rim accent, rounded body, smooth curved handle, thick ceramic rim, handmade premium ceramic look. Show the same mug in a clean 3x3 grid layout with all angles visible: front view, back view, left side view, right side view, top-down view, bottom view, front 3/4 view, rear 3/4 view, and slightly elevated perspective view. Do not write angle names or any text on the sheet. Keep the mug completely blank with no logo, no branding, no print, no letters, no numbers, no watermark, no extra props, no coffee, no spoon, no people. Sharp studio lighting, soft shadows, realistic glossy glaze reflections, premium catalog look.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "aada2059-0216-4812-ad27-68ea391e0e83",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/aada2059-0216-4812-ad27-68ea391e0e83.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_070938_eb65ee3d-d3c7-457a-890e-23d8517dfab8.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_070938_eb65ee3d-d3c7-457a-890e-23d8517dfab8_min.webp"
+        },
+        "createdAt": 1783494578.717477
+      },
+      {
+        "id": "b9a0b5bd-3fe2-4e9d-a98d-a73203d2f69e",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Use @image1 as design reference. Create a clean ultrarealistic product turnaround sheet of the same coffee mug on a pure white seamless background. The mug should match the reference: glossy warm white ceramic body, vertical ribbed/fluted texture all around, rounded rim, slightly tapered lower body, smooth curved handle, clean ceramic base. Show the same mug in a clean 3x3 grid layout with all angles visible: front view, back view, left side view, right side view, top-down view, bottom view, front 3/4 view, rear 3/4 view, and slightly elevated perspective view. Do not write angle names or any text on the sheet. Keep the mug completely blank with no logo, no branding, no print, no letters, no numbers, no watermark, no extra props, no coffee, no spoon, no people. Sharp studio lighting, soft shadows, crisp ceramic reflections, premium catalog look.",
+          "aspect_ratio": "21:9",
+          "input_images": [
+            {
+              "id": "4bb2e72a-a8dc-4d95-8eb8-bb95687aa552",
+              "type": "media_input",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/4bb2e72a-a8dc-4d95-8eb8-bb95687aa552.png"
+            }
+          ],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_070615_b9a0b5bd-3fe2-4e9d-a98d-a73203d2f69e.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_070615_b9a0b5bd-3fe2-4e9d-a98d-a73203d2f69e_min.webp"
+        },
+        "createdAt": 1783494375.945596
+      },
+      {
+        "id": "1373d1c0-f23e-4f19-8f1f-c157b30b6ce4",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a realistic 5-panel character sheet of an Indian man who sells puchka in Kolkata, on a plain neutral grey background, no text, no labels.\nOnly show the man, no puchka stall, no props, no extra objects.\nPanel 1: close-up face portrait\nPanel 2: full-body front view\nPanel 3: full-body side profile\nPanel 4: full-body back view\nPanel 5: three-quarter full-body view\nAge 45–55, lean body, medium height, authentic Kolkata street-vendor look, simple worn cotton shirt, checked lungi, old sandals, gamcha on shoulder.\nSkin must look hyper-real and natural: visible pores, wrinkles, sweat texture, sun-tanned uneven tone, under-eye lines, rough hands, natural facial hair, no plastic skin, no beauty retouching.\nPhotorealistic studio character sheet, soft even lighting, sharp details, 8K, clean grey background.\nNEGATIVE PROMPT: props, stall, basket, puchka, text, labels, extra panels, extra people, plastic skin, smooth skin, CGI, cartoon, glamour look.",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_065927_1373d1c0-f23e-4f19-8f1f-c157b30b6ce4.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_065927_1373d1c0-f23e-4f19-8f1f-c157b30b6ce4_min.webp"
+        },
+        "createdAt": 1783493967.725034
+      },
+      {
+        "id": "fec39126-ccaf-488e-a25d-f12447e27d4c",
+        "type": "image",
+        "status": "completed",
+        "model": "nano_banana_2",
+        "params": {
+          "prompt": "Create a realistic 5-panel character sheet of an Indian man who sells puchka in Kolkata, on a plain neutral grey background, no text, no labels.\nOnly show the man, no puchka stall, no props, no extra objects.\nPanel 1: close-up face portrait\nPanel 2: full-body front view\nPanel 3: full-body side profile\nPanel 4: full-body back view\nPanel 5: three-quarter full-body view\nAge 45–55, lean body, medium height, authentic Kolkata street-vendor look, simple worn cotton shirt, checked lungi, old sandals, gamcha on shoulder.\nSkin must look hyper-real and natural: visible pores, wrinkles, sweat texture, sun-tanned uneven tone, under-eye lines, rough hands, natural facial hair, no plastic skin, no beauty retouching.\nPhotorealistic studio character sheet, soft even lighting, sharp details, 8K, clean grey background.\nNEGATIVE PROMPT: props, stall, basket, puchka, text, labels, extra panels, extra people, plastic skin, smooth skin, CGI, cartoon, glamour look.",
+          "aspect_ratio": "21:9",
+          "input_images": [],
+          "width": 3168,
+          "height": 1344,
+          "resolution": "2k",
+          "batch_size": 1,
+          "input_image": null,
+          "application": null,
+          "surface": null
+        },
+        "results": {
+          "rawUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_065925_fec39126-ccaf-488e-a25d-f12447e27d4c.png",
+          "minUrl": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260708_065925_fec39126-ccaf-488e-a25d-f12447e27d4c_min.webp"
+        },
+        "createdAt": 1783493965.295568
+      }
+    ],
+    "next_cursor": 1783493965.295568
+  }
+}

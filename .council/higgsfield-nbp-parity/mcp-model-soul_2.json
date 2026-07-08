@@ -1,0 +1,60 @@
+{
+  "content": [],
+  "structuredContent": {
+    "id": "soul_2",
+    "name": "Higgsfield Soul 2.0",
+    "provider_name": "Higgsfield",
+    "description": "Realistic UGC, fashion editorial and character generation",
+    "output_type": "image",
+    "parameters": [
+      {
+        "name": "quality",
+        "required": "optional",
+        "type": "string",
+        "description": "Output quality tier shown as 1.5k or 2k",
+        "default": "2k",
+        "options": [
+          "1.5k",
+          "2k"
+        ]
+      },
+      {
+        "name": "soul_id",
+        "required": "optional",
+        "type": "string",
+        "description": "Soul-ID for personalized generation. Get one from soul_list."
+      }
+    ],
+    "medias": [
+      {
+        "name": "medias",
+        "type": "image",
+        "max": 1,
+        "roles": [
+          "image"
+        ],
+        "description": "roles: image x1"
+      }
+    ],
+    "aspect_ratios": [
+      "1:1",
+      "16:9",
+      "9:16",
+      "4:3",
+      "3:4",
+      "3:2",
+      "2:3"
+    ],
+    "tags": [
+      "ugc",
+      "fashion",
+      "editorial",
+      "realistic",
+      "character",
+      "character-generation",
+      "soul",
+      "portrait",
+      "v2"
+    ]
+  }
+}
