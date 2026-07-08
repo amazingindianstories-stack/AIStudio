@@ -13,3 +13,5 @@ build
 !/public/media/.gitkeep
 /data/*.json
 pyserver/models/
+.vercel
+.env*
