@@ -9,6 +9,7 @@
     "lint": "next lint",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
+    "migrate-media": "tsx scripts/migrate-to-blob.ts",
     "hf:login": "node scripts/hf-mcp-auth.mjs"
   },
   "dependencies": {
