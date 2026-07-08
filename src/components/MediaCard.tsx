@@ -230,8 +230,8 @@ export function MediaCard({
         </div>
 
         {/* hover prompt + delete */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 translate-y-2 bg-gradient-to-t from-black/85 via-black/40 to-transparent p-2.5 pt-8 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
-          <p className="line-clamp-2 text-[11px] leading-snug text-white/85">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 translate-y-2 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-2.5 pt-10 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
+          <p className="line-clamp-2 pl-7 pr-9 text-[11px] leading-snug text-white/90">
             {item.prompt}
           </p>
         </div>
