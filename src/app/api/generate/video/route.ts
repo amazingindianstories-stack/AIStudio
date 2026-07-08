@@ -76,16 +76,35 @@ export async function POST(req: NextRequest) {
       // Higgsfield (Seedance 2.0) via the official MCP — supports MULTIPLE
       // reference images natively (image_references), no collage workaround.
       const refs = referenceImages ?? [];
-      if (!refs.length) {
-        throw new Error(
-          "Seedance is image-to-video — add at least one reference image."
-        );
-      }
       const mediaIds: string[] = [];
-      for (const ref of refs) {
-        const raw = await readImageAsBase64(ref);
-        const { mimeType, data } = await prepReference(raw.mimeType, raw.data);
-        mediaIds.push(await mcpUploadImage(data, mimeType));
+
+      if (!refs.length) {
+        console.log("[video] No reference image provided for Seedance. Auto-generating base frame via Gemini (T2V fallback)...");
+        const { generateImageGemini } = await import("@/lib/providers/gemini");
+        const { uploadBase64 } = await import("@/lib/storage");
+        
+        // Generate the base frame using Nano Banana Pro
+        const genRes = await generateImageGemini({
+          assembled: { instruction: prompt, groups: [] },
+          aspectRatio,
+        });
+
+        // Save the generated image so the user can see it in their timeline/history
+        const ext = genRes.mimeType.split("/")[1] || "png";
+        const autoRefUrl = await uploadBase64(genRes.base64, `references/${id}-auto.${ext}`, ext);
+        
+        // Attach it to the DB record
+        base.referenceImages = [autoRefUrl];
+
+        // Upload to MCP
+        const mediaId = await mcpUploadImage(genRes.base64, genRes.mimeType);
+        mediaIds.push(mediaId);
+      } else {
+        for (const ref of refs) {
+          const raw = await readImageAsBase64(ref);
+          const { mimeType, data } = await prepReference(raw.mimeType, raw.data);
+          mediaIds.push(await mcpUploadImage(data, mimeType));
+        }
       }
       console.log(`[video] MCP seedance with ${mediaIds.length} reference image(s)`);
       taskId = await mcpGenerateVideo({
