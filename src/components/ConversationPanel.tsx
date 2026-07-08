@@ -61,7 +61,7 @@ export function ConversationPanel() {
         {!loading && feed.length === 0 ? (
           <Welcome />
         ) : (
-          <div className="mx-auto flex max-w-4xl flex-col gap-12">
+          <div className="mx-auto flex max-w-3xl flex-col gap-12">
             <AnimatePresence initial={false}>
               {feed.map((item, i) => (
                 <FeedBlock key={item.id} item={item} index={i + 1} />
@@ -123,7 +123,7 @@ function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
       <div
         onClick={() => item.status === "succeeded" && setActiveId(item.id)}
         className={cn(
-          "group relative w-full max-w-2xl overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)]",
+          "group relative w-full overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)]",
           item.status === "succeeded" && "cursor-pointer"
         )}
       >
