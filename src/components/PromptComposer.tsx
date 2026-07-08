@@ -60,15 +60,51 @@ export function PromptComposer() {
   const modeModels = MODELS.filter((m) => m.kind === s.mode);
   const activeMode = MODES.find((m) => m.id === s.mode);
 
+  // Downscale image to fit within Vercel's 4.5MB payload limit.
+  // Gemini's vision encoder usually operates at ~768px - 1024px natively anyway,
+  // so downscaling to max 1024px retains identity detail while slashing size.
+  const downscaleImage = async (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        const MAX_DIM = 1024;
+        let { width, height } = img;
+        if (width > MAX_DIM || height > MAX_DIM) {
+          if (width > height) {
+            height = Math.round((height * MAX_DIM) / width);
+            width = MAX_DIM;
+          } else {
+            width = Math.round((width * MAX_DIM) / height);
+            height = MAX_DIM;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return reject("No canvas context");
+        ctx.drawImage(img, 0, 0, width, height);
+        // Export as JPEG to ensure small size (avoids massive PNGs)
+        resolve(canvas.toDataURL("image/jpeg", 0.8));
+      };
+      img.onerror = () => reject("Failed to load image");
+      img.src = url;
+    });
+  };
+
   // Read image File objects (from upload, paste, or drop) into references.
-  const addImageFiles = (files: File[]) => {
-    files
-      .filter((f) => f.type.startsWith("image/"))
-      .forEach((f) => {
-        const reader = new FileReader();
-        reader.onload = () => s.addReference(reader.result as string);
-        reader.readAsDataURL(f);
-      });
+  const addImageFiles = async (files: File[]) => {
+    const valid = files.filter((f) => f.type.startsWith("image/"));
+    for (const f of valid) {
+      try {
+        const dataUrl = await downscaleImage(f);
+        s.addReference(dataUrl);
+      } catch (e) {
+        console.error("Failed to downscale image", e);
+      }
+    }
   };
 
   const onFiles = (e: ChangeEvent<HTMLInputElement>) => {
