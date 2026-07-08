@@ -17,6 +17,7 @@ export function middleware(req: NextRequest) {
   // Always allow auth endpoints and Next internals/static assets.
   if (
     pathname.startsWith("/api/auth") ||
+    pathname === "/api/admin/set-token" ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   ) {
