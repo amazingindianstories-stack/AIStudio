@@ -10,6 +10,7 @@
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
     "migrate-media": "tsx scripts/migrate-to-blob.ts",
+    "migrate-s3": "tsx scripts/migrate-to-s3.ts",
     "hf:login": "node scripts/hf-mcp-auth.mjs"
   },
   "dependencies": {
