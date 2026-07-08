@@ -1,12 +1,6 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
+import { put, del } from "@vercel/blob";
 
-/**
- * Local file storage. Generated media + reference/asset images
- * are saved to public/media so they can be served by Next.js.
- */
 export const MEDIA_BUCKET = "media";
-const MEDIA_DIR = path.join(process.cwd(), "public", MEDIA_BUCKET);
 
 function extToMime(ext: string): string {
   const e = ext.toLowerCase();
@@ -22,11 +16,12 @@ export async function uploadBuffer(
   key: string,
   ext: string
 ): Promise<string> {
-  const filePath = path.join(MEDIA_DIR, key);
-  // Keys are namespaced (generations/…, references/…) — create the subdir too.
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  await fs.writeFile(filePath, buffer);
-  return `/${MEDIA_BUCKET}/${key}`;
+  const { url } = await put(key, buffer, {
+    access: "public",
+    addRandomSuffix: false,
+    contentType: extToMime(ext),
+  });
+  return url;
 }
 
 /** Upload a base64 payload; returns the public URL. */
@@ -70,15 +65,13 @@ export async function readAsBase64(
     return { mimeType: "image/png", data: ref };
   }
 
-  if (ref.startsWith(`/${MEDIA_BUCKET}/`)) {
-    const key = ref.slice(`/${MEDIA_BUCKET}/`.length);
-    const filePath = path.join(MEDIA_DIR, key);
-    const buf = await fs.readFile(filePath);
-    const ext = path.extname(key).slice(1);
-    return { mimeType: extToMime(ext), data: buf.toString("base64") };
+  // Handle legacy local URLs in dev mode
+  let targetUrl = ref;
+  if (ref.startsWith("/")) {
+    targetUrl = `http://localhost:${process.env.PORT || 3000}${ref}`;
   }
 
-  const res = await fetch(ref);
+  const res = await fetch(targetUrl);
   if (!res.ok) throw new Error(`Failed to read media (${res.status})`);
   const buf = Buffer.from(await res.arrayBuffer());
   const mimeType = res.headers.get("content-type") || "image/png";
@@ -87,31 +80,20 @@ export async function readAsBase64(
 
 /** Delete objects by their public URL or storage key. Best-effort. */
 export async function deleteByUrls(urls: string[]): Promise<void> {
-  const prefix = `/${MEDIA_BUCKET}/`;
-  for (const u of urls) {
-    let key = null;
-    if (u.startsWith(prefix)) {
-      key = u.slice(prefix.length);
-    } else {
-      // it might be just the key itself
-      if (!u.includes("/") && !u.startsWith("http")) key = u;
+  try {
+    // Vercel Blob `del` takes public URLs
+    // We filter out any legacy local relative URLs that might crash the SDK.
+    const validUrls = urls.filter((u) => u.startsWith("http"));
+    if (validUrls.length > 0) {
+      await del(validUrls);
     }
-    
-    if (key) {
-      try {
-        await fs.unlink(path.join(MEDIA_DIR, key));
-      } catch (err) {
-        // Ignore if file not found
-      }
-    }
+  } catch (err) {
+    // best effort deletion
   }
 }
 
 /** Ensure the public media bucket exists (idempotent — used by seed). */
 export async function ensureBucket(): Promise<void> {
-  try {
-    await fs.mkdir(MEDIA_DIR, { recursive: true });
-  } catch (err) {
-    // Ignore if exists
-  }
+  // Vercel Blob doesn't require explicit bucket creation on disk
+  return Promise.resolve();
 }
