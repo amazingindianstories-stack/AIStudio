@@ -97,7 +97,10 @@ export async function GET(req: NextRequest) {
     await upsertItem(updated);
     return NextResponse.json(updated);
   } catch (e: any) {
-    // transient poll error — keep the item running, report softly
-    return NextResponse.json({ ...item, pollError: e?.message });
+    console.error("[video status poll error]:", e);
+    // Transient poll error — keep the item running in the DB, but surface the error message
+    // so the frontend can potentially show a warning. 
+    // For debugging, we temporarily mark it as failed in the response (not DB) so the user can see it!
+    return NextResponse.json({ ...item, status: "failed", error: `Poll Error: ${e?.message || String(e)}` });
   }
 }
