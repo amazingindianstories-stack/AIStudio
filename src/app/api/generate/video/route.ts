@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createVideoTask } from "@/lib/providers/seedance";
-import {
-  isHiggsfieldModel,
-  mcpGenerateVideo,
-  mcpUploadImage,
-} from "@/lib/providers/higgsfield-mcp";
-import { readImageAsBase64, saveReferenceImages } from "@/lib/save-media";
-import { prepReference } from "@/lib/middleware/image-prep";
+import { saveReferenceImages } from "@/lib/save-media";
 import { upsertItem } from "@/lib/store-db";
-import { isMock, mockPlaceholder } from "@/lib/mock";
-import { resolveReferences } from "@/lib/mentions";
 import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents } from "@/lib/pricing";
@@ -19,6 +10,12 @@ import type { GenerationItem } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
+/**
+ * Enqueue-only (mirrors the image route): creates the `queued` row and
+ * returns it. The client polls /api/queue/status and calls
+ * /api/queue/execute when it reaches the front — that route owns provider
+ * submission, so concurrent load stays inside the per-kind caps.
+ */
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const prompt: string = (body.prompt || "").trim();
@@ -69,89 +66,12 @@ export async function POST(req: NextRequest) {
     createdAt: now,
     updatedAt: now,
   };
-
-  try {
-    if (isMock()) {
-      base.taskId = `mock-${id}`;
-      base.poster = await mockPlaceholder(id, prompt, aspectRatio, model);
-      base.status = "running";
-      await upsertItem(base);
-      return NextResponse.json(base);
-    }
-
-    let taskId: string;
-    if (isHiggsfieldModel(model)) {
-      // Higgsfield (Seedance 2.0) via the official MCP — supports MULTIPLE
-      // reference images natively (image_references), no collage workaround.
-      const refs = referenceImages ?? [];
-      const mediaIds: string[] = [];
-
-      if (!refs.length) {
-        console.log("[video] No reference image provided for Seedance. Auto-generating base frame via Gemini (T2V fallback)...");
-        const { generateImageGemini } = await import("@/lib/providers/gemini");
-        const { uploadBase64 } = await import("@/lib/storage");
-        
-        // Generate the base frame using Nano Banana Pro
-        const genRes = await generateImageGemini({
-          assembled: { instruction: prompt, groups: [] },
-          aspectRatio,
-        });
-
-        // Save the generated image so the user can see it in their timeline/history
-        const ext = genRes.mimeType.split("/")[1] || "png";
-        const autoRefUrl = await uploadBase64(genRes.base64, `references/${id}-auto.${ext}`, ext);
-        
-        // Attach it to the DB record
-        base.referenceImages = [autoRefUrl];
-
-        // Upload to MCP
-        const mediaId = await mcpUploadImage(genRes.base64, genRes.mimeType);
-        mediaIds.push(mediaId);
-      } else {
-        for (const ref of refs) {
-          const raw = await readImageAsBase64(ref);
-          const { mimeType, data } = await prepReference(raw.mimeType, raw.data);
-          mediaIds.push(await mcpUploadImage(data, mimeType));
-        }
-      }
-      console.log(`[video] MCP seedance with ${mediaIds.length} reference image(s)`);
-      taskId = await mcpGenerateVideo({
-        model,
-        prompt,
-        aspectRatio,
-        duration,
-        resolution,
-        mediaIds,
-      });
-    } else {
-      taskId = await createVideoTask({
-        prompt,
-        modelDisplay: model,
-        ratio: aspectRatio,
-        resolution,
-        duration,
-        references: resolveReferences(prompt, referenceImages ?? []),
-      });
-    }
-    base.taskId = taskId;
-    base.status = "running";
-    await upsertItem(base);
-    await logActivity(user?.id ?? null, "generate", {
-      id,
-      kind: "video",
-      model,
-      costCents,
-    });
-    return NextResponse.json(base);
-  } catch (e: any) {
-    const failed: GenerationItem = {
-      ...base,
-      status: "failed",
-      error: e?.message || "Video task creation failed.",
-      moderationBlocked: e?.code === "moderation",
-      updatedAt: Date.now(),
-    };
-    await upsertItem(failed);
-    return NextResponse.json(failed);
-  }
+  await upsertItem(base);
+  await logActivity(user?.id ?? null, "generate", {
+    id,
+    kind: "video",
+    model,
+    costCents,
+  });
+  return NextResponse.json(base);
 }

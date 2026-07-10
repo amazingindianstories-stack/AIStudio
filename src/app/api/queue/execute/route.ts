@@ -4,8 +4,11 @@ import {
   isHiggsfieldModel,
   mcpAwaitJob,
   mcpGenerateImage,
+  mcpGenerateVideo,
   mcpUploadImage,
 } from "@/lib/providers/higgsfield-mcp";
+import { createVideoTask } from "@/lib/providers/seedance";
+import { resolveReferences } from "@/lib/mentions";
 import {
   readImageAsBase64,
   saveBase64,
@@ -69,6 +72,72 @@ async function halveForDelivery(base64: string): Promise<string> {
   }
 }
 
+/** Create the provider task for a locked video job. Returns the item with
+ *  taskId + status "running" (does not persist). */
+async function submitVideo(base: GenerationItem): Promise<GenerationItem> {
+  const { id, prompt, aspectRatio, resolution, duration, model } = base;
+
+  if (isMock()) {
+    return {
+      ...base,
+      taskId: `mock-${id}`,
+      poster: await mockPlaceholder(id, prompt, aspectRatio, model),
+      status: "running",
+      updatedAt: Date.now(),
+    };
+  }
+
+  let taskId: string;
+  const refUpdates: Partial<GenerationItem> = {};
+  if (isHiggsfieldModel(model)) {
+    // Higgsfield (Seedance 2.0/Mini) via the official MCP — supports MULTIPLE
+    // reference images natively (image_references), no collage workaround.
+    const refs = base.referenceImages ?? [];
+    const mediaIds: string[] = [];
+
+    if (!refs.length) {
+      console.log(
+        "[video] No reference image provided for Seedance. Auto-generating base frame via Gemini (T2V fallback)..."
+      );
+      const { uploadBase64 } = await import("@/lib/storage");
+      const genRes = await generateImageGemini({
+        assembled: { instruction: prompt, groups: [] },
+        aspectRatio,
+      });
+      // Save the generated frame so the user can see it in their history.
+      const ext = genRes.mimeType.split("/")[1] || "png";
+      const autoRefUrl = await uploadBase64(genRes.base64, `references/${id}-auto.${ext}`, ext);
+      refUpdates.referenceImages = [autoRefUrl];
+      mediaIds.push(await mcpUploadImage(genRes.base64, genRes.mimeType));
+    } else {
+      for (const ref of refs) {
+        const raw = await readImageAsBase64(ref);
+        const { mimeType, data } = await prepReference(raw.mimeType, raw.data);
+        mediaIds.push(await mcpUploadImage(data, mimeType));
+      }
+    }
+    console.log(`[video] MCP seedance with ${mediaIds.length} reference image(s)`);
+    taskId = await mcpGenerateVideo({
+      model,
+      prompt,
+      aspectRatio,
+      duration,
+      resolution,
+      mediaIds,
+    });
+  } else {
+    taskId = await createVideoTask({
+      prompt,
+      modelDisplay: model,
+      ratio: aspectRatio,
+      resolution,
+      duration,
+      references: resolveReferences(prompt, base.referenceImages ?? []),
+    });
+  }
+  return { ...base, ...refUpdates, taskId, status: "running", updatedAt: Date.now() };
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const id: string = body.id;
@@ -96,6 +165,28 @@ export async function POST(req: NextRequest) {
 
   const { prompt, aspectRatio, resolution, model, referenceImages } = base;
   let costCents = base.costCents || 0;
+
+  // Video: submit the provider task (remote render) and return the running
+  // item — the client's pollVideo then drives /api/generate/video/status.
+  // Living here (not in the enqueue route) keeps concurrent renders inside
+  // the queue's per-kind cap.
+  if (base.kind === "video") {
+    try {
+      const running = await submitVideo(base);
+      await upsertItem(running);
+      return NextResponse.json(running);
+    } catch (e: any) {
+      const failed: GenerationItem = {
+        ...base,
+        status: "failed",
+        error: e?.message || "Video task creation failed.",
+        moderationBlocked: e?.code === "moderation",
+        updatedAt: Date.now(),
+      };
+      await upsertItem(failed);
+      return NextResponse.json(failed);
+    }
+  }
 
   try {
     let url: string;

@@ -152,35 +152,41 @@ export async function clearProjectRefs(projectId: string): Promise<void> {
 
 import { and, sql } from "drizzle-orm";
 
-const MAX_CONCURRENT = 2;
+// Global active-request caps, per kind: images bound our own server (each
+// running job is a 30–60s serverless invocation with best-of-N provider
+// calls); videos bound the provider (concurrent remote renders + MCP rate
+// limits). Anything beyond the cap waits in the queue.
+const MAX_CONCURRENT: Record<string, number> = { image: 2, video: 2 };
 
 export async function getQueuePosition(id: string): Promise<{ position: number; status: string } | null> {
   const item = await getItem(id);
   if (!item) return null;
   if (item.status !== "queued") return { position: 0, status: item.status };
 
-  // Count active running image jobs
+  const cap = MAX_CONCURRENT[item.kind] ?? 2;
+
+  // Count active running jobs of the same kind
   const runningCountRes = await db
     .select({ count: sql<number>`count(*)` })
     .from(generations)
-    .where(and(eq(generations.status, "running"), eq(generations.kind, "image")));
+    .where(and(eq(generations.status, "running"), eq(generations.kind, item.kind)));
   const running = Number(runningCountRes[0].count);
 
-  // Count older queued image jobs
+  // Count older queued jobs of the same kind
   const olderCountRes = await db
     .select({ count: sql<number>`count(*)` })
     .from(generations)
     .where(
       and(
         eq(generations.status, "queued"),
-        eq(generations.kind, "image"),
+        eq(generations.kind, item.kind),
         lt(generations.createdAt, item.createdAt)
       )
     );
   const older = Number(olderCountRes[0].count);
 
   const totalAhead = running + older;
-  const position = Math.max(0, totalAhead - (MAX_CONCURRENT - 1));
+  const position = Math.max(0, totalAhead - (cap - 1));
 
   return { position, status: item.status };
 }

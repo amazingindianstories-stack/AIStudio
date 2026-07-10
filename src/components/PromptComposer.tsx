@@ -411,10 +411,10 @@ export function PromptComposer() {
           }
         </Dropdown>
 
-        {/* settings (aspect / resolution / duration) */}
+        {/* settings (aspect / resolution / duration / batch) */}
         <Dropdown
           side="top"
-          panelClassName="min-w-[230px] p-3"
+          panelClassName="w-max min-w-[230px] max-w-[min(92vw,340px)] p-3 max-h-[60vh] overflow-y-auto scroll-thin"
           trigger={(open) => (
             <Chip open={open}>
               <Settings2 className="h-4 w-4 text-white/55" />
@@ -425,6 +425,12 @@ export function PromptComposer() {
                 <>
                   <span className="text-white/35">·</span>
                   <span>{s.duration}s</span>
+                </>
+              )}
+              {s.batchCount > 1 && (
+                <>
+                  <span className="text-white/35">·</span>
+                  <span className="text-brand">{s.batchCount}×</span>
                 </>
               )}
             </Chip>
@@ -452,6 +458,12 @@ export function PromptComposer() {
                   onChange={(v) => s.setDuration(parseInt(v))}
                 />
               )}
+              <Segment
+                label="Batch (per generate)"
+                options={["1×", "2×"]}
+                value={`${s.batchCount}×`}
+                onChange={(v) => s.setBatchCount(parseInt(v))}
+              />
             </div>
           )}
         </Dropdown>

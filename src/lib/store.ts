@@ -42,6 +42,7 @@ interface ComposerState {
   aspectRatio: string;
   resolution: string;
   duration: number;
+  batchCount: number; // jobs enqueued per Generate press (queue caps concurrency)
   prompt: string;
   referenceImages: string[]; // data URLs
 }
@@ -78,6 +79,7 @@ interface AppState extends ComposerState {
   setAspectRatio: (r: string) => void;
   setResolution: (r: string) => void;
   setDuration: (d: number) => void;
+  setBatchCount: (n: number) => void;
   setPrompt: (p: string) => void;
   addReference: (dataUrl: string) => void;
   removeReference: (index: number) => void;
@@ -144,6 +146,7 @@ export const useStore = create<AppState>((set, get) => ({
   aspectRatio: DEFAULTS.video.aspectRatio,
   resolution: DEFAULTS.video.resolution,
   duration: DEFAULTS.video.duration,
+  batchCount: 1,
   prompt: "",
   referenceImages: [],
 
@@ -195,6 +198,7 @@ export const useStore = create<AppState>((set, get) => ({
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set({ resolution }),
   setDuration: (duration) => set({ duration }),
+  setBatchCount: (batchCount) => set({ batchCount: Math.min(4, Math.max(1, batchCount)) }),
   setPrompt: (prompt) => set({ prompt }),
   addReference: (dataUrl) =>
     set((s) => ({ referenceImages: [...s.referenceImages, dataUrl] })),
@@ -218,11 +222,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ items, loading: false, hasMoreHistory });
       // resume polling for anything still in flight
       for (const it of items) {
-        if (it.kind === "video" && (it.status === "running" || it.status === "queued")) {
-          pollVideo(it.id, set, get);
-        } else if (it.kind === "image" && it.status === "queued") {
-          pollQueue(it.id, set, get);
-        }
+        startPolling(it, set, get);
       }
     } catch {
       set({ loading: false });
@@ -267,25 +267,26 @@ export const useStore = create<AppState>((set, get) => ({
     };
 
     try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const item: GenerationItem = await res.json();
-      if (!res.ok) {
-        throw new Error(item.error || `Server error: ${res.status}`);
-      }
-      if (item?.id) {
-        set((st) => ({
-          items: [item, ...st.items.filter((i) => i.id !== item.id)],
-          prompt: "",
-          rightTab: "history",
-        }));
-        if (item.kind === "video" && (item.status === "running" || item.status === "queued")) {
-          pollVideo(item.id, set, get);
-        } else if (item.kind === "image" && item.status === "queued") {
-          pollQueue(item.id, set, get);
+      // Batch: enqueue N independent jobs with the same payload. The queue's
+      // per-kind concurrency cap decides how many actually run at once.
+      const count = Math.min(4, Math.max(1, s.batchCount || 1));
+      for (let i = 0; i < count; i++) {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const item: GenerationItem = await res.json();
+        if (!res.ok) {
+          throw new Error(item.error || `Server error: ${res.status}`);
+        }
+        if (item?.id) {
+          set((st) => ({
+            items: [item, ...st.items.filter((i) => i.id !== item.id)],
+            prompt: "",
+            rightTab: "history",
+          }));
+          startPolling(item, set, get);
         }
       }
     } catch (e: any) {
@@ -732,6 +733,21 @@ function pollVideo(
   setTimeout(tick, 3000);
 }
 
+/** Route a fresh/resumed item to the right poller: queued jobs of BOTH kinds
+ *  wait in the capped queue (pollQueue executes at position 0); running
+ *  videos are already submitted remotely and just need status polling. */
+function startPolling(
+  item: GenerationItem,
+  set: (fn: (s: AppState) => Partial<AppState>) => void,
+  get: () => AppState
+) {
+  if (item.status === "queued") {
+    pollQueue(item.id, set, get);
+  } else if (item.kind === "video" && item.status === "running") {
+    pollVideo(item.id, set, get);
+  }
+}
+
 function pollQueue(
   id: string,
   set: (fn: (s: AppState) => Partial<AppState>) => void,
@@ -746,7 +762,7 @@ function pollQueue(
         cache: "no-store",
       });
       const data = await res.json();
-      
+
       if (data.status === "queued" && data.position === 0) {
         // It's our turn!
         const execRes = await fetch(`/api/queue/execute`, {
@@ -761,6 +777,11 @@ function pollQueue(
           }));
         }
         polling.delete(id);
+        // Videos come back "running" with a provider taskId — hand off to
+        // the remote-render status poller.
+        if (finalItem?.kind === "video" && finalItem.status === "running") {
+          pollVideo(finalItem.id, set, get);
+        }
         return; // done
       } else if (data.status === "succeeded" || data.status === "failed") {
         // Somehow finished already or failed
@@ -815,6 +836,9 @@ export function restoreComposerDraft() {
       if (durationsForModel(effModel).includes(d.duration)) {
         patch.duration = d.duration;
       }
+      if ([1, 2, 3, 4].includes(d.batchCount)) {
+        patch.batchCount = d.batchCount;
+      }
       if (["project", "history", "favorites"].includes(d.rightTab)) {
         patch.rightTab = d.rightTab;
       }
@@ -867,6 +891,7 @@ if (typeof window !== "undefined") {
       s.aspectRatio !== prev.aspectRatio ||
       s.resolution !== prev.resolution ||
       s.duration !== prev.duration ||
+      s.batchCount !== prev.batchCount ||
       s.rightTab !== prev.rightTab ||
       s.activeProjectId !== prev.activeProjectId ||
       s.activeFolderId !== prev.activeFolderId
@@ -880,6 +905,7 @@ if (typeof window !== "undefined") {
             aspectRatio: s.aspectRatio,
             resolution: s.resolution,
             duration: s.duration,
+            batchCount: s.batchCount,
             rightTab: s.rightTab,
             activeProjectId: s.activeProjectId,
             activeFolderId: s.activeFolderId,
