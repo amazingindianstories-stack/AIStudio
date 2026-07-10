@@ -36,7 +36,7 @@ import {
   MODELS,
   MODES,
   ASPECT_RATIOS,
-  RESOLUTIONS,
+  resolutionsForModel,
   durationsForModel,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
@@ -426,7 +426,7 @@ export function PromptComposer() {
               />
               <Segment
                 label="Resolution"
-                options={RESOLUTIONS[s.mode]}
+                options={resolutionsForModel(s.model, s.mode)}
                 value={s.resolution}
                 onChange={s.setResolution}
               />

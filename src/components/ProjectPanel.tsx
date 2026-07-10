@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ChevronDown,
@@ -40,6 +40,27 @@ export function ProjectPanel() {
   const [adding, setAdding] = useState(false);
   const [newFolder, setNewFolder] = useState("");
   const [dragOver, setDragOver] = useState<string | null>(null);
+
+  // Project views are subsets of the paginated history — keep paging while
+  // the user scrolls so every item in the project/folder becomes visible.
+  const loadMoreHistory = useStore((s) => s.loadMoreHistory);
+  const hasMoreHistory = useStore((s) => s.hasMoreHistory);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const observerTarget = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      async (entries) => {
+        if (entries[0].isIntersecting && hasMoreHistory && !isLoadingMore) {
+          setIsLoadingMore(true);
+          await loadMoreHistory();
+          setIsLoadingMore(false);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (observerTarget.current) observer.observe(observerTarget.current);
+    return () => observer.disconnect();
+  }, [hasMoreHistory, isLoadingMore, loadMoreHistory]);
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
@@ -305,6 +326,14 @@ export function ProjectPanel() {
                   </div>
                 ))}
               </AnimatePresence>
+            </div>
+          )}
+          {!briefView && hasMoreHistory && (
+            <div
+              ref={observerTarget}
+              className="flex h-16 w-full items-center justify-center opacity-50"
+            >
+              {isLoadingMore ? "Loading more..." : ""}
             </div>
           )}
         </div>

@@ -8,6 +8,8 @@ import {
 } from "@/lib/assets-db";
 import { saveAssetImage, deleteAssetImage } from "@/lib/save-media";
 import { ASSET_KINDS, type Asset, type AssetKind } from "@/lib/types";
+import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -78,6 +80,13 @@ export async function DELETE(req: NextRequest) {
   const removed = await deleteAsset(id);
   if (removed) {
     for (const img of removed.images) await deleteAssetImage(img);
+    const user = await getSession();
+    await logActivity(user?.id ?? null, "delete_asset", {
+      id,
+      slug: removed.slug,
+      name: removed.name,
+      kind: removed.kind,
+    });
   }
   return NextResponse.json({ ok: true });
 }

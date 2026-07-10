@@ -9,8 +9,8 @@ export interface ModelOption {
 
 export const MODELS: ModelOption[] = [
   { id: "nano-banana-pro", name: "Nano Banana Pro", kind: "image", badge: "BEST" },
-  { id: "higgsfield-nano-banana-pro", name: "Higgsfield Nano Banana Pro", kind: "image", badge: "TEST" },
   { id: "higgsfield-seedance", name: "Higgsfield Seedance 2.0", kind: "video", badge: "MULTI-REF" },
+  { id: "higgsfield-seedance-mini", name: "Higgsfield Seedance 2.0 Mini", kind: "video", badge: "UNLIMITED" },
 ];
 
 export interface ModeOption {
@@ -37,11 +37,21 @@ export const RESOLUTIONS: Record<GenerationKind, string[]> = {
 
 export const DURATIONS = [4, 5, 8, 10, 15]; // seconds (video)
 
+/** History cursor-pagination page size (server default + client hasMore check). */
+export const HISTORY_PAGE_SIZE = 50;
+
 /** Valid durations per model. Higgsfield's Seedance/DoP cap at 12s, so don't
  *  offer 15s for them (it would be silently clamped — wasted/confusing). */
 export function durationsForModel(model: string): number[] {
   if (/higgsfield/i.test(model)) return [3, 4, 5, 6, 8, 10, 12];
   return DURATIONS;
+}
+
+/** Valid resolutions per model. Seedance 2.0 Mini supports 480p/720p only
+ *  (per its MCP schema — no 1080p/4k SKU on the mini). */
+export function resolutionsForModel(model: string, kind: GenerationKind): string[] {
+  if (/seedance.*mini/i.test(model)) return ["480p", "720p"];
+  return RESOLUTIONS[kind];
 }
 
 export const DEFAULTS = {

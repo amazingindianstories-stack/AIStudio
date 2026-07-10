@@ -61,9 +61,10 @@ export const DEFAULT_PRICING: PricingRow[] = [
   },
   {
     model: "Higgsfield Seedance 2.0 Mini",
-    unitCostCents: 5,
+    unitCostCents: 0,
     unit: "per_second",
-    notes: "Seedance 2.0 Mini via Higgsfield MCP",
+    notes:
+      "Seedance 2.0 Mini via Higgsfield MCP — free under the unlimited-usage plan offer (2026-07); restore a real rate if the offer lapses",
   },
 ];
 

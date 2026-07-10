@@ -9,7 +9,12 @@ import type {
   Project,
   PublicUser,
 } from "./types";
-import { DEFAULTS, durationsForModel } from "./config";
+import {
+  DEFAULTS,
+  durationsForModel,
+  resolutionsForModel,
+  HISTORY_PAGE_SIZE,
+} from "./config";
 
 export interface CurrentUser {
   id: string;
@@ -174,11 +179,16 @@ export const useStore = create<AppState>((set, get) => ({
   },
   setModel: (model) =>
     set((s) => {
-      // Clamp the duration into the new model's valid range (e.g. switching to
-      // Higgsfield Seedance, whose max is 12s, while 15s was selected).
+      // Clamp duration and resolution into the new model's valid ranges
+      // (e.g. switching to Higgsfield Seedance, whose max is 12s, while 15s
+      // was selected; or to Seedance Mini, which caps at 720p).
       const allowed = durationsForModel(model);
       const max = Math.max(...allowed);
-      return { model, duration: Math.min(s.duration, max) };
+      const resolutions = resolutionsForModel(model, s.mode);
+      const resolution = resolutions.includes(s.resolution)
+        ? s.resolution
+        : resolutions[resolutions.length - 1];
+      return { model, duration: Math.min(s.duration, max), resolution };
     }),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set({ resolution }),
@@ -202,7 +212,7 @@ export const useStore = create<AppState>((set, get) => ({
       const res = await fetch("/api/history", { cache: "no-store" });
       const json = await res.json();
       const items: GenerationItem[] = json.items ?? [];
-      const hasMoreHistory = items.length === 20; // limit is 20
+      const hasMoreHistory = items.length === HISTORY_PAGE_SIZE;
       set({ items, loading: false, hasMoreHistory });
       // resume polling for anything still in flight
       for (const it of items) {
@@ -225,7 +235,7 @@ export const useStore = create<AppState>((set, get) => ({
       const res = await fetch(`/api/history?cursor=${lastItem.createdAt}`, { cache: "no-store" });
       const json = await res.json();
       const newItems: GenerationItem[] = json.items ?? [];
-      const hasMoreHistory = newItems.length === 20;
+      const hasMoreHistory = newItems.length === HISTORY_PAGE_SIZE;
       set((st) => ({
         items: [...st.items, ...newItems],
         hasMoreHistory,

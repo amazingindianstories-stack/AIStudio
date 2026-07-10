@@ -10,6 +10,7 @@ import {
   deleteFolder,
 } from "@/lib/projects-db";
 import { getSession } from "@/lib/auth";
+import { logActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
 
@@ -44,8 +45,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         projects: await setBrief(b.projectId, b.brief ?? ""),
       });
-    case "deleteProject":
+    case "deleteProject": {
+      const user = await getSession();
+      await logActivity(user?.id ?? null, "delete_project", {
+        projectId: b.projectId,
+      });
       return NextResponse.json({ projects: await deleteProject(b.projectId) });
+    }
     case "createFolder": {
       const name = (b.name || "").trim();
       if (!name)
@@ -57,10 +63,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         projects: await renameFolder(b.projectId, b.folderId, (b.name || "").trim()),
       });
-    case "deleteFolder":
+    case "deleteFolder": {
+      const user = await getSession();
+      await logActivity(user?.id ?? null, "delete_folder", {
+        projectId: b.projectId,
+        folderId: b.folderId,
+      });
       return NextResponse.json({
         projects: await deleteFolder(b.projectId, b.folderId),
       });
+    }
     default:
       return NextResponse.json({ error: "Unknown op." }, { status: 400 });
   }

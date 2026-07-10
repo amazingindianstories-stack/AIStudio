@@ -54,7 +54,9 @@ export function HistoryPanel() {
     );
     if (observerTarget.current) observer.observe(observerTarget.current);
     return () => observer.disconnect();
-  }, [hasMoreHistory, isLoadingMore, loadMoreHistory, loading]);
+    // rightTab: the sentinel remounts when switching tabs, so the observer
+    // must re-attach to the new element.
+  }, [hasMoreHistory, isLoadingMore, loadMoreHistory, loading, rightTab]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -193,6 +195,16 @@ export function HistoryPanel() {
               }
               items={favorites}
             />
+          )}
+          {/* favourites are derived from the loaded history pages — keep
+              paging until everything favourited is in memory */}
+          {hasMoreHistory && !loading && (
+            <div
+              ref={observerTarget}
+              className="flex h-20 w-full items-center justify-center opacity-50"
+            >
+              {isLoadingMore ? "Loading more..." : ""}
+            </div>
           )}
         </div>
       ) : (

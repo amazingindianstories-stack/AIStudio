@@ -1,0 +1,116 @@
+{
+  "content": [],
+  "structuredContent": {
+    "id": "seedance_2_0",
+    "name": "Seedance 2.0",
+    "provider_name": "Bytedance",
+    "description": "Reference-driven video with image/video/audio reference inputs, consistent identity, multi-SKU; optional generate_audio for native audio",
+    "output_type": "video",
+    "parameters": [
+      {
+        "name": "duration",
+        "required": "optional",
+        "type": "number",
+        "description": "Duration in seconds (4-15).",
+        "min": 4,
+        "max": 15,
+        "default": 5
+      },
+      {
+        "name": "resolution",
+        "required": "optional",
+        "type": "string",
+        "description": "Output resolution. 4k/1080p require mode='std'; mode='fast' supports 480p/720p only.",
+        "options": [
+          "480p",
+          "720p",
+          "1080p",
+          "4k"
+        ],
+        "default": "720p"
+      },
+      {
+        "name": "mode",
+        "required": "optional",
+        "type": "string",
+        "description": "'std' = higher quality, supports 480p/720p/1080p/4k; 'fast' = cheaper/faster, supports 480p/720p only.",
+        "options": [
+          "std",
+          "fast"
+        ],
+        "default": "std"
+      },
+      {
+        "name": "bitrate_mode",
+        "required": "optional",
+        "type": "string",
+        "description": "'standard' = normal output bitrate; 'high' = higher bitrate output.",
+        "options": [
+          "standard",
+          "high"
+        ],
+        "default": "standard"
+      },
+      {
+        "name": "genre",
+        "required": "optional",
+        "type": "string",
+        "description": "Cinematic genre hint.",
+        "options": [
+          "auto",
+          "action",
+          "horror",
+          "comedy",
+          "noir",
+          "drama",
+          "epic"
+        ],
+        "default": "auto"
+      },
+      {
+        "name": "generate_audio",
+        "required": "optional",
+        "type": "bool",
+        "description": "Generate native audio for the video. Set false for a silent video. Independent of audio_references.",
+        "default": true
+      }
+    ],
+    "medias": [
+      {
+        "name": "medias",
+        "type": "image",
+        "roles": [
+          "start_image",
+          "end_image",
+          "image_references",
+          "video_references",
+          "audio_references"
+        ]
+      }
+    ],
+    "aspect_ratios": [
+      "auto",
+      "16:9",
+      "9:16",
+      "4:3",
+      "3:4",
+      "1:1",
+      "21:9"
+    ],
+    "tags": [
+      "reference",
+      "identity",
+      "consistent",
+      "product",
+      "multi-sku",
+      "e-commerce",
+      "audio",
+      "audio-reference",
+      "video-reference",
+      "start-frame",
+      "end-frame",
+      "4k",
+      "high-resolution"
+    ]
+  }
+}

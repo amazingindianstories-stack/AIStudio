@@ -56,9 +56,17 @@ interface PricingRow {
   unit: string;
   notes?: string | null;
 }
+interface ActivityRow {
+  id: string;
+  userId: string | null;
+  action: string;
+  detail: Record<string, unknown> | null;
+  createdAt: number;
+}
 interface Data {
   users: AdminUser[];
   generations: LogRow[];
+  activity: ActivityRow[];
   pricing: PricingRow[];
 }
 
@@ -554,6 +562,104 @@ function LogsTab({
                 <td className="px-3 py-2 tabular-nums">{formatCost(g.costCents)}</td>
                 <td className="max-w-[280px] truncate px-3 py-2 text-xs text-white/60">
                   {g.prompt}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <ActivityLog data={data} usersById={usersById} />
+    </div>
+  );
+}
+
+/** One-line human summary of an audit event's detail payload. */
+function activitySummary(a: ActivityRow): string {
+  const d = a.detail || {};
+  switch (a.action) {
+    case "delete":
+      return [d.kind, d.model, d.prompt ? `“${String(d.prompt).slice(0, 80)}…”` : null]
+        .filter(Boolean)
+        .join(" · ");
+    case "delete_asset":
+      return [d.kind, d.name && `"${d.name}"`, d.slug && `@${d.slug}`]
+        .filter(Boolean)
+        .join(" · ");
+    case "delete_project":
+      return `project ${d.projectId ?? ""}`;
+    case "delete_folder":
+      return `folder ${d.folderId ?? ""} in project ${d.projectId ?? ""}`;
+    case "generate":
+      return [d.kind, d.model, d.costCents != null ? formatCost(Number(d.costCents)) : null]
+        .filter(Boolean)
+        .join(" · ");
+    default:
+      return d && Object.keys(d).length ? JSON.stringify(d).slice(0, 100) : "";
+  }
+}
+
+function ActivityLog({
+  data,
+  usersById,
+}: {
+  data: Data;
+  usersById: Record<string, AdminUser>;
+}) {
+  const [action, setAction] = useState("");
+  const actions = useMemo(
+    () => Array.from(new Set((data.activity ?? []).map((a) => a.action))),
+    [data]
+  );
+  const rows = useMemo(
+    () => (data.activity ?? []).filter((a) => (action ? a.action === action : true)),
+    [data, action]
+  );
+  const sel =
+    "rounded-lg border border-line bg-ink-700 px-2.5 py-1.5 text-sm outline-none focus:border-brand/40";
+  return (
+    <div className="space-y-2 pt-4">
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-white">Activity</h3>
+        <select value={action} onChange={(e) => setAction(e.target.value)} className={sel}>
+          <option value="">All actions</option>
+          {actions.map((a) => (
+            <option key={a} value={a}>
+              {a}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-white/40">{rows.length} events</p>
+      </div>
+      <div className="overflow-hidden rounded-xl border border-line">
+        <table className="w-full text-sm">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+            <tr>
+              <th className="px-3 py-2">Time</th>
+              <th className="px-3 py-2">User</th>
+              <th className="px-3 py-2">Action</th>
+              <th className="px-3 py-2">Detail</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((a) => (
+              <tr key={a.id} className="border-t border-line align-top">
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-white/55">
+                  {new Date(a.createdAt).toLocaleString()}
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  {usersById[a.userId || ""]?.name || usersById[a.userId || ""]?.email || "—"}
+                </td>
+                <td
+                  className={cn(
+                    "px-3 py-2 text-xs",
+                    a.action.startsWith("delete") && "text-red-400"
+                  )}
+                >
+                  {a.action}
+                </td>
+                <td className="max-w-[380px] truncate px-3 py-2 text-xs text-white/60">
+                  {activitySummary(a)}
                 </td>
               </tr>
             ))}

@@ -33,6 +33,14 @@ export async function POST(req: NextRequest) {
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
   }
+  // Seedance 2.0 Mini has no 1080p/4k SKU (per its MCP schema) — reject
+  // loudly rather than letting the provider silently downgrade.
+  if (/seedance.*mini/i.test(model) && !["480p", "720p"].includes(resolution || "")) {
+    return NextResponse.json(
+      { error: `Seedance 2.0 Mini supports 480p/720p only (got ${resolution}).` },
+      { status: 400 }
+    );
+  }
 
   const id = crypto.randomUUID();
   const now = Date.now();

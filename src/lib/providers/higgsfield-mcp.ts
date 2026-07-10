@@ -112,18 +112,30 @@ async function loadToken(): Promise<TokenData> {
   }
 }
 
-async function refreshToken(): Promise<void> {
-  const t = await loadToken();
+async function refreshOnce(refresh_token: string, client_id: string): Promise<any> {
   const res = await fetch(TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: t.refresh_token,
-      client_id: t.client_id,
-    }),
+    body: new URLSearchParams({ grant_type: "refresh_token", refresh_token, client_id }),
   });
-  const j = await res.json();
+  return res.json();
+}
+
+async function refreshToken(): Promise<void> {
+  const t = await loadToken();
+  let j = await refreshOnce(t.refresh_token, t.client_id);
+  if (!j.access_token) {
+    // The stored refresh token can be invalidated by rotation elsewhere in
+    // the token family (e.g. a local dev session refreshing on the same
+    // account rotates it out from under the S3 copy). Fall back to the
+    // env-provided refresh token before giving up.
+    const envRefresh = process.env.HIGGSFIELD_MCP_REFRESH_TOKEN;
+    const envClient = process.env.HIGGSFIELD_MCP_CLIENT_ID || t.client_id;
+    if (envRefresh && envRefresh !== t.refresh_token) {
+      console.log("[mcp] stored refresh token rejected — retrying with env refresh token");
+      j = await refreshOnce(envRefresh, envClient);
+    }
+  }
   if (!j.access_token) {
     throw new Error(
       "Higgsfield MCP token refresh failed — re-run `node scripts/hf-mcp-auth.mjs`."

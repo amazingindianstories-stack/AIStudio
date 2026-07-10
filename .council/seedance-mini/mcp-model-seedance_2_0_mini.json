@@ -1,0 +1,100 @@
+{
+  "content": [],
+  "structuredContent": {
+    "id": "seedance_2_0_mini",
+    "name": "Seedance 2.0 Mini",
+    "provider_name": "Bytedance",
+    "description": "Fast budget Seedance 2.0 variant with image/video/audio reference inputs and native audio",
+    "output_type": "video",
+    "parameters": [
+      {
+        "name": "duration",
+        "required": "optional",
+        "type": "number",
+        "description": "Duration in seconds (4-15).",
+        "min": 4,
+        "max": 15,
+        "default": 5
+      },
+      {
+        "name": "resolution",
+        "required": "optional",
+        "type": "string",
+        "description": "Output resolution (mini supports 480p/720p only).",
+        "options": [
+          "480p",
+          "720p"
+        ],
+        "default": "720p"
+      },
+      {
+        "name": "bitrate_mode",
+        "required": "optional",
+        "type": "string",
+        "description": "'standard' = normal output bitrate; 'high' = higher bitrate output.",
+        "options": [
+          "standard",
+          "high"
+        ],
+        "default": "standard"
+      },
+      {
+        "name": "genre",
+        "required": "optional",
+        "type": "string",
+        "description": "Cinematic genre hint.",
+        "options": [
+          "auto",
+          "action",
+          "horror",
+          "comedy",
+          "noir",
+          "drama",
+          "epic"
+        ],
+        "default": "auto"
+      },
+      {
+        "name": "generate_audio",
+        "required": "optional",
+        "type": "bool",
+        "description": "Generate native audio for the video. Set false for a silent video. Independent of audio_references.",
+        "default": true
+      }
+    ],
+    "medias": [
+      {
+        "name": "medias",
+        "type": "image",
+        "roles": [
+          "start_image",
+          "end_image",
+          "image_references",
+          "video_references",
+          "audio_references"
+        ]
+      }
+    ],
+    "aspect_ratios": [
+      "auto",
+      "16:9",
+      "9:16",
+      "4:3",
+      "3:4",
+      "1:1",
+      "21:9"
+    ],
+    "tags": [
+      "fast",
+      "budget",
+      "reference",
+      "identity",
+      "consistent",
+      "audio",
+      "audio-reference",
+      "video-reference",
+      "start-frame",
+      "end-frame"
+    ]
+  }
+}
