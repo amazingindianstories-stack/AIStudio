@@ -15,8 +15,12 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Always allow auth endpoints and Next internals/static assets.
+  // /api/admin/set-token is also exempt: it accepts either an admin session
+  // OR an x-setup-secret header (token re-seeding from a script with no
+  // cookie), and enforces both itself.
   if (
     pathname.startsWith("/api/auth") ||
+    pathname === "/api/admin/set-token" ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   ) {
