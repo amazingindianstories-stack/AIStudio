@@ -392,7 +392,14 @@ export function PromptComposer() {
                 }}
               >
                 <Box className="h-4 w-4 text-white/50" />
-                <span className="flex-1">{m.name}</span>
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span>{m.name}</span>
+                  {m.hint && (
+                    <span className="text-[10px] leading-snug text-white/40">
+                      {m.hint}
+                    </span>
+                  )}
+                </span>
                 {m.badge && (
                   <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
                     {m.badge}

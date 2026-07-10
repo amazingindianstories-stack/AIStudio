@@ -5,15 +5,23 @@ export interface ModelOption {
   name: string;
   kind: GenerationKind;
   badge?: string;
+  /** Short cue shown under the name in the model picker. */
+  hint?: string;
 }
 
 export const MODELS: ModelOption[] = [
   { id: "nano-banana-pro", name: "Nano Banana Pro", kind: "image", badge: "BEST" },
   { id: "higgsfield-seedance", name: "Higgsfield Seedance 2.0", kind: "video", badge: "MULTI-REF" },
-  // NOTE: Higgsfield's web "Mini Unlimited" offer is a separate feature that
-  // the MCP does not expose — API jobs on seedance_2_0_mini bill normally
-  // (measured 2.5 credits/s at 720p).
-  { id: "higgsfield-seedance-mini", name: "Higgsfield Seedance 2.0 Mini", kind: "video", badge: "BUDGET" },
+  // NOTE: Higgsfield's web "Mini Unlimited" / "Enhanced Fast Unlimited"
+  // offers are web-UI-only features the MCP does not expose — API jobs on
+  // seedance_2_0_mini bill normally (measured 2.5 credits/s at 720p).
+  {
+    id: "higgsfield-seedance-mini",
+    name: "Higgsfield Seedance 2.0 Mini",
+    kind: "video",
+    badge: "BUDGET",
+    hint: "Billed per second via API — Higgsfield's web Unlimited offer doesn't apply",
+  },
 ];
 
 export interface ModeOption {
