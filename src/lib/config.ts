@@ -10,7 +10,10 @@ export interface ModelOption {
 export const MODELS: ModelOption[] = [
   { id: "nano-banana-pro", name: "Nano Banana Pro", kind: "image", badge: "BEST" },
   { id: "higgsfield-seedance", name: "Higgsfield Seedance 2.0", kind: "video", badge: "MULTI-REF" },
-  { id: "higgsfield-seedance-mini", name: "Higgsfield Seedance 2.0 Mini", kind: "video", badge: "UNLIMITED" },
+  // NOTE: Higgsfield's web "Mini Unlimited" offer is a separate feature that
+  // the MCP does not expose — API jobs on seedance_2_0_mini bill normally
+  // (measured 2.5 credits/s at 720p).
+  { id: "higgsfield-seedance-mini", name: "Higgsfield Seedance 2.0 Mini", kind: "video", badge: "BUDGET" },
 ];
 
 export interface ModeOption {

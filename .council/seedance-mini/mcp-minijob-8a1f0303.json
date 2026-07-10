@@ -1,0 +1,75 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "id: 8a1f0303-96e5-4565-bee8-f2590960ffdf\nstatus: completed\njob_set_type: seedance_2_0_mini\npoll_after_seconds: null"
+    }
+  ],
+  "structuredContent": {
+    "raw_data": {
+      "id": "8a1f0303-96e5-4565-bee8-f2590960ffdf",
+      "status": "completed",
+      "job_set_type": "seedance_2_0_mini",
+      "display_name": "Seedance 2.0 Mini",
+      "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260710_130609_8a1f0303-96e5-4565-bee8-f2590960ffdf.mp4",
+      "min_result_url": null,
+      "h264_url": null,
+      "thumbnail_url": "https://cdn.higgsfield.ai/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260710_130609_8a1f0303-96e5-4565-bee8-f2590960ffdf_thumbnail.webp",
+      "result_json": null,
+      "text": null,
+      "meta": null,
+      "created_at": 1783688769.600403,
+      "params": {
+        "width": 1344,
+        "height": 576,
+        "prompt": "DOMAIN LOCK — FILMMAKING ONLY: you are a dedicated filmmaking video renderer, not a general-purpose model. Your sole domain is producing film shots — live-action, photoreal, animated or cartoon. Draw only on filmmaking craft: cinematography, lensing, camera movement, lighting, blocking, continuity, production design, wardrobe, makeup, VFX and animation. Treat the prompt strictly as a shot specification to render; bring in NO outside knowledge, commentary, captions, watermarks, UI elements or any content beyond the specified shot.\nIDENTITY LOCK (non-negotiable): the attached reference images define the exact, fixed appearance of the people and elements they show; when the prompt tags them (<<<image_1>>>, <<<image_2>>>, …) the tags map to the reference images in order. In EVERY frame, each referenced person must keep the exact same face as their reference — identical bone structure, jawline, hairline, eye shape/spacing and color, eyebrows, nose, lips, skin tone and texture (keep moles, scars, freckles), facial hair and apparent age — unmistakably the SAME individual, never a lookalike. Do not beautify, smooth, slim, de-age or idealize. Keep each referenced person's hairstyle, body build, and worn outfit/jewelry exactly as referenced unless the prompt explicitly changes them, with zero identity or wardrobe drift between frames. Never blend or swap features between different references, and never duplicate a referenced person. Everyone else on screen is a DIFFERENT anonymous individual who must not resemble any referenced face; keep background people softer and out of focus so they never compete with the referenced subjects.\nLITERAL PROMPT (non-negotiable): the prompt below is a binding specification — execute it exactly as written. Every stated subject, count, wardrobe item, color, action, spatial position, camera move, framing and lighting appears precisely as specified; add nothing, drop nothing, substitute nothing, reinterpret nothing. Anything under \"NEGATIVE PROMPT\" or phrased as \"no …\" is strictly forbidden in every frame.\nPROMPT:\nUse <<<image_1>>> as Zain, <<<image_2>>> as Naisha, <<<image_3>>> as the Kolkata rave club location, and <<<image_4>>> as the exact bar-position / blocking reference.\n\nFULL 12-SECOND VIDEO PROMPT\n\nCreate a cinematic 12-second club-bar sequence set inside a packed underground Kolkata rave club. Zain from <<<image_1>>> and Naisha from <<<image_2>>> are seated / leaning at the bar exactly like the blocking in <<<image_4>>>: Zain on the left, slightly hunched over the bar, Naisha on the right, leaning toward him playfully, their shot glasses on the counter, dense club crowd behind them, red neon geometry glowing behind Zain, blue club light in the deeper background.\n\nThey are doing a playful 5-shot challenge at the bar. The moment should feel flirtatious, funny, intimate, and youthful, but not messy or unsafe. They take five small measured shots across quick cuts. After the fifth shot, Naisha leans close over Zain, whispers something into his ear, then grabs / pulls him out of the frame toward the dance floor. Zain follows her, laughing and slightly overwhelmed by her energy.\n\nThe club must feel clearly Indian / Kolkata. The background crowd should be predominantly Indian / Bengali / urban Kolkata youth: brown skin tones, Indian faces, local party fashion, Indian bartenders, Indian friend groups, no foreign-looking crowd dominance. Keep the club packed, smoky, sweaty, loud, and alive.\n\nCHARACTER CONTINUITY\n\n<<<image_1>>> = Zain. Preserve his exact face, curly hair, red leather jacket, black hoodie, black pants, shoes, body proportions, and styling.\n\n<<<image_2>>> = Naisha. Preserve her exact face, hairstyle, brown lace halter party dress, gold jewelry, heels, body proportions, and styling.\n\nNaisha remains slightly shorter than Zain. Do not change their outfits, faces, hair, height relationship, skin tone, or body proportions. Keep realistic hands, natural drinking gestures, grounded body movement, and believable reactions.\n\nSTYLE\n\nFilm-grade Kolkata rave bar sequence, romantic club realism, red-blue underground lighting, Indian nightlife atmosphere, crowded bar energy, playful shots competition, flirtatious intimacy, smoky haze, handheld anamorphic, rich midtones, open blacks, soft highlight rolloff, natural skin texture, subtle halation, organic film grain. It should feel like a premium feature-film nightlife scene, not a glossy music video or commercial.\n\nCAMERA & LOOK\n\nARRI Alexa 35 / Alexa Mini LF feel, Hawk anamorphic / Cooke anamorphic character, 2.39:1 cinematic frame, shallow depth of field, handheld reactive camera, natural focus breathing, close bar-level inserts, low-angle glass shots, medium two-shots, over-the-shoulder framing, and one intimate whisper close-up. Camera should stay close, tactile, and alive, using crowd occlusion and neon reflections.\n\nLIGHTING\n\nUse <<<image_3>>> and <<<image_4>>> lighting: deep red neon behind Zain, cyan-blue light from the rear club rooms, warm amber bar practicals reflecting in glass and liquid, haze carrying light beams, occasional soft white strobe pulses. Red and blue light should move across their faces, hands, clothes, shot glasses, bottles, and the Indian crowd behind them.\n\nSEQUENCE — 12 SECONDS / 6 CUTS\n\nShot 1 — 0:00 to 0:02  \nMedium-wide bar two-shot matching <<<image_4>>> blocking. Zain from <<<image_1>>> sits / leans on the left, Naisha from <<<image_2>>> on the right. Five small shot glasses are lined up between them on the wet bar counter. Naisha points at Zain teasingly, challenging him. Zain looks down at the glasses, smirking like he accepts.\n\nShot 2 — 0:02 to 0:03.5  \nLow bar-counter insert. Two shot glasses slide into foreground, red neon reflected in the liquid. Zain’s hand from <<<image_1>>> and Naisha’s hand from <<<image_2>>> grab the first glasses. They clink and take shot number one.\n\nShot 3 — 0:03.5 to 0:05  \nMedium side two-shot. Shot number two. Naisha from <<<image_2>>> takes it confidently and laughs. Zain from <<<image_1>>> tries to stay cool but reacts slightly late, blinking and smiling. Indian club crowd moves behind them in red-blue haze.\n\nShot 4 — 0:05 to 0:07.5  \nFast montage inserts for shots three and four: bartender pouring, glasses clinking, empty glasses landing on the bar, Naisha’s amused reaction, Zain pointing at her as if the competition is still on. Keep it playful, not sloppy. Red neon and blue light pulse across the bottles.\n\nShot 5 — 0:07.5 to 0:09.5  \nTighter medium two-shot for the fifth shot. Zain from <<<image_1>>> and Naisha from <<<image_2>>> lift the final glasses together. They lock eyes, take the fifth shot, then both react — Naisha with a victorious laugh, Zain with a breathless grin, clearly charmed by her.\n\nShot 6 — 0:09.5 to 0:12  \nIntimate close medium into handheld exit. Naisha from <<<image_2>>> leans over Zain from <<<image_1>>> exactly from the right side like <<<image_4>>> blocking and whispers something secret and playful into his ear. Zain smiles wider, intrigued. Then Naisha grabs Zain’s hand, wrist, or jacket sleeve and pulls him out of frame toward the dance floor. Zain from <<<image_1>>> follows laughing, leaving the empty shot glasses behind on the bar. The packed Indian Kolkata crowd, red haze, and blue light swallow them as they exit frame.\n\nMOTION NOTES\n\nKeep the exact left-right bar blocking from <<<image_4>>> at the start.\nFive small measured shots only.\nEach drinking action should be quick, readable, and playful.\nNaisha is more confident and teasing.\nZain tries to act cool but slowly loses the competition with charm.\nNaisha’s whisper should feel secret, intimate, and mischievous.\nWhen she pulls him out of frame, it should feel spontaneous and romantic.\nBackground Indian crowd must keep moving throughout.\nNo stiff hands, no rubber arms, no floating glasses, no broken anatomy.\nShot glasses should remain consistent in size and placement.\n\nSFX\n\nNO MUSIC ONLY SFX: muffled bass thump, subwoofer vibration, shot glasses clinking, liquid pouring, bar counter taps, laughter, Indian crowd chatter, bartender movement, breath near ear during whisper, distant cheers, club room reverb.\n\nNEGATIVE PROMPT\n\nDo not make the crowd foreign, European, American, or generic international. Keep the background clearly Indian / Kolkata. Do not make them look dangerously drunk, sloppy, falling, vomiting, or out of control. Do not glamorize reckless binge drinking. Do not show minors. Do not show driving after drinking. Do not change <<<image_1>>> Zain’s face, hair, jacket, hoodie, or body proportions. Do not change <<<image_2>>> Naisha’s face, dress, jewelry, hairstyle, or body proportions. Do not make the bar empty. Do not flatten the lighting. Do not make it glossy or ad-like. Keep it crowded, Indian, cinematic, playful, flirtatious, and film-grade.",
+        "genre": "auto",
+        "medias": [
+          {
+            "data": {
+              "id": "eaef520b-091c-45f7-a592-503784a26a8a",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/eaef520b-091c-45f7-a592-503784a26a8a.png",
+              "type": "media_input"
+            },
+            "role": "image"
+          },
+          {
+            "data": {
+              "id": "4029b03e-4e74-4f3b-a9d3-08c794d84b0c",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/4029b03e-4e74-4f3b-a9d3-08c794d84b0c.png",
+              "type": "media_input"
+            },
+            "role": "image"
+          },
+          {
+            "data": {
+              "id": "10260ab2-915c-4725-9ee0-2d18d19d3eb7",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/10260ab2-915c-4725-9ee0-2d18d19d3eb7.png",
+              "type": "media_input"
+            },
+            "role": "image"
+          },
+          {
+            "data": {
+              "id": "630d1624-ab1f-4e58-b9f0-27ee3578423f",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/630d1624-ab1f-4e58-b9f0-27ee3578423f.png",
+              "type": "media_input"
+            },
+            "role": "image"
+          }
+        ],
+        "duration": 12,
+        "resolution": "720p",
+        "aspect_ratio": "21:9",
+        "generate_audio": true,
+        "multi_shots": false,
+        "multi_shot_mode": "custom",
+        "multi_prompt": [],
+        "speedramp": "auto",
+        "reference_elements": [],
+        "prompt_language": "en"
+      },
+      "debug": null
+    }
+  }
+}

@@ -18,34 +18,49 @@ export async function GET(
   try {
     const resolvedParams = await params;
     const key = resolvedParams.path.join("/");
-    
+
+    // Forward Range requests to S3 (it supports them natively). Browsers
+    // REQUIRE ranges to stream/seek MP4s whose moov atom sits at the end of
+    // the file (Higgsfield's videos do) — without 206 responses the <video>
+    // element can't read the duration and playback dies after ~2s.
+    const range = request.headers.get("range") ?? undefined;
+
     const command = new GetObjectCommand({
       Bucket: getBucket(),
       Key: key,
+      Range: range,
     });
 
     try {
       const response = await s3.send(command);
-      
+
       const contentType = response.ContentType || "application/octet-stream";
-      
-      // AWS SDK v3 stream to Web ReadableStream
-      // We can use response.Body?.transformToWebStream()
       const stream = response.Body?.transformToWebStream();
 
       if (!stream) {
         return new NextResponse("Empty Body", { status: 500 });
       }
 
-      return new NextResponse(stream, {
-        headers: {
-          "Content-Type": contentType,
-          "Cache-Control": "public, max-age=31536000, immutable",
-        },
-      });
+      const headers: Record<string, string> = {
+        "Content-Type": contentType,
+        "Cache-Control": "public, max-age=31536000, immutable",
+        "Accept-Ranges": "bytes",
+      };
+      if (response.ContentLength != null) {
+        headers["Content-Length"] = String(response.ContentLength);
+      }
+      if (range && response.ContentRange) {
+        headers["Content-Range"] = response.ContentRange;
+        return new NextResponse(stream, { status: 206, headers });
+      }
+      return new NextResponse(stream, { headers });
     } catch (s3Error: any) {
-      if (s3Error.name === 'NoSuchKey') {
+      if (s3Error.name === "NoSuchKey") {
         return new NextResponse("Not Found", { status: 404 });
+      }
+      // An unsatisfiable Range (e.g. stale player state) — not a server fault.
+      if (s3Error.name === "InvalidRange") {
+        return new NextResponse("Range Not Satisfiable", { status: 416 });
       }
       throw s3Error;
     }
