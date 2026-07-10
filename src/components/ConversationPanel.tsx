@@ -7,6 +7,8 @@ import {
   Loader2,
   AlertCircle,
   ChevronsDown,
+  ChevronDown,
+  ChevronUp,
   Sparkles,
   Layers,
   Maximize2,
@@ -89,6 +91,48 @@ export function ConversationPanel() {
   );
 }
 
+/** Sent prompts render minimized (2 lines); hovering reveals an expand cue in
+ *  the top-right corner. Short single-line prompts skip the machinery. */
+function PromptText({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > 180 || text.includes("\n");
+  if (!long) {
+    return (
+      <p className="max-w-3xl whitespace-pre-wrap text-[15px] leading-relaxed text-white/85">
+        {text}
+      </p>
+    );
+  }
+  return (
+    <div className="group/prompt relative max-w-3xl">
+      <p
+        className={cn(
+          "whitespace-pre-wrap pr-8 text-[15px] leading-relaxed text-white/85",
+          !expanded && "line-clamp-2"
+        )}
+      >
+        {text}
+      </p>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="absolute -top-1 right-0 hidden items-center gap-1 rounded-md bg-ink-700/95 px-1.5 py-1 text-[10px] font-medium text-white/70 ring-1 ring-line backdrop-blur-sm hover:text-white group-hover/prompt:flex"
+        aria-label={expanded ? "Collapse prompt" : "Expand prompt"}
+        title={expanded ? "Collapse prompt" : "Show full prompt"}
+      >
+        {expanded ? (
+          <>
+            <ChevronUp className="h-3 w-3" /> Collapse
+          </>
+        ) : (
+          <>
+            <ChevronDown className="h-3 w-3" /> Expand
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
+
 function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
@@ -111,9 +155,7 @@ function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
         {label} {index}
       </span>
 
-      <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-white/85 max-w-3xl">
-        {item.prompt}
-      </p>
+      <PromptText text={item.prompt} />
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
         <Meta icon={<Layers className="h-3.5 w-3.5" />}>{item.model}</Meta>
