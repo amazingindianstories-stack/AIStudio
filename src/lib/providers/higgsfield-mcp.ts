@@ -161,11 +161,14 @@ async function refreshToken(): Promise<void> {
 
 async function accessToken(): Promise<string> {
   const t = await loadToken();
+  // A token without obtained_at/expires_in (e.g. a raw hf:login file seeded
+  // into S3) has unknown age — treat it as stale rather than fresh forever;
+  // the server hides the resulting 401s behind generic tool errors.
   const stale =
     !t.access_token ||
-    (t.obtained_at && t.expires_in
-      ? Date.now() > t.obtained_at + (t.expires_in - 300) * 1000
-      : !t.access_token);
+    !t.obtained_at ||
+    !t.expires_in ||
+    Date.now() > t.obtained_at + (t.expires_in - 300) * 1000;
   if (stale) {
     try {
       await refreshToken();
