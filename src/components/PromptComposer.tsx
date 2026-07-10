@@ -24,7 +24,6 @@ import {
   BookOpen,
   Images,
   X,
-  Star,
   Box,
   FolderClosed,
   Layers,
@@ -527,10 +526,6 @@ export function PromptComposer() {
         </Dropdown>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="hidden items-center gap-1 rounded-full bg-ink-700 px-2.5 py-1.5 text-xs text-white/70 ring-1 ring-line sm:flex">
-            <Star className="h-3.5 w-3.5 fill-brand text-brand" /> 36
-          </span>
-
           <motion.button
             whileTap={{ scale: 0.92 }}
             onClick={() => s.generate()}
