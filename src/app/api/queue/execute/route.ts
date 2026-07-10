@@ -14,8 +14,8 @@ import {
 } from "@/lib/save-media";
 import { upsertItem, lockJob, getItem } from "@/lib/store-db";
 import { isMock, mockPlaceholder } from "@/lib/mock";
-import { prepReference } from "@/lib/middleware/image-prep";
-import { judgeIdentity } from "@/lib/middleware/face-judge";
+import { crispen, prepReference } from "@/lib/middleware/image-prep";
+import { judgeCandidate, judgeIdentity, selectBestCandidate } from "@/lib/middleware/face-judge";
 import { assemblePrompt } from "@/lib/prompt-assembler";
 import { readAssets } from "@/lib/assets-db";
 import { getSession } from "@/lib/auth";
@@ -23,6 +23,7 @@ import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents } from "@/lib/pricing";
 import { logActivity } from "@/lib/activity";
 import type { GenerationItem } from "@/lib/types";
+import sharp from "sharp";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Nano Banana Pro high-res can take ~30–60s
@@ -31,6 +32,41 @@ function resolutionToImageSize(res?: string): "1K" | "2K" | "4K" {
   if (res === "4K") return "4K";
   if (res === "2K" || res === "1080p") return "2K";
   return "1K";
+}
+
+// SUPERSAMPLE=1: render one step up (1K→2K, 2K→4K; 4K has no step up). Each
+// NBP size step measured as an exact 2× linear scale at a fixed aspect ratio
+// (21:9/2K = 3168×1344, 21:9/4K = 6336×2688 — see gemini.ts header), so the
+// delivered image is downsampled to exactly half the rendered pixel
+// dimensions to land back on the originally requested size.
+const NEXT_IMAGE_SIZE: Record<"1K" | "2K" | "4K", "1K" | "2K" | "4K"> = {
+  "1K": "2K",
+  "2K": "4K",
+  "4K": "4K",
+};
+
+/** SUPERSAMPLE delivery step: NEXT_IMAGE_SIZE is always exactly one step up,
+ *  so halving the rendered image's actual pixel dimensions lands back on the
+ *  originally requested size, without a hardcoded per-aspect-ratio pixel
+ *  table. Only called when a step-up actually happened. Fail-open: returns
+ *  the rendered bytes unchanged on any error. */
+async function halveForDelivery(base64: string): Promise<string> {
+  try {
+    const buf = Buffer.from(base64, "base64");
+    const meta = await sharp(buf).metadata();
+    if (!meta.width || !meta.height) return base64;
+    const out = await sharp(buf)
+      .resize({
+        width: Math.round(meta.width / 2),
+        height: Math.round(meta.height / 2),
+        fit: "inside",
+        kernel: "lanczos3",
+      })
+      .toBuffer();
+    return out.toString("base64");
+  } catch {
+    return base64;
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -106,15 +142,26 @@ export async function POST(req: NextRequest) {
       // Context engineering: resolve @slug assets + @imgN uploads into a
       // structured, role-labeled payload (literal SCENE + grouped references).
       const assets = await readAssets();
-      const assembled = await assemblePrompt(prompt, assets, referenceImages ?? []);
+      const assembled = await assemblePrompt(prompt, assets, referenceImages ?? [], {
+        aspectRatio,
+      });
       const refImageCount = assembled.groups.reduce(
         (n, g) => n + g.images.length,
         0
       );
+      const requestedSize = resolutionToImageSize(resolution);
+      const supersampleOn = process.env.SUPERSAMPLE === "1";
+      const renderSize = supersampleOn ? NEXT_IMAGE_SIZE[requestedSize] : requestedSize;
+      if (supersampleOn && renderSize !== requestedSize) {
+        // Bill what actually ran: the rendered (higher) size, not the
+        // originally requested one.
+        const pricingRows = await readPricing();
+        costCents = computeCostCents({ kind: "image", model, resolution: renderSize }, pricingRows);
+      }
       const input = {
         assembled,
         aspectRatio,
-        imageSize: resolutionToImageSize(resolution),
+        imageSize: renderSize,
         modelDisplay: model,
       };
       // Best-of-N: generation is stochastic (identity swings 5–65 on the same
@@ -127,7 +174,8 @@ export async function POST(req: NextRequest) {
         : 1;
       console.log(
         `[image] model=${model} uploads=${referenceImages?.length ?? 0} ` +
-          `groups=${assembled.groups.length} refImages=${refImageCount} bestOf=${bestOf}`
+          `groups=${assembled.groups.length} refImages=${refImageCount} bestOf=${bestOf} ` +
+          `imageSize=${renderSize}`
       );
       let base64: string;
       let mimeType: string;
@@ -146,26 +194,56 @@ export async function POST(req: NextRequest) {
         }
         // Bill what actually ran.
         costCents = costCents * candidates.length;
-        const scores = await Promise.all(
-          candidates.map((c) =>
-            judgeIdentity(assembled.judgeFace!, {
-              mimeType: c.value.mimeType,
-              data: c.value.base64,
-            })
-          )
-        );
-        let best = 0;
-        for (let i = 1; i < scores.length; i++) {
-          if ((scores[i] ?? -1) > (scores[best] ?? -1)) best = i;
+        if (process.env.JUDGE_COMPOSITE === "1") {
+          // Widened judge: identity + subject prominence + face sharpness in
+          // one call each, picked subject to an identity floor so identity
+          // never regresses vs the identity-only picker below.
+          const scores = await Promise.all(
+            candidates.map((c) =>
+              judgeCandidate(assembled.judgeFace!, {
+                mimeType: c.value.mimeType,
+                data: c.value.base64,
+              })
+            )
+          );
+          const best = selectBestCandidate(scores, 8);
+          console.log(
+            `[image] best-of-${candidates.length} composite scores: ` +
+              `${scores
+                .map((s) => (s ? `id${s.identity}/pr${s.prominence}/sh${s.sharpness}` : "n/a"))
+                .join(", ")} → picked #${best + 1}`
+          );
+          ({ base64, mimeType } = candidates[best].value);
+        } else {
+          const scores = await Promise.all(
+            candidates.map((c) =>
+              judgeIdentity(assembled.judgeFace!, {
+                mimeType: c.value.mimeType,
+                data: c.value.base64,
+              })
+            )
+          );
+          let best = 0;
+          for (let i = 1; i < scores.length; i++) {
+            if ((scores[i] ?? -1) > (scores[best] ?? -1)) best = i;
+          }
+          console.log(
+            `[image] best-of-${candidates.length} identity scores: ` +
+              `${scores.map((s) => s ?? "n/a").join(", ")} → picked #${best + 1}`
+          );
+          ({ base64, mimeType } = candidates[best].value);
         }
-        console.log(
-          `[image] best-of-${candidates.length} identity scores: ` +
-            `${scores.map((s) => s ?? "n/a").join(", ")} → picked #${best + 1}`
-        );
-        ({ base64, mimeType } = candidates[best].value);
       } else {
         ({ base64, mimeType } = await generateImageGemini(input));
       }
+
+      if (process.env.POST_CRISPEN === "1") {
+        ({ data: base64, mimeType } = await crispen(mimeType, base64));
+      }
+      if (supersampleOn && renderSize !== requestedSize) {
+        base64 = await halveForDelivery(base64);
+      }
+
       const ext = mimeType.includes("jpeg") ? "jpg" : "png";
       url = await saveBase64(base64, ext, id);
     }

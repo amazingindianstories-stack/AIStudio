@@ -66,6 +66,19 @@ Vercel is the primary target (hence `maxDuration = 60`, payload limits, env-var 
 
 Optional local Python service (SDXL + InstantID on Apple MPS) for fully-local face-locked generation. Separate from the Node app; see `pyserver/README.md`.
 
+### Higgsfield–NBP parity (flag-gated enhancements)
+
+Research (July 2026) found Higgsfield's edge over baseline NBP was not hidden API magic, but deterministic scaffolding (role-aware reference headers, subject-framing language, reference fidelity via higher client upscale cap) plus a widened best-of-N judge (identity + prominence + sharpness composite). All behaviors ship **off by default** and are env-flag gated; deploy Stage 2 can A/B old vs new cheaply.
+
+- **`PROMPT_SHOT_SPEC=1`**: `assemblePrompt` emits a structured instruction with a reference legend, role-labeled image headers, wide-AR framing coda, and an in-prompt NEGATIVE block, keeping the raw user prompt verbatim. Implemented in `src/lib/shot-spec.ts` (pure, unit-testable).
+- **`PROMPT_ROLE_DETECT=1`**: Fallback role classifier for `@imgN` uploads using extended Gemini detection. Only consulted when `PROMPT_SHOT_SPEC=1`. Non-blocking cross-check WARN surfaces upload-order mismatches.
+- **`JUDGE_COMPOSITE=1`**: Best-of-N judge scores identity + prominence + sharpness in one Gemini call and selects by composite subject to an identity floor (guarantees identity never regresses). `selectBestCandidate` in `src/lib/middleware/face-judge.ts`.
+- **`POST_CRISPEN=1`**: Classical sharpen-only delivery pass (no artifacts, ~110ms per image).
+- **`SUPERSAMPLE=1`**: Render one resolution step up, downsample to requested size. Measured highest prominence but 1-of-4 scene-accuracy risk (outfit dropped); flag off by default, use for hero shots only. Operationally: do not combine with `FACE_BEST_OF>1` (60s ceiling).
+- **`NEXT_PUBLIC_REF_MAX_DIM` (default `2048`)**: Client reference longest-side cap (was hardcoded 1024). `PromptComposer.tsx` includes a budget ladder (2048/q0.85 → q0.7 → 1536/q0.8 → 1024/q0.8) to stay under Vercel's 4.5MB body limit with high-fidelity refs.
+
+Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`.
+
 ## Working conventions
 
 - No over-engineering and no quick hacks: when a provider limit bites (image caps, aspect-ratio rules), solve the root problem architecturally rather than silently filtering/dropping user inputs.

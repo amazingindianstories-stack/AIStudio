@@ -96,47 +96,74 @@ function parseMessages(text: string, contentType: string): any[] {
   return out;
 }
 
-/** Read a response body tolerating abrupt stream termination: the MCP's SSE
- *  responses for some tools (media_upload, generate_*) abort the stream after
- *  the data event, which makes res.text() throw "terminated" even though the
- *  full JSON-RPC answer already arrived. Accumulate what we got. */
-async function bodyText(res: Response): Promise<string> {
-  if (!res.body) return "";
-  const reader = res.body.getReader();
-  const dec = new TextDecoder();
-  let out = "";
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      out += dec.decode(value, { stream: true });
-    }
-  } catch {
-    /* abrupt termination — keep what arrived */
-  }
-  return out;
-}
-
+/** RPC over curl --http1.1: Node 26's fetch/undici gets nothing back from this
+ *  server's abruptly-terminated SSE streams (NGHTTP2_INTERNAL_ERROR before any
+ *  body chunk reaches the reader). curl on HTTP/1.1 receives the data event
+ *  fine; the server then drops the connection, which makes curl exit nonzero
+ *  (18/56) — we tolerate that and keep stdout. The Bearer token goes in a
+ *  header FILE (never argv, never error messages). */
+const TMP = path.join(
+  process.env.TMPDIR || "/tmp",
+  `hf-probe-${process.pid}`
+);
+let tmpReady = false;
 async function rpc(method: string, params: unknown, isNotification = false): Promise<any> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json, text/event-stream",
-    Authorization: `Bearer ${await accessToken()}`,
-  };
-  if (session) headers["Mcp-Session-Id"] = session;
+  if (!tmpReady) {
+    await fs.mkdir(TMP, { recursive: true });
+    tmpReady = true;
+  }
   const reqId = isNotification ? undefined : Math.floor(Math.random() * 1e9);
   const body: Record<string, unknown> = { jsonrpc: "2.0", method, params };
   if (reqId !== undefined) body.id = reqId;
-  const res = await fetch(MCP_URL, { method: "POST", headers, body: JSON.stringify(body) });
-  const sid = res.headers.get("mcp-session-id");
-  if (sid) session = sid;
+
+  const hdrFile = path.join(TMP, "h.txt");
+  const bodyFile = path.join(TMP, "b.json");
+  const respHdrFile = path.join(TMP, "rh.txt");
+  const headerLines = [
+    "Content-Type: application/json",
+    "Accept: application/json, text/event-stream",
+    `Authorization: Bearer ${await accessToken()}`,
+  ];
+  if (session) headerLines.push(`Mcp-Session-Id: ${session}`);
+  await fs.writeFile(hdrFile, headerLines.join("\n") + "\n");
+  await fs.writeFile(bodyFile, JSON.stringify(body));
+
+  let stdout = "";
+  try {
+    const r = await execFileP("curl", [
+      "--http1.1", "-s", "-N", "--max-time", "120",
+      "-H", `@${hdrFile}`,
+      "-D", respHdrFile,
+      "--data-binary", `@${bodyFile}`,
+      MCP_URL,
+    ], { maxBuffer: 64 * 1024 * 1024 });
+    stdout = r.stdout;
+  } catch (e: any) {
+    // exit 18 (partial transfer) / 56 (recv failure) after the data arrived
+    stdout = e?.stdout ?? "";
+    if (!stdout) throw new Error(`MCP ${method}: curl exit ${e?.code ?? "?"}, no body`);
+  }
+
+  let status = 0;
+  let contentType = "";
+  try {
+    const rh = await fs.readFile(respHdrFile, "utf8");
+    // last header block wins (redirect-free here, but be safe)
+    const block = rh.trim().split(/\r?\n\r?\n/).pop() || "";
+    status = Number(block.match(/^HTTP\/[\d.]+\s+(\d+)/)?.[1] || 0);
+    contentType = block.match(/^content-type:\s*(.+)$/im)?.[1]?.trim() || "";
+    const sid = block.match(/^mcp-session-id:\s*(.+)$/im)?.[1]?.trim();
+    if (sid) session = sid;
+  } catch {}
+
   if (isNotification) return null;
-  const text = await bodyText(res);
-  if (!res.ok) throw new Error(`MCP ${method} ${res.status}: ${text.slice(0, 300)}`);
-  const answer = parseMessages(text, res.headers.get("content-type") || "").find(
+  if (status && (status < 200 || status >= 300)) {
+    throw new Error(`MCP ${method} ${status}: ${stdout.slice(0, 300)}`);
+  }
+  const answer = parseMessages(stdout, contentType || "text/event-stream").find(
     (m) => m?.id === reqId
   );
-  if (!answer) throw new Error(`MCP ${method}: no matching response — ${text.slice(0, 200)}`);
+  if (!answer) throw new Error(`MCP ${method}: no matching response — ${stdout.slice(0, 200)}`);
   if (answer.error) throw new Error(`MCP ${method}: ${JSON.stringify(answer.error).slice(0, 300)}`);
   return answer.result;
 }
@@ -161,33 +188,31 @@ async function callTool(name: string, args: unknown): Promise<any> {
   return r;
 }
 
-async function uploadRef(file: string): Promise<string> {
-  const res = await callTool("media_upload", {
-    method: "upload_url",
-    filename: path.basename(file),
-    content_type: "image/jpeg",
-  });
-  const item = res.structuredContent?.uploads?.[0];
-  if (!item?.upload_url || !item?.media_id) throw new Error("no presigned url");
-  // Node 26 fetch hits NGHTTP2_INTERNAL_ERROR on this PUT; curl is reliable.
-  const { stdout } = await execFileP("curl", [
-    "--http1.1",
-    "-s",
-    "-o",
-    "/dev/null",
-    "-w",
-    "%{http_code}",
-    "-X",
-    "PUT",
-    "-H",
-    "Content-Type: image/jpeg",
-    "--data-binary",
-    `@${file}`,
-    item.upload_url,
-  ]);
-  if (stdout.trim() !== "200") throw new Error(`CDN PUT failed: HTTP ${stdout}`);
-  await callTool("media_confirm", { type: "image", media_id: item.media_id });
-  return item.media_id;
+/** media_upload's presigned-URL generation consistently fails server-side for
+ *  this account ("Something went wrong", e.g. Request ID d77f6ce0-…). The refs
+ *  are publicly served by the prod media proxy, so import them by URL instead —
+ *  media_import_url returns an already-confirmed media_id. */
+const REF_URLS = [
+  "https://aistudio-v1.vercel.app/api/media/references/31d0523e-a795-42f4-b25d-fa04cdb531f5-0.jpg",
+  "https://aistudio-v1.vercel.app/api/media/references/31d0523e-a795-42f4-b25d-fa04cdb531f5-1.jpg",
+  "https://aistudio-v1.vercel.app/api/media/references/31d0523e-a795-42f4-b25d-fa04cdb531f5-2.jpg",
+];
+
+async function importRef(url: string): Promise<string> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await callTool("media_import_url", { url, type: "image" });
+      const id = res.structuredContent?.media_id;
+      if (!id) throw new Error("no media_id — " + JSON.stringify(res).slice(0, 200));
+      return id;
+    } catch (e: any) {
+      lastErr = e;
+      console.log(`media_import_url attempt ${attempt} failed (${String(e?.message).slice(0, 80)}), retrying…`);
+      await new Promise((r) => setTimeout(r, 3000 * attempt));
+    }
+  }
+  throw lastErr;
 }
 
 function jobIdFrom(res: any): string | undefined {
@@ -237,10 +262,15 @@ async function awaitJob(jobId: string): Promise<string> {
 
 async function main() {
   const sharp = (await import("sharp")).default;
+  // The token file has no obtained_at, so the staleness check can't see that a
+  // days-old access_token expired (the server's 401 hides behind a generic
+  // "Something went wrong"). Always start from a fresh access token.
+  await refreshToken();
+  console.log("token refreshed");
   const mediaIds: string[] = [];
-  for (let i = 1; i <= 3; i++) {
-    mediaIds.push(await uploadRef(path.join(DIR, `ref-${i}.jpg`)));
-    console.log(`uploaded ref-${i}`);
+  for (const [i, url] of REF_URLS.entries()) {
+    mediaIds.push(await importRef(url));
+    console.log(`imported ref-${i + 1}: ${mediaIds[i]}`);
   }
   const jobs = [await generate(mediaIds), await generate(mediaIds)];
   console.log("jobs:", jobs.join(", "));

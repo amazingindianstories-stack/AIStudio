@@ -49,7 +49,7 @@ interface Part {
  * short identity FINAL CHECK (recency slot) when any identity ref exists.
  */
 function buildParts(assembled: AssembledPrompt): Part[] {
-  const { instruction, groups } = assembled;
+  const { instruction, shotInstruction, groups } = assembled;
 
   const userImages = groups.reduce((n, g) => n + g.images.length, 0);
   if (userImages > MAX_IMAGES) {
@@ -76,7 +76,11 @@ function buildParts(assembled: AssembledPrompt): Part[] {
     }
   }
 
-  parts.push({ text: groups.length ? `SCENE: ${instruction}` : instruction });
+  // shotInstruction (PROMPT_SHOT_SPEC=1) already carries its own "SCENE:"
+  // prefix — never double-prefix it.
+  parts.push({
+    text: shotInstruction ?? (groups.length ? `SCENE: ${instruction}` : instruction),
+  });
   if (hasIdentity) {
     parts.push({
       text:

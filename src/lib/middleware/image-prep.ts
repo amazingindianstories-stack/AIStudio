@@ -2,18 +2,22 @@
  * Reference-image middleware (server-only).
  *
  * R&D result of probing Higgsfield's stored generation params via their MCP:
- * they do NO prompt rewriting (prompts pass through verbatim), but they DO
- * preprocess reference images (`…_resize.jpg` inputs) and render at a higher
- * pixel budget. This module replicates that preprocessing for our own calls
- * and adds one thing they don't visibly do — an automatic close-up face crop
- * of each identity reference, so the model gets dense facial detail even when
- * the subject is small/mid-distance in the composed shot (the exact situation
- * where face lock fails).
+ * they do NO prompt rewriting (prompts pass through verbatim), and they DO
+ * preprocess reference images (`…_resize.jpg` inputs). The real input-quality
+ * gap is reference fidelity (their uploads were 2–4× larger originals; ours
+ * were client-starved to ~1KP). Research A3.2 (2026-07-10) measured the render
+ * pixel budget: 21:9@2k = 3168×1344 on both Higgsfield and our generativelanguage
+ * endpoint — no hidden advantage there. This module replicates their ref
+ * preprocessing for our own calls and adds one thing they don't visibly do — an
+ * automatic close-up face crop of each identity reference, so the model gets
+ * dense facial detail even when the subject is small/mid-distance in the
+ * composed shot (the exact situation where face lock fails).
  *
  * Everything here is fail-open: any error returns the original image.
  */
 
 import sharp from "sharp";
+import type { RefRole } from "../shot-spec";
 
 export interface PreppedImage {
   mimeType: string;
@@ -41,6 +45,28 @@ export async function prepReference(
       .jpeg({ quality: 92 })
       .toBuffer();
     return { mimeType: "image/jpeg", data: out.toString("base64") };
+  } catch {
+    return { mimeType, data: base64 };
+  }
+}
+
+/**
+ * Classical same-size "crisping" pass approximating the observed Topaz recipe
+ * (sharpen ~0.3–0.5, no face_enhancement, NO repaint) — gated behind
+ * POST_CRISPEN=1 and applied only to the winning best-of-N candidate before
+ * save. Sharpen-only: this exact pass was A/B-validated artifact-free on
+ * matched face crops (a median(1) "denoise" here is an identity op, and
+ * median(3) would change the validated behavior — don't add a denoise step
+ * without re-probing). Never resizes. Fail-open: any error returns the input
+ * unchanged.
+ */
+export async function crispen(mimeType: string, base64: string): Promise<PreppedImage> {
+  try {
+    const buf = Buffer.from(base64, "base64");
+    const out = await sharp(buf)
+      .sharpen({ sigma: 1, m1: 0.5, m2: 0.3 })
+      .toBuffer();
+    return { mimeType, data: out.toString("base64") };
   } catch {
     return { mimeType, data: base64 };
   }
@@ -275,5 +301,71 @@ export async function identityCrops(
   } catch (e) {
     debug("error:", (e as Error)?.message);
     return [];
+  }
+}
+
+// ── role classification (PROMPT_ROLE_DETECT fallback) ──────────────────────
+
+const ROLE_DETECT_PROMPT =
+  `Classify the PRIMARY subject of this reference image for a photo ` +
+  `generation pipeline. Answer JSON: {"role": "person"|"outfit"|"location"|"style"|"prop"|"object"}. ` +
+  `"person" = the main subject is a specific individual's face/identity ` +
+  `(portrait, headshot, character sheet). "outfit" = the main subject is ` +
+  `clothing/garments/jewelry meant to be worn, not a specific person's ` +
+  `identity. "location" = a place, set, room, venue or backdrop. "style" = a ` +
+  `mood board / color palette / lighting or rendering reference, not a ` +
+  `concrete scene or object. "prop" = a specific physical object meant to be ` +
+  `reproduced (e.g. a car, a phone, a piece of furniture). "object" = none of ` +
+  `the above fit clearly.`;
+
+const VALID_ROLES: RefRole[] = ["person", "outfit", "location", "style", "prop", "object"];
+
+/** Extended-schema role classifier for an upload (person/outfit/location/style/
+ *  prop/object). Used ONLY as the PROMPT_ROLE_DETECT fallback/cross-check —
+ *  its own single call, additive to identityCrops/detectIdentityBoxes. Fail-
+ *  open: returns null when unavailable (no key / HTTP error / parse fail),
+ *  letting the caller fall back to today's identity signal. */
+export async function detectReferenceRole(
+  mimeType: string,
+  base64: string
+): Promise<RefRole | null> {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) return null;
+  const model = process.env.GEMINI_DETECT_MODEL || "gemini-2.5-flash";
+  try {
+    const res = await fetch(
+      `${API_ROOT}/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: "user",
+              parts: [
+                { inlineData: { mimeType, data: base64 } },
+                { text: ROLE_DETECT_PROMPT },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseMimeType: "application/json",
+            temperature: 0,
+            // No thinking needed for classification — cuts latency ~10s → ~3s.
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+      }
+    );
+    if (!res.ok) return null;
+    const json = await res.json();
+    const text = json?.candidates?.[0]?.content?.parts?.find(
+      (p: any) => typeof p?.text === "string"
+    )?.text;
+    if (!text) return null;
+    const role = JSON.parse(text)?.role;
+    return VALID_ROLES.includes(role) ? (role as RefRole) : null;
+  } catch {
+    return null;
   }
 }

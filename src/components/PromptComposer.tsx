@@ -51,6 +51,23 @@ const MODE_ICONS: Record<string, any> = {
   AudioLines,
 };
 
+// Client reference longest-side cap. Identity tiles are cropped from these
+// refs server-side, so higher fidelity here carries real facial detail — see
+// the payload-budget ladder in addImageFiles for how this trades off against
+// Vercel's 4.5MB body limit.
+const REF_MAX_DIM = Number(process.env.NEXT_PUBLIC_REF_MAX_DIM) || 2048;
+
+// Vercel body limit 4.5MB; base64 inflates ~1.33×, so the raw-bytes budget
+// across all refs in a batch is ~3.38MB. Target 3.0MB to leave headroom for
+// the prompt JSON.
+const REF_BATCH_BUDGET_BYTES = 3.0 * 1024 * 1024;
+
+/** Raw byte size of a data URL's base64 payload, ((len*3)/4). */
+function dataUrlBytes(dataUrl: string): number {
+  const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return (b64.length * 3) / 4;
+}
+
 export function PromptComposer() {
   const s = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -60,24 +77,26 @@ export function PromptComposer() {
   const modeModels = MODELS.filter((m) => m.kind === s.mode);
   const activeMode = MODES.find((m) => m.id === s.mode);
 
-  // Downscale image to fit within Vercel's 4.5MB payload limit.
-  // Gemini's vision encoder usually operates at ~768px - 1024px natively anyway,
-  // so downscaling to max 1024px retains identity detail while slashing size.
-  const downscaleImage = async (file: File): Promise<string> => {
+  // Downscale image to fit within Vercel's 4.5MB payload limit, at a caller-
+  // chosen dimension/quality step (see addImageFiles' budget ladder).
+  const downscaleImage = async (
+    file: File,
+    maxDim: number,
+    quality: number
+  ): Promise<string> => {
     return new Promise((resolve, reject) => {
       const url = URL.createObjectURL(file);
       const img = new Image();
       img.onload = () => {
         URL.revokeObjectURL(url);
-        const MAX_DIM = 1024;
         let { width, height } = img;
-        if (width > MAX_DIM || height > MAX_DIM) {
+        if (width > maxDim || height > maxDim) {
           if (width > height) {
-            height = Math.round((height * MAX_DIM) / width);
-            width = MAX_DIM;
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
           } else {
-            width = Math.round((width * MAX_DIM) / height);
-            height = MAX_DIM;
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
           }
         }
         const canvas = document.createElement("canvas");
@@ -87,7 +106,7 @@ export function PromptComposer() {
         if (!ctx) return reject("No canvas context");
         ctx.drawImage(img, 0, 0, width, height);
         // Export as JPEG to ensure small size (avoids massive PNGs)
-        resolve(canvas.toDataURL("image/jpeg", 0.8));
+        resolve(canvas.toDataURL("image/jpeg", quality));
       };
       img.onerror = () => reject("Failed to load image");
       img.src = url;
@@ -95,16 +114,44 @@ export function PromptComposer() {
   };
 
   // Read image File objects (from upload, paste, or drop) into references.
+  //
+  // Payload-budget ladder: encode the WHOLE batch at each step, summing raw
+  // bytes, and only step down (lower quality, then lower dimension) if the
+  // batch would still risk Vercel's 4.5MB body limit. Keeps typical 1–3 ref
+  // uploads at full REF_MAX_DIM fidelity — the density identity tiles are
+  // cropped from — while the last step (1024px/q0.8, today's behavior) is a
+  // guaranteed-to-fit floor.
   const addImageFiles = async (files: File[]) => {
     const valid = files.filter((f) => f.type.startsWith("image/"));
-    for (const f of valid) {
-      try {
-        const dataUrl = await downscaleImage(f);
-        s.addReference(dataUrl);
-      } catch (e) {
-        console.error("Failed to downscale image", e);
-      }
+    if (!valid.length) return;
+
+    const steps: Array<{ dim: number; quality: number }> = [
+      { dim: REF_MAX_DIM, quality: 0.85 },
+      { dim: REF_MAX_DIM, quality: 0.7 },
+      { dim: 1536, quality: 0.8 },
+      { dim: 1024, quality: 0.8 },
+    ];
+
+    let dataUrls: string[] = [];
+    for (let i = 0; i < steps.length; i++) {
+      const { dim, quality } = steps[i];
+      const encoded = await Promise.all(
+        valid.map(async (f) => {
+          try {
+            return await downscaleImage(f, dim, quality);
+          } catch (e) {
+            console.error("Failed to downscale image", e);
+            return null;
+          }
+        })
+      );
+      dataUrls = encoded.filter((u): u is string => u !== null);
+      if (!dataUrls.length) return;
+      const totalBytes = dataUrls.reduce((n, u) => n + dataUrlBytes(u), 0);
+      if (totalBytes <= REF_BATCH_BUDGET_BYTES || i === steps.length - 1) break;
     }
+
+    for (const dataUrl of dataUrls) s.addReference(dataUrl);
   };
 
   const onFiles = (e: ChangeEvent<HTMLInputElement>) => {

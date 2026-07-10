@@ -9,8 +9,16 @@
  */
 
 import { readImageAsBase64 } from "./save-media";
-import { identityCrops, prepReference } from "./middleware/image-prep";
+import { detectReferenceRole, identityCrops, prepReference } from "./middleware/image-prep";
 import { parseAssetSlugs, parseMentionIndices } from "./mentions";
+import {
+  buildReferenceLegend,
+  buildShotInstruction,
+  parseRefRoles,
+  roleHeader,
+  type LegendEntry,
+  type RefRole,
+} from "./shot-spec";
 import type { Asset, AssetKind } from "./types";
 
 export interface AssembledImage {
@@ -35,8 +43,14 @@ export interface AssembledGroup {
 }
 
 export interface AssembledPrompt {
-  /** Full structured text for the first user content part. */
+  /** Full structured text for the first user content part. Always the raw
+   *  prompt — never overwritten, in either mode. */
   instruction: string;
+  /** Structured text (role legend + literal SCENE + framing/negative codas),
+   *  set only when PROMPT_SHOT_SPEC=1. Already contains its own "SCENE:"
+   *  prefix — providers must use this verbatim instead of re-wrapping
+   *  `instruction` when present. */
+  shotInstruction?: string;
   /** Reference-image groups, in the order they should be sent. */
   groups: AssembledGroup[];
   /** Best available face crop for judging generated frames (best-of-N). */
@@ -49,6 +63,15 @@ const KIND_LABEL: Record<AssetKind, string> = {
   location: "LOCATION",
   style: "STYLE",
   prop: "PROP",
+};
+
+/** Maps a named-asset kind onto the shot-spec RefRole vocabulary. */
+const ASSET_KIND_TO_ROLE: Record<AssetKind, RefRole> = {
+  character: "person",
+  outfit: "outfit",
+  location: "location",
+  style: "style",
+  prop: "prop",
 };
 
 const KIND_RULE: Record<AssetKind, string> = {
@@ -102,18 +125,68 @@ async function faceCrops(
 }
 
 /**
+ * Resolve the RefRole for an @imgN / SUBJECT upload when PROMPT_SHOT_SPEC=1.
+ * Precedence: prompt-text keyword scan (parseRefRoles) wins when present — it
+ * is the user's explicit binding contract; PROMPT_ROLE_DETECT=1 is consulted
+ * as a fallback AND a cross-check (a mismatch is logged, never auto-"fixed",
+ * so ref/tag ordering mistakes surface to humans instead of being silently
+ * reconciled); otherwise fall back to today's identity signal (tiles found →
+ * person, else object). Fail-open: detection errors resolve to null upstream.
+ */
+async function resolveUploadRole(
+  tag: string,
+  firstImage: AssembledImage,
+  tiles: AssembledImage[],
+  textRoles: Map<string, RefRole>,
+  roleDetectOn: boolean
+): Promise<RefRole> {
+  const textRole = textRoles.get(tag);
+  if (textRole) {
+    if (roleDetectOn) {
+      // Cross-check is diagnostic only — don't spend hot-path latency on it
+      // (detection is ~3s/ref, sequential); let it resolve during generation.
+      void detectReferenceRole(firstImage.mimeType, firstImage.data)
+        .then((detected) => {
+          if (detected && detected !== textRole) {
+            console.log(
+              `[shot-spec] WARN role mismatch for ${tag}: prompt text says ` +
+                `"${textRole}", detection says "${detected}" — using the prompt-text role.`
+            );
+          }
+        })
+        .catch(() => {});
+    }
+    return textRole;
+  }
+  const detected = roleDetectOn
+    ? await detectReferenceRole(firstImage.mimeType, firstImage.data)
+    : null;
+  return detected ?? (tiles.length > 0 ? "person" : "object");
+}
+
+/**
  * Build the assembled payload.
  * @param prompt  raw user prompt (kept literal in the SCENE block)
  * @param assets  all known assets (referenced ones are matched by @slug)
  * @param uploads ad-hoc data-URL uploads, 1-based for @imgN
+ * @param opts    aspectRatio, used only to gate the wide-AR framing coda when
+ *                PROMPT_SHOT_SPEC=1. Optional/omitted ⇒ today's behavior.
  */
 export async function assemblePrompt(
   prompt: string,
   assets: Asset[],
-  uploads: string[]
+  uploads: string[],
+  opts?: { aspectRatio?: string }
 ): Promise<AssembledPrompt> {
   const groups: AssembledGroup[] = [];
   const assetLines: string[] = [];
+
+  // Shot-spec mode (PROMPT_SHOT_SPEC=1): role-aware headers + a reference
+  // legend + a structured shotInstruction. Off = untouched, byte-identical.
+  const shotSpecOn = process.env.PROMPT_SHOT_SPEC === "1";
+  const roleDetectOn = process.env.PROMPT_ROLE_DETECT === "1";
+  const textRoles = shotSpecOn ? parseRefRoles(prompt) : new Map<string, RefRole>();
+  const legendEntries: LegendEntry[] = [];
 
   // 1) Named asset references (@slug) — only those actually mentioned.
   const slugs = parseAssetSlugs(prompt);
@@ -129,15 +202,22 @@ export async function assemblePrompt(
       `- @${asset.slug} → ${label} "${asset.name}"${desc}. Rule: ${KIND_RULE[asset.kind]}.`
     );
     const isCharacter = asset.kind === "character";
+    const tag = `@${asset.slug}`;
+    let header =
+      `@${asset.slug} — ${label} "${asset.name}" ` +
+      `(${images.length} reference image${images.length > 1 ? "s" : ""}; ` +
+      `${KIND_RULE[asset.kind]}):`;
+    if (shotSpecOn) {
+      const role = ASSET_KIND_TO_ROLE[asset.kind];
+      header = roleHeader(tag, role, images.length);
+      legendEntries.push({ tag, role, isPerson: role === "person" });
+    }
     groups.push({
-      tag: `@${asset.slug}`,
-      header:
-        `@${asset.slug} — ${label} "${asset.name}" ` +
-        `(${images.length} reference image${images.length > 1 ? "s" : ""}; ` +
-        `${KIND_RULE[asset.kind]}):`,
+      tag,
+      header,
       images,
       identity: isCharacter,
-      tiles: isCharacter ? await faceCrops(images, `@${asset.slug}`) : undefined,
+      tiles: isCharacter ? await faceCrops(images, tag) : undefined,
     });
   }
 
@@ -155,6 +235,7 @@ export async function assemblePrompt(
         const images = await readAll([uploads[n - 1]]);
         if (!images.length) continue;
         hasIdentityRef = true;
+        const tag = `@img${n}`;
         assetLines.push(
           `- @img${n} → REFERENCE. Rule: reproduce the tagged subject from this ` +
             `image exactly — if it is a person, the identical face (bone ` +
@@ -165,12 +246,18 @@ export async function assemblePrompt(
         );
         // Person detection decides identity: a face/sheet upload gets tiles;
         // outfit/location/style uploads yield none and stay non-identity.
-        const tiles = await faceCrops(images, `@img${n}`, 1);
+        const tiles = await faceCrops(images, tag, 1);
+        let header =
+          `${tag} — REFERENCE (reproduce this subject exactly; if a person, ` +
+          `the same individual — identical facial features, never a lookalike):`;
+        if (shotSpecOn) {
+          const role = await resolveUploadRole(tag, images[0], tiles, textRoles, roleDetectOn);
+          header = roleHeader(tag, role, images.length);
+          legendEntries.push({ tag, role, isPerson: role === "person" });
+        }
         groups.push({
-          tag: `@img${n}`,
-          header:
-            `@img${n} — REFERENCE (reproduce this subject exactly; if a person, ` +
-            `the same individual — identical facial features, never a lookalike):`,
+          tag,
+          header,
           images,
           identity: tiles.length > 0,
           tiles: tiles.length ? tiles : undefined,
@@ -188,26 +275,32 @@ export async function assemblePrompt(
             `the SCENE explicitly changes them.`
         );
         const tiles = await faceCrops(images, "SUBJECT");
+        let header = many
+          ? `SUBJECT — ${images.length} reference photos of the SAME person ` +
+            `(different angles/lighting). Reconstruct ONE consistent identity ` +
+            `from all of them; the generated person's face MUST match exactly — ` +
+            `same bone structure, jawline, hairline, eye shape/spacing and color, ` +
+            `eyebrows, nose, lips, skin tone/texture (keep moles, scars, ` +
+            `freckles), facial hair and apparent age. Keep their hairstyle, ` +
+            `build and worn outfit/jewelry unless the SCENE explicitly changes ` +
+            `them. A recognizable match, never a lookalike — never beautified ` +
+            `or idealized:`
+          : `SUBJECT — reference photo of the person. The generated person's face ` +
+            `MUST be this exact same individual — same bone structure, jawline, ` +
+            `hairline, eye shape/spacing and color, eyebrows, nose, lips, skin ` +
+            `tone/texture (keep moles, scars, freckles), facial hair and ` +
+            `apparent age. Keep their hairstyle, build and worn outfit/jewelry ` +
+            `unless the SCENE explicitly changes them. A recognizable match, ` +
+            `not a lookalike — never beautified or idealized:`;
+        if (shotSpecOn) {
+          // SUBJECT is always the untagged-upload identity ref → role person.
+          header = roleHeader("SUBJECT", "person", images.length);
+          legendEntries.push({ tag: "SUBJECT", role: "person", isPerson: true });
+        }
         groups.push({
           tag: "SUBJECT",
           tiles: tiles.length ? tiles : undefined,
-          header: many
-            ? `SUBJECT — ${images.length} reference photos of the SAME person ` +
-              `(different angles/lighting). Reconstruct ONE consistent identity ` +
-              `from all of them; the generated person's face MUST match exactly — ` +
-              `same bone structure, jawline, hairline, eye shape/spacing and color, ` +
-              `eyebrows, nose, lips, skin tone/texture (keep moles, scars, ` +
-              `freckles), facial hair and apparent age. Keep their hairstyle, ` +
-              `build and worn outfit/jewelry unless the SCENE explicitly changes ` +
-              `them. A recognizable match, never a lookalike — never beautified ` +
-              `or idealized:`
-            : `SUBJECT — reference photo of the person. The generated person's face ` +
-              `MUST be this exact same individual — same bone structure, jawline, ` +
-              `hairline, eye shape/spacing and color, eyebrows, nose, lips, skin ` +
-              `tone/texture (keep moles, scars, freckles), facial hair and ` +
-              `apparent age. Keep their hairstyle, build and worn outfit/jewelry ` +
-              `unless the SCENE explicitly changes them. A recognizable match, ` +
-              `not a lookalike — never beautified or idealized:`,
+          header,
           images,
           identity: true,
         });
@@ -221,5 +314,18 @@ export async function assemblePrompt(
   // judgeFace: identityCrops returns the face close-up first when one exists —
   // the best ground truth for scoring generated frames (best-of-N).
   const judgeFace = groups.find((g) => g.identity && g.tiles?.length)?.tiles?.[0];
-  return { instruction: prompt, groups, judgeFace };
+
+  // shotInstruction: the structured shape (legend + literal SCENE + framing/
+  // negative codas) — built only in shot-spec mode, never replacing `prompt`.
+  let shotInstruction: string | undefined;
+  if (shotSpecOn) {
+    const legend = buildReferenceLegend(legendEntries);
+    shotInstruction = buildShotInstruction({
+      rawPrompt: prompt,
+      legend,
+      aspectRatio: opts?.aspectRatio || "1:1",
+    });
+  }
+
+  return { instruction: prompt, shotInstruction, groups, judgeFace };
 }

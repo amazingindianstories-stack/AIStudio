@@ -47,6 +47,42 @@ Baseline rows: `31d0523e` (ours #1), `3afb7c4a` (ours #2). Both: model
    sharpness metric must be computed on the subject/face region, and/or an
    LLM judge should rank composition/subject-sharpness explicitly.
 
+## Control generations (2026-07-10, 2 paid runs, user-approved)
+
+`hf-control-1.png` / `hf-control-2.png` — Higgsfield `nano_banana_pro` at
+21:9/2k, jobs `1ea32472…` / `84ade7fc…`, fed the SAME starved 1024px stored
+refs (imported via `media_import_url` from our public media proxy) and the
+SAME raw prompt (with `@imgN` → `<<<image_N>>>` binding, their observed
+convention). Results:
+
+7. **Dimensions 3168×1344 — identical to ours.** Re-confirms research A3.2:
+   no hidden render-budget advantage.
+8. **Both controls are dramatically better composed than our baselines
+   despite identical refs and prompt**: subject prominent (roughly
+   one-half to two-thirds frame height, near the DJ booth/speakers as
+   prompted), face crisp, clean red-haze grading, correct outfit and
+   nightclub. 2/2 vs our 0/2 (small sample, but the delta is stark).
+   This means ref starvation is NOT the main driver of the composition gap,
+   and "their originals were bigger" cannot be the whole story either.
+   The remaining payload difference is ours vs theirs:
+   - theirs: ONE text part — the prompt with inline `<<<image_N>>>`
+     bindings — plus the 3 refs. Nothing else.
+   - ours: `SCENE:`-prefixed instruction + per-group role-less REFERENCE
+     headers + identity tiles (face crops) + FINAL CHECK text part.
+   Hypothesis for Stage 2: our extra scaffolding (generic headers, flat
+   face tiles, FINAL CHECK) dilutes/derails composition at wide ARs; their
+   minimal inline-binding shape leaves the model free to compose. The A/B
+   MUST include an "HF-mimic minimal payload" variant (probe-side only:
+   single text part with inline bindings, refs in order, no tiles) alongside
+   the design.md shot-spec variant.
+9. **media_upload / media_import_url failures are a stale-token trap**: the
+   MCP returns generic "Something went wrong" tool errors that actually wrap
+   a 401 (`structuredContent.errorCode: 401`) — `.higgsfield-mcp-token.json`
+   stores no `obtained_at`, so a days-old `access_token` looks fresh.
+   Local probes must refresh first. (Node 26 undici also cannot read this
+   server's aborted SSE streams at all — curl `--http1.1 -N` tolerating exit
+   18/56 is the working local transport.)
+
 ## Candidate levers (for the architect, pending research-agent findings)
 
 - L1 Raise/remove the client ref downscale (bigger refs → denser tiles):

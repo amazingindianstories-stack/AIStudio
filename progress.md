@@ -1,6 +1,28 @@
-# Session Progress & Handoff (for Fable 5)
+# Session Progress & Handoff
 
-## Overview
+## 2026-07-10 — Higgsfield-NBP parity conclusion & release (COMPLETE)
+
+**Scope**: Determine why Higgsfield outputs appear better than baseline Nano Banana Pro despite using the same endpoint/model, then implement verified techniques via flag-gated levers.
+
+**Research conclusion**: No hidden magic. Higgsfield's edge is deterministic scaffolding (role-aware reference legends + subject-framing language) + reference fidelity (2–4× larger client uploads) + a widened best-of-N judge (composite: identity + prominence + sharpness with floor selection). All measured, captured, and unit-testable.
+
+**Shipped**: Six env-flag features (all default to previous behavior, no automatic changes):
+- `PROMPT_SHOT_SPEC=1`: structured instruction assembly (`src/lib/shot-spec.ts`; A/B: 2.4× subject prominence, no identity regression)
+- `PROMPT_ROLE_DETECT=1`: fallback role detection for `@imgN` with cross-check WARN
+- `JUDGE_COMPOSITE=1`: extended Gemini judge for identity + prominence + sharpness (`src/lib/middleware/face-judge.ts`)
+- `POST_CRISPEN=1`: classical sharpen-only delivery pass (~110ms, artifact-free)
+- `SUPERSAMPLE=1`: 1-step upsample + lanczos3 downsample (highest prominence, scene risk; flag off by default)
+- `NEXT_PUBLIC_REF_MAX_DIM` (default 2048): client ref cap with Vercel budget ladder in PromptComposer
+
+**Unit tests** (first in the repo): `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts` (Node built-in `node:test`).
+
+**Evidence**: See `.council/higgsfield-nbp-parity/design.md` (contract), `results-ab.md` (16 images: NEW 2.4× prominence, identity ≥ OLD), `decisions.md` (adjudications + design.md fix: commit 849ef9d moved execute logic; design retargeted to queue/execute/route.ts).
+
+---
+
+## Prior sessions (for reference)
+
+### Fable 5 Overview
 This session focused on migrating the image generation pipeline from the standard Gemini API (generativelanguage) to the enterprise-grade **Vertex AI `imagen-3.0-capability-001`** endpoint to enable native IP-Adapter support for strict identity locking and scene referencing. 
 
 The goal was to allow the user to tag uploaded images (`@img1`, `@img2`) and have the model perfectly replicate the face, outfit, and location without ethnic drift or style loss.
