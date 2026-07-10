@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   X,
@@ -12,9 +12,54 @@ import {
   Play,
   ImagePlus,
   Star,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { aspectToPadding, cn } from "@/lib/utils";
+
+/** Prompt in the details sidebar: minimized by default, hover reveals an
+ *  expand cue in the top-right corner (same pattern as the feed). Keyed by
+ *  item id upstream so switching items re-collapses. */
+function DetailPrompt({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > 220 || text.split("\n").length > 3;
+  if (!long) {
+    return (
+      <p className="mb-5 whitespace-pre-wrap text-sm leading-relaxed text-white/80">
+        {text}
+      </p>
+    );
+  }
+  return (
+    <div className="group/dprompt relative mb-5">
+      <p
+        className={cn(
+          "whitespace-pre-wrap pr-8 text-sm leading-relaxed text-white/80",
+          !expanded && "line-clamp-3"
+        )}
+      >
+        {text}
+      </p>
+      <button
+        onClick={() => setExpanded((v) => !v)}
+        className="absolute -top-1 right-0 hidden items-center gap-1 rounded-md bg-ink-700/95 px-1.5 py-1 text-[10px] font-medium text-white/70 ring-1 ring-line backdrop-blur-sm hover:text-white group-hover/dprompt:flex"
+        aria-label={expanded ? "Collapse prompt" : "Expand prompt"}
+        title={expanded ? "Collapse prompt" : "Show full prompt"}
+      >
+        {expanded ? (
+          <>
+            <ChevronUp className="h-3 w-3" /> Collapse
+          </>
+        ) : (
+          <>
+            <ChevronDown className="h-3 w-3" /> Expand
+          </>
+        )}
+      </button>
+    </div>
+  );
+}
 
 export function DetailModal() {
   const activeId = useStore((s) => s.activeId);
@@ -129,9 +174,7 @@ export function DetailModal() {
               <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/40">
                 Prompt
               </p>
-              <p className="mb-5 whitespace-pre-wrap text-sm leading-relaxed text-white/80">
-                {item.prompt}
-              </p>
+              <DetailPrompt key={item.id} text={item.prompt} />
 
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
                 Parameters
