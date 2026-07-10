@@ -10,7 +10,9 @@ import type {
   PublicUser,
 } from "./types";
 import {
+  ASPECT_RATIOS,
   DEFAULTS,
+  MODELS,
   durationsForModel,
   resolutionsForModel,
   HISTORY_PAGE_SIZE,
@@ -775,18 +777,54 @@ function pollQueue(
   setTimeout(tick, 1000);
 }
 
-// ── composer draft persistence ───────────────────────────────────────────────
+// ── composer draft + UI-state persistence ────────────────────────────────────
 // The prompt is written on a short debounce (it changes per keystroke); the
 // reference images are written only when they actually change (they can be
-// multi-MB data URLs — serializing them per keystroke would jank typing).
+// multi-MB data URLs — serializing them per keystroke would jank typing);
+// composer settings and panel/tab state are tiny and written on change.
 const DRAFT_PROMPT_KEY = "vivi-draft-prompt-v1";
 const DRAFT_REFS_KEY = "vivi-draft-refs-v1";
+const DRAFT_SETTINGS_KEY = "vivi-draft-settings-v1";
 
-/** Restore the locally cached composer draft (prompt + reference images) once
- *  at mount, so a page refresh doesn't lose in-progress work. No-op when the
- *  composer already has content. */
+/** Restore the locally cached composer draft (prompt + reference images) and
+ *  UI state (mode/model/settings, panel tab, active project/folder) once at
+ *  mount, so a refresh doesn't reset the user's workspace. Settings restore
+ *  always; prompt/refs only when the composer is empty. Every restored value
+ *  is validated against the current catalog so a stale cache can't produce an
+ *  invalid combination. */
 export function restoreComposerDraft() {
   try {
+    const rawSettings = localStorage.getItem(DRAFT_SETTINGS_KEY);
+    if (rawSettings) {
+      const d = JSON.parse(rawSettings);
+      const patch: Record<string, unknown> = {};
+      const mode: GenerationKind | undefined =
+        d.mode === "image" || d.mode === "video" ? d.mode : undefined;
+      if (mode) patch.mode = mode;
+      const effMode = mode ?? useStore.getState().mode;
+      if (MODELS.some((m) => m.name === d.model && m.kind === effMode)) {
+        patch.model = d.model;
+      }
+      const effModel = (patch.model as string) ?? DEFAULTS[effMode].model;
+      if (ASPECT_RATIOS[effMode].includes(d.aspectRatio)) {
+        patch.aspectRatio = d.aspectRatio;
+      }
+      if (resolutionsForModel(effModel, effMode).includes(d.resolution)) {
+        patch.resolution = d.resolution;
+      }
+      if (durationsForModel(effModel).includes(d.duration)) {
+        patch.duration = d.duration;
+      }
+      if (["project", "history", "favorites"].includes(d.rightTab)) {
+        patch.rightTab = d.rightTab;
+      }
+      // loadProjects validates the restored project id against the fetched
+      // list, so a stale id self-heals to the default project.
+      if (typeof d.activeProjectId === "string") patch.activeProjectId = d.activeProjectId;
+      if (typeof d.activeFolderId === "string") patch.activeFolderId = d.activeFolderId;
+      useStore.setState(patch);
+    }
+
     const s = useStore.getState();
     if (s.prompt || s.referenceImages.length) return;
     const prompt = localStorage.getItem(DRAFT_PROMPT_KEY) ?? "";
@@ -822,6 +860,32 @@ if (typeof window !== "undefined") {
           localStorage.removeItem(DRAFT_REFS_KEY);
         } catch {}
       }
+    }
+    if (
+      s.mode !== prev.mode ||
+      s.model !== prev.model ||
+      s.aspectRatio !== prev.aspectRatio ||
+      s.resolution !== prev.resolution ||
+      s.duration !== prev.duration ||
+      s.rightTab !== prev.rightTab ||
+      s.activeProjectId !== prev.activeProjectId ||
+      s.activeFolderId !== prev.activeFolderId
+    ) {
+      try {
+        localStorage.setItem(
+          DRAFT_SETTINGS_KEY,
+          JSON.stringify({
+            mode: s.mode,
+            model: s.model,
+            aspectRatio: s.aspectRatio,
+            resolution: s.resolution,
+            duration: s.duration,
+            rightTab: s.rightTab,
+            activeProjectId: s.activeProjectId,
+            activeFolderId: s.activeFolderId,
+          })
+        );
+      } catch {}
     }
   });
 }
