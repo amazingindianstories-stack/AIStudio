@@ -121,24 +121,49 @@ async function refreshOnce(refresh_token: string, client_id: string): Promise<an
   return res.json();
 }
 
+function isFresh(t: TokenData | null): t is TokenData {
+  return !!(
+    t?.access_token &&
+    t.obtained_at &&
+    t.expires_in &&
+    Date.now() < t.obtained_at + (t.expires_in - 300) * 1000
+  );
+}
+
 async function refreshToken(): Promise<void> {
   const t = await loadToken();
   let j = await refreshOnce(t.refresh_token, t.client_id);
   if (!j.access_token) {
-    // The stored refresh token can be invalidated by rotation elsewhere in
-    // the token family (e.g. a local dev session refreshing on the same
-    // account rotates it out from under the S3 copy). Fall back to the
-    // env-provided refresh token before giving up.
+    console.log(`[mcp] refresh rejected (${j.error || "no access_token"})`);
+    // Concurrent serverless instances race on the single-use refresh token:
+    // the loser gets invalid_grant while the winner has already written a
+    // working token to S3 — adopt that instead of burning another refresh.
+    const s3t = await readS3Token();
+    if (s3t && s3t.refresh_token !== t.refresh_token) {
+      if (isFresh(s3t)) {
+        console.log("[mcp] adopting newer S3 token from a concurrent refresh");
+        token = s3t;
+        session = null;
+        return;
+      }
+      j = await refreshOnce(s3t.refresh_token, s3t.client_id);
+    }
+  }
+  if (!j.access_token) {
+    // Last resort: the operator-seeded env refresh token (a separate escape
+    // hatch when the stored family is gone).
     const envRefresh = process.env.HIGGSFIELD_MCP_REFRESH_TOKEN;
     const envClient = process.env.HIGGSFIELD_MCP_CLIENT_ID || t.client_id;
     if (envRefresh && envRefresh !== t.refresh_token) {
-      console.log("[mcp] stored refresh token rejected — retrying with env refresh token");
+      console.log("[mcp] retrying with env refresh token");
       j = await refreshOnce(envRefresh, envClient);
     }
   }
   if (!j.access_token) {
     throw new Error(
-      "Higgsfield MCP token refresh failed — re-run `node scripts/hf-mcp-auth.mjs`."
+      "Higgsfield MCP token refresh failed — the OAuth token family is dead. " +
+        "Re-run `npm run hf:login` and re-seed via POST /api/admin/set-token " +
+        "(or the Admin → Higgsfield token card)."
     );
   }
   token = {

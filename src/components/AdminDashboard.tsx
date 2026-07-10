@@ -253,7 +253,70 @@ function Overview({ data }: { data: Data }) {
           </ResponsiveContainer>
         </Panel>
       </div>
+
+      <HiggsfieldTokenCard />
     </div>
+  );
+}
+
+/** Recovery card: when the Higgsfield OAuth token family dies (generations
+ *  fail with "token refresh failed"), run `npm run hf:login` locally and
+ *  paste the resulting .higgsfield-mcp-token.json here. */
+function HiggsfieldTokenCard() {
+  const [value, setValue] = useState("");
+  const [state, setState] = useState<"idle" | "saving" | "ok" | "error">("idle");
+  const [message, setMessage] = useState("");
+
+  const save = async () => {
+    setState("saving");
+    try {
+      const parsed = JSON.parse(value);
+      const res = await fetch("/api/admin/set-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      setState("ok");
+      setMessage("Token seeded — Higgsfield generations should work now.");
+      setValue("");
+    } catch (e: any) {
+      setState("error");
+      setMessage(e?.message || "Failed.");
+    }
+  };
+
+  return (
+    <Panel title="Higgsfield MCP token">
+      <p className="mb-2 text-xs text-white/45">
+        If Higgsfield generations fail with “token refresh failed”, run{" "}
+        <code className="rounded bg-ink-700 px-1">npm run hf:login</code> on any machine
+        and paste the contents of <code className="rounded bg-ink-700 px-1">.higgsfield-mcp-token.json</code>{" "}
+        below to re-seed production.
+      </p>
+      <div className="flex items-start gap-2">
+        <textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder='{"access_token": "...", "refresh_token": "...", "client_id": "..."}'
+          rows={3}
+          className="flex-1 rounded-lg border border-line bg-ink-700 px-2.5 py-1.5 font-mono text-xs outline-none focus:border-brand/40"
+        />
+        <button
+          onClick={save}
+          disabled={!value.trim() || state === "saving"}
+          className="rounded-lg border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/80 hover:text-white disabled:opacity-40"
+        >
+          {state === "saving" ? "Saving…" : "Seed"}
+        </button>
+      </div>
+      {message && (
+        <p className={cn("mt-2 text-xs", state === "error" ? "text-red-400" : "text-brand")}>
+          {message}
+        </p>
+      )}
+    </Panel>
   );
 }
 
