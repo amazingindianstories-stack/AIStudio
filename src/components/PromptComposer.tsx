@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -29,7 +30,7 @@ import {
   Layers,
   Sparkles,
 } from "lucide-react";
-import { useStore } from "@/lib/store";
+import { useStore, restoreComposerDraft } from "@/lib/store";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, type MentionHandle } from "./MentionTextarea";
 import {
@@ -72,6 +73,12 @@ export function PromptComposer() {
   const fileRef = useRef<HTMLInputElement>(null);
   const mentionRef = useRef<MentionHandle>(null);
   const [dragging, setDragging] = useState(false);
+
+  // Bring back the locally cached draft (prompt + reference images) after a
+  // refresh. Runs after mount so SSR markup stays consistent.
+  useEffect(() => {
+    restoreComposerDraft();
+  }, []);
 
   const modeModels = MODELS.filter((m) => m.kind === s.mode);
   const activeMode = MODES.find((m) => m.id === s.mode);

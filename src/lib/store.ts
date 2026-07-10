@@ -774,3 +774,54 @@ function pollQueue(
 
   setTimeout(tick, 1000);
 }
+
+// ── composer draft persistence ───────────────────────────────────────────────
+// The prompt is written on a short debounce (it changes per keystroke); the
+// reference images are written only when they actually change (they can be
+// multi-MB data URLs — serializing them per keystroke would jank typing).
+const DRAFT_PROMPT_KEY = "vivi-draft-prompt-v1";
+const DRAFT_REFS_KEY = "vivi-draft-refs-v1";
+
+/** Restore the locally cached composer draft (prompt + reference images) once
+ *  at mount, so a page refresh doesn't lose in-progress work. No-op when the
+ *  composer already has content. */
+export function restoreComposerDraft() {
+  try {
+    const s = useStore.getState();
+    if (s.prompt || s.referenceImages.length) return;
+    const prompt = localStorage.getItem(DRAFT_PROMPT_KEY) ?? "";
+    const refsRaw = localStorage.getItem(DRAFT_REFS_KEY);
+    const refs = refsRaw ? JSON.parse(refsRaw) : [];
+    if (!prompt && !(Array.isArray(refs) && refs.length)) return;
+    useStore.setState({
+      prompt,
+      referenceImages: Array.isArray(refs) ? refs.filter((r) => typeof r === "string") : [],
+    });
+  } catch {
+    /* corrupt or unavailable draft — start clean */
+  }
+}
+
+if (typeof window !== "undefined") {
+  let promptTimer: ReturnType<typeof setTimeout> | undefined;
+  useStore.subscribe((s, prev) => {
+    if (s.prompt !== prev.prompt) {
+      clearTimeout(promptTimer);
+      promptTimer = setTimeout(() => {
+        try {
+          localStorage.setItem(DRAFT_PROMPT_KEY, s.prompt);
+        } catch {}
+      }, 400);
+    }
+    if (s.referenceImages !== prev.referenceImages) {
+      try {
+        localStorage.setItem(DRAFT_REFS_KEY, JSON.stringify(s.referenceImages));
+      } catch {
+        // Quota exceeded — drop the cached refs but keep the prompt cache.
+        try {
+          localStorage.removeItem(DRAFT_REFS_KEY);
+        } catch {}
+      }
+    }
+  });
+}

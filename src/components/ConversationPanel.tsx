@@ -10,6 +10,7 @@ import {
   Sparkles,
   Layers,
   Maximize2,
+  Copy,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { aspectToPadding, cn } from "@/lib/utils";
@@ -90,6 +91,7 @@ export function ConversationPanel() {
 
 function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
   const setActiveId = useStore((s) => s.setActiveId);
+  const cloneToComposer = useStore((s) => s.cloneToComposer);
   const label = item.kind === "image" ? "Image" : "Video";
   const pending = item.status === "running" || item.status === "queued";
 
@@ -161,6 +163,16 @@ function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-red-950/30 p-6 text-center">
               <AlertCircle className="h-7 w-7 text-red-400" />
               <span className="text-sm text-red-200/80">{item.error}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cloneToComposer(item.id);
+                }}
+                className="mt-1 flex items-center gap-1.5 rounded-lg bg-brand/20 px-3 py-1.5 text-xs font-semibold text-brand transition hover:bg-brand/30"
+                title="Restore this prompt, settings and references into the composer"
+              >
+                <Copy className="h-3.5 w-3.5" /> Clone &amp; try
+              </button>
             </div>
           )}
 

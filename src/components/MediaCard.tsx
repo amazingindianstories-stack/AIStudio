@@ -12,6 +12,7 @@ import {
   Pencil,
   Check,
   Star,
+  Copy,
 } from "lucide-react";
 import type { GenerationItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
@@ -29,6 +30,7 @@ export function MediaCard({
   const removeItem = useStore((s) => s.removeItem);
   const retryTextToVideo = useStore((s) => s.retryTextToVideo);
   const editInComposer = useStore((s) => s.editInComposer);
+  const cloneToComposer = useStore((s) => s.cloneToComposer);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const selected = useStore((s) => s.selectedIds.includes(item.id));
   const toggleSelect = useStore((s) => s.toggleSelect);
@@ -154,8 +156,8 @@ export function MediaCard({
               {item.error || "Failed"}
             </span>
 
-            {item.moderationBlocked && item.kind === "video" && (
-              <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5">
+            <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5">
+              {item.moderationBlocked && item.kind === "video" && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -165,17 +167,27 @@ export function MediaCard({
                 >
                   <Wand2 className="h-3 w-3" /> Retry as text-to-video
                 </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    editInComposer(item.id);
-                  }}
-                  className="flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[11px] font-medium text-white/80 transition hover:bg-white/20"
-                >
-                  <Pencil className="h-3 w-3" /> Edit prompt
-                </button>
-              </div>
-            )}
+              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cloneToComposer(item.id);
+                }}
+                className="flex items-center gap-1 rounded-md bg-brand/20 px-2 py-1 text-[11px] font-semibold text-brand transition hover:bg-brand/30"
+                title="Restore this prompt, settings and references into the composer"
+              >
+                <Copy className="h-3 w-3" /> Clone &amp; try
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  editInComposer(item.id);
+                }}
+                className="flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[11px] font-medium text-white/80 transition hover:bg-white/20"
+              >
+                <Pencil className="h-3 w-3" /> Edit prompt
+              </button>
+            </div>
           </div>
         )}
 
