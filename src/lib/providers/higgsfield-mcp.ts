@@ -121,7 +121,7 @@ async function refreshOnce(refresh_token: string, client_id: string): Promise<an
   return res.json();
 }
 
-function isFresh(t: TokenData | null): t is TokenData {
+function isFresh(t: TokenData | null): boolean {
   return !!(
     t?.access_token &&
     t.obtained_at &&
