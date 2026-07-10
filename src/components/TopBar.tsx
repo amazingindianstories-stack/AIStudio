@@ -1,6 +1,6 @@
 "use client";
 
-import { Sparkles, PanelRightOpen, LogOut, Shield, ChevronDown } from "lucide-react";
+import { PanelRightOpen, LogOut, Shield, ChevronDown } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { cn } from "@/lib/utils";
@@ -15,11 +15,9 @@ export function TopBar() {
   return (
     <header className="relative z-40 flex h-14 shrink-0 items-center justify-between border-b border-line bg-ink-900 px-3 sm:px-5">
       <div className="flex items-center gap-2.5">
-        <div className="grid h-8 w-8 place-items-center rounded-lg bg-white shadow-sm">
-          <Sparkles className="h-[18px] w-[18px] text-ink-900" strokeWidth={2.2} />
-        </div>
+        <img src="/logo.png" alt="Vivi" className="h-8 w-8 rounded-lg shadow-sm" />
         <span className="text-[17px] font-semibold tracking-tight text-white">
-          AIStudio V1
+          Vivi
         </span>
       </div>
 

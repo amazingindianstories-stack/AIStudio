@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { motion } from "framer-motion";
-import { Sparkles, Loader2, LogIn } from "lucide-react";
+import { Loader2, LogIn } from "lucide-react";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -44,11 +44,9 @@ export default function LoginPage() {
         className="w-full max-w-sm rounded-2xl border border-line bg-ink-850 p-7 shadow-pop"
       >
         <div className="mb-6 flex items-center gap-2.5">
-          <div className="grid h-9 w-9 place-items-center rounded-lg bg-white shadow-sm">
-            <Sparkles className="h-5 w-5 text-ink-900" strokeWidth={2.2} />
-          </div>
+          <img src="/logo.png" alt="Vivi" className="h-9 w-9 rounded-lg shadow-sm" />
           <div>
-            <p className="text-lg font-semibold text-white">AIStudio V1</p>
+            <p className="text-lg font-semibold text-white">Vivi</p>
             <p className="text-xs text-white/45">Sign in to continue</p>
           </div>
         </div>

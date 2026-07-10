@@ -199,12 +199,14 @@ function Welcome() {
       animate={{ opacity: 1, y: 0 }}
       className="mx-auto flex h-full max-w-xl flex-col items-center justify-center gap-6 text-center"
     >
-      <div className="grid h-16 w-16 place-items-center rounded-3xl bg-white/5 ring-1 ring-white/10 shadow-sm">
-        <Sparkles className="h-7 w-7 text-white" />
-      </div>
+      <img
+        src="/logo.png"
+        alt="Vivi"
+        className="h-16 w-16 rounded-3xl ring-1 ring-white/10 shadow-sm"
+      />
       <div className="space-y-1.5">
         <h1 className="text-2xl font-semibold text-white">
-          Create with <span className="brand-text">AIStudio V1</span>
+          Create with <span className="brand-text">Vivi</span>
         </h1>
         <p className="text-sm text-white/55">
           Generate images with Nano Banana Pro and videos with Seedance.
