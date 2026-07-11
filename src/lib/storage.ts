@@ -1,8 +1,21 @@
 import { Storage } from "@google-cloud/storage";
+import fs from "fs";
+
+// If running in Vercel, we use Workload Identity Federation instead of Service Account Keys.
+// We must write the OIDC token and WIF config to disk so the Google Cloud SDK can read them.
+if (process.env.VERCEL_OIDC_TOKEN && process.env.GCP_WIF_CONFIG) {
+  try {
+    fs.writeFileSync("/tmp/oidc-token.txt", process.env.VERCEL_OIDC_TOKEN, "utf8");
+    fs.writeFileSync("/tmp/gcp-wif-config.json", process.env.GCP_WIF_CONFIG, "utf8");
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/gcp-wif-config.json";
+  } catch (err) {
+    console.error("Failed to write WIF credentials to /tmp", err);
+  }
+}
 
 // Instantiate a GCS client.
-// It automatically uses Application Default Credentials when running on GCP,
-// or falls back to GOOGLE_APPLICATION_CREDENTIALS locally.
+// It automatically uses Application Default Credentials locally/GCP,
+// or the GOOGLE_APPLICATION_CREDENTIALS we just set for Vercel.
 const storage = new Storage();
 
 const getBucket = () => process.env.GCS_BUCKET_NAME || "aistudio-media-bucket-gcp";
