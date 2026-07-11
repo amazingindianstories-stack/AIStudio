@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   X,
@@ -16,48 +16,70 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { aspectToPadding, cn } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 
 /** Prompt in the details sidebar: minimized by default, hover reveals an
  *  expand cue in the top-right corner (same pattern as the feed). Keyed by
  *  item id upstream so switching items re-collapses. */
 function DetailPrompt({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
-  const long = text.length > 220 || text.split("\n").length > 3;
-  if (!long) {
-    return (
-      <p className="mb-5 whitespace-pre-wrap text-sm leading-relaxed text-white/80">
-        {text}
-      </p>
-    );
-  }
+  const [collapsible, setCollapsible] = useState(
+    text.length > 220 || text.split("\n").length > 3
+  );
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const contentId = useId();
+
+  useEffect(() => {
+    const element = textRef.current;
+    if (!element) return;
+    const measure = () => {
+      const next = element.scrollHeight > 73;
+      setCollapsible(next);
+      if (!next) setExpanded(false);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text]);
+
   return (
-    <div className="group/dprompt relative mb-5">
-      <p
-        className={cn(
-          "whitespace-pre-wrap pr-8 text-sm leading-relaxed text-white/80",
-          !expanded && "line-clamp-3"
-        )}
+    <motion.div layout className="group/dprompt relative mb-5">
+      <motion.div
+        id={contentId}
+        initial={false}
+        animate={{ height: collapsible && !expanded ? "4.5rem" : "auto" }}
+        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+        className="overflow-hidden"
       >
-        {text}
-      </p>
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="absolute -top-1 right-0 hidden items-center gap-1 rounded-md bg-ink-700/95 px-1.5 py-1 text-[10px] font-medium text-white/70 ring-1 ring-line backdrop-blur-sm hover:text-white group-hover/dprompt:flex"
-        aria-label={expanded ? "Collapse prompt" : "Expand prompt"}
-        title={expanded ? "Collapse prompt" : "Show full prompt"}
-      >
-        {expanded ? (
-          <>
-            <ChevronUp className="h-3 w-3" /> Collapse
-          </>
-        ) : (
-          <>
-            <ChevronDown className="h-3 w-3" /> Expand
-          </>
-        )}
-      </button>
-    </div>
+        <p
+          ref={textRef}
+          className="whitespace-pre-wrap pr-8 text-sm leading-6 text-white/80"
+        >
+          {text}
+        </p>
+      </motion.div>
+      {collapsible && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="absolute -top-1 right-0 flex items-center gap-1 rounded-md bg-ink-700/95 px-1.5 py-1 text-[10px] font-medium text-white/70 opacity-100 ring-1 ring-line backdrop-blur-sm transition-opacity hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 sm:opacity-0 sm:group-hover/dprompt:opacity-100 sm:focus-visible:opacity-100"
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          aria-label={expanded ? "Collapse prompt" : "Expand prompt"}
+          title={expanded ? "Collapse prompt" : "Show full prompt"}
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="h-3 w-3" /> Collapse
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-3 w-3" /> Expand
+            </>
+          )}
+        </button>
+      )}
+    </motion.div>
   );
 }
 
@@ -74,10 +96,43 @@ export function DetailModal() {
   const item = items.find((i) => i.id === activeId) || null;
 
   useEffect(() => {
-    const onEsc = (e: KeyboardEvent) => e.key === "Escape" && setActiveId(null);
-    if (item) document.addEventListener("keydown", onEsc);
-    return () => document.removeEventListener("keydown", onEsc);
-  }, [item, setActiveId]);
+    if (!item) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setActiveId(null);
+        return;
+      }
+      if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+
+      const delta =
+        event.key === "ArrowLeft" || event.key === "ArrowUp"
+          ? -1
+          : event.key === "ArrowRight" || event.key === "ArrowDown"
+          ? 1
+          : 0;
+      const navigableItems = items.filter(
+        (candidate) =>
+          candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
+      );
+      if (delta === 0 || navigableItems.length < 2) return;
+
+      event.preventDefault();
+      const currentIndex = navigableItems.findIndex(
+        (candidate) => candidate.id === item.id
+      );
+      const nextIndex =
+        (currentIndex + delta + navigableItems.length) % navigableItems.length;
+      setActiveId(navigableItems[nextIndex].id);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [item, items, setActiveId]);
 
   return (
     <AnimatePresence>
@@ -99,7 +154,7 @@ export function DetailModal() {
             className="relative flex h-full w-full flex-col lg:flex-row"
           >
             {/* media stage */}
-            <div className="relative flex flex-1 items-center justify-center p-4 sm:p-8">
+            <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center p-4 sm:p-8">
               <button
                 onClick={() => setActiveId(null)}
                 className="absolute left-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white/90 backdrop-blur hover:bg-white/20"
@@ -107,38 +162,31 @@ export function DetailModal() {
                 <X className="h-5 w-5" />
               </button>
 
-              <div className="max-h-full w-full max-w-4xl">
-                <div
-                  className="relative mx-auto w-full overflow-hidden rounded-2xl bg-black ring-1 ring-white/10"
-                  style={{ maxWidth: "min(100%, 80vh * 16/9)" }}
-                >
-                  <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
-                    {item.kind === "image" && item.url && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={item.url}
-                        alt={item.prompt}
-                        className="absolute inset-0 h-full w-full object-contain"
-                      />
-                    )}
-                    {item.kind === "video" && (
-                      <video
-                        src={item.url}
-                        poster={item.poster}
-                        controls
-                        autoPlay
-                        loop
-                        playsInline
-                        className="absolute inset-0 h-full w-full object-contain"
-                      />
-                    )}
-                  </div>
-                </div>
+              <div className="h-full min-h-0 w-full max-w-5xl overflow-hidden rounded-2xl bg-black ring-1 ring-white/10">
+                {item.kind === "image" && item.url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={item.url}
+                    alt={item.prompt}
+                    className="h-full w-full object-contain"
+                  />
+                )}
+                {item.kind === "video" && (
+                  <video
+                    src={item.url}
+                    poster={item.poster}
+                    controls
+                    autoPlay
+                    loop
+                    playsInline
+                    className="h-full w-full object-contain"
+                  />
+                )}
               </div>
             </div>
 
             {/* info panel */}
-            <aside className="flex w-full shrink-0 flex-col overflow-hidden border-t border-line bg-ink-850 lg:w-[360px] lg:border-l lg:border-t-0">
+            <aside className="flex max-h-[52dvh] min-h-0 w-full shrink-0 flex-col overflow-hidden border-t border-line bg-ink-850 lg:max-h-none lg:w-[clamp(20rem,25vw,24rem)] lg:border-l lg:border-t-0">
               <div className="scroll-thin flex flex-1 flex-col overflow-y-auto p-5 pb-6">
               <div className="mb-4 flex items-center gap-2">
                 <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand/30 to-accent/10 ring-1 ring-brand/30">

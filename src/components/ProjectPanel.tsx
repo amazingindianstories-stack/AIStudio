@@ -117,19 +117,20 @@ export function ProjectPanel() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* project selector */}
-      <div className="flex items-center gap-2 border-b border-line px-3 py-2.5">
+      <div className="flex min-w-0 items-center gap-2 border-b border-line px-3 py-2.5">
         <Dropdown
+          className="min-w-0"
           trigger={(open) => (
             <span
               className={cn(
-                "flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-semibold text-white transition hover:bg-white/5",
+                "flex min-w-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-semibold text-white transition hover:bg-white/5",
                 open && "bg-white/5"
               )}
             >
               <span className="grid h-5 w-5 place-items-center rounded bg-gradient-to-br from-brand/30 to-accent/10 text-brand ring-1 ring-brand/30">
                 <Layers className="h-3 w-3" />
               </span>
-              <span className="max-w-[160px] truncate">{project.name}</span>
+              <span className="min-w-0 max-w-[160px] truncate">{project.name}</span>
               <ChevronDown
                 className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
               />
@@ -214,7 +215,7 @@ export function ProjectPanel() {
       {/* body: folder rail + grid */}
       <div className="flex min-h-0 flex-1">
         {/* folder rail */}
-        <div className="flex w-40 shrink-0 flex-col gap-0.5 overflow-y-auto scroll-thin border-r border-line p-2">
+        <div className="scroll-thin flex w-[clamp(7rem,28%,10rem)] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line p-2">
           <FolderRow
             label="All assets"
             count={countFor(null)}
@@ -300,7 +301,7 @@ export function ProjectPanel() {
         </div>
 
         {/* grid / brief */}
-        <div className="min-h-0 flex-1 overflow-y-auto scroll-thin p-3">
+        <div className="scroll-thin min-h-0 min-w-0 flex-1 overflow-y-auto p-3">
           {briefView ? (
             <BriefEditor projectId={project.id} brief={project.brief ?? ""} />
           ) : grid.length === 0 ? (
@@ -311,7 +312,7 @@ export function ProjectPanel() {
               </p>
             </div>
           ) : (
-            <div className="columns-2 gap-3 [column-fill:_balance] xl:columns-3">
+            <div className="columns-[9.5rem] gap-3 [column-fill:_balance]">
               <AnimatePresence mode="popLayout">
                 {grid.map((item) => (
                   <div

@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ResponsiveContainer,
   BarChart,
@@ -25,9 +26,16 @@ import {
   Trash2,
   KeyRound,
   Download,
+  CheckCircle2,
+  Loader2,
+  UserCheck,
+  UserX,
+  X,
+  Settings,
 } from "lucide-react";
 import { formatCost } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
+import { AccountSettings } from "./AccountSettings";
 
 interface AdminUser {
   id: string;
@@ -35,6 +43,7 @@ interface AdminUser {
   name: string;
   role: string;
   color: string | null;
+  avatarUrl: string | null;
   isActive: boolean;
   createdAt: number;
   genCount: number;
@@ -70,19 +79,41 @@ interface Data {
   pricing: PricingRow[];
 }
 
+interface AdminSessionUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  color: string | null;
+  avatarUrl: string | null;
+}
+
 type Tab = "overview" | "users" | "logs" | "pricing";
 const CHART_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#f87171"];
 
 export function AdminDashboard() {
   const [data, setData] = useState<Data | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
+  const [currentUser, setCurrentUser] = useState<AdminSessionUser | null>(null);
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const load = async () => {
     const res = await fetch("/api/admin/data", { cache: "no-store" });
     if (res.ok) setData(await res.json());
   };
+  const loadCurrentUser = async () => {
+    try {
+      const response = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!response.ok) return;
+      const json = await response.json();
+      setCurrentUser(json.user ?? null);
+    } catch {
+      setCurrentUser(null);
+    }
+  };
   useEffect(() => {
     load();
+    loadCurrentUser();
   }, []);
 
   const usersById = useMemo(() => {
@@ -93,7 +124,7 @@ export function AdminDashboard() {
 
   return (
     <div className="min-h-[100dvh] bg-ink-900 text-white">
-      <header className="flex h-14 items-center gap-3 border-b border-line px-4">
+      <header className="flex h-14 items-center gap-3 border-b border-line px-3 sm:px-4">
         <a
           href="/"
           className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-white/70 hover:bg-white/5 hover:text-white"
@@ -101,6 +132,26 @@ export function AdminDashboard() {
           <ArrowLeft className="h-4 w-4" /> Back to app
         </a>
         <span className="text-sm font-semibold">Admin</span>
+        {currentUser && (
+          <button
+            type="button"
+            onClick={() => setAccountOpen(true)}
+            className="ml-auto flex min-w-0 items-center gap-2 rounded-lg border border-line bg-ink-800 py-1 pl-1 pr-2 text-sm text-white/70 transition hover:border-lineStrong hover:text-white"
+            aria-label="Open account settings"
+          >
+            <span
+              className="relative grid h-7 w-7 shrink-0 place-items-center overflow-hidden rounded-full text-xs font-semibold text-ink-900"
+              style={{ background: currentUser.color || "#34d399" }}
+            >
+              {(currentUser.name || currentUser.email).charAt(0).toUpperCase()}
+              {currentUser.avatarUrl && (
+                <img src={currentUser.avatarUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+              )}
+            </span>
+            <span className="hidden max-w-32 truncate sm:inline">{currentUser.name || currentUser.email}</span>
+            <Settings className="h-4 w-4 shrink-0" />
+          </button>
+        )}
       </header>
 
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
@@ -117,12 +168,16 @@ export function AdminDashboard() {
             <button
               key={id}
               onClick={() => setTab(id)}
+              aria-label={label}
+              aria-pressed={tab === id}
+              title={label}
               className={cn(
                 "flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition",
                 tab === id ? "bg-ink-650 text-white" : "text-white/55 hover:text-white"
               )}
             >
-              <Icon className="h-4 w-4" /> {label}
+              <Icon className="h-4 w-4 shrink-0" />
+              <span className="hidden min-[420px]:inline">{label}</span>
             </button>
           ))}
         </div>
@@ -132,13 +187,24 @@ export function AdminDashboard() {
         ) : tab === "overview" ? (
           <Overview data={data} />
         ) : tab === "users" ? (
-          <UsersTab data={data} reload={load} />
+          <UsersTab data={data} reload={load} currentUserId={currentUser?.id ?? null} />
         ) : tab === "logs" ? (
           <LogsTab data={data} usersById={usersById} />
         ) : (
           <PricingTab data={data} reload={load} />
         )}
       </div>
+
+      {currentUser && (
+        <AccountSettings
+          open={accountOpen}
+          user={currentUser}
+          onClose={() => setAccountOpen(false)}
+          onUserUpdated={async () => {
+            await Promise.all([loadCurrentUser(), load()]);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -327,97 +393,271 @@ const TOOLTIP = {
   fontSize: 12,
 };
 
-function UsersTab({ data, reload }: { data: Data; reload: () => void }) {
+type AdminNotice = { kind: "success" | "error"; text: string } | null;
+type PendingUserAction = { kind: "status" | "delete"; user: AdminUser } | null;
+
+function UsersTab({
+  data,
+  reload,
+  currentUserId,
+}: {
+  data: Data;
+  reload: () => void;
+  currentUserId: string | null;
+}) {
   const [adding, setAdding] = useState(false);
   const [form, setForm] = useState({ email: "", password: "", name: "", role: "user" });
+  const [creating, setCreating] = useState(false);
+  const [createNotice, setCreateNotice] = useState<AdminNotice>(null);
+  const [notice, setNotice] = useState<AdminNotice>(null);
+  const [resetUser, setResetUser] = useState<AdminUser | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingUserAction>(null);
+  const [actionBusy, setActionBusy] = useState(false);
 
-  const create = async () => {
-    const res = await fetch("/api/admin/users", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(form),
-    });
-    if (res.ok) {
+  const create = async (event: FormEvent) => {
+    event.preventDefault();
+    if (form.password.length < 8 || form.password.length > 128) {
+      setCreateNotice({
+        kind: "error",
+        text: "Password must be between 8 and 128 characters.",
+      });
+      return;
+    }
+    setCreating(true);
+    setCreateNotice(null);
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || "Could not create the user.");
       setForm({ email: "", password: "", name: "", role: "user" });
       setAdding(false);
+      setNotice({ kind: "success", text: "User created." });
       reload();
-    } else {
-      alert((await res.json()).error || "Failed");
+    } catch (error) {
+      setCreateNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Could not create the user.",
+      });
+    } finally {
+      setCreating(false);
     }
   };
 
-  const patch = async (id: string, body: Record<string, unknown>) => {
-    await fetch("/api/admin/users", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, ...body }),
-    });
-    reload();
+  const patchUser = async (
+    id: string,
+    body: Record<string, unknown>,
+    successMessage: string
+  ) => {
+    setNotice(null);
+    try {
+      const response = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, ...body }),
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || "Could not update the user.");
+      setNotice({ kind: "success", text: successMessage });
+      reload();
+      return true;
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Could not update the user.",
+      });
+      return false;
+    }
   };
 
-  const resetPw = async (id: string) => {
-    const pw = window.prompt("New password");
-    if (pw) await patch(id, { password: pw });
+  const deleteUser = async (user: AdminUser) => {
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/admin/users?id=${encodeURIComponent(user.id)}`, {
+        method: "DELETE",
+      });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error || "Could not delete the user.");
+      setNotice({ kind: "success", text: `${user.name || user.email} was deleted.` });
+      reload();
+      return true;
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Could not delete the user.",
+      });
+      return false;
+    }
   };
 
-  const del = async (id: string) => {
-    if (!window.confirm("Delete this user?")) return;
-    const res = await fetch(`/api/admin/users?id=${id}`, { method: "DELETE" });
-    if (!res.ok) alert((await res.json()).error || "Failed");
-    reload();
+  const confirmAction = async () => {
+    if (!pendingAction) return;
+    setActionBusy(true);
+    const { kind, user } = pendingAction;
+    const ok =
+      kind === "delete"
+        ? await deleteUser(user)
+        : await patchUser(
+            user.id,
+            { isActive: !user.isActive },
+            user.isActive ? "Account disabled." : "Account enabled."
+          );
+    setActionBusy(false);
+    if (ok) setPendingAction(null);
   };
+
+  const userRows = data.users.map((user) => ({
+    user,
+    isSelf: user.id === currentUserId,
+  }));
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
+      <div className="flex min-h-9 flex-wrap items-center justify-between gap-2">
+        <AdminNoticeLine notice={notice} />
         <button
-          onClick={() => setAdding((v) => !v)}
-          className="flex items-center gap-1.5 rounded-lg bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand hover:bg-brand/30"
+          type="button"
+          onClick={() => {
+            setAdding((value) => !value);
+            setCreateNotice(null);
+          }}
+          aria-expanded={adding}
+          aria-controls="new-user-form"
+          className="ml-auto flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-sm font-semibold text-ink-900 transition hover:bg-white/90"
         >
-          <Plus className="h-4 w-4" /> New user
+          {adding ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {adding ? "Cancel" : "New user"}
         </button>
       </div>
 
-      {adding && (
-        <div className="grid grid-cols-1 gap-2 rounded-xl border border-line bg-ink-800 p-3 sm:grid-cols-5">
-          <input
-            placeholder="Email"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            className="rounded-lg border border-line bg-ink-700 px-2.5 py-2 text-sm outline-none focus:border-brand/40"
-          />
-          <input
-            placeholder="Name"
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            className="rounded-lg border border-line bg-ink-700 px-2.5 py-2 text-sm outline-none focus:border-brand/40"
-          />
-          <input
-            placeholder="Password"
-            value={form.password}
-            onChange={(e) => setForm({ ...form, password: e.target.value })}
-            className="rounded-lg border border-line bg-ink-700 px-2.5 py-2 text-sm outline-none focus:border-brand/40"
-          />
-          <select
-            value={form.role}
-            onChange={(e) => setForm({ ...form, role: e.target.value })}
-            className="rounded-lg border border-line bg-ink-700 px-2.5 py-2 text-sm outline-none focus:border-brand/40"
+      <AnimatePresence initial={false}>
+        {adding && (
+          <motion.form
+            id="new-user-form"
+            onSubmit={create}
+            initial={{ opacity: 0, height: 0, y: -8 }}
+            animate={{ opacity: 1, height: "auto", y: 0 }}
+            exit={{ opacity: 0, height: 0, y: -8 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
           >
-            <option value="user">user</option>
-            <option value="admin">admin</option>
-          </select>
-          <button
-            onClick={create}
-            disabled={!form.email || !form.password}
-            className="rounded-lg bg-brand py-2 text-sm font-semibold text-ink-900 disabled:opacity-50"
-          >
-            Create
-          </button>
-        </div>
-      )}
+            <div className="grid grid-cols-1 gap-2 rounded-xl border border-line bg-ink-800 p-3 sm:grid-cols-2 lg:grid-cols-[1.25fr_1fr_1fr_0.7fr_auto]">
+              <input
+                type="email"
+                placeholder="Email"
+                aria-label="Email"
+                value={form.email}
+                onChange={(event) => setForm({ ...form, email: event.target.value })}
+                className="rounded-lg border border-line bg-ink-700 px-2.5 py-2 text-sm outline-none transition focus:border-white/25"
+                required
+              />
+              <input
+                placeholder="Name"
+                aria-label="Name"
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                className="rounded-lg border border-line bg-ink-700 px-2.5 py-2 text-sm outline-none transition focus:border-white/25"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                aria-label="Password"
+                autoComplete="new-password"
+                minLength={8}
+                maxLength={128}
+                value={form.password}
+                onChange={(event) => setForm({ ...form, password: event.target.value })}
+                className="rounded-lg border border-line bg-ink-700 px-2.5 py-2 text-sm outline-none transition focus:border-white/25"
+                required
+              />
+              <select
+                value={form.role}
+                aria-label="Role"
+                onChange={(event) => setForm({ ...form, role: event.target.value })}
+                className="rounded-lg border border-line bg-ink-700 px-2.5 py-2 text-sm outline-none transition focus:border-white/25"
+              >
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+              <button
+                type="submit"
+                disabled={creating || !form.email || !form.password}
+                className="flex items-center justify-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-ink-900 transition hover:bg-white/90 disabled:opacity-45 sm:col-span-2 lg:col-span-1"
+              >
+                {creating && <Loader2 className="h-4 w-4 animate-spin" />}
+                Create
+              </button>
+              {createNotice && (
+                <div className="sm:col-span-2 lg:col-span-5">
+                  <AdminNoticeLine notice={createNotice} />
+                </div>
+              )}
+            </div>
+          </motion.form>
+        )}
+      </AnimatePresence>
 
-      <div className="overflow-hidden rounded-xl border border-line">
-        <table className="w-full text-sm">
+      <div className="space-y-2 sm:hidden">
+        {userRows.map(({ user, isSelf }) => (
+          <div key={user.id} className="rounded-xl border border-line bg-ink-800 p-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <AdminAvatar user={user} className="h-10 w-10 text-sm" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">
+                  {user.name || user.email}
+                  {isSelf && <span className="ml-1.5 text-xs font-normal text-white/35">You</span>}
+                </p>
+                <p className="truncate text-xs text-white/40">{user.email}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingAction({ kind: "status", user })}
+                disabled={isSelf}
+                className={cn(
+                  "rounded px-2 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+                  user.isActive
+                    ? "bg-emerald-500/15 text-emerald-300"
+                    : "bg-white/10 text-white/50"
+                )}
+                title={isSelf ? "You cannot disable your own account" : undefined}
+              >
+                {user.isActive ? "Active" : "Disabled"}
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+              <select
+                value={user.role}
+                disabled={isSelf}
+                aria-label={`Role for ${user.name || user.email}`}
+                onChange={(event) =>
+                  patchUser(user.id, { role: event.target.value }, "Role updated.")
+                }
+                className="rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-45"
+                title={isSelf ? "You cannot change your own role" : undefined}
+              >
+                <option value="user">user</option>
+                <option value="admin">admin</option>
+              </select>
+              <span className="text-xs text-white/45">
+                {user.genCount} gens · {formatCost(user.costCents)}
+              </span>
+              <UserActions
+                user={user}
+                isSelf={isSelf}
+                onReset={() => setResetUser(user)}
+                onDelete={() => setPendingAction({ kind: "delete", user })}
+                className="ml-auto"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="scroll-thin hidden overflow-x-auto rounded-xl border border-line sm:block">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
             <tr>
               <th className="px-3 py-2">User</th>
@@ -425,75 +665,432 @@ function UsersTab({ data, reload }: { data: Data; reload: () => void }) {
               <th className="px-3 py-2">Gens</th>
               <th className="px-3 py-2">Cost</th>
               <th className="px-3 py-2">Status</th>
-              <th className="px-3 py-2"></th>
+              <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody>
-            {data.users.map((u) => (
-              <tr key={u.id} className="border-t border-line">
+            {userRows.map(({ user, isSelf }) => (
+              <tr key={user.id} className="border-t border-line">
                 <td className="px-3 py-2">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="grid h-6 w-6 place-items-center rounded-full text-[11px] font-semibold text-ink-900"
-                      style={{ background: u.color || "#34d399" }}
-                    >
-                      {(u.name || u.email).charAt(0).toUpperCase()}
-                    </span>
-                    <div>
-                      <p className="font-medium">{u.name}</p>
-                      <p className="text-xs text-white/40">{u.email}</p>
+                  <div className="flex min-w-0 items-center gap-2.5">
+                    <AdminAvatar user={user} className="h-8 w-8 text-xs" />
+                    <div className="min-w-0">
+                      <p className="max-w-[220px] truncate font-medium">
+                        {user.name || user.email}
+                        {isSelf && <span className="ml-1.5 text-xs font-normal text-white/35">You</span>}
+                      </p>
+                      <p className="max-w-[220px] truncate text-xs text-white/40">{user.email}</p>
                     </div>
                   </div>
                 </td>
                 <td className="px-3 py-2">
                   <select
-                    value={u.role}
-                    onChange={(e) => patch(u.id, { role: e.target.value })}
-                    className="rounded bg-ink-700 px-1.5 py-1 text-xs"
+                    value={user.role}
+                    disabled={isSelf}
+                    aria-label={`Role for ${user.name || user.email}`}
+                    onChange={(event) =>
+                      patchUser(user.id, { role: event.target.value }, "Role updated.")
+                    }
+                    className="rounded-lg border border-line bg-ink-700 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-45"
+                    title={isSelf ? "You cannot change your own role" : undefined}
                   >
                     <option value="user">user</option>
                     <option value="admin">admin</option>
                   </select>
                 </td>
-                <td className="px-3 py-2 tabular-nums">{u.genCount}</td>
-                <td className="px-3 py-2 tabular-nums">{formatCost(u.costCents)}</td>
+                <td className="px-3 py-2 tabular-nums">{user.genCount}</td>
+                <td className="px-3 py-2 tabular-nums">{formatCost(user.costCents)}</td>
                 <td className="px-3 py-2">
                   <button
-                    onClick={() => patch(u.id, { isActive: !u.isActive })}
+                    type="button"
+                    onClick={() => setPendingAction({ kind: "status", user })}
+                    disabled={isSelf}
                     className={cn(
-                      "rounded px-2 py-0.5 text-xs font-medium",
-                      u.isActive
+                      "rounded px-2 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+                      user.isActive
                         ? "bg-emerald-500/15 text-emerald-300"
                         : "bg-white/10 text-white/50"
                     )}
+                    title={isSelf ? "You cannot disable your own account" : undefined}
                   >
-                    {u.isActive ? "active" : "disabled"}
+                    {user.isActive ? "Active" : "Disabled"}
                   </button>
                 </td>
                 <td className="px-3 py-2">
-                  <div className="flex justify-end gap-1">
-                    <button
-                      onClick={() => resetPw(u.id)}
-                      title="Reset password"
-                      className="grid h-7 w-7 place-items-center rounded text-white/55 hover:bg-white/10 hover:text-white"
-                    >
-                      <KeyRound className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      onClick={() => del(u.id)}
-                      title="Delete"
-                      className="grid h-7 w-7 place-items-center rounded text-white/55 hover:bg-red-500/15 hover:text-red-300"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  <UserActions
+                    user={user}
+                    isSelf={isSelf}
+                    onReset={() => setResetUser(user)}
+                    onDelete={() => setPendingAction({ kind: "delete", user })}
+                  />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      <AnimatePresence>
+        {resetUser && (
+          <PasswordResetDialog
+            key={`password-${resetUser.id}`}
+            user={resetUser}
+            onClose={() => setResetUser(null)}
+            onReset={async (password) => {
+              try {
+                const response = await fetch("/api/admin/users", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ id: resetUser.id, password }),
+                });
+                const json = await response.json().catch(() => ({}));
+                if (!response.ok) return json.error || "Could not reset the password.";
+                setNotice({ kind: "success", text: "Password reset." });
+                setResetUser(null);
+                reload();
+                return null;
+              } catch {
+                return "Could not reset the password.";
+              }
+            }}
+          />
+        )}
+        {pendingAction && (
+          <ConfirmUserActionDialog
+            key={`${pendingAction.kind}-${pendingAction.user.id}`}
+            action={pendingAction}
+            busy={actionBusy}
+            onClose={() => !actionBusy && setPendingAction(null)}
+            onConfirm={confirmAction}
+          />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function AdminAvatar({ user, className }: { user: AdminUser; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "relative grid shrink-0 place-items-center overflow-hidden rounded-full font-semibold text-ink-900 ring-1 ring-white/10",
+        className
+      )}
+      style={{ background: user.color || "#34d399" }}
+    >
+      {(user.name || user.email).charAt(0).toUpperCase()}
+      {user.avatarUrl && (
+        <img src={user.avatarUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
+      )}
+    </span>
+  );
+}
+
+function UserActions({
+  user,
+  isSelf,
+  onReset,
+  onDelete,
+  className,
+}: {
+  user: AdminUser;
+  isSelf: boolean;
+  onReset: () => void;
+  onDelete: () => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex justify-end gap-1", className)}>
+      <button
+        type="button"
+        onClick={onReset}
+        disabled={isSelf}
+        aria-label={
+          isSelf
+            ? "Use Account settings to change your password"
+            : `Reset password for ${user.name || user.email}`
+        }
+        title={isSelf ? "Use Account settings to change your password" : "Reset password"}
+        className="grid h-8 w-8 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <KeyRound className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={onDelete}
+        disabled={isSelf}
+        aria-label={`Delete ${user.name || user.email}`}
+        title={isSelf ? "You cannot delete your own account" : "Delete user"}
+        className="grid h-8 w-8 place-items-center rounded-lg text-white/55 transition hover:bg-red-500/15 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:cursor-not-allowed disabled:opacity-30"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+function PasswordResetDialog({
+  user,
+  onClose,
+  onReset,
+}: {
+  user: AdminUser;
+  onClose: () => void;
+  onReset: (password: string) => Promise<string | null>;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<AdminNotice>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (password.length < 8 || password.length > 128) {
+      setNotice({ kind: "error", text: "Password must be between 8 and 128 characters." });
+      return;
+    }
+    if (password !== confirm) {
+      setNotice({ kind: "error", text: "Passwords do not match." });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    const error = await onReset(password);
+    if (error) setNotice({ kind: "error", text: error });
+    setBusy(false);
+  };
+
+  return (
+    <AdminModal title="Reset password" onClose={() => !busy && onClose()} initialFocusRef={inputRef}>
+      <form onSubmit={submit} className="space-y-4">
+        <p className="text-sm leading-5 text-white/55">
+          Set a new password for <span className="font-medium text-white">{user.name || user.email}</span>.
+          Their current password is never shown.
+        </p>
+        <label className="block space-y-1.5">
+          <span className="text-xs font-medium text-white/60">New password</span>
+          <input
+            ref={inputRef}
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="new-password"
+            minLength={8}
+            maxLength={128}
+            disabled={busy}
+            className="w-full rounded-lg border border-line bg-ink-700 px-3 py-2.5 text-sm outline-none transition focus:border-white/25 focus:ring-2 focus:ring-white/10 disabled:opacity-50"
+            required
+          />
+        </label>
+        <label className="block space-y-1.5">
+          <span className="text-xs font-medium text-white/60">Confirm new password</span>
+          <input
+            type="password"
+            value={confirm}
+            onChange={(event) => setConfirm(event.target.value)}
+            autoComplete="new-password"
+            minLength={8}
+            maxLength={128}
+            disabled={busy}
+            className="w-full rounded-lg border border-line bg-ink-700 px-3 py-2.5 text-sm outline-none transition focus:border-white/25 focus:ring-2 focus:ring-white/10 disabled:opacity-50"
+            required
+          />
+        </label>
+        <AdminNoticeLine notice={notice} />
+        <div className="flex justify-end gap-2 border-t border-line pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={busy || !password || !confirm}
+            className="flex items-center gap-2 rounded-lg bg-white px-3.5 py-2 text-sm font-semibold text-ink-900 transition hover:bg-white/90 disabled:opacity-45"
+          >
+            {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+            Reset password
+          </button>
+        </div>
+      </form>
+    </AdminModal>
+  );
+}
+
+function ConfirmUserActionDialog({
+  action,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  action: NonNullable<PendingUserAction>;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  const confirmRef = useRef<HTMLButtonElement>(null);
+  const isDelete = action.kind === "delete";
+  const isDisable = action.kind === "status" && action.user.isActive;
+  const verb = isDelete ? "Delete" : isDisable ? "Disable" : "Enable";
+  const Icon = isDelete ? Trash2 : isDisable ? UserX : UserCheck;
+
+  return (
+    <AdminModal title={`${verb} account?`} onClose={onClose} initialFocusRef={confirmRef}>
+      <div className="space-y-4">
+        <p className="text-sm leading-5 text-white/55">
+          {isDelete ? (
+            <>This permanently deletes <span className="font-medium text-white">{action.user.name || action.user.email}</span>.</>
+          ) : (
+            <>
+              {isDisable ? "Disabling" : "Enabling"} <span className="font-medium text-white">{action.user.name || action.user.email}</span>{" "}
+              {isDisable ? "blocks future sign-ins without deleting their data." : "restores their access."}
+            </>
+          )}
+        </p>
+        <div className="flex justify-end gap-2 border-t border-line pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
+          >
+            Cancel
+          </button>
+          <button
+            ref={confirmRef}
+            type="button"
+            onClick={onConfirm}
+            disabled={busy}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold transition disabled:opacity-45",
+              isDelete || isDisable
+                ? "bg-red-500 text-white hover:bg-red-400"
+                : "bg-white text-ink-900 hover:bg-white/90"
+            )}
+          >
+            {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Icon className="h-4 w-4" />}
+            {verb}
+          </button>
+        </div>
+      </div>
+    </AdminModal>
+  );
+}
+
+function AdminModal({
+  title,
+  onClose,
+  initialFocusRef,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  initialFocusRef?: RefObject<HTMLElement | null>;
+  children: React.ReactNode;
+}) {
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const frame = requestAnimationFrame(() => {
+      initialFocusRef?.current?.focus();
+      if (!initialFocusRef?.current) {
+        dialogRef.current?.querySelector<HTMLElement>("button, input")?.focus();
+      }
+    });
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(
+        dialogRef.current?.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      );
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [initialFocusRef]);
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[90] grid place-items-end bg-black/65 p-0 backdrop-blur-sm sm:place-items-center sm:p-4"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <motion.div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        initial={{ opacity: 0, y: 24, scale: 0.985 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 18, scale: 0.985 }}
+        transition={{ type: "spring", stiffness: 400, damping: 36 }}
+        className="w-full rounded-t-2xl border border-line bg-ink-800 shadow-pop sm:max-w-md sm:rounded-2xl"
+      >
+        <div className="flex h-14 items-center justify-between border-b border-line px-4">
+          <h2 id={titleId} className="text-sm font-semibold">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid h-8 w-8 place-items-center rounded-lg text-white/50 transition hover:bg-white/[0.07] hover:text-white"
+            aria-label={`Close ${title.toLowerCase()}`}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4">{children}</div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function AdminNoticeLine({ notice }: { notice: AdminNotice }) {
+  return (
+    <span
+      role="status"
+      aria-live="polite"
+      className={cn(
+        "flex min-h-5 items-center gap-1.5 text-xs",
+        notice?.kind === "error" ? "text-red-300" : "text-emerald-300"
+      )}
+    >
+      {notice?.kind === "success" && <CheckCircle2 className="h-3.5 w-3.5" />}
+      {notice?.text}
+    </span>
   );
 }
 

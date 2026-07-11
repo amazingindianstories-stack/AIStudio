@@ -17,6 +17,10 @@ function resolutionToImageSize(res?: string): "1K" | "2K" | "4K" {
 }
 
 export async function POST(req: NextRequest) {
+  const user = await getSession();
+  if (!user) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   const body = await req.json().catch(() => ({}));
   const prompt: string = (body.prompt || "").trim();
   const aspectRatio: string = body.aspectRatio || "1:1";
@@ -32,7 +36,6 @@ export async function POST(req: NextRequest) {
 
   const id = crypto.randomUUID();
   const now = Date.now();
-  const user = await getSession();
   const pricingRows = await readPricing();
   let costCents = computeCostCents({ kind: "image", model, resolution }, pricingRows);
   // Persist the uploaded references with the item so they can be shown later
@@ -51,13 +54,13 @@ export async function POST(req: NextRequest) {
     referenceImages: savedRefs,
     projectId,
     folderId,
-    userId: user?.id,
+    userId: user.id,
     costCents,
     createdAt: now,
     updatedAt: now,
   };
   await upsertItem(base);
-  await logActivity(user?.id ?? null, "generate", {
+  await logActivity(user.id, "generate", {
     id,
     kind: "image",
     model,

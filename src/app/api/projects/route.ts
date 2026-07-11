@@ -15,6 +15,9 @@ import { logActivity } from "@/lib/activity";
 export const runtime = "nodejs";
 
 export async function GET() {
+  if (!(await getSession())) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   // Atomically ensure a default project exists so the UI always has a home.
   const projects = await ensureDefaultProject();
   return NextResponse.json({ projects });
@@ -25,6 +28,10 @@ export async function GET() {
  * project list so the client can resync.
  */
 export async function POST(req: NextRequest) {
+  const user = await getSession();
+  if (!user) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   const b = await req.json().catch(() => ({}));
   const op: string = b.op;
 
@@ -33,8 +40,7 @@ export async function POST(req: NextRequest) {
       const name = (b.name || "").trim();
       if (!name)
         return NextResponse.json({ error: "Name required." }, { status: 400 });
-      const user = await getSession();
-      const { projects, project } = await createProject(name, user?.id);
+      const { projects, project } = await createProject(name, user.id);
       return NextResponse.json({ projects, project });
     }
     case "renameProject":
@@ -46,8 +52,7 @@ export async function POST(req: NextRequest) {
         projects: await setBrief(b.projectId, b.brief ?? ""),
       });
     case "deleteProject": {
-      const user = await getSession();
-      await logActivity(user?.id ?? null, "delete_project", {
+      await logActivity(user.id, "delete_project", {
         projectId: b.projectId,
       });
       return NextResponse.json({ projects: await deleteProject(b.projectId) });
@@ -64,8 +69,7 @@ export async function POST(req: NextRequest) {
         projects: await renameFolder(b.projectId, b.folderId, (b.name || "").trim()),
       });
     case "deleteFolder": {
-      const user = await getSession();
-      await logActivity(user?.id ?? null, "delete_folder", {
+      await logActivity(user.id, "delete_folder", {
         projectId: b.projectId,
         folderId: b.folderId,
       });

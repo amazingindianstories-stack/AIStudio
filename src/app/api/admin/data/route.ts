@@ -24,7 +24,18 @@ export async function GET() {
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
 
   const [allUsers, gens, pricing, activity, statRows] = await Promise.all([
-    db.select().from(users),
+    db
+      .select({
+        id: users.id,
+        email: users.email,
+        name: users.name,
+        role: users.role,
+        color: users.color,
+        avatarUrl: users.avatarUrl,
+        isActive: users.isActive,
+        createdAt: users.createdAt,
+      })
+      .from(users),
     readHistory(undefined, LOG_LIMIT),
     readPricing(),
     readActivity(LOG_LIMIT),
@@ -48,6 +59,7 @@ export async function GET() {
         name: u.name,
         role: u.role,
         color: u.color,
+        avatarUrl: u.avatarUrl,
         isActive: u.isActive,
         createdAt: u.createdAt,
         genCount: stat?.genCount ?? 0,

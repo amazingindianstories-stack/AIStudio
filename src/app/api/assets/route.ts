@@ -15,6 +15,9 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET() {
+  if (!(await getSession())) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   const assets = await readAssets();
   return NextResponse.json({ assets });
 }
@@ -26,6 +29,9 @@ export async function GET() {
  * data URLs are saved to disk and replaced with their public path.
  */
 export async function POST(req: NextRequest) {
+  if (!(await getSession())) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   const body = await req.json().catch(() => ({}));
   const name: string = (body.name || "").trim();
   const kind: AssetKind = body.kind;
@@ -73,6 +79,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const user = await getSession();
+  if (!user) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   const id = req.nextUrl.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "Missing id." }, { status: 400 });
@@ -80,8 +90,7 @@ export async function DELETE(req: NextRequest) {
   const removed = await deleteAsset(id);
   if (removed) {
     for (const img of removed.images) await deleteAssetImage(img);
-    const user = await getSession();
-    await logActivity(user?.id ?? null, "delete_asset", {
+    await logActivity(user.id, "delete_asset", {
       id,
       slug: removed.slug,
       name: removed.name,

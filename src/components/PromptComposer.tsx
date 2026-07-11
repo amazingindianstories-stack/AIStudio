@@ -33,13 +33,7 @@ import {
 import { useStore, restoreComposerDraft } from "@/lib/store";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, type MentionHandle } from "./MentionTextarea";
-import {
-  MODELS,
-  MODES,
-  ASPECT_RATIOS,
-  resolutionsForModel,
-  durationsForModel,
-} from "@/lib/config";
+import { ASPECT_RATIOS, DEFAULTS, DURATIONS, MODELS, MODES, RESOLUTIONS } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { GenerationKind } from "@/lib/types";
 
@@ -72,12 +66,61 @@ export function PromptComposer() {
   const s = useStore();
   const fileRef = useRef<HTMLInputElement>(null);
   const mentionRef = useRef<MentionHandle>(null);
+  const toolbarMeasureRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [preferredWidth, setPreferredWidth] = useState(768);
 
   // Bring back the locally cached draft (prompt + reference images) after a
   // refresh. Runs after mount so SSR markup stays consistent.
   useEffect(() => {
     restoreComposerDraft();
+  }, []);
+
+  useEffect(() => {
+    const toolbar = toolbarMeasureRef.current;
+    if (!toolbar) return;
+
+    const syncWidth = () => {
+      const controls = Array.from(
+        toolbar.querySelectorAll<HTMLElement>(".control-chip")
+      );
+      const controlsWidth = controls.reduce((width, control) => {
+        const style = window.getComputedStyle(control);
+        const children = Array.from(control.children).filter(
+          (child) => window.getComputedStyle(child).display !== "none"
+        ) as HTMLElement[];
+        const contentWidth = children.reduce((sum, child) => {
+          const renderedWidth = child.getBoundingClientRect().width;
+          const cappedLabel = child.matches(
+            ".composer-model-label, .composer-project-label, .composer-folder-label"
+          );
+          return sum + (cappedLabel ? renderedWidth : Math.max(child.scrollWidth, renderedWidth));
+        }, 0);
+        const gap = Number.parseFloat(style.columnGap) || 0;
+        const padding =
+          (Number.parseFloat(style.paddingLeft) || 0) +
+          (Number.parseFloat(style.paddingRight) || 0);
+        return width + contentWidth + gap * Math.max(0, children.length - 1) + padding;
+      }, 0);
+      const toolbarWidth = Math.ceil(
+        controlsWidth + Math.max(0, controls.length - 1) * 6
+      );
+      setPreferredWidth(Math.min(1120, Math.max(768, toolbarWidth + 72)));
+    };
+    syncWidth();
+
+    const resizeObserver = new ResizeObserver(syncWidth);
+    resizeObserver.observe(toolbar);
+    const mutationObserver = new MutationObserver(syncWidth);
+    mutationObserver.observe(toolbar, {
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    return () => {
+      resizeObserver.disconnect();
+      mutationObserver.disconnect();
+    };
   }, []);
 
   const modeModels = MODELS.filter((m) => m.kind === s.mode);
@@ -201,14 +244,16 @@ export function PromptComposer() {
 
   return (
     <motion.div
+      layout="size"
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 260, damping: 28 }}
+      style={{ width: `min(100%, ${preferredWidth}px)` }}
       onPaste={onPaste}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className="relative rounded-2xl border border-line bg-ink-800/90 p-2.5 shadow-panel backdrop-blur-xl"
+      className="composer-shell relative mx-auto max-w-full rounded-2xl border border-line bg-ink-800/90 p-2.5 shadow-panel backdrop-blur-xl"
     >
       {/* drop overlay */}
       {dragging && (
@@ -221,7 +266,7 @@ export function PromptComposer() {
       )}
       {/* reference thumbnails — click to insert its @imgN tag into the prompt */}
       {s.referenceImages.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2 px-1">
+        <div className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1">
           {s.referenceImages.map((src, i) => (
             <motion.button
               key={i}
@@ -231,7 +276,7 @@ export function PromptComposer() {
               exit={{ opacity: 0, scale: 0.8 }}
               onClick={() => mentionRef.current?.insertTag(`@img${i + 1}`)}
               title={`Insert @img${i + 1}`}
-              className="group relative h-16 w-16 overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50"
+              className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={src} alt="" className="h-full w-full object-cover" />
@@ -330,9 +375,15 @@ export function PromptComposer() {
       </div>
 
       {/* toolbar */}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <div className="mt-2 flex min-w-0 items-center gap-2">
+        <div
+          ref={toolbarMeasureRef}
+          className="composer-toolbar flex min-w-0 flex-1 items-center gap-1.5 py-px"
+        >
         {/* mode */}
         <Dropdown
+          className="composer-mode shrink-0"
+          label={`Generation mode: ${activeMode?.label ?? s.mode}`}
           side="top"
           trigger={(open) => (
             <Chip open={open}>
@@ -342,7 +393,7 @@ export function PromptComposer() {
                   return <I className="h-4 w-4 text-brand" />;
                 })()
               ) : null}
-              <span className="font-medium">{activeMode?.label}</span>
+              <span className="composer-mode-label font-medium">{activeMode?.label}</span>
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
             </Chip>
           )}
@@ -372,11 +423,15 @@ export function PromptComposer() {
 
         {/* model */}
         <Dropdown
+          className="composer-model min-w-0 flex-1"
+          label={`Model: ${s.model}`}
           side="top"
           trigger={(open) => (
             <Chip open={open}>
               <Box className="h-4 w-4 text-white/55" />
-              <span className="font-medium">{s.model}</span>
+              <span className="composer-model-label max-w-[14rem] truncate font-medium">
+                {s.model}
+              </span>
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
             </Chip>
           )}
@@ -413,24 +468,29 @@ export function PromptComposer() {
 
         {/* settings (aspect / resolution / duration / batch) */}
         <Dropdown
+          className="composer-settings shrink-0"
+          label="Generation settings"
+          align="right"
           side="top"
           panelClassName="w-max min-w-[230px] max-w-[min(92vw,340px)] p-3 max-h-[60vh] overflow-y-auto scroll-thin"
           trigger={(open) => (
             <Chip open={open}>
               <Settings2 className="h-4 w-4 text-white/55" />
-              <span className="font-medium">{s.aspectRatio}</span>
-              <span className="text-white/35">·</span>
-              <span>{s.resolution}</span>
+              <span className="composer-setting-value font-medium">{s.aspectRatio}</span>
+              <span className="composer-setting-separator text-white/35">·</span>
+              <span className="composer-secondary-setting">{s.resolution}</span>
               {s.mode === "video" && (
                 <>
-                  <span className="text-white/35">·</span>
-                  <span>{s.duration}s</span>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting">{s.duration}s</span>
                 </>
               )}
               {s.batchCount > 1 && (
                 <>
-                  <span className="text-white/35">·</span>
-                  <span className="text-brand">{s.batchCount}×</span>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting text-brand">
+                    {s.batchCount}×
+                  </span>
                 </>
               )}
             </Chip>
@@ -446,14 +506,14 @@ export function PromptComposer() {
               />
               <Segment
                 label="Resolution"
-                options={resolutionsForModel(s.model, s.mode)}
+                options={RESOLUTIONS[s.mode]}
                 value={s.resolution}
                 onChange={s.setResolution}
               />
               {s.mode === "video" && (
                 <Segment
                   label="Duration"
-                  options={durationsForModel(s.model).map((d) => `${d}s`)}
+                  options={DURATIONS.map((d) => `${d}s`)}
                   value={`${s.duration}s`}
                   onChange={(v) => s.setDuration(parseInt(v))}
                 />
@@ -470,6 +530,9 @@ export function PromptComposer() {
 
         {/* destination: which project / folder new generations land in */}
         <Dropdown
+          className="composer-destination shrink-0"
+          label="Generation destination"
+          align="right"
           side="top"
           panelClassName="min-w-[210px]"
           trigger={(open) => {
@@ -478,11 +541,11 @@ export function PromptComposer() {
             return (
               <Chip open={open}>
                 <FolderClosed className="h-4 w-4 text-white/55" />
-                <span className="max-w-[110px] truncate font-medium">
+                <span className="composer-project-label max-w-[110px] truncate font-medium">
                   {proj ? proj.name : "No project"}
                 </span>
-                <span className="text-white/35">/</span>
-                <span className="max-w-[80px] truncate">
+                <span className="composer-folder-separator text-white/35">/</span>
+                <span className="composer-folder-label max-w-[80px] truncate">
                   {folder ? folder.name : "All"}
                 </span>
                 <ChevronDown
@@ -551,26 +614,26 @@ export function PromptComposer() {
           }}
         </Dropdown>
 
-        <div className="ml-auto flex items-center gap-2">
-          <motion.button
-            whileTap={{ scale: 0.92 }}
-            onClick={() => s.generate()}
-            disabled={!s.prompt.trim() || s.generating}
-            className={cn(
-              "grid h-10 w-10 place-items-center rounded-full transition-all duration-200",
-              s.prompt.trim() && !s.generating
-                ? "bg-gradient-to-br from-brand to-accent text-ink-900 shadow-glow hover:brightness-110"
-                : "cursor-not-allowed bg-ink-650 text-white/30"
-            )}
-            aria-label="Generate"
-          >
-            {s.generating ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <ArrowUp className="h-5 w-5" strokeWidth={2.4} />
-            )}
-          </motion.button>
         </div>
+
+        <motion.button
+          whileTap={{ scale: 0.92 }}
+          onClick={() => s.generate()}
+          disabled={!s.prompt.trim() || s.generating}
+          className={cn(
+            "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
+            s.prompt.trim() && !s.generating
+              ? "bg-gradient-to-br from-brand to-accent text-ink-900 shadow-glow hover:brightness-110"
+              : "cursor-not-allowed bg-ink-650 text-white/30"
+          )}
+          aria-label="Generate"
+        >
+          {s.generating ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <ArrowUp className="h-5 w-5" strokeWidth={2.4} />
+          )}
+        </motion.button>
       </div>
     </motion.div>
   );
@@ -580,7 +643,7 @@ function Chip({ open, children }: { open: boolean; children: React.ReactNode }) 
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/80 transition-colors hover:border-lineStrong hover:text-white",
+        "control-chip flex min-w-0 shrink-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/80 transition-colors hover:border-lineStrong hover:text-white",
         open && "border-brand/40 text-white"
       )}
     >

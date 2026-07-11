@@ -15,6 +15,7 @@ export async function GET() {
       email: users.email,
       name: users.name,
       color: users.color,
+      avatarUrl: users.avatarUrl,
     })
     .from(users);
   return NextResponse.json({ users: rows });

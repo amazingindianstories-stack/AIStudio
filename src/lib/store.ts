@@ -10,11 +10,11 @@ import type {
   PublicUser,
 } from "./types";
 import {
-  ASPECT_RATIOS,
   DEFAULTS,
   MODELS,
-  durationsForModel,
-  resolutionsForModel,
+  ASPECT_RATIOS,
+  DURATIONS,
+  RESOLUTIONS,
   HISTORY_PAGE_SIZE,
 } from "./config";
 
@@ -24,6 +24,7 @@ export interface CurrentUser {
   name: string;
   role: string;
   color: string | null;
+  avatarUrl: string | null;
 }
 
 export interface AssetDraft {
@@ -139,6 +140,19 @@ interface AppState extends ComposerState {
 
 const polling = new Set<string>();
 
+async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  const response = await fetch(input, init);
+  if (response.status === 401) {
+    polling.clear();
+    useStore.setState({ currentUser: null });
+    if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+      window.location.replace("/login");
+    }
+    throw new Error("UNAUTHENTICATED");
+  }
+  return response;
+}
+
 export const useStore = create<AppState>((set, get) => ({
   // composer defaults (video by default, matching the reference)
   mode: "video",
@@ -184,16 +198,25 @@ export const useStore = create<AppState>((set, get) => ({
   },
   setModel: (model) =>
     set((s) => {
-      // Clamp duration and resolution into the new model's valid ranges
-      // (e.g. switching to Higgsfield Seedance, whose max is 12s, while 15s
-      // was selected; or to Seedance Mini, which caps at 720p).
-      const allowed = durationsForModel(model);
-      const max = Math.max(...allowed);
-      const resolutions = resolutionsForModel(model, s.mode);
+      // Clamp duration/resolution/aspectRatio into the new model's valid
+      // ranges by MEMBERSHIP, not just a max/min bound — Omni's durations
+      // ([4,6,8]) don't contain today's default (5s), so a Math.min-style
+      // clamp would silently leave 5s selected and the enqueue guard would
+      // 400 on an untouched-defaults happy path. Also covers Higgsfield
+      // Seedance (12s cap), Seedance Mini (720p cap), Omni (16:9/9:16 only).
+      const durations = DURATIONS;
+      const duration = durations.includes(s.duration)
+        ? s.duration
+        : durations[durations.length - 1];
+      const resolutions = RESOLUTIONS[s.mode];
       const resolution = resolutions.includes(s.resolution)
         ? s.resolution
         : resolutions[resolutions.length - 1];
-      return { model, duration: Math.min(s.duration, max), resolution };
+      const aspectRatios = ASPECT_RATIOS[s.mode];
+      const aspectRatio = aspectRatios.includes(s.aspectRatio)
+        ? s.aspectRatio
+        : aspectRatios[0];
+      return { model, duration, resolution, aspectRatio };
     }),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set({ resolution }),
@@ -215,7 +238,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadHistory: async () => {
     try {
-      const res = await fetch("/api/history", { cache: "no-store" });
+      const res = await apiFetch("/api/history", { cache: "no-store" });
       const json = await res.json();
       const items: GenerationItem[] = json.items ?? [];
       const hasMoreHistory = items.length === HISTORY_PAGE_SIZE;
@@ -234,7 +257,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!s.hasMoreHistory || s.items.length === 0) return;
     const lastItem = s.items[s.items.length - 1];
     try {
-      const res = await fetch(`/api/history?cursor=${lastItem.createdAt}`, { cache: "no-store" });
+      const res = await apiFetch(`/api/history?cursor=${lastItem.createdAt}`, { cache: "no-store" });
       const json = await res.json();
       const newItems: GenerationItem[] = json.items ?? [];
       const hasMoreHistory = newItems.length === HISTORY_PAGE_SIZE;
@@ -271,7 +294,7 @@ export const useStore = create<AppState>((set, get) => ({
       // per-kind concurrency cap decides how many actually run at once.
       const count = Math.min(4, Math.max(1, s.batchCount || 1));
       for (let i = 0; i < count; i++) {
-        const res = await fetch(endpoint, {
+        const res = await apiFetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -303,7 +326,7 @@ export const useStore = create<AppState>((set, get) => ({
       activeId: s.activeId === id ? null : s.activeId,
     }));
     try {
-      await fetch(`/api/history?id=${encodeURIComponent(id)}`, {
+      await apiFetch(`/api/history?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
     } catch {
@@ -324,7 +347,7 @@ export const useStore = create<AppState>((set, get) => ({
     }));
 
     try {
-      const res = await fetch("/api/history", {
+      const res = await apiFetch("/api/history", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, isFavorite: nextFavorite }),
@@ -363,7 +386,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     set({ generating: true });
     try {
-      const res = await fetch("/api/generate/video", {
+      const res = await apiFetch("/api/generate/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -456,7 +479,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadAssets: async () => {
     try {
-      const res = await fetch("/api/assets", { cache: "no-store" });
+      const res = await apiFetch("/api/assets", { cache: "no-store" });
       const json = await res.json();
       set({ assets: json.assets ?? [] });
     } catch {
@@ -466,7 +489,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   saveAsset: async (draft) => {
     try {
-      const res = await fetch("/api/assets", {
+      const res = await apiFetch("/api/assets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft),
@@ -486,7 +509,7 @@ export const useStore = create<AppState>((set, get) => ({
   deleteAsset: async (id) => {
     set((s) => ({ assets: s.assets.filter((a) => a.id !== id) }));
     try {
-      await fetch(`/api/assets?id=${encodeURIComponent(id)}`, {
+      await apiFetch(`/api/assets?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
     } catch {
@@ -500,7 +523,7 @@ export const useStore = create<AppState>((set, get) => ({
   loadProjects: async () => {
     try {
       // GET ensures a default project server-side (atomic — no duplicate races).
-      const res = await fetch("/api/projects", { cache: "no-store" });
+      const res = await apiFetch("/api/projects", { cache: "no-store" });
       const json = await res.json();
       const projects: Project[] = json.projects ?? [];
       set((s) => ({
@@ -519,7 +542,7 @@ export const useStore = create<AppState>((set, get) => ({
   setActiveFolder: (id) => set({ activeFolderId: id }),
 
   createProject: async (name) => {
-    const res = await fetch("/api/projects", {
+    const res = await apiFetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "createProject", name }),
@@ -535,7 +558,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   renameProject: async (id, name) => {
-    const res = await fetch("/api/projects", {
+    const res = await apiFetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "renameProject", projectId: id, name }),
@@ -545,7 +568,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   deleteProject: async (id) => {
-    const res = await fetch("/api/projects", {
+    const res = await apiFetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "deleteProject", projectId: id }),
@@ -571,7 +594,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   createFolder: async (projectId, name) => {
-    const res = await fetch("/api/projects", {
+    const res = await apiFetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "createFolder", projectId, name }),
@@ -584,7 +607,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   renameFolder: async (projectId, folderId, name) => {
-    const res = await fetch("/api/projects", {
+    const res = await apiFetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "renameFolder", projectId, folderId, name }),
@@ -594,7 +617,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   deleteFolder: async (projectId, folderId) => {
-    const res = await fetch("/api/projects", {
+    const res = await apiFetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "deleteFolder", projectId, folderId }),
@@ -622,7 +645,7 @@ export const useStore = create<AppState>((set, get) => ({
       ),
     }));
     try {
-      await fetch("/api/history", {
+      await apiFetch("/api/history", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: itemId, projectId, folderId }),
@@ -655,7 +678,7 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       await Promise.all(
         ids.map((id) =>
-          fetch("/api/history", {
+          apiFetch("/api/history", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ id, projectId, folderId }),
@@ -669,7 +692,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadMe: async () => {
     try {
-      const res = await fetch("/api/auth/me", { cache: "no-store" });
+      const res = await apiFetch("/api/auth/me", { cache: "no-store" });
       const json = await res.json();
       if (json.user) set({ currentUser: json.user });
       else window.location.href = "/login";
@@ -680,7 +703,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadUsers: async () => {
     try {
-      const res = await fetch("/api/users", { cache: "no-store" });
+      const res = await apiFetch("/api/users", { cache: "no-store" });
       const json = await res.json();
       const map: Record<string, PublicUser> = {};
       for (const u of json.users ?? []) map[u.id] = u;
@@ -710,7 +733,7 @@ function pollVideo(
 
   const tick = async () => {
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/generate/video/status?id=${encodeURIComponent(id)}`,
         { cache: "no-store" }
       );
@@ -727,7 +750,7 @@ function pollVideo(
     } catch {
       /* keep trying */
     }
-    setTimeout(tick, 4000);
+    if (polling.has(id)) setTimeout(tick, 4000);
   };
 
   setTimeout(tick, 3000);
@@ -758,14 +781,14 @@ function pollQueue(
 
   const tick = async () => {
     try {
-      const res = await fetch(`/api/queue/status?id=${encodeURIComponent(id)}`, {
+      const res = await apiFetch(`/api/queue/status?id=${encodeURIComponent(id)}`, {
         cache: "no-store",
       });
       const data = await res.json();
 
       if (data.status === "queued" && data.position === 0) {
         // It's our turn!
-        const execRes = await fetch(`/api/queue/execute`, {
+        const execRes = await apiFetch(`/api/queue/execute`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id }),
@@ -792,7 +815,7 @@ function pollQueue(
     } catch {
       /* keep trying */
     }
-    setTimeout(tick, 3000);
+    if (polling.has(id)) setTimeout(tick, 3000);
   };
 
   setTimeout(tick, 1000);
@@ -830,10 +853,10 @@ export function restoreComposerDraft() {
       if (ASPECT_RATIOS[effMode].includes(d.aspectRatio)) {
         patch.aspectRatio = d.aspectRatio;
       }
-      if (resolutionsForModel(effModel, effMode).includes(d.resolution)) {
+      if (RESOLUTIONS[effMode].includes(d.resolution)) {
         patch.resolution = d.resolution;
       }
-      if (durationsForModel(effModel).includes(d.duration)) {
+      if (DURATIONS.includes(d.duration)) {
         patch.duration = d.duration;
       }
       if ([1, 2, 3, 4].includes(d.batchCount)) {

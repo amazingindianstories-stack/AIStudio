@@ -213,19 +213,36 @@ export function MediaCard({
 
         {/* creator attribution — small circle; hover for who/cost/when */}
         {creator && (
-          <div className="group/u absolute bottom-2 left-2 z-20">
+          <div className="group/u pointer-events-none absolute inset-x-2 bottom-2 z-30">
             <span
-              className="grid h-6 w-6 cursor-default place-items-center rounded-full text-[11px] font-semibold text-ink-900 ring-2 ring-black/40"
+              className="pointer-events-auto relative grid h-6 w-6 cursor-default place-items-center overflow-hidden rounded-full text-[11px] font-semibold text-ink-900 ring-2 ring-black/40"
               style={{ background: creator.color || "#34d399" }}
             >
-              {creatorInitial}
+              {creator.avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={creator.avatarUrl}
+                  alt=""
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              ) : (
+                creatorInitial
+              )}
             </span>
-            <div className="pointer-events-none absolute bottom-full left-0 mb-1.5 hidden whitespace-nowrap rounded-lg border border-line bg-ink-650 px-2.5 py-1.5 text-[11px] text-white/90 shadow-pop group-hover/u:block">
-              <p className="font-medium">{creator.name || creator.email}</p>
-              <p className="text-white/45">{creator.email}</p>
-              <p className="mt-0.5 text-white/55">
-                {formatCost(item.costCents ?? 0)} ·{" "}
-                {new Date(item.createdAt).toLocaleString()}
+            <div className="invisible absolute bottom-8 left-0 right-0 translate-y-1 rounded-lg border border-line bg-ink-650/95 px-2.5 py-2 text-[11px] text-white/90 opacity-0 shadow-pop backdrop-blur-md transition duration-150 group-hover/u:visible group-hover/u:translate-y-0 group-hover/u:opacity-100">
+              <p className="truncate font-medium">{creator.name || creator.email}</p>
+              <p className="truncate text-white/45">{creator.email}</p>
+              <p className="mt-1 flex min-w-0 items-center gap-1.5 text-white/55">
+                <span className="shrink-0">{formatCost(item.costCents ?? 0)}</span>
+                <span aria-hidden className="text-white/25">
+                  ·
+                </span>
+                <span className="min-w-0 truncate">
+                  {new Date(item.createdAt).toLocaleString(undefined, {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
+                </span>
               </p>
             </div>
           </div>

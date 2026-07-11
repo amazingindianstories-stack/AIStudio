@@ -53,6 +53,7 @@ export interface User {
   name: string;
   role: UserRole;
   color: string | null;
+  avatarUrl: string | null;
   isActive: boolean;
   createdAt: number;
 }
@@ -63,6 +64,7 @@ export interface PublicUser {
   email: string;
   name: string;
   color: string | null;
+  avatarUrl: string | null;
 }
 
 /** A shot/folder inside a project (e.g. "SH07"). */

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Play,
@@ -95,41 +95,63 @@ export function ConversationPanel() {
  *  the top-right corner. Short single-line prompts skip the machinery. */
 function PromptText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
-  const long = text.length > 180 || text.includes("\n");
-  if (!long) {
-    return (
-      <p className="max-w-3xl whitespace-pre-wrap text-[15px] leading-relaxed text-white/85">
-        {text}
-      </p>
-    );
-  }
+  const [collapsible, setCollapsible] = useState(
+    text.length > 180 || text.includes("\n")
+  );
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const contentId = useId();
+
+  useEffect(() => {
+    const element = textRef.current;
+    if (!element) return;
+    const measure = () => {
+      const next = element.scrollHeight > 49;
+      setCollapsible(next);
+      if (!next) setExpanded(false);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [text]);
+
   return (
-    <div className="group/prompt relative max-w-3xl">
-      <p
-        className={cn(
-          "whitespace-pre-wrap pr-8 text-[15px] leading-relaxed text-white/85",
-          !expanded && "line-clamp-2"
-        )}
+    <motion.div layout className="group/prompt relative max-w-3xl">
+      <motion.div
+        id={contentId}
+        initial={false}
+        animate={{ height: collapsible && !expanded ? "3rem" : "auto" }}
+        transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+        className="overflow-hidden"
       >
-        {text}
-      </p>
-      <button
-        onClick={() => setExpanded((v) => !v)}
-        className="absolute -top-1 right-0 hidden items-center gap-1 rounded-md bg-ink-700/95 px-1.5 py-1 text-[10px] font-medium text-white/70 ring-1 ring-line backdrop-blur-sm hover:text-white group-hover/prompt:flex"
-        aria-label={expanded ? "Collapse prompt" : "Expand prompt"}
-        title={expanded ? "Collapse prompt" : "Show full prompt"}
-      >
-        {expanded ? (
-          <>
-            <ChevronUp className="h-3 w-3" /> Collapse
-          </>
-        ) : (
-          <>
-            <ChevronDown className="h-3 w-3" /> Expand
-          </>
-        )}
-      </button>
-    </div>
+        <p
+          ref={textRef}
+          className="whitespace-pre-wrap pr-8 text-[15px] leading-6 text-white/85"
+        >
+          {text}
+        </p>
+      </motion.div>
+      {collapsible && (
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="absolute -top-1 right-0 flex items-center gap-1 rounded-md bg-ink-700/95 px-1.5 py-1 text-[10px] font-medium text-white/70 opacity-100 ring-1 ring-line backdrop-blur-sm transition-opacity hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 sm:opacity-0 sm:group-hover/prompt:opacity-100 sm:focus-visible:opacity-100"
+          aria-expanded={expanded}
+          aria-controls={contentId}
+          aria-label={expanded ? "Collapse prompt" : "Expand prompt"}
+          title={expanded ? "Collapse prompt" : "Show full prompt"}
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="h-3 w-3" /> Collapse
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-3 w-3" /> Expand
+            </>
+          )}
+        </button>
+      )}
+    </motion.div>
   );
 }
 

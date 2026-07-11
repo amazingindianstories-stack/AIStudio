@@ -22,7 +22,9 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   role: text("role").notNull().default("user"), // 'admin' | 'user'
   color: text("color"), // avatar color (hex)
+  avatarUrl: text("avatar_url"),
   isActive: boolean("is_active").notNull().default(true),
+  authVersion: integer("auth_version").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 

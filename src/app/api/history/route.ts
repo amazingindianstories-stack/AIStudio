@@ -13,6 +13,9 @@ import { HISTORY_PAGE_SIZE } from "@/lib/config";
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
+  if (!(await getSession())) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   const cursor = req.nextUrl.searchParams.get("cursor");
   const limit = req.nextUrl.searchParams.get("limit");
   const cursorNum = cursor ? parseInt(cursor, 10) : undefined;
@@ -24,6 +27,9 @@ export async function GET(req: NextRequest) {
 
 /** Update generation metadata: move into folders or toggle favourites. */
 export async function PATCH(req: NextRequest) {
+  if (!(await getSession())) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   const b = await req.json().catch(() => ({}));
   if (!b.id) {
     return NextResponse.json({ error: "Missing id." }, { status: 400 });
@@ -43,15 +49,18 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const user = await getSession();
+  if (!user) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
   const id = req.nextUrl.searchParams.get("id");
   if (!id) {
     return NextResponse.json({ error: "Missing id." }, { status: 400 });
   }
-  const user = await getSession();
   // Capture what is being deleted before it's gone, for the audit trail.
   const item = await getItem(id);
   await deleteItem(id);
-  await logActivity(user?.id ?? null, "delete", {
+  await logActivity(user.id, "delete", {
     id,
     kind: item?.kind,
     model: item?.model,

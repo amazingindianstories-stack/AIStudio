@@ -167,3 +167,84 @@ test("buildReferenceLegend: non-null legend mentions every tag when entries are 
   assert.ok(legend!.includes("@img2"));
   assert.ok(legend!.includes("@img3"));
 });
+
+// ---------------------------------------------------------------------------
+// ADDED for omni-video (.council/omni-video/design.md Phase 1 bullet:
+// "src/lib/shot-spec.ts + prompt-assembler.ts: optional medium?:"image"|"video"
+// (default "image", existing behavior byte-identical); video framing coda uses
+// motion language; video AVOID list targets temporal artifacts (identity/
+// wardrobe drift between frames, flicker, morphing)."
+//
+// Written independently from .council/omni-video/spec.md AC3/AC5 (existing
+// shot-spec tests above this line must keep passing byte-untouched) before
+// reading any omni implementation. These cases ONLY add new assertions for
+// the video medium and re-confirm the documented default-medium equivalence;
+// none of the pre-existing tests above were modified.
+//
+// Test list:
+//  - buildFramingCoda(ar, "video") is non-null only for wide ARs (16:9, 21:9),
+//    same AR gating as the image medium.
+//  - buildFramingCoda(ar, "video") wording uses motion/temporal language
+//    (mentions frame(s)/motion/camera), not the still-photo "hero composition"
+//    wording used for medium="image".
+//  - buildFramingCoda(square/portrait, "video") is still null (AR gate is
+//    medium-independent).
+//  - buildShotInstruction({..., medium:"video"}) AVOID block mentions
+//    cross-frame drift/flicker/morphing language, distinct from the image
+//    AVOID wording (blur/plasticky skin/etc.).
+//  - buildShotInstruction / buildFramingCoda called with no medium argument
+//    at all (undefined) behave identically to explicit medium:"image" and to
+//    today's pre-omni output — i.e. default is byte-identical to existing
+//    behavior (AC5).
+// ---------------------------------------------------------------------------
+
+test("buildFramingCoda: video medium is non-null for wide ARs (16:9, 21:9), same gate as image medium", () => {
+  assert.notEqual(buildFramingCoda("16:9", "video"), null);
+  assert.notEqual(buildFramingCoda("21:9", "video"), null);
+});
+
+test("buildFramingCoda: video medium is still null for square/portrait ARs", () => {
+  assert.equal(buildFramingCoda("1:1", "video"), null);
+  assert.equal(buildFramingCoda("9:16", "video"), null);
+  assert.equal(buildFramingCoda("3:4", "video"), null);
+});
+
+test("buildFramingCoda: video medium wording uses motion/frame language, not the still 'hero composition' wording", () => {
+  const videoCoda = buildFramingCoda("16:9", "video");
+  assert.ok(videoCoda, "expected a non-null coda for 16:9 video");
+  assert.ok(
+    /\b(frame|frames|motion|camera|shot)\b/i.test(videoCoda as string),
+    `expected motion/frame language in the video framing coda, got: ${videoCoda}`
+  );
+});
+
+test("buildFramingCoda: default (no medium argument) is byte-identical to explicit medium:'image' and to prior behavior", () => {
+  const noMedium = buildFramingCoda("16:9");
+  const explicitImage = buildFramingCoda("16:9", "image");
+  assert.equal(noMedium, explicitImage);
+  // Prior/existing behavior, unmodified: buildFramingCoda("16:9") non-null,
+  // same string documented in the "hero composition" test above this block.
+  assert.ok(noMedium);
+  assert.ok(/hero/i.test(noMedium as string));
+});
+
+test("buildShotInstruction: medium:'video' AVOID block mentions cross-frame drift/flicker/morphing, not the still-image wording", () => {
+  const result = buildShotInstruction({
+    rawPrompt: "A scene.",
+    legend: null,
+    aspectRatio: "1:1",
+    medium: "video",
+  } as Parameters<typeof buildShotInstruction>[0]);
+  assert.ok(
+    /(drift.{0,30}frame|frame.{0,30}drift|flicker|morph)/i.test(result),
+    `expected temporal-artifact AVOID wording for video medium, got: ${result}`
+  );
+});
+
+test("buildShotInstruction: default (no medium argument) output is unchanged from documented image-medium behavior", () => {
+  const result = buildShotInstruction({ rawPrompt: "A scene.", legend: null, aspectRatio: "1:1" });
+  // Same assertions as the pre-existing "includes an AVOID block containing
+  // NEGATIVE_CODA" test above — re-confirming default/undefined medium is
+  // indistinguishable from the byte-identical pre-omni contract (AC5).
+  assert.ok(result.includes(`AVOID: ${NEGATIVE_CODA}`));
+});

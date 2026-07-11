@@ -170,13 +170,15 @@ async function resolveUploadRole(
  * @param assets  all known assets (referenced ones are matched by @slug)
  * @param uploads ad-hoc data-URL uploads, 1-based for @imgN
  * @param opts    aspectRatio, used only to gate the wide-AR framing coda when
- *                PROMPT_SHOT_SPEC=1. Optional/omitted ⇒ today's behavior.
+ *                PROMPT_SHOT_SPEC=1; medium ("image" | "video", default
+ *                "image") selects the shot-spec's framing/AVOID wording for
+ *                the Omni video path. Optional/omitted ⇒ today's behavior.
  */
 export async function assemblePrompt(
   prompt: string,
   assets: Asset[],
   uploads: string[],
-  opts?: { aspectRatio?: string }
+  opts?: { aspectRatio?: string; medium?: "image" | "video" }
 ): Promise<AssembledPrompt> {
   const groups: AssembledGroup[] = [];
   const assetLines: string[] = [];
@@ -324,6 +326,7 @@ export async function assemblePrompt(
       rawPrompt: prompt,
       legend,
       aspectRatio: opts?.aspectRatio || "1:1",
+      medium: opts?.medium,
     });
   }
 

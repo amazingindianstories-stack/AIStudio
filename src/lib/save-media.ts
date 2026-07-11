@@ -1,11 +1,22 @@
 import { randomUUID } from "crypto";
+import sharp from "sharp";
 import {
+  uploadBuffer,
   uploadBase64,
   uploadFromUrl as storageUploadFromUrl,
   splitDataUrl,
   deleteByUrls,
   readAsBase64,
 } from "./storage";
+
+export const MAX_AVATAR_UPLOAD_BYTES = 3 * 1024 * 1024;
+
+export class InvalidAvatarError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InvalidAvatarError";
+  }
+}
 
 /**
  * Media persistence — now backed by Supabase Storage (was the local filesystem).
@@ -40,6 +51,36 @@ export async function saveAssetImage(dataUrl: string): Promise<string> {
 /** Delete a stored image by its public URL. Best-effort. */
 export async function deleteAssetImage(url: string): Promise<void> {
   await deleteByUrls([url]);
+}
+
+/** Normalize an uploaded profile image and store it under a non-reused key. */
+export async function saveAvatarImage(input: Buffer): Promise<string> {
+  if (!input.length) throw new InvalidAvatarError("The selected image is empty.");
+  if (input.length > MAX_AVATAR_UPLOAD_BYTES) {
+    throw new InvalidAvatarError("Profile images must be 3 MB or smaller.");
+  }
+
+  let normalized: Buffer;
+  try {
+    normalized = await sharp(input, {
+      failOn: "error",
+      limitInputPixels: 40_000_000,
+      sequentialRead: true,
+    })
+      .rotate()
+      .resize(512, 512, { fit: "cover", position: "centre" })
+      .webp({ quality: 84 })
+      .toBuffer();
+  } catch {
+    throw new InvalidAvatarError("The selected file is not a valid image.");
+  }
+
+  return uploadBuffer(normalized, `avatars/${randomUUID()}.webp`, "webp");
+}
+
+/** Delete a prior profile image after a replacement/removal. Best-effort. */
+export async function deleteAvatarImage(url: string | null): Promise<void> {
+  if (url) await deleteByUrls([url]);
 }
 
 /** Read a stored image (public URL or data URL) back as base64 + mime. */

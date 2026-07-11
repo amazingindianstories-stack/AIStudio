@@ -49,6 +49,61 @@ body {
   scrollbar-width: none;
 }
 
+/* The composer grows with its controls, then progressively condenses labels
+   against its own width instead of viewport breakpoints. */
+.composer-shell {
+  container-type: inline-size;
+}
+
+.composer-model > button,
+.composer-model .control-chip {
+  width: 100%;
+}
+
+.composer-toolbar svg {
+  flex-shrink: 0;
+}
+
+@container (max-width: 44rem) {
+  .composer-secondary-setting,
+  .composer-folder-separator,
+  .composer-folder-label {
+    display: none;
+  }
+
+  .composer-model-label {
+    max-width: 10rem;
+  }
+}
+
+@container (max-width: 34rem) {
+  .composer-mode-label,
+  .composer-setting-value,
+  .composer-setting-separator,
+  .composer-project-label {
+    display: none;
+  }
+
+  .composer-toolbar {
+    gap: 0.25rem;
+  }
+
+  .composer-toolbar .control-chip {
+    gap: 0.375rem;
+    padding-inline: 0.5rem;
+  }
+
+  .composer-model-label {
+    max-width: 7rem;
+  }
+}
+
+@container (max-width: 24rem) {
+  .composer-model-label {
+    max-width: 5.5rem;
+  }
+}
+
 /* crisp white brand text */
 .brand-text {
   color: #ffffff;

@@ -149,10 +149,26 @@ export function buildReferenceLegend(entries: LegendEntry[]): string | null {
   return "REFERENCES:\n" + entries.map(legendLine).join("\n");
 }
 
-/** Wide-AR subject-framing coda (photography language only). Non-null ONLY for
- *  "16:9" and "21:9"; null for square/portrait ARs. */
-export function buildFramingCoda(aspectRatio: string): string | null {
+/** Wide-AR subject-framing coda. Non-null ONLY for "16:9" and "21:9"; null for
+ *  square/portrait ARs. `medium` defaults to "image" (photography language,
+ *  byte-identical to the pre-video-support text); "video" swaps in motion/
+ *  camera language — subject large and prominent through the WHOLE shot, one
+ *  coherent camera move, focal point held across frames — for the Omni video
+ *  path (see prompt-assembler.ts opts.medium). */
+export function buildFramingCoda(
+  aspectRatio: string,
+  medium: "image" | "video" = "image"
+): string | null {
   if (aspectRatio !== "16:9" && aspectRatio !== "21:9") return null;
+  if (medium === "video") {
+    return (
+      "FRAMING: keep the subject large and prominent through the whole shot — " +
+      "a hero composition within the wide field, one coherent camera move, " +
+      "the subject remaining the clear focal point across every frame, never " +
+      "small or distant; background and environment stay supporting, in sharp " +
+      "focus but not competing with the subject for size."
+    );
+  }
   return (
     "FRAMING: keep the subject large and prominent in the frame — a hero " +
     "composition within the wide field, the subject filling roughly half to " +
@@ -168,21 +184,33 @@ export const NEGATIVE_CODA =
   "muddy color cast, loss of background/environment detail, a small or " +
   "distant subject, extra or duplicated limbs, warped anatomy.";
 
+/** In-prompt NEGATIVE block for medium "video" — targets temporal artifacts
+ *  (identity/wardrobe drift, morphing, flicker) instead of stills-only
+ *  framing complaints. Omni has no negative-prompt param, so this in-prompt
+ *  block is the only lever and stays for video too. */
+export const VIDEO_NEGATIVE_CODA =
+  "identity or wardrobe drift between frames, face morphing, flicker, " +
+  "duplicated or extra limbs, warped anatomy, a small or distant subject, " +
+  "smeared or plasticky skin.";
+
 /** Compose the final structured instruction. rawPrompt is inserted VERBATIM.
  *  Layout:
  *    <legend?>\n\n
  *    SCENE: <rawPrompt>\n\n
  *    <framingCoda?>\n
- *    AVOID: <NEGATIVE_CODA>
- *  buildShotInstruction owns the "SCENE:" prefix so gemini.buildParts must not
- *  re-add it. */
+ *    AVOID: <NEGATIVE_CODA | VIDEO_NEGATIVE_CODA>
+ *  buildShotInstruction owns the "SCENE:" prefix so gemini.buildParts (and
+ *  omni-input.ts's builder) must not re-add it. `medium` defaults to "image"
+ *  — output is byte-identical to before video support; "video" swaps in the
+ *  motion-language framing coda and the temporal-artifact AVOID block. */
 export function buildShotInstruction(args: {
   rawPrompt: string;
   legend: string | null;
   aspectRatio: string;
+  medium?: "image" | "video";
 }): string {
-  const { rawPrompt, legend, aspectRatio } = args;
-  const framingCoda = buildFramingCoda(aspectRatio);
+  const { rawPrompt, legend, aspectRatio, medium = "image" } = args;
+  const framingCoda = buildFramingCoda(aspectRatio, medium);
 
   const blocks: string[] = [];
   if (legend) blocks.push(legend);
@@ -190,7 +218,7 @@ export function buildShotInstruction(args: {
 
   const tail: string[] = [];
   if (framingCoda) tail.push(framingCoda);
-  tail.push(`AVOID: ${NEGATIVE_CODA}`);
+  tail.push(`AVOID: ${medium === "video" ? VIDEO_NEGATIVE_CODA : NEGATIVE_CODA}`);
   blocks.push(tail.join("\n"));
 
   return blocks.join("\n\n");

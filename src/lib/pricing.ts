@@ -66,6 +66,13 @@ export const DEFAULT_PRICING: PricingRow[] = [
     notes:
       "Seedance 2.0 Mini via Higgsfield MCP — measured 2.5 credits/s at 720p (1/s at 480p). The web 'Mini Unlimited' offer does NOT apply to MCP/API jobs.",
   },
+  {
+    model: "Gemini Omni Flash",
+    unitCostCents: 10,
+    unit: "per_second",
+    notes:
+      "gemini-omni-flash-preview (Interactions API); ~$0.10/s 720p output; duration prompt-driven, billed by requested seconds",
+  },
 ];
 
 const RESOLUTION_FACTOR: Record<string, number> = {

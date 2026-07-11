@@ -13,6 +13,8 @@ import {
   Star,
   Image as ImageIcon,
   Play,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MediaCard } from "./MediaCard";
@@ -39,6 +41,7 @@ export function HistoryPanel() {
   const hasMoreHistory = useStore((s) => s.hasMoreHistory);
 
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [assetCardWidth, setAssetCardWidth] = useState(160);
   const observerTarget = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -93,8 +96,8 @@ export function HistoryPanel() {
   return (
     <div className="flex h-full flex-col bg-ink-850">
       {/* tabs + filters */}
-      <div className="flex flex-col gap-3 border-b border-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-1 rounded-full bg-ink-700 p-1">
+      <div className="grid min-w-0 grid-cols-1 gap-3 border-b border-line px-4 py-3 2xl:grid-cols-[auto_minmax(16rem,1fr)] 2xl:items-center">
+        <div className="scroll-none flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-700 p-1">
           <TabBtn active={rightTab === "project"} onClick={() => setRightTab("project")}>
             <Layers className="h-4 w-4" /> Project
           </TabBtn>
@@ -109,8 +112,8 @@ export function HistoryPanel() {
           </TabBtn>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:w-44">
+        <div className="flex min-w-0 items-center gap-2 2xl:justify-end">
+          <div className="relative min-w-0 flex-1 2xl:max-w-52">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
             <input
               value={search}
@@ -159,6 +162,9 @@ export function HistoryPanel() {
         </div>
       ) : rightTab === "favorites" ? (
         <div className="scroll-thin relative min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          <div className="mb-3 flex justify-end">
+            <AssetZoomControl value={assetCardWidth} onChange={setAssetCardWidth} />
+          </div>
           {loading ? (
             <SkeletonGrid />
           ) : favorites.length === 0 ? (
@@ -171,6 +177,7 @@ export function HistoryPanel() {
                   count={favoriteImages.length}
                   icon={<ImageIcon className="h-4 w-4" />}
                   items={favoriteImages}
+                  cardWidth={assetCardWidth}
                 />
               )}
               {favoriteVideos.length > 0 && (
@@ -179,6 +186,7 @@ export function HistoryPanel() {
                   count={favoriteVideos.length}
                   icon={<Play className="h-4 w-4" />}
                   items={favoriteVideos}
+                  cardWidth={assetCardWidth}
                 />
               )}
             </div>
@@ -194,6 +202,7 @@ export function HistoryPanel() {
                 )
               }
               items={favorites}
+              cardWidth={assetCardWidth}
             />
           )}
           {/* favourites are derived from the loaded history pages — keep
@@ -211,7 +220,7 @@ export function HistoryPanel() {
         <div className="flex min-h-0 flex-1 flex-col">
           {/* selection toolbar */}
           {filtered.length > 0 && (
-            <div className="flex items-center gap-2 border-b border-line px-4 py-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
               <button
                 onClick={() =>
                   allSelected ? clearSelection() : selectAll(filteredIds)
@@ -238,11 +247,10 @@ export function HistoryPanel() {
                   </span>
                   <Dropdown
                     align="right"
-                    className="ml-auto"
                     trigger={(open) => (
                       <span
                         className={cn(
-                          "flex cursor-pointer items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30",
+                          "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30",
                           open && "bg-brand/30"
                         )}
                       >
@@ -286,6 +294,12 @@ export function HistoryPanel() {
                   </button>
                 </>
               )}
+
+              <AssetZoomControl
+                value={assetCardWidth}
+                onChange={setAssetCardWidth}
+                className="ml-auto"
+              />
             </div>
           )}
 
@@ -295,7 +309,10 @@ export function HistoryPanel() {
             ) : filtered.length === 0 ? (
               <EmptyHistory hasItems={items.length > 0} />
             ) : (
-              <div className="columns-2 gap-3 [column-fill:_balance] md:columns-3 xl:columns-4">
+              <div
+                className="gap-3 [column-fill:_balance]"
+                style={{ columnWidth: `${assetCardWidth}px` }}
+              >
                 <AnimatePresence mode="popLayout">
                   {filtered.map((item) => (
                     <div key={item.id} className="mb-3 break-inside-avoid">
@@ -334,7 +351,7 @@ function TabBtn({
     <button
       onClick={onClick}
       className={cn(
-        "relative flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
+        "relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
         active ? "text-white" : "text-white/50 hover:text-white/80"
       )}
     >
@@ -354,7 +371,7 @@ function Pill({ open, children }: { open: boolean; children: React.ReactNode }) 
   return (
     <span
       className={cn(
-        "flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/75 transition-colors hover:text-white",
+        "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/75 transition-colors hover:text-white",
         open && "border-brand/40 text-white"
       )}
     >
@@ -366,7 +383,7 @@ function Pill({ open, children }: { open: boolean; children: React.ReactNode }) 
 function SkeletonGrid() {
   const heights = [180, 240, 200, 280, 160, 220, 260, 190];
   return (
-    <div className="columns-2 gap-3 md:columns-3 xl:columns-4">
+    <div className="columns-[10rem] gap-3">
       {heights.map((h, i) => (
         <div
           key={i}
@@ -400,11 +417,13 @@ function FavoriteSection({
   count,
   icon,
   items,
+  cardWidth,
 }: {
   title: string;
   count: number;
   icon: React.ReactNode;
   items: GenerationItem[];
+  cardWidth: number;
 }) {
   return (
     <section>
@@ -415,7 +434,10 @@ function FavoriteSection({
           {count}
         </span>
       </div>
-      <div className="columns-2 gap-3 [column-fill:_balance] md:columns-3 xl:columns-4">
+      <div
+        className="gap-3 [column-fill:_balance]"
+        style={{ columnWidth: `${cardWidth}px` }}
+      >
         <AnimatePresence mode="popLayout">
           {items.map((item) => (
             <div key={item.id} className="mb-3 break-inside-avoid">
@@ -425,6 +447,57 @@ function FavoriteSection({
         </AnimatePresence>
       </div>
     </section>
+  );
+}
+
+function AssetZoomControl({
+  value,
+  onChange,
+  className,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex shrink-0 items-center gap-1 rounded-lg border border-line bg-ink-800 p-1",
+        className
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onChange(Math.max(120, value - 10))}
+        disabled={value <= 120}
+        className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
+        aria-label="Zoom assets out"
+        title="Smaller assets"
+      >
+        <ZoomOut className="h-3.5 w-3.5" />
+      </button>
+      <input
+        type="range"
+        min={120}
+        max={260}
+        step={10}
+        value={value}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="h-1.5 w-20 cursor-pointer accent-white"
+        aria-label="Asset thumbnail size"
+        title={`Asset size: ${value}px`}
+      />
+      <button
+        type="button"
+        onClick={() => onChange(Math.min(260, value + 10))}
+        disabled={value >= 260}
+        className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
+        aria-label="Zoom assets in"
+        title="Larger assets"
+      >
+        <ZoomIn className="h-3.5 w-3.5" />
+      </button>
+    </div>
   );
 }
 

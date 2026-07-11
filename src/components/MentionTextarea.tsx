@@ -184,7 +184,7 @@ export const MentionTextarea = forwardRef<MentionHandle, Props>(
     };
 
     return (
-      <div className="relative flex-1">
+      <div className="relative min-w-0 flex-1">
         {/* highlight overlay (paint-only; background/color don't shift layout) */}
         <div
           ref={highlightRef}
@@ -224,7 +224,7 @@ export const MentionTextarea = forwardRef<MentionHandle, Props>(
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 6, scale: 0.97 }}
               transition={{ type: "spring", stiffness: 480, damping: 32 }}
-              className="absolute bottom-[calc(100%+8px)] left-0 z-50 max-h-64 w-64 overflow-y-auto scroll-thin rounded-xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl"
+              className="scroll-thin absolute bottom-[calc(100%+8px)] right-0 z-50 max-h-64 w-[min(16rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl"
             >
               <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
                 Reference asset
