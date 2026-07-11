@@ -129,7 +129,7 @@ export default function Page() {
               aria-hidden={!rightPanelOpen}
               inert={!rightPanelOpen}
             >
-              <div className="h-full min-w-[22.5rem]">
+              <div className="h-full w-[clamp(25rem,42vw,48.75rem)]">
                 <HistoryPanel />
               </div>
             </div>

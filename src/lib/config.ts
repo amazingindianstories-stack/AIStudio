@@ -49,7 +49,7 @@ export const RESOLUTIONS: Record<GenerationKind, string[]> = {
 export const DURATIONS = [4, 5, 8, 10, 15]; // seconds (video)
 
 /** History cursor-pagination page size (server default + client hasMore check). */
-export const HISTORY_PAGE_SIZE = 50;
+export const HISTORY_PAGE_SIZE = 20;
 
 /** Valid durations per model. Higgsfield's Seedance/DoP cap at 12s, so don't
  *  offer 15s for them (it would be silently clamped — wasted/confusing). */

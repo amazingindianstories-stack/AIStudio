@@ -61,6 +61,7 @@ export function MediaCard({
           setActiveId(item.id);
         }
       }}
+      style={{ contentVisibility: "auto", containIntrinsicSize: "200px" }}
       className={cn(
         "group relative cursor-pointer overflow-hidden rounded-xl bg-ink-750 ring-1 transition-shadow duration-300 hover:shadow-pop",
         selected
