@@ -26,6 +26,7 @@ function extToMime(ext: string): string {
   const e = ext.toLowerCase();
   if (e === "jpg" || e === "jpeg") return "image/jpeg";
   if (e === "mp4") return "video/mp4";
+  if (e === "webm") return "video/webm";
   if (e === "webp") return "image/webp";
   return `image/${e || "png"}`;
 }

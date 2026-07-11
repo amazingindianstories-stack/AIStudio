@@ -5,6 +5,8 @@ import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents } from "@/lib/pricing";
 import { logActivity } from "@/lib/activity";
+import { aspectRatiosForModel, durationsForModel, resolutionsForModel } from "@/lib/config";
+import { isOmniModel } from "@/lib/providers/omni";
 import type { GenerationItem } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -37,6 +39,33 @@ export async function POST(req: NextRequest) {
       { error: `Seedance 2.0 Mini supports 480p/720p only (got ${resolution}).` },
       { status: 400 }
     );
+  }
+  // Omni's request contract is probe-measured (see providers/omni.ts header):
+  // 16:9/9:16 only, no controllable resolution, and duration IS a real
+  // enforced request field (response_format.duration) — reject anything
+  // outside the offered set up front instead of letting the provider layer
+  // silently reinterpret it.
+  if (isOmniModel(model)) {
+    if (!aspectRatiosForModel(model, "video").includes(aspectRatio)) {
+      return NextResponse.json(
+        { error: `Gemini Omni Flash supports 16:9/9:16 aspect ratios only (got ${aspectRatio}).` },
+        { status: 400 }
+      );
+    }
+    if (!durationsForModel(model).includes(duration || 0)) {
+      return NextResponse.json(
+        {
+          error: `Gemini Omni Flash supports ${durationsForModel(model).join("/")}s durations (got ${duration}).`,
+        },
+        { status: 400 }
+      );
+    }
+    if (!resolutionsForModel(model, "video").includes(resolution || "")) {
+      return NextResponse.json(
+        { error: `Gemini Omni Flash supports ${resolutionsForModel(model, "video").join("/")} only (got ${resolution}).` },
+        { status: 400 }
+      );
+    }
   }
 
   const id = crypto.randomUUID();

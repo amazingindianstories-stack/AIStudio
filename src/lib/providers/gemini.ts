@@ -20,6 +20,7 @@
  * images are never dropped to fit — we error loudly; only tiles yield.
  */
 import type { AssembledPrompt } from "../prompt-assembler";
+import { buildCastPolicy } from "../shot-spec";
 
 const API_ROOT = "https://generativelanguage.googleapis.com/v1beta";
 const MODEL = "gemini-3-pro-image";
@@ -48,7 +49,7 @@ interface Part {
  * as [header text, images…, identity tiles…], then the literal SCENE, then a
  * short identity FINAL CHECK (recency slot) when any identity ref exists.
  */
-function buildParts(assembled: AssembledPrompt): Part[] {
+export function buildParts(assembled: AssembledPrompt): Part[] {
   const { instruction, shotInstruction, groups } = assembled;
 
   const userImages = groups.reduce((n, g) => n + g.images.length, 0);
@@ -81,6 +82,13 @@ function buildParts(assembled: AssembledPrompt): Part[] {
   parts.push({
     text: shotInstruction ?? (groups.length ? `SCENE: ${instruction}` : instruction),
   });
+  // Empty/location-only scenes need an explicit zero-cast contract even when
+  // PROMPT_SHOT_SPEC is disabled. Person/reference scenes return null here,
+  // so their proven reference → tiles → scene → FINAL CHECK shape stays
+  // byte-for-byte unchanged. Camera-direction clarification is included only
+  // for zero-cast prompts where phrases such as "looking down" are ambiguous.
+  const castPolicy = buildCastPolicy(instruction, hasIdentity);
+  if (castPolicy) parts.push({ text: castPolicy });
   if (hasIdentity) {
     parts.push({
       text:

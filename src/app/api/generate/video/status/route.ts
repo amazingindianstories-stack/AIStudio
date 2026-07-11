@@ -5,7 +5,8 @@ import {
   MODERATION_MESSAGE,
 } from "@/lib/providers/seedance";
 import { isHiggsfieldModel, mcpJobStatus } from "@/lib/providers/higgsfield-mcp";
-import { saveFromUrl } from "@/lib/save-media";
+import { isOmniModel, getOmniVideoStatus } from "@/lib/providers/omni";
+import { saveBase64, saveFromUrl } from "@/lib/save-media";
 import { getItem, upsertItem } from "@/lib/store-db";
 import { isMock } from "@/lib/mock";
 
@@ -55,6 +56,72 @@ export async function GET(req: NextRequest) {
         return NextResponse.json(done);
       }
       return NextResponse.json(item);
+    }
+
+    if (isOmniModel(item.model)) {
+      const result = await getOmniVideoStatus(item.taskId!);
+      if (result.status === "succeeded" && result.videoBase64) {
+        // Inline base64 delivery (probe-confirmed) — no remote URL to
+        // download; store it directly. This is a billed, non-refetchable
+        // payload (Omni doesn't re-serve a completed interaction's video on
+        // a later poll), so a single transient storage blip gets one retry
+        // before being treated as a terminal failed item — never a silent
+        // swallow either way, the user needs to know the generation ran
+        // (and was billed) but wasn't saved.
+        const ext = (result.mimeType || "").includes("webm") ? "webm" : "mp4";
+        let url: string | undefined;
+        let saveError: any;
+        for (let attempt = 1; attempt <= 2 && !url; attempt++) {
+          try {
+            url = await saveBase64(result.videoBase64, ext, item.id);
+          } catch (e) {
+            saveError = e;
+            if (attempt === 1) await new Promise((r) => setTimeout(r, 1000));
+          }
+        }
+        if (url) {
+          const done = { ...item, status: "succeeded" as const, url, updatedAt: Date.now() };
+          await upsertItem(done);
+          return NextResponse.json(done);
+        }
+        const failed = {
+          ...item,
+          status: "failed" as const,
+          error: `Video generated but failed to save: ${saveError?.message || String(saveError)}`,
+          updatedAt: Date.now(),
+        };
+        await upsertItem(failed);
+        return NextResponse.json(failed);
+      }
+      if (result.status === "failed") {
+        const failed = {
+          ...item,
+          status: "failed" as const,
+          error: result.error || "Generation failed.",
+          moderationBlocked: result.moderationBlocked,
+          updatedAt: Date.now(),
+        };
+        await upsertItem(failed);
+        return NextResponse.json(failed);
+      }
+      if (result.status === "succeeded") {
+        // Defensive only — getOmniVideoStatus's succeeded branch always
+        // resolves videoBase64 or throws (never returns succeeded without
+        // one), so this shouldn't be reachable; guarding it anyway so a
+        // future change here can't silently persist a "succeeded" item with
+        // no url instead of failing loudly.
+        const failed = {
+          ...item,
+          status: "failed" as const,
+          error: "Omni reported success but returned no video.",
+          updatedAt: Date.now(),
+        };
+        await upsertItem(failed);
+        return NextResponse.json(failed);
+      }
+      const updated = { ...item, status: result.status, updatedAt: Date.now() };
+      await upsertItem(updated);
+      return NextResponse.json(updated);
     }
 
     // Higgsfield → MCP (returns `url`); native BytePlus Seedance → `videoUrl`.

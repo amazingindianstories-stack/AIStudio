@@ -9,11 +9,18 @@
  */
 
 import { readImageAsBase64 } from "./save-media";
-import { detectReferenceRole, identityCrops, prepReference } from "./middleware/image-prep";
+import {
+  analyzeIdentityReference,
+  detectReferenceRole,
+  prepReference,
+} from "./middleware/image-prep";
 import { parseAssetSlugs, parseMentionIndices } from "./mentions";
 import {
   buildReferenceLegend,
   buildShotInstruction,
+  hasExplicitRefRole,
+  hasVisiblePeople,
+  inferNonPersonRole,
   parseRefRoles,
   roleHeader,
   type LegendEntry,
@@ -27,7 +34,7 @@ export interface AssembledImage {
 }
 
 export interface AssembledGroup {
-  tag: string; // "@priya" | "@img1"
+  tag: string; // "@priya" | "@img1" | "SUBJECT" | "REFERENCE"
   /** Header shown right before this group's images, binding them to the tag. */
   header: string;
   images: AssembledImage[];
@@ -111,17 +118,54 @@ async function faceCrops(
   tag: string,
   limit = 2
 ): Promise<AssembledImage[]> {
+  return (await analyzeFaceCrops(images, tag, limit)).tiles;
+}
+
+interface FaceCropAnalysis {
+  tiles: AssembledImage[];
+  /** true/false = confident visual classification; null = unavailable. */
+  personReference: boolean | null;
+}
+
+/** Run the existing identity detector once per considered image and retain
+ *  both outputs: exact crop tiles for face fidelity and its tri-state person
+ *  signal for safe reference routing. */
+async function analyzeFaceCrops(
+  images: AssembledImage[],
+  tag: string,
+  limit = 2
+): Promise<FaceCropAnalysis> {
   const out: AssembledImage[] = [];
+  let sawPerson = false;
+  let sawNonPerson = false;
+  let sawUnknown = false;
   for (const img of images.slice(0, limit)) {
     if (out.length >= 3) break;
-    out.push(...(await identityCrops(img.mimeType, img.data, 3 - out.length)));
+    const analysis = await analyzeIdentityReference(
+      img.mimeType,
+      img.data,
+      3 - out.length
+    );
+    out.push(...analysis.crops);
+    if (analysis.personReference === true) sawPerson = true;
+    else if (analysis.personReference === false) sawNonPerson = true;
+    else sawUnknown = true;
   }
   console.log(
     `[middleware] ${tag}: identity tile${out.length === 1 ? "" : "s"} ${
       out.length ? `added (${out.length})` : "none (not a person ref / no face)"
     }`
   );
-  return out;
+  return {
+    tiles: out,
+    personReference: sawPerson
+      ? true
+      : sawUnknown
+        ? null
+        : sawNonPerson
+          ? false
+          : null,
+  };
 }
 
 /**
@@ -228,15 +272,74 @@ export async function assemblePrompt(
   //    pointing at DIFFERENT subjects → keep each separate.
   //  - Otherwise (the common case: a few photos of ONE person, no tags) treat
   //    ALL uploads as multiple angles of the SAME person, so identity locks
-  //    instead of the model reading them as different people.
-  let hasIdentityRef = false;
+  //    instead of the model reading them as different people. A confident
+  //    visual non-person classification can opt an untagged location/object
+  //    out; uncertainty always preserves the legacy person assumption.
   if (uploads.length) {
     const tagged = parseMentionIndices(prompt).filter((n) => n <= uploads.length);
+
+    // Keep the proven untagged/single-person payload exactly as it was. A
+    // singleton @imgN that resolves to a person is deliberately funneled back
+    // through this helper, preserving SUBJECT naming, identity tiles, headers,
+    // judgeFace eligibility and Gemini's final identity check.
+    const pushLegacySubject = async (
+      images: AssembledImage[],
+      preparedTiles?: AssembledImage[]
+    ): Promise<void> => {
+      if (!images.length) return;
+      const many = images.length > 1;
+      assetLines.push(
+        `- SUBJECT → the person in the reference photo${many ? "s" : ""} below. ` +
+          `Rule: the main subject in the output MUST be this exact same person — ` +
+          `identical face, hairstyle, build and visible outfit/jewelry unless ` +
+          `the SCENE explicitly changes them.`
+      );
+      const tiles = preparedTiles ?? (await faceCrops(images, "SUBJECT"));
+      let header = many
+        ? `SUBJECT — ${images.length} reference photos of the SAME person ` +
+          `(different angles/lighting). Reconstruct ONE consistent identity ` +
+          `from all of them; the generated person's face MUST match exactly — ` +
+          `same bone structure, jawline, hairline, eye shape/spacing and color, ` +
+          `eyebrows, nose, lips, skin tone/texture (keep moles, scars, ` +
+          `freckles), facial hair and apparent age. Keep their hairstyle, ` +
+          `build and worn outfit/jewelry unless the SCENE explicitly changes ` +
+          `them. A recognizable match, never a lookalike — never beautified ` +
+          `or idealized:`
+        : `SUBJECT — reference photo of the person. The generated person's face ` +
+          `MUST be this exact same individual — same bone structure, jawline, ` +
+          `hairline, eye shape/spacing and color, eyebrows, nose, lips, skin ` +
+          `tone/texture (keep moles, scars, freckles), facial hair and ` +
+          `apparent age. Keep their hairstyle, build and worn outfit/jewelry ` +
+          `unless the SCENE explicitly changes them. A recognizable match, ` +
+          `not a lookalike — never beautified or idealized:`;
+      if (shotSpecOn) {
+        header = roleHeader("SUBJECT", "person", images.length);
+        legendEntries.push({ tag: "SUBJECT", role: "person", isPerson: true });
+      }
+      groups.push({
+        tag: "SUBJECT",
+        tiles: tiles.length ? tiles : undefined,
+        header,
+        images,
+        identity: true,
+      });
+    };
+
+    const pushNonPersonGroup = (
+      tag: string,
+      role: Exclude<RefRole, "person">,
+      images: AssembledImage[]
+    ): void => {
+      assetLines.push(`- ${tag} → ${role.toUpperCase()} REFERENCE.`);
+      const header = roleHeader(tag, role, images.length);
+      legendEntries.push({ tag, role, isPerson: false });
+      groups.push({ tag, header, images, identity: false });
+    };
+
     if (tagged.length > 1) {
       for (const n of tagged) {
         const images = await readAll([uploads[n - 1]]);
         if (!images.length) continue;
-        hasIdentityRef = true;
         const tag = `@img${n}`;
         assetLines.push(
           `- @img${n} → REFERENCE. Rule: reproduce the tagged subject from this ` +
@@ -252,60 +355,102 @@ export async function assemblePrompt(
         let header =
           `${tag} — REFERENCE (reproduce this subject exactly; if a person, ` +
           `the same individual — identical facial features, never a lookalike):`;
+        let identity = tiles.length > 0;
         if (shotSpecOn) {
-          const role = await resolveUploadRole(tag, images[0], tiles, textRoles, roleDetectOn);
+          // A positive primary-face analysis is stronger evidence than a
+          // nearby scene keyword (e.g. `@img1 looking down in a school`). This
+          // protects face refs from the intentionally broad location lexicon.
+          const role = tiles.length
+            ? "person"
+            : await resolveUploadRole(tag, images[0], tiles, textRoles, roleDetectOn);
           header = roleHeader(tag, role, images.length);
           legendEntries.push({ tag, role, isPerson: role === "person" });
+          // A positive primary-face analysis or explicit person role keeps
+          // its identity contract; non-person roles stay out of FINAL CHECK.
+          identity = role === "person";
         }
         groups.push({
           tag,
           header,
           images,
-          identity: tiles.length > 0,
-          tiles: tiles.length ? tiles : undefined,
+          identity,
+          tiles: identity && tiles.length ? tiles : undefined,
         });
+      }
+    } else if (tagged.length === 1 && shotSpecOn) {
+      // A single explicit tag is NOT the same thing as an untagged person
+      // upload. Resolve it first so `empty school from @img1` cannot become a
+      // forced FACE/IDENTITY reference. This was the main location-ref bug.
+      const n = tagged[0];
+      const tag = `@img${n}`;
+      const images = await readAll([uploads[n - 1]]);
+      if (images.length) {
+        const textRole = textRoles.get(tag);
+        // Always retain the existing face analysis for a singleton. A broad
+        // scene keyword near @img1 must never downgrade a real face reference.
+        const tiles = await faceCrops(images, tag, 1);
+        const explicitTextRole =
+          textRole !== undefined && hasExplicitRefRole(prompt, tag, textRole);
+        let detectedRole: RefRole | null = null;
+        if (
+          textRole !== "person" &&
+          tiles.length === 0 &&
+          !explicitTextRole
+        ) {
+          // `tiles.length === 0` is ambiguous: it can mean a non-person image,
+          // a detector failure, OR an extreme close-up that intentionally did
+          // not need another crop. Resolve that ambiguity visually. Unknown
+          // still falls back to the legacy person assumption below.
+          detectedRole = await detectReferenceRole(images[0].mimeType, images[0].data);
+          if (textRole && detectedRole && detectedRole !== textRole) {
+            console.log(
+              `[shot-spec] WARN role mismatch for ${tag}: prompt text says ` +
+                `"${textRole}", detection says "${detectedRole}".`
+            );
+          }
+        }
+        const role: RefRole =
+          textRole === "person" || tiles.length > 0
+            ? "person"
+            : explicitTextRole
+              ? textRole!
+              : detectedRole ?? "person";
+
+        if (role === "person") {
+          if (uploads.length === 1) {
+            await pushLegacySubject(images, tiles);
+          } else {
+            // Preserve the prior multi-angle convention: one person tag plus
+            // additional untagged uploads means multiple views of that person.
+            await pushLegacySubject(await readAll(uploads));
+          }
+        } else {
+          pushNonPersonGroup(tag, role, images);
+        }
       }
     } else {
       const images = await readAll(uploads);
-      if (images.length) {
-        hasIdentityRef = true;
-        const many = images.length > 1;
-        assetLines.push(
-          `- SUBJECT → the person in the reference photo${many ? "s" : ""} below. ` +
-            `Rule: the main subject in the output MUST be this exact same person — ` +
-            `identical face, hairstyle, build and visible outfit/jewelry unless ` +
-            `the SCENE explicitly changes them.`
-        );
+      if (!shotSpecOn || !images.length) {
+        await pushLegacySubject(images);
+      } else {
+        // Untagged uploads historically mean one person's reference angles.
+        // Preserve that on any human cue, found face, person classification,
+        // or detector uncertainty. Only a confident visual non-person result
+        // may opt a location/object/style ref out of the identity pipeline.
         const tiles = await faceCrops(images, "SUBJECT");
-        let header = many
-          ? `SUBJECT — ${images.length} reference photos of the SAME person ` +
-            `(different angles/lighting). Reconstruct ONE consistent identity ` +
-            `from all of them; the generated person's face MUST match exactly — ` +
-            `same bone structure, jawline, hairline, eye shape/spacing and color, ` +
-            `eyebrows, nose, lips, skin tone/texture (keep moles, scars, ` +
-            `freckles), facial hair and apparent age. Keep their hairstyle, ` +
-            `build and worn outfit/jewelry unless the SCENE explicitly changes ` +
-            `them. A recognizable match, never a lookalike — never beautified ` +
-            `or idealized:`
-          : `SUBJECT — reference photo of the person. The generated person's face ` +
-            `MUST be this exact same individual — same bone structure, jawline, ` +
-            `hairline, eye shape/spacing and color, eyebrows, nose, lips, skin ` +
-            `tone/texture (keep moles, scars, freckles), facial hair and ` +
-            `apparent age. Keep their hairstyle, build and worn outfit/jewelry ` +
-            `unless the SCENE explicitly changes them. A recognizable match, ` +
-            `not a lookalike — never beautified or idealized:`;
-        if (shotSpecOn) {
-          // SUBJECT is always the untagged-upload identity ref → role person.
-          header = roleHeader("SUBJECT", "person", images.length);
-          legendEntries.push({ tag: "SUBJECT", role: "person", isPerson: true });
+        if (hasVisiblePeople(prompt) || tiles.length > 0) {
+          await pushLegacySubject(images, tiles);
+        } else {
+          const detectedRole = await detectReferenceRole(
+            images[0].mimeType,
+            images[0].data
+          );
+          if (detectedRole && detectedRole !== "person") {
+            pushNonPersonGroup("REFERENCE", detectedRole, images);
+          } else {
+            await pushLegacySubject(images, tiles);
+          }
         }
-        groups.push({
-          tag: "SUBJECT",
-          tiles: tiles.length ? tiles : undefined,
-          header,
-          images,
-          identity: true,
-        });
       }
     }
   }
@@ -327,6 +472,7 @@ export async function assemblePrompt(
       legend,
       aspectRatio: opts?.aspectRatio || "1:1",
       medium: opts?.medium,
+      hasPersonReference: legendEntries.some((entry) => entry.isPerson),
     });
   }
 

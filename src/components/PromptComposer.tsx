@@ -33,7 +33,14 @@ import {
 import { useStore, restoreComposerDraft } from "@/lib/store";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, type MentionHandle } from "./MentionTextarea";
-import { ASPECT_RATIOS, DEFAULTS, DURATIONS, MODELS, MODES, RESOLUTIONS } from "@/lib/config";
+import {
+  DEFAULTS,
+  DURATIONS,
+  MODELS,
+  MODES,
+  RESOLUTIONS,
+  aspectRatiosForModel,
+} from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { GenerationKind } from "@/lib/types";
 
@@ -500,7 +507,7 @@ export function PromptComposer() {
             <div className="space-y-3">
               <Segment
                 label="Aspect ratio"
-                options={ASPECT_RATIOS[s.mode]}
+                options={aspectRatiosForModel(s.model, s.mode)}
                 value={s.aspectRatio}
                 onChange={s.setAspectRatio}
               />

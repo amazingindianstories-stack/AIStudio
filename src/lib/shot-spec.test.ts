@@ -13,9 +13,15 @@ import {
   parseRefRoles,
   roleHeader,
   buildReferenceLegend,
+  buildCastPolicy,
   buildFramingCoda,
   buildShotInstruction,
+  hasExplicitRefRole,
+  hasVisiblePeople,
+  ENVIRONMENT_NEGATIVE_CODA,
   NEGATIVE_CODA,
+  VIEWPOINT_POLICY,
+  ZERO_CAST_POLICY,
 } from "./shot-spec";
 
 // The exact baseline prompt from assembled-payload.txt / probe-payload.ts,
@@ -65,6 +71,26 @@ test("parseRefRoles: role keyword just inside the window DOES bind (sanity contr
   assert.equal(roles.get("@img6"), "location");
 });
 
+test("hasExplicitRefRole distinguishes direct tag binding from nearby scene context", () => {
+  assert.equal(
+    hasExplicitRefRole("Use @img1 as the exact location.", "@img1", "location"),
+    true
+  );
+  assert.equal(
+    hasExplicitRefRole("Use the school from @img1.", "@img1", "location"),
+    true
+  );
+  assert.equal(
+    hasExplicitRefRole("Use the exact face from @img1.", "@img1", "person"),
+    true
+  );
+  assert.equal(
+    hasExplicitRefRole("@img1 looking down in a school hallway.", "@img1", "location"),
+    false,
+    "school is scene context here, not an explicit declaration that @img1 is a location"
+  );
+});
+
 test("buildShotInstruction: contains rawPrompt verbatim as a contiguous substring", () => {
   const rawPrompt = BASELINE_PROMPT;
   const result = buildShotInstruction({ rawPrompt, legend: null, aspectRatio: "1:1" });
@@ -99,14 +125,22 @@ test("buildShotInstruction: omits legend content when legend is null", () => {
 });
 
 test("buildShotInstruction: includes an AVOID block containing NEGATIVE_CODA", () => {
-  const result = buildShotInstruction({ rawPrompt: "A scene.", legend: null, aspectRatio: "1:1" });
+  const result = buildShotInstruction({
+    rawPrompt: "A woman in a scene.",
+    legend: null,
+    aspectRatio: "1:1",
+  });
   assert.ok(result.includes(`AVOID: ${NEGATIVE_CODA}`));
 });
 
 test("buildShotInstruction: includes the framing coda for a wide aspect ratio", () => {
   const withCoda = buildFramingCoda("21:9");
   assert.ok(withCoda, "expected buildFramingCoda('21:9') to be non-null for this assertion to be meaningful");
-  const result = buildShotInstruction({ rawPrompt: "A scene.", legend: null, aspectRatio: "21:9" });
+  const result = buildShotInstruction({
+    rawPrompt: "A woman in a scene.",
+    legend: null,
+    aspectRatio: "21:9",
+  });
   assert.ok(result.includes(withCoda as string));
 });
 
@@ -242,9 +276,98 @@ test("buildShotInstruction: medium:'video' AVOID block mentions cross-frame drif
 });
 
 test("buildShotInstruction: default (no medium argument) output is unchanged from documented image-medium behavior", () => {
-  const result = buildShotInstruction({ rawPrompt: "A scene.", legend: null, aspectRatio: "1:1" });
+  const result = buildShotInstruction({
+    rawPrompt: "A woman in a scene.",
+    legend: null,
+    aspectRatio: "1:1",
+  });
   // Same assertions as the pre-existing "includes an AVOID block containing
   // NEGATIVE_CODA" test above — re-confirming default/undefined medium is
   // indistinguishable from the byte-identical pre-omni contract (AC5).
   assert.ok(result.includes(`AVOID: ${NEGATIVE_CODA}`));
+});
+
+// ---------------------------------------------------------------------------
+// Zero-cast image policy. Empty/location-only prompts must not inherit the
+// person-specific hero framing and skin/limb/anatomy vocabulary. Conversely,
+// every person/reference prompt stays on the exact pre-change text path.
+// ---------------------------------------------------------------------------
+
+test("empty school: environment framing, environment negative, and camera-looking-down policy", () => {
+  const rawPrompt =
+    "An empty school hallway at dawn, camera looking down from the upper landing.";
+  const instruction = buildShotInstruction({
+    rawPrompt,
+    legend: null,
+    aspectRatio: "16:9",
+  });
+  const castPolicy = buildCastPolicy(rawPrompt);
+
+  assert.ok(instruction.includes(rawPrompt), "raw prompt must remain verbatim");
+  assert.ok(instruction.includes(`AVOID: ${ENVIRONMENT_NEGATIVE_CODA}`));
+  assert.match(instruction, /explicitly requested setting and objects/i);
+  assert.doesNotMatch(
+    instruction,
+    /subject filling|small or distant subject|plasticky skin|duplicated limbs|warped anatomy/i
+  );
+  assert.equal(castPolicy, `${ZERO_CAST_POLICY}\n${VIEWPOINT_POLICY}`);
+});
+
+test("bare looking up in an empty classroom is camera direction, not a person action", () => {
+  const rawPrompt = "An empty classroom, looking up toward the ceiling.";
+  assert.equal(hasVisiblePeople(rawPrompt), false);
+  assert.equal(buildCastPolicy(rawPrompt), `${ZERO_CAST_POLICY}\n${VIEWPOINT_POLICY}`);
+});
+
+test("negated human nouns remain zero-cast", () => {
+  const rawPrompt =
+    "No students or staff in the school hallway; high-angle view looking down.";
+  assert.equal(hasVisiblePeople(rawPrompt), false);
+  assert.equal(buildCastPolicy(rawPrompt), `${ZERO_CAST_POLICY}\n${VIEWPOINT_POLICY}`);
+});
+
+test("human-labelled furniture does not invent its owner", () => {
+  const rawPrompt =
+    "An empty classroom with a teacher's desk, student lockers, and rows of chairs.";
+  assert.equal(hasVisiblePeople(rawPrompt), false);
+  assert.equal(buildCastPolicy(rawPrompt), ZERO_CAST_POLICY);
+});
+
+test("positive person controls keep looking down/up as character actions", () => {
+  for (const rawPrompt of [
+    "A teacher looking down at an open book in the classroom.",
+    "Students looking up at the school clock.",
+    "Naisha looking down at a book.",
+  ]) {
+    assert.equal(hasVisiblePeople(rawPrompt), true, rawPrompt);
+    assert.equal(buildCastPolicy(rawPrompt), null, rawPrompt);
+    const instruction = buildShotInstruction({
+      rawPrompt,
+      legend: null,
+      aspectRatio: "16:9",
+    });
+    assert.ok(instruction.includes(`AVOID: ${NEGATIVE_CODA}`), rawPrompt);
+    assert.match(instruction, /hero composition/i, rawPrompt);
+  }
+});
+
+test("person-reference shot instruction is byte-identical to the proven identity path", () => {
+  const rawPrompt =
+    "THIS EXACT FACE from @priya. She is looking down at a book.";
+  const legend =
+    "REFERENCES:\n@priya = the exact face/identity of the subject — must be reproduced with photographic fidelity, never a lookalike.";
+  const actual = buildShotInstruction({
+    rawPrompt,
+    legend,
+    aspectRatio: "16:9",
+    hasPersonReference: true,
+  });
+  const expected =
+    "REFERENCES:\n@priya = the exact face/identity of the subject — must be reproduced with photographic fidelity, never a lookalike.\n\n" +
+    "SCENE: THIS EXACT FACE from @priya. She is looking down at a book.\n\n" +
+    "FRAMING: keep the subject large and prominent in the frame — a hero composition within the wide field, the subject filling roughly half to two-thirds of the frame height and placed in the frame's power zone, never small or distant; background and environment stay supporting, in sharp focus but not competing with the subject for size.\n" +
+    "AVOID: blur or softness on the subject, smeared or plasticky skin, washed-out or muddy color cast, loss of background/environment detail, a small or distant subject, extra or duplicated limbs, warped anatomy.";
+
+  assert.equal(actual, expected);
+  assert.equal(buildCastPolicy(rawPrompt, true), null);
 });

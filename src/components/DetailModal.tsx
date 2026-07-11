@@ -83,9 +83,54 @@ function DetailPrompt({ text }: { text: string }) {
   );
 }
 
+function ReferenceCollage({ images }: { images: string[] }) {
+  const visible = images.slice(0, 4);
+  const extra = images.length - visible.length;
+  const layoutClass =
+    visible.length === 1
+      ? "grid-cols-1"
+      : visible.length === 2
+      ? "grid-cols-2"
+      : "grid-cols-2";
+
+  return (
+    <div className="mb-5">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
+        Reference images
+      </p>
+      <div className={cn("grid gap-2", layoutClass)}>
+        {visible.map((src, i) => (
+          <a
+            key={i}
+            href={src}
+            target="_blank"
+            rel="noreferrer"
+            className={cn(
+              "group relative overflow-hidden rounded-xl border border-line bg-ink-700 ring-1 ring-white/5 transition hover:border-brand/40 hover:ring-brand/20",
+              i === 0 && visible.length > 2 && "row-span-2 min-h-32",
+              visible.length === 2 && "min-h-24"
+            )}
+            title="Open reference image"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={src} alt="" className="h-full w-full object-cover" />
+            <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
+          </a>
+        ))}
+      </div>
+      {extra > 0 && (
+        <p className="mt-2 text-[11px] text-white/45">+{extra} more reference image{extra === 1 ? "" : "s"}</p>
+      )}
+    </div>
+  );
+}
+
 export function DetailModal() {
   const activeId = useStore((s) => s.activeId);
   const items = useStore((s) => s.items);
+  const rightTab = useStore((s) => s.rightTab);
+  const search = useStore((s) => s.search);
+  const filterKind = useStore((s) => s.filterKind);
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
@@ -94,6 +139,30 @@ export function DetailModal() {
   const toggleFavorite = useStore((s) => s.toggleFavorite);
 
   const item = items.find((i) => i.id === activeId) || null;
+  const navigableItems = (() => {
+    if (!item) return [];
+    if (rightTab === "favorites") {
+      const q = search.trim().toLowerCase();
+      return items
+        .filter((candidate) => candidate.isFavorite)
+        .filter((candidate) =>
+          filterKind === "all" ? true : candidate.kind === filterKind
+        )
+        .filter((candidate) =>
+          q ? candidate.prompt.toLowerCase().includes(q) : true
+        )
+        .sort(
+          (a, b) =>
+            (b.favoritedAt ?? b.updatedAt) - (a.favoritedAt ?? a.updatedAt)
+        )
+        .filter(
+          (candidate) => candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
+        );
+    }
+    return items.filter(
+      (candidate) => candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
+    );
+  })();
 
   useEffect(() => {
     if (!item) return;
@@ -116,10 +185,6 @@ export function DetailModal() {
           : event.key === "ArrowRight" || event.key === "ArrowDown"
           ? 1
           : 0;
-      const navigableItems = items.filter(
-        (candidate) =>
-          candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
-      );
       if (delta === 0 || navigableItems.length < 2) return;
 
       event.preventDefault();
@@ -132,7 +197,7 @@ export function DetailModal() {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [item, items, setActiveId]);
+  }, [item, navigableItems, setActiveId]);
 
   return (
     <AnimatePresence>
@@ -219,11 +284,6 @@ export function DetailModal() {
                 </button>
               </div>
 
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/40">
-                Prompt
-              </p>
-              <DetailPrompt key={item.id} text={item.prompt} />
-
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
                 Parameters
               </p>
@@ -235,27 +295,13 @@ export function DetailModal() {
               </div>
 
               {item.referenceImages && item.referenceImages.length > 0 && (
-                <>
-                  <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
-                    Reference images
-                  </p>
-                  <div className="mb-6 flex flex-wrap gap-2">
-                    {item.referenceImages.map((src, i) => (
-                      <a
-                        key={i}
-                        href={src}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="h-16 w-16 overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50"
-                        title="Open reference image"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={src} alt="" className="h-full w-full object-cover" />
-                      </a>
-                    ))}
-                  </div>
-                </>
+                <ReferenceCollage images={item.referenceImages} />
               )}
+
+              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/40">
+                Prompt
+              </p>
+              <DetailPrompt key={item.id} text={item.prompt} />
               </div>
 
               {/* sticky bottom actions */}

@@ -15,6 +15,7 @@ import {
   Play,
   ZoomIn,
   ZoomOut,
+  Download,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MediaCard } from "./MediaCard";
@@ -41,6 +42,7 @@ export function HistoryPanel() {
   const hasMoreHistory = useStore((s) => s.hasMoreHistory);
 
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [assetCardWidth, setAssetCardWidth] = useState(160);
   const observerTarget = useRef<HTMLDivElement>(null);
 
@@ -89,9 +91,45 @@ export function HistoryPanel() {
   const filteredIds = useMemo(() => filtered.map((i) => i.id), [filtered]);
   const allSelected =
     filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+  const selectedImageIds = useMemo(
+    () =>
+      items
+        .filter((item) => selectedIds.includes(item.id) && item.kind === "image" && item.url)
+        .map((item) => item.id),
+    [items, selectedIds]
+  );
 
   const kindLabel =
     filterKind === "all" ? "All types" : filterKind === "image" ? "Images" : "Videos";
+
+  const downloadSelectedZip = async () => {
+    if (!selectedImageIds.length || isDownloadingZip) return;
+    setIsDownloadingZip(true);
+    try {
+      const res = await fetch("/api/history/download-zip", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: selectedImageIds }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error || "Failed to build ZIP.");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `assets-${new Date().toISOString().slice(0, 10)}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      alert(error?.message || "Failed to download ZIP.");
+    } finally {
+      setIsDownloadingZip(false);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col bg-ink-850">
@@ -245,6 +283,24 @@ export function HistoryPanel() {
                   <span className="text-sm text-white/45">
                     {selectedIds.length} selected
                   </span>
+                  <button
+                    onClick={downloadSelectedZip}
+                    disabled={!selectedImageIds.length || isDownloadingZip}
+                    className="flex items-center gap-2 rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
+                    title={
+                      selectedImageIds.length
+                        ? "Download selected images as a ZIP"
+                        : "Select at least one image to download as a ZIP"
+                    }
+                  >
+                    {isDownloadingZip ? (
+                      "Preparing ZIP..."
+                    ) : (
+                      <>
+                        <Download className="h-3.5 w-3.5" /> Download ZIP
+                      </>
+                    )}
+                  </button>
                   <Dropdown
                     align="right"
                     trigger={(open) => (
@@ -310,12 +366,12 @@ export function HistoryPanel() {
               <EmptyHistory hasItems={items.length > 0} />
             ) : (
               <div
-                className="gap-3 [column-fill:_balance]"
-                style={{ columnWidth: `${assetCardWidth}px` }}
+                className="grid gap-3"
+                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${assetCardWidth}px, 1fr))` }}
               >
                 <AnimatePresence mode="popLayout">
                   {filtered.map((item) => (
-                    <div key={item.id} className="mb-3 break-inside-avoid">
+                    <div key={item.id}>
                       <MediaCard item={item} selectable />
                     </div>
                   ))}
@@ -324,7 +380,7 @@ export function HistoryPanel() {
                 {hasMoreHistory && (
                   <div
                     ref={observerTarget}
-                    className="col-span-full h-20 w-full flex items-center justify-center opacity-50"
+                    className="col-span-full flex h-20 w-full items-center justify-center opacity-50"
                   >
                     {isLoadingMore ? "Loading more..." : ""}
                   </div>
@@ -383,11 +439,11 @@ function Pill({ open, children }: { open: boolean; children: React.ReactNode }) 
 function SkeletonGrid() {
   const heights = [180, 240, 200, 280, 160, 220, 260, 190];
   return (
-    <div className="columns-[10rem] gap-3">
+    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}>
       {heights.map((h, i) => (
         <div
           key={i}
-          className="skeleton mb-3 break-inside-avoid rounded-xl"
+          className="skeleton rounded-xl"
           style={{ height: h }}
         />
       ))}
@@ -435,12 +491,12 @@ function FavoriteSection({
         </span>
       </div>
       <div
-        className="gap-3 [column-fill:_balance]"
-        style={{ columnWidth: `${cardWidth}px` }}
+        className="grid gap-3"
+        style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
       >
         <AnimatePresence mode="popLayout">
           {items.map((item) => (
-            <div key={item.id} className="mb-3 break-inside-avoid">
+            <div key={item.id}>
               <MediaCard item={item} />
             </div>
           ))}

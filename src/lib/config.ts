@@ -22,6 +22,13 @@ export const MODELS: ModelOption[] = [
     badge: "BUDGET",
     hint: "Billed per second via API — Higgsfield's web Unlimited offer doesn't apply",
   },
+  {
+    id: "gemini-omni-flash",
+    name: "Gemini Omni Flash",
+    kind: "video",
+    badge: "NEW",
+    hint: "Google Interactions API — full NBP-style reference scaffolding, 16:9/9:16 only",
+  },
 ];
 
 export interface ModeOption {
@@ -52,17 +59,32 @@ export const DURATIONS = [4, 5, 8, 10, 15]; // seconds (video)
 export const HISTORY_PAGE_SIZE = 20;
 
 /** Valid durations per model. Higgsfield's Seedance/DoP cap at 12s, so don't
- *  offer 15s for them (it would be silently clamped — wasted/confusing). */
+ *  offer 15s for them (it would be silently clamped — wasted/confusing).
+ *  Omni's duration IS a real, enforced request field (response_format.duration,
+ *  a protobuf-Duration string like "4s" — see providers/omni.ts header) —
+ *  [4,6,8] here is just the UI's offered set. */
 export function durationsForModel(model: string): number[] {
+  if (/omni/i.test(model)) return [4, 6, 8];
   if (/higgsfield/i.test(model)) return [3, 4, 5, 6, 8, 10, 12];
   return DURATIONS;
 }
 
 /** Valid resolutions per model. Seedance 2.0 Mini supports 480p/720p only
- *  (per its MCP schema — no 1080p/4k SKU on the mini). */
+ *  (per its MCP schema — no 1080p/4k SKU on the mini). Omni doesn't accept a
+ *  resolution request param (probe-confirmed) — "720p" is exposed as the
+ *  single non-choice for UI consistency with other models' resolution
+ *  picker; the provider ignores it. */
 export function resolutionsForModel(model: string, kind: GenerationKind): string[] {
+  if (/omni/i.test(model)) return ["720p"];
   if (/seedance.*mini/i.test(model)) return ["480p", "720p"];
   return RESOLUTIONS[kind];
+}
+
+/** Valid aspect ratios per model. Omni is probe-confirmed 16:9/9:16 only —
+ *  everything else keeps today's full per-kind list. */
+export function aspectRatiosForModel(model: string, kind: GenerationKind): string[] {
+  if (/omni/i.test(model)) return ["16:9", "9:16"];
+  return ASPECT_RATIOS[kind];
 }
 
 export const DEFAULTS = {

@@ -15,3 +15,5 @@ build
 pyserver/models/
 .vercel
 .env*
+vercel-gcp-cred.json
+test.json

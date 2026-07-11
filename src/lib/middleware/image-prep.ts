@@ -98,6 +98,13 @@ interface IdentityBoxes {
   panels: Box2d[];
 }
 
+interface IdentityDetection {
+  /** False is a confident non-person classification; null is represented by
+   *  the outer nullable return and means detection was unavailable/failed. */
+  personReference: boolean;
+  boxes: IdentityBoxes | null;
+}
+
 /** Classify + locate in ONE call. The gate matters: users upload location/set/
  *  style references too, and cropping a random bystander's face out of those
  *  would inject a WRONG identity into the generation. Verified against real
@@ -107,7 +114,7 @@ interface IdentityBoxes {
 async function detectIdentityBoxes(
   mimeType: string,
   base64: string
-): Promise<IdentityBoxes | null> {
+): Promise<IdentityDetection | null> {
   // Transient failures (429/5xx) must not silently strip identity tiling from
   // a generation — retry once, and log loudly when detection is lost.
   for (let attempt = 1; attempt <= 2; attempt++) {
@@ -122,7 +129,7 @@ async function detectIdentityBoxes(
 async function detectIdentityBoxesOnce(
   mimeType: string,
   base64: string
-): Promise<IdentityBoxes | null | "retryable"> {
+): Promise<IdentityDetection | null | "retryable"> {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) return null;
   const model = process.env.GEMINI_DETECT_MODEL || "gemini-2.5-flash";
@@ -180,10 +187,15 @@ async function detectIdentityBoxesOnce(
     // or distinct panels, assume it IS an identity reference.
     const isPerson = parsed?.person_reference === true || !!face || panels.length > 0;
     
-    if (!isPerson) return null;
-    if (!face && !panels.length) return null;
-    
-    return { face, panels };
+    if (!isPerson) return { personReference: false, boxes: null };
+    if (!face && !panels.length) {
+      // An extreme close-up may already carry enough facial detail to need no
+      // extra crop. Preserve the positive identity signal independently from
+      // whether a crop rectangle was emitted.
+      return { personReference: true, boxes: null };
+    }
+
+    return { personReference: true, boxes: { face, panels } };
   } catch {
     return "retryable"; // malformed JSON — model hiccup, retry once
   }
@@ -238,47 +250,56 @@ async function renderCrop(
   return { mimeType: "image/jpeg", data: out.toString("base64") };
 }
 
-/**
- * Identity tiling: Gemini ingests EVERY image as one flat ~258-token tile
- * (measured via countTokens — a 3168px character sheet gets the same visual
- * budget as a thumbnail). The fix is to multiply tiles: face close-up + each
- * sheet panel as SEPARATE images, so one identity ref becomes 3–4× the visual
- * bandwidth. Returns [] when the ref isn't a person / detection unavailable.
- * Disable via FACE_CROP_MIDDLEWARE=0.
- */
-export async function identityCrops(
+export interface IdentityCropAnalysis {
+  /** true/false = confident detector result; null = disabled/unavailable. */
+  personReference: boolean | null;
+  crops: PreppedImage[];
+}
+
+/** Identity classification + tiling in one detector call. `personReference`
+ *  remains true for a close-up that intentionally needs no additional crop,
+ *  removing the old ambiguity between "non-person" and "zero crop". */
+export async function analyzeIdentityReference(
   mimeType: string,
   base64: string,
   maxCrops = 3
-): Promise<PreppedImage[]> {
-  if (process.env.FACE_CROP_MIDDLEWARE === "0") return [];
+): Promise<IdentityCropAnalysis> {
+  if (process.env.FACE_CROP_MIDDLEWARE === "0") {
+    return { personReference: null, crops: [] };
+  }
   const debug = (...a: unknown[]) =>
     process.env.MIDDLEWARE_DEBUG && console.log("[image-prep]", ...a);
   try {
-    const boxes = await detectIdentityBoxes(mimeType, base64);
-    debug("boxes:", JSON.stringify(boxes));
-    if (!boxes) return [];
+    const detection = await detectIdentityBoxes(mimeType, base64);
+    debug("identity detection:", JSON.stringify(detection));
+    if (!detection) return { personReference: null, crops: [] };
+    if (!detection.personReference || !detection.boxes) {
+      return { personReference: detection.personReference, crops: [] };
+    }
+    const { face, panels } = detection.boxes;
     const buf = Buffer.from(base64, "base64");
     const meta = await sharp(buf).metadata();
-    if (!meta.width || !meta.height) return [];
+    if (!meta.width || !meta.height) {
+      return { personReference: true, crops: [] };
+    }
     const area = meta.width * meta.height;
 
     const rects: PixelRect[] = [];
     // Face first — ~45% padding keeps hair, ears and jaw context. Skip when
     // the raw face box already fills half the frame (the ref IS a close-up;
     // check the unpadded box, not the padded crop).
-    if (boxes.face) {
+    if (face) {
       const rawArea =
-        ((boxes.face.xmax - boxes.face.xmin) / 1000) *
+        ((face.xmax - face.xmin) / 1000) *
         meta.width *
-        (((boxes.face.ymax - boxes.face.ymin) / 1000) * meta.height);
-      const r = toPixels(boxes.face, meta.width, meta.height, 0.45);
+        (((face.ymax - face.ymin) / 1000) * meta.height);
+      const r = toPixels(face, meta.width, meta.height, 0.45);
       debug("face rect:", JSON.stringify(r), "rawArea%", Math.round((rawArea / area) * 100));
       if (r && rawArea <= area * 0.5) rects.push(r);
     }
     // Then sheet panels — light padding; skip near-duplicates of crops we
     // already have and panels that are basically the whole image.
-    for (const p of boxes.panels) {
+    for (const p of panels) {
       if (rects.length >= maxCrops) break;
       const r = toPixels(p, meta.width, meta.height, 0.04);
       if (!r) continue;
@@ -297,11 +318,28 @@ export async function identityCrops(
     for (const rect of rects.slice(0, maxCrops)) {
       out.push(await renderCrop(buf, rect));
     }
-    return out;
+    return { personReference: true, crops: out };
   } catch (e) {
     debug("error:", (e as Error)?.message);
-    return [];
+    return { personReference: null, crops: [] };
   }
+}
+
+/**
+ * Identity tiling: Gemini ingests EVERY image as one flat ~258-token tile
+ * (measured via countTokens — a 3168px character sheet gets the same visual
+ * budget as a thumbnail). The fix is to multiply tiles: face close-up + each
+ * sheet panel as SEPARATE images, so one identity ref becomes 3–4× the visual
+ * bandwidth. Returns [] when no crop is needed or detection is unavailable.
+ * Disable via FACE_CROP_MIDDLEWARE=0. Kept as the byte-compatible public API
+ * used by existing face evaluation scripts.
+ */
+export async function identityCrops(
+  mimeType: string,
+  base64: string,
+  maxCrops = 3
+): Promise<PreppedImage[]> {
+  return (await analyzeIdentityReference(mimeType, base64, maxCrops)).crops;
 }
 
 // ── role classification (PROMPT_ROLE_DETECT fallback) ──────────────────────

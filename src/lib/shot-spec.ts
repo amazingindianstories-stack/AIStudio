@@ -24,6 +24,8 @@ export interface LegendEntry {
   isPerson: boolean; // drives identity language in the legend line
 }
 
+export type ImageSubjectMode = "person" | "environment";
+
 // Reproduction-rule wording per role. Person/outfit/location/style/prop
 // wording mirrors the KIND_RULE strings proven in prompt-assembler.ts
 // (duplicated, not imported — this module must stay import-free of
@@ -75,7 +77,7 @@ const ROLE_KEYWORDS: Array<{ role: RefRole; re: RegExp }> = [
   },
   {
     role: "location",
-    re: /\b(location|nightclub|club|place|background|room|set|environment|venue|backdrop|scene)\b/i,
+    re: /\b(location|nightclub|club|place|background|room|set|environment|venue|backdrop|scene|school|classroom|campus|corridor|hallway|building|interior|exterior|architecture|house|home|office|street|road|landscape)\b/i,
   },
   {
     role: "style",
@@ -122,6 +124,60 @@ export function parseRefRoles(prompt: string): Map<string, RefRole> {
   return map;
 }
 
+/** Best deterministic non-person role for an untagged reference after visual
+ *  analysis has already ruled out a person. Falls back to generic object. */
+export function inferNonPersonRole(
+  prompt: string
+): Exclude<RefRole, "person"> {
+  for (const { role, re } of ROLE_KEYWORDS) {
+    if (role !== "person" && re.test(prompt)) return role;
+  }
+  return "object";
+}
+
+const EXPLICIT_ROLE_TERMS: Record<RefRole, string> = {
+  person: "face|identity|person|character|portrait|likeness|subject|individual",
+  outfit:
+    "outfit|dress|garment|lehenga|saree|sari|suit|gown|jacket|attire|clothing|clothes|costume",
+  location:
+    "location|nightclub|club|place|background|room|set|environment|venue|backdrop|school|classroom|campus|corridor|hallway|building|interior|exterior|architecture|house|home|office|street|road|landscape",
+  style: "style|aesthetic|grade|palette|mood|tone|filter",
+  prop: "prop|object|item",
+  object: "object|element|item",
+};
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * True only when prompt grammar binds a role directly to a tag, rather than
+ * merely mentioning a scene keyword inside parseRefRoles' broad context
+ * window. Examples: "@img1 as the exact location", "school from @img1",
+ * "face from @img1". This confidence bit lets singleton routing trust a clear
+ * non-person instruction while failing safely to the legacy face path when a
+ * detector is unavailable and the prose is ambiguous.
+ */
+export function hasExplicitRefRole(
+  prompt: string,
+  tag: string,
+  role: RefRole
+): boolean {
+  const escapedTag = escapeRegExp(tag);
+  const terms = EXPLICIT_ROLE_TERMS[role];
+  const tagThenRole = new RegExp(
+    `${escapedTag}(?:\\([^)]*\\))?\\s+(?:as|for|is|defines?|shows?)\\s+` +
+      `(?:the\\s+)?(?:exact\\s+)?(?:${terms})\\b`,
+    "i"
+  );
+  const roleThenTag = new RegExp(
+    `\\b(?:${terms})\\b\\s+(?:reference\\s+)?(?:from|using|of|at|in)\\s+` +
+      `${escapedTag}(?:\\([^)]*\\))?`,
+    "i"
+  );
+  return tagThenRole.test(prompt) || roleThenTag.test(prompt);
+}
+
 function legendLine(entry: LegendEntry): string {
   if (entry.isPerson) {
     return `${entry.tag} = the exact face/identity of the subject — must be reproduced with photographic fidelity, never a lookalike.`;
@@ -149,6 +205,109 @@ export function buildReferenceLegend(entries: LegendEntry[]): string | null {
   return "REFERENCES:\n" + entries.map(legendLine).join("\n");
 }
 
+// Human nouns inside an explicit absence clause must not turn an empty scene
+// back into a people scene ("no students or staff", "without any people").
+// Strip those clauses before scanning for positive cast intent.
+const HUMAN_NOUN_SOURCE =
+  "people|persons?|humans?|men|women|man|woman|boys?|girls?|children|child|" +
+  "bab(?:y|ies)|adults?|students?|pupils?|teachers?|staff|workers?|employees?|" +
+  "guards?|officers?|doctors?|nurses?|patients?|customers?|shoppers?|" +
+  "passengers?|drivers?|pedestrians?|visitors?|tourists?|guests?|residents?|" +
+  "farmers?|vendors?|waiters?|waitresses?|chefs?|soldiers?|actors?|actresses?|" +
+  "dancers?|singers?|musicians?|athletes?|players?|artists?|photographers?|" +
+  "pilots?|attendants?|bartenders?|cashiers?|monks?|priests?|friends?|parents?|" +
+  "mothers?|fathers?|moms?|dads?|brothers?|sisters?|husbands?|wives|wife|" +
+  "partners?|owners?|leaders?|members?|teenagers?|teens?|youths?|protagonists?|" +
+  "characters?";
+
+const NEGATED_HUMANS_RE = new RegExp(
+  `\\b(?:no|without)\\s+(?:(?:any|a|an|visible|additional|other)\\s+)?` +
+    `(?:${HUMAN_NOUN_SOURCE})` +
+    `(?:\\s*(?:,|and|or)\\s*(?:${HUMAN_NOUN_SOURCE}))*\\b`,
+  "gi"
+);
+
+// Possessive/label compounds describe furniture or zones, not visible cast:
+// "teacher's desk", "student lockers", "staff room", etc.
+const HUMAN_LABELLED_OBJECT_RE = new RegExp(
+  `\\b(?:students?|pupils?|teachers?|staff|workers?|employees?|visitors?|` +
+    `passengers?|drivers?|children|child)(?:['’]s?|s['’])?\\s+` +
+    `(?:desks?|chairs?|tables?|areas?|lounges?|rooms?|sections?|entrances?|` +
+    `exits?|lockers?|uniforms?|signs?|zones?)\\b`,
+  "gi"
+);
+
+const POSITIVE_HUMAN_NOUN_RE = new RegExp(
+  `\\b(?:${HUMAN_NOUN_SOURCE}|crowd|audience|couple|family|families|bride|` +
+    `groom|hero|heroine|subject|individual|portrait|selfie|face|identity|` +
+    `male|female|elderly|eyes?|hands?|arms?|legs?|head|body|bodies|skin|hair)\\b`,
+  "i"
+);
+
+const HUMAN_PRONOUN_RE =
+  /\b(?:he|she|him|her|his|hers|they|them|their|theirs|someone|somebody)\b/i;
+
+// These verbs imply an animate subject even when the prompt omits a noun
+// ("standing at the window"). Deliberately exclude bare looking/facing: in
+// location prompts those commonly describe the camera, which is the bug this
+// policy is meant to prevent.
+const HUMAN_ACTION_RE =
+  /\b(?:stands?|standing|sits?|sitting|seated|walks?|walking|runs?|running|poses?|posing|wears?|wearing|dressed|holds?|holding|smiles?|smiling|laughs?|laughing|cries|crying|speaks?|speaking|talks?|talking|kneels?|kneeling|dances?|dancing|sings?|singing|gestures?|gesturing)\b/i;
+
+// Preserve a named character action such as "Naisha looking down" while
+// leaving "camera looking down" and "view looking up" as viewpoint language.
+const NAMED_LOOK_RE =
+  /\b(?!Camera\b|View\b|Viewpoint\b|Shot\b|Lens\b|Angle\b|Perspective\b)[A-Z][a-z][A-Za-z'-]*\s+(?:is\s+)?(?:looking|facing|gazing)\b/;
+
+/**
+ * Whether the scene explicitly asks for a physically present person/cast.
+ * A person/character reference is authoritative. Otherwise this stays
+ * conservative and deterministic: positive nouns/pronouns/actions opt into
+ * the proven person prompt path; absent cast intent opts into zero-cast
+ * safeguards. The raw prompt is never rewritten.
+ */
+export function hasVisiblePeople(
+  rawPrompt: string,
+  hasPersonReference = false
+): boolean {
+  if (hasPersonReference) return true;
+  const positiveText = rawPrompt
+    .replace(NEGATED_HUMANS_RE, " ")
+    .replace(HUMAN_LABELLED_OBJECT_RE, " ");
+  return (
+    POSITIVE_HUMAN_NOUN_RE.test(positiveText) ||
+    HUMAN_PRONOUN_RE.test(positiveText) ||
+    HUMAN_ACTION_RE.test(positiveText) ||
+    NAMED_LOOK_RE.test(positiveText)
+  );
+}
+
+const VIEWPOINT_DIRECTION_RE =
+  /\b(?:(?:camera|view(?:point)?|shot|angle|perspective|lens)\s+(?:is\s+)?(?:looking|pointing|facing|tilting?)\s+(?:straight\s+)?(?:up|down)|(?:looking|viewed|seen|shot|filmed)\s+(?:straight\s+)?(?:up|down)|(?:from|viewed\s+from)\s+(?:directly\s+)?(?:above|below)|top[- ]down|bottom[- ]up|bird['’]?s[- ]eye|worm['’]?s[- ]eye|overhead|high[- ]angle|low[- ]angle)\b/i;
+
+export const ZERO_CAST_POLICY =
+  "CAST: CAST COUNT 0. Render the requested setting and objects unoccupied. " +
+  "Do not invent any physically present person, bystander, crowd, camera " +
+  "operator, observer, or human silhouette. Any inferred details must be " +
+  "non-human and belong to the requested environment.";
+
+export const VIEWPOINT_POLICY =
+  'VIEWPOINT: directional phrases such as "looking down" or "looking up" ' +
+  "describe the virtual camera/view orientation only; they do not imply an " +
+  "observer or on-screen character.";
+
+/** Extra provider text for a no-cast image. Null keeps every person/reference
+ *  payload byte-identical to the proven identity path. */
+export function buildCastPolicy(
+  rawPrompt: string,
+  hasPersonReference = false
+): string | null {
+  if (hasVisiblePeople(rawPrompt, hasPersonReference)) return null;
+  return VIEWPOINT_DIRECTION_RE.test(rawPrompt)
+    ? `${ZERO_CAST_POLICY}\n${VIEWPOINT_POLICY}`
+    : ZERO_CAST_POLICY;
+}
+
 /** Wide-AR subject-framing coda. Non-null ONLY for "16:9" and "21:9"; null for
  *  square/portrait ARs. `medium` defaults to "image" (photography language,
  *  byte-identical to the pre-video-support text); "video" swaps in motion/
@@ -157,7 +316,8 @@ export function buildReferenceLegend(entries: LegendEntry[]): string | null {
  *  path (see prompt-assembler.ts opts.medium). */
 export function buildFramingCoda(
   aspectRatio: string,
-  medium: "image" | "video" = "image"
+  medium: "image" | "video" = "image",
+  subjectMode: ImageSubjectMode = "person"
 ): string | null {
   if (aspectRatio !== "16:9" && aspectRatio !== "21:9") return null;
   if (medium === "video") {
@@ -167,6 +327,14 @@ export function buildFramingCoda(
       "the subject remaining the clear focal point across every frame, never " +
       "small or distant; background and environment stay supporting, in sharp " +
       "focus but not competing with the subject for size."
+    );
+  }
+  if (subjectMode === "environment") {
+    return (
+      "FRAMING: compose only the explicitly requested setting and objects " +
+      "across the wide field; do not invent a foreground figure to satisfy " +
+      "the composition. Keep architecture and environment detailed, sharp, " +
+      "and visually balanced."
     );
   }
   return (
@@ -183,6 +351,14 @@ export const NEGATIVE_CODA =
   "blur or softness on the subject, smeared or plasticky skin, washed-out or " +
   "muddy color cast, loss of background/environment detail, a small or " +
   "distant subject, extra or duplicated limbs, warped anatomy.";
+
+/** Still-image negative block for scenes with no requested cast. It avoids
+ *  the skin/limb/anatomy vocabulary that was priming a person into otherwise
+ *  empty locations. */
+export const ENVIRONMENT_NEGATIVE_CODA =
+  "unrequested people, bystanders, crowds or human silhouettes, invented " +
+  "foreground figures, blur or softness on the requested focal elements, " +
+  "washed-out or muddy color cast, loss of architecture or environment detail.";
 
 /** In-prompt NEGATIVE block for medium "video" — targets temporal artifacts
  *  (identity/wardrobe drift, morphing, flicker) instead of stills-only
@@ -208,9 +384,22 @@ export function buildShotInstruction(args: {
   legend: string | null;
   aspectRatio: string;
   medium?: "image" | "video";
+  hasPersonReference?: boolean;
 }): string {
-  const { rawPrompt, legend, aspectRatio, medium = "image" } = args;
-  const framingCoda = buildFramingCoda(aspectRatio, medium);
+  const {
+    rawPrompt,
+    legend,
+    aspectRatio,
+    medium = "image",
+    hasPersonReference = false,
+  } = args;
+  // Video keeps its established temporal prompt shape. The zero-cast policy
+  // is an image-generation correction and must not perturb Omni/Seedance.
+  const subjectMode: ImageSubjectMode =
+    medium === "image" && !hasVisiblePeople(rawPrompt, hasPersonReference)
+      ? "environment"
+      : "person";
+  const framingCoda = buildFramingCoda(aspectRatio, medium, subjectMode);
 
   const blocks: string[] = [];
   if (legend) blocks.push(legend);
@@ -218,7 +407,15 @@ export function buildShotInstruction(args: {
 
   const tail: string[] = [];
   if (framingCoda) tail.push(framingCoda);
-  tail.push(`AVOID: ${medium === "video" ? VIDEO_NEGATIVE_CODA : NEGATIVE_CODA}`);
+  tail.push(
+    `AVOID: ${
+      medium === "video"
+        ? VIDEO_NEGATIVE_CODA
+        : subjectMode === "environment"
+          ? ENVIRONMENT_NEGATIVE_CODA
+          : NEGATIVE_CODA
+    }`
+  );
   blocks.push(tail.join("\n"));
 
   return blocks.join("\n\n");

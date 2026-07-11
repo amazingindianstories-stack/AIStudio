@@ -8,6 +8,7 @@ import {
   mcpUploadImage,
 } from "@/lib/providers/higgsfield-mcp";
 import { createVideoTask } from "@/lib/providers/seedance";
+import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
 import { resolveReferences } from "@/lib/mentions";
 import {
   readImageAsBase64,
@@ -89,7 +90,25 @@ async function submitVideo(base: GenerationItem): Promise<GenerationItem> {
 
   let taskId: string;
   const refUpdates: Partial<GenerationItem> = {};
-  if (isHiggsfieldModel(model)) {
+  if (isOmniModel(model)) {
+    // Same context-engineering path Nano Banana Pro uses for images — role-
+    // labeled reference groups + identity tiles + shot-spec framing/negative
+    // codas — instead of a flat hand-rolled prompt (see omni-input.ts).
+    const assembled = await assemblePrompt(prompt, await readAssets(), base.referenceImages ?? [], {
+      aspectRatio,
+      medium: "video",
+    });
+    const refImageCount = assembled.groups.reduce((n, g) => n + g.images.length, 0);
+    console.log(
+      `[video] model=${model} uploads=${base.referenceImages?.length ?? 0} ` +
+        `groups=${assembled.groups.length} refImages=${refImageCount} duration=${duration}s`
+    );
+    taskId = await createOmniVideoTask({
+      assembled,
+      aspectRatio,
+      duration: duration || 4,
+    });
+  } else if (isHiggsfieldModel(model)) {
     // Higgsfield (Seedance 2.0/Mini) via the official MCP — supports MULTIPLE
     // reference images natively (image_references), no collage workaround.
     const refs = base.referenceImages ?? [];

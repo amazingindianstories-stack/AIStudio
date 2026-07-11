@@ -12,10 +12,10 @@ import type {
 import {
   DEFAULTS,
   MODELS,
-  ASPECT_RATIOS,
-  DURATIONS,
-  RESOLUTIONS,
   HISTORY_PAGE_SIZE,
+  aspectRatiosForModel,
+  durationsForModel,
+  resolutionsForModel,
 } from "./config";
 
 export interface CurrentUser {
@@ -204,15 +204,15 @@ export const useStore = create<AppState>((set, get) => ({
       // clamp would silently leave 5s selected and the enqueue guard would
       // 400 on an untouched-defaults happy path. Also covers Higgsfield
       // Seedance (12s cap), Seedance Mini (720p cap), Omni (16:9/9:16 only).
-      const durations = DURATIONS;
+      const durations = durationsForModel(model);
       const duration = durations.includes(s.duration)
         ? s.duration
         : durations[durations.length - 1];
-      const resolutions = RESOLUTIONS[s.mode];
+      const resolutions = resolutionsForModel(model, s.mode);
       const resolution = resolutions.includes(s.resolution)
         ? s.resolution
         : resolutions[resolutions.length - 1];
-      const aspectRatios = ASPECT_RATIOS[s.mode];
+      const aspectRatios = aspectRatiosForModel(model, s.mode);
       const aspectRatio = aspectRatios.includes(s.aspectRatio)
         ? s.aspectRatio
         : aspectRatios[0];
@@ -850,13 +850,13 @@ export function restoreComposerDraft() {
         patch.model = d.model;
       }
       const effModel = (patch.model as string) ?? DEFAULTS[effMode].model;
-      if (ASPECT_RATIOS[effMode].includes(d.aspectRatio)) {
+      if (aspectRatiosForModel(effModel, effMode).includes(d.aspectRatio)) {
         patch.aspectRatio = d.aspectRatio;
       }
-      if (RESOLUTIONS[effMode].includes(d.resolution)) {
+      if (resolutionsForModel(effModel, effMode).includes(d.resolution)) {
         patch.resolution = d.resolution;
       }
-      if (DURATIONS.includes(d.duration)) {
+      if (durationsForModel(effModel).includes(d.duration)) {
         patch.duration = d.duration;
       }
       if ([1, 2, 3, 4].includes(d.batchCount)) {

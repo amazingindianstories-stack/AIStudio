@@ -1,5 +1,29 @@
 # Session Progress & Handoff
 
+## 2026-07-11 — Gemini Omni Flash video model added via /council (COMPLETE, rebuilt once)
+
+**Scope**: Add Google's Gemini Omni Flash (`gemini-omni-flash-preview`, Interactions API) as a selectable video model, giving it the same NBP-grade reference/prompt scaffolding (`assemblePrompt` + shot-spec) images already get, instead of the flat prompts the Higgsfield/Seedance video paths use. Billing lands on the GCP project (Gemini API key's project by default; Vertex SKU flag-gated).
+
+**Note on this entry**: the council session that built this feature crashed mid-Stage-4 ("cantigravity") before anything was committed; this is the redo, working from the pre-compaction conversation record. Mid-rebuild, the recreated provider contract (from memory of the lost session) was checked against the live API via `scripts/probe-omni.ts` and found to be wrong in several places — see below.
+
+**Shipped**:
+- `src/lib/omni-input.ts` — pure builder, mirrors `providers/gemini.ts`'s `buildParts`: role-labeled group headers → images → identity tiles (14-image cap, tiles yield first, loud error if user images alone exceed the cap) → SCENE/shotInstruction → video-worded FINAL CHECK when identity is locked.
+- `src/lib/providers/omni.ts` — the provider. Dual wire path: default `generativelanguage.googleapis.com` with `GOOGLE_API_KEY`; `OMNI_USE_VERTEX=1` for the Vertex SKU (flag-gated — allowlist-gated per Google, and this machine's Vertex creds are dead).
+- `src/lib/shot-spec.ts` / `prompt-assembler.ts` — `medium?: "image"|"video"` option (default `"image"`, byte-identical) for video-worded framing/negative codas.
+- `src/lib/config.ts`, `store.ts`, `PromptComposer.tsx` — new model entry + `aspectRatiosForModel` (16:9/9:16 only for Omni) wired through the picker and the store's per-model clamping.
+- Three route files updated: enqueue guard (`generate/video/route.ts`), task creation (`queue/execute/route.ts`), status polling + inline-base64 video save (`generate/video/status/route.ts`).
+- `scripts/probe-omni.ts` — zero-cost validation-error probe matrix (always sends `input: []`, which the API rejects before doing anything) + Vertex readiness check + a `--live` flag for one real generation.
+
+**Contract correction (important for anyone touching this later)**: the API does NOT have a `task` field or a `delivery` field — sending either 400s as an unrecognized parameter. Duration IS a real, enforced request field (`response_format.duration`, a protobuf-Duration string like `"4s"`), not prompt-driven text. The video payload lives at `steps[].content` where `step.type === "model_output"`, not nested under `steps[].model_output.content`. Full detail + how this was discovered: `.council/omni-video/design.md` PROBE VERDICTS section and `decisions.md` D11.
+
+**Cost disclosure**: re-discovering the real contract by hand (outside the shipped probe script) accidentally triggered two additional real, billed ~4s generations before the risk was understood (a non-empty/malformed `input` is accepted and run to completion, not rejected). Combined with the one deliberate live test, this session billed 3 real generations total, not 1. `.council/omni-video/live-test.mp4` is the deliberate one.
+
+**Unit tests**: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts` — 78/78 passing.
+
+**Evidence**: `.council/omni-video/spec.md` (AC1-AC8), `design.md` (file plan + PROBE VERDICTS), `decisions.md` (D0-D11 decision log), `review-findings.md` (Stage 3 adjudications), `live-test.mp4` (real generated clip).
+
+**User follow-ups**: restore Vertex creds (`gcloud auth application-default login` or a valid service-account key + `GOOGLE_APPLICATION_CREDENTIALS`) and request Omni allowlist access to flip `OMNI_USE_VERTEX=1`; confirm the 10¢/s price in `/admin` against the first real bill; the pre-existing job-ownership gap on video status/execute routes (S3 in decisions.md) is deferred, not fixed, and affects the older video routes equally.
+
 ## 2026-07-10 — Higgsfield-NBP parity conclusion & release (COMPLETE)
 
 **Scope**: Determine why Higgsfield outputs appear better than baseline Nano Banana Pro despite using the same endpoint/model, then implement verified techniques via flag-gated levers.
