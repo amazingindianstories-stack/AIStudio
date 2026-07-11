@@ -1,20 +1,11 @@
-import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-  DeleteObjectCommand,
-} from "@aws-sdk/client-s3";
+import { Storage } from "@google-cloud/storage";
 
-// Instantiate an S3 client.
-const s3 = new S3Client({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
+// Instantiate a GCS client.
+// It automatically uses Application Default Credentials when running on GCP,
+// or falls back to GOOGLE_APPLICATION_CREDENTIALS locally.
+const storage = new Storage();
 
-const getBucket = () => process.env.AWS_S3_BUCKET_NAME || "aistudio-media-bucket";
+const getBucket = () => process.env.GCS_BUCKET_NAME || "aistudio-media-bucket-gcp";
 
 export const MEDIA_BUCKET = "media";
 
@@ -32,16 +23,15 @@ export async function uploadBuffer(
   key: string,
   ext: string
 ): Promise<string> {
-  const bucket = getBucket();
-  const command = new PutObjectCommand({
-    Bucket: bucket,
-    Key: key,
-    Body: buffer,
-    ContentType: extToMime(ext),
-    CacheControl: "public, max-age=31536000",
-  });
+  const bucketName = getBucket();
+  const file = storage.bucket(bucketName).file(key);
 
-  await s3.send(command);
+  await file.save(buffer, {
+    contentType: extToMime(ext),
+    metadata: {
+      cacheControl: "public, max-age=31536000",
+    },
+  });
 
   return `/api/media/${key}`;
 }
@@ -87,21 +77,15 @@ export async function readAsBase64(
     return { mimeType: "image/png", data: ref };
   }
 
-  // If it's our proxy URL, fetch it directly from the S3 bucket
+  // If it's our proxy URL, fetch it directly from the GCS bucket
   if (ref.startsWith("/api/media/")) {
     const key = ref.replace("/api/media/", "");
-    const command = new GetObjectCommand({
-      Bucket: getBucket(),
-      Key: key,
-    });
+    const file = storage.bucket(getBucket()).file(key);
     
-    const response = await s3.send(command);
-    if (!response.Body) throw new Error("Object body is empty");
+    const [buffer] = await file.download();
+    const [metadata] = await file.getMetadata();
     
-    const byteArray = await response.Body.transformToByteArray();
-    const buffer = Buffer.from(byteArray);
-    
-    const mimeType = response.ContentType || "image/png";
+    const mimeType = metadata.contentType || "image/png";
     return { mimeType, data: buffer.toString("base64") };
   }
 
@@ -119,16 +103,12 @@ export async function readAsBase64(
 
 /** Delete objects by their proxy URL. Best-effort. */
 export async function deleteByUrls(urls: string[]): Promise<void> {
-  const bucket = getBucket();
+  const bucketName = getBucket();
   const deletePromises = urls.map(async (u) => {
     try {
       if (u.startsWith("/api/media/")) {
         const key = u.replace("/api/media/", "");
-        const command = new DeleteObjectCommand({
-          Bucket: bucket,
-          Key: key,
-        });
-        await s3.send(command);
+        await storage.bucket(bucketName).file(key).delete();
       }
     } catch (err) {
       console.warn(`Failed to delete ${u}`, err);
@@ -142,4 +122,3 @@ export async function deleteByUrls(urls: string[]): Promise<void> {
 export async function ensureBucket(): Promise<void> {
   return Promise.resolve();
 }
-
