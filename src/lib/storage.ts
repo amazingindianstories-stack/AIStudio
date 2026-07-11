@@ -18,16 +18,48 @@ const WIF_CONFIG_PATH = "/tmp/gcp-wif-config.json";
  * guarantees the client's internal GoogleAuth reads the just-written token
  * instead of reusing a cached (possibly stale) credential from an earlier
  * invocation.
+ *
+ * The credential file rewrite alone did NOT resolve the incident (still
+ * failing after a fresh deploy), so this also stopped assuming the OIDC
+ * token belongs at a hardcoded /tmp path: an external_account WIF config's
+ * `credential_source.file` field is what actually tells Google's auth
+ * library where to look, and if that path doesn't match wherever we wrote
+ * the token, credential loading fails identically regardless of freshness.
+ * Now the token is written to whatever path the config itself declares.
+ * Diagnostic logging (env var presence + the resolved path only — never the
+ * token or config contents) is left in deliberately until this incident is
+ * confirmed fixed; it's the fastest way to tell "OIDC Federation isn't
+ * enabled on this Vercel project at all" (VERCEL_OIDC_TOKEN absent) apart
+ * from "the config's file path didn't match" (present, but still fails).
  */
 function getStorageClient(): Storage {
-  if (process.env.VERCEL_OIDC_TOKEN && process.env.GCP_WIF_CONFIG) {
+  const hasToken = !!process.env.VERCEL_OIDC_TOKEN;
+  const hasWifConfig = !!process.env.GCP_WIF_CONFIG;
+  if (hasToken && hasWifConfig) {
     try {
-      fs.writeFileSync(OIDC_TOKEN_PATH, process.env.VERCEL_OIDC_TOKEN, "utf8");
-      fs.writeFileSync(WIF_CONFIG_PATH, process.env.GCP_WIF_CONFIG, "utf8");
+      let tokenPath = OIDC_TOKEN_PATH;
+      try {
+        const parsed = JSON.parse(process.env.GCP_WIF_CONFIG as string);
+        if (parsed?.credential_source?.file) {
+          tokenPath = parsed.credential_source.file;
+        }
+      } catch (parseErr) {
+        console.error("GCP_WIF_CONFIG is not valid JSON", parseErr);
+      }
+      fs.writeFileSync(tokenPath, process.env.VERCEL_OIDC_TOKEN as string, "utf8");
+      fs.writeFileSync(WIF_CONFIG_PATH, process.env.GCP_WIF_CONFIG as string, "utf8");
       process.env.GOOGLE_APPLICATION_CREDENTIALS = WIF_CONFIG_PATH;
+      console.log(`[storage] WIF credentials written; token path=${tokenPath}`);
     } catch (err) {
       console.error("Failed to write WIF credentials to /tmp", err);
     }
+  } else {
+    console.error(
+      `[storage] WIF env vars missing — VERCEL_OIDC_TOKEN present=${hasToken}, ` +
+        `GCP_WIF_CONFIG present=${hasWifConfig}. Falling back to ambient ADC, ` +
+        `which will fail on Vercel unless GOOGLE_APPLICATION_CREDENTIALS is set ` +
+        `some other way.`
+    );
   }
   // Automatically uses Application Default Credentials locally/GCP, or the
   // GOOGLE_APPLICATION_CREDENTIALS we just (re)wrote for Vercel.
