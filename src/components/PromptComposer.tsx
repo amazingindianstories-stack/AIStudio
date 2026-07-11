@@ -35,11 +35,11 @@ import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, type MentionHandle } from "./MentionTextarea";
 import {
   DEFAULTS,
-  DURATIONS,
   MODELS,
   MODES,
-  RESOLUTIONS,
   aspectRatiosForModel,
+  durationsForModel,
+  resolutionsForModel,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { GenerationKind } from "@/lib/types";
@@ -513,14 +513,14 @@ export function PromptComposer() {
               />
               <Segment
                 label="Resolution"
-                options={RESOLUTIONS[s.mode]}
+                options={resolutionsForModel(s.model, s.mode)}
                 value={s.resolution}
                 onChange={s.setResolution}
               />
               {s.mode === "video" && (
                 <Segment
                   label="Duration"
-                  options={DURATIONS.map((d) => `${d}s`)}
+                  options={durationsForModel(s.model).map((d) => `${d}s`)}
                   value={`${s.duration}s`}
                   onChange={(v) => s.setDuration(parseInt(v))}
                 />

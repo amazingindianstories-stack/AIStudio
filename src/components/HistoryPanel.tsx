@@ -278,6 +278,27 @@ export function HistoryPanel() {
                 {allSelected ? "Deselect all" : "Select all"}
               </button>
 
+              <div className="flex items-center gap-1 rounded-full bg-ink-700 p-1">
+                <FilterPill
+                  active={filterKind === "all"}
+                  onClick={() => setFilterKind("all")}
+                >
+                  All
+                </FilterPill>
+                <FilterPill
+                  active={filterKind === "image"}
+                  onClick={() => setFilterKind("image")}
+                >
+                  Images
+                </FilterPill>
+                <FilterPill
+                  active={filterKind === "video"}
+                  onClick={() => setFilterKind("video")}
+                >
+                  Videos
+                </FilterPill>
+              </div>
+
               {selectedIds.length > 0 && (
                 <>
                   <span className="text-sm text-white/45">
@@ -433,6 +454,31 @@ function Pill({ open, children }: { open: boolean; children: React.ReactNode }) 
     >
       {children}
     </span>
+  );
+}
+
+function FilterPill({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-full px-3 py-1.5 text-xs font-medium transition",
+        active
+          ? "bg-white text-ink-900"
+          : "text-white/55 hover:bg-white/10 hover:text-white"
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

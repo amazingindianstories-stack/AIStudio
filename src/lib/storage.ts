@@ -1,22 +1,38 @@
 import { Storage } from "@google-cloud/storage";
 import fs from "fs";
 
-// If running in Vercel, we use Workload Identity Federation instead of Service Account Keys.
-// We must write the OIDC token and WIF config to disk so the Google Cloud SDK can read them.
-if (process.env.VERCEL_OIDC_TOKEN && process.env.GCP_WIF_CONFIG) {
-  try {
-    fs.writeFileSync("/tmp/oidc-token.txt", process.env.VERCEL_OIDC_TOKEN, "utf8");
-    fs.writeFileSync("/tmp/gcp-wif-config.json", process.env.GCP_WIF_CONFIG, "utf8");
-    process.env.GOOGLE_APPLICATION_CREDENTIALS = "/tmp/gcp-wif-config.json";
-  } catch (err) {
-    console.error("Failed to write WIF credentials to /tmp", err);
-  }
-}
+const OIDC_TOKEN_PATH = "/tmp/oidc-token.txt";
+const WIF_CONFIG_PATH = "/tmp/gcp-wif-config.json";
 
-// Instantiate a GCS client.
-// It automatically uses Application Default Credentials locally/GCP,
-// or the GOOGLE_APPLICATION_CREDENTIALS we just set for Vercel.
-const storage = new Storage();
+/**
+ * If running on Vercel, we use Workload Identity Federation instead of a
+ * Service Account Key. VERCEL_OIDC_TOKEN is short-lived and re-issued per
+ * invocation — NOT stable for a warm/reused function instance's whole
+ * lifetime. Writing it once at module load and reusing a single Storage
+ * client meant a warm invocation kept using a stale token file after the
+ * one written at cold start expired, surfacing as "Could not load the
+ * default credentials" on every request after the first (2026-07-11
+ * production incident). Fix: rewrite the token file AND mint a fresh
+ * Storage client on every call — the client construction itself is cheap
+ * (no network I/O), so this only costs a few sync file writes, and it
+ * guarantees the client's internal GoogleAuth reads the just-written token
+ * instead of reusing a cached (possibly stale) credential from an earlier
+ * invocation.
+ */
+function getStorageClient(): Storage {
+  if (process.env.VERCEL_OIDC_TOKEN && process.env.GCP_WIF_CONFIG) {
+    try {
+      fs.writeFileSync(OIDC_TOKEN_PATH, process.env.VERCEL_OIDC_TOKEN, "utf8");
+      fs.writeFileSync(WIF_CONFIG_PATH, process.env.GCP_WIF_CONFIG, "utf8");
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = WIF_CONFIG_PATH;
+    } catch (err) {
+      console.error("Failed to write WIF credentials to /tmp", err);
+    }
+  }
+  // Automatically uses Application Default Credentials locally/GCP, or the
+  // GOOGLE_APPLICATION_CREDENTIALS we just (re)wrote for Vercel.
+  return new Storage();
+}
 
 const getBucket = () => process.env.GCS_BUCKET_NAME || "aistudio-media-bucket-gcp";
 
@@ -38,7 +54,7 @@ export async function uploadBuffer(
   ext: string
 ): Promise<string> {
   const bucketName = getBucket();
-  const file = storage.bucket(bucketName).file(key);
+  const file = getStorageClient().bucket(bucketName).file(key);
 
   await file.save(buffer, {
     contentType: extToMime(ext),
@@ -94,7 +110,7 @@ export async function readAsBase64(
   // If it's our proxy URL, fetch it directly from the GCS bucket
   if (ref.startsWith("/api/media/")) {
     const key = ref.replace("/api/media/", "");
-    const file = storage.bucket(getBucket()).file(key);
+    const file = getStorageClient().bucket(getBucket()).file(key);
     
     const [buffer] = await file.download();
     const [metadata] = await file.getMetadata();
@@ -122,7 +138,7 @@ export async function deleteByUrls(urls: string[]): Promise<void> {
     try {
       if (u.startsWith("/api/media/")) {
         const key = u.replace("/api/media/", "");
-        await storage.bucket(bucketName).file(key).delete();
+        await getStorageClient().bucket(bucketName).file(key).delete();
       }
     } catch (err) {
       console.warn(`Failed to delete ${u}`, err);

@@ -36,13 +36,28 @@ export async function POST(req: NextRequest) {
 
   const id = crypto.randomUUID();
   const now = Date.now();
-  const pricingRows = await readPricing();
-  let costCents = computeCostCents({ kind: "image", model, resolution }, pricingRows);
-  // Persist the uploaded references with the item so they can be shown later
-  // and reused via "Clone & try" (the provider still gets the raw data URLs).
-  const savedRefs = referenceImages?.length
-    ? await saveReferenceImages(referenceImages, id)
-    : undefined;
+
+  // Wrapped: readPricing/saveReferenceImages/upsertItem/logActivity all hit
+  // the DB or storage — an unhandled throw here would otherwise crash the
+  // route with no JSON body at all, and the client's `res.json()` fails with
+  // a raw "Unexpected end of JSON input" instead of a readable error.
+  let costCents: number;
+  let savedRefs: string[] | undefined;
+  try {
+    const pricingRows = await readPricing();
+    costCents = computeCostCents({ kind: "image", model, resolution }, pricingRows);
+    // Persist the uploaded references with the item so they can be shown
+    // later and reused via "Clone & try" (the provider still gets the raw
+    // data URLs).
+    savedRefs = referenceImages?.length
+      ? await saveReferenceImages(referenceImages, id)
+      : undefined;
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Failed to prepare the generation request." },
+      { status: 500 }
+    );
+  }
   const base: GenerationItem = {
     id,
     kind: "image",
@@ -59,13 +74,19 @@ export async function POST(req: NextRequest) {
     createdAt: now,
     updatedAt: now,
   };
-  await upsertItem(base);
-  await logActivity(user.id, "generate", {
-    id,
-    kind: "image",
-    model,
-    costCents,
-  });
-
-  return NextResponse.json(base);
+  try {
+    await upsertItem(base);
+    await logActivity(user.id, "generate", {
+      id,
+      kind: "image",
+      model,
+      costCents,
+    });
+    return NextResponse.json(base);
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Failed to save the generation request." },
+      { status: 500 }
+    );
+  }
 }

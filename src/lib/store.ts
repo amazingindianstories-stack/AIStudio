@@ -299,7 +299,12 @@ export const useStore = create<AppState>((set, get) => ({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
-        const item: GenerationItem = await res.json();
+        let item: GenerationItem;
+        try {
+          item = await res.json();
+        } catch {
+          throw new Error(`Server error (${res.status}): the server returned an empty or invalid response.`);
+        }
         if (!res.ok) {
           throw new Error(item.error || `Server error: ${res.status}`);
         }

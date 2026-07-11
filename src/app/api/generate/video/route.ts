@@ -70,14 +70,30 @@ export async function POST(req: NextRequest) {
 
   const id = crypto.randomUUID();
   const now = Date.now();
-  const user = await getSession();
-  const costCents = computeCostCents(
-    { kind: "video", model, resolution, duration },
-    await readPricing()
-  );
-  const savedRefs = referenceImages?.length
-    ? await saveReferenceImages(referenceImages, id)
-    : undefined;
+
+  // Wrapped: several of these are DB/storage calls (readPricing, saveRef-
+  // erenceImages, upsertItem, logActivity) — an unhandled throw here would
+  // otherwise crash the route with no JSON body at all, and the client's
+  // `res.json()` fails with a raw "Unexpected end of JSON input" instead of
+  // a readable error.
+  let user;
+  let costCents: number;
+  let savedRefs: string[] | undefined;
+  try {
+    user = await getSession();
+    costCents = computeCostCents(
+      { kind: "video", model, resolution, duration },
+      await readPricing()
+    );
+    savedRefs = referenceImages?.length
+      ? await saveReferenceImages(referenceImages, id)
+      : undefined;
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Failed to prepare the generation request." },
+      { status: 500 }
+    );
+  }
   const base: GenerationItem = {
     id,
     kind: "video",
@@ -95,12 +111,19 @@ export async function POST(req: NextRequest) {
     createdAt: now,
     updatedAt: now,
   };
-  await upsertItem(base);
-  await logActivity(user?.id ?? null, "generate", {
-    id,
-    kind: "video",
-    model,
-    costCents,
-  });
-  return NextResponse.json(base);
+  try {
+    await upsertItem(base);
+    await logActivity(user?.id ?? null, "generate", {
+      id,
+      kind: "video",
+      model,
+      costCents,
+    });
+    return NextResponse.json(base);
+  } catch (e: any) {
+    return NextResponse.json(
+      { error: e?.message || "Failed to save the generation request." },
+      { status: 500 }
+    );
+  }
 }
