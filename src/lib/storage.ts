@@ -1,72 +1,28 @@
-import { Storage } from "@google-cloud/storage";
-import fs from "fs";
-
-const OIDC_TOKEN_PATH = "/tmp/oidc-token.txt";
-const WIF_CONFIG_PATH = "/tmp/gcp-wif-config.json";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  DeleteObjectCommand,
+} from "@aws-sdk/client-s3";
 
 /**
- * If running on Vercel, we use Workload Identity Federation instead of a
- * Service Account Key. VERCEL_OIDC_TOKEN is short-lived and re-issued per
- * invocation — NOT stable for a warm/reused function instance's whole
- * lifetime. Writing it once at module load and reusing a single Storage
- * client meant a warm invocation kept using a stale token file after the
- * one written at cold start expired, surfacing as "Could not load the
- * default credentials" on every request after the first (2026-07-11
- * production incident). Fix: rewrite the token file AND mint a fresh
- * Storage client on every call — the client construction itself is cheap
- * (no network I/O), so this only costs a few sync file writes, and it
- * guarantees the client's internal GoogleAuth reads the just-written token
- * instead of reusing a cached (possibly stale) credential from an earlier
- * invocation.
- *
- * The credential file rewrite alone did NOT resolve the incident (still
- * failing after a fresh deploy), so this also stopped assuming the OIDC
- * token belongs at a hardcoded /tmp path: an external_account WIF config's
- * `credential_source.file` field is what actually tells Google's auth
- * library where to look, and if that path doesn't match wherever we wrote
- * the token, credential loading fails identically regardless of freshness.
- * Now the token is written to whatever path the config itself declares.
- * Diagnostic logging (env var presence + the resolved path only — never the
- * token or config contents) is left in deliberately until this incident is
- * confirmed fixed; it's the fastest way to tell "OIDC Federation isn't
- * enabled on this Vercel project at all" (VERCEL_OIDC_TOKEN absent) apart
- * from "the config's file path didn't match" (present, but still fails).
+ * S3-backed storage — reverted from the GCS/Workload-Identity-Federation
+ * implementation (2026-07-11 production incident: "Could not load the
+ * default credentials" on every generation, root-caused to WIF setup issues
+ * that needed more time to debug safely). This is the last known-working
+ * backend and keeps the app serving while GCS/WIF gets fixed properly and
+ * re-migrated later — every exported function name/signature is unchanged,
+ * so callers (save-media.ts) don't need to change either way.
  */
-function getStorageClient(): Storage {
-  const hasToken = !!process.env.VERCEL_OIDC_TOKEN;
-  const hasWifConfig = !!process.env.GCP_WIF_CONFIG;
-  if (hasToken && hasWifConfig) {
-    try {
-      let tokenPath = OIDC_TOKEN_PATH;
-      try {
-        const parsed = JSON.parse(process.env.GCP_WIF_CONFIG as string);
-        if (parsed?.credential_source?.file) {
-          tokenPath = parsed.credential_source.file;
-        }
-      } catch (parseErr) {
-        console.error("GCP_WIF_CONFIG is not valid JSON", parseErr);
-      }
-      fs.writeFileSync(tokenPath, process.env.VERCEL_OIDC_TOKEN as string, "utf8");
-      fs.writeFileSync(WIF_CONFIG_PATH, process.env.GCP_WIF_CONFIG as string, "utf8");
-      process.env.GOOGLE_APPLICATION_CREDENTIALS = WIF_CONFIG_PATH;
-      console.log(`[storage] WIF credentials written; token path=${tokenPath}`);
-    } catch (err) {
-      console.error("Failed to write WIF credentials to /tmp", err);
-    }
-  } else {
-    console.error(
-      `[storage] WIF env vars missing — VERCEL_OIDC_TOKEN present=${hasToken}, ` +
-        `GCP_WIF_CONFIG present=${hasWifConfig}. Falling back to ambient ADC, ` +
-        `which will fail on Vercel unless GOOGLE_APPLICATION_CREDENTIALS is set ` +
-        `some other way.`
-    );
-  }
-  // Automatically uses Application Default Credentials locally/GCP, or the
-  // GOOGLE_APPLICATION_CREDENTIALS we just (re)wrote for Vercel.
-  return new Storage();
-}
+const s3 = new S3Client({
+  region: process.env.AWS_REGION || "us-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
+  },
+});
 
-const getBucket = () => process.env.GCS_BUCKET_NAME || "aistudio-media-bucket-gcp";
+const getBucket = () => process.env.AWS_S3_BUCKET_NAME || "aistudio-media-bucket";
 
 export const MEDIA_BUCKET = "media";
 
@@ -85,15 +41,16 @@ export async function uploadBuffer(
   key: string,
   ext: string
 ): Promise<string> {
-  const bucketName = getBucket();
-  const file = getStorageClient().bucket(bucketName).file(key);
-
-  await file.save(buffer, {
-    contentType: extToMime(ext),
-    metadata: {
-      cacheControl: "public, max-age=31536000",
-    },
+  const bucket = getBucket();
+  const command = new PutObjectCommand({
+    Bucket: bucket,
+    Key: key,
+    Body: buffer,
+    ContentType: extToMime(ext),
+    CacheControl: "public, max-age=31536000",
   });
+
+  await s3.send(command);
 
   return `/api/media/${key}`;
 }
@@ -139,15 +96,21 @@ export async function readAsBase64(
     return { mimeType: "image/png", data: ref };
   }
 
-  // If it's our proxy URL, fetch it directly from the GCS bucket
+  // If it's our proxy URL, fetch it directly from the S3 bucket
   if (ref.startsWith("/api/media/")) {
     const key = ref.replace("/api/media/", "");
-    const file = getStorageClient().bucket(getBucket()).file(key);
-    
-    const [buffer] = await file.download();
-    const [metadata] = await file.getMetadata();
-    
-    const mimeType = metadata.contentType || "image/png";
+    const command = new GetObjectCommand({
+      Bucket: getBucket(),
+      Key: key,
+    });
+
+    const response = await s3.send(command);
+    if (!response.Body) throw new Error("Object body is empty");
+
+    const byteArray = await response.Body.transformToByteArray();
+    const buffer = Buffer.from(byteArray);
+
+    const mimeType = response.ContentType || "image/png";
     return { mimeType, data: buffer.toString("base64") };
   }
 
@@ -165,12 +128,16 @@ export async function readAsBase64(
 
 /** Delete objects by their proxy URL. Best-effort. */
 export async function deleteByUrls(urls: string[]): Promise<void> {
-  const bucketName = getBucket();
+  const bucket = getBucket();
   const deletePromises = urls.map(async (u) => {
     try {
       if (u.startsWith("/api/media/")) {
         const key = u.replace("/api/media/", "");
-        await getStorageClient().bucket(bucketName).file(key).delete();
+        const command = new DeleteObjectCommand({
+          Bucket: bucket,
+          Key: key,
+        });
+        await s3.send(command);
       }
     } catch (err) {
       console.warn(`Failed to delete ${u}`, err);
