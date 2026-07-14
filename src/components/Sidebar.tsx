@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Image as ImageIcon, Clapperboard } from "lucide-react";
+import { Image as ImageIcon, Clapperboard, Shapes } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 
@@ -15,18 +15,29 @@ const topItems = [
 export function Sidebar() {
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
+  const view = useStore((s) => s.view);
+  const setView = useStore((s) => s.setView);
   const [hovered, setHovered] = useState<string | null>(null);
 
-  const activeId = mode === "image" ? "image" : "video";
+  // The active pill lives on exactly one item: the Board view when it's
+  // open, otherwise whichever generation mode is selected.
+  const activeId = view === "canvas" ? "board" : mode === "image" ? "image" : "video";
 
-  const renderItem = (item: (typeof topItems)[number]) => {
+  const renderItem = (item: {
+    id: string;
+    icon: typeof ImageIcon;
+    label: string;
+    onClick: () => void;
+  }) => {
     const isActive = item.id === activeId;
     return (
       <button
         key={item.id}
-        onClick={() => item.mode && setMode(item.mode)}
+        onClick={item.onClick}
         onMouseEnter={() => setHovered(item.id)}
         onMouseLeave={() => setHovered(null)}
+        aria-label={item.label}
+        title={item.label}
         className={cn(
           "relative grid h-11 w-11 place-items-center rounded-xl transition-colors duration-200",
           isActive
@@ -57,7 +68,22 @@ export function Sidebar() {
 
   return (
     <aside className="z-30 hidden h-full w-16 shrink-0 flex-col items-center gap-1 border-r border-line bg-ink-900 py-3 sm:flex">
-      {topItems.map(renderItem)}
+      {topItems.map((item) =>
+        renderItem({
+          ...item,
+          onClick: () => {
+            setView("studio");
+            setMode(item.mode);
+          },
+        })
+      )}
+      <span className="my-1 h-px w-6 bg-line" aria-hidden />
+      {renderItem({
+        id: "board",
+        icon: Shapes,
+        label: "Board",
+        onClick: () => setView("canvas"),
+      })}
     </aside>
   );
 }

@@ -13,6 +13,7 @@ import {
   jsonb,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { CanvasState } from "./canvas/types";
 
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -85,6 +86,16 @@ export const pricing = pgTable("pricing", {
   unitCostCents: integer("unit_cost_cents").notNull(),
   unit: text("unit").notNull(), // 'per_image' | 'per_second'
   notes: text("notes"),
+});
+
+export const canvasBoards = pgTable("canvas_boards", {
+  id: uuid("id").primaryKey().defaultRandom(), // app supplies crypto.randomUUID()
+  projectId: uuid("project_id").notNull(),
+  name: text("name").notNull(),
+  data: jsonb("data").$type<CanvasState>().notNull(), // whole graph
+  createdBy: uuid("created_by"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
 
 export const activityLogs = pgTable("activity_logs", {

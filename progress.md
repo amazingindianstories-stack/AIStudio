@@ -1,5 +1,54 @@
 # Session Progress & Handoff
 
+## 2026-07-14 — Canvas Board: FigJam-style whiteboard tab (COMPLETE)
+
+**Scope**: Add a full-screen infinite-canvas whiteboard (Canvas Board / Board tab) for spatial storyboarding, scoped per-project, with asset library drag-to-place and full persistence. V1 single-user (no multiplayer).
+
+**Shipped**:
+- `src/lib/canvas/` — pure geometry/z-order/history/serialization logic (types.ts, geometry.ts, zorder.ts, history.ts, serialization.ts); all unit-testable via `node:test` (82 passing).
+- `src/lib/canvas-store.ts` — scoped Zustand store (active board graph, selection, tool, viewport, undo/redo, autosave lifecycle).
+- `src/lib/canvas-db.ts` — Drizzle access for `canvas_boards` table (list, get, create, rename, delete, save data).
+- `src/app/api/canvas-boards/` — REST routes (op-switched metadata POST, `[id]` blob GET/PUT, image upload helper).
+- `src/components/canvas/` — CanvasView, CanvasSurface (pan/zoom/selection/marquee), CanvasToolbar, StyleInspector, BoardSwitcher, ConnectorLayer, CanvasAssetPanel, per-node renders.
+- Schema: `src/lib/schema.ts` new `canvasBoards` pgTable (jsonb data, app-supplied UUID, bigint ms timestamps).
+- Modified: `src/lib/store.ts` (+view field), `src/components/Sidebar.tsx` (Board rail icon), `src/app/page.tsx` (conditional view), `src/lib/save-media.ts` (saveCanvasAsset wrapper).
+- **Security fixes** (pre-existing paths): `src/lib/storage.ts` MIME allowlist (JPEG/PNG/WebP/GIF only, rejects SVG/stored-XSS), `src/app/api/media/[...path]/route.ts` (nosniff header).
+
+**Architecture decisions** (design.md D-Render through D-Entry):
+- Custom DOM/SVG scene graph (not tldraw/canvas raster) — full control over jsonb model + native-DnD asset drop + no commercial watermark.
+- Postgres jsonb data (not S3 pointer) — small structured JSON, reuses established pattern.
+- Separate `canvas-store.ts` (not global store) — confines high-frequency updates to canvas subscribers.
+- REST `[id]` blob route + op-switch metadata — single large document pattern.
+- 1500 ms autosave debounce + force-flush on lifecycle edges (switch/unmount/beforeunload).
+- Top-level full-screen view (not 4th right-panel tab) — via new Sidebar rail icon.
+
+**Stage 2 fixes** (post-build, direct application, unambiguous):
+1. Connector path: straight line → quadratic bezier (ui-spec.md §7 requires curves).
+2. Connector stroke: `#000000` → `rgba(255,255,255,0.7)` (matching spec visibility).
+3. Zoom bounds: 0.05–8 → 0.1–4 (10%–400%, matching ui-spec.md §2).
+
+**Stage 3 fixes** (code-reviewer + security-reviewer + ui-designer Mode 2):
+- CRITICAL: Frame parentId never assigned on drop (visual highlight only) — fixed in moveSelectionBy.
+- CRITICAL: ConnectorLayer SVG `width={0} height={0}` disabled all rendering — fixed to `width={1} height={1}` with `overflow:visible`.
+- MAJOR: Mid-flight autosave PUT could drop concurrent edits — fixed by checking history reference identity.
+- MAJOR: Rapid board-switch could apply stale GET response — fixed with monotonic loadGeneration counter.
+- MAJOR: Opacity slider committed history on every tick, flooding undo — fixed with gesture coalescing.
+- MAJOR: Line/Arrow tool couldn't be created on empty canvas — fixed by allowing free `{x,y}` connector endpoints.
+- MINOR: zoomToFit used hardcoded viewport guess — fixed with ResizeObserver.
+- MINOR: saveBoardData returned success for deleted boards — fixed with Drizzle `.returning()` + 404.
+- **Security (HIGH)**: image upload accepted SVG with no MIME check, served same-origin no-sniff → stored XSS. Fixed: `splitDataUrl` MIME allowlist (JPEG/PNG/WebP/GIF) + nosniff header (covers canvas AND pre-existing asset/reference paths).
+- **Security (MEDIUM)**: ImageNode.src could be arbitrary external URL (referrer/UA leak). Fixed: `validateCanvasState` requires `/api/media/` prefix, drops otherwise.
+- **Security (LOW/MEDIUM)**: No size caps on blob/uploads. Fixed: 2MB PUT body cap, 8MB file upload cap.
+- **Accessibility**: Sidebar rail buttons lacked aria-labels (fixed in shared renderer), Add image not focusable (button+ref), Shapes popover no accessible name, delete dialog Cancel focus race (double-rAF defer + focus-visible).
+
+**User follow-ups** (deferred, require data-model extension or cosmetic polish):
+- Bold + TextAlign for sticky notes (data model extension).
+- 3-state arrowhead toggle `none/→/↔` (Connector.kind currently 2-state).
+- FrameNode label on-canvas styling polish (cosmetic).
+- Delete-board confirm dialog focus ring visibility (cosmetic).
+
+**Evidence**: `.council/canvas-board/spec.md`, `design.md`, `ui-spec.md`, `decisions.md` (D1–D8 decision log + 3 build rounds).
+
 ## 2026-07-11 — Gemini Omni Flash video model added via /council (COMPLETE, rebuilt once)
 
 **Scope**: Add Google's Gemini Omni Flash (`gemini-omni-flash-preview`, Interactions API) as a selectable video model, giving it the same NBP-grade reference/prompt scaffolding (`assemblePrompt` + shot-spec) images already get, instead of the flat prompts the Higgsfield/Seedance video paths use. Billing lands on the GCP project (Gemini API key's project by default; Vertex SKU flag-gated).

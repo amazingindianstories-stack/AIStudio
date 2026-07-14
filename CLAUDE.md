@@ -59,6 +59,27 @@ S3 bucket via `@aws-sdk/client-s3` (`src/lib/storage.ts`, bucket from `AWS_S3_BU
 
 Single-page app: `src/app/page.tsx` composes the panels; all client state is one Zustand store (`src/lib/store.ts`). Right panel has Project | History | Favorites tabs; projects/folders organize generations. Reference images are downscaled client-side before upload to fit Vercel's 4.5MB payload limit — keep that in mind when touching upload paths.
 
+### Canvas Board (FigJam-style whiteboard tab)
+
+A full-screen infinite-canvas whiteboard for spatial storyboarding, launched from a new "Board" rail icon in `Sidebar.tsx`. Users drag assets from their library onto the canvas or create shapes/text/frames/connectors freehand; board state persists to a new `canvas_boards` Postgres table with full graph (nodes, connectors, viewport) stored as `jsonb data`. Single-user v1 (no real-time multiplayer — see D4 in `.council/canvas-board/decisions.md`).
+
+**Code organization:**
+- `src/lib/canvas/` — pure, unit-testable logic (types.ts, geometry.ts, zorder.ts, history.ts, serialization.ts); no `"use client"` or side effects.
+- `src/lib/canvas-store.ts` — Zustand store for active board (scoped separately from global `store.ts` to contain high-frequency pan/drag/selection updates).
+- `src/lib/canvas-db.ts` — Drizzle data access for `canvas_boards` table (list, get one, create, rename, delete, save data).
+- `src/app/api/canvas-boards/` — REST routes: list/create/rename/delete via op-switched POST, get board with data blob via GET `[id]`, autosave via PUT `[id]`, image upload helper via POST `[id]/upload`.
+- `src/components/canvas/` — CanvasView (top-level mount/autosave lifecycle), CanvasSurface (pan/zoom/pointer/marquee), CanvasToolbar (tool palette + zoom controls), StyleInspector (floating property panel), BoardSwitcher (dropdown), ConnectorLayer (SVG overlay for connectors + marquee), CanvasAssetPanel, per-node renders (ShapeNode, TextNode, StickyNode, FrameNode, ImageNode).
+
+**Persistence model:** Board metadata in `canvas_boards` table; full graph (nodes, connectors, viewport) as `jsonb data` (same convention as `generations.referenceImages`). Autosave is 1500 ms debounced PUT, force-flushed on board switch, view switch, unmount, `beforeunload` (via `keepalive` fetch). Reload restores nodes/positions/z-order/viewport faithfully via `validateCanvasState` (array order = z-order; child coords absolute; connector endpoints stored as `{nodeId, anchor}` never coordinates — see design.md's Data model for the two key invariants and their reasoning).
+
+**Scope & non-goals:** v1 supports shapes (rect/ellipse/triangle/diamond), text, sticky notes, frames (labeled containers with parentId membership), connectors (with bezier curves + attached endpoints), image nodes from asset library (drag or click-to-place), undo/redo, grouping (shared groupId), layer ordering. No real-time multiplayer (D4), no Figma design-tool primitives (pen/bezier, booleans, components, auto-layout), no rotation, no on-canvas video playback. Desktop pointer + keyboard only; 1024px min width (overlay on narrower).
+
+**Two security fixes to pre-existing paths** (not canvas-specific but shipping in this change):
+- `src/lib/storage.ts` `splitDataUrl` now allowlists JPEG/PNG/WebP/GIF MIME types only and throws on SVG or anything else — closes a stored-XSS vector in the canvas image-upload path AND the pre-existing asset/reference-image upload paths.
+- `src/app/api/media/[...path]/route.ts` now sets `X-Content-Type-Options: nosniff` header as defense-in-depth.
+
+**Full design rationale & decision log:** `.council/canvas-board/spec.md` (acceptance criteria 1–11), `design.md` (architecture trade-offs + 6 binding decisions + data model), `ui-spec.md` (visual contract + responsive bounds), `decisions.md` (D1–D8: design gate, build, Stage 2/3 fixes).
+
 ### Deployment
 
 Vercel is the primary target (hence `maxDuration = 60`, payload limits, env-var token auth, read-only FS assumptions). A `Dockerfile` (Next standalone output) exists for container deploys.

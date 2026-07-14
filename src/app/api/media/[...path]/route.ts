@@ -45,6 +45,10 @@ export async function GET(
         "Content-Type": contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
         "Accept-Ranges": "bytes",
+        // Defense in depth alongside the upload-time MIME allowlist in
+        // storage.ts: never let a browser sniff a stored object's bytes into
+        // executing as a different content type than what was recorded.
+        "X-Content-Type-Options": "nosniff",
       };
       if (response.ContentLength != null) {
         headers["Content-Length"] = String(response.ContentLength);

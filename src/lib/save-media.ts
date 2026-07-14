@@ -10,6 +10,7 @@ import {
 } from "./storage";
 
 export const MAX_AVATAR_UPLOAD_BYTES = 3 * 1024 * 1024;
+export const MAX_CANVAS_UPLOAD_BYTES = 8 * 1024 * 1024;
 
 export class InvalidAvatarError extends Error {
   constructor(message: string) {
@@ -51,6 +52,16 @@ export async function saveAssetImage(dataUrl: string): Promise<string> {
 /** Delete a stored image by its public URL. Best-effort. */
 export async function deleteAssetImage(url: string): Promise<void> {
   await deleteByUrls([url]);
+}
+
+/** Persist a canvas board image upload/paste (data URL); returns its public URL. */
+export async function saveCanvasAsset(dataUrl: string): Promise<string> {
+  const { ext, data } = splitDataUrl(dataUrl);
+  // data is base64; raw byte length is ~3/4 of the encoded string length.
+  if (Buffer.byteLength(data, "base64") > MAX_CANVAS_UPLOAD_BYTES) {
+    throw new Error("Images must be 8 MB or smaller.");
+  }
+  return uploadBase64(data, `canvas/${randomUUID()}.${ext}`, ext);
 }
 
 /** Normalize an uploaded profile image and store it under a non-reused key. */

@@ -49,6 +49,7 @@ interface ComposerState {
 }
 
 interface AppState extends ComposerState {
+  view: "studio" | "canvas";
   items: GenerationItem[];
   hasMoreHistory: boolean;
   loading: boolean;
@@ -73,6 +74,9 @@ interface AppState extends ComposerState {
   projects: Project[];
   activeProjectId: string | null;
   activeFolderId: string | null; // null = All assets / unsorted
+
+  // view
+  setView: (v: "studio" | "canvas") => void;
 
   // composer setters
   setMode: (mode: GenerationKind) => void;
@@ -154,6 +158,8 @@ async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
 }
 
 export const useStore = create<AppState>((set, get) => ({
+  view: "studio",
+
   // composer defaults (video by default, matching the reference)
   mode: "video",
   model: DEFAULTS.video.model,
@@ -185,6 +191,8 @@ export const useStore = create<AppState>((set, get) => ({
   projects: [],
   activeProjectId: null,
   activeFolderId: null,
+
+  setView: (view) => set({ view }),
 
   setMode: (mode) => {
     const d = DEFAULTS[mode];

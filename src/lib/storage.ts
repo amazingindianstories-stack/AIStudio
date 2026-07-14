@@ -64,14 +64,28 @@ export async function uploadBase64(
   return uploadBuffer(Buffer.from(base64, "base64"), key, ext);
 }
 
-/** Split a data URL into ext + base64. */
+// Raster formats only. In particular `image/svg+xml` is deliberately
+// excluded: an SVG is executable content (can embed <script>/event handlers)
+// and every caller of splitDataUrl ends up served back same-origin through
+// /api/media/[...path] — accepting SVG here would be a stored-XSS vector.
+const ALLOWED_DATA_URL_MIME_EXT: Record<string, string> = {
+  jpeg: "jpg",
+  jpg: "jpg",
+  png: "png",
+  webp: "webp",
+  gif: "gif",
+};
+
+/** Split a data URL into ext + base64. Throws on anything but an allowlisted
+ * raster image MIME type (rejects image/svg+xml and non-image data URLs). */
 export function splitDataUrl(input: string): { ext: string; data: string } {
   const m = input.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,(.*)$/s);
-  if (m) {
-    const ext = m[1] === "jpeg" ? "jpg" : m[1].toLowerCase();
-    return { ext, data: m[2] };
+  const subtype = m?.[1]?.toLowerCase();
+  const ext = subtype ? ALLOWED_DATA_URL_MIME_EXT[subtype] : undefined;
+  if (!m || !ext) {
+    throw new Error("Unsupported image type. Use JPEG, PNG, WebP, or GIF.");
   }
-  return { ext: "png", data: input };
+  return { ext, data: m[2] };
 }
 
 /** Download a remote URL (e.g. a provider video) and store it; returns proxy URL. */

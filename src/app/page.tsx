@@ -11,6 +11,7 @@ import { ConversationPanel } from "@/components/ConversationPanel";
 import { PromptComposer } from "@/components/PromptComposer";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DetailModal } from "@/components/DetailModal";
+import { CanvasView } from "@/components/canvas/CanvasView";
 
 export default function Page() {
   const loadHistory = useStore((s) => s.loadHistory);
@@ -19,6 +20,7 @@ export default function Page() {
   const loadUsers = useStore((s) => s.loadUsers);
   const mobileHistoryOpen = useStore((s) => s.mobileHistoryOpen);
   const setMobileHistoryOpen = useStore((s) => s.setMobileHistoryOpen);
+  const view = useStore((s) => s.view);
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const mobileDrawerRef = useRef<HTMLElement>(null);
   const mobileCloseRef = useRef<HTMLButtonElement>(null);
@@ -86,59 +88,65 @@ export default function Page() {
         <div className="flex min-h-0 flex-1">
           <Sidebar />
 
-          {/* left: conversation + composer */}
-          <main className="flex min-w-0 flex-1 flex-col">
-            <ConversationPanel />
-            <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
-              <div className="mx-auto w-full">
-                <PromptComposer />
-              </div>
-            </div>
-          </main>
+          {view === "canvas" ? (
+            <CanvasView />
+          ) : (
+            <>
+              {/* left: conversation + composer */}
+              <main className="flex min-w-0 flex-1 flex-col">
+                <ConversationPanel />
+                <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
+                  <div className="mx-auto w-full">
+                    <PromptComposer />
+                  </div>
+                </div>
+              </main>
 
-          {/* right: history (desktop) */}
-          <section
-            className={cn(
-              "hidden shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:flex",
-              rightPanelOpen ? "w-[clamp(25rem,42vw,48.75rem)]" : "w-10"
-            )}
-          >
-            <div className="flex w-10 shrink-0 items-center justify-center border-l border-line bg-ink-900">
-              <button
-                type="button"
-                onClick={() => setRightPanelOpen((open) => !open)}
-                className="grid h-9 w-9 place-items-center rounded-lg text-white/55 transition hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
-                aria-expanded={rightPanelOpen}
-                aria-controls="desktop-history-panel"
-                aria-label={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
-                title={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
-              >
-                {rightPanelOpen ? (
-                  <ChevronRight className="h-5 w-5" />
-                ) : (
-                  <ChevronLeft className="h-5 w-5" />
+              {/* right: history (desktop) */}
+              <section
+                className={cn(
+                  "hidden shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:flex",
+                  rightPanelOpen ? "w-[clamp(25rem,42vw,48.75rem)]" : "w-10"
                 )}
-              </button>
-            </div>
-            <div
-              id="desktop-history-panel"
-              className={cn(
-                "min-w-0 flex-1 overflow-hidden border-l border-line transition-opacity duration-200 motion-reduce:transition-none",
-                rightPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
-              )}
-              aria-hidden={!rightPanelOpen}
-              inert={!rightPanelOpen}
-            >
-              <div className="h-full w-[clamp(25rem,42vw,48.75rem)]">
-                <HistoryPanel />
-              </div>
-            </div>
-          </section>
+              >
+                <div className="flex w-10 shrink-0 items-center justify-center border-l border-line bg-ink-900">
+                  <button
+                    type="button"
+                    onClick={() => setRightPanelOpen((open) => !open)}
+                    className="grid h-9 w-9 place-items-center rounded-lg text-white/55 transition hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                    aria-expanded={rightPanelOpen}
+                    aria-controls="desktop-history-panel"
+                    aria-label={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
+                    title={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
+                  >
+                    {rightPanelOpen ? (
+                      <ChevronRight className="h-5 w-5" />
+                    ) : (
+                      <ChevronLeft className="h-5 w-5" />
+                    )}
+                  </button>
+                </div>
+                <div
+                  id="desktop-history-panel"
+                  className={cn(
+                    "min-w-0 flex-1 overflow-hidden border-l border-line transition-opacity duration-200 motion-reduce:transition-none",
+                    rightPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
+                  )}
+                  aria-hidden={!rightPanelOpen}
+                  inert={!rightPanelOpen}
+                >
+                  <div className="h-full w-[clamp(25rem,42vw,48.75rem)]">
+                    <HistoryPanel />
+                  </div>
+                </div>
+              </section>
+            </>
+          )}
         </div>
 
         {/* mobile history drawer */}
         <AnimatePresence>
-          {mobileHistoryOpen && (
+          {view !== "canvas" && mobileHistoryOpen && (
             <>
               <motion.div
                 initial={{ opacity: 0 }}
