@@ -1,18 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import { adminOrNull } from "@/lib/admin";
 import { logActivity } from "@/lib/activity";
+import { writePrivateBuffer } from "@/lib/storage";
 
 export const runtime = "nodejs";
-
-const s3 = new S3Client({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
 
 function secretOk(req: NextRequest): boolean {
   const expected = process.env.SET_TOKEN_SECRET;
@@ -24,7 +16,7 @@ function secretOk(req: NextRequest): boolean {
 }
 
 /**
- * Seed/replace the Higgsfield MCP OAuth token in S3 (the serverless source of
+ * Seed/replace the Higgsfield MCP OAuth token in GCS (the serverless source of
  * truth). Recovery path when the token family dies: run `npm run hf:login`
  * locally, then POST the resulting .higgsfield-mcp-token.json here — as a
  * logged-in admin (Admin → Higgsfield token card) or with the
@@ -62,13 +54,10 @@ export async function POST(req: NextRequest) {
     obtained_at: typeof body.obtained_at === "number" ? body.obtained_at : Date.now(),
   };
 
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: process.env.AWS_S3_BUCKET_NAME || "aistudio-media-bucket",
-      Key: "settings/higgsfield-mcp-token.json",
-      Body: JSON.stringify(tokenData),
-      ContentType: "application/json",
-    })
+  await writePrivateBuffer(
+    Buffer.from(JSON.stringify(tokenData)),
+    "settings/higgsfield-mcp-token.json",
+    "application/json"
   );
   await logActivity(admin?.id ?? null, "set_higgsfield_token", {
     via: admin ? "admin-session" : "setup-secret",

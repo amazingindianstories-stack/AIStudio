@@ -1,5 +1,5 @@
 import { eq, desc } from "drizzle-orm";
-import { db } from "./db";
+import { getDb } from "./db";
 import { assets } from "./schema";
 import type { Asset, AssetKind } from "./types";
 
@@ -21,16 +21,19 @@ function rowToAsset(r: Row): Asset {
 }
 
 export async function readAssets(): Promise<Asset[]> {
+  const db = await getDb();
   const rows = await db.select().from(assets).orderBy(desc(assets.createdAt));
   return rows.map(rowToAsset);
 }
 
 export async function getAsset(id: string): Promise<Asset | undefined> {
+  const db = await getDb();
   const rows = await db.select().from(assets).where(eq(assets.id, id)).limit(1);
   return rows[0] ? rowToAsset(rows[0]) : undefined;
 }
 
 export async function upsertAsset(asset: Asset): Promise<void> {
+  const db = await getDb();
   const values = {
     id: asset.id,
     kind: asset.kind,
@@ -48,6 +51,7 @@ export async function upsertAsset(asset: Asset): Promise<void> {
 }
 
 export async function deleteAsset(id: string): Promise<Asset | undefined> {
+  const db = await getDb();
   const rows = await db.delete(assets).where(eq(assets.id, id)).returning();
   return rows[0] ? rowToAsset(rows[0]) : undefined;
 }

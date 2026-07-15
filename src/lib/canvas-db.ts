@@ -1,6 +1,6 @@
 import { randomUUID } from "crypto";
 import { eq } from "drizzle-orm";
-import { db } from "./db";
+import { getDb } from "./db";
 import { canvasBoards } from "./schema";
 import { emptyCanvasState } from "./canvas/serialization";
 import type { CanvasBoard, CanvasBoardMeta, CanvasState } from "./canvas/types";
@@ -26,6 +26,7 @@ function rowToMeta(r: Pick<Row, "id" | "projectId" | "name" | "createdBy" | "cre
 
 /** Metadata only (omits `data`) — keeps the board switcher light. */
 export async function listBoards(projectId: string): Promise<CanvasBoardMeta[]> {
+  const db = await getDb();
   const rows = await db
     .select({
       id: canvasBoards.id,
@@ -41,6 +42,7 @@ export async function listBoards(projectId: string): Promise<CanvasBoardMeta[]> 
 }
 
 export async function getBoard(id: string): Promise<CanvasBoard | undefined> {
+  const db = await getDb();
   const rows = await db.select().from(canvasBoards).where(eq(canvasBoards.id, id)).limit(1);
   const row = rows[0];
   if (!row) return undefined;
@@ -52,6 +54,7 @@ export async function createBoard(
   name: string,
   createdBy: string | null
 ): Promise<CanvasBoardMeta> {
+  const db = await getDb();
   const now = Date.now();
   const [row] = await db
     .insert(canvasBoards)
@@ -69,6 +72,7 @@ export async function createBoard(
 }
 
 export async function renameBoard(id: string, name: string): Promise<void> {
+  const db = await getDb();
   await db
     .update(canvasBoards)
     .set({ name, updatedAt: Date.now() })
@@ -76,6 +80,7 @@ export async function renameBoard(id: string, name: string): Promise<void> {
 }
 
 export async function deleteBoard(id: string): Promise<void> {
+  const db = await getDb();
   await db.delete(canvasBoards).where(eq(canvasBoards.id, id));
 }
 
@@ -86,6 +91,7 @@ export async function saveBoardData(
   id: string,
   data: CanvasState
 ): Promise<{ updatedAt: number } | undefined> {
+  const db = await getDb();
   const updatedAt = Date.now();
   const rows = await db
     .update(canvasBoards)

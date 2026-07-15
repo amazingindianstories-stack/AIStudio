@@ -1,5 +1,5 @@
 /**
- * Drizzle schema → Supabase Postgres. Timestamps are stored as bigint ms
+ * Drizzle schema for PostgreSQL (Cloud SQL in production). Timestamps are bigint ms
  * (Date.now()) to match the numbers the app already uses throughout. UUID ids
  * are supplied by the app (crypto.randomUUID()) on insert, matching the
  * existing flow; defaultRandom() is just a fallback.
@@ -12,6 +12,7 @@ import {
   boolean,
   jsonb,
   uuid,
+  index,
 } from "drizzle-orm/pg-core";
 import type { CanvasState } from "./canvas/types";
 
@@ -68,7 +69,13 @@ export const generations = pgTable("generations", {
   taskId: text("task_id"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-});
+}, (table) => [
+  index("generations_created_at_idx").on(table.createdAt),
+  index("generations_queue_idx").on(table.status, table.kind, table.createdAt),
+  index("generations_project_id_idx").on(table.projectId),
+  index("generations_folder_id_idx").on(table.folderId),
+  index("generations_user_created_idx").on(table.userId, table.createdAt),
+]);
 
 export const assets = pgTable("assets", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -96,7 +103,7 @@ export const canvasBoards = pgTable("canvas_boards", {
   createdBy: uuid("created_by"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-});
+}, (table) => [index("canvas_boards_project_id_idx").on(table.projectId)]);
 
 export const activityLogs = pgTable("activity_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -104,4 +111,4 @@ export const activityLogs = pgTable("activity_logs", {
   action: text("action").notNull(), // 'login' | 'logout' | 'generate' | ...
   detail: jsonb("detail"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
-});
+}, (table) => [index("activity_logs_created_at_idx").on(table.createdAt)]);

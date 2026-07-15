@@ -15,22 +15,13 @@
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { readStoredBuffer, writePrivateBuffer } from "@/lib/storage";
 
 const MCP_URL = "https://mcp.higgsfield.ai/mcp";
 const TOKEN_URL = "https://mcp.higgsfield.ai/oauth2/token";
 const TOKEN_FILE = path.join(process.cwd(), ".higgsfield-mcp-token.json");
 
-// S3 config for token persistence in serverless environments
-const s3 = new S3Client({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
-const S3_BUCKET = process.env.AWS_S3_BUCKET_NAME || "aistudio-media-bucket";
-const S3_TOKEN_KEY = "settings/higgsfield-mcp-token.json";
+const TOKEN_OBJECT_KEY = "settings/higgsfield-mcp-token.json";
 
 // ── model id mapping (UI name → MCP model id) ───────────────────────────────
 const MODEL_IDS: Record<string, string> = {
@@ -56,41 +47,33 @@ interface TokenData {
 }
 let token: TokenData | null = null;
 
-async function readS3Token(): Promise<TokenData | null> {
-  if (!process.env.AWS_ACCESS_KEY_ID) return null;
+async function readStoredToken(): Promise<TokenData | null> {
   try {
-    const cmd = new GetObjectCommand({ Bucket: S3_BUCKET, Key: S3_TOKEN_KEY });
-    const res = await s3.send(cmd);
-    if (!res.Body) return null;
-    const json = await res.Body.transformToString();
-    return JSON.parse(json) as TokenData;
-  } catch (e: any) {
+    return JSON.parse((await readStoredBuffer(TOKEN_OBJECT_KEY)).toString("utf8"));
+  } catch {
     return null;
   }
 }
 
-async function writeS3Token(t: TokenData): Promise<void> {
-  if (!process.env.AWS_ACCESS_KEY_ID) return;
+async function writeStoredToken(t: TokenData): Promise<void> {
   try {
-    const cmd = new PutObjectCommand({
-      Bucket: S3_BUCKET,
-      Key: S3_TOKEN_KEY,
-      Body: JSON.stringify(t),
-      ContentType: "application/json",
-    });
-    await s3.send(cmd);
-  } catch (e: any) {
-    console.error("[mcp] writeS3Token error:", e);
+    await writePrivateBuffer(
+      Buffer.from(JSON.stringify(t)),
+      TOKEN_OBJECT_KEY,
+      "application/json"
+    );
+  } catch (error) {
+    console.error("[mcp] writeStoredToken error:", error);
   }
 }
 
-async function loadToken(): Promise<TokenData> {
+export async function loadToken(): Promise<TokenData> {
   if (token) return token;
 
-  // 1. Try S3 first (centralized state for serverless)
-  const s3t = await readS3Token();
-  if (s3t) {
-    token = s3t;
+  // 1. Try object storage first (centralized state for serverless)
+  const stored = await readStoredToken();
+  if (stored) {
+    token = stored;
     return token;
   }
 
@@ -108,7 +91,7 @@ async function loadToken(): Promise<TokenData> {
     token = { ...raw, obtained_at: raw.obtained_at ?? Date.now() };
     return token!;
   } catch (e) {
-    throw new Error("No Higgsfield MCP token found in S3, env vars, or local file.");
+    throw new Error("No Higgsfield MCP token found in GCS, env vars, or local file.");
   }
 }
 
@@ -121,7 +104,7 @@ async function refreshOnce(refresh_token: string, client_id: string): Promise<an
   return res.json();
 }
 
-function isFresh(t: TokenData | null): boolean {
+export function isFresh(t: TokenData | null): boolean {
   return !!(
     t?.access_token &&
     t.obtained_at &&
@@ -137,16 +120,16 @@ async function refreshToken(): Promise<void> {
     console.log(`[mcp] refresh rejected (${j.error || "no access_token"})`);
     // Concurrent serverless instances race on the single-use refresh token:
     // the loser gets invalid_grant while the winner has already written a
-    // working token to S3 — adopt that instead of burning another refresh.
-    const s3t = await readS3Token();
-    if (s3t && s3t.refresh_token !== t.refresh_token) {
-      if (isFresh(s3t)) {
-        console.log("[mcp] adopting newer S3 token from a concurrent refresh");
-        token = s3t;
+    // working token to GCS — adopt that instead of burning another refresh.
+    const stored = await readStoredToken();
+    if (stored && stored.refresh_token !== t.refresh_token) {
+      if (isFresh(stored)) {
+        console.log("[mcp] adopting newer GCS token from a concurrent refresh");
+        token = stored;
         session = null;
         return;
       }
-      j = await refreshOnce(s3t.refresh_token, s3t.client_id);
+      j = await refreshOnce(stored.refresh_token, stored.client_id);
     }
   }
   if (!j.access_token) {
@@ -174,7 +157,7 @@ async function refreshToken(): Promise<void> {
     obtained_at: Date.now(),
   };
 
-  await writeS3Token(token); // Persist to S3
+  await writeStoredToken(token);
 
   try {
     await fs.writeFile(TOKEN_FILE, JSON.stringify(token, null, 2));
@@ -187,7 +170,7 @@ async function refreshToken(): Promise<void> {
 async function accessToken(): Promise<string> {
   const t = await loadToken();
   // A token without obtained_at/expires_in (e.g. a raw hf:login file seeded
-  // into S3) has unknown age — treat it as stale rather than fresh forever;
+  // into GCS) has unknown age — treat it as stale rather than fresh forever;
   // the server hides the resulting 401s behind generic tool errors.
   const stale =
     !t.access_token ||
@@ -198,7 +181,7 @@ async function accessToken(): Promise<string> {
     try {
       await refreshToken();
     } catch (e) {
-      token = null; // clear in-memory state so we re-fetch from S3 next time
+      token = null; // clear in-memory state so we re-fetch from GCS next time
       throw e;
     }
   }

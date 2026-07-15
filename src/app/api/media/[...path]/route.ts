@@ -1,74 +1,65 @@
-import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { NextRequest, NextResponse } from "next/server";
+import { getSession } from "@/lib/auth";
+import {
+  getMediaRedirectUrl,
+  InvalidMediaRangeError,
+  MediaNotFoundError,
+  openMediaObject,
+} from "@/lib/storage";
 
-const s3 = new S3Client({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
+export const runtime = "nodejs";
 
-const getBucket = () => process.env.AWS_S3_BUCKET_NAME || "aistudio-media-bucket";
+// Key prefixes that live in the same bucket as user media but are never
+// "media" — settings blobs (e.g. the Higgsfield MCP OAuth token) and
+// Postgres migration snapshots. The signed-in check below is the primary
+// fix (this route previously had NO auth check at all — middleware.ts only
+// verifies a session cookie is *present*, not validly signed, so any
+// request with a garbage cookie value could read any object in the
+// bucket). This denylist is defense-in-depth on top of that: these
+// prefixes hold secrets/PII that no ordinary signed-in user should be able
+// to fetch just because "media serving" happens to share their bucket.
+const FORBIDDEN_KEY_PREFIXES = ["settings/", "migrations/"];
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
+  if (!(await getSession())) {
+    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  }
+
+  const key = (await params).path.join("/");
+  if (FORBIDDEN_KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+    return new NextResponse("Not Found", { status: 404 });
+  }
+
+  const cdnUrl = getMediaRedirectUrl(key);
+
+  // Preserve every existing /api/media URL while moving the bytes off Vercel.
+  // Browsers forward Range headers across this temporary redirect to Cloud CDN.
+  if (cdnUrl) return NextResponse.redirect(cdnUrl, 307);
+
   try {
-    const resolvedParams = await params;
-    const key = resolvedParams.path.join("/");
-
-    // Forward Range requests to S3 (it supports them natively). Browsers
-    // REQUIRE ranges to stream/seek MP4s whose moov atom sits at the end of
-    // the file (Higgsfield's videos do) — without 206 responses the <video>
-    // element can't read the duration and playback dies after ~2s.
-    const range = request.headers.get("range") ?? undefined;
-
-    const command = new GetObjectCommand({
-      Bucket: getBucket(),
-      Key: key,
-      Range: range,
-    });
-
-    try {
-      const response = await s3.send(command);
-
-      const contentType = response.ContentType || "application/octet-stream";
-      const stream = response.Body?.transformToWebStream();
-
-      if (!stream) {
-        return new NextResponse("Empty Body", { status: 500 });
-      }
-
-      const headers: Record<string, string> = {
-        "Content-Type": contentType,
-        "Cache-Control": "public, max-age=31536000, immutable",
-        "Accept-Ranges": "bytes",
-        // Defense in depth alongside the upload-time MIME allowlist in
-        // storage.ts: never let a browser sniff a stored object's bytes into
-        // executing as a different content type than what was recorded.
-        "X-Content-Type-Options": "nosniff",
-      };
-      if (response.ContentLength != null) {
-        headers["Content-Length"] = String(response.ContentLength);
-      }
-      if (range && response.ContentRange) {
-        headers["Content-Range"] = response.ContentRange;
-        return new NextResponse(stream, { status: 206, headers });
-      }
-      return new NextResponse(stream, { headers });
-    } catch (s3Error: any) {
-      if (s3Error.name === "NoSuchKey") {
-        return new NextResponse("Not Found", { status: 404 });
-      }
-      // An unsatisfiable Range (e.g. stale player state) — not a server fault.
-      if (s3Error.name === "InvalidRange") {
-        return new NextResponse("Range Not Satisfiable", { status: 416 });
-      }
-      throw s3Error;
-    }
+    const media = await openMediaObject(
+      key,
+      request.headers.get("range") ?? undefined
+    );
+    const headers: Record<string, string> = {
+      "Content-Type": media.contentType,
+      "Content-Length": String(media.contentLength),
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "Accept-Ranges": "bytes",
+      "X-Content-Type-Options": "nosniff",
+    };
+    if (media.contentRange) headers["Content-Range"] = media.contentRange;
+    return new NextResponse(media.stream, { status: media.status, headers });
   } catch (error) {
+    if (error instanceof MediaNotFoundError) {
+      return new NextResponse("Not Found", { status: 404 });
+    }
+    if (error instanceof InvalidMediaRangeError) {
+      return new NextResponse("Range Not Satisfiable", { status: 416 });
+    }
     console.error("Error serving media:", error);
     return new NextResponse("Internal Server Error", { status: 500 });
   }

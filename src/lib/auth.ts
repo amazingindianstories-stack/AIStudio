@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { timingSafeEqual, createHmac } from "crypto";
 import { eq } from "drizzle-orm";
-import { db } from "./db";
+import { getDb } from "./db";
 import { users } from "./schema";
 
 export { hashPassword, verifyPassword } from "./password";
@@ -92,6 +92,7 @@ export async function getSession(): Promise<AuthenticatedSession | null> {
   if (!token) return null;
   const session = verifySessionToken(token);
   if (!session) return null;
+  const db = await getDb();
   const row = await db
     .select({
       id: users.id,

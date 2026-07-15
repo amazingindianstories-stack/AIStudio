@@ -1,5 +1,5 @@
 import { desc } from "drizzle-orm";
-import { db } from "./db";
+import { getDb } from "./db";
 import { activityLogs } from "./schema";
 
 /** Append an admin audit-trail event. Best-effort (never throws to caller). */
@@ -9,6 +9,7 @@ export async function logActivity(
   detail?: unknown
 ): Promise<void> {
   try {
+    const db = await getDb();
     await db.insert(activityLogs).values({
       userId: userId ?? null,
       action,
@@ -30,6 +31,7 @@ export interface ActivityRow {
 
 /** Most recent audit-trail events, newest first. */
 export async function readActivity(limitN = 500): Promise<ActivityRow[]> {
+  const db = await getDb();
   const rows = await db
     .select()
     .from(activityLogs)

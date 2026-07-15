@@ -1,5 +1,5 @@
 import { eq, desc, lt } from "drizzle-orm";
-import { db } from "./db";
+import { getDb } from "./db";
 import { generations } from "./schema";
 import type { GenerationItem } from "./types";
 
@@ -68,6 +68,7 @@ export async function readHistory(
   cursor?: number,
   limitN = 20
 ): Promise<GenerationItem[]> {
+  const db = await getDb();
   let query: any = db.select().from(generations);
   if (cursor) {
     query = query.where(lt(generations.createdAt, cursor));
@@ -77,6 +78,7 @@ export async function readHistory(
 }
 
 export async function upsertItem(item: GenerationItem): Promise<void> {
+  const db = await getDb();
   const values = itemToValues(item);
   await db
     .insert(generations)
@@ -85,6 +87,7 @@ export async function upsertItem(item: GenerationItem): Promise<void> {
 }
 
 export async function getItem(id: string): Promise<GenerationItem | undefined> {
+  const db = await getDb();
   const rows = await db
     .select()
     .from(generations)
@@ -94,6 +97,7 @@ export async function getItem(id: string): Promise<GenerationItem | undefined> {
 }
 
 export async function deleteItem(id: string): Promise<void> {
+  const db = await getDb();
   await db.delete(generations).where(eq(generations.id, id));
 }
 
@@ -103,6 +107,7 @@ export async function setItemFolder(
   projectId: string | undefined,
   folderId: string | undefined
 ): Promise<GenerationItem | undefined> {
+  const db = await getDb();
   const rows = await db
     .update(generations)
     .set({
@@ -120,6 +125,7 @@ export async function setItemFavorite(
   id: string,
   isFavorite: boolean
 ): Promise<GenerationItem | undefined> {
+  const db = await getDb();
   const rows = await db
     .update(generations)
     .set({
@@ -134,6 +140,7 @@ export async function setItemFavorite(
 
 /** Unsort every item in a folder (used when a folder is deleted). */
 export async function clearFolderRefs(folderId: string): Promise<void> {
+  const db = await getDb();
   await db
     .update(generations)
     .set({ folderId: null })
@@ -142,6 +149,7 @@ export async function clearFolderRefs(folderId: string): Promise<void> {
 
 /** Orphan every item in a project back to global history (project deleted). */
 export async function clearProjectRefs(projectId: string): Promise<void> {
+  const db = await getDb();
   await db
     .update(generations)
     .set({ projectId: null, folderId: null })
@@ -164,6 +172,7 @@ export async function getQueuePosition(id: string): Promise<{ position: number; 
   if (item.status !== "queued") return { position: 0, status: item.status };
 
   const cap = MAX_CONCURRENT[item.kind] ?? 2;
+  const db = await getDb();
 
   // Count active running jobs of the same kind
   const runningCountRes = await db
@@ -192,6 +201,7 @@ export async function getQueuePosition(id: string): Promise<{ position: number; 
 }
 
 export async function lockJob(id: string): Promise<boolean> {
+  const db = await getDb();
   // Atomic update: only lock if still queued
   const res = await db
     .update(generations)

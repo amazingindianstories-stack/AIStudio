@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq, sql } from "drizzle-orm";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { adminOrNull } from "@/lib/admin";
 import { hashPassword, validatePassword } from "@/lib/password";
@@ -35,6 +35,7 @@ const SAFE_USER_FIELDS = {
 export async function POST(req: NextRequest) {
   const me = await adminOrNull();
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  const db = await getDb();
 
   const body = await req.json().catch(() => ({}));
   const email = String(body.email || "").toLowerCase().trim();
@@ -100,6 +101,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const me = await adminOrNull();
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  const db = await getDb();
 
   const body = await req.json().catch(() => ({}));
   const id = typeof body.id === "string" ? body.id : "";
@@ -217,6 +219,7 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const me = await adminOrNull();
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  const db = await getDb();
   const id = req.nextUrl.searchParams.get("id");
   if (!id) return NextResponse.json({ error: "Missing id." }, { status: 400 });
   if (id === me.id) {

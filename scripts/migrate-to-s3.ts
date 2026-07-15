@@ -47,7 +47,8 @@ async function migrateUrl(oldUrl: string): Promise<string> {
 }
 
 async function run() {
-  const { db, schema } = await import("../src/lib/db");
+  const { getDb, schema } = await import("../src/lib/db");
+  const db = await getDb();
   console.log("Migrating generations from Vercel Blob to S3...");
   
   const gens = await db.select().from(schema.generations);

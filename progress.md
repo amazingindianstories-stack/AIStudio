@@ -1,5 +1,92 @@
 # Session Progress & Handoff
 
+## 2026-07-15 - CRITICAL security fix: /api/media had no real auth check (fixed)
+
+Security review of the GCP migration surfaced a pre-existing production
+vulnerability, independent of the migration itself: `src/app/api/media/[...path]/route.ts`
+never called `getSession()` — the only gate was `middleware.ts`'s cheap
+cookie-*presence* check (by design just a UX redirect, not real
+enforcement; see that file's own docstring), so any request with a
+non-empty but invalid `lumina_session` cookie could read **any** object in
+the media bucket. Two concrete secrets were reachable this way: the live
+Higgsfield MCP OAuth token (`settings/higgsfield-mcp-token.json`) and full
+Postgres `pg_dump` snapshots the migration script writes to `migrations/*`
+in the same bucket.
+
+Fixed:
+- `src/app/api/media/[...path]/route.ts` now calls `getSession()` and
+  401s if absent, matching every other authenticated route in this app.
+- Added a `settings/`/`migrations/` key-prefix denylist in the same route
+  (defense-in-depth: even a signed-in ordinary user shouldn't be able to
+  fetch secrets/DB dumps through the "media" route).
+- `infra/gcp/bootstrap-media-cdn.sh`'s bucket-wide `storage.objectViewer`
+  grant (which would have bypassed the above entirely once Cloud CDN goes
+  live, since CDN serves straight from GCS) now carries an IAM condition
+  excluding those same two prefixes.
+
+Verified: `npx tsc --noEmit` clean, `npm run build` clean, 228/228 unit
+tests passing. This fix applies to the currently-deployed S3-backed
+production code path too, not just the in-progress GCP migration — it was
+exploitable before this migration started. Recommend treating this as a
+priority hotfix independent of when the rest of this session's work ships.
+
+## 2026-07-14 - GCP migration handoff for Claude (UNCOMMITTED, DO NOT PUSH EARLY)
+
+Codex implemented the database/storage migration while your canvas-board and
+admin-status work remained in this worktree. No commit or push was made. Please
+finish and review your paused Figma/canvas work, then include these GCP changes
+in the same reviewed push.
+
+Main code changes:
+- GCS is primary storage in `src/lib/storage.ts`; S3 is temporary read fallback.
+- `/api/media/*` supports GCS ranges and redirects to `GCP_MEDIA_CDN_URL`.
+- `src/lib/gcp-auth.ts` uses Vercel OIDC/WIF without service-account keys.
+- `src/lib/db.ts` uses the Cloud SQL Node connector + IAM auth, with Railway
+  `DATABASE_URL` retained as rollback.
+- All DB call sites now await `getDb()`; schema indexes were added.
+- Migration commands: `npm run migrate:postgres:gcp` and
+  `npm run migrate:media:gcp` (dry run unless `-- --apply` is passed).
+- The Postgres migration script appends the Cloud SQL runtime grants and
+  indexes after every import, so the final clean import is repeatable.
+- Config/runbooks: `.env.local.example`, `upgrade.md`, and `infra/gcp/`.
+- Runtime is pinned to Vercel-supported Node 22.x. Next.js was upgraded to
+  15.5.20 and nested PostCSS was forced to the patched direct dependency.
+
+External GCP state changed:
+- WIF is limited to exact `aistudio-v1` production/preview subjects.
+- The runtime service account has GCS + Cloud SQL roles.
+- The canonical bucket is private with uniform access, public-access prevention,
+  and a 30-day lifecycle only for `migrations/` snapshots.
+- Cloud SQL backups, 14-backup retention, PITR, and IAM auth were enabled.
+- Cloud SQL is PostgreSQL 18.4, requires a connector, and has no public
+  authorized network. An initial Railway snapshot is imported and its IAM
+  runtime read/write test passed; Railway has continued receiving writes, so a
+  final maintenance-window import is still mandatory.
+
+Deployment safety gates are already staged in Vercel production/preview:
+- `DATABASE_BACKEND=railway`
+- `MEDIA_BACKEND=s3`
+
+Do not flip them just because the branch is pushed. Flip the database gate only
+after the final snapshot/count check. Flip the media gate only after the S3 copy
+and verification report zero missing/different objects. The GCS audit found 228
+older flat objects but 508 currently referenced keys are absent at their exact
+paths. Vercel's AWS values are Sensitive Environment Variables and the CLI
+cannot export them; obtain/rotate a usable read-only AWS key before running
+`npm run migrate:media:gcp -- --apply`.
+
+Verification on 2026-07-14: `npx tsc --noEmit --incremental false`, 228 unit
+tests, `npm run migrate:postgres:gcp` dry run, and `npm run build` passed.
+`npm audit --omit=dev` has 5 remaining moderate findings in the Google Storage
+v7 auth stack (`uuid` via `gaxios`/`teeny-request`); npm's suggested fix is a
+breaking downgrade to `@google-cloud/storage@5`, so leave it for a deliberate
+SDK follow-up instead of applying `--force`.
+
+Before cutover, read the live-status section in `upgrade.md`. Do not remove
+Railway/AWS variables until the final copy, row/object verification, deployment,
+and rollback window are complete. The CDN script intentionally has not been run
+because it needs the final media hostname and DNS access.
+
 ## 2026-07-14 — Canvas Board: FigJam-style whiteboard tab (COMPLETE)
 
 **Scope**: Add a full-screen infinite-canvas whiteboard (Canvas Board / Board tab) for spatial storyboarding, scoped per-project, with asset library drag-to-place and full persistence. V1 single-user (no multiplayer).

@@ -6,7 +6,7 @@ import {
   SESSION_MAX_AGE_SECONDS,
   signSession,
 } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { hashPassword, validatePassword, verifyPassword } from "@/lib/password";
 import { logActivity } from "@/lib/activity";
@@ -31,6 +31,7 @@ export async function PATCH(req: NextRequest) {
       NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 })
     );
   }
+  const db = await getDb();
 
   const body = await req.json().catch(() => ({}));
   const currentPassword = body.currentPassword;

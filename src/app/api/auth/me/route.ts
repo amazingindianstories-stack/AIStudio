@@ -5,7 +5,7 @@ import {
   SESSION_COOKIE,
   type SessionUser,
 } from "@/lib/auth";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { logActivity } from "@/lib/activity";
 import {
@@ -160,6 +160,7 @@ export async function PATCH(req: NextRequest) {
       NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 })
     );
   }
+  const db = await getDb();
 
   let request: ProfileUpdate;
   try {

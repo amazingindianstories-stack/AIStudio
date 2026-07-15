@@ -43,7 +43,8 @@ async function uploadLocalFile(localPath: string): Promise<string> {
 }
 
 async function run() {
-  const { db, schema } = await import("../src/lib/db");
+  const { getDb, schema } = await import("../src/lib/db");
+  const db = await getDb();
   console.log("Migrating generations...");
   const gens = await db.select().from(schema.generations);
   

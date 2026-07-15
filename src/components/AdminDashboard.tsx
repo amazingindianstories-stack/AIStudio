@@ -32,6 +32,10 @@ import {
   UserX,
   X,
   Settings,
+  Activity,
+  RefreshCw,
+  AlertCircle,
+  AlertTriangle,
 } from "lucide-react";
 import { formatCost } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
@@ -88,7 +92,7 @@ interface AdminSessionUser {
   avatarUrl: string | null;
 }
 
-type Tab = "overview" | "users" | "logs" | "pricing";
+type Tab = "overview" | "users" | "logs" | "pricing" | "status";
 const CHART_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#f87171"];
 
 export function AdminDashboard() {
@@ -163,6 +167,7 @@ export function AdminDashboard() {
               ["users", "Users", UsersIcon],
               ["logs", "Logs", ScrollText],
               ["pricing", "Pricing", DollarSign],
+              ["status", "Status", Activity],
             ] as const
           ).map(([id, label, Icon]) => (
             <button
@@ -182,7 +187,9 @@ export function AdminDashboard() {
           ))}
         </div>
 
-        {!data ? (
+        {tab === "status" ? (
+          <StatusTab />
+        ) : !data ? (
           <p className="py-20 text-center text-white/40">Loading…</p>
         ) : tab === "overview" ? (
           <Overview data={data} />
@@ -1373,6 +1380,253 @@ function PricingTab({ data, reload }: { data: Data; reload: () => void }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Status tab ──────────────────────────────────────────────────────────────
+// Local, structurally-mirrored copy of the API's response shape. Deliberately
+// NOT imported from `@/lib/status-checks` — that module pulls in `db` /
+// server-only database/storage SDKs and must never be bundled into this
+// "use client" file.
+type StatusCheckStatus = "ok" | "error" | "unknown";
+interface StatusCheck {
+  id: string;
+  name: string;
+  status: StatusCheckStatus;
+  detail: string;
+  latencyMs: number;
+  checkedAt: number;
+}
+interface StatusResponse {
+  checkedAt: number;
+  checks: StatusCheck[];
+}
+
+/** Static names for the six dependencies, used only before any API response
+ *  has ever landed (first-load skeleton / first-load failure). Once real
+ *  results arrive, rows render `name` straight from the API — this is not a
+ *  second source of truth for display wording. */
+const STATUS_ROWS_FALLBACK: { id: string; name: string }[] = [
+  { id: "gemini", name: "Gemini / Nano Banana Pro" },
+  { id: "higgsfield", name: "Higgsfield MCP" },
+  { id: "seedance", name: "BytePlus ModelArk / Seedance" },
+  { id: "omni", name: "Gemini Omni Flash" },
+  { id: "postgres", name: "Postgres" },
+  { id: "storage", name: "Media Storage" },
+];
+
+function StatusBadge({ status }: { status: StatusCheckStatus }) {
+  const config = {
+    ok: { label: "OK", Icon: CheckCircle2, cls: "bg-emerald-500/15 text-emerald-300" },
+    error: { label: "Error", Icon: AlertCircle, cls: "bg-red-500/15 text-red-300" },
+    unknown: { label: "Unknown", Icon: AlertTriangle, cls: "bg-amber-400/15 text-amber-300" },
+  }[status];
+  const Icon = config.Icon;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium",
+        config.cls
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" /> {config.label}
+    </span>
+  );
+}
+
+/** One row as rendered — either a live result, or a placeholder while nothing
+ *  has ever loaded successfully (`pending` = per-row "Checking…" spinner). */
+interface StatusRowView {
+  id: string;
+  name: string;
+  status: StatusCheckStatus | null;
+  detail: string | null;
+  checkedAt: number | null;
+  pending: boolean;
+}
+
+function StatusTab() {
+  const [results, setResults] = useState<StatusCheck[] | null>(null);
+  const [checkedAt, setCheckedAt] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/status", { cache: "no-store" });
+      if (res.ok) {
+        const json: StatusResponse = await res.json();
+        setResults(json.checks);
+        setCheckedAt(json.checkedAt);
+      } else {
+        setError(`Couldn't run status checks — HTTP ${res.status}`);
+      }
+    } catch {
+      setError("Couldn't run status checks — network error");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    load();
+  }, []);
+
+  const rows: StatusRowView[] = results
+    ? results.map((r) => ({
+        id: r.id,
+        name: r.name,
+        status: r.status,
+        detail: r.detail,
+        checkedAt: r.checkedAt,
+        pending: false,
+      }))
+    : loading
+      ? STATUS_ROWS_FALLBACK.map((c) => ({
+          ...c,
+          status: null,
+          detail: null,
+          checkedAt: null,
+          pending: true,
+        }))
+      : STATUS_ROWS_FALLBACK.map((c) => ({
+          ...c,
+          status: "unknown" as const,
+          detail: "check failed",
+          checkedAt: null,
+          pending: false,
+        }));
+
+  const summary = (() => {
+    if (checkedAt === null) return error ? "Status check failed" : "Running checks…";
+    const ok = results?.filter((r) => r.status === "ok").length ?? 0;
+    const errCount = results?.filter((r) => r.status === "error").length ?? 0;
+    const unknown = results?.filter((r) => r.status === "unknown").length ?? 0;
+    const parts = [`Last checked ${new Date(checkedAt).toLocaleTimeString()}`, `${ok} OK`];
+    if (errCount) parts.push(`${errCount} error${errCount === 1 ? "" : "s"}`);
+    if (unknown) parts.push(`${unknown} unknown`);
+    return parts.join(" · ");
+  })();
+
+  // Only dim/preserve stale rows for a *refresh* (previous results already
+  // present); first load uses the per-row pending placeholder instead (§4/§5
+  // of ui-spec.md — the atomic API can't deliver per-row live spinners).
+  const dimmed = loading && results !== null;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex min-h-9 flex-wrap items-center justify-between gap-2">
+        <p role="status" aria-live="polite" className="text-xs text-white/40">
+          {summary}
+        </p>
+        <button
+          type="button"
+          onClick={load}
+          disabled={loading}
+          className="ml-auto flex items-center gap-1.5 rounded-lg border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/80 transition hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:opacity-40"
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <RefreshCw className="h-4 w-4" />
+          )}
+          {loading ? "Checking…" : "Refresh"}
+        </button>
+      </div>
+
+      {error && (
+        <p role="status" aria-live="polite" className="flex items-center gap-1.5 text-xs text-red-300">
+          <AlertCircle className="h-3.5 w-3.5" /> {error}
+        </p>
+      )}
+
+      <div
+        className={cn(
+          "scroll-thin hidden overflow-x-auto rounded-xl border border-line transition-opacity sm:block",
+          dimmed && "pointer-events-none opacity-50"
+        )}
+      >
+        <table className="w-full min-w-[640px] text-sm">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+            <tr>
+              <th className="px-3 py-2">Dependency</th>
+              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Detail</th>
+              <th className="px-3 py-2">Last checked</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="border-t border-line align-top">
+                <td className="px-3 py-2 font-medium">{r.name}</td>
+                <td className="px-3 py-2">
+                  {r.pending ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs text-white/40">
+                      <Loader2 className="h-4 w-4 animate-spin text-white/40" /> Checking…
+                    </span>
+                  ) : (
+                    <StatusBadge status={r.status!} />
+                  )}
+                </td>
+                <td
+                  className="max-w-[280px] truncate px-3 py-2 text-xs text-white/60"
+                  title={r.detail ?? undefined}
+                >
+                  {r.detail ?? <span className="text-white/30">—</span>}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-white/55">
+                  {r.checkedAt ? (
+                    new Date(r.checkedAt).toLocaleTimeString()
+                  ) : (
+                    <span className="text-white/30">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div
+        className={cn(
+          "space-y-2 transition-opacity sm:hidden",
+          dimmed && "pointer-events-none opacity-50"
+        )}
+      >
+        {rows.map((r) => (
+          <div key={r.id} className="rounded-xl border border-line bg-ink-800 p-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <p className="truncate text-sm font-medium">{r.name}</p>
+              <div className="ml-auto shrink-0">
+                {r.pending ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs text-white/40">
+                    <Loader2 className="h-4 w-4 animate-spin text-white/40" /> Checking…
+                  </span>
+                ) : (
+                  <StatusBadge status={r.status!} />
+                )}
+              </div>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+              <span
+                className="min-w-0 flex-1 truncate text-xs text-white/60"
+                title={r.detail ?? undefined}
+              >
+                {r.detail ?? <span className="text-white/30">—</span>}
+              </span>
+              <span className="shrink-0 text-xs text-white/45">
+                {r.checkedAt ? (
+                  new Date(r.checkedAt).toLocaleTimeString()
+                ) : (
+                  <span className="text-white/30">—</span>
+                )}
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

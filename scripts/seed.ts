@@ -8,12 +8,13 @@ config({ path: ".env.local" });
 import { eq } from "drizzle-orm";
 
 const ADMIN_EMAIL = "amazingindianstories@gmail.com";
-const ADMIN_PASSWORD = "1234";
+const ADMIN_PASSWORD = process.env.SEED_ADMIN_PASSWORD;
 
 async function main() {
   // Dynamically import to ensure process.env.DATABASE_URL is populated
   // before db.ts is evaluated.
-  const { db } = await import("../src/lib/db");
+  const { getDb } = await import("../src/lib/db");
+  const db = await getDb();
   const { users, pricing } = await import("../src/lib/schema");
   const { hashPassword } = await import("../src/lib/password");
   const { ensureBucket } = await import("../src/lib/storage");
@@ -29,6 +30,9 @@ async function main() {
     .where(eq(users.email, ADMIN_EMAIL))
     .limit(1);
   if (existing.length === 0) {
+    if (!ADMIN_PASSWORD) {
+      throw new Error("SEED_ADMIN_PASSWORD is required when creating the admin user");
+    }
     const { hash, salt } = hashPassword(ADMIN_PASSWORD);
     await db.insert(users).values({
       email: ADMIN_EMAIL,

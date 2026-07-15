@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { users, generations } from "@/lib/schema";
 import { adminOrNull } from "@/lib/admin";
 import { readHistory } from "@/lib/store-db";
@@ -22,6 +22,7 @@ const LOG_LIMIT = 500;
 export async function GET() {
   const me = await adminOrNull();
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  const db = await getDb();
 
   const [allUsers, gens, pricing, activity, statRows] = await Promise.all([
     db

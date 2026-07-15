@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { getSession } from "@/lib/auth";
 
@@ -9,6 +9,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const me = await getSession();
   if (!me) return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  const db = await getDb();
   const rows = await db
     .select({
       id: users.id,

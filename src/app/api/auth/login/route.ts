@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db";
 import { users } from "@/lib/schema";
 import {
   verifyPassword,
@@ -13,6 +13,7 @@ import { logActivity } from "@/lib/activity";
 export const runtime = "nodejs";
 
 export async function POST(req: NextRequest) {
+  const db = await getDb();
   const { email, password } = await req.json().catch(() => ({}));
   if (!email || !password) {
     return NextResponse.json(

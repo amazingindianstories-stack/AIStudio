@@ -20,9 +20,9 @@ export class InvalidAvatarError extends Error {
 }
 
 /**
- * Media persistence — now backed by Supabase Storage (was the local filesystem).
+ * Media persistence backed by Google Cloud Storage.
  * Function names/signatures are kept so the API routes don't need to change.
- * Returns are public bucket URLs.
+ * Returns are stable same-origin compatibility URLs.
  */
 
 /** Save raw bytes (base64) as a generation result; returns its public URL. */

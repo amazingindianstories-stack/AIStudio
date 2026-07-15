@@ -1,11 +1,12 @@
 import { eq } from "drizzle-orm";
-import { db } from "./db";
+import { getDb } from "./db";
 import { pricing } from "./schema";
 import type { PricingRow, PriceUnit } from "./pricing";
 
 /** DB-backed pricing access (kept separate so pricing.ts stays client-safe). */
 
 export async function readPricing(): Promise<PricingRow[]> {
+  const db = await getDb();
   const rows = await db.select().from(pricing);
   return rows.map((r) => ({
     model: r.model,
@@ -20,6 +21,7 @@ export async function updatePricing(
   unitCostCents: number,
   unit: PriceUnit
 ): Promise<void> {
+  const db = await getDb();
   await db
     .insert(pricing)
     .values({ model, unitCostCents, unit })
