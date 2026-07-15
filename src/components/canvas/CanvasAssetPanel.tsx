@@ -19,10 +19,12 @@ import {
 import { aspectToPadding, cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
-import type { GenerationItem } from "@/lib/types";
+import type { GenerationItem, Project } from "@/lib/types";
 
 type AssetTab = "assets" | "favourites";
-type AssetScope = "project" | "all";
+/** "all" or a specific project id (the board's own project, or any other
+ *  project the user picked from the list — see AssetScopeControl). */
+type AssetScope = string;
 
 const COLLAPSE_KEY = "vivi-canvas-asset-panel-collapsed-v1";
 const SCOPE_KEY = "vivi-canvas-asset-scope-v1";
@@ -49,9 +51,10 @@ export function CanvasAssetPanel({
   const loading = useStore((s) => s.loading);
   const hasMoreHistory = useStore((s) => s.hasMoreHistory);
   const loadMoreHistory = useStore((s) => s.loadMoreHistory);
+  const projects = useStore((s) => s.projects);
 
   const [tab, setTab] = useState<AssetTab>("assets");
-  const [scope, setScope] = useState<AssetScope>("project");
+  const [scope, setScope] = useState<AssetScope>(() => projectId ?? "all");
   const [search, setSearch] = useState("");
   const [collapsed, setCollapsed] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -78,11 +81,21 @@ export function CanvasAssetPanel({
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SCOPE_KEY);
-      if (raw === "project" || raw === "all") setScope(raw);
+      // Guard against a stale persisted id from a since-deleted project (or
+      // the old binary "project" literal from before this control listed
+      // individual projects) — fall back to the board's own project.
+      if (raw === "all" || (raw && projects.some((p) => p.id === raw))) {
+        setScope(raw);
+      } else if (raw != null) {
+        setScope(projectId ?? "all");
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     } catch {
       /* ignore */
     }
-  }, []);
+    // Only re-run once projects have actually loaded, so the validation
+    // above has real data to check against.
+  }, [projects.length]);
 
   useEffect(() => {
     try {
@@ -112,12 +125,14 @@ export function CanvasAssetPanel({
   // Scope -> tab -> search, in that order (design.md "Data flow A"): scope
   // narrows the pool BEFORE the Assets/Favourites tab and search filter it
   // further. Items with no projectId (pre-project-era generations, or items
-  // detached from a deleted project) never appear under "This project" —
-  // only under "All projects" (spec.md AC2).
+  // detached from a deleted project) never appear under any specific
+  // project — only under "All projects" (spec.md AC2). `scope` is either
+  // "all" or a specific project id (the board's own, or any other project
+  // picked from the list).
   const scoped = useMemo(() => {
     if (scope === "all") return placeable;
-    return placeable.filter((i) => projectId != null && i.projectId === projectId);
-  }, [placeable, scope, projectId]);
+    return placeable.filter((i) => i.projectId === scope);
+  }, [placeable, scope]);
 
   const base = useMemo(
     () => (tab === "favourites" ? scoped.filter((i) => i.isFavorite) : scoped),
@@ -129,11 +144,12 @@ export function CanvasAssetPanel({
     return base.filter((i) => (q ? i.prompt.toLowerCase().includes(q) : true));
   }, [base, search]);
 
-  // ui-spec §A.5: distinct from "no assets at all" — This-project scope has
-  // nothing, but assets DO exist elsewhere. Switching scope wouldn't help a
-  // brand-new user with zero generations anywhere, so that case still falls
-  // through to the generic AssetEmptyState below (placeable.length is 0 too).
-  const showProjectEmptyNudge = scope === "project" && scoped.length === 0 && placeable.length > 0;
+  // ui-spec §A.5: distinct from "no assets at all" — a single-project scope
+  // has nothing, but assets DO exist elsewhere. Switching scope wouldn't
+  // help a brand-new user with zero generations anywhere, so that case
+  // still falls through to the generic AssetEmptyState below (placeable
+  // is empty too).
+  const showProjectEmptyNudge = scope !== "all" && scoped.length === 0 && placeable.length > 0;
 
   if (collapsed) {
     return (
@@ -172,7 +188,12 @@ export function CanvasAssetPanel({
       </div>
 
       <div className="flex items-center border-b border-line px-3 py-2">
-        <AssetScopeControl scope={scope} onChange={setScope} />
+        <AssetScopeControl
+          scope={scope}
+          onChange={setScope}
+          currentProjectId={projectId}
+          projects={projects}
+        />
       </div>
 
       <div className="border-b border-line px-3 py-2.5">
@@ -303,14 +324,28 @@ function AssetSkeletonGrid() {
  * design.md's file-plan one-liner "segmented pill" description): a compact
  * `Dropdown` matching the `BoardSwitcher` trigger idiom scaled to `text-xs`,
  * not a second segmented toggle — the header row is already full at 300px.
+ *
+ * Extended beyond the original binary This-project/All-projects toggle
+ * (canvas-board-v2 D1) to list every individual project, per user request —
+ * "This project" stays pinned first for the common case, followed by every
+ * other project, then "All projects" last.
  */
 function AssetScopeControl({
   scope,
   onChange,
+  currentProjectId,
+  projects,
 }: {
   scope: AssetScope;
   onChange: (scope: AssetScope) => void;
+  currentProjectId: string | null;
+  projects: Project[];
 }) {
+  const otherProjects = projects.filter((p) => p.id !== currentProjectId);
+  const selectedProject = scope !== "all" ? projects.find((p) => p.id === scope) : undefined;
+  const label =
+    scope === "all" ? "All projects" : scope === currentProjectId ? "This project" : selectedProject?.name ?? "This project";
+
   return (
     <Dropdown
       trigger={(open) => (
@@ -320,29 +355,51 @@ function AssetScopeControl({
             open && "border-brand/40"
           )}
         >
-          {scope === "project" ? (
-            <Folder className="h-3.5 w-3.5 text-white/50" />
-          ) : (
+          {scope === "all" ? (
             <Library className="h-3.5 w-3.5 text-white/50" />
+          ) : (
+            <Folder className="h-3.5 w-3.5 text-white/50" />
           )}
-          <span className="truncate">{scope === "project" ? "This project" : "All projects"}</span>
+          <span className="truncate">{label}</span>
           <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-180")} />
         </span>
       )}
     >
       {(close) => (
-        <div className="w-44">
-          <MenuItem
-            active={scope === "project"}
-            onClick={() => {
-              onChange("project");
-              close();
-            }}
-          >
-            <Folder className="h-4 w-4 text-white/50" />
-            <span className="flex-1 truncate">This project</span>
-            {scope === "project" && <Check className="h-4 w-4 shrink-0 text-brand" />}
-          </MenuItem>
+        <div className="w-52">
+          {currentProjectId && (
+            <MenuItem
+              active={scope === currentProjectId}
+              onClick={() => {
+                onChange(currentProjectId);
+                close();
+              }}
+            >
+              <Folder className="h-4 w-4 text-white/50" />
+              <span className="flex-1 truncate">This project</span>
+              {scope === currentProjectId && <Check className="h-4 w-4 shrink-0 text-brand" />}
+            </MenuItem>
+          )}
+          {otherProjects.length > 0 && (
+            <>
+              <div className="my-1 h-px bg-line" />
+              {otherProjects.map((p) => (
+                <MenuItem
+                  key={p.id}
+                  active={scope === p.id}
+                  onClick={() => {
+                    onChange(p.id);
+                    close();
+                  }}
+                >
+                  <Folder className="h-4 w-4 text-white/50" />
+                  <span className="flex-1 truncate">{p.name}</span>
+                  {scope === p.id && <Check className="h-4 w-4 shrink-0 text-brand" />}
+                </MenuItem>
+              ))}
+            </>
+          )}
+          <div className="my-1 h-px bg-line" />
           <MenuItem
             active={scope === "all"}
             onClick={() => {
