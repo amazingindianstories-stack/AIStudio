@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   MousePointer2,
@@ -44,16 +44,15 @@ const SHAPES: { id: ShapeTool; icon: typeof Square; label: string }[] = [
 export function CanvasToolbar({
   toolLocked,
   onToggleLock,
-  onAddImageFile,
+  onAddImageClick,
 }: {
   toolLocked: boolean;
   onToggleLock: () => void;
-  onAddImageFile: (file: File) => void;
+  onAddImageClick: () => void;
 }) {
   const tool = useCanvasStore((s) => s.tool);
   const setTool = useCanvasStore((s) => s.setTool);
   const [lastShape, setLastShape] = useState<ShapeTool>("rect");
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isShapeTool = tool === "rect" || tool === "ellipse" || tool === "triangle" || tool === "diamond";
   const shapeButtonIcon = isShapeTool ? (tool as ShapeTool) : lastShape;
@@ -203,21 +202,9 @@ export function CanvasToolbar({
             className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
             title="Add image (⇧I)"
             aria-label="Add image"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={onAddImageClick}
           >
             <ImagePlus className="h-4 w-4" />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              tabIndex={-1}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onAddImageFile(file);
-                e.target.value = "";
-              }}
-            />
           </button>
         </ToolGroup>
       </div>

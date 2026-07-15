@@ -107,6 +107,13 @@ export interface CanvasStore {
   ) => void;
   updateSelectedStyle: (patch: Partial<NodeStyleProps>) => void;
   moveSelectionBy: (dx: number, dy: number) => void; // gesture-end commit (coalesced)
+  /** Resets the coalesced-gesture idle timer without mutating the graph.
+   * A no-op if no gesture is currently open. Needed by multi-step gestures
+   * (e.g. alt-drag-duplicate) that issue one coalesced mutation early, then
+   * only local preview state for a while, then a second coalesced mutation
+   * at release — without a periodic keep-alive, the idle timeout can fire
+   * in the gap and split the gesture into two undo steps. */
+  keepGestureAlive: () => void;
   resizeSelected: (
     handle: ResizeHandle,
     dx: number,
@@ -115,6 +122,10 @@ export interface CanvasStore {
   ) => void;
   deleteSelected: () => void;
   duplicateSelected: () => void;
+  /** In-place duplicate (zero offset) used by alt/option-drag-duplicate
+   *  (spec.md §C.1) — coalesced so it shares the alt-drag's gesture
+   *  baseline with the move that follows, collapsing to one undo step. */
+  duplicateSelectionInPlace: () => void;
   group: () => void;
   ungroup: () => void;
   bringToFront: () => void;
@@ -122,6 +133,14 @@ export interface CanvasStore {
   bringForward: () => void;
   sendBackward: () => void;
   addConnector: (from: Endpoint, to: Endpoint, kind: Connector["kind"]) => void;
+  /** Re-targets one end of a connector (drag-to-reattach/detach, spec.md
+   *  §D) — coalesced, same one-undo-step pattern as the opacity-slider fix.
+   *  No-op if `connectorId` doesn't match any live connector. */
+  updateConnectorEndpoint: (
+    connectorId: string,
+    end: "from" | "to",
+    endpoint: Endpoint
+  ) => void;
   copy: () => void;
   paste: () => void;
   undo: () => void;
@@ -248,6 +267,51 @@ function applyStylePatchToConnector(c: Connector, patch: Partial<NodeStyleProps>
 function shiftFreeEndpoint(ep: Endpoint, dx: number, dy: number): Endpoint {
   if ("nodeId" in ep) return ep; // attached — follows the node automatically
   return { x: ep.x + dx, y: ep.y + dy };
+}
+
+/**
+ * Shared clone-construction logic for `duplicateSelected`/`paste`/
+ * `duplicateSelectionInPlace`: new ids, a group-id remap (each distinct
+ * source `groupId` gets one new shared id, so duplicated grouped nodes stay
+ * grouped with each other but not with the originals), a `parentId` remap
+ * when the parent was ALSO cloned, and a uniform (dx,dy) offset.
+ *
+ * `keepUnmappedParent` preserves the two callers' pre-existing (and
+ * different!) behavior when a clone's parent frame ISN'T itself in the
+ * cloned set: `duplicateSelected`/`duplicateSelectionInPlace` keep the
+ * clone as a child of the original (still-live) frame (`true`); `paste`
+ * drops to no parent instead (`false`) — this is not a bug being fixed
+ * here, just each action's existing behavior preserved verbatim.
+ */
+function buildClones(
+  sourceNodes: CanvasNode[],
+  ids: string[],
+  dx: number,
+  dy: number,
+  keepUnmappedParent: boolean
+): { clones: CanvasNode[]; idMap: Map<string, string> } {
+  const idSet = new Set(ids);
+  const idMap = new Map<string, string>();
+  for (const id of ids) idMap.set(id, crypto.randomUUID());
+  const groupIdMap = new Map<string, string>();
+  const clones: CanvasNode[] = [];
+  for (const n of sourceNodes) {
+    if (!idSet.has(n.id)) continue;
+    const newId = idMap.get(n.id) as string;
+    let newGroupId: string | null = null;
+    if (n.groupId) {
+      if (!groupIdMap.has(n.groupId)) groupIdMap.set(n.groupId, crypto.randomUUID());
+      newGroupId = groupIdMap.get(n.groupId) as string;
+    }
+    const newParentId =
+      n.parentId && idMap.has(n.parentId)
+        ? (idMap.get(n.parentId) as string)
+        : keepUnmappedParent
+        ? n.parentId ?? null
+        : null;
+    clones.push({ ...n, id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId });
+  }
+  return { clones, idMap };
 }
 
 function pruneSelection(
@@ -610,6 +674,10 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     );
   },
 
+  keepGestureAlive: () => {
+    if (gestureBaseline) scheduleGestureEnd(set, get);
+  },
+
   resizeSelected: (handle, dx, dy, keepAspect) => {
     const { selection } = get();
     if (!selection.length) return;
@@ -650,33 +718,31 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
   duplicateSelected: () => {
     const { selection } = get();
     if (!selection.length) return;
-    const idMap = new Map<string, string>();
-    for (const id of selection) idMap.set(id, crypto.randomUUID());
-    const groupIdMap = new Map<string, string>();
+    let idMap = new Map<string, string>();
     mutateGraph(set, get, (present) => {
-      const selSet = new Set(selection);
-      const duplicates: CanvasNode[] = [];
-      for (const n of present.nodes) {
-        if (!selSet.has(n.id)) continue;
-        const newId = idMap.get(n.id) as string;
-        let newGroupId: string | null = null;
-        if (n.groupId) {
-          if (!groupIdMap.has(n.groupId)) groupIdMap.set(n.groupId, crypto.randomUUID());
-          newGroupId = groupIdMap.get(n.groupId) as string;
-        }
-        const newParentId =
-          n.parentId && idMap.has(n.parentId) ? (idMap.get(n.parentId) as string) : (n.parentId ?? null);
-        duplicates.push({
-          ...n,
-          id: newId,
-          x: n.x + 20,
-          y: n.y + 20,
-          parentId: newParentId,
-          groupId: newGroupId,
-        });
-      }
-      return { ...present, nodes: [...present.nodes, ...duplicates] };
+      const built = buildClones(present.nodes, selection, 20, 20, true);
+      idMap = built.idMap;
+      return { ...present, nodes: [...present.nodes, ...built.clones] };
     });
+    set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
+  },
+
+  duplicateSelectionInPlace: () => {
+    const { selection } = get();
+    if (!selection.length) return;
+    let idMap = new Map<string, string>();
+    mutateGraph(
+      set,
+      get,
+      (present) => {
+        // Zero offset — duplicates land exactly on the originals (alt-drag
+        // then drags the duplicates; the originals are left untouched).
+        const built = buildClones(present.nodes, selection, 0, 0, true);
+        idMap = built.idMap;
+        return { ...present, nodes: [...present.nodes, ...built.clones] };
+      },
+      { coalesce: true }
+    );
     set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
   },
 
@@ -736,6 +802,22 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
     set({ selection: [], selectedConnectorIds: [connector.id] });
   },
 
+  updateConnectorEndpoint: (connectorId, end, endpoint) => {
+    const exists = get().history.present.connectors.some((c) => c.id === connectorId);
+    if (!exists) return; // no-op for a missing connector id
+    mutateGraph(
+      set,
+      get,
+      (present) => ({
+        ...present,
+        connectors: present.connectors.map((c) =>
+          c.id === connectorId ? { ...c, [end]: endpoint } : c
+        ),
+      }),
+      { coalesce: true }
+    );
+  },
+
   copy: () => {
     const { selection, history } = get();
     if (!selection.length) return;
@@ -745,26 +827,22 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 
   paste: () => {
     if (!clipboard.length) return;
-    const idMap = new Map<string, string>();
-    for (const n of clipboard) idMap.set(n.id, crypto.randomUUID());
-    const groupIdMap = new Map<string, string>();
+    let idMap = new Map<string, string>();
     mutateGraph(set, get, (present) => {
-      const pasted = clipboard.map((n) => {
-        let newGroupId: string | null = null;
-        if (n.groupId) {
-          if (!groupIdMap.has(n.groupId)) groupIdMap.set(n.groupId, crypto.randomUUID());
-          newGroupId = groupIdMap.get(n.groupId) as string;
-        }
-        return {
-          ...n,
-          id: idMap.get(n.id) as string,
-          x: n.x + 20,
-          y: n.y + 20,
-          parentId: n.parentId && idMap.has(n.parentId) ? (idMap.get(n.parentId) as string) : null,
-          groupId: newGroupId,
-        };
-      });
-      return { ...present, nodes: [...present.nodes, ...pasted] };
+      // Cloned from the clipboard SNAPSHOT (taken at copy()-time), not from
+      // the live present — edits made after copying, or the original being
+      // deleted, don't affect what gets pasted, matching pre-refactor
+      // behavior. `keepUnmappedParent: false` also matches paste's existing
+      // behavior of dropping to no parent when the parent wasn't copied too.
+      const built = buildClones(
+        clipboard,
+        clipboard.map((n) => n.id),
+        20,
+        20,
+        false
+      );
+      idMap = built.idMap;
+      return { ...present, nodes: [...present.nodes, ...built.clones] };
     });
     set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
   },
@@ -829,4 +907,12 @@ export const useCanvasStore = create<CanvasStore>((set, get) => ({
 // (StyleInspector/CanvasSurface) without re-deriving the FrameNode filter.
 export function frameNodesOf(state: CanvasState): FrameNode[] {
   return state.nodes.filter((n): n is FrameNode => n.type === "frame");
+}
+
+/** Reads the module-level `clipboard` var directly — NOT reactive (not
+ *  store state), matching how `clipboard` itself is intentionally kept
+ *  outside the Zustand store so it survives `loadBoard()`/`reset()`. Used
+ *  by `CanvasContextMenu`'s `Paste` row / `selectionActions`' `canPaste`. */
+export function hasClipboard(): boolean {
+  return clipboard.length > 0;
 }

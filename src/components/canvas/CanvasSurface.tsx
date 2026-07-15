@@ -12,8 +12,8 @@ import {
 import { Shapes, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { useCanvasStore } from "@/lib/canvas-store";
-import type { Anchor, CanvasNode, CanvasState, FrameNode } from "@/lib/canvas/types";
+import { useCanvasStore, hasClipboard } from "@/lib/canvas-store";
+import type { Anchor, CanvasNode, CanvasState, Endpoint, FrameNode } from "@/lib/canvas/types";
 import {
   computeFrameMembership,
   hitTest,
@@ -23,8 +23,10 @@ import {
   resizeNode,
   screenToWorld,
 } from "@/lib/canvas/geometry";
+import { selectionActions } from "@/lib/canvas/selection-actions";
 import { NodeView, type ResizeHandle } from "./nodes/NodeView";
 import { ConnectorLayer } from "./ConnectorLayer";
+import { CanvasContextMenu, type ContextMenuAction } from "./CanvasContextMenu";
 
 export type CreateTool = "rect" | "ellipse" | "triangle" | "diamond" | "text" | "sticky" | "frame";
 
@@ -98,7 +100,7 @@ export interface CanvasSurfaceHandle {
   getViewportCenterWorld(): { x: number; y: number };
 }
 
-type DragKind = "pan" | "marquee" | "move" | "resize" | "connector" | "create";
+type DragKind = "pan" | "marquee" | "move" | "resize" | "connector" | "create" | "connector-endpoint";
 
 interface DragState {
   kind: DragKind;
@@ -108,13 +110,20 @@ interface DragState {
   resizeNodeId?: string;
   resizeHandle?: ResizeHandle;
   resizeStartNode?: CanvasNode;
-  // connector
+  // connector (create)
   connectorFromId?: string;
   connectorFromAnchor?: Anchor;
   connectorFromPoint?: { x: number; y: number };
   // create
   createTool?: CreateTool;
   moved: boolean;
+  // move (C1 alt-drag-duplicate / C2 shift-drag-axis-constrain + deferred shift-deselect)
+  altDuplicate?: boolean;
+  altDuplicated?: boolean;
+  pendingDeselectId?: string;
+  // connector-endpoint (D)
+  endpointConnectorId?: string;
+  endpointEnd?: "from" | "to";
 }
 
 export const CanvasSurface = forwardRef<
@@ -146,6 +155,9 @@ export const CanvasSurface = forwardRef<
   const addConnector = useCanvasStore((s) => s.addConnector);
   const moveSelectionBy = useCanvasStore((s) => s.moveSelectionBy);
   const resizeSelected = useCanvasStore((s) => s.resizeSelected);
+  const duplicateSelectionInPlace = useCanvasStore((s) => s.duplicateSelectionInPlace);
+  const updateConnectorEndpoint = useCanvasStore((s) => s.updateConnectorEndpoint);
+  const keepGestureAlive = useCanvasStore((s) => s.keepGestureAlive);
 
   const items = useStore((s) => s.items);
 
@@ -158,6 +170,7 @@ export const CanvasSurface = forwardRef<
   const [dragGhost, setDragGhost] = useState<{ x: number; y: number } | null>(null);
   const [draftConnector, setDraftConnector] = useState<{ fromPoint: { x: number; y: number }; toPoint: { x: number; y: number } } | null>(null);
   const [connectorHoverTargetId, setConnectorHoverTargetId] = useState<string | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const dragRef = useRef<DragState | null>(null);
 
   const displayState = preview ?? present;
@@ -330,8 +343,28 @@ export const CanvasSurface = forwardRef<
     }
 
     if (tool === "select") {
-      if (e.shiftKey) {
-        toggleSelect(node.id);
+      // Alt/Option takes precedence over shift's multi-select toggle (C1):
+      // ensure the node is part of the selection (adding it if needed, but
+      // never dropping an existing multi-selection), then start a move drag
+      // flagged for duplicate-in-place-then-drag on the first real move.
+      let altDuplicate = false;
+      let pendingDeselectId: string | undefined;
+      if (e.altKey) {
+        altDuplicate = true;
+        if (!selection.includes(node.id)) setSelection([...selection, node.id]);
+      } else if (e.shiftKey) {
+        // C2: a shift-drag on an UNSELECTED node adds it and starts moving
+        // (matches shift-click's "add" half). A shift-drag on an ALREADY
+        // selected node must not toggle it out immediately — that would
+        // drop the very node the user is about to drag — so the
+        // deselect-on-click is deferred to pointer-up via
+        // `pendingDeselectId`, only realized if the gesture never moved
+        // (i.e. it really was a plain shift-click, not a shift-drag).
+        if (!selection.includes(node.id)) {
+          setSelection([...selection, node.id]);
+        } else {
+          pendingDeselectId = node.id;
+        }
       } else if (!selection.includes(node.id)) {
         setSelection([node.id]);
       }
@@ -340,6 +373,8 @@ export const CanvasSurface = forwardRef<
         startScreen: screen,
         startWorld: screenToWorld(screen, viewport),
         moved: false,
+        altDuplicate,
+        pendingDeselectId,
       };
       onTransientChange?.(true);
     }
@@ -384,6 +419,97 @@ export const CanvasSurface = forwardRef<
     };
   };
 
+  // (D) Grab a selected connector's endpoint dot — mirrors how resize
+  // handles capture the pointer (NodeView.tsx:151) while subsequent events
+  // still bubble through this same container's onPointerMove/onPointerUp.
+  const onEndpointPointerDown = (
+    e: React.PointerEvent,
+    connectorId: string,
+    end: "from" | "to"
+  ) => {
+    e.stopPropagation();
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+    const screen = toScreenLocal(e.clientX, e.clientY);
+    dragRef.current = {
+      kind: "connector-endpoint",
+      startScreen: screen,
+      startWorld: screenToWorld(screen, viewport),
+      endpointConnectorId: connectorId,
+      endpointEnd: end,
+      moved: false,
+    };
+    onTransientChange?.(true);
+  };
+
+  // (C3) Right-click on a connector's fat hit-path — select it (replacing
+  // any node selection) and open the menu here, so the container's own
+  // onContextMenu (below) never also fires for the same event.
+  const onConnectorContextMenu = (
+    e: React.PointerEvent | React.MouseEvent,
+    connectorId: string
+  ) => {
+    useCanvasStore.setState({ selectedConnectorIds: [connectorId], selection: [] });
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  // (C3) Right-click on the background/a node — selects the node under the
+  // cursor (Figma-style: right-click acts on whatever's under it), or
+  // clears selection over empty canvas, then opens the menu there.
+  const onContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const screen = toScreenLocal(e.clientX, e.clientY);
+    const worldPoint = screenToWorld(screen, viewport);
+    const nodeId = hitTest(present, worldPoint);
+    if (nodeId) {
+      if (!selection.includes(nodeId)) setSelection([nodeId]);
+    } else {
+      clearSelection();
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  // Stable identity: CanvasContextMenu's outside-click/Escape/scroll
+  // listener effect depends on `onClose`, so an inline arrow here would
+  // re-register those document/window listeners on every render while the
+  // menu is open (code review MINOR finding — not a leak, just churn).
+  const closeContextMenu = useCallback(() => {
+    setContextMenu(null);
+    // ui-spec §B.2 / Accessibility: return focus to the canvas
+    // (role="application" container) on close.
+    containerRef.current?.focus();
+  }, []);
+
+  const handleContextMenuAction = (action: ContextMenuAction) => {
+    const s = useCanvasStore.getState();
+    switch (action) {
+      case "duplicate":
+        s.duplicateSelected();
+        break;
+      case "copy":
+        s.copy();
+        break;
+      case "paste":
+        s.paste();
+        break;
+      case "delete":
+        s.deleteSelected();
+        break;
+      case "bringToFront":
+        s.bringToFront();
+        break;
+      case "sendToBack":
+        s.sendToBack();
+        break;
+      case "group":
+        s.group();
+        break;
+      case "ungroup":
+        s.ungroup();
+        break;
+    }
+    setContextMenu(null);
+  };
+
   const onDoubleClickBody = (e: React.MouseEvent, node: CanvasNode) => {
     e.stopPropagation();
     if (node.type === "text" || node.type === "sticky" || node.type === "frame") {
@@ -424,9 +550,37 @@ export const CanvasSurface = forwardRef<
     }
 
     if (drag.kind === "move") {
+      // C1: on the first move past the 2px threshold, an alt-held drag
+      // duplicates the selection IN PLACE (zero offset) and re-targets this
+      // same gesture onto the duplicates — skip this one tick so the very
+      // next event reads the fresh (post-duplicate) selection/present
+      // rather than a stale closure (design.md's "Alt-drag stale-closure"
+      // risk). `startScreen` is deliberately NOT reset, so the total delta
+      // committed in endDrag still measures from the original pointer-down.
+      if (drag.altDuplicate && !drag.altDuplicated && drag.moved) {
+        duplicateSelectionInPlace();
+        drag.altDuplicated = true;
+        return;
+      }
+      // The duplicate above and the eventual moveSelectionBy commit in
+      // endDrag are two separate coalesced mutations that must fuse into
+      // one undo step; every tick in between only touches local preview
+      // state, so without this the idle timer can lapse mid-drag and split
+      // them into two history entries (code review MAJOR finding).
+      if (drag.altDuplicated) keepGestureAlive();
       const worldDx = dx / viewport.zoom;
       const worldDy = dy / viewport.zoom;
-      const next = moveNodesBy(present, selection, worldDx, worldDy);
+      // C2: shift-drag constrains movement to the dominant axis, evaluated
+      // live off the CUMULATIVE delta (worldDx/worldDy are already
+      // cumulative-since-gesture-start, same as the unconstrained path) —
+      // no separate commit-time logic needed since endDrag reads `preview`.
+      let constrainedDx = worldDx;
+      let constrainedDy = worldDy;
+      if (e.shiftKey) {
+        if (Math.abs(worldDx) >= Math.abs(worldDy)) constrainedDy = 0;
+        else constrainedDx = 0;
+      }
+      const next = moveNodesBy(present, selection, constrainedDx, constrainedDy);
       // frame drop-highlight preview
       const movedNode = next.nodes.find((n) => n.id === selection[0]);
       if (movedNode && movedNode.type !== "frame") {
@@ -459,6 +613,22 @@ export const CanvasSurface = forwardRef<
 
     if (drag.kind === "create" && drag.createTool) {
       setDragGhost(screenToWorld(screen, viewport));
+    }
+
+    if (drag.kind === "connector-endpoint" && drag.endpointConnectorId && drag.endpointEnd) {
+      // Reuses the exact snap-to-node hit-test + hover-highlight the
+      // connector CREATE flow already uses (drag.kind === "connector"
+      // above) — no new geometry. Mutates the REAL connector every tick
+      // (coalesced) so the live preview renders in its true style/curve via
+      // connectorPath (untouched, design.md D4), not a dashed draft.
+      const worldPoint = screenToWorld(screen, viewport);
+      const target = hitTest(present, worldPoint);
+      setConnectorHoverTargetId(target);
+      const endpoint: Endpoint = target
+        ? { nodeId: target, anchor: "auto" }
+        : { x: worldPoint.x, y: worldPoint.y };
+      updateConnectorEndpoint(drag.endpointConnectorId, drag.endpointEnd, endpoint);
+      return;
     }
   };
 
@@ -499,6 +669,12 @@ export const CanvasSurface = forwardRef<
           moveSelectionBy(movedNode.x - originalNode.x, movedNode.y - originalNode.y);
         }
       }
+      // C2: a shift-drag on an already-selected node deferred its deselect
+      // (see onPointerDownNode) — realize it now ONLY if the gesture never
+      // actually moved, i.e. it was a plain shift-click, not a shift-drag.
+      if (!drag.moved && drag.pendingDeselectId) {
+        toggleSelect(drag.pendingDeselectId);
+      }
       setPreview(null);
       setDropHighlightFrameId(null);
       return;
@@ -538,6 +714,16 @@ export const CanvasSurface = forwardRef<
       if (!toolLocked) onAfterSingleShotPlace();
       return;
     }
+
+    if (drag.kind === "connector-endpoint") {
+      // The connector was already re-targeted live, every tick, via the
+      // coalesced updateConnectorEndpoint() in onPointerMove — nothing left
+      // to commit here. Just clear the reattach-target highlight; the
+      // coalesced gesture finalizes into ONE undo step via the same
+      // idle-finalize mechanism moveSelectionBy already relies on.
+      setConnectorHoverTargetId(null);
+      return;
+    }
   };
 
   // resize commit needs the exact screen delta at release; recompute cleanly
@@ -557,7 +743,9 @@ export const CanvasSurface = forwardRef<
       onTransientChange?.(false);
       return;
     }
-    if (drag?.kind === "move" || drag?.kind === "pan") onTransientChange?.(false);
+    if (drag?.kind === "move" || drag?.kind === "pan" || drag?.kind === "connector-endpoint") {
+      onTransientChange?.(false);
+    }
     endDrag();
   };
 
@@ -609,6 +797,10 @@ export const CanvasSurface = forwardRef<
     ? dragRef.current?.kind === "pan"
       ? "cursor-grabbing"
       : "cursor-grab"
+    : dragRef.current?.kind === "move" && dragRef.current?.altDuplicate
+    ? "cursor-copy" // C1: the standard, universally-recognized "you are duplicating" affordance
+    : dragRef.current?.kind === "connector-endpoint"
+    ? "cursor-grabbing"
     : CREATE_TOOLS.includes(tool as CreateTool) || tool === "connector"
     ? "cursor-crosshair"
     : "cursor-default";
@@ -625,6 +817,7 @@ export const CanvasSurface = forwardRef<
       onPointerDown={onPointerDownBackground}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onContextMenu={onContextMenu}
       onDrop={onDrop}
       onDragOver={onDragOver}
       className={cn("absolute inset-0 touch-none overflow-hidden bg-ink-900 outline-none", cursorClass)}
@@ -671,6 +864,8 @@ export const CanvasSurface = forwardRef<
           }}
           marqueeWorldRect={marqueeWorldRect}
           draftConnector={draftConnector}
+          onEndpointPointerDown={onEndpointPointerDown}
+          onConnectorContextMenu={onConnectorContextMenu}
         />
 
         {dragGhost && CREATE_TOOLS.includes(tool as CreateTool) && (
@@ -680,6 +875,16 @@ export const CanvasSurface = forwardRef<
           />
         )}
       </div>
+
+      {contextMenu && (
+        <CanvasContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          flags={selectionActions(present, selection, selectedConnectorIds, hasClipboard() ? 1 : 0)}
+          onAction={handleContextMenuAction}
+          onClose={closeContextMenu}
+        />
+      )}
 
       {!loaded && (
         <div className="absolute inset-0 grid place-items-center bg-ink-900/60">

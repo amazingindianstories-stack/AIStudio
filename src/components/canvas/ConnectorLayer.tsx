@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import type { CanvasNode, Connector } from "@/lib/canvas/types";
 import { connectorPath, resolveEndpoint } from "@/lib/canvas/geometry";
@@ -19,6 +20,8 @@ export function ConnectorLayer({
   onSelectConnector,
   marqueeWorldRect,
   draftConnector,
+  onEndpointPointerDown,
+  onConnectorContextMenu,
 }: {
   connectors: Connector[];
   nodesById: Record<string, CanvasNode>;
@@ -26,6 +29,13 @@ export function ConnectorLayer({
   onSelectConnector: (id: string, additive: boolean) => void;
   marqueeWorldRect: { x: number; y: number; w: number; h: number } | null;
   draftConnector: { fromPoint: { x: number; y: number }; toPoint: { x: number; y: number } } | null;
+  /** (D) endpoint dots are real drag handles — fires on pointerdown on
+   *  either endpoint of a SELECTED connector. */
+  onEndpointPointerDown?: (e: React.PointerEvent, connectorId: string, end: "from" | "to") => void;
+  /** (C) right-click on a connector's fat hit-path — selects it and opens
+   *  `CanvasContextMenu` instead of letting the event bubble to the
+   *  container (which would otherwise treat it as an empty-canvas click). */
+  onConnectorContextMenu?: (e: React.PointerEvent | React.MouseEvent, connectorId: string) => void;
 }) {
   return (
     <svg
@@ -77,6 +87,11 @@ export function ConnectorLayer({
                 e.stopPropagation();
                 onSelectConnector(c.id, e.shiftKey);
               }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onConnectorContextMenu?.(e, c.id);
+              }}
             />
             <path
               d={d}
@@ -90,8 +105,8 @@ export function ConnectorLayer({
             />
             {selected && from && to && (
               <>
-                <circle cx={from.x} cy={from.y} r={4} fill="white" stroke="#000" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-                <circle cx={to.x} cy={to.y} r={4} fill="white" stroke="#000" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                <EndpointHandle point={from} connectorId={c.id} end="from" onPointerDown={onEndpointPointerDown} />
+                <EndpointHandle point={to} connectorId={c.id} end="to" onPointerDown={onEndpointPointerDown} />
               </>
             )}
           </g>
@@ -123,6 +138,68 @@ export function ConnectorLayer({
         />
       )}
     </svg>
+  );
+}
+
+/**
+ * A selected connector's endpoint dot (ui-spec §D). At rest it is pixel-
+ * for-pixel what shipped before (r=4 white/black dot, D.1/A4) — a larger
+ * INVISIBLE hit circle underneath (r=9) is the real drag handle, mirroring
+ * the connector body's own fat-invisible-hit-path pattern above. Hovering
+ * the hit target adds a faint halo ring (the same `brand`-at-0.6 accent the
+ * board already uses for the create-flow reattach highlight).
+ */
+function EndpointHandle({
+  point,
+  connectorId,
+  end,
+  onPointerDown,
+}: {
+  point: { x: number; y: number };
+  connectorId: string;
+  end: "from" | "to";
+  onPointerDown?: (e: React.PointerEvent, connectorId: string, end: "from" | "to") => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <g>
+      <circle
+        cx={point.x}
+        cy={point.y}
+        r={9}
+        fill="transparent"
+        className="pointer-events-auto cursor-grab"
+        aria-label={`Connector ${end === "from" ? "start" : "end"} endpoint — drag to reattach`}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          onPointerDown?.(e, connectorId, end);
+        }}
+      />
+      {hovered && (
+        <circle
+          cx={point.x}
+          cy={point.y}
+          r={7}
+          fill="none"
+          stroke="rgba(255,255,255,0.6)"
+          strokeWidth={1.5}
+          vectorEffect="non-scaling-stroke"
+          className="pointer-events-none"
+        />
+      )}
+      <circle
+        cx={point.x}
+        cy={point.y}
+        r={4}
+        fill="white"
+        stroke="#000"
+        strokeWidth={1}
+        vectorEffect="non-scaling-stroke"
+        className="pointer-events-none"
+      />
+    </g>
   );
 }
 

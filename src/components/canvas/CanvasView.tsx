@@ -52,6 +52,16 @@ export function CanvasView() {
   const setViewport = useCanvasStore((s) => s.setViewport);
   const addNode = useCanvasStore((s) => s.addNode);
   const addImageFromAsset = useCanvasStore((s) => s.addImageFromAsset);
+  const group = useCanvasStore((s) => s.group);
+  const ungroup = useCanvasStore((s) => s.ungroup);
+  const bringForward = useCanvasStore((s) => s.bringForward);
+  const sendBackward = useCanvasStore((s) => s.sendBackward);
+  const bringToFront = useCanvasStore((s) => s.bringToFront);
+  const sendToBack = useCanvasStore((s) => s.sendToBack);
+  const copy = useCanvasStore((s) => s.copy);
+  const paste = useCanvasStore((s) => s.paste);
+
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
 
   // ── board load lifecycle ─────────────────────────────────────────────
   useEffect(() => {
@@ -122,6 +132,13 @@ export function CanvasView() {
     [boardId, placeAsset]
   );
 
+  // Single source of truth for "add image" (⇧I shortcut B / toolbar button)
+  // — one hidden file input, one code path, so the toolbar's "(⇧I)" tooltip
+  // is finally accurate (spec.md §B gap #1).
+  const openImagePicker = useCallback(() => {
+    imageFileInputRef.current?.click();
+  }, []);
+
   // ── document-level keyboard shortcuts (ui-spec §11) ─────────────────
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -152,6 +169,42 @@ export function CanvasView() {
         e.preventDefault();
         const vp = useCanvasStore.getState().history.present.viewport;
         setViewport({ ...vp, zoom: 1 });
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "g") {
+        e.preventDefault();
+        if (e.shiftKey) ungroup();
+        else group();
+        return;
+      }
+      // Bracket keys MUST be detected via e.code ("BracketRight"/"BracketLeft"),
+      // not e.key — with Shift held, e.key for "]"/"[" becomes "}"/"{" on a US
+      // layout, so e.code is the only robust, shift-independent discriminator.
+      if (mod && e.code === "BracketRight") {
+        e.preventDefault();
+        if (e.shiftKey) bringToFront();
+        else bringForward();
+        return;
+      }
+      if (mod && e.code === "BracketLeft") {
+        e.preventDefault();
+        if (e.shiftKey) sendToBack();
+        else sendBackward();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "c") {
+        e.preventDefault();
+        copy();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "v") {
+        e.preventDefault();
+        paste();
+        return;
+      }
+      if (!mod && e.shiftKey && e.key.toLowerCase() === "i") {
+        e.preventDefault();
+        openImagePicker();
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -205,6 +258,14 @@ export function CanvasView() {
         return;
       }
 
+      // Latent-bug fix: without this guard, an unhandled mod-combination
+      // (e.g. mod+C once it didn't `return` above) falls through to the
+      // tool-letter switch below and wrongly re-arms a tool (mod+C used to
+      // switch to the connector tool). Every new mod binding above already
+      // `return`s before reaching here; this is belt-and-suspenders so NO
+      // mod+<letter> combination can ever leak into a tool switch.
+      if (mod) return;
+
       // tool letter shortcuts
       const key = e.key.toLowerCase();
       if (key === "v") setTool("select");
@@ -228,6 +289,15 @@ export function CanvasView() {
     setViewport,
     addNode,
     toolLocked,
+    group,
+    ungroup,
+    bringForward,
+    sendBackward,
+    bringToFront,
+    sendToBack,
+    copy,
+    paste,
+    openImagePicker,
   ]);
 
   const assetPanelWidth = assetPanelCollapsed ? 44 : 300;
@@ -242,7 +312,11 @@ export function CanvasView() {
         onTransientChange={setTransientActive}
       />
 
-      <CanvasAssetPanel onPlaceAtCenter={placeAsset} onCollapsedChange={setAssetPanelCollapsed} />
+      <CanvasAssetPanel
+        projectId={activeProjectId}
+        onPlaceAtCenter={placeAsset}
+        onCollapsedChange={setAssetPanelCollapsed}
+      />
 
       {/* while board JSON is loading, the switcher/dock/zoom render but stay
           disabled/dimmed (ui-spec §9); the asset panel loads independently */}
@@ -256,9 +330,22 @@ export function CanvasView() {
         <CanvasToolbar
           toolLocked={toolLocked}
           onToggleLock={() => setToolLocked((v) => !v)}
-          onAddImageFile={addImageFile}
+          onAddImageClick={openImagePicker}
         />
       </div>
+
+      <input
+        ref={imageFileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        tabIndex={-1}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) addImageFile(file);
+          e.target.value = "";
+        }}
+      />
 
       <SaveStatusChip status={saveStatus} onRetry={() => flushSave()} />
 
