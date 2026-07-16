@@ -47,13 +47,16 @@ This is the most engineered part of the app; the design decisions were measured 
 
 ### Auth & data
 
-- Custom auth, admin-managed users (no self-signup): HMAC-signed stateless cookie `lumina_session` (`src/lib/auth.ts`). `src/middleware.ts` is only a cheap edge presence-check for redirects/401s; **real enforcement is `getSession()`/`requireUser()`/`requireAdmin()` inside route handlers.**
-- Postgres via Drizzle (`src/lib/schema.ts`): users, projects, folders, generations, assets, pricing, activity_logs. Timestamps are **bigint ms** (`Date.now()`), IDs are app-supplied `crypto.randomUUID()`. Data access lives in `src/lib/*-db.ts` (store-db = generations, assets-db, projects-db, pricing-db).
+- Custom auth, admin-managed users (no self-signup): HMAC-signed stateless cookie `lumina_session` (`src/lib/auth.ts`). `src/middleware.ts` is only a cheap edge presence-check for redirects/401s; **real enforcement is `getSession()`/`requireUser()`/`requireAdmin()` inside route handlers.** `GET /api/media/[...path]` did NOT follow this pattern until 2026-07-15 (CRITICAL fix — see Media storage below); if you add a new route, check it calls `getSession()` explicitly, don't assume `middleware.ts` covers it.
+- Postgres via Drizzle (`src/lib/schema.ts`): users, projects, folders, generations, assets, pricing, activity_logs, canvas_boards. Timestamps are **bigint ms** (`Date.now()`), IDs are app-supplied `crypto.randomUUID()`. Data access lives in `src/lib/*-db.ts` (store-db = generations, assets-db, projects-db, pricing-db, canvas-db) via `getDb()` in `src/lib/db.ts` — never a module-level client, so the backend switch below works everywhere.
 - Per-user cost attribution: every generation stores `costCents` (from the admin-editable `pricing` table) and `userId`; `/admin` dashboard reads these plus `activity_logs`.
+- **DB backend switch**: `DATABASE_BACKEND` env var — `railway` (default, `postgres` driver via `DATABASE_URL`) or `cloud-sql` (`@google-cloud/cloud-sql-connector` + IAM auth via `pg.Pool`, no static password). `getDb()` in `src/lib/db.ts` lazily picks and caches whichever backend is active; GCP infra lives in `infra/gcp/` and `upgrade.md`. Currently staged but **not flipped** in Vercel (`DATABASE_BACKEND=railway` in both production and preview) pending a final maintenance-window cutover — see `progress.md`.
 
 ### Media storage
 
-S3 bucket via `@aws-sdk/client-s3` (`src/lib/storage.ts`, bucket from `AWS_S3_BUCKET_NAME`); `src/lib/save-media.ts` is the app-facing wrapper (its function signatures are kept stable across storage backend migrations). Objects are served through the `GET /api/media/[...path]` proxy route, not directly from the bucket. Provider result URLs expire, so results are always downloaded and re-stored.
+- **Backend switch**: `MEDIA_BACKEND` env var — `s3` (default, `@aws-sdk/client-s3`, bucket from `AWS_S3_BUCKET_NAME`) or `gcs` (`@google-cloud/storage`, WIF/OIDC auth via `src/lib/gcp-auth.ts`, no service-account keys). `src/lib/storage.ts` exposes `checkStorageConnectivity()` for a backend-agnostic reachability probe, used by the admin Status tab. `src/lib/save-media.ts` is the app-facing wrapper (its function signatures are kept stable across storage backend migrations). Currently staged but **not flipped** (`MEDIA_BACKEND=s3` in both production and preview) — the GCS object audit still has a discrepancy to resolve first (see `progress.md`).
+- Objects are served through the `GET /api/media/[...path]` proxy route, not directly from the bucket. Provider result URLs expire, so results are always downloaded and re-stored.
+- **This route requires an authenticated session** (`getSession()`, 401 if absent) and denies any key under the `settings/` or `migrations/` prefixes (secrets / DB dump snapshots that share the bucket with user media) — both added 2026-07-15 after a CRITICAL finding that the route previously had no auth check at all. If you add a GCS/S3 IAM grant for this bucket (e.g. for CDN), it must carry the same prefix exclusion — see the comment in `infra/gcp/bootstrap-media-cdn.sh`.
 
 ### Frontend
 
@@ -78,7 +81,24 @@ A full-screen infinite-canvas whiteboard for spatial storyboarding, launched fro
 - `src/lib/storage.ts` `splitDataUrl` now allowlists JPEG/PNG/WebP/GIF MIME types only and throws on SVG or anything else — closes a stored-XSS vector in the canvas image-upload path AND the pre-existing asset/reference-image upload paths.
 - `src/app/api/media/[...path]/route.ts` now sets `X-Content-Type-Options: nosniff` header as defense-in-depth.
 
-**Full design rationale & decision log:** `.council/canvas-board/spec.md` (acceptance criteria 1–11), `design.md` (architecture trade-offs + 6 binding decisions + data model), `ui-spec.md` (visual contract + responsive bounds), `decisions.md` (D1–D8: design gate, build, Stage 2/3 fixes).
+**v2 additions (2026-07-16): asset scoping, keyboard/mouse parity, connector editing**
+- `CanvasAssetPanel.tsx` — asset scope is a picker over every real project (`AssetScope = string`, `"all" | projectId`), not a binary This/All toggle; "This project" is pinned first, then every other project by name, then "All projects". Choice persists to `localStorage`, revalidated against live `projects` on load (stale/deleted project ids fall back to `projectId ?? "all"`).
+- Figma-standard keyboard shortcuts (tool switches, `Cmd/Ctrl+D` duplicate, `Cmd/Ctrl+G`/`Shift+G` group/ungroup, bracket layer-order, arrow-key nudge, `Cmd/Ctrl+C/V` copy/paste within-board) — guarded so shortcuts don't fire while a text field has focus.
+- Mouse interactions: alt-drag duplicates the selection in place, shift-drag constrains movement, right-click opens `CanvasContextMenu.tsx` (Duplicate/Copy/Delete/layer-order/group — the same actions the store already had with no prior UI entry point; shared logic factored into `src/lib/canvas/selection-actions.ts` so the context menu and any future toolbar can't drift apart).
+- Connector endpoints are now draggable (re-attach to a different node or detach to a free point) — the automatic bezier-bow curve computation itself is unchanged; this is endpoint re-targeting, not manual curve/control-point editing (see D4 in `canvas-board-v2/decisions.md` for why that's the deliberate line).
+- Gesture-coalescing note: multi-tick gestures (like alt-drag) call a `keepGestureAlive()` store primitive on every pointermove once duplication has fired, to stop the ~400ms `GESTURE_IDLE_MS` idle timer from splitting one drag into two undo steps.
+
+**Full design rationale & decision log:** `.council/canvas-board/spec.md` (acceptance criteria 1–11), `design.md` (architecture trade-offs + 6 binding decisions + data model), `ui-spec.md` (visual contract + responsive bounds), `decisions.md` (D1–D8: design gate, build, Stage 2/3 fixes); v2 additions in `.council/canvas-board-v2/` (spec/design/ui-spec/decisions D1–D8).
+
+### Admin API status page
+
+A "Status" tab in `AdminDashboard.tsx` (admin-only, via `adminOrNull()`) health-checks every external dependency in parallel on tab-open and on manual Refresh — no auto-polling (checks hit paid/rate-limited APIs). Registry + check functions live in `src/lib/status-checks.ts`, exposed via `GET /api/admin/status`; each check races a 5s timeout so one hung dependency can't block the page.
+
+Checks: Gemini/NBP, Higgsfield MCP, BytePlus/Seedance, Omni Flash (all env-var/config-presence checks, not live generations — no cost incurred), Postgres (`getDb()` + `select 1`), Media Storage (`checkStorageConnectivity()`, backend-agnostic across S3/GCS).
+
+**Hard safety constraint**: the Higgsfield check calls only `loadToken()`/`isFresh()` (reads the cached token file/env, does no network round-trip) — it must never attempt a refresh-token exchange, because Higgsfield refresh tokens are single-use and reuse revokes the whole token family with no automated recovery. Don't "improve" this check to validate the token against the live API without re-reading `.council/admin-status-page/decisions.md` D0.
+
+**Evidence**: `.council/admin-status-page/spec.md` (acceptance criteria 1–10), `design.md`, `ui-spec.md`, `decisions.md` (D0 safety constraint, D1–D6 scope/design-gate/review adjudication).
 
 ### Deployment
 

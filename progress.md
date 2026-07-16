@@ -1,5 +1,25 @@
 # Session Progress & Handoff
 
+## 2026-07-16 — Admin Status Page + Canvas Board v2 shipped and bundled with GCP migration scaffolding (pushed to PREVIEW only)
+
+**Status**: `feature/canvas-board` pushed to preview (`a010c1f`). **Not merged to `main` / not in production** — that step is deliberately gated on one explicit user confirmation (see `.council/canvas-board-v2/decisions.md` D6) and a separate discussion about the GCP cutover itself; do not merge without both.
+
+**Shipped via `/council` (two full pipelines, both complete)**:
+1. **Admin API status page** — see new "Admin API status page" section above. `.council/admin-status-page/`.
+2. **Canvas Board v2** (project asset picker, keyboard shortcuts, mouse interactions, connector endpoint editing) — see the "v2 additions" note in the Canvas Board section above. `.council/canvas-board-v2/`.
+3. **Small follow-up (triaged, no full pipeline — additive on already-reviewed v2 infra)**: extended the v2 binary This-project/All-projects asset toggle into a picker over every real project. `src/components/canvas/CanvasAssetPanel.tsx`, commit `a010c1f`.
+
+**Bundled in the same push, not originally part of either council session**: Codex's GCP Cloud SQL / GCS migration scaffolding (`DATABASE_BACKEND`/`MEDIA_BACKEND` switches, `src/lib/gcp-auth.ts`, `getDb()`/`checkStorageConnectivity()`) — left uncommitted in the working tree by Codex with a handoff note in this file (now superseded, see the 2026-07-14 entry below) asking to combine into one reviewed push. Confirmed with the user this was their own legitimately-commissioned work before bundling. Both council features were rewritten during review to consume the new `getDb()`/`checkStorageConnectivity()` abstractions instead of a plain `db` client / raw S3Client, since those are now the correct long-term backend-agnostic pattern.
+
+**Security work done before push** (see 2026-07-15 entry below for the CRITICAL fix; also fixed as part of this same review pass):
+- `infra/gcp/bootstrap-media-cdn.sh` bucket IAM grant scoped with a CEL condition excluding `settings/`/`migrations/` prefixes — defense-in-depth alongside the route-level fix, so a future CDN rollout can't bypass the auth check by serving straight from GCS.
+
+**Deployment gates unchanged and still safe**: `DATABASE_BACKEND=railway`, `MEDIA_BACKEND=s3` in both production and preview Vercel envs — the preview deploy of this branch runs on the exact same S3/Railway backend production does today. The GCP backends are present in the code and reachable via env flag but not active anywhere; flipping them is the deferred "production migration" discussion.
+
+**Known non-issue found during verification**: local dev's asset thumbnails render broken (`AuthorizationHeaderMalformed` from the AWS SDK) — confirmed via `.env.local` that `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are present but empty (length 3) on this machine only. Not caused by the `getSession()` auth fix or anything else in this push; a local credential gap, not a regression.
+
+**Verification**: `npx tsc --noEmit` clean, `npm run build` clean (after `rm -rf .next` post Next.js 15.1.11→15.5.20 bump), 228/228 unit tests passing, live-browser UI review (ui-designer Mode 2, real account/projects) PASS on both features.
+
 ## 2026-07-15 - CRITICAL security fix: /api/media had no real auth check (fixed)
 
 Security review of the GCP migration surfaced a pre-existing production
