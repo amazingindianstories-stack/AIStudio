@@ -15,6 +15,7 @@ import {
 import { CanvasToolbar } from "./CanvasToolbar";
 import { StyleInspector } from "./StyleInspector";
 import { BoardSwitcher } from "./BoardSwitcher";
+import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
 
 const CREATE_TOOLS: CreateTool[] = ["rect", "ellipse", "triangle", "diamond", "text", "sticky", "frame"];
@@ -26,8 +27,11 @@ const SHAPE_SHORTCUTS: Record<string, CreateTool> = {
 
 export function CanvasView() {
   const activeProjectId = useStore((s) => s.activeProjectId);
+  const projects = useStore((s) => s.projects);
+  const setActiveProject = useStore((s) => s.setActiveProject);
 
   const [boardId, setBoardId] = useState<string | null>(null);
+  const [boardsLoading, setBoardsLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [toolLocked, setToolLocked] = useState(false);
   const [assetPanelCollapsed, setAssetPanelCollapsed] = useState(false);
@@ -114,6 +118,24 @@ export function CanvasView() {
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
+
+  // Explicit board-project switch (BoardProjectSelector) — distinct from
+  // CanvasAssetPanel's `scope`, which only filters displayed assets and must
+  // never reach this. Clears `boardId` immediately (BoardSwitcher's own
+  // effect, keyed on `projectId`, picks/creates a board for the new project
+  // and calls `onBoardIdChange` once its fetch resolves) and flushes/resets
+  // the currently-loaded board first so its content doesn't linger on
+  // screen — mirrors loadBoardImpl's own flush-then-reset ordering.
+  const handleBoardProjectChange = useCallback(
+    (projectId: string) => {
+      if (projectId === activeProjectId) return;
+      flushSave({ keepalive: true });
+      reset();
+      setBoardId(null);
+      setActiveProject(projectId);
+    },
+    [activeProjectId, flushSave, reset, setActiveProject]
+  );
 
   const placeAsset = useCallback(
     (asset: { url: string; aspectRatio?: string }) => {
@@ -318,15 +340,26 @@ export function CanvasView() {
         onCollapsedChange={setAssetPanelCollapsed}
       />
 
-      {/* while board JSON is loading, the switcher/dock/zoom render but stay
-          disabled/dimmed (ui-spec §9); the asset panel loads independently */}
-      <div className={cn(!loaded && boardId && "pointer-events-none opacity-50")}>
-        <BoardSwitcher
-          projectId={activeProjectId}
-          boardId={boardId}
-          onBoardIdChange={setBoardId}
-          leftOffset={assetPanelWidth + 16}
-        />
+      {/* while board JSON is loading (or a board-project switch is in
+          flight), the switcher/dock/zoom render but stay disabled/dimmed
+          (ui-spec §9); the asset panel loads independently */}
+      <div className={cn((boardsLoading || (!loaded && boardId)) && "pointer-events-none opacity-50")}>
+        <div
+          className="absolute top-4 z-30 flex items-center gap-2 transition-[left] duration-200"
+          style={{ left: assetPanelWidth + 16 }}
+        >
+          <BoardProjectSelector
+            activeProjectId={activeProjectId}
+            projects={projects}
+            onChange={handleBoardProjectChange}
+          />
+          <BoardSwitcher
+            projectId={activeProjectId}
+            boardId={boardId}
+            onBoardIdChange={setBoardId}
+            onLoadingChange={setBoardsLoading}
+          />
+        </div>
         <CanvasToolbar
           toolLocked={toolLocked}
           onToggleLock={() => setToolLocked((v) => !v)}

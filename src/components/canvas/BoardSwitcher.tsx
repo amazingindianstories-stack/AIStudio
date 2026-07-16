@@ -8,37 +8,52 @@ import { Dropdown, MenuItem } from "@/components/Dropdown";
 import type { CanvasBoardMeta } from "@/lib/canvas/types";
 
 /**
- * Top-left floating board dropdown (ui-spec §8): list/create/rename/switch,
- * delete gated behind a styled confirm dialog (never a native `confirm()`).
- * Owns the board-metadata list for the active project — `canvas-store.ts`
- * only holds the *content* of whichever single board is loaded.
+ * Board dropdown (ui-spec §8): list/create/rename/switch, delete gated
+ * behind a styled confirm dialog (never a native `confirm()`). Owns the
+ * board-metadata list for the active project — `canvas-store.ts` only holds
+ * the *content* of whichever single board is loaded. Rendered by CanvasView
+ * inside a shared positioning row alongside BoardProjectSelector — this
+ * component no longer self-positions (see the "Canvas Project Context Is
+ * Misleading" bug report / CanvasView's absolute wrapper).
  */
 export function BoardSwitcher({
   projectId,
   boardId,
   onBoardIdChange,
-  leftOffset,
+  onLoadingChange,
 }: {
   projectId: string | null;
   boardId: string | null;
   onBoardIdChange: (id: string) => void;
-  /** Left edge in px, offset past the asset panel so the two never overlap. */
-  leftOffset: number;
+  /** Fires whenever this project's board list is being (re)fetched, so
+   *  CanvasView can show "Loading boards…" instead of a stale board name
+   *  and dim the toolbar during a project switch. */
+  onLoadingChange?: (loading: boolean) => void;
 }) {
   const [boards, setBoards] = useState<CanvasBoardMeta[]>([]);
+  const [boardsLoading, setBoardsLoading] = useState(false);
   const [renamingTrigger, setRenamingTrigger] = useState(false);
   const [renamingRowId, setRenamingRowId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CanvasBoardMeta | null>(null);
   const initializedForProject = useRef<string | null>(null);
+  // Guards against an in-flight fetch for a project the user has since
+  // switched away from landing its (stale) result into state — the same
+  // class of race `loadGeneration` guards against in canvas-store.ts, just
+  // for the board *list* rather than a single board's content.
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     if (!projectId || initializedForProject.current === projectId) return;
     initializedForProject.current = projectId;
+    const requestId = ++requestIdRef.current;
+    setBoardsLoading(true);
+    onLoadingChange?.(true);
     (async () => {
       const res = await fetch(`/api/canvas-boards?projectId=${encodeURIComponent(projectId)}`, {
         cache: "no-store",
       });
       const json = await res.json().catch(() => ({}));
+      if (requestIdRef.current !== requestId) return; // superseded — a newer project switch happened
       let list: CanvasBoardMeta[] = json.boards ?? [];
       if (list.length === 0) {
         const created = await fetch("/api/canvas-boards", {
@@ -47,9 +62,12 @@ export function BoardSwitcher({
           body: JSON.stringify({ op: "createBoard", projectId, name: "Untitled board" }),
         });
         const createdJson = await created.json().catch(() => ({}));
+        if (requestIdRef.current !== requestId) return; // superseded mid-auto-create
         list = createdJson.boards ?? [];
       }
       setBoards(list);
+      setBoardsLoading(false);
+      onLoadingChange?.(false);
       if (!boardId || !list.some((b) => b.id === boardId)) {
         if (list[0]) onBoardIdChange(list[0].id);
       }
@@ -116,7 +134,7 @@ export function BoardSwitcher({
   };
 
   return (
-    <div className="absolute top-4 z-30 transition-[left] duration-200" style={{ left: leftOffset }}>
+    <>
       {renamingTrigger ? (
         <input
           autoFocus
@@ -141,7 +159,9 @@ export function BoardSwitcher({
                 open && "border-brand/40"
               )}
             >
-              <span className="truncate">{current?.name ?? "Untitled board"}</span>
+              <span className="truncate">
+                {boardsLoading ? "Loading boards…" : current?.name ?? "Untitled board"}
+              </span>
               <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
             </span>
           )}
@@ -243,7 +263,7 @@ export function BoardSwitcher({
           />,
           document.body
         )}
-    </div>
+    </>
   );
 }
 

@@ -320,7 +320,7 @@ function AssetSkeletonGrid() {
 }
 
 /**
- * Project-scope control (ui-spec §A.2, per decisions.md D7 which overrides
+ * Asset-source filter (ui-spec §A.2, per decisions.md D7 which overrides
  * design.md's file-plan one-liner "segmented pill" description): a compact
  * `Dropdown` matching the `BoardSwitcher` trigger idiom scaled to `text-xs`,
  * not a second segmented toggle — the header row is already full at 300px.
@@ -329,6 +329,13 @@ function AssetSkeletonGrid() {
  * (canvas-board-v2 D1) to list every individual project, per user request —
  * "This project" stays pinned first for the common case, followed by every
  * other project, then "All projects" last.
+ *
+ * Labeled "Assets from: X", not just "X" — this filters which project's
+ * assets are *shown here*, it does NOT change which project owns the
+ * current board (that's BoardProjectSelector, in the Canvas header). The
+ * two were easy to conflate visually before this label existed — see the
+ * "Canvas Project Context Is Misleading" bug report. This control must
+ * never call `setActiveProject`.
  */
 function AssetScopeControl({
   scope,
@@ -350,6 +357,7 @@ function AssetScopeControl({
     <Dropdown
       trigger={(open) => (
         <span
+          title="Which project's assets are shown in this panel — does not change the board's project"
           className={cn(
             "inline-flex max-w-full items-center gap-1.5 rounded-full border border-line bg-ink-700 px-2.5 py-1 text-xs text-white/60 transition hover:text-white/90",
             open && "border-brand/40"
@@ -360,7 +368,9 @@ function AssetScopeControl({
           ) : (
             <Folder className="h-3.5 w-3.5 text-white/50" />
           )}
-          <span className="truncate">{label}</span>
+          <span className="truncate">
+            Assets from: <span className="text-white/85">{label}</span>
+          </span>
           <ChevronDown className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-180")} />
         </span>
       )}
