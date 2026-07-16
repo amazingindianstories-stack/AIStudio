@@ -779,8 +779,18 @@ function startPolling(
 ) {
   if (item.status === "queued") {
     pollQueue(item.id, set, get);
-  } else if (item.kind === "video" && item.status === "running") {
-    pollVideo(item.id, set, get);
+  } else if (item.status === "running") {
+    if (item.kind === "video") {
+      pollVideo(item.id, set, get);
+    } else {
+      // Images execute synchronously inside /api/queue/execute; if that
+      // request was interrupted (reload, backgrounded tab, network blip)
+      // after the job flipped to "running" server-side, nothing else will
+      // ever tell this client it finished. /api/queue/status reports the
+      // row's real status regardless of queue position, so reuse it here
+      // to wait out the remaining execution.
+      pollQueue(item.id, set, get);
+    }
   }
 }
 
@@ -820,7 +830,15 @@ function pollQueue(
         }
         return; // done
       } else if (data.status === "succeeded" || data.status === "failed") {
-        // Somehow finished already or failed
+        // Finished (or failed) since our last check — merge the real item
+        // (url/cost/etc.) rather than just noting the status string, so a
+        // client that resumed polling on a "running" item actually sees it
+        // complete without needing a manual refresh.
+        if (data.item?.id) {
+          set((s) => ({
+            items: s.items.map((i) => (i.id === data.item.id ? { ...i, ...data.item } : i)),
+          }));
+        }
         polling.delete(id);
         return;
       }

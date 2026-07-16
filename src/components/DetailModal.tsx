@@ -164,11 +164,24 @@ export function DetailModal() {
     );
   })();
 
+  // Closing the modal while a <video>'s native fullscreen is still active
+  // (or mid-exit-transition) unmounts the fullscreen element out from under
+  // the browser's own fullscreen-exit handling — in Chrome this can leave
+  // the page's hit-testing wedged until a reload. Exit fullscreen first and
+  // let the (now-unmounted-safe) close happen on the next call.
+  const closeModal = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+      return;
+    }
+    setActiveId(null);
+  };
+
   useEffect(() => {
     if (!item) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setActiveId(null);
+        closeModal();
         return;
       }
       if (
@@ -208,7 +221,7 @@ export function DetailModal() {
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
           className="fixed inset-0 z-[60] flex items-stretch justify-center bg-black/80 backdrop-blur-md"
-          onClick={() => setActiveId(null)}
+          onClick={closeModal}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
@@ -221,7 +234,7 @@ export function DetailModal() {
             {/* media stage */}
             <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center p-4 sm:p-8">
               <button
-                onClick={() => setActiveId(null)}
+                onClick={closeModal}
                 className="absolute left-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white/90 backdrop-blur hover:bg-white/20"
               >
                 <X className="h-5 w-5" />

@@ -134,7 +134,7 @@ export function HistoryPanel() {
   return (
     <div className="flex h-full flex-col bg-ink-850">
       {/* tabs + filters */}
-      <div className="grid min-w-0 grid-cols-1 gap-3 border-b border-line px-4 py-3 2xl:grid-cols-[auto_minmax(16rem,1fr)] 2xl:items-center">
+      <div className="flex min-w-0 flex-wrap items-center gap-3 border-b border-line px-4 py-3">
         <div className="scroll-none flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-700 p-1">
           <TabBtn active={rightTab === "project"} onClick={() => setRightTab("project")}>
             <Layers className="h-4 w-4" /> Project
@@ -150,8 +150,8 @@ export function HistoryPanel() {
           </TabBtn>
         </div>
 
-        <div className="flex min-w-0 items-center gap-2 2xl:justify-end">
-          <div className="relative min-w-0 flex-1 2xl:max-w-52">
+        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
+          <div className="relative min-w-0 max-w-52 flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
             <input
               value={search}

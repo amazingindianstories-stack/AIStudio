@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { getItem } from "@/lib/store-db";
 import { createZipArchive } from "@/lib/zip";
+import { mediaKeyFromRef, readStoredBuffer } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -38,10 +39,20 @@ export async function POST(req: NextRequest) {
     const item = selectedItems[index];
     if (!item?.url || item.kind !== "image") continue;
 
-    const res = await fetch(item.url);
-    if (!res.ok) continue;
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    const ext = extensionFromContentType(res.headers.get("content-type"), item.url);
+    // Read straight from the storage backend (S3/GCS) rather than fetching
+    // `item.url` over HTTP: that URL is the app-relative `/api/media/...`
+    // proxy path, which Node's fetch cannot resolve without a base, and the
+    // proxy also requires a forwarded session cookie this server-side call
+    // doesn't have.
+    const key = mediaKeyFromRef(item.url);
+    if (!key) continue;
+    let bytes: Buffer;
+    try {
+      bytes = await readStoredBuffer(key);
+    } catch {
+      continue;
+    }
+    const ext = extensionFromContentType(null, item.url);
     entries.push({
       name: `${String(index + 1).padStart(2, "0")}-${item.id}.${ext}`,
       data: bytes,

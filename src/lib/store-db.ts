@@ -166,10 +166,15 @@ import { and, sql } from "drizzle-orm";
 // limits). Anything beyond the cap waits in the queue.
 const MAX_CONCURRENT: Record<string, number> = { image: 2, video: 2 };
 
-export async function getQueuePosition(id: string): Promise<{ position: number; status: string } | null> {
+export async function getQueuePosition(
+  id: string
+): Promise<{ position: number; status: string; item?: GenerationItem } | null> {
   const item = await getItem(id);
   if (!item) return null;
-  if (item.status !== "queued") return { position: 0, status: item.status };
+  // Include the full row once it's left the queue: a client that resumed
+  // polling after a reload (job already "running"/finished server-side) has
+  // no other way to learn the finished url/status without this.
+  if (item.status !== "queued") return { position: 0, status: item.status, item };
 
   const cap = MAX_CONCURRENT[item.kind] ?? 2;
   const db = await getDb();
