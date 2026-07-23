@@ -1,75 +1,122 @@
-# GCP Migration — Holdoff (2026-07-16)
+# GCP Migration — Status and Postgres Cutover Runbook (updated 2026-07-23)
 
-Work on the database/storage cutover described in `upgrade.md` is **paused here**,
-mid-runbook, to go fix a production bug (Canvas board/asset project-context
-mismatch) first. This file is the resume point — read this before continuing
-the migration.
+## Media (S3 → GCS): DONE, live in production
 
-## Exactly where the runbook stands
+- `MEDIA_BACKEND=gcs` and `GCS_MIGRATION_READ_FALLBACK=1` are set in Vercel
+  Production and deployed (2026-07-23).
+- Full copy completed and verified directly against real GCS/S3 object counts
+  (not just the script's own self-report). Residual drift after each pass was
+  confirmed to be new objects from live production traffic, not copy failures.
+- `GCS_MIGRATION_READ_FALLBACK=1` means any read that 404s on GCS transparently
+  falls back to S3 — so even if a handful of objects haven't been backfilled
+  yet, nothing breaks for users. New writes go straight to GCS
+  (`saveBuffer`/`uploadBuffer` in `src/lib/storage.ts` check `MEDIA_BACKEND`).
+- Verified live on production (`www.veevee.ai`): existing images across
+  multiple projects load correctly; a real test generation was confirmed
+  present in the GCS bucket immediately after creation (test project +
+  generation were cleaned up afterward).
+- Rollback if ever needed: flip `MEDIA_BACKEND` back to `s3` and redeploy.
+  Nothing is ever deleted from S3, so this is instant and lossless.
+- Follow-up, not urgent: run `npm run verify:media:gcp` again until it reports
+  0 missing, then `GCS_MIGRATION_READ_FALLBACK` can be turned off (leaving it
+  on is harmless either way).
 
-Per `upgrade.md`'s "Safe Cutover Runbook" §1 (Initial copy while production
-stays online):
+## Postgres (Railway → Cloud SQL): NOT started — scheduled for tomorrow morning, low-traffic window
 
-- ✅ Local blockers cleared this session:
-  - AWS read credentials for `s3://ais-film-platform-media` are live in
-    `.env.local` (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_REGION`/
-    `AWS_S3_BUCKET_NAME`) — verified with a `HeadBucket`/`ListObjectsV2` call.
-  - Local GCP Application Default Credentials were expired; re-authenticated
-    via `gcloud auth application-default login` as `vivek@amazingindianstories.com`.
-  - **Environment bug found and fixed**: `npm run migrate:media:gcp` under this
-    machine's global Node (v26.3.1) fails every time with
-    `GaxiosError: Invalid response body ... Premature close` while refreshing
-    the OAuth token — a known `node-fetch@2.7.0`/newer-Node zlib-stream
-    incompatibility, bundled transitively inside `google-auth-library-v9`
-    (pinned there specifically for `@google-cloud/storage` v7 compat — see the
-    comment above `getStorageAuth()` in `src/lib/gcp-auth.ts`). This isn't a
-    credentials problem — `curl` to the same endpoint works fine.
-  - **Fix**: installed Node 22 via Homebrew, keg-only (`brew install node@22`,
-    did **not** run `brew link` — the global `node` symlink is untouched,
-    still resolves to v26.3.1). This matches the project's own
-    `package.json` `"engines": {"node": "22.x"}` pin. Run migration/verify
-    scripts with Node 22 explicitly on `PATH`:
-    ```bash
-    PATH="/opt/homebrew/opt/node@22/bin:$PATH" npm run migrate:media:gcp
-    PATH="/opt/homebrew/opt/node@22/bin:$PATH" npm run migrate:postgres:gcp
-    PATH="/opt/homebrew/opt/node@22/bin:$PATH" npm run verify:media:gcp
-    ```
-- ✅ `npm run migrate:postgres:gcp` (dry run, no `--apply`): succeeded, wrote a
-  fresh Railway snapshot to a temp dir. Not yet applied to Cloud SQL.
-- ✅ `migrate:media:gcp` dry run (no `--apply`), run under Node 22: succeeded.
-  Result:
+Unlike media, this cannot use a "flip then backfill" trick — the app reads
+*and* writes through whichever backend `DATABASE_BACKEND` points at, and
+there's no equivalent of the GCS read-fallback for Postgres. The cutover must
+be atomic: freeze writes (in practice, do it while no one is online), take a
+fresh consistent snapshot, import it, verify, then flip.
+
+### What `migrate:postgres:gcp` actually does
+
+`scripts/migrate-postgres-to-cloud-sql.ts`:
+1. `pg_dump` the full Railway DB to a local temp file (`--clean --if-exists`,
+   so importing **drops and recreates every object** from a clean snapshot —
+   this is a full replace, not an incremental merge).
+2. Appends hardening SQL: runtime IAM grants + the same performance indexes
+   added during the original migration prep.
+3. Without `--apply`: stops after the local dump (pure dry run, touches
+   nothing in GCP).
+4. With `--apply`: uploads the dump to `gs://<bucket>/migrations/...` and runs
+   `gcloud sql import sql` into the Cloud SQL instance/database.
+
+Because it's a clean replace, **whatever's currently in Cloud SQL doesn't
+matter** — the import fully overwrites it with a fresh Railway snapshot at
+cutover time. No incremental diffing needed on this side (unlike media).
+
+### Pre-flight completed today (2026-07-23), zero risk, nothing touched in GCP
+
+- Confirmed local `pg_dump` is v18.4 (Homebrew), matching Cloud SQL's engine
+  version (v18.4 Enterprise per `upgrade.md`) — no version-mismatch risk.
+- Ran the dry run (`npm run migrate:postgres:gcp`, no `--apply`): succeeded in
+  ~24s, produced a clean local snapshot. Confirms Railway connectivity and the
+  pg_dump command both work end-to-end right now.
+- Confirmed there are no Vercel cron jobs (`vercel.json` has none) that could
+  write to the DB unattended overnight — the only writes come from active
+  user sessions / in-flight generations, which should be zero during a
+  no-users-online window.
+- Current Railway row counts (baseline, captured 2026-07-23, for post-import
+  comparison):
   ```
-  Checking 1613 objects: s3://ais-film-platform-media -> gs://aistudio-media-bucket
-  { "same": 0, "missing": 1613, "different": 0, "copied": 0, "failed": 0 }
+  users: 12          projects: 4         folders: 4
+  generations: 607   assets: 0           pricing: 10
+  canvas_boards: 12  activity_logs: 770
   ```
-  All 1613 currently-referenced media objects are missing from GCS (grew from
-  the 508 recorded in `upgrade.md` on 2026-07-14 — production kept writing to
-  S3 in the interim, as expected). **Nothing has been copied yet** — this was
-  read-only against both S3 and GCS.
+- Did **not** attempt to read Cloud SQL's current row counts locally — that
+  needs the runtime service account's IAM DB user via Workload Identity
+  Federation, which only works inside the actual Vercel runtime, not from a
+  local machine. Not needed anyway, since the import is a full replace.
 
-## Not yet done (resume here)
+### Known risk for tomorrow: GCP auth may need a fresh login again
 
-1. Run the real copy: `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npm run migrate:media:gcp -- --apply`
-   (writes to GCS only; S3 stays untouched and authoritative; no production
-   impact since `MEDIA_BACKEND` stays `s3` throughout this step).
-2. `-- --verify-only` and `npm run verify:media:gcp` until zero
-   missing/mismatched objects.
-3. Everything after that in `upgrade.md`'s runbook §2–6 is still fully
-   pending: smoke tests, the final Postgres maintenance-window resync, then
-   flipping `DATABASE_BACKEND` and `MEDIA_BACKEND` one at a time (each with a
-   redeploy + verify), then the CDN switch.
+Twice today, both `gcloud auth application-default login` (ADC, used by the
+Node/`@google-cloud/*` SDKs) and `gcloud auth login` (the separate CLI login,
+used when a script shells out to `gcloud` directly) expired mid-session with
+`invalid_grant`/`invalid_rapt` (a Google Workspace reauth requirement) or a
+plain "Reauthentication failed" CLI error. **`migrate-postgres-to-cloud-sql.ts`
+shells out to `gcloud storage cp` and `gcloud sql import` directly**, so it
+needs `gcloud auth login` to be fresh at cutover time — assume it will need
+re-running tomorrow morning (`gcloud auth login` via the `!` prefix) rather
+than relying on today's session carrying over.
 
-## Safety notes for whoever resumes this
+### Runbook for tomorrow (early morning, no users online)
 
-- `DATABASE_BACKEND=railway` and `MEDIA_BACKEND=s3` are still the live gates in
-  both Vercel Production and Preview — nothing about this session's local work
-  has touched production behavior.
-- The AWS secret key used here was pasted directly into chat by the user
-  despite being asked not to; it's now only in `.env.local` (gitignored, never
-  committed). Worth flagging to the user that rotating it is good hygiene
-  given it passed through a chat transcript.
+1. **Re-auth if needed**: `!gcloud auth login` (and `!gcloud auth application-default login`
+   if any ADC-based check is also run). Confirm with `gcloud storage ls gs://aistudio-media-bucket`
+   (lightweight, read-only) that the CLI session is live before proceeding.
+2. **Confirm quiet**: check the admin dashboard / activity_logs for any
+   in-flight generations (`status: running/queued`) before starting — ideally
+   zero.
+3. **Run the real import**: `PATH="/opt/homebrew/opt/node@22/bin:$PATH" npm run migrate:postgres:gcp -- --apply`
+   (Node 22 required — same node-fetch/Node 26 incompatibility as the media
+   script applies here too, since it shares `gcp-auth.ts`).
+4. **Verify row counts match** between Railway (baseline above, re-check it
+   hasn't changed) and Cloud SQL post-import, for all 8 tables.
+5. **Flip** `DATABASE_BACKEND=cloud-sql` in Vercel Production (`vercel env rm`
+   + `vercel env add`, same pattern used for the media flip), then
+   `vercel deploy --prod` to redeploy.
+6. **Smoke test immediately**: log in, view existing projects/generations
+   (confirms reads work), create one test generation (confirms writes work
+   and lands correctly), check `/admin` status page's Postgres check.
+7. **Rollback plan**: flip `DATABASE_BACKEND` back to `railway` + redeploy.
+   Safe as long as it's caught quickly — any writes that land in Cloud SQL
+   after the flip but before a rollback would need to be manually
+   re-applied to Railway, so don't delay verification in step 6.
+8. Once confirmed stable, remaining `upgrade.md` items: CDN switch-over
+   (media, cosmetic/perf only, not urgent), and eventually decommissioning
+   the Railway instance once confidence is high (not before Cloud SQL has run
+   cleanly for a while).
+
+## Safety notes
+
 - Per this repo's own incident history (`main` was reset to a known-good
   baseline on 2026-07-13 after risky in-flight GCP/WIF deploy work), do not
-  flip `DATABASE_BACKEND`/`MEDIA_BACKEND` in Production without one explicit,
-  separate confirmation at each gate — this holds regardless of any earlier
-  blanket "go ahead" on the migration in general.
+  flip `DATABASE_BACKEND` in Production without explicit, separate
+  confirmation at the time — a general "go ahead with the migration"
+  discussion earlier does not count as that confirmation.
+- The AWS secret key was pasted directly into chat by the user earlier this
+  project despite being asked not to; still only in `.env.local` (gitignored,
+  never committed). Rotating it is good hygiene since it passed through a
+  chat transcript — still not done as of this update.
