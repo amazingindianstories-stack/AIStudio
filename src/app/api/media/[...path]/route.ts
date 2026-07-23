@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSession } from "@/lib/auth";
+import {
+  SESSION_COOKIE,
+  verifySessionToken,
+} from "@/lib/auth";
 import {
   getMediaRedirectUrl,
   InvalidMediaRangeError,
@@ -24,7 +27,12 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
-  if (!(await getSession())) {
+  // Media-heavy boards can issue dozens of requests together. The signed,
+  // expiring cookie is sufficient for this read-only path and avoids exhausting
+  // PostgreSQL by performing a user lookup for every thumbnail. All mutable and
+  // privileged routes continue to use the database-backed getSession().
+  const token = request.cookies.get(SESSION_COOKIE)?.value;
+  if (!token || !verifySessionToken(token)) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
 

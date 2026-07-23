@@ -46,7 +46,13 @@ export function signSession(userId: string, authVersion: number): string {
   return `${payload}.${sig}`;
 }
 
-function verifySessionToken(
+/** Verify the signed cookie without consulting the database.
+ *
+ * Most application routes must use `getSession()` so disabled users and bumped
+ * auth versions take effect immediately. High-fanout, read-only media requests
+ * may use this verifier to avoid opening one database connection per image.
+ */
+export function verifySessionToken(
   token: string
 ): { userId: string; authVersion: number } | null {
   const parts = token.split(".");
