@@ -13,6 +13,7 @@ import {
   Check,
   Star,
   Copy,
+  Download,
 } from "lucide-react";
 import type { GenerationItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
@@ -211,6 +212,19 @@ export function MediaCard({
             className={cn("h-3.5 w-3.5", item.isFavorite && "fill-current")}
           />
         </button>
+
+        {done && item.url && (
+          <a
+            href={item.url}
+            download
+            onClick={(e) => e.stopPropagation()}
+            className="absolute right-10 top-2 z-30 grid h-7 w-7 place-items-center rounded-md bg-black/55 text-white/70 opacity-0 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35 group-hover:opacity-100"
+            aria-label="Download"
+            title="Download"
+          >
+            <Download className="h-3.5 w-3.5" />
+          </a>
+        )}
 
         {/* creator attribution — small circle; hover for who/cost/when */}
         {creator && (

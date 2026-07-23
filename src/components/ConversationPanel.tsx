@@ -13,6 +13,8 @@ import {
   Layers,
   Maximize2,
   Copy,
+  Star,
+  Download,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { aspectToPadding, cn } from "@/lib/utils";
@@ -158,6 +160,7 @@ function PromptText({ text }: { text: string }) {
 function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
+  const toggleFavorite = useStore((s) => s.toggleFavorite);
   const label = item.kind === "image" ? "Image" : "Video";
   const pending = item.status === "running" || item.status === "queued";
 
@@ -189,7 +192,7 @@ function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
       <div
         onClick={() => item.status === "succeeded" && setActiveId(item.id)}
         className={cn(
-          "group relative w-full overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)]",
+          "group/media relative w-full overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] focus-within:ring-white/25",
           item.status === "succeeded" && "cursor-pointer"
         )}
       >
@@ -241,8 +244,38 @@ function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
           )}
 
           {item.status === "succeeded" && (
-            <div className="pointer-events-none absolute right-2.5 top-2.5 flex gap-1.5 opacity-0 transition group-hover:opacity-100">
-              <span className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm">
+            <div className="absolute right-2.5 top-2.5 z-20 flex gap-1.5 opacity-0 transition group-hover/media:opacity-100 group-focus-within/media:opacity-100">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleFavorite(item.id);
+                }}
+                className={cn(
+                  "grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35",
+                  item.isFavorite && "text-amber-300 hover:text-amber-200"
+                )}
+                aria-label={
+                  item.isFavorite ? "Remove from favourites" : "Add to favourites"
+                }
+                title={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
+              >
+                <Star
+                  className={cn("h-4 w-4", item.isFavorite && "fill-current")}
+                />
+              </button>
+              {item.url && (
+                <a
+                  href={item.url}
+                  download
+                  onClick={(e) => e.stopPropagation()}
+                  className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
+                  aria-label="Download"
+                  title="Download"
+                >
+                  <Download className="h-4 w-4" />
+                </a>
+              )}
+              <span className="pointer-events-none grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm">
                 <Maximize2 className="h-4 w-4" />
               </span>
             </div>
