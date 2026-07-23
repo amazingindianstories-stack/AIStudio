@@ -6,6 +6,7 @@ import {
   X,
   Download,
   Copy,
+  Check,
   Trash2,
   Box,
   Sparkles,
@@ -80,6 +81,37 @@ function DetailPrompt({ text }: { text: string }) {
         </button>
       )}
     </motion.div>
+  );
+}
+
+function CopyPromptButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <button
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          window.setTimeout(() => setCopied(false), 1500);
+        } catch {
+          // clipboard permission denied or unavailable — no-op
+        }
+      }}
+      className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium text-white/50 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      aria-label="Copy prompt"
+      title="Copy prompt"
+    >
+      {copied ? (
+        <>
+          <Check className="h-3 w-3 text-emerald-400" /> Copied
+        </>
+      ) : (
+        <>
+          <Copy className="h-3 w-3" /> Copy
+        </>
+      )}
+    </button>
   );
 }
 
@@ -311,9 +343,12 @@ export function DetailModal() {
                 <ReferenceCollage images={item.referenceImages} />
               )}
 
-              <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/40">
-                Prompt
-              </p>
+              <div className="mb-1 flex items-center justify-between">
+                <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                  Prompt
+                </p>
+                <CopyPromptButton text={item.prompt} />
+              </div>
               <DetailPrompt key={item.id} text={item.prompt} />
               </div>
 
