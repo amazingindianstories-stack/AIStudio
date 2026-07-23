@@ -186,6 +186,29 @@ export const CanvasSurface = forwardRef<
     }
     return counts;
   }, [displayState.nodes]);
+  const renderedNodes = useMemo(() => {
+    // Large storyboard boards can contain thousands of nodes. Mounting every
+    // off-screen image at once floods the authenticated media route and leaves
+    // transiently failed <img> requests behind. Keep a generous screen-space
+    // overscan so panning still feels immediate while only nearby media mounts.
+    const overscanPx = 900;
+    const overscanWorld = overscanPx / viewport.zoom;
+    const left = viewport.x - overscanWorld;
+    const top = viewport.y - overscanWorld;
+    const right = viewport.x + size.w / viewport.zoom + overscanWorld;
+    const bottom = viewport.y + size.h / viewport.zoom + overscanWorld;
+    const selected = new Set(selection);
+
+    return displayState.nodes.filter((node) => {
+      if (selected.has(node.id)) return true;
+      return (
+        node.x + node.w >= left &&
+        node.x <= right &&
+        node.y + node.h >= top &&
+        node.y <= bottom
+      );
+    });
+  }, [displayState.nodes, selection, size.h, size.w, viewport.x, viewport.y, viewport.zoom]);
 
   useImperativeHandle(ref, () => ({
     getViewportCenterWorld: () => ({
@@ -828,7 +851,7 @@ export const CanvasSurface = forwardRef<
       }}
     >
       <div className="absolute left-0 top-0 origin-top-left" style={{ transform: worldTransform }}>
-        {displayState.nodes.map((n) => (
+        {renderedNodes.map((n) => (
           <NodeView
             key={n.id}
             node={n}
