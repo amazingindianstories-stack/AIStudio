@@ -43,6 +43,12 @@ import {
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { GenerationKind } from "@/lib/types";
+import {
+  REF_BATCH_BUDGET_BYTES,
+  REF_BUDGET_STEPS,
+  dataUrlBytes,
+  downscaleBlob,
+} from "@/lib/client-image-budget";
 
 const MODE_ICONS: Record<string, any> = {
   Image: ImageIcon,
@@ -51,23 +57,6 @@ const MODE_ICONS: Record<string, any> = {
   UserRound,
   AudioLines,
 };
-
-// Client reference longest-side cap. Identity tiles are cropped from these
-// refs server-side, so higher fidelity here carries real facial detail — see
-// the payload-budget ladder in addImageFiles for how this trades off against
-// Vercel's 4.5MB body limit.
-const REF_MAX_DIM = Number(process.env.NEXT_PUBLIC_REF_MAX_DIM) || 2048;
-
-// Vercel body limit 4.5MB; base64 inflates ~1.33×, so the raw-bytes budget
-// across all refs in a batch is ~3.38MB. Target 3.0MB to leave headroom for
-// the prompt JSON.
-const REF_BATCH_BUDGET_BYTES = 3.0 * 1024 * 1024;
-
-/** Raw byte size of a data URL's base64 payload, ((len*3)/4). */
-function dataUrlBytes(dataUrl: string): number {
-  const b64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
-  return (b64.length * 3) / 4;
-}
 
 export function PromptComposer() {
   const s = useStore();
@@ -133,42 +122,6 @@ export function PromptComposer() {
   const modeModels = MODELS.filter((m) => m.kind === s.mode);
   const activeMode = MODES.find((m) => m.id === s.mode);
 
-  // Downscale image to fit within Vercel's 4.5MB payload limit, at a caller-
-  // chosen dimension/quality step (see addImageFiles' budget ladder).
-  const downscaleImage = async (
-    file: File,
-    maxDim: number,
-    quality: number
-  ): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        let { width, height } = img;
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = Math.round((height * maxDim) / width);
-            width = maxDim;
-          } else {
-            width = Math.round((width * maxDim) / height);
-            height = maxDim;
-          }
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) return reject("No canvas context");
-        ctx.drawImage(img, 0, 0, width, height);
-        // Export as JPEG to ensure small size (avoids massive PNGs)
-        resolve(canvas.toDataURL("image/jpeg", quality));
-      };
-      img.onerror = () => reject("Failed to load image");
-      img.src = url;
-    });
-  };
-
   // Read image File objects (from upload, paste, or drop) into references.
   //
   // Payload-budget ladder: encode the WHOLE batch at each step, summing raw
@@ -181,20 +134,13 @@ export function PromptComposer() {
     const valid = files.filter((f) => f.type.startsWith("image/"));
     if (!valid.length) return;
 
-    const steps: Array<{ dim: number; quality: number }> = [
-      { dim: REF_MAX_DIM, quality: 0.85 },
-      { dim: REF_MAX_DIM, quality: 0.7 },
-      { dim: 1536, quality: 0.8 },
-      { dim: 1024, quality: 0.8 },
-    ];
-
     let dataUrls: string[] = [];
-    for (let i = 0; i < steps.length; i++) {
-      const { dim, quality } = steps[i];
+    for (let i = 0; i < REF_BUDGET_STEPS.length; i++) {
+      const { dim, quality } = REF_BUDGET_STEPS[i];
       const encoded = await Promise.all(
         valid.map(async (f) => {
           try {
-            return await downscaleImage(f, dim, quality);
+            return await downscaleBlob(f, dim, quality);
           } catch (e) {
             console.error("Failed to downscale image", e);
             return null;
@@ -204,7 +150,7 @@ export function PromptComposer() {
       dataUrls = encoded.filter((u): u is string => u !== null);
       if (!dataUrls.length) return;
       const totalBytes = dataUrls.reduce((n, u) => n + dataUrlBytes(u), 0);
-      if (totalBytes <= REF_BATCH_BUDGET_BYTES || i === steps.length - 1) break;
+      if (totalBytes <= REF_BATCH_BUDGET_BYTES || i === REF_BUDGET_STEPS.length - 1) break;
     }
 
     for (const dataUrl of dataUrls) s.addReference(dataUrl);

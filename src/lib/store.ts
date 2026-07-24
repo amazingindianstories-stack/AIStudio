@@ -17,6 +17,7 @@ import {
   durationsForModel,
   resolutionsForModel,
 } from "./config";
+import { encodeBlobWithBudget } from "./client-image-budget";
 
 export interface CurrentUser {
   id: string;
@@ -441,18 +442,19 @@ export const useStore = create<AppState>((set, get) => ({
   addReferenceFromUrl: async (url) => {
     // Fetch a generated image and add it to the composer as a reference (data
     // URL so every provider works) — enables the hero-first crowd workflow.
+    // Generated images can be full-resolution (well over Vercel's 4.5MB body
+    // limit once base64-encoded), so this must go through the same downscale
+    // budget ladder as file uploads (addImageFiles in PromptComposer.tsx) —
+    // skipping it previously produced an oversized generate() payload that
+    // Vercel rejected with a non-JSON 413, surfacing as "server returned an
+    // empty or invalid response".
     try {
       const res = await fetch(url);
       const blob = await res.blob();
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result as string);
-        r.onerror = reject;
-        r.readAsDataURL(blob);
-      });
+      const dataUrl = await encodeBlobWithBudget(blob);
       get().addReference(dataUrl);
-    } catch {
-      /* ignore */
+    } catch (e) {
+      console.error("Failed to add reference from URL:", e);
     }
   },
 

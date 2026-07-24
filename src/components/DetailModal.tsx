@@ -17,7 +17,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { cn } from "@/lib/utils";
+import { cn, thumbUrl } from "@/lib/utils";
 
 /** Prompt in the details sidebar: minimized by default, hover reveals an
  *  expand cue in the top-right corner (same pattern as the feed). Keyed by
@@ -145,7 +145,7 @@ function ReferenceCollage({ images }: { images: string[] }) {
             title="Open reference image"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={src} alt="" className="h-full w-full object-cover" />
+            <img src={thumbUrl(src, 320)} alt="" className="h-full w-full object-cover" />
             <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
           </a>
         ))}

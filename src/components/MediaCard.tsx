@@ -17,7 +17,12 @@ import {
 } from "lucide-react";
 import type { GenerationItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
-import { aspectToPadding, cn } from "@/lib/utils";
+import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
+
+// Grid cards render at ~160–320 CSS px; request a modest fixed width
+// (covers up to ~2x device pixel ratio at the larger end) instead of the
+// full-resolution original.
+const CARD_THUMB_WIDTH = 480;
 import { formatCost } from "@/lib/pricing";
 
 export function MediaCard({
@@ -94,7 +99,7 @@ export function MediaCard({
         {done && item.kind === "image" && item.url && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={item.url}
+            src={thumbUrl(item.url, CARD_THUMB_WIDTH)}
             alt={item.prompt}
             loading="lazy"
             className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
@@ -105,7 +110,7 @@ export function MediaCard({
             {item.url ? (
               <video
                 src={item.url}
-                poster={item.poster}
+                poster={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
                 muted
                 loop
                 playsInline
@@ -121,7 +126,7 @@ export function MediaCard({
               item.poster && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={item.poster}
+                  src={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
                   alt={item.prompt}
                   className="absolute inset-0 h-full w-full object-cover"
                 />

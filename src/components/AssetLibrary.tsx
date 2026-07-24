@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useStore, type AssetDraft } from "@/lib/store";
 import { ASSET_KINDS, type Asset, type AssetKind } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, thumbUrl } from "@/lib/utils";
 
 const KIND_ICON: Record<AssetKind, any> = {
   character: UserRound,
@@ -160,7 +160,7 @@ function AssetList({ assets }: { assets: Asset[] }) {
                   {a.images[0] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={a.images[0]}
+                      src={thumbUrl(a.images[0], 128)}
                       alt=""
                       className="h-full w-full object-cover"
                     />
@@ -305,7 +305,7 @@ function AssetEditor({ asset }: { asset: Asset | null }) {
               className="group relative h-20 w-20 overflow-hidden rounded-lg ring-1 ring-line"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt="" className="h-full w-full object-cover" />
+              <img src={thumbUrl(src, 160)} alt="" className="h-full w-full object-cover" />
               <button
                 onClick={() => setImages((p) => p.filter((_, j) => j !== i))}
                 className="absolute right-0.5 top-0.5 grid h-5 w-5 place-items-center rounded-full bg-black/70 text-white/90 opacity-0 transition group-hover:opacity-100"

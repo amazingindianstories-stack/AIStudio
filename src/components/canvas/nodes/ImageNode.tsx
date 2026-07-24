@@ -3,10 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { ImageOff, Loader2 } from "lucide-react";
 import type { ImageNode as ImageNodeData } from "@/lib/canvas/types";
+import { thumbUrl } from "@/lib/utils";
 
 const RETRY_DELAYS_MS = [750, 2_000, 5_000];
 const LOAD_ATTEMPT_TIMEOUT_MS = 15_000;
 const MAX_CONCURRENT_CANVAS_IMAGES = 4;
+// Boards can hold many nodes at arbitrary zoom; request a fixed cap well
+// below full-res instead of building per-node/per-zoom sizes (not worth the
+// cache-key churn — see the media route's `?w=` resize support).
+const NODE_THUMB_WIDTH = 1024;
 
 let activeCanvasImageLoads = 0;
 const waitingCanvasImageLoads: Array<() => void> = [];
@@ -57,10 +62,10 @@ function withRetryParam(src: string, retry: number): string {
 }
 
 /**
- * `<img>` from an already-resolved `/api/media/...` URL. No client-side URL
- * building here — `src` is consumed directly (asset panel / upload already
- * resolved it). Video assets are placed as a static poster/thumbnail image
- * node (see spec Non-goals) so this component never needs a `<video>` tag.
+ * `<img>` from an already-resolved `/api/media/...` URL, resized to
+ * `NODE_THUMB_WIDTH` via the media route's `?w=` param. Video assets are
+ * placed as a static poster/thumbnail image node (see spec Non-goals) so
+ * this component never needs a `<video>` tag.
  */
 export function ImageNode({ node }: { node: ImageNodeData }) {
   const [retry, setRetry] = useState(0);
@@ -81,7 +86,7 @@ export function ImageNode({ node }: { node: ImageNodeData }) {
     };
   }, [node.src]);
 
-  const src = withRetryParam(node.src, retry);
+  const src = withRetryParam(thumbUrl(node.src, NODE_THUMB_WIDTH) ?? node.src, retry);
 
   useEffect(() => {
     let cancelled = false;

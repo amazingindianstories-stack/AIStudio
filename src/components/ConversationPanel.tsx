@@ -17,8 +17,12 @@ import {
   Download,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { aspectToPadding, cn } from "@/lib/utils";
+import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
 import type { GenerationItem } from "@/lib/types";
+
+// Feed images render inside a max-w-3xl (768px) column; cap requests well
+// under typical multi-megapixel originals while staying sharp at ~2x DPR.
+const FEED_THUMB_WIDTH = 1200;
 
 export function ConversationPanel() {
   const items = useStore((s) => s.items);
@@ -200,15 +204,17 @@ function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
           {item.status === "succeeded" && item.kind === "image" && item.url && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={item.url}
+              src={thumbUrl(item.url, FEED_THUMB_WIDTH)}
               alt={item.prompt}
+              loading="lazy"
+              decoding="async"
               className="absolute inset-0 h-full w-full object-cover"
             />
           )}
           {item.status === "succeeded" && item.kind === "video" && (
             <video
               src={item.url}
-              poster={item.poster}
+              poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
               controls
               playsInline
               className="absolute inset-0 h-full w-full bg-black object-contain"
