@@ -1,5 +1,33 @@
 # Session Progress & Handoff
 
+## 2026-07-24 — Thumbnail pipeline: write-time generation + blur-placeholder (code complete, migration pending)
+
+**Status**: Thumbnail generation moved from hot request path to write time. Schema has two new nullable columns (`thumbnail_url`, `blur_data_url`); clients prefer stored thumbnails, fall back to on-the-fly `?w=` resize.
+
+**Shipped**:
+- `src/lib/thumbnail.ts` — pure `generateThumbnailAndBlur(buffer)` function (≤480px webp quality 75, ~16px blur placeholder base64).
+- `src/lib/thumbnail.test.ts` — unit tests via `node:test`/`node:assert` (valid input → smaller webp + blur, corrupt input fails closed).
+- `src/lib/save-media.ts` — `saveGenerationThumbnail` wrapper (storage-agnostic, upload under `thumbnails/<id>.webp`).
+- `src/components/BlurImage.tsx` — shared blur-up cross-fade `<img>` component (300ms ease-out).
+- `src/lib/schema.ts` — two nullable `text` columns on `generations` table.
+- `src/lib/types.ts`, `src/lib/store-db.ts` — map new fields in `GenerationItem` end-to-end.
+- `src/app/api/queue/execute/route.ts` — best-effort hook after image generation succeeds (isolated try/catch, never fails the parent).
+- `src/lib/utils.ts` — `resolveThumb(thumbnailUrl, fallbackUrl, width)` precedence helper.
+- `src/components/MediaCard.tsx`, `ConversationPanel.tsx` — use `BlurImage` + `resolveThumb` for image branches (video unchanged).
+- `src/components/canvas/CanvasAssetPanel.tsx` — tile `<img>` prefers stored thumbnail (no blur layer per spec).
+- `scripts/backfill-thumbnails.ts` — idempotent backfill for existing rows (concurrency 4, continues past failures).
+
+**Rollout sequence (CRITICAL):**
+1. `npm run db:push` — adds two columns to production Postgres (run by user, not this session).
+2. Deploy this code.
+3. Optional: `npx tsx scripts/backfill-thumbnails.ts` — retroactively generates thumbnails for existing succeeded images.
+
+Without step 1, every generation after deploy hits a SQL error (unknown columns). New generations after step 1 get thumbnails automatically regardless of whether the backfill is ever run.
+
+**Verification**: `npx tsc --noEmit` clean, `npm run build` clean, unit tests passing (node:test). Static review of ui-spec.md against implementation (live render deferred pending migration).
+
+**Evidence**: `.council/thumbnail-pipeline/spec.md` (acceptance criteria), `design.md` (contract + trade-offs), `decisions.md` (D1–D9 including rollout D2 and timing justification D5), `review-findings.md` (Stage 3 fixes).
+
 ## 2026-07-16 — Admin Status Page + Canvas Board v2 shipped and bundled with GCP migration scaffolding (pushed to PREVIEW only)
 
 **Status**: `feature/canvas-board` pushed to preview (`a010c1f`). **Not merged to `main` / not in production** — that step is deliberately gated on one explicit user confirmation (see `.council/canvas-board-v2/decisions.md` D6) and a separate discussion about the GCP cutover itself; do not merge without both.

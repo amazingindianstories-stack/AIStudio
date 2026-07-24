@@ -56,6 +56,7 @@ This is the most engineered part of the app; the design decisions were measured 
 
 - **Backend switch**: `MEDIA_BACKEND` env var — `s3` (default, `@aws-sdk/client-s3`, bucket from `AWS_S3_BUCKET_NAME`) or `gcs` (`@google-cloud/storage`, WIF/OIDC auth via `src/lib/gcp-auth.ts`, no service-account keys). `src/lib/storage.ts` exposes `checkStorageConnectivity()` for a backend-agnostic reachability probe, used by the admin Status tab. `src/lib/save-media.ts` is the app-facing wrapper (its function signatures are kept stable across storage backend migrations). Currently staged but **not flipped** (`MEDIA_BACKEND=s3` in both production and preview) — the GCS object audit still has a discrepancy to resolve first (see `progress.md`).
 - Objects are served through the `GET /api/media/[...path]` proxy route, not directly from the bucket. Provider result URLs expire, so results are always downloaded and re-stored.
+- **Thumbnails for image generations**: Starting 2026-07-24, image generations store precomputed webp thumbnails (≤480px, quality 75) at write time via `saveGenerationThumbnail` in `save-media.ts`, plus an inline base64 blur placeholder. Grid/feed cards prefer the stored `thumbnailUrl` when present, falling back to the existing on-the-fly `?w=` resize (sharp, immutable caching) for assets, canvas nodes, and not-yet-backfilled rows. See the Thumbnail pipeline subsection below for implementation details.
 - **This route requires an authenticated session** (`getSession()`, 401 if absent) and denies any key under the `settings/` or `migrations/` prefixes (secrets / DB dump snapshots that share the bucket with user media) — both added 2026-07-15 after a CRITICAL finding that the route previously had no auth check at all. If you add a GCS/S3 IAM grant for this bucket (e.g. for CDN), it must carry the same prefix exclusion — see the comment in `infra/gcp/bootstrap-media-cdn.sh`.
 
 ### Frontend
@@ -120,6 +121,14 @@ Research (July 2026) found Higgsfield's edge over baseline NBP was not hidden AP
 - **`NEXT_PUBLIC_REF_MAX_DIM` (default `2048`)**: Client reference longest-side cap (was hardcoded 1024). `PromptComposer.tsx` includes a budget ladder (2048/q0.85 → q0.7 → 1536/q0.8 → 1024/q0.8) to stay under Vercel's 4.5MB body limit with high-fidelity refs.
 
 Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
+
+### Thumbnail pipeline (write-time generation for image generations)
+
+When an image generation succeeds in `src/app/api/queue/execute/route.ts`, a best-effort hook runs `src/lib/thumbnail.ts`'s `generateThumbnailAndBlur` to produce a ≤480px webp thumbnail (quality 75) and a tiny inline base64 blur placeholder. Both are stored on the `generations` row (`thumbnailUrl` / `blurDataUrl` columns, added to `schema.ts` 2026-07-24 — **not yet pushed to Postgres**, see the rollout sequence below). The hook cannot fail the parent generation (isolated inner try/catch). Clients prefer the stored thumbnail when present, falling back to the existing on-the-fly `?w=` resize (sharp, immutable cache) only for assets, canvas nodes, and not-yet-backfilled rows. `src/components/BlurImage.tsx` renders the blur-up cross-fade on `MediaCard.tsx` and `ConversationPanel.tsx`, removing the blank-frame flash on scroll. `scripts/backfill-thumbnails.ts` (idempotent, concurrency 4) backfills existing rows once run manually.
+
+**Critical rollout sequence**: `npm run db:push` → deploy → optional `npx tsx scripts/backfill-thumbnails.ts`. The schema change (two nullable columns) must run against production Postgres **before** this code deploys, or every generation hits a SQL error (columns don't exist yet). This was a deliberate choice — the council implementing this did not run the migration themselves (reserved for the user). Backfill is optional; new generations get thumbnails automatically after step 1.
+
+**Evidence**: `.council/thumbnail-pipeline/spec.md` (acceptance criteria 1–9), `design.md` (contract + file plan + trade-offs), `decisions.md` (D1–D9 decision log including the rollout constraint D2), `review-findings.md` (Stage 3 adjudications and fixes).
 
 ## Working conventions
 

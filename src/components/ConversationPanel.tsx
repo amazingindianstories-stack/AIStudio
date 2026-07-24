@@ -17,8 +17,9 @@ import {
   Download,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
+import { aspectToPadding, cn, resolveThumb, thumbUrl } from "@/lib/utils";
 import type { GenerationItem } from "@/lib/types";
+import { BlurImage } from "@/components/BlurImage";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
 // under typical multi-megapixel originals while staying sharp at ~2x DPR.
@@ -202,9 +203,9 @@ function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
       >
         <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
           {item.status === "succeeded" && item.kind === "image" && item.url && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={thumbUrl(item.url, FEED_THUMB_WIDTH)}
+            <BlurImage
+              src={resolveThumb(item.thumbnailUrl, item.url, FEED_THUMB_WIDTH)}
+              blurDataUrl={item.blurDataUrl}
               alt={item.prompt}
               loading="lazy"
               decoding="async"

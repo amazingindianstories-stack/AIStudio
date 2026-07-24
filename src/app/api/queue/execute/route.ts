@@ -14,8 +14,10 @@ import {
   readImageAsBase64,
   saveBase64,
   saveFromUrl,
+  saveGenerationThumbnail,
   saveReferenceImages,
 } from "@/lib/save-media";
+import { mediaKeyFromRef, readStoredBuffer } from "@/lib/storage";
 import { upsertItem, lockJob, getItem } from "@/lib/store-db";
 import { isMock, mockPlaceholder } from "@/lib/mock";
 import { crispen, prepReference } from "@/lib/middleware/image-prep";
@@ -357,10 +359,30 @@ export async function POST(req: NextRequest) {
       const ext = mimeType.includes("jpeg") ? "jpg" : "png";
       url = await saveBase64(base64, ext, id);
     }
+
+    // Best-effort: precompute a small stored thumbnail + inline blur so the
+    // client can prefer them over the on-the-fly `?w=` resize (see
+    // .council/thumbnail-pipeline/design.md). Own inner try/catch — never
+    // allowed to affect the success/failure of the parent generation.
+    let thumbnailUrl: string | undefined;
+    let blurDataUrl: string | undefined;
+    try {
+      const key = mediaKeyFromRef(url); // null if url isn't a stored ref
+      if (key) {
+        const bytes = await readStoredBuffer(key); // no auth-proxy round trip
+        ({ thumbnailUrl, blurDataUrl } = await saveGenerationThumbnail(bytes, id));
+      }
+    } catch (e) {
+      // Best-effort: item still succeeds with `url`. Client falls back to ?w=.
+      console.warn(`[image] thumbnail generation failed for ${id}:`, e);
+    }
+
     const done: GenerationItem = {
       ...base,
       status: "succeeded",
       url,
+      thumbnailUrl, // undefined when the hook was skipped or threw
+      blurDataUrl,
       costCents, // includes the NB2 face-refine pass when it ran
       updatedAt: Date.now(),
     };

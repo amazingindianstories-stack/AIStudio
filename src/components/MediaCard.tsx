@@ -17,7 +17,8 @@ import {
 } from "lucide-react";
 import type { GenerationItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
-import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
+import { aspectToPadding, cn, resolveThumb, thumbUrl } from "@/lib/utils";
+import { BlurImage } from "@/components/BlurImage";
 
 // Grid cards render at ~160–320 CSS px; request a modest fixed width
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
@@ -97,12 +98,12 @@ export function MediaCard({
       <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
         {/* media */}
         {done && item.kind === "image" && item.url && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={thumbUrl(item.url, CARD_THUMB_WIDTH)}
+          <BlurImage
+            src={resolveThumb(item.thumbnailUrl, item.url, CARD_THUMB_WIDTH)}
+            blurDataUrl={item.blurDataUrl}
             alt={item.prompt}
             loading="lazy"
-            className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+            className="absolute inset-0 h-full w-full object-cover group-hover:scale-[1.04]"
           />
         )}
         {done && item.kind === "video" && (

@@ -21,6 +21,20 @@ export function thumbUrl(url: string | undefined | null, width: number): string 
   return `${url}${url.includes("?") ? "&" : "?"}w=${width}`;
 }
 
+/**
+ * Precedence for a displayed thumbnail: a precomputed stored variant when
+ * present, else the on-the-fly `?w=` resize of the fallback source. The stored
+ * variant is returned as-is (already small + webp + immutably cached — do NOT
+ * re-wrap it with thumbUrl, that would re-trigger on-the-fly resize).
+ */
+export function resolveThumb(
+  thumbnailUrl: string | undefined,
+  fallbackUrl: string | undefined,
+  width: number
+): string | undefined {
+  return thumbnailUrl || thumbUrl(fallbackUrl, width);
+}
+
 export function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
   const m = Math.floor(diff / 60000);

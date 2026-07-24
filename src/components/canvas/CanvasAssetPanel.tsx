@@ -16,7 +16,7 @@ import {
   ChevronDown,
   Check,
 } from "lucide-react";
-import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
+import { aspectToPadding, cn, resolveThumb, thumbUrl } from "@/lib/utils";
 
 // Asset panel thumbnails render at a small fixed panel width; request a
 // modest size instead of the full-resolution original.
@@ -293,7 +293,7 @@ function AssetThumb({
         {src && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={thumbUrl(src, PANEL_THUMB_WIDTH)}
+            src={resolveThumb(item.thumbnailUrl, src, PANEL_THUMB_WIDTH)}
             alt={item.prompt}
             loading="lazy"
             draggable={false}

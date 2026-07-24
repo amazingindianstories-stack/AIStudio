@@ -57,6 +57,8 @@ export const generations = pgTable("generations", {
   duration: integer("duration"),
   url: text("url"),
   poster: text("poster"),
+  thumbnailUrl: text("thumbnail_url"),
+  blurDataUrl: text("blur_data_url"),
   error: text("error"),
   moderationBlocked: boolean("moderation_blocked"),
   referenceImages: jsonb("reference_images").$type<string[]>(),

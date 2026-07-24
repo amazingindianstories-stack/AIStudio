@@ -8,6 +8,7 @@ import {
   deleteByUrls,
   readAsBase64,
 } from "./storage";
+import { generateThumbnailAndBlur } from "./thumbnail";
 
 export const MAX_AVATAR_UPLOAD_BYTES = 3 * 1024 * 1024;
 export const MAX_CANVAS_UPLOAD_BYTES = 8 * 1024 * 1024;
@@ -99,6 +100,21 @@ export async function readImageAsBase64(
   ref: string
 ): Promise<{ mimeType: string; data: string }> {
   return readAsBase64(ref);
+}
+
+/**
+ * Best-effort: generate + store a thumbnail and inline blur for a succeeded
+ * image generation. Thumbnail stored at `thumbnails/<id>.webp`; the returned
+ * thumbnailUrl is the same-origin public URL. Throws if generation or upload
+ * fails — the caller (queue/execute) swallows it.
+ */
+export async function saveGenerationThumbnail(
+  input: Buffer,
+  id: string
+): Promise<{ thumbnailUrl: string; blurDataUrl: string }> {
+  const { thumbnailBuffer, blurDataUrl } = await generateThumbnailAndBlur(input);
+  const thumbnailUrl = await uploadBuffer(thumbnailBuffer, `thumbnails/${id}.webp`, "webp");
+  return { thumbnailUrl, blurDataUrl };
 }
 
 /**

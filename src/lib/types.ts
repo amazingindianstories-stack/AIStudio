@@ -30,6 +30,8 @@ export interface GenerationItem {
   duration?: number;
   url?: string; // image or video url (served locally)
   poster?: string; // poster/thumbnail for video
+  thumbnailUrl?: string; // precomputed small webp thumbnail (image only); falls back to on-the-fly ?w= resize
+  blurDataUrl?: string; // tiny inline base64 blur placeholder (image only)
   referenceImages?: string[]; // uploaded reference images used (public paths), saved for retrieval/clone
   error?: string;
   moderationBlocked?: boolean; // provider rejected a reference image (privacy/deepfake filter)

@@ -262,7 +262,7 @@ After at least seven stable days and one successful backup/restore drill:
 
 Vercel, GCS, and Cloud CDN scale horizontally without application-managed
 servers. Immutable object keys and one-year cache metadata maximize cache hits.
-Add image thumbnails/posters so list pages never load full originals.
+Image thumbnails are precomputed at write time (≤480px webp) and stored (2026-07-24); list pages now load small thumbnails with blur-up cross-fade. Video posters remain a future initiative (would require ffmpeg-class dependency).
 
 ### Database layer: threshold-driven, not falsely "automatic"
 
