@@ -166,9 +166,40 @@ import { and, sql } from "drizzle-orm";
 // limits). Anything beyond the cap waits in the queue.
 const MAX_CONCURRENT: Record<string, number> = { image: 2, video: 2 };
 
+// Image jobs execute synchronously inside one serverless invocation
+// (/api/queue/execute, maxDuration=60). If the platform hard-kills that
+// invocation mid-flight (timeout, crash, cold-start OOM), nothing ever runs
+// to flip the row off "running" — it then permanently occupies one of only
+// MAX_CONCURRENT.image slots and blocks every job queued behind it forever.
+// Video doesn't need this: its own status route already self-heals via
+// POLL_TIMEOUT_MS. Mirror that pattern here with a wide safety margin above
+// the 60s maxDuration — nothing legitimate is still "running" 5 minutes
+// after its last update. Swept on every status poll so any active client
+// self-heals the whole queue, not just its own job.
+const STALE_RUNNING_MS = 5 * 60 * 1000;
+
+async function reapStaleRunningImages(): Promise<void> {
+  const db = await getDb();
+  await db
+    .update(generations)
+    .set({
+      status: "failed",
+      error: "Generation timed out — the server process was interrupted.",
+      updatedAt: Date.now(),
+    })
+    .where(
+      and(
+        eq(generations.status, "running"),
+        eq(generations.kind, "image"),
+        lt(generations.updatedAt, Date.now() - STALE_RUNNING_MS)
+      )
+    );
+}
+
 export async function getQueuePosition(
   id: string
 ): Promise<{ position: number; status: string; item?: GenerationItem } | null> {
+  await reapStaleRunningImages();
   const item = await getItem(id);
   if (!item) return null;
   // Include the full row once it's left the queue: a client that resumed
