@@ -17,3 +17,4 @@ pyserver/models/
 .env*
 vercel-gcp-cred.json
 test.json
+tsconfig.tsbuildinfo
