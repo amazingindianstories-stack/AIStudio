@@ -22,6 +22,20 @@ export const MODELS: ModelOption[] = [
     badge: "BUDGET",
     hint: "Billed per second via API — Higgsfield's web Unlimited offer doesn't apply",
   },
+  // Native BytePlus ModelArk Seedance 2.0 (providers/seedance.ts), i.e. the
+  // model direct from its vendor rather than resold through Higgsfield. The
+  // provider and its pricing rows were always here; only the picker entry was
+  // missing, which made the whole path unreachable from the UI.
+  // The name must stay exactly "Seedance 2.0" — pricing rows are keyed on the
+  // display name, and providers/seedance.ts `pickModel` routes anything
+  // matching mini/fast/lite to the fast SKU instead of the standard one.
+  {
+    id: "seedance",
+    name: "Seedance 2.0",
+    kind: "video",
+    badge: "DIRECT",
+    hint: "BytePlus ModelArk direct — its filter rejects photorealistic faces; use Higgsfield for those",
+  },
   {
     id: "gemini-omni-flash",
     name: "Gemini Omni Flash",

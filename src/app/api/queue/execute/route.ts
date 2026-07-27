@@ -73,6 +73,43 @@ async function halveForDelivery(base64: string): Promise<string> {
   }
 }
 
+/**
+ * Materialise stored reference images as base64 data URIs for native BytePlus
+ * Seedance.
+ *
+ * By the time a job executes, `referenceImages` are stored media URLs, not the
+ * data URLs the client sent. BytePlus fetches a bare `image_url.url` from its
+ * own servers, and our media proxy is auth-gated (and the path is relative
+ * anyway), so a URL is unusable to it — the reference has to travel inline.
+ *
+ * ModelArk requires `data:image/<fmt>;base64,<data>` with a LOWERCASE format,
+ * and accepts jpeg/png on this path, so anything else (WebP/GIF are both
+ * allowed by `splitDataUrl` on upload) is re-encoded to JPEG rather than sent
+ * as a format the provider will reject.
+ */
+async function toProviderDataUrls(refs: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const ref of refs) {
+    const raw = await readImageAsBase64(ref);
+    let { mimeType, data } = await prepReference(raw.mimeType, raw.data);
+    if (!/^image\/(jpeg|png)$/i.test(mimeType)) {
+      try {
+        data = (await sharp(Buffer.from(data, "base64")).jpeg({ quality: 92 }).toBuffer())
+          .toString("base64");
+        mimeType = "image/jpeg";
+      } catch {
+        // Fail loudly here rather than posting a format BytePlus will reject
+        // with an opaque error the user cannot act on.
+        throw new Error(
+          `Reference image could not be converted to JPEG for Seedance (was ${mimeType}).`
+        );
+      }
+    }
+    out.push(`data:${mimeType.toLowerCase()};base64,${data}`);
+  }
+  return out;
+}
+
 /** Create the provider task for a locked video job. Returns the item with
  *  taskId + status "running" (does not persist). */
 async function submitVideo(base: GenerationItem): Promise<GenerationItem> {
@@ -145,13 +182,17 @@ async function submitVideo(base: GenerationItem): Promise<GenerationItem> {
       mediaIds,
     });
   } else {
+    // Native BytePlus ModelArk Seedance 2.0. resolveReferences maps @imgN to
+    // uploads by position, so the inlined list must keep referenceImages' order.
+    const inlined = await toProviderDataUrls(base.referenceImages ?? []);
+    console.log(`[video] BytePlus seedance with ${inlined.length} reference image(s)`);
     taskId = await createVideoTask({
       prompt,
       modelDisplay: model,
       ratio: aspectRatio,
       resolution,
       duration,
-      references: resolveReferences(prompt, base.referenceImages ?? []),
+      references: resolveReferences(prompt, inlined),
     });
   }
   return { ...base, ...refUpdates, taskId, status: "running", updatedAt: Date.now() };
