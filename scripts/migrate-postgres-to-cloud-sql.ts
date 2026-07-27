@@ -39,6 +39,17 @@ function postImportSql(): string {
   return `
 
 -- Codex post-import hardening for Cloud SQL runtime access and query paths.
+--
+-- pg_dump emits set_config('search_path', '', false) near the top of its
+-- output and fully-qualifies every object it creates as "public"."x". Anything
+-- appended here therefore runs with an EMPTY search_path, so unqualified table
+-- names resolve to nothing. Restore it before the CREATE INDEX block below --
+-- omitting this aborted a real import on 2026-07-27 with
+-- ERROR: relation "generations" does not exist, after the data had already
+-- loaded. (The GRANTs happen to survive an empty search_path because they are
+-- explicitly schema-qualified; the indexes are not.)
+SET search_path TO "public";
+
 GRANT CONNECT ON DATABASE "aistudio" TO ${runtimeRole};
 GRANT USAGE ON SCHEMA "public" TO ${runtimeRole};
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA "public" TO ${runtimeRole};
