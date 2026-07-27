@@ -18,6 +18,7 @@
     "migrate:postgres:gcp": "tsx scripts/migrate-postgres-to-cloud-sql.ts",
     "migrate:media:gcp": "tsx scripts/migrate-s3-to-gcs.ts",
     "verify:media:gcp": "tsx scripts/verify-media-references-gcs.ts",
+    "sync:shiv-sati-storyboard": "tsx scripts/sync-shiv-sati-storyboard.ts",
     "migrate-media": "tsx scripts/migrate-to-blob.ts",
     "migrate-s3": "tsx scripts/migrate-to-s3.ts",
     "hf:login": "node scripts/hf-mcp-auth.mjs"
