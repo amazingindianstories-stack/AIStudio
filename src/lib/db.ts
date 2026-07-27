@@ -17,6 +17,8 @@ interface DbRuntime {
   directClient?: ReturnType<typeof postgres>;
   cloudSqlConnector?: Connector;
   cloudSqlPool?: pg.Pool;
+  /** When the cached Cloud SQL connector/pool was built (ms). */
+  cloudSqlBuiltAt?: number;
 }
 
 const globalForDb = globalThis as unknown as { __luminaDb?: DbRuntime };
@@ -73,8 +75,16 @@ async function createDatabase(): Promise<Database> {
       allowExitOnIdle: true,
     });
 
+    // Belt and braces alongside the age-based recycle in `getDb()`: if a stale
+    // certificate still slips through, surface it as a rebuild rather than
+    // letting every request fail until the instance is replaced.
+    pool.on("error", (error: Error) => {
+      if (/certificate|SSL/i.test(String(error?.message))) recycleCloudSql();
+    });
+
     runtime.cloudSqlConnector = connector;
     runtime.cloudSqlPool = pool;
+    runtime.cloudSqlBuiltAt = Date.now();
     return drizzleNodePg(pool, { schema }) as unknown as Database;
   }
 
@@ -90,8 +100,57 @@ async function createDatabase(): Promise<Database> {
   return drizzlePostgresJs(client, { schema });
 }
 
+/**
+ * How long a cached Cloud SQL connector/pool may be reused before it is rebuilt.
+ *
+ * The connector authenticates with a short-lived (~1 hour) ephemeral client
+ * certificate and refreshes it on a BACKGROUND TIMER. On Vercel the instance is
+ * frozen between requests, so that timer never fires: the certificate silently
+ * goes stale and every subsequent connection is rejected by Cloud SQL with
+ * `SSL alert 42 (bad certificate)`. This took production down on 2026-07-27
+ * after ~3.5h of healthy operation — see .council/gcp-migration-holdoff.md.
+ *
+ * Upstream tracks lazy/on-demand refresh as an open P1 feature request
+ * (GoogleCloudPlatform/cloud-sql-nodejs-connector#285), so until that ships we
+ * age out the connector ourselves. The check below runs on the REQUEST path
+ * rather than a timer, which is what makes it survive a frozen instance: an
+ * instance thawed after hours sees a stale age on its very next request and
+ * rebuilds before connecting.
+ *
+ * Keep this comfortably under the ~60 min certificate lifetime.
+ */
+const CLOUD_SQL_MAX_AGE_MS = positiveInt(
+  process.env.CLOUD_SQL_RECYCLE_MS,
+  30 * 60_000
+);
+
+/** Drop the cached Cloud SQL connector/pool so the next call rebuilds it. */
+function recycleCloudSql(): void {
+  const { cloudSqlPool: pool, cloudSqlConnector: connector } = runtime;
+  runtime.promise = undefined;
+  runtime.cloudSqlPool = undefined;
+  runtime.cloudSqlConnector = undefined;
+  runtime.cloudSqlBuiltAt = undefined;
+  // Best effort teardown: `end()` drains in-flight queries, and neither call
+  // may reject into the request path that triggered the recycle.
+  void pool?.end().catch(() => {});
+  try {
+    connector?.close();
+  } catch {
+    // already closed
+  }
+}
+
 /** Lazy so builds do not contact either Railway or Cloud SQL. */
 export function getDb(): Promise<Database> {
+  if (
+    process.env.DATABASE_BACKEND === "cloud-sql" &&
+    runtime.promise &&
+    runtime.cloudSqlBuiltAt !== undefined &&
+    Date.now() - runtime.cloudSqlBuiltAt > CLOUD_SQL_MAX_AGE_MS
+  ) {
+    recycleCloudSql();
+  }
   runtime.promise ??= createDatabase();
   return runtime.promise;
 }
