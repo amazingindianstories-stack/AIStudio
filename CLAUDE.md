@@ -24,7 +24,7 @@ Environment: copy `.env.local.example` → `.env.local`. `MOCK_GENERATION=1` run
 
 ### Generation flow (the core path)
 
-- **Image**: `POST /api/generate/image` — synchronous; the route awaits the provider, persists the result, returns the finished item. `maxDuration = 60` (Vercel limit; high-res NBP takes 30–60s).
+- **Image**: `POST /api/generate/image` only *enqueues* (persists references + inserts a `queued` row). The client polls `GET /api/queue/status`, and at position 0 posts `/api/queue/execute`, which awaits the provider inside that one request and returns the finished item. That execute route carries `maxDuration = 300`: a high-res NBP render is 30–60s, but best-of-N fans out N of them plus judge calls, and under Fluid compute concurrent jobs share an instance. **60s here was the old Hobby ceiling, not this project's** — it is Pro with a 300s `functionDefaultTimeout`, and the self-imposed 60s cap was killing jobs under load (see the header comment on the route). If the invocation is killed anyway, the row is stranded in `running` until `reapStaleRunningImages` (`store-db.ts`) fails it — that reaper's threshold must always stay above this `maxDuration`.
 - **Video**: `POST /api/generate/video` creates a provider task and returns a `queued` item; the client polls `GET /api/generate/video/status?id=...`, which advances the task and downloads the result when done.
 
 Both routes: create a `GenerationItem` row up front (`status: running/queued`), compute cost from the `pricing` table, persist uploaded reference images, then update the row on success/failure. Failures return the failed item as JSON (HTTP 200), not an error status.
@@ -102,7 +102,7 @@ Checks: Gemini/NBP, Higgsfield MCP, BytePlus/Seedance, Omni Flash (all env-var/c
 
 ### Deployment
 
-Vercel is the primary target (hence `maxDuration = 60`, payload limits, env-var token auth, read-only FS assumptions). A `Dockerfile` (Next standalone output) exists for container deploys.
+Vercel is the primary target (hence per-route `maxDuration`, payload limits, env-var token auth, read-only FS assumptions). The project is on **Pro with fluid compute + elastic concurrency**, `functionDefaultTimeout: 300` — so concurrent invocations share an instance and contend for CPU, which is why burst load slows individual jobs. A `Dockerfile` (Next standalone output) exists for container deploys.
 
 ### pyserver/
 
@@ -116,10 +116,10 @@ Research (July 2026) found Higgsfield's edge over baseline NBP was not hidden AP
 - **`PROMPT_ROLE_DETECT=1`**: Fallback role classifier for `@imgN` uploads using extended Gemini detection. Only consulted when `PROMPT_SHOT_SPEC=1`. Non-blocking cross-check WARN surfaces upload-order mismatches.
 - **`JUDGE_COMPOSITE=1`**: Best-of-N judge scores identity + prominence + sharpness in one Gemini call and selects by composite subject to an identity floor (guarantees identity never regresses). `selectBestCandidate` in `src/lib/middleware/face-judge.ts`.
 - **`POST_CRISPEN=1`**: Classical sharpen-only delivery pass (no artifacts, ~110ms per image).
-- **`SUPERSAMPLE=1`**: Render one resolution step up, downsample to requested size. Measured highest prominence but 1-of-4 scene-accuracy risk (outfit dropped); flag off by default, use for hero shots only. Operationally: do not combine with `FACE_BEST_OF>1` (60s ceiling).
+- **`SUPERSAMPLE=1`**: Render one resolution step up, downsample to requested size. Measured highest prominence but 1-of-4 scene-accuracy risk (outfit dropped); flag off by default, use for hero shots only. Operationally: combining it with `FACE_BEST_OF>1` is expensive and slow — it was previously unsafe against the 60s cap, which is now 300s, but it still multiplies the parallel-render count that trips Gemini's spend-based 429.
 - **`NEXT_PUBLIC_REF_MAX_DIM` (default `2048`)**: Client reference longest-side cap (was hardcoded 1024). `PromptComposer.tsx` includes a budget ladder (2048/q0.85 → q0.7 → 1536/q0.8 → 1024/q0.8) to stay under Vercel's 4.5MB body limit with high-fidelity refs.
 
-Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
+Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts src/lib/providers/gemini.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
 
 ## Working conventions
 

@@ -100,6 +100,35 @@ export function buildParts(assembled: AssembledPrompt): Part[] {
   return parts;
 }
 
+/**
+ * Pull Google's own "wait this long" hint out of an error body.
+ *
+ * A google.rpc.Status carries structured `details`, and for RESOURCE_EXHAUSTED
+ * it usually includes a RetryInfo entry whose `retryDelay` is a protobuf
+ * Duration string ("31s", "1.5s"). That hint beats any backoff curve we invent,
+ * because only the server knows when the spend-rate window actually reopens.
+ *
+ * Returns null when the body is unparseable or carries no RetryInfo — every
+ * caller must have its own fallback.
+ */
+export function retryDelayMs(errText: string): number | null {
+  try {
+    const details = JSON.parse(errText)?.error?.details;
+    if (!Array.isArray(details)) return null;
+    for (const d of details) {
+      if (typeof d?.["@type"] === "string" && d["@type"].endsWith("RetryInfo")) {
+        const m = /^([\d.]+)s$/.exec(String(d.retryDelay ?? ""));
+        // Clamp: a hint of "0s" would busy-loop, and an absurdly long one
+        // would strand the invocation. Callers still cap against their budget.
+        if (m) return Math.min(Math.max(Number(m[1]) * 1000, 1000), 60_000);
+      }
+    }
+  } catch {
+    /* not JSON, or a shape we don't recognise — fall back to backoff */
+  }
+  return null;
+}
+
 export async function generateImageGemini(
   input: GeminiImageInput
 ): Promise<GeminiImageResult> {
@@ -117,9 +146,23 @@ export async function generateImageGemini(
     },
   };
 
-  // One retry on transient failures (429/5xx) — NBP 503s under load.
+  // Retry transient failures (429/5xx) — NBP 503s under load, and best-of-N
+  // makes us our own worst offender: N renders fan out in parallel per job and
+  // MAX_CONCURRENT lets several jobs run at once, so a burst of high-res work
+  // trips Gemini's SPEND-based rate limit (429 RESOURCE_EXHAUSTED, measured
+  // 2026-07-28 on a run of 21:9/2K jobs).
+  //
+  // A flat 2s single retry — what this used to do — is useless against that
+  // class of 429: a spend-rate window does not reopen in 2s, so the retry
+  // burned another request and rethrew. Back off exponentially instead, and
+  // prefer the server's own RetryInfo hint when it sends one. The invocation
+  // budget (maxDuration=300 on /api/queue/execute) is what makes waiting this
+  // long viable at all; RETRY_BUDGET_MS keeps the total sleep well inside it so
+  // a retry can never be the thing that gets the invocation killed.
+  const RETRY_BUDGET_MS = 90_000;
   let lastError = "";
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  let sleptMs = 0;
+  for (let attempt = 1; attempt <= 4; attempt++) {
     const res = await fetch(
       `${API_ROOT}/models/${MODEL}:generateContent`,
       {
@@ -131,9 +174,20 @@ export async function generateImageGemini(
     if (!res.ok) {
       const errText = await res.text();
       lastError = `Gemini image error (${res.status}): ${errText.slice(0, 400)}`;
-      if ((res.status === 429 || res.status >= 500) && attempt === 1) {
-        await new Promise((r) => setTimeout(r, 2000));
-        continue;
+      if (res.status === 429 || res.status >= 500) {
+        // Exponential backoff (4s, 8s, 16s) with jitter to de-synchronise the
+        // sibling best-of-N renders, which all started together and would
+        // otherwise all retry together and re-trip the same limit.
+        const backoff = 4000 * 2 ** (attempt - 1);
+        const wait = Math.min(
+          retryDelayMs(errText) ?? backoff * (0.75 + Math.random() * 0.5),
+          RETRY_BUDGET_MS - sleptMs
+        );
+        if (wait > 0) {
+          sleptMs += wait;
+          await new Promise((r) => setTimeout(r, wait));
+          continue;
+        }
       }
       throw new Error(lastError);
     }

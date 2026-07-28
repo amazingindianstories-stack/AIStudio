@@ -167,16 +167,21 @@ import { and, sql } from "drizzle-orm";
 const MAX_CONCURRENT: Record<string, number> = { image: 2, video: 2 };
 
 // Image jobs execute synchronously inside one serverless invocation
-// (/api/queue/execute, maxDuration=60). If the platform hard-kills that
-// invocation mid-flight (timeout, crash, cold-start OOM), nothing ever runs
-// to flip the row off "running" — it then permanently occupies one of only
-// MAX_CONCURRENT.image slots and blocks every job queued behind it forever.
-// Video doesn't need this: its own status route already self-heals via
-// POLL_TIMEOUT_MS. Mirror that pattern here with a wide safety margin above
-// the 60s maxDuration — nothing legitimate is still "running" 5 minutes
-// after its last update. Swept on every status poll so any active client
+// (/api/queue/execute). If the platform hard-kills that invocation mid-flight
+// (timeout, crash, cold-start OOM), nothing ever runs to flip the row off
+// "running" — it then permanently occupies one of only MAX_CONCURRENT.image
+// slots and blocks every job queued behind it forever. Video doesn't need
+// this: its own status route already self-heals via POLL_TIMEOUT_MS. Mirror
+// that pattern here. Swept on every status poll so any active client
 // self-heals the whole queue, not just its own job.
-const STALE_RUNNING_MS = 5 * 60 * 1000;
+//
+// This threshold MUST stay above /api/queue/execute's maxDuration (300s), or
+// the reaper fails jobs that are still legitimately running — the row's
+// updatedAt is stamped once by lockJob and is not touched again until the job
+// finishes, so a slow-but-healthy job looks identical to a dead one until its
+// invocation budget is provably spent. 300s budget + 120s slack; nothing
+// legitimate is still "running" 7 minutes after lockJob stamped it.
+const STALE_RUNNING_MS = 7 * 60 * 1000;
 
 async function reapStaleRunningImages(): Promise<void> {
   const db = await getDb();

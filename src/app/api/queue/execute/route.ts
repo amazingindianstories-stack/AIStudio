@@ -30,7 +30,25 @@ import type { GenerationItem } from "@/lib/types";
 import sharp from "sharp";
 
 export const runtime = "nodejs";
-export const maxDuration = 60; // Nano Banana Pro high-res can take ~30–60s
+// A single NBP high-res render is ~30–60s, but this route can run several of
+// them back to back: best-of-N (FACE_BEST_OF) fans out N renders in parallel
+// and then judges each one. Under Fluid compute concurrent invocations SHARE an
+// instance, so two queued image jobs at bestOf=2 put four renders plus four
+// judge calls on the same CPU and the wall clock crosses 60s — measured
+// 2026-07-28, when a burst of 21:9/2K jobs produced 8 hard kills in 25 minutes
+// (jobs that normally finish in 35–40s).
+//
+// 60s was never this project's platform ceiling — it was the old Hobby limit.
+// This project is Pro with fluid compute and a 300s functionDefaultTimeout, so
+// the cap below was self-imposed and simply throttled us under load. When Vercel
+// kills the invocation at the cap, the catch block below never runs and the row
+// is left stranded in "running" until reapStaleRunningImages picks it up.
+//
+// Keep in sync with STALE_RUNNING_MS in src/lib/store-db.ts, which MUST stay
+// comfortably above this value or the reaper will fail jobs that are still
+// legitimately running. (Next requires a statically analysable literal here, so
+// the two constants can't share an import.)
+export const maxDuration = 300;
 
 function resolutionToImageSize(res?: string): "1K" | "2K" | "4K" {
   if (res === "4K") return "4K";
