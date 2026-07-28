@@ -48,6 +48,21 @@ Google caps Gemini API **spend** on a rolling 10-minute window — separate from
 - `omni.ts` — Gemini Omni Flash (`gemini-omni-flash-preview`) video via Google's Interactions API; default wire path generativelanguage with GOOGLE_API_KEY, `OMNI_USE_VERTEX=1` switches to Vertex (OAuth/ADC, allowlist-gated); probe-measured contract in the file header (AR 16:9/9:16 only via `response_format.aspect_ratio`, resolution not controllable, duration a real enforced request field — a protobuf-Duration string like `"4s"` under `response_format.duration`, not prompt text; there is no `task` or `delivery` field, unlike what the docs/most video APIs imply — re-probe before trusting memory here, see the file header and `.council/omni-video/decisions.md` D11); unlike the older video paths it consumes the full `assemblePrompt`/shot-spec system via `src/lib/omni-input.ts`.
 - Models offered in the UI are declared in `src/lib/config.ts` (`MODELS`); routes dispatch on model name (`isHiggsfieldModel`, `/nano banana/i`).
 
+### Video shot directive (`src/lib/video-directive.ts`)
+
+Single source of the identity/style scaffolding for **both** Seedance paths (native BytePlus + Higgsfield MCP). They previously carried separate hand-written directives that had already drifted; don't reintroduce a provider-local one.
+
+It owns the **whole** assembly — scaffolding, then the user's prompt verbatim, then a closing precedence rule — because the precedence rule must land *after* the prompt, which the old `DIRECTIVE + prompt` shape made impossible.
+
+Three faults it fixes (reported 2026-07-28):
+- **Style was assumed photoreal.** Both old directives locked identity but never told the model to follow the reference's *style*, and the identity wording was photoreal vocabulary ("keep moles, scars, freckles", "do not smooth or idealize") that actively fights an anime/cel-shaded/painterly reference. Style now follows the reference explicitly; the skin-texture clause appears only when the prompt indicates photographic work. **No vision call is used to classify style** — it would spend on the same rate-limited key `spend-window.ts` protects, and the model can already see the reference.
+- **Our cinematography overrode the user's.** "Keep the subject in sharp foreground focus" is a depth-of-field decision that contradicted any prompt asking for deep focus or a rack focus — while the same directive also said "execute exactly as written", so the model got two conflicting instructions. Defaults are now dropped when `hasCameraDirection` fires, *and* the default block carries its own "apply ONLY where the PROMPT does not specify" conditional so a missed regex degrades to a deferring default rather than a contradiction.
+- **Precedence was unstated.** A closing rule now names the exact dimensions (style, medium, framing, focus, camera movement, pacing, staging) on which the prompt outranks us.
+
+Identity lock is *retained* — it's the measured lever — but scoped to identity, not composition. Regex detection is deliberately asymmetric: a false negative keeps today's defaults, a false positive only drops guidance; bare "framing"/"blocking" are excluded as measured false positives.
+
+**Not bake-off measured.** The inherited identity wording was; this restructuring is reasoned. `SEEDANCE_LEGACY_DIRECTIVE=1` restores the previous directives on both paths without a deploy.
+
 ### Identity/consistency system (@tags → structured prompt)
 
 This is the most engineered part of the app; the design decisions were measured in bake-offs, not assumed:
@@ -130,7 +145,7 @@ Research (July 2026) found Higgsfield's edge over baseline NBP was not hidden AP
 - **`SUPERSAMPLE=1`**: Render one resolution step up, downsample to requested size. Measured highest prominence but 1-of-4 scene-accuracy risk (outfit dropped); flag off by default, use for hero shots only. Operationally: combining it with `FACE_BEST_OF>1` is expensive and slow — it was previously unsafe against the 60s cap, which is now 300s, but it still multiplies the parallel-render count that trips Gemini's spend-based 429.
 - **`NEXT_PUBLIC_REF_MAX_DIM` (default `2048`)**: Client reference longest-side cap (was hardcoded 1024). `PromptComposer.tsx` includes a budget ladder (2048/q0.85 → q0.7 → 1536/q0.8 → 1024/q0.8) to stay under Vercel's 4.5MB body limit with high-fidelity refs.
 
-Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts src/lib/providers/gemini.test.ts src/lib/spend-window.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
+Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts src/lib/providers/gemini.test.ts src/lib/spend-window.test.ts src/lib/video-directive.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
 
 ## Working conventions
 

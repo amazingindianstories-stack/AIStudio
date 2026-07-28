@@ -24,6 +24,44 @@
  */
 
 import type { LabeledRef } from "../mentions";
+import { buildVideoDirective } from "../video-directive";
+
+/** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
+ *  hand-written directives on BOTH Seedance paths, without a deploy. The new
+ *  wording is reasoned rather than bake-off measured (video comparisons cost
+ *  real generations), so a one-env-var undo is the honest safety net. */
+export function legacyDirective(): boolean {
+  return process.env.SEEDANCE_LEGACY_DIRECTIVE === "1";
+}
+
+/** The previous directive, kept verbatim for that revert path only. Note the
+ *  photoreal-only assumptions ("skin tone and texture", "never beautified")
+ *  and the unconditional focus directive — the three faults video-directive.ts
+ *  documents and fixes. */
+function legacyHeroDirective(refCount: number): string {
+  if (!refCount) return "";
+  return (
+    `IDENTITY LOCK: the reference image${refCount > 1 ? "s" : ""} define ` +
+    `the MAIN CHARACTER's exact, fixed appearance. In EVERY frame keep this ` +
+    `exact same person — identical face (bone structure, jawline, hairline, ` +
+    `eye shape and color, eyebrows, nose, lips, skin tone and texture with ` +
+    `its moles/scars/freckles, facial hair, apparent age), plus the same ` +
+    `hairstyle, body build and worn outfit/jewelry unless the prompt ` +
+    `explicitly changes them — unmistakably the SAME individual, never a ` +
+    `lookalike, never beautified or idealized, with zero identity or ` +
+    `wardrobe drift between frames. Keep the main character in sharp ` +
+    `foreground focus as the clear focal point. Every other person (crowd, ` +
+    `bystanders, dancers, background figures) is a DIFFERENT anonymous ` +
+    `individual who must NOT share or resemble the main character's face; ` +
+    `render the crowd softer and out of focus so it never competes with or ` +
+    `is mistaken for the main character. Never duplicate the main character. ` +
+    `LITERAL PROMPT: execute the prompt exactly as written — every stated ` +
+    `subject, count, wardrobe item, color, action, camera move and lighting ` +
+    `appears precisely as specified; add nothing, drop nothing, reinterpret ` +
+    `nothing. Anything under "NEGATIVE PROMPT" or phrased as "no …" is ` +
+    `strictly forbidden in every frame. `
+  );
+}
 
 /** Error carrying a machine-readable code so callers can branch (e.g. offer a
  *  text-to-video retry when a reference image is rejected by moderation). */
@@ -130,34 +168,20 @@ export async function createVideoTask(
   const refs = input.references ?? [];
   const refRole = process.env.SEEDANCE_IMAGE_ROLE || "reference_image";
 
-  // When a reference is given, lead with a strict main-character directive so
-  // the hero's identity holds in crowded shots instead of being diluted across
-  // every face. Crowd faces are explicitly anonymised and de-emphasised.
-  const heroDirective = refs.length
-    ? `IDENTITY LOCK: the reference image${refs.length > 1 ? "s" : ""} define ` +
-      `the MAIN CHARACTER's exact, fixed appearance. In EVERY frame keep this ` +
-      `exact same person — identical face (bone structure, jawline, hairline, ` +
-      `eye shape and color, eyebrows, nose, lips, skin tone and texture with ` +
-      `its moles/scars/freckles, facial hair, apparent age), plus the same ` +
-      `hairstyle, body build and worn outfit/jewelry unless the prompt ` +
-      `explicitly changes them — unmistakably the SAME individual, never a ` +
-      `lookalike, never beautified or idealized, with zero identity or ` +
-      `wardrobe drift between frames. Keep the main character in sharp ` +
-      `foreground focus as the clear focal point. Every other person (crowd, ` +
-      `bystanders, dancers, background figures) is a DIFFERENT anonymous ` +
-      `individual who must NOT share or resemble the main character's face; ` +
-      `render the crowd softer and out of focus so it never competes with or ` +
-      `is mistaken for the main character. Never duplicate the main character. ` +
-      `LITERAL PROMPT: execute the prompt exactly as written — every stated ` +
-      `subject, count, wardrobe item, color, action, camera move and lighting ` +
-      `appears precisely as specified; add nothing, drop nothing, reinterpret ` +
-      `nothing. Anything under "NEGATIVE PROMPT" or phrased as "no …" is ` +
-      `strictly forbidden in every frame. `
-    : "";
+  // Identity/style scaffolding now lives in lib/video-directive.ts, shared with
+  // the Higgsfield path so the two cannot drift apart again. It also assembles
+  // the whole text (scaffolding, prompt verbatim, then the precedence rule),
+  // because the closing rule has to land AFTER the prompt — which the old
+  // `directive + prompt` shape made impossible.
+  const text = legacyDirective()
+    ? legacyHeroDirective(refs.length) + tagsToImageRefs(input.prompt.trim())
+    : buildVideoDirective({
+        prompt: tagsToImageRefs(input.prompt.trim()),
+        refCount: refs.length,
+        tagSyntax: "bracket",
+      });
 
-  const content: Array<Record<string, unknown>> = [
-    { type: "text", text: heroDirective + tagsToImageRefs(input.prompt.trim()) },
-  ];
+  const content: Array<Record<string, unknown>> = [{ type: "text", text }];
   refs.forEach((ref) => {
     content.push({
       type: "image_url",

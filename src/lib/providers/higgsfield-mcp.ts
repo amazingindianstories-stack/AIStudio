@@ -16,6 +16,8 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { readStoredBuffer, writePrivateBuffer } from "@/lib/storage";
+import { buildVideoDirective } from "@/lib/video-directive";
+import { legacyDirective } from "@/lib/providers/seedance";
 
 const MCP_URL = "https://mcp.higgsfield.ai/mcp";
 const TOKEN_URL = "https://mcp.higgsfield.ai/oauth2/token";
@@ -416,12 +418,19 @@ export async function mcpGenerateVideo(input: McpGenVideoInput): Promise<string>
     medias: input.mediaIds.map((id) => ({ value: id, role: "image_references" })),
   };
   if (input.prompt) {
-    // Native <<<image_N>>> tag binding; with reference images, lead with the
-    // identity/literalness contract.
+    // Native <<<image_N>>> tag binding. The identity/style/precedence contract
+    // is shared with the native BytePlus path via lib/video-directive.ts — the
+    // two used to carry separate hand-written copies that had already drifted.
     const prompt = toHiggsfieldTags(input.prompt);
-    params.prompt = input.mediaIds.length
-      ? VIDEO_IDENTITY_DIRECTIVE + prompt
-      : prompt;
+    params.prompt = legacyDirective()
+      ? input.mediaIds.length
+        ? VIDEO_IDENTITY_DIRECTIVE + prompt
+        : prompt
+      : buildVideoDirective({
+          prompt,
+          refCount: input.mediaIds.length,
+          tagSyntax: "angle",
+        });
   }
   if (input.aspectRatio) params.aspect_ratio = input.aspectRatio;
   if (input.duration) params.duration = input.duration;
