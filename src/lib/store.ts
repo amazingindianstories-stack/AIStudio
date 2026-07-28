@@ -165,6 +165,23 @@ const polling = new Set<string>();
 // here can double-submit work.
 const LIVE_MS_ACTIVE = 4000; // something is in flight — stay responsive
 const LIVE_MS_IDLE = 20000; // nothing running — just watch for teammates
+
+// A queued job is driven entirely by the tab that created it: pollQueue is what
+// posts /api/queue/execute. Close that tab and nobody ever runs the job — and
+// the server-side reaper only sweeps "running", so it sits queued forever,
+// permanently inflating the position of everything queued behind it.
+//
+// Any client that can see a stale queued job can adopt it. lockJob is a
+// conditional UPDATE (status='queued' only), so if several tabs adopt the same
+// job exactly one wins and the losers get a clean 400 — adoption cannot
+// double-run work.
+//
+// The delay is what makes this a fallback rather than a race: the owning tab
+// polls every 1–3s, so it has long since claimed anything healthy. Adopting
+// early would just add losing execute calls. Note that adopting is not the same
+// as executing: pollQueue still respects queue position, so an adopted job that
+// is legitimately waiting its turn is merely observed, not jumped ahead.
+const ADOPT_QUEUED_AFTER_MS = 30_000;
 let liveTimer: ReturnType<typeof setTimeout> | null = null;
 let liveSince = 0;
 let liveRunning = false;
@@ -886,6 +903,37 @@ function mergeLiveItems(
   });
 }
 
+/**
+ * Take over queued jobs nobody is driving.
+ *
+ * `polling` is per-tab, so "not in our polling set" means this tab is not
+ * driving it — which is the whole point: the tab that WAS driving it may be
+ * gone. See ADOPT_QUEUED_AFTER_MS for why staleness is required first, and why
+ * concurrent adoption by several tabs is safe.
+ *
+ * Uses the server's clock (`now`) rather than Date.now() for the staleness
+ * test, so a client whose clock runs fast can't decide every fresh job is
+ * already orphaned.
+ *
+ * Running jobs are left alone: an image job runs inside its originating
+ * request and cannot be resumed by anyone, and a running video is already
+ * submitted remotely — the live feed alone will carry it to completion.
+ */
+function adoptOrphanedJobs(
+  incoming: GenerationItem[],
+  serverNow: unknown,
+  set: (fn: (s: AppState) => Partial<AppState>) => void,
+  get: () => AppState
+) {
+  const now = typeof serverNow === "number" ? serverNow : Date.now();
+  for (const item of incoming) {
+    if (item.status !== "queued") continue;
+    if (polling.has(item.id)) continue;
+    if (now - item.updatedAt < ADOPT_QUEUED_AFTER_MS) continue;
+    startPolling(item, set, get);
+  }
+}
+
 /** One poll of the live feed, then reschedule at a cadence that matches how
  *  much is actually happening. */
 async function liveTick(
@@ -906,7 +954,10 @@ async function liveTick(
       { cache: "no-store" }
     );
     const data = await res.json();
-    if (Array.isArray(data.items)) mergeLiveItems(data.items, set);
+    if (Array.isArray(data.items)) {
+      mergeLiveItems(data.items, set);
+      adoptOrphanedJobs(data.items, data.now, set, get);
+    }
     // Watermark comes from the server so client clock skew can't skip changes.
     if (typeof data.now === "number") liveSince = data.now;
   } catch {
