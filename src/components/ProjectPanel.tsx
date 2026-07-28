@@ -1,21 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
 import {
-  ChevronDown,
-  Plus,
   FolderClosed,
   FolderPlus,
   Layers,
   FileText,
   Pencil,
   Trash2,
-  Check,
-  MoreHorizontal,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { Dropdown, MenuItem } from "./Dropdown";
 import { MediaCard } from "./MediaCard";
 import { cn } from "@/lib/utils";
 
@@ -116,108 +111,21 @@ export function ProjectPanel() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* project selector */}
-      <div className="flex min-w-0 items-center gap-2 border-b border-line px-3 py-2.5">
-        <Dropdown
-          className="min-w-0"
-          trigger={(open) => (
-            <span
-              className={cn(
-                "flex min-w-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-semibold text-white transition hover:bg-white/5",
-                open && "bg-white/5"
-              )}
-            >
-              <span className="grid h-5 w-5 place-items-center rounded bg-gradient-to-br from-brand/30 to-accent/10 text-brand ring-1 ring-brand/30">
-                <Layers className="h-3 w-3" />
-              </span>
-              <span className="min-w-0 max-w-[160px] truncate">{project.name}</span>
-              <ChevronDown
-                className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
-              />
-            </span>
-          )}
-        >
-          {(close) => (
-            <>
-              {projects.map((p) => (
-                <MenuItem
-                  key={p.id}
-                  active={p.id === project.id}
-                  onClick={() => {
-                    setActiveProject(p.id);
-                    setBriefView(false);
-                    close();
-                  }}
-                >
-                  <Layers className="h-4 w-4 text-white/45" />
-                  <span className="flex-1 truncate">{p.name}</span>
-                  {p.id === project.id && <Check className="h-4 w-4 text-brand" />}
-                </MenuItem>
-              ))}
-              <div className="my-1 h-px bg-line" />
-              <MenuItem
-                onClick={() => {
-                  const name = window.prompt("New project name");
-                  if (name?.trim()) createProject(name.trim());
-                  close();
-                }}
-              >
-                <Plus className="h-4 w-4 text-white/60" /> New project
-              </MenuItem>
-            </>
-          )}
-        </Dropdown>
-
-        <Dropdown
-          align="right"
-          className="ml-auto"
-          trigger={(open) => (
-            <span
-              className={cn(
-                "grid h-7 w-7 cursor-pointer place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white",
-                open && "bg-white/10 text-white"
-              )}
-            >
-              <MoreHorizontal className="h-4 w-4" />
-            </span>
-          )}
-        >
-          {(close) => (
-            <>
-              <MenuItem
-                onClick={() => {
-                  const name = window.prompt("Rename project", project.name);
-                  if (name?.trim()) renameProject(project.id, name.trim());
-                  close();
-                }}
-              >
-                <Pencil className="h-4 w-4 text-white/60" /> Rename project
-              </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  if (
-                    window.confirm(
-                      `Delete project "${project.name}"? Its items return to History.`
-                    )
-                  )
-                    deleteProject(project.id);
-                  close();
-                }}
-              >
-                <Trash2 className="h-4 w-4 text-red-400/80" />
-                <span className="text-red-300/90">Delete project</span>
-              </MenuItem>
-            </>
-          )}
-        </Dropdown>
-      </div>
-
+      {/* The project selector and its overflow menu used to live here in a
+          row of their own — a name on the left, a ⋯ on the right, and nothing
+          in between. Both moved into HistoryPanel's scope bar, where the
+          Project tab now carries the project name and doubles as the picker,
+          so this panel starts straight at its content. */}
       {/* body: folder rail + grid */}
       <div className="flex min-h-0 flex-1">
         {/* folder rail */}
         <div className="scroll-thin flex w-[clamp(7rem,28%,10rem)] shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-line p-2">
+          {/* Was "All assets", which collided head-on with the global "All
+              assets" tab in the scope bar — same words, different scope, which
+              is precisely what made the two views hard to tell apart. This one
+              is scoped to the current project and now says so. */}
           <FolderRow
-            label="All assets"
+            label="All in project"
             count={countFor(null)}
             icon={<Layers className="h-4 w-4" />}
             active={!briefView && activeFolderId === null}

@@ -16,6 +16,9 @@ import {
   ZoomIn,
   ZoomOut,
   Download,
+  Plus,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MediaCard } from "./MediaCard";
@@ -38,8 +41,17 @@ export function HistoryPanel() {
   const clearSelection = useStore((s) => s.clearSelection);
   const moveItemsToProject = useStore((s) => s.moveItemsToProject);
   const projects = useStore((s) => s.projects);
+  // Project switching/management moved up here from ProjectPanel so the scope
+  // bar can be one row — the Project tab is now also the project picker.
+  const activeProjectId = useStore((s) => s.activeProjectId);
+  const setActiveProject = useStore((s) => s.setActiveProject);
+  const createProject = useStore((s) => s.createProject);
+  const renameProject = useStore((s) => s.renameProject);
+  const deleteProject = useStore((s) => s.deleteProject);
   const loadMoreHistory = useStore((s) => s.loadMoreHistory);
   const hasMoreHistory = useStore((s) => s.hasMoreHistory);
+
+  const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
@@ -133,14 +145,103 @@ export function HistoryPanel() {
 
   return (
     <div className="flex h-full flex-col bg-ink-850">
-      {/* tabs + filters */}
-      <div className="flex min-w-0 flex-wrap items-center gap-3 border-b border-line px-4 py-3">
+      {/* Scope bar — ONE row for everything that used to take two or three.
+          The three destinations are scopes over the same asset pool, so the
+          active project's name rides inside its own tab rather than getting a
+          near-empty row of its own below. That also removes the old label
+          collision: the global tab now says "All assets" explicitly, while the
+          project's own catch-all row in the folder rail says "All in project". */}
+      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2.5">
         <div className="scroll-none flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-700 p-1">
-          <TabBtn active={rightTab === "project"} onClick={() => setRightTab("project")}>
-            <Layers className="h-4 w-4" /> Project
-          </TabBtn>
+          {/* Project tab doubles as the project switcher + manager, so the
+              separate selector row and its overflow menu both disappear. */}
+          <Dropdown
+            className="min-w-0"
+            trigger={(open) => (
+              <span
+                onClick={() => setRightTab("project")}
+                className={cn(
+                  "flex min-w-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition",
+                  rightTab === "project"
+                    ? "bg-ink-850 text-white shadow-sm"
+                    : "text-white/60 hover:text-white/90",
+                  open && "bg-ink-850 text-white"
+                )}
+                title={project ? `Project: ${project.name}` : "No project yet"}
+              >
+                <Layers className="h-4 w-4 shrink-0" />
+                <span className="max-w-[10rem] truncate">
+                  {project ? project.name : "Project"}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 opacity-60 transition-transform",
+                    open && "rotate-180"
+                  )}
+                />
+              </span>
+            )}
+          >
+            {(close) => (
+              <>
+                {projects.map((p) => (
+                  <MenuItem
+                    key={p.id}
+                    active={p.id === activeProjectId}
+                    onClick={() => {
+                      setActiveProject(p.id);
+                      setRightTab("project");
+                      close();
+                    }}
+                  >
+                    <Layers className="h-4 w-4 text-white/45" />
+                    <span className="flex-1 truncate">{p.name}</span>
+                    {p.id === activeProjectId && <Check className="h-4 w-4 text-brand" />}
+                  </MenuItem>
+                ))}
+                <div className="my-1 h-px bg-line" />
+                <MenuItem
+                  onClick={() => {
+                    const name = window.prompt("New project name");
+                    if (name?.trim()) createProject(name.trim());
+                    close();
+                  }}
+                >
+                  <Plus className="h-4 w-4 text-white/60" /> New project
+                </MenuItem>
+                {project && (
+                  <>
+                    <MenuItem
+                      onClick={() => {
+                        const name = window.prompt("Rename project", project.name);
+                        if (name?.trim()) renameProject(project.id, name.trim());
+                        close();
+                      }}
+                    >
+                      <Pencil className="h-4 w-4 text-white/60" /> Rename project
+                    </MenuItem>
+                    <MenuItem
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Delete project "${project.name}"? Its items return to All assets.`
+                          )
+                        )
+                          deleteProject(project.id);
+                        close();
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 text-red-400/80" />
+                      <span className="text-red-300/90">Delete project</span>
+                    </MenuItem>
+                  </>
+                )}
+              </>
+            )}
+          </Dropdown>
+
           <TabBtn active={rightTab === "history"} onClick={() => setRightTab("history")}>
-            <LayoutGrid className="h-4 w-4" /> Assets
+            <LayoutGrid className="h-4 w-4" /> All assets
           </TabBtn>
           <TabBtn
             active={rightTab === "favorites"}
@@ -190,6 +291,10 @@ export function HistoryPanel() {
               ))
             }
           </Dropdown>
+
+          {/* Zoom lived in its own justify-end row on two of the three tabs,
+              costing a full row to hold one control. It belongs here. */}
+          <AssetZoomControl value={assetCardWidth} onChange={setAssetCardWidth} />
         </div>
       </div>
 
@@ -200,9 +305,7 @@ export function HistoryPanel() {
         </div>
       ) : rightTab === "favorites" ? (
         <div className="scroll-thin relative min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          <div className="mb-3 flex justify-end">
-            <AssetZoomControl value={assetCardWidth} onChange={setAssetCardWidth} />
-          </div>
+          {/* zoom control now lives in the scope bar — this row held one widget */}
           {loading ? (
             <SkeletonGrid />
           ) : favorites.length === 0 ? (
@@ -256,7 +359,10 @@ export function HistoryPanel() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* selection toolbar */}
+          {/* Selection toolbar. The All/Images/Videos pills that used to sit
+              here drove the SAME filterKind state as the scope bar's "All
+              types" dropdown — two controls, two rows, one piece of state.
+              The dropdown won because it works on all three tabs. */}
           {filtered.length > 0 && (
             <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
               <button
@@ -278,26 +384,9 @@ export function HistoryPanel() {
                 {allSelected ? "Deselect all" : "Select all"}
               </button>
 
-              <div className="flex items-center gap-1 rounded-full bg-ink-700 p-1">
-                <FilterPill
-                  active={filterKind === "all"}
-                  onClick={() => setFilterKind("all")}
-                >
-                  All
-                </FilterPill>
-                <FilterPill
-                  active={filterKind === "image"}
-                  onClick={() => setFilterKind("image")}
-                >
-                  Images
-                </FilterPill>
-                <FilterPill
-                  active={filterKind === "video"}
-                  onClick={() => setFilterKind("video")}
-                >
-                  Videos
-                </FilterPill>
-              </div>
+              <span className="text-sm text-white/35">
+                {filtered.length} {filtered.length === 1 ? "item" : "items"}
+              </span>
 
               {selectedIds.length > 0 && (
                 <>
@@ -372,11 +461,6 @@ export function HistoryPanel() {
                 </>
               )}
 
-              <AssetZoomControl
-                value={assetCardWidth}
-                onChange={setAssetCardWidth}
-                className="ml-auto"
-              />
             </div>
           )}
 
@@ -457,30 +541,8 @@ function Pill({ open, children }: { open: boolean; children: React.ReactNode }) 
   );
 }
 
-function FilterPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "rounded-full px-3 py-1.5 text-xs font-medium transition",
-        active
-          ? "bg-white text-ink-900"
-          : "text-white/55 hover:bg-white/10 hover:text-white"
-      )}
-    >
-      {children}
-    </button>
-  );
-}
+// FilterPill removed: it rendered the All/Images/Videos triplet that duplicated
+// the scope bar's "All types" dropdown over the same filterKind state.
 
 function SkeletonGrid() {
   const heights = [180, 240, 200, 280, 160, 220, 260, 190];
