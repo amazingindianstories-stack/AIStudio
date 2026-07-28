@@ -151,8 +151,11 @@ export function HistoryPanel() {
           near-empty row of its own below. That also removes the old label
           collision: the global tab now says "All assets" explicitly, while the
           project's own catch-all row in the folder rail says "All in project". */}
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2.5">
-        <div className="scroll-none flex w-fit max-w-full items-center gap-1 overflow-x-auto rounded-full bg-ink-700 p-1">
+      <div className="scope-bar flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2.5">
+        {/* min-w-0 + shrink is what lets the overflow-x-auto actually engage:
+            without it this group claims its full content width and pushes the
+            controls opposite it off the row. */}
+        <div className="scroll-none flex w-fit min-w-0 max-w-full shrink items-center gap-1 overflow-x-auto rounded-full bg-ink-700 p-1">
           {/* Project tab doubles as the project switcher + manager, so the
               separate selector row and its overflow menu both disappear. */}
           <Dropdown
@@ -170,7 +173,7 @@ export function HistoryPanel() {
                 title={project ? `Project: ${project.name}` : "No project yet"}
               >
                 <Layers className="h-4 w-4 shrink-0" />
-                <span className="max-w-[10rem] truncate">
+                <span className="max-w-[7.5rem] truncate">
                   {project ? project.name : "Project"}
                 </span>
                 <ChevronDown
@@ -251,8 +254,21 @@ export function HistoryPanel() {
           </TabBtn>
         </div>
 
-        <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-          <div className="relative min-w-0 max-w-52 flex-1">
+        {/* A real min-width, NOT min-w-0. With min-w-0 this cluster was free to
+            shrink to zero, so instead of wrapping it collapsed and its
+            non-shrinkable children (the type pill, the zoom slider) rendered
+            straight over the tabs — with a long project name the search field
+            disappeared entirely. Giving it a floor makes the parent's
+            flex-wrap do its job: when less than this is free it drops to a
+            second row, which is the correct degradation.
+
+            20rem is the sum of what lives here, not a guess: search (min ~6rem
+            before it stops being usable) + the type pill (~7rem) + the zoom
+            slider (~6rem) + two gaps. Anything smaller and the search field is
+            squeezed to a sliver instead of the row wrapping — which is the
+            failure this replaces, only less obvious. */}
+        <div className="scope-actions flex min-w-[20rem] flex-1 items-center justify-end gap-2">
+          <div className="relative min-w-0 flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
             <input
               value={search}
@@ -264,6 +280,7 @@ export function HistoryPanel() {
 
           <Dropdown
             align="right"
+            className="shrink-0"
             trigger={(open) => (
               <Pill open={open}>
                 {kindLabel}
@@ -293,8 +310,13 @@ export function HistoryPanel() {
           </Dropdown>
 
           {/* Zoom lived in its own justify-end row on two of the three tabs,
-              costing a full row to hold one control. It belongs here. */}
-          <AssetZoomControl value={assetCardWidth} onChange={setAssetCardWidth} />
+              costing a full row to hold one control. It belongs here.
+              shrink-0 because it was one of the controls that overflowed. */}
+          <AssetZoomControl
+            value={assetCardWidth}
+            onChange={setAssetCardWidth}
+            className="shrink-0"
+          />
         </div>
       </div>
 
@@ -647,7 +669,7 @@ function AssetZoomControl({
         step={10}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="h-1.5 w-20 cursor-pointer accent-white"
+        className="scope-zoom-slider h-1.5 w-20 cursor-pointer accent-white"
         aria-label="Asset thumbnail size"
         title={`Asset size: ${value}px`}
       />

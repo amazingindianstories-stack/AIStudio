@@ -148,3 +148,25 @@ body {
 ::selection {
   background: rgba(255, 255, 255, 0.2);
 }
+
+/* The asset panel's scope bar condenses against its OWN width, same approach
+   as .composer-shell above — the right panel is resizable, so viewport
+   breakpoints would be measuring the wrong box. */
+.scope-bar {
+  container-type: inline-size;
+}
+
+@container (max-width: 48rem) {
+  /* Drop the zoom slider but keep its +/- buttons, so the control stays fully
+     usable (coarser, not absent) while giving back ~80px. That is usually the
+     difference between the bar fitting on one row and wrapping. */
+  .scope-zoom-slider {
+    display: none;
+  }
+  /* With the slider gone the action cluster genuinely needs less room, so its
+     wrap floor comes down to match. Keeping the wide-panel floor here would
+     force a wrap that is no longer necessary. */
+  .scope-actions {
+    min-width: 15rem;
+  }
+}
