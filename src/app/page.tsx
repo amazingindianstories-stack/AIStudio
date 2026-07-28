@@ -18,6 +18,8 @@ export default function Page() {
   const loadProjects = useStore((s) => s.loadProjects);
   const loadMe = useStore((s) => s.loadMe);
   const loadUsers = useStore((s) => s.loadUsers);
+  const startLiveUpdates = useStore((s) => s.startLiveUpdates);
+  const stopLiveUpdates = useStore((s) => s.stopLiveUpdates);
   const mobileHistoryOpen = useStore((s) => s.mobileHistoryOpen);
   const setMobileHistoryOpen = useStore((s) => s.setMobileHistoryOpen);
   const view = useStore((s) => s.view);
@@ -30,7 +32,11 @@ export default function Page() {
     loadUsers();
     loadHistory();
     loadProjects();
-  }, [loadMe, loadUsers, loadHistory, loadProjects]);
+    // Shared live feed: picks up completions from any tab, device or teammate,
+    // so finishing a generation no longer needs a manual refresh.
+    startLiveUpdates();
+    return () => stopLiveUpdates();
+  }, [loadMe, loadUsers, loadHistory, loadProjects, startLiveUpdates, stopLiveUpdates]);
 
   useEffect(() => {
     if (!mobileHistoryOpen) return;

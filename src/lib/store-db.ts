@@ -1,4 +1,4 @@
-import { eq, desc, lt } from "drizzle-orm";
+import { eq, desc, lt, or, gt, inArray } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations } from "./schema";
 import type { GenerationItem } from "./types";
@@ -388,4 +388,41 @@ export async function lockJob(id: string): Promise<boolean> {
     .where(and(eq(generations.id, id), eq(generations.status, "queued")))
     .returning({ id: generations.id });
   return res.length > 0;
+}
+
+/**
+ * Generations that changed since `since`, for the client's live-update poller.
+ *
+ * Returns two overlapping sets in one query:
+ *  - everything currently queued or running, so a client learns about jobs it
+ *    did not start itself (another tab, another device, a teammate — history
+ *    is team-wide, there is no per-user filter);
+ *  - everything whose updatedAt has moved past the caller's watermark, which
+ *    is how a completion is observed.
+ *
+ * The in-flight half is deliberately unconditional rather than watermarked: a
+ * job that is still running has not changed since the client last looked, so a
+ * pure `updatedAt > since` query would never mention it, and a client that
+ * missed its creation would stay blind until it finished.
+ *
+ * Ordered by updatedAt so the newest changes survive the cap if one poll
+ * somehow spans more than `limitN` changes.
+ */
+export async function readGenerationUpdates(
+  since: number,
+  limitN = 100
+): Promise<GenerationItem[]> {
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(generations)
+    .where(
+      or(
+        inArray(generations.status, ["queued", "running"]),
+        gt(generations.updatedAt, since)
+      )
+    )
+    .orderBy(desc(generations.updatedAt))
+    .limit(limitN);
+  return rows.map(rowToItem);
 }

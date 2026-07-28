@@ -51,6 +51,7 @@ export function AssetLibrary() {
   const editing = useStore((s) => s.editingAsset);
   const setEditing = useStore((s) => s.setEditingAsset);
   const loadAssets = useStore((s) => s.loadAssets);
+  const assetsLoading = useStore((s) => s.assetsLoading);
 
   useEffect(() => {
     if (open) loadAssets();
@@ -108,7 +109,7 @@ export function AssetLibrary() {
               {editing ? (
                 <AssetEditor asset={editing === "new" ? null : editing} />
               ) : (
-                <AssetList assets={assets} />
+                <AssetList assets={assets} loading={assetsLoading} />
               )}
             </div>
           </motion.div>
@@ -118,7 +119,7 @@ export function AssetLibrary() {
   );
 }
 
-function AssetList({ assets }: { assets: Asset[] }) {
+function AssetList({ assets, loading }: { assets: Asset[]; loading: boolean }) {
   const setEditing = useStore((s) => s.setEditingAsset);
   const deleteAsset = useStore((s) => s.deleteAsset);
   const setOpen = useStore((s) => s.setAssetLibraryOpen);
@@ -141,7 +142,32 @@ function AssetList({ assets }: { assets: Asset[] }) {
         <Plus className="h-4 w-4" /> New asset
       </button>
 
-      {assets.length === 0 ? (
+      {/* Loading must be checked BEFORE the empty case. assets is [] while the
+          fetch is in flight, so the old order rendered "No assets yet." during
+          load — a wrong answer, not just a missing one. Skeletons rather than a
+          spinner, so the panel doesn't jump when the real rows land. */}
+      {loading && assets.length === 0 ? (
+        <div
+          className="grid grid-cols-1 gap-2.5 sm:grid-cols-2"
+          role="status"
+          aria-busy="true"
+          aria-label="Loading assets"
+        >
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="flex gap-3 rounded-xl border border-line bg-ink-800 p-2.5"
+            >
+              <div className="skeleton h-16 w-16 shrink-0 rounded-lg" />
+              <div className="flex min-w-0 flex-1 flex-col justify-center gap-2">
+                <div className="skeleton h-3.5 w-2/3 rounded" />
+                <div className="skeleton h-3 w-1/3 rounded" />
+              </div>
+            </div>
+          ))}
+          <span className="sr-only">Loading assets…</span>
+        </div>
+      ) : assets.length === 0 ? (
         <p className="py-8 text-center text-sm text-white/40">
           No assets yet. Create a character, outfit, or location and reference it
           in any prompt with its <span className="text-brand">@tag</span> to keep

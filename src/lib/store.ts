@@ -64,6 +64,10 @@ interface AppState extends ComposerState {
 
   // reusable reference assets (consistency library)
   assets: Asset[];
+  /** True while /api/assets is in flight. Without it the library renders an
+   *  empty array as "No assets yet." during load, which is a wrong answer
+   *  rather than a missing one. */
+  assetsLoading: boolean;
   assetLibraryOpen: boolean;
   editingAsset: Asset | "new" | null;
 
@@ -100,6 +104,10 @@ interface AppState extends ComposerState {
   // data
   loadHistory: () => Promise<void>;
   loadMoreHistory: () => Promise<void>;
+  /** Begin/stop the shared live-update poll. Idempotent; safe to call from an
+   *  effect that may run twice under React strict mode. */
+  startLiveUpdates: () => void;
+  stopLiveUpdates: () => void;
   generate: () => Promise<void>;
   removeItem: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
@@ -145,6 +153,23 @@ interface AppState extends ComposerState {
 
 const polling = new Set<string>();
 
+// ── shared live-update poll ─────────────────────────────────────────────────
+// The per-item pollers below only ever attach to items THIS tab already knows
+// about — startPolling is called on submit and from loadHistory, nowhere else.
+// History is team-wide, so a job started in another tab, on another device, or
+// by a teammate was never observed here and only appeared on a manual refresh.
+//
+// One shared poll fixes all of those at once, and costs a single request no
+// matter how many jobs are in flight. It only OBSERVES: the per-item pollers
+// still own execution (pollQueue is what posts /api/queue/execute), so nothing
+// here can double-submit work.
+const LIVE_MS_ACTIVE = 4000; // something is in flight — stay responsive
+const LIVE_MS_IDLE = 20000; // nothing running — just watch for teammates
+let liveTimer: ReturnType<typeof setTimeout> | null = null;
+let liveSince = 0;
+let liveRunning = false;
+let liveVisibilityHandler: (() => void) | null = null;
+
 async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
   const response = await fetch(input, init);
   if (response.status === 401) {
@@ -183,6 +208,7 @@ export const useStore = create<AppState>((set, get) => ({
   selectedIds: [],
 
   assets: [],
+  assetsLoading: false,
   assetLibraryOpen: false,
   editingAsset: null,
 
@@ -258,6 +284,37 @@ export const useStore = create<AppState>((set, get) => ({
       }
     } catch {
       set({ loading: false });
+    }
+  },
+
+  startLiveUpdates: () => {
+    if (liveRunning) return; // idempotent — strict mode mounts effects twice
+    liveRunning = true;
+    // Start the watermark slightly in the past so a job that finished during
+    // the initial page load isn't missed in the gap before the first poll.
+    liveSince = Date.now() - 60_000;
+    if (typeof document !== "undefined" && !liveVisibilityHandler) {
+      // Returning to a backgrounded tab is exactly when the view is most
+      // stale, so catch up immediately rather than waiting out the interval.
+      liveVisibilityHandler = () => {
+        if (!document.hidden && liveRunning) {
+          scheduleLive(set, get, 0);
+        }
+      };
+      document.addEventListener("visibilitychange", liveVisibilityHandler);
+    }
+    scheduleLive(set, get, LIVE_MS_ACTIVE);
+  },
+
+  stopLiveUpdates: () => {
+    liveRunning = false;
+    if (liveTimer) {
+      clearTimeout(liveTimer);
+      liveTimer = null;
+    }
+    if (typeof document !== "undefined" && liveVisibilityHandler) {
+      document.removeEventListener("visibilitychange", liveVisibilityHandler);
+      liveVisibilityHandler = null;
     }
   },
 
@@ -493,12 +550,17 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   loadAssets: async () => {
+    set({ assetsLoading: true });
     try {
       const res = await apiFetch("/api/assets", { cache: "no-store" });
       const json = await res.json();
       set({ assets: json.assets ?? [] });
     } catch {
       /* ignore — library just stays empty */
+    } finally {
+      // finally, not the try body: a failed fetch must still clear the
+      // spinner, or the panel spins forever on a network blip.
+      set({ assetsLoading: false });
     }
   },
 
@@ -769,6 +831,101 @@ function pollVideo(
   };
 
   setTimeout(tick, 3000);
+}
+
+/**
+ * Merge server rows into the store without losing local truth.
+ *
+ * Rules, each guarding a specific way this could go wrong:
+ *  - Only overwrite when the incoming row is strictly newer by updatedAt, so a
+ *    slow live poll can't clobber a fresher result that a per-item poller just
+ *    wrote from /api/queue/execute.
+ *  - Preserve queueNote, which is client-only and transient (it never round
+ *    trips through the DB), but drop it once the item leaves the queue.
+ *  - Only INSERT rows that are newer than the oldest page we've loaded, or
+ *    that are still in flight. items is a paginated window; splicing an old
+ *    row into the middle of it would create a hole that pagination then
+ *    duplicates or skips.
+ */
+function mergeLiveItems(
+  incoming: GenerationItem[],
+  set: (fn: (s: AppState) => Partial<AppState>) => void
+) {
+  if (!incoming.length) return;
+  set((s) => {
+    const byId = new Map(s.items.map((i) => [i.id, i]));
+    const oldestLoaded = s.items.length
+      ? Math.min(...s.items.map((i) => i.createdAt))
+      : 0;
+    let changed = false;
+
+    for (const inc of incoming) {
+      const cur = byId.get(inc.id);
+      if (cur) {
+        if (inc.updatedAt > cur.updatedAt) {
+          byId.set(inc.id, {
+            ...cur,
+            ...inc,
+            queueNote: inc.status === "queued" ? cur.queueNote : undefined,
+          });
+          changed = true;
+        }
+        continue;
+      }
+      const inFlight = inc.status === "queued" || inc.status === "running";
+      if (inFlight || inc.createdAt > oldestLoaded) {
+        byId.set(inc.id, inc);
+        changed = true;
+      }
+    }
+
+    if (!changed) return {};
+    return {
+      items: Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt),
+    };
+  });
+}
+
+/** One poll of the live feed, then reschedule at a cadence that matches how
+ *  much is actually happening. */
+async function liveTick(
+  set: (fn: (s: AppState) => Partial<AppState>) => void,
+  get: () => AppState
+) {
+  if (!liveRunning) return;
+  // A hidden tab is throttled by the browser to roughly one timer per minute
+  // anyway, and nobody is looking. Skip the request and let the
+  // visibilitychange handler fire an immediate catch-up poll on return.
+  if (typeof document !== "undefined" && document.hidden) {
+    scheduleLive(set, get, LIVE_MS_IDLE);
+    return;
+  }
+  try {
+    const res = await apiFetch(
+      `/api/history/updates?since=${encodeURIComponent(String(liveSince))}`,
+      { cache: "no-store" }
+    );
+    const data = await res.json();
+    if (Array.isArray(data.items)) mergeLiveItems(data.items, set);
+    // Watermark comes from the server so client clock skew can't skip changes.
+    if (typeof data.now === "number") liveSince = data.now;
+  } catch {
+    /* transient — the next tick retries, and 401 already redirects in apiFetch */
+  }
+  const busy = get().items.some(
+    (i) => i.status === "queued" || i.status === "running"
+  );
+  scheduleLive(set, get, busy ? LIVE_MS_ACTIVE : LIVE_MS_IDLE);
+}
+
+function scheduleLive(
+  set: (fn: (s: AppState) => Partial<AppState>) => void,
+  get: () => AppState,
+  ms: number
+) {
+  if (!liveRunning) return;
+  if (liveTimer) clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => liveTick(set, get), ms);
 }
 
 /** Route a fresh/resumed item to the right poller: queued jobs of BOTH kinds
