@@ -40,6 +40,10 @@ export interface GenerationItem {
   costCents?: number; // computed cost of this generation, in cents
   isFavorite?: boolean; // starred by the team for quick review/use
   favoritedAt?: number; // when the item was added to Favourites
+  /** Transient, client-only: why a queued job is waiting (e.g. held by the
+   *  spend gate). Never persisted — itemToValues maps columns explicitly — and
+   *  cleared as soon as the job leaves the queue. */
+  queueNote?: string
   createdAt: number;
   updatedAt: number;
 }

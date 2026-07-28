@@ -140,11 +140,20 @@ export function MediaCard({
 
         {/* pending skeleton */}
         {pending && (
-          <div className="skeleton absolute inset-0 flex flex-col items-center justify-center gap-2">
+          <div className="skeleton absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center">
             <Loader2 className="h-6 w-6 animate-spin text-brand/80" />
             <span className="text-[11px] font-medium text-white/55">
               {item.status === "queued" ? "Queued…" : "Generating…"}
             </span>
+            {/* A job held by the spend gate is healthy and self-starting, so it
+                keeps the normal pending treatment — only the caption changes.
+                Showing it as an error would be the "not a good look" this whole
+                gate exists to avoid. */}
+            {item.queueNote && (
+              <span className="text-[10px] leading-snug text-white/40">
+                {item.queueNote}
+              </span>
+            )}
           </div>
         )}
 

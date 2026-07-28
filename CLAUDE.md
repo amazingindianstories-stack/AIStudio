@@ -29,6 +29,17 @@ Environment: copy `.env.local.example` → `.env.local`. `MOCK_GENERATION=1` run
 
 Both routes: create a `GenerationItem` row up front (`status: running/queued`), compute cost from the `pricing` table, persist uploaded reference images, then update the row on success/failure. Failures return the failed item as JSON (HTTP 200), not an error status.
 
+### Gemini spend-rate throttle (`src/lib/spend-window.ts`)
+
+Google caps Gemini API **spend** on a rolling 10-minute window — separate from RPM/TPM — returning `429 RESOURCE_EXHAUSTED` when crossed ($10/10min on Tier 1, $200 on Tier 2/3). Best-of-N makes the app its own worst offender: N parallel renders per job × `MAX_CONCURRENT` jobs.
+
+**Retrying cannot fix this** — the window is 10 minutes and an invocation lives at most 300s, so a saturated window outlives any in-request backoff. `getQueuePosition` therefore performs *admission control*: a job that concurrency would admit is still held (reported as position 1, with `heldForBudget`/`heldReason`/`retryAfterMs`) until the window has room. The client shows it as a normal pending item with a caption and paces its next poll off `retryAfterMs`. Backoff in `gemini.ts` still handles momentary spikes; this handles sustained load.
+
+- Gates **images and Omni video only** — Omni runs on the same `GOOGLE_API_KEY`. Higgsfield/BytePlus must never be held behind a Google budget they don't consume.
+- Rows that failed with a 429 are excluded from the window (they were rejected, so they cost nothing) — otherwise one storm suppresses the queue for a further 10 minutes on spend that never happened.
+- **`GEMINI_SPEND_LIMIT_CENTS` is in *estimator* cents, not dollars.** Costs come from the admin-editable `pricing` table, whose seeds are explicitly placeholders and which under-read real Gemini cost by ~4×: the burst that tripped a real $10 limit on 2026-07-28 scores only ~231 cents here. Default 150 is derived from that incident, not from Tier 1's nominal $10 — don't "correct" it upward. Raise to ~3000 on Tier 2; `0` disables the gate.
+- Forward-progress invariant: an empty window always admits, so a job priced above the whole budget can't be held forever.
+
 ### Providers (`src/lib/providers/`)
 
 - `gemini.ts` — **Nano Banana Pro (`gemini-3-pro-image`) via `generativelanguage.googleapis.com`, deliberately NOT Vertex AI.** The file header documents measured probes: Vertex silently gates 2K/4K to 1K; generativelanguage honors them. Don't "upgrade" to Vertex without re-reading that header. Hard limit: 14 images per prompt — user images are never silently dropped; the code errors loudly and only identity tiles yield.
@@ -119,7 +130,7 @@ Research (July 2026) found Higgsfield's edge over baseline NBP was not hidden AP
 - **`SUPERSAMPLE=1`**: Render one resolution step up, downsample to requested size. Measured highest prominence but 1-of-4 scene-accuracy risk (outfit dropped); flag off by default, use for hero shots only. Operationally: combining it with `FACE_BEST_OF>1` is expensive and slow — it was previously unsafe against the 60s cap, which is now 300s, but it still multiplies the parallel-render count that trips Gemini's spend-based 429.
 - **`NEXT_PUBLIC_REF_MAX_DIM` (default `2048`)**: Client reference longest-side cap (was hardcoded 1024). `PromptComposer.tsx` includes a budget ladder (2048/q0.85 → q0.7 → 1536/q0.8 → 1024/q0.8) to stay under Vercel's 4.5MB body limit with high-fidelity refs.
 
-Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts src/lib/providers/gemini.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
+Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts src/lib/providers/gemini.test.ts src/lib/spend-window.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
 
 ## Working conventions
 

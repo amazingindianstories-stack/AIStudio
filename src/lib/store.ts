@@ -821,7 +821,9 @@ function pollQueue(
         const finalItem: GenerationItem = await execRes.json();
         if (finalItem?.id) {
           set((s) => ({
-            items: s.items.map((i) => (i.id === finalItem.id ? { ...i, ...finalItem } : i)),
+            items: s.items.map((i) =>
+              i.id === finalItem.id ? { ...i, ...finalItem, queueNote: undefined } : i
+            ),
           }));
         }
         polling.delete(id);
@@ -831,6 +833,20 @@ function pollQueue(
           pollVideo(finalItem.id, set, get);
         }
         return; // done
+      } else if (data.heldForBudget) {
+        // Held by the spend gate, not by a backlog. Surface why, and pace the
+        // next poll off the server's hint — the window frees on a schedule the
+        // server knows and the client can't guess, so polling every 3s here
+        // would be pure noise (and each poll is a DB round trip).
+        set((s) => ({
+          items: s.items.map((i) =>
+            i.id === id ? { ...i, queueNote: data.heldReason } : i
+          ),
+        }));
+        if (polling.has(id)) {
+          setTimeout(tick, Math.min(Math.max(Number(data.retryAfterMs) || 5000, 5000), 60_000));
+        }
+        return;
       } else if (data.status === "succeeded" || data.status === "failed") {
         // Finished (or failed) since our last check — merge the real item
         // (url/cost/etc.) rather than just noting the status string, so a
@@ -838,7 +854,9 @@ function pollQueue(
         // complete without needing a manual refresh.
         if (data.item?.id) {
           set((s) => ({
-            items: s.items.map((i) => (i.id === data.item.id ? { ...i, ...data.item } : i)),
+            items: s.items.map((i) =>
+              i.id === data.item.id ? { ...i, ...data.item, queueNote: undefined } : i
+            ),
           }));
         }
         polling.delete(id);

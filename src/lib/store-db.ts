@@ -159,6 +159,14 @@ export async function clearProjectRefs(projectId: string): Promise<void> {
 // ---- QUEUE HELPERS ----
 
 import { and, sql } from "drizzle-orm";
+import {
+  admits,
+  bestOfMultiplier,
+  holdRetryAfterMs,
+  spendLimitCents,
+  HELD_MESSAGE,
+  SPEND_WINDOW_MS,
+} from "./spend-window";
 
 // Global active-request caps, per kind: images bound our own server (each
 // running job is a 30–60s serverless invocation with best-of-N provider
@@ -183,7 +191,21 @@ const MAX_CONCURRENT: Record<string, number> = { image: 2, video: 2 };
 // legitimate is still "running" 7 minutes after lockJob stamped it.
 const STALE_RUNNING_MS = 7 * 60 * 1000;
 
+// The reaper is a blind UPDATE and every status poll used to fire one — with a
+// 3s poll per in-flight job that is a lot of pointless write traffic against a
+// condition that can only become true once every STALE_RUNNING_MS. Under fluid
+// compute instances stay warm and serve many polls, so a per-instance clock
+// collapses nearly all of it. Correctness does not depend on this: any instance
+// that has never swept still sweeps on its first poll, and the sweep is
+// idempotent, so the worst case is that a stranded row is noticed one interval
+// late by a client whose instance happens to be cold.
+const REAP_INTERVAL_MS = 30_000;
+let lastReapAt = 0;
+
 async function reapStaleRunningImages(): Promise<void> {
+  const now = Date.now();
+  if (now - lastReapAt < REAP_INTERVAL_MS) return;
+  lastReapAt = now;
   const db = await getDb();
   await db
     .update(generations)
@@ -201,9 +223,107 @@ async function reapStaleRunningImages(): Promise<void> {
     );
 }
 
-export async function getQueuePosition(
-  id: string
-): Promise<{ position: number; status: string; item?: GenerationItem } | null> {
+/**
+ * Everything getQueuePosition needs about the rest of the queue, in one round
+ * trip: concurrency counts plus the rolling spend window.
+ *
+ * This runs on every poll of every in-flight job, so it is deliberately a
+ * single query with scalar subqueries rather than the three sequential
+ * SELECTs it replaces.
+ *
+ * The spend window counts image jobs AND Omni video jobs, because Omni runs on
+ * generativelanguage with the same GOOGLE_API_KEY (providers/omni.ts) and so
+ * draws on the same budget. Higgsfield and BytePlus do not — different vendors,
+ * different limits — and must stay excluded or the gate throttles work that
+ * costs Google nothing.
+ *
+ * Cost weighting differs by status on purpose: /api/queue/execute multiplies
+ * costCents by the number of best-of-N candidates *after* they resolve, so
+ * finished rows already carry their true multi-render cost, while a running row
+ * still holds the single-render price and must be scaled up to estimate what it
+ * is spending right now.
+ *
+ * Rows that failed with a 429 are excluded: they were rejected, so they cost
+ * nothing. Counting them would let one rate-limit storm suppress the queue for
+ * a further 10 minutes on the strength of spend that never happened.
+ */
+async function queueSnapshot(
+  kind: string,
+  createdAt: number,
+  bestOf: number,
+  windowStart: number
+): Promise<{
+  running: number;
+  older: number;
+  windowCents: number;
+  windowRows: number;
+  oldestUpdatedAt: number | null;
+}> {
+  const db = await getDb();
+  // `created_at > windowStart - 6h` is a redundant but index-backed superset of
+  // the updated_at predicate (generations_created_at_idx exists; updated_at has
+  // no index and adding one would mean a migration). Safe because nothing in
+  // the app touches a row more than ~30 min after creation — images are reaped
+  // at 7 min, videos time out at 30 — so a 6-hour skirt cannot exclude a row
+  // that genuinely belongs in a 10-minute window.
+  const res = await db.execute(sql`
+    select
+      (select count(*) from ${generations}
+        where status = 'running' and kind = ${kind}) as running,
+      (select count(*) from ${generations}
+        where status = 'queued' and kind = ${kind}
+          and created_at < ${createdAt}) as older,
+      (select coalesce(sum(
+          case when status = 'running' then cost_cents * ${bestOf} else cost_cents end
+        ), 0) from ${generations}
+        where created_at > ${windowStart - 6 * 60 * 60 * 1000}
+          and updated_at >= ${windowStart}
+          and status in ('running', 'succeeded', 'failed')
+          and (kind = 'image' or model ilike '%omni%')
+          and not (status = 'failed' and coalesce(error, '') like '%429%')
+      ) as window_cents,
+      (select count(*) from ${generations}
+        where created_at > ${windowStart - 6 * 60 * 60 * 1000}
+          and updated_at >= ${windowStart}
+          and status in ('running', 'succeeded', 'failed')
+          and (kind = 'image' or model ilike '%omni%')
+          and not (status = 'failed' and coalesce(error, '') like '%429%')
+      ) as window_rows,
+      (select min(updated_at) from ${generations}
+        where created_at > ${windowStart - 6 * 60 * 60 * 1000}
+          and updated_at >= ${windowStart}
+          and status in ('running', 'succeeded', 'failed')
+          and (kind = 'image' or model ilike '%omni%')
+          and not (status = 'failed' and coalesce(error, '') like '%429%')
+      ) as oldest_updated_at
+  `);
+  const row: any = (res as any).rows ? (res as any).rows[0] : (res as any)[0];
+  return {
+    running: Number(row.running ?? 0),
+    older: Number(row.older ?? 0),
+    windowCents: Number(row.window_cents ?? 0),
+    windowRows: Number(row.window_rows ?? 0),
+    oldestUpdatedAt:
+      row.oldest_updated_at === null || row.oldest_updated_at === undefined
+        ? null
+        : Number(row.oldest_updated_at),
+  };
+}
+
+export interface QueueStatus {
+  position: number;
+  status: string;
+  item?: GenerationItem;
+  /** True when concurrency would allow this job but the spend budget will not.
+   *  The job is healthy and will start on its own — this is not an error. */
+  heldForBudget?: boolean;
+  /** Why it is held, safe to show verbatim. */
+  heldReason?: string;
+  /** Hint for the client's next poll, in ms. */
+  retryAfterMs?: number;
+}
+
+export async function getQueuePosition(id: string): Promise<QueueStatus | null> {
   await reapStaleRunningImages();
   const item = await getItem(id);
   if (!item) return null;
@@ -213,32 +333,50 @@ export async function getQueuePosition(
   if (item.status !== "queued") return { position: 0, status: item.status, item };
 
   const cap = MAX_CONCURRENT[item.kind] ?? 2;
-  const db = await getDb();
+  const now = Date.now();
+  const bestOf = bestOfMultiplier();
+  const snap = await queueSnapshot(
+    item.kind,
+    item.createdAt,
+    bestOf,
+    now - SPEND_WINDOW_MS
+  );
 
-  // Count active running jobs of the same kind
-  const runningCountRes = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(generations)
-    .where(and(eq(generations.status, "running"), eq(generations.kind, item.kind)));
-  const running = Number(runningCountRes[0].count);
-
-  // Count older queued jobs of the same kind
-  const olderCountRes = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(generations)
-    .where(
-      and(
-        eq(generations.status, "queued"),
-        eq(generations.kind, item.kind),
-        lt(generations.createdAt, item.createdAt)
-      )
-    );
-  const older = Number(olderCountRes[0].count);
-
-  const totalAhead = running + older;
+  const totalAhead = snap.running + snap.older;
   const position = Math.max(0, totalAhead - (cap - 1));
+  if (position > 0) return { position, status: item.status };
 
-  return { position, status: item.status };
+  // Concurrency says go. Now ask whether Google's rolling spend window can
+  // afford it — see lib/spend-window.ts for why holding beats retrying.
+  //
+  // Only jobs that actually bill Gemini are gated. A Higgsfield or BytePlus
+  // video must never be held behind a Google budget it does not consume.
+  const billsGemini = item.kind === "image" || /omni/i.test(item.model);
+  if (!billsGemini) return { position, status: item.status };
+
+  const limitCents = spendLimitCents();
+  const jobCents = (item.costCents ?? 0) * bestOf;
+  if (
+    admits({
+      windowCents: snap.windowCents,
+      jobCents,
+      limitCents,
+      windowBusy: snap.windowRows > 0,
+    })
+  ) {
+    return { position, status: item.status };
+  }
+
+  // Held: report position 1 so the existing client contract ("execute only at
+  // position 0") keeps the job parked without any client change, and attach the
+  // reason so the UI can say something truthful instead of implying a backlog.
+  return {
+    position: 1,
+    status: item.status,
+    heldForBudget: true,
+    heldReason: HELD_MESSAGE,
+    retryAfterMs: holdRetryAfterMs(snap.oldestUpdatedAt, now),
+  };
 }
 
 export async function lockJob(id: string): Promise<boolean> {
