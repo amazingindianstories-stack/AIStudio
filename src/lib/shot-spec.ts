@@ -32,8 +32,17 @@ export type ImageSubjectMode = "person" | "environment";
 // server-only code). "object" is new: the generic non-person, non-asset-kind
 // fallback for an @imgN upload whose role couldn't be inferred.
 const ROLE_RULE: Record<RefRole, string> = {
+  // The identity anchors here (bone structure, jawline, hairline, eye
+  // shape/spacing, nose, lips, apparent age) are the bake-off-measured wording
+  // and are kept verbatim — they are medium-neutral and carry the identity
+  // score. Only the three photoreal assumptions were changed (2026-07-28):
+  // "photographic fidelity" → fidelity to the reference; the skin-texture
+  // clause made self-conditional; "idealized" anchored to the reference. A
+  // stylized reference was previously told to add realistic skin texture and
+  // to avoid being "idealized" in absolute terms — both of which fight an
+  // anime or illustrated source, which is idealized by construction.
   person:
-    "reproduce this exact person with photographic fidelity — identical face shape and bone structure, jawline, cheekbones, hairline, eye shape/size/spacing and color, eyebrows, nose, lips, ears, skin tone and texture (keep moles, scars, freckles, wrinkles), facial hair, hairstyle, body build and apparent age; unmistakably the SAME individual, never a lookalike, and never beautified, slimmed, de-aged or idealized",
+    "reproduce this exact person with exact fidelity to the reference, in the SAME medium and rendering style as the reference (photographic, illustrated, anime, cel-shaded, 3D, painterly or otherwise — never convert it to a different medium, and never add realism the reference does not have) — identical face shape and bone structure, jawline, cheekbones, hairline, eye shape/size/spacing and color, eyebrows, nose, lips, ears, facial hair, hairstyle, body build and apparent age, plus the same distinguishing marks the reference shows; where the reference is photographic, also keep real skin tone and texture (moles, scars, freckles, wrinkles); unmistakably the SAME individual, never a lookalike, and never beautified, slimmed, de-aged or idealized relative to the reference",
   outfit:
     "reproduce this exact outfit — same garments, cut, fit, fabric, colors, patterns, trims and details, plus any jewelry/accessories shown with it",
   location:
@@ -180,7 +189,7 @@ export function hasExplicitRefRole(
 
 function legendLine(entry: LegendEntry): string {
   if (entry.isPerson) {
-    return `${entry.tag} = the exact face/identity of the subject — must be reproduced with photographic fidelity, never a lookalike.`;
+    return `${entry.tag} = the exact face/identity of the subject — must be reproduced with exact fidelity to the reference and in its medium, never a lookalike.`;
   }
   switch (entry.role) {
     case "outfit":

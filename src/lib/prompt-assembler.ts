@@ -82,8 +82,13 @@ const ASSET_KIND_TO_ROLE: Record<AssetKind, RefRole> = {
 };
 
 const KIND_RULE: Record<AssetKind, string> = {
+  // Kept character-for-character in sync with ROLE_RULE.person in shot-spec.ts
+  // (that module duplicates rather than imports, deliberately — see its header).
+  // Identity anchors are the measured wording, untouched; only the three
+  // photoreal assumptions were relaxed on 2026-07-28 so a stylized reference is
+  // no longer told to add realism it does not have.
   character:
-    "reproduce this exact person with photographic fidelity — identical face shape and bone structure, jawline, cheekbones, hairline, eye shape/size/spacing and color, eyebrows, nose, lips, ears, skin tone and texture (keep moles, scars, freckles, wrinkles), facial hair, hairstyle, body build and apparent age; unmistakably the SAME individual, never a lookalike, and never beautified, slimmed, de-aged or idealized",
+    "reproduce this exact person with exact fidelity to the reference, in the SAME medium and rendering style as the reference (photographic, illustrated, anime, cel-shaded, 3D, painterly or otherwise — never convert it to a different medium, and never add realism the reference does not have) — identical face shape and bone structure, jawline, cheekbones, hairline, eye shape/size/spacing and color, eyebrows, nose, lips, ears, facial hair, hairstyle, body build and apparent age, plus the same distinguishing marks the reference shows; where the reference is photographic, also keep real skin tone and texture (moles, scars, freckles, wrinkles); unmistakably the SAME individual, never a lookalike, and never beautified, slimmed, de-aged or idealized relative to the reference",
   outfit:
     "reproduce this exact outfit — same garments, cut, fit, fabric, colors, patterns, trims and details, plus any jewelry/accessories shown with it",
   location:
@@ -289,29 +294,39 @@ export async function assemblePrompt(
       if (!images.length) return;
       const many = images.length > 1;
       assetLines.push(
-        `- SUBJECT → the person in the reference photo${many ? "s" : ""} below. ` +
+        `- SUBJECT → the person in the reference image${many ? "s" : ""} below. ` +
           `Rule: the main subject in the output MUST be this exact same person — ` +
           `identical face, hairstyle, build and visible outfit/jewelry unless ` +
-          `the SCENE explicitly changes them.`
+          `the SCENE explicitly changes them, rendered in the same medium and ` +
+          `style as the reference.`
       );
       const tiles = preparedTiles ?? (await faceCrops(images, "SUBJECT"));
+      // "reference photo" presumed the medium in the noun itself; "image" is
+      // neutral. The skin-texture clause is now self-conditional and
+      // "idealized" is anchored to the reference, so a stylized subject is not
+      // pushed toward realism it never had. Every identity anchor from the
+      // measured wording is retained.
       let header = many
-        ? `SUBJECT — ${images.length} reference photos of the SAME person ` +
+        ? `SUBJECT — ${images.length} reference images of the SAME person ` +
           `(different angles/lighting). Reconstruct ONE consistent identity ` +
           `from all of them; the generated person's face MUST match exactly — ` +
           `same bone structure, jawline, hairline, eye shape/spacing and color, ` +
-          `eyebrows, nose, lips, skin tone/texture (keep moles, scars, ` +
-          `freckles), facial hair and apparent age. Keep their hairstyle, ` +
+          `eyebrows, nose, lips, facial hair and apparent age, and where the ` +
+          `references are photographic also their skin tone/texture (keep ` +
+          `moles, scars, freckles). Keep their hairstyle, ` +
           `build and worn outfit/jewelry unless the SCENE explicitly changes ` +
-          `them. A recognizable match, never a lookalike — never beautified ` +
-          `or idealized:`
-        : `SUBJECT — reference photo of the person. The generated person's face ` +
+          `them, and render in the same medium and style as the references. ` +
+          `A recognizable match, never a lookalike — never beautified ` +
+          `or idealized relative to the references:`
+        : `SUBJECT — reference image of the person. The generated person's face ` +
           `MUST be this exact same individual — same bone structure, jawline, ` +
-          `hairline, eye shape/spacing and color, eyebrows, nose, lips, skin ` +
-          `tone/texture (keep moles, scars, freckles), facial hair and ` +
-          `apparent age. Keep their hairstyle, build and worn outfit/jewelry ` +
-          `unless the SCENE explicitly changes them. A recognizable match, ` +
-          `not a lookalike — never beautified or idealized:`;
+          `hairline, eye shape/spacing and color, eyebrows, nose, lips, facial ` +
+          `hair and apparent age, and where the reference is photographic also ` +
+          `their skin tone/texture (keep moles, scars, freckles). ` +
+          `Keep their hairstyle, build and worn outfit/jewelry ` +
+          `unless the SCENE explicitly changes them, and render in the same ` +
+          `medium and style as the reference. A recognizable match, ` +
+          `not a lookalike — never beautified or idealized relative to the reference:`;
       if (shotSpecOn) {
         header = roleHeader("SUBJECT", "person", images.length);
         legendEntries.push({ tag: "SUBJECT", role: "person", isPerson: true });

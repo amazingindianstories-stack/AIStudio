@@ -11,6 +11,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   parseRefRoles,
+  roleRule,
   roleHeader,
   buildReferenceLegend,
   buildCastPolicy,
@@ -370,4 +371,61 @@ test("person-reference shot instruction is byte-identical to the proven identity
 
   assert.equal(actual, expected);
   assert.equal(buildCastPolicy(rawPrompt, true), null);
+});
+
+// ── medium neutrality of the person rule (2026-07-28) ──────────────────────
+// A stylized reference used to be told to reproduce the subject with
+// "photographic fidelity", to keep real skin texture, and to avoid being
+// "idealized" in absolute terms — all of which fight an anime, cel-shaded or
+// illustrated source, which is idealized by construction. The measured identity
+// anchors are unchanged; only these assumptions were relaxed.
+
+test("person rule no longer demands photographic fidelity unconditionally", () => {
+  const rule = roleRule("person");
+  assert.doesNotMatch(rule, /with photographic fidelity/);
+  assert.match(rule, /exact fidelity to the reference/);
+});
+
+test("person rule instructs the model to keep the reference's medium", () => {
+  const rule = roleRule("person");
+  assert.match(rule, /SAME medium and rendering style as the reference/);
+  assert.match(rule, /never add realism the reference does not have/);
+});
+
+test("skin-texture detail is conditional on the reference being photographic", () => {
+  const rule = roleRule("person");
+  assert.match(rule, /where the reference is photographic, also keep real skin tone and texture/);
+});
+
+test("'idealized' is anchored to the reference, not absolute", () => {
+  // Absolute "never idealized" is incoherent for a stylized source.
+  assert.match(roleRule("person"), /idealized relative to the reference/);
+});
+
+test("every measured identity anchor survives the rewording", () => {
+  const rule = roleRule("person");
+  for (const anchor of [
+    "bone structure",
+    "jawline",
+    "cheekbones",
+    "hairline",
+    "eye shape/size/spacing and color",
+    "eyebrows",
+    "nose",
+    "lips",
+    "ears",
+    "facial hair",
+    "hairstyle",
+    "body build",
+    "apparent age",
+    "never a lookalike",
+  ]) {
+    assert.ok(rule.includes(anchor), `identity anchor lost from person rule: ${anchor}`);
+  }
+});
+
+test("non-person roles were already medium-neutral and are untouched", () => {
+  assert.match(roleRule("outfit"), /reproduce this exact outfit/);
+  assert.match(roleRule("location"), /reproduce this exact place/);
+  assert.match(roleRule("prop"), /reproduce this exact object/);
 });
