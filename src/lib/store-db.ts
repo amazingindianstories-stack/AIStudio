@@ -26,6 +26,7 @@ function rowToItem(r: Row): GenerationItem {
     error: r.error ?? undefined,
     moderationBlocked: r.moderationBlocked ?? undefined,
     taskId: r.taskId ?? undefined,
+    generateAudio: r.generateAudio ?? undefined,
     projectId: r.projectId ?? undefined,
     folderId: r.folderId ?? undefined,
     userId: r.userId ?? undefined,
@@ -59,6 +60,7 @@ function itemToValues(item: GenerationItem): typeof generations.$inferInsert {
     isFavorite: item.isFavorite ?? false,
     favoritedAt: item.favoritedAt ?? null,
     taskId: item.taskId ?? null,
+    generateAudio: item.generateAudio ?? null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };

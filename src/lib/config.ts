@@ -101,6 +101,23 @@ export function aspectRatiosForModel(model: string, kind: GenerationKind): strin
   return ASPECT_RATIOS[kind];
 }
 
+/**
+ * Can this model generate an audio track with the video?
+ *
+ * Only the native BytePlus ModelArk path. `generate_audio` is a top-level
+ * boolean on ModelArk's create-task payload (see providers/seedance.ts), and it
+ * is the *only* one of our video paths that has such a field: Higgsfield's MCP
+ * exposes no audio parameter on its Seedance tools, and Omni's Interactions
+ * request has no audio field either. Matching "higgsfield" first matters —
+ * "Higgsfield Seedance 2.0" also contains "seedance", and offering an audio
+ * toggle there would be a control that silently does nothing.
+ */
+export function supportsAudio(model: string): boolean {
+  if (/higgsfield/i.test(model)) return false;
+  if (/omni/i.test(model)) return false;
+  return /seedance/i.test(model);
+}
+
 export const DEFAULTS = {
   image: {
     model: "Nano Banana Pro",

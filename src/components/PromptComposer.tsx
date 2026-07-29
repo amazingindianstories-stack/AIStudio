@@ -29,6 +29,7 @@ import {
   FolderClosed,
   Layers,
   Sparkles,
+  Volume2,
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
 import { Dropdown, MenuItem } from "./Dropdown";
@@ -40,6 +41,7 @@ import {
   aspectRatiosForModel,
   durationsForModel,
   resolutionsForModel,
+  supportsAudio,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { GenerationKind } from "@/lib/types";
@@ -446,6 +448,14 @@ export function PromptComposer() {
                   </span>
                 </>
               )}
+              {/* Audio costs extra, so it is visible on the collapsed chip
+                  rather than only inside the panel. */}
+              {s.generateAudio && (
+                <>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <Volume2 className="composer-secondary-setting h-3.5 w-3.5 text-brand" />
+                </>
+              )}
             </Chip>
           )}
         >
@@ -477,6 +487,23 @@ export function PromptComposer() {
                 value={`${s.batchCount}×`}
                 onChange={(v) => s.setBatchCount(parseInt(v))}
               />
+              {/* Only where the provider has the field. Higgsfield's MCP
+                  Seedance tools and Omni expose no audio parameter, so showing
+                  this for them would be a control that does nothing. */}
+              {s.mode === "video" && supportsAudio(s.model) && (
+                <div>
+                  <Segment
+                    label="Audio"
+                    options={["Off", "On"]}
+                    value={s.generateAudio ? "On" : "Off"}
+                    onChange={(v) => s.setGenerateAudio(v === "On")}
+                  />
+                  <p className="mt-1 text-[11px] leading-snug text-white/35">
+                    Seedance scores the video with synchronised sound. Billed on
+                    top of the video.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </Dropdown>

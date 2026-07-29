@@ -13,6 +13,13 @@
  *     "ratio": "16:9", "resolution": "1080p", "duration": 5, "generate_audio": false
  *   }
  *
+ * `generate_audio` is a real top-level boolean (re-confirmed against BytePlus's
+ * published Seedance 2.0 request shape, 2026-07-29) and is the only audio
+ * control any of our video paths has — Higgsfield's MCP Seedance tools expose
+ * no audio parameter, and Omni's Interactions request has no audio field. It is
+ * surfaced in the composer for this path only (config.ts supportsAudio) and
+ * defaults to false, because audio is billed on top of the video.
+ *
  * Notes that previously broke this:
  *  - Seedance 1.0 models do NOT support reference-to-video (r2v) — must use 2.0.
  *  - ratio/resolution/duration are TOP-LEVEL JSON fields, not "--flag" text.
@@ -115,6 +122,10 @@ export interface SeedanceCreateInput {
   resolution?: string; // "1080p" | "720p" | "480p"
   duration?: number; // seconds
   references?: LabeledRef[]; // tagged reference images (@img1 …)
+  /** Ask ModelArk to score the video with a synchronised audio track.
+   *  Defaults to false — the historical behaviour, and the safe default since
+   *  audio is billed on top of the video. */
+  generateAudio?: boolean;
 }
 
 export interface SeedanceTaskStatus {
@@ -193,7 +204,9 @@ export async function createVideoTask(
   const body: Record<string, unknown> = {
     model,
     content,
-    generate_audio: false,
+    // Was hardcoded false. Still defaults to false when the caller says
+    // nothing, so nothing starts paying for audio it did not ask for.
+    generate_audio: input.generateAudio === true,
   };
   if (input.ratio) body.ratio = input.ratio;
   if (input.resolution) body.resolution = input.resolution;

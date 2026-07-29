@@ -5,7 +5,12 @@ import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents } from "@/lib/pricing";
 import { logActivity } from "@/lib/activity";
-import { aspectRatiosForModel, durationsForModel, resolutionsForModel } from "@/lib/config";
+import {
+  aspectRatiosForModel,
+  durationsForModel,
+  resolutionsForModel,
+  supportsAudio,
+} from "@/lib/config";
 import { isOmniModel } from "@/lib/providers/omni";
 import type { GenerationItem } from "@/lib/types";
 
@@ -28,6 +33,10 @@ export async function POST(req: NextRequest) {
   const referenceImages: string[] | undefined = body.referenceImages;
   const projectId: string | undefined = body.projectId || undefined;
   const folderId: string | undefined = body.folderId || undefined;
+  // Only honoured where the provider actually has the field. Silently ignoring
+  // it elsewhere beats storing a true that nothing will ever act on, which
+  // would read back as "this video has audio" on a path that cannot produce it.
+  const generateAudio: boolean = body.generateAudio === true && supportsAudio(model);
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
@@ -104,6 +113,7 @@ export async function POST(req: NextRequest) {
     resolution,
     duration,
     referenceImages: savedRefs,
+    generateAudio,
     projectId,
     folderId,
     userId: user?.id,

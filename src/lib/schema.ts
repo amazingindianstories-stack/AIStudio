@@ -68,6 +68,13 @@ export const generations = pgTable("generations", {
   isFavorite: boolean("is_favorite").notNull().default(false),
   favoritedAt: bigint("favorited_at", { mode: "number" }),
   taskId: text("task_id"),
+  // Whether the video was requested with a synchronised audio track (BytePlus
+  // ModelArk only — see config.ts supportsAudio). It has to be persisted, not
+  // just passed through: /api/generate/video merely enqueues, and it is
+  // /api/queue/execute that submits to the provider, so the row is the only
+  // thing carrying the request between them. Nullable = "never asked",
+  // i.e. every row that predates this column.
+  generateAudio: boolean("generate_audio"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [

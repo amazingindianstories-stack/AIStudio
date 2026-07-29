@@ -211,6 +211,10 @@ async function submitVideo(base: GenerationItem): Promise<GenerationItem> {
       resolution,
       duration,
       references: resolveReferences(prompt, inlined),
+      // Read off the row, not off this request: /api/generate/video only
+      // enqueues, so the user's choice reaches the provider through the
+      // persisted column and nothing else.
+      generateAudio: base.generateAudio === true,
     });
   }
   return { ...base, ...refUpdates, taskId, status: "running", updatedAt: Date.now() };

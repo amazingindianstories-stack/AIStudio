@@ -34,6 +34,10 @@ export interface GenerationItem {
   error?: string;
   moderationBlocked?: boolean; // provider rejected a reference image (privacy/deepfake filter)
   taskId?: string; // provider task id (for polling)
+  /** Video was requested with a synchronised audio track (BytePlus ModelArk
+   *  only). Persisted because the enqueue route and the execute route are
+   *  different requests — see the column comment in schema.ts. */
+  generateAudio?: boolean;
   projectId?: string; // owning project (for the Project tab)
   folderId?: string; // shot/folder within the project (null = unsorted / All assets)
   userId?: string; // who generated it (attribution)

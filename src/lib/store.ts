@@ -16,6 +16,7 @@ import {
   aspectRatiosForModel,
   durationsForModel,
   resolutionsForModel,
+  supportsAudio,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
 import { historyFilterToParams } from "./history-query";
@@ -76,6 +77,10 @@ interface ComposerState {
   resolution: string;
   duration: number;
   batchCount: number; // jobs enqueued per Generate press (queue caps concurrency)
+  /** Ask the provider for a synchronised audio track. Only meaningful on
+   *  models where config.supportsAudio is true; setModel forces it off
+   *  otherwise, so it can never be silently true on a path that ignores it. */
+  generateAudio: boolean;
   prompt: string;
   referenceImages: string[]; // data URLs
 }
@@ -151,6 +156,7 @@ interface AppState extends ComposerState {
   setResolution: (r: string) => void;
   setDuration: (d: number) => void;
   setBatchCount: (n: number) => void;
+  setGenerateAudio: (v: boolean) => void;
   setPrompt: (p: string) => void;
   addReference: (dataUrl: string) => void;
   removeReference: (index: number) => void;
@@ -432,6 +438,7 @@ export const useStore = create<AppState>((set, get) => ({
   resolution: DEFAULTS.video.resolution,
   duration: DEFAULTS.video.duration,
   batchCount: 1,
+  generateAudio: false,
   prompt: "",
   referenceImages: [],
 
@@ -497,12 +504,17 @@ export const useStore = create<AppState>((set, get) => ({
       const aspectRatio = aspectRatios.includes(s.aspectRatio)
         ? s.aspectRatio
         : aspectRatios[0];
-      return { model, duration, resolution, aspectRatio };
+      // Same reasoning as the clamps above: a setting the chosen model has no
+      // field for must not survive the switch, or the composer shows an
+      // enabled toggle whose value the provider will silently discard.
+      const generateAudio = supportsAudio(model) ? s.generateAudio : false;
+      return { model, duration, resolution, aspectRatio, generateAudio };
     }),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set({ resolution }),
   setDuration: (duration) => set({ duration }),
   setBatchCount: (batchCount) => set({ batchCount: Math.min(4, Math.max(1, batchCount)) }),
+  setGenerateAudio: (generateAudio) => set({ generateAudio }),
   setPrompt: (prompt) => set({ prompt }),
   addReference: (dataUrl) =>
     set((s) => ({ referenceImages: [...s.referenceImages, dataUrl] })),
@@ -753,6 +765,7 @@ export const useStore = create<AppState>((set, get) => ({
       resolution: s.resolution,
       duration: s.duration,
       referenceImages: s.referenceImages,
+      generateAudio: s.generateAudio,
       projectId: s.activeProjectId ?? undefined,
       folderId: s.activeFolderId ?? undefined,
     };
@@ -921,6 +934,7 @@ export const useStore = create<AppState>((set, get) => ({
       aspectRatio: item.aspectRatio,
       resolution: item.resolution ?? get().resolution,
       duration: item.duration ?? get().duration,
+      generateAudio: item.generateAudio === true && supportsAudio(item.model),
       prompt: item.prompt,
       referenceImages: [],
     });
@@ -1553,6 +1567,11 @@ export function restoreComposerDraft() {
       if ([1, 2, 3, 4].includes(d.batchCount)) {
         patch.batchCount = d.batchCount;
       }
+      // Validated against the restored model, like every other setting here:
+      // a cached `true` must not resurrect on a model that has no audio field.
+      if (typeof d.generateAudio === "boolean") {
+        patch.generateAudio = d.generateAudio && supportsAudio(effModel);
+      }
       if (["project", "history", "favorites"].includes(d.rightTab)) {
         patch.rightTab = d.rightTab;
       }
@@ -1653,6 +1672,7 @@ if (typeof window !== "undefined") {
       s.resolution !== prev.resolution ||
       s.duration !== prev.duration ||
       s.batchCount !== prev.batchCount ||
+      s.generateAudio !== prev.generateAudio ||
       s.rightTab !== prev.rightTab ||
       s.activeProjectId !== prev.activeProjectId ||
       s.activeFolderId !== prev.activeFolderId
@@ -1667,6 +1687,7 @@ if (typeof window !== "undefined") {
             resolution: s.resolution,
             duration: s.duration,
             batchCount: s.batchCount,
+            generateAudio: s.generateAudio,
             rightTab: s.rightTab,
             activeProjectId: s.activeProjectId,
             activeFolderId: s.activeFolderId,
