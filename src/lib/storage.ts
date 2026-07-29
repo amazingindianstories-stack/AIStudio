@@ -108,22 +108,50 @@ export async function getSignedReadUrl(
     throw new Error(`Refusing to sign a URL for a protected prefix: ${key}`);
   }
   if (primaryIsGcs()) {
-    const [url] = await storage()
-      .bucket(getBucketName())
-      .file(key)
-      .getSignedUrl({
-        version: "v4",
-        action: "read",
-        expires: Date.now() + ttlSeconds * 1000,
-      });
-    return url;
+    // A public CDN URL is preferred when one is configured: it needs no
+    // signing at all, which matters because this deployment authenticates to
+    // GCS by Workload Identity Federation. WIF has no private key, so V4
+    // signing can only work via IAM signBlob on an impersonated service
+    // account — and plain ExternalAccountClient credentials cannot sign at
+    // all. Reaching the signing call below with WIF is therefore expected to
+    // throw, and the message says so rather than surfacing a bare SDK error.
+    const cdn = getMediaRedirectUrl(key);
+    if (cdn) return cdn;
+    try {
+      const [url] = await storage()
+        .bucket(getBucketName())
+        .file(key)
+        .getSignedUrl({
+          version: "v4",
+          action: "read",
+          expires: Date.now() + ttlSeconds * 1000,
+        });
+      return url;
+    } catch (e: any) {
+      throw new Error(
+        `GCS could not sign a URL for ${key}: ${e?.message ?? e}. ` +
+          `This deployment authenticates by Workload Identity Federation, which ` +
+          `has no signing key — set GCP_MEDIA_CDN_URL so clips can be handed to ` +
+          `the provider as public CDN URLs, or impersonate a service account so ` +
+          `IAM signBlob is available.`
+      );
+    }
   }
-  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
-  return getSignedUrl(
-    legacyS3(),
-    new GetObjectCommand({ Bucket: legacyBucketName(), Key: key }),
-    { expiresIn: ttlSeconds }
-  );
+  try {
+    const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+    return await getSignedUrl(
+      legacyS3(),
+      new GetObjectCommand({ Bucket: legacyBucketName(), Key: key }),
+      { expiresIn: ttlSeconds }
+    );
+  } catch (e: any) {
+    throw new Error(
+      `S3 could not sign a URL for ${key} in bucket ${legacyBucketName()}: ` +
+        `${e?.message ?? e}. Presigning is a local computation, so this almost ` +
+        `always means AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY are missing in ` +
+        `this environment.`
+    );
+  }
 }
 
 /** Sign a stored reference (`/api/media/...` or a CDN URL). Returns null when

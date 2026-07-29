@@ -100,10 +100,14 @@ async function signVideoRefs(refs: string[]): Promise<string[]> {
     try {
       const signed = await signStoredRef(ref);
       out.push(signed ?? ref);
-    } catch (e) {
+    } catch (e: any) {
       console.error("[video] could not sign reference clip", ref, e);
+      // Carry the real reason through to the card. The first version of this
+      // said only "could not be prepared", which told the user nothing they
+      // could act on and told us nothing about which backend or credential
+      // was at fault.
       throw new Error(
-        "A reference clip could not be prepared for the provider. Remove it and try again."
+        `Reference clip could not be prepared for the provider. ${e?.message ?? e}`
       );
     }
   }
