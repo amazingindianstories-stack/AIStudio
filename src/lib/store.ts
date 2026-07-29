@@ -17,6 +17,8 @@ import {
   durationsForModel,
   resolutionsForModel,
   supportsAudio,
+  supportsVideoReference,
+  MAX_REFERENCE_VIDEOS,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
 import { historyFilterToParams } from "./history-query";
@@ -83,6 +85,10 @@ interface ComposerState {
   generateAudio: boolean;
   prompt: string;
   referenceImages: string[]; // data URLs
+  /** Stored refs (`/api/media/...`) of library clips used as video references.
+   *  Not data URLs: a clip is far too large to carry through the composer, and
+   *  the provider is handed a presigned URL server-side instead. */
+  referenceVideos: string[];
 }
 
 interface AppState extends ComposerState {
@@ -165,6 +171,8 @@ interface AppState extends ComposerState {
   setPrompt: (p: string) => void;
   addReference: (dataUrl: string) => void;
   removeReference: (index: number) => void;
+  addReferenceVideo: (ref: string) => void;
+  removeReferenceVideo: (index: number) => void;
 
   // ui
   setRightTab: (t: RightTab) => void;
@@ -413,6 +421,7 @@ export const useStore = create<AppState>((set, get) => ({
   generateAudio: true,
   prompt: "",
   referenceImages: [],
+  referenceVideos: [],
 
   items: [],
   hasMoreHistory: true,
@@ -481,7 +490,8 @@ export const useStore = create<AppState>((set, get) => ({
       // field for must not survive the switch, or the composer shows an
       // enabled toggle whose value the provider will silently discard.
       const generateAudio = supportsAudio(model) ? s.generateAudio : false;
-      return { model, duration, resolution, aspectRatio, generateAudio };
+      const referenceVideos = supportsVideoReference(model) ? s.referenceVideos : [];
+      return { model, duration, resolution, aspectRatio, generateAudio, referenceVideos };
     }),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set({ resolution }),
@@ -494,6 +504,17 @@ export const useStore = create<AppState>((set, get) => ({
   removeReference: (index) =>
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
+    })),
+  addReferenceVideo: (ref) =>
+    set((s) =>
+      s.referenceVideos.includes(ref) ||
+      s.referenceVideos.length >= MAX_REFERENCE_VIDEOS
+        ? {}
+        : { referenceVideos: [...s.referenceVideos, ref] }
+    ),
+  removeReferenceVideo: (index) =>
+    set((s) => ({
+      referenceVideos: s.referenceVideos.filter((_, i) => i !== index),
     })),
 
   setRightTab: (rightTab) => set({ rightTab }),
@@ -740,6 +761,7 @@ export const useStore = create<AppState>((set, get) => ({
       resolution: s.resolution,
       duration: s.duration,
       referenceImages: s.referenceImages,
+      referenceVideos: s.referenceVideos,
       generateAudio: s.generateAudio,
       projectId: s.activeProjectId ?? undefined,
       folderId: s.activeFolderId ?? undefined,

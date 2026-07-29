@@ -252,6 +252,29 @@ export function PromptComposer() {
         </div>
       )}
 
+      {/* attached reference clips (video-to-video) */}
+      {s.referenceVideos.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2 px-1">
+          {s.referenceVideos.map((ref, i) => (
+            <span
+              key={ref}
+              className="flex items-center gap-1.5 rounded-lg bg-ink-750 py-1 pl-2 pr-1 text-xs text-white/75 ring-1 ring-line"
+              title={`Reference clip ${i + 1} — type @vid${i + 1} to point at it`}
+            >
+              <Clapperboard className="h-3.5 w-3.5 text-brand" />
+              @vid{i + 1}
+              <button
+                onClick={() => s.removeReferenceVideo(i)}
+                className="grid h-4 w-4 place-items-center rounded text-white/40 hover:bg-white/10 hover:text-white"
+                aria-label={`Remove reference clip ${i + 1}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* reference thumbnails — click to insert its @imgN tag into the prompt */}
       {s.referenceImages.length > 0 && (
         <div className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1">

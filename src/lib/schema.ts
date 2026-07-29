@@ -61,6 +61,11 @@ export const generations = pgTable("generations", {
   error: text("error"),
   moderationBlocked: boolean("moderation_blocked"),
   referenceImages: jsonb("reference_images").$type<string[]>(),
+  // Stored media refs for clips used as `reference_video` on BytePlus. Kept
+  // apart from referenceImages because they take a completely different route
+  // to the provider: images are inlined as base64, videos are handed over as
+  // short-lived presigned URLs (see queue/execute).
+  referenceVideos: jsonb("reference_videos").$type<string[]>(),
   projectId: uuid("project_id"),
   folderId: uuid("folder_id"),
   userId: uuid("user_id"),

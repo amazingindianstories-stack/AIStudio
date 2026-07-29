@@ -7,7 +7,7 @@
  * path (fast SKU, 480p, 4s, no reference images).
  *
  *   npx tsx scripts/probe-seedance-audio.ts
- *   npx tsx scripts/probe-seedance-audio.ts --standard --duration 5
+ *   npx tsx scripts/probe-seedance-audio.ts --fast --duration 5
  *
  * The repo's convention is that provider payload changes are backed by docs or
  * an empirical probe. `generate_audio` is documented as a top-level boolean on
@@ -35,8 +35,10 @@ async function run(generateAudio: boolean) {
     prompt:
       "A single wooden wind chime on a porch in a light breeze, close-up, " +
       "chimes clinking gently. Natural daylight, static camera.",
-    // The fast SKU unless --standard: this is a billable call.
-    modelDisplay: flag("standard") ? "Seedance 2.0" : "Seedance 2.0 Mini",
+    // Standard unless --fast. The fast SKU is NOT activated on this account
+    // (ModelArk answers 404 ModelNotOpen), so defaulting to it would fail in a
+    // way that looks like an audio problem rather than an entitlement one.
+    modelDisplay: flag("fast") ? "Seedance 2.0 Mini" : "Seedance 2.0",
     ratio: "16:9",
     resolution: value("resolution", "480p"),
     duration: Number(value("duration", "4")),
@@ -71,7 +73,7 @@ async function main() {
   }
   console.log(
     "This makes a REAL, BILLED generation. Ctrl-C within 5s to abort.\n" +
-      `  model=${flag("standard") ? "standard" : "fast/mini"} ` +
+      `  model=${flag("fast") ? "fast/mini (likely NOT activated)" : "standard"} ` +
       `resolution=${value("resolution", "480p")} duration=${value("duration", "4")}s`
   );
   await new Promise((r) => setTimeout(r, 5000));

@@ -102,6 +102,24 @@ export function aspectRatiosForModel(model: string, kind: GenerationKind): strin
 }
 
 /**
+ * Can this model take an existing CLIP as a reference (video-to-video)?
+ *
+ * Probe-verified against BytePlus ModelArk on 2026-07-29: the native Seedance
+ * path accepts `reference_video` content items. Higgsfield's MCP exposes no
+ * video-reference parameter and Omni's Interactions request has none either,
+ * so the same higgsfield-before-seedance ordering as supportsAudio applies —
+ * the Higgsfield model names also contain "seedance".
+ */
+export function supportsVideoReference(model: string): boolean {
+  if (/higgsfield/i.test(model)) return false;
+  if (/omni/i.test(model)) return false;
+  return /seedance/i.test(model);
+}
+
+/** ModelArk accepts at most 3 reference clips per request. */
+export const MAX_REFERENCE_VIDEOS = 3;
+
+/**
  * Can this model generate an audio track with the video?
  *
  * Only the native BytePlus ModelArk path. `generate_audio` is a top-level

@@ -10,6 +10,8 @@ import {
   durationsForModel,
   resolutionsForModel,
   supportsAudio,
+  supportsVideoReference,
+  MAX_REFERENCE_VIDEOS,
 } from "@/lib/config";
 import { isOmniModel } from "@/lib/providers/omni";
 import type { GenerationItem } from "@/lib/types";
@@ -37,9 +39,30 @@ export async function POST(req: NextRequest) {
   // it elsewhere beats storing a true that nothing will ever act on, which
   // would read back as "this video has audio" on a path that cannot produce it.
   const generateAudio: boolean = body.generateAudio === true && supportsAudio(model);
+  // Clips already in the library, referenced by their stored path. Dropped for
+  // models with no video-reference field rather than persisted and ignored.
+  const referenceVideos: string[] = supportsVideoReference(model)
+    ? (Array.isArray(body.referenceVideos) ? body.referenceVideos : [])
+        .filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
+        .slice(0, MAX_REFERENCE_VIDEOS)
+    : [];
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+  }
+  // Reject loudly rather than silently dropping the extras — the user chose
+  // those clips and would otherwise get a result that ignored some of them.
+  if (
+    Array.isArray(body.referenceVideos) &&
+    body.referenceVideos.length > MAX_REFERENCE_VIDEOS &&
+    supportsVideoReference(model)
+  ) {
+    return NextResponse.json(
+      {
+        error: `${model} accepts at most ${MAX_REFERENCE_VIDEOS} reference clips (got ${body.referenceVideos.length}).`,
+      },
+      { status: 400 }
+    );
   }
   // Seedance 2.0 Mini has no 1080p/4k SKU (per its MCP schema) — reject
   // loudly rather than letting the provider silently downgrade.
@@ -113,6 +136,7 @@ export async function POST(req: NextRequest) {
     resolution,
     duration,
     referenceImages: savedRefs,
+    referenceVideos: referenceVideos.length ? referenceVideos : undefined,
     generateAudio,
     projectId,
     folderId,

@@ -31,6 +31,8 @@ export interface GenerationItem {
   url?: string; // image or video url (served locally)
   poster?: string; // poster/thumbnail for video
   referenceImages?: string[]; // uploaded reference images used (public paths), saved for retrieval/clone
+  /** Stored clips used as video references (BytePlus Seedance only). */
+  referenceVideos?: string[];
   error?: string;
   moderationBlocked?: boolean; // provider rejected a reference image (privacy/deepfake filter)
   taskId?: string; // provider task id (for polling)

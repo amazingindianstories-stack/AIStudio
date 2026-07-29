@@ -15,9 +15,11 @@ import {
   Star,
   ChevronDown,
   ChevronUp,
+  Clapperboard,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn, thumbUrl } from "@/lib/utils";
+import { supportsVideoReference } from "@/lib/config";
 
 /** Prompt in the details sidebar: minimized by default, hover reveals an
  *  expand cue in the top-right corner (same pattern as the feed). Keyed by
@@ -167,6 +169,8 @@ export function DetailModal() {
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
   const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
+  const addReferenceVideo = useStore((s) => s.addReferenceVideo);
+  const model = useStore((s) => s.model);
   const setMode = useStore((s) => s.setMode);
   const removeItem = useStore((s) => s.removeItem);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
@@ -379,6 +383,23 @@ export function DetailModal() {
                     title="Grab the current frame and add it to the composer as a reference image"
                   >
                     <ImagePlus className="h-4 w-4" /> Use this frame as reference
+                  </button>
+                )}
+                {/* True video-to-video, BytePlus only. Gated on the model the
+                    composer is set to, because it is the only one with a
+                    reference_video field — offering it otherwise would attach a
+                    clip that the provider silently ignores. */}
+                {item.kind === "video" && item.url && supportsVideoReference(model) && (
+                  <button
+                    onClick={() => {
+                      addReferenceVideo(item.url!);
+                      setMode("video");
+                      setActiveId(null);
+                    }}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-line bg-white/[0.06] py-2.5 text-sm font-semibold text-white/85 hover:bg-white/[0.1]"
+                    title="Use this whole clip as a video reference (Seedance 2.0 video-to-video)"
+                  >
+                    <Clapperboard className="h-4 w-4" /> Use clip as video reference
                   </button>
                 )}
                 <button

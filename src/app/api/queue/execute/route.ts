@@ -16,6 +16,7 @@ import {
   saveFromUrl,
   saveReferenceImages,
 } from "@/lib/save-media";
+import { signStoredRef } from "@/lib/storage";
 import { upsertItem, lockJob, getItem } from "@/lib/store-db";
 import { isMock, mockPlaceholder } from "@/lib/mock";
 import { crispen, prepReference } from "@/lib/middleware/image-prep";
@@ -89,6 +90,24 @@ async function halveForDelivery(base64: string): Promise<string> {
   } catch {
     return base64;
   }
+}
+
+/** Turn stored clip refs into short-lived URLs the provider can fetch.
+ *  A ref that is already an absolute URL is passed through untouched. */
+async function signVideoRefs(refs: string[]): Promise<string[]> {
+  const out: string[] = [];
+  for (const ref of refs) {
+    try {
+      const signed = await signStoredRef(ref);
+      out.push(signed ?? ref);
+    } catch (e) {
+      console.error("[video] could not sign reference clip", ref, e);
+      throw new Error(
+        "A reference clip could not be prepared for the provider. Remove it and try again."
+      );
+    }
+  }
+  return out;
 }
 
 /**
@@ -211,6 +230,10 @@ async function submitVideo(base: GenerationItem): Promise<GenerationItem> {
       resolution,
       duration,
       references: resolveReferences(prompt, inlined),
+      // Signed here, at the last possible moment, and never persisted or sent
+      // to the browser. BytePlus fetches the clip itself and /api/media/… is
+      // session-gated, so a signed URL is the only thing it can actually read.
+      referenceVideoUrls: await signVideoRefs(base.referenceVideos ?? []),
       // Read off the row, not off this request: /api/generate/video only
       // enqueues, so the user's choice reaches the provider through the
       // persisted column and nothing else.

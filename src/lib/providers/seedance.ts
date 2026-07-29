@@ -13,6 +13,22 @@
  *     "ratio": "16:9", "resolution": "1080p", "duration": 5, "generate_audio": false
  *   }
  *
+ * VIDEO-TO-VIDEO (probe-verified 2026-07-29, scripts/probe-seedance-video-input.ts).
+ * A reference clip is another `content` item, and the role is MANDATORY:
+ *
+ *     { "type": "video_url", "video_url": { "url": "…" }, "role": "reference_video" }
+ *
+ * Omitting the role is rejected outright — the API answers 400 with
+ * "reference media mode requires video role to be reference_video", which is
+ * exactly what the image item's optional-role shape would have led us to write.
+ * A top-level `video_urls: [...]` array is ALSO accepted, but the content-item
+ * form is used here because it carries the role explicitly and matches how
+ * every other reference already travels.
+ *
+ * Limits: at most 3 clips, each 2–15s and ≤50MB. The URL must be fetchable BY
+ * BYTEPLUS — our own /api/media/… routes require a session, so callers pass a
+ * short-lived presigned URL (storage.getSignedReadUrl).
+ *
  * `generate_audio` is a real top-level boolean (re-confirmed against BytePlus's
  * published Seedance 2.0 request shape, 2026-07-29) and is the only audio
  * control any of our video paths has — Higgsfield's MCP Seedance tools expose
@@ -112,7 +128,13 @@ function pickModel(modelDisplay?: string): string {
 /** Seedance reads "[image N]" references in the prompt. Translate the UI's
  *  @imgN tags so the model binds each tag to the matching reference_image. */
 function tagsToImageRefs(prompt: string): string {
-  return prompt.replace(/@img(\d+)/gi, (_, n) => `[image ${n}]`);
+  return prompt
+    .replace(/@img(\d+)/gi, (_, n) => `[image ${n}]`)
+    // Same convention for clips. Unlike the image form this one is NOT
+    // probe-verified — reference clips are attached as content items and work
+    // without any in-prompt token, so the worst case is the model reading this
+    // as ordinary text rather than a broken request.
+    .replace(/@vid(\d+)/gi, (_, n) => `[video ${n}]`);
 }
 
 export interface SeedanceCreateInput {
@@ -122,6 +144,9 @@ export interface SeedanceCreateInput {
   resolution?: string; // "1080p" | "720p" | "480p"
   duration?: number; // seconds
   references?: LabeledRef[]; // tagged reference images (@img1 …)
+  /** Publicly fetchable URLs of reference clips (video-to-video). Must already
+   *  be signed — this layer does not know about our storage. */
+  referenceVideoUrls?: string[];
   /** Ask ModelArk to score the video with a synchronised audio track.
    *  Defaults to false — the historical behaviour, and the safe default since
    *  audio is billed on top of the video. */
@@ -200,6 +225,15 @@ export async function createVideoTask(
       role: refRole,
     });
   });
+  // `role` is required here, unlike on image items — see the header. Capped at
+  // the documented 3 rather than letting the provider reject the whole request.
+  for (const url of (input.referenceVideoUrls ?? []).slice(0, 3)) {
+    content.push({
+      type: "video_url",
+      video_url: { url },
+      role: "reference_video",
+    });
+  }
 
   const body: Record<string, unknown> = {
     model,

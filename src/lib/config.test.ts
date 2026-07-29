@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MODELS, supportsAudio } from "./config";
+import {
+  MAX_REFERENCE_VIDEOS,
+  MODELS,
+  supportsAudio,
+  supportsVideoReference,
+} from "./config";
 
 /**
  * `supportsAudio` decides whether the composer offers an audio toggle at all,
@@ -59,4 +64,40 @@ test("no image model is ever audio-capable", () => {
   for (const m of MODELS.filter((m) => m.kind === "image")) {
     assert.equal(supportsAudio(m.name), false, m.name);
   }
+});
+
+// ── video-to-video gating ───────────────────────────────────────────────────
+
+test("BytePlus Seedance is the video-reference path", () => {
+  assert.equal(supportsVideoReference("Seedance 2.0"), true);
+  assert.equal(supportsVideoReference("Seedance 2.0 Mini"), true);
+});
+
+test("Higgsfield Seedance does NOT accept a video reference", () => {
+  // Same substring trap as supportsAudio: the Higgsfield names contain
+  // "seedance", and its MCP has no video-reference parameter, so a bare
+  // /seedance/ test would attach clips the provider silently drops.
+  assert.equal(supportsVideoReference("Higgsfield Seedance 2.0"), false);
+  assert.equal(supportsVideoReference("Higgsfield Seedance 2.0 Mini"), false);
+});
+
+test("Omni and image models take no video reference", () => {
+  assert.equal(supportsVideoReference("Gemini Omni Flash"), false);
+  assert.equal(supportsVideoReference("Nano Banana Pro"), false);
+});
+
+test("audio and video-reference support agree on which models are native", () => {
+  // Both gate on the same thing — the native BytePlus path — so a future model
+  // that diverges should be a deliberate edit, not an accident.
+  for (const m of MODELS) {
+    assert.equal(
+      supportsVideoReference(m.name),
+      supportsAudio(m.name),
+      `${m.name} disagrees between supportsAudio and supportsVideoReference`
+    );
+  }
+});
+
+test("the reference-clip cap matches ModelArk's documented limit", () => {
+  assert.equal(MAX_REFERENCE_VIDEOS, 3);
 });

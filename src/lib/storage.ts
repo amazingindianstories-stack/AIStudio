@@ -76,6 +76,67 @@ export function mediaKeyFromRef(ref: string): string | null {
   return null;
 }
 
+/**
+ * A short-lived, publicly fetchable URL for one stored object.
+ *
+ * Exists for one reason: some providers take a URL rather than inline bytes
+ * (ModelArk's `video_url` items), and **they cannot read our media**. Every
+ * object is served through `GET /api/media/[...path]`, which requires a session
+ * — deliberately, since it previously had no auth at all — so handing a
+ * provider that URL gets a 401. Inlining a video as base64 instead would mean
+ * holding tens of megabytes in a serverless function, which is exactly what
+ * this avoids.
+ *
+ * Rules, because this deliberately bypasses the auth on that route:
+ *  - Server-side only. Never return one of these to the browser, and never
+ *    persist one — the whole safety story is that it expires.
+ *  - Read-only, single object, no listing.
+ *  - The same `settings/` and `migrations/` prefixes the media route denies are
+ *    denied here too. Those hold secrets and DB dumps that share this bucket,
+ *    and a presigned URL would be a way around that check.
+ */
+const SIGNED_URL_TTL_SECONDS = 15 * 60;
+
+/** Prefixes that must never be reachable, matching the media route's denylist. */
+const PRESIGN_DENY = /^(settings|migrations)\//i;
+
+export async function getSignedReadUrl(
+  key: string,
+  ttlSeconds = SIGNED_URL_TTL_SECONDS
+): Promise<string> {
+  if (PRESIGN_DENY.test(key)) {
+    throw new Error(`Refusing to sign a URL for a protected prefix: ${key}`);
+  }
+  if (primaryIsGcs()) {
+    const [url] = await storage()
+      .bucket(getBucketName())
+      .file(key)
+      .getSignedUrl({
+        version: "v4",
+        action: "read",
+        expires: Date.now() + ttlSeconds * 1000,
+      });
+    return url;
+  }
+  const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+  return getSignedUrl(
+    legacyS3(),
+    new GetObjectCommand({ Bucket: legacyBucketName(), Key: key }),
+    { expiresIn: ttlSeconds }
+  );
+}
+
+/** Sign a stored reference (`/api/media/...` or a CDN URL). Returns null when
+ *  the ref is not one of ours — an external URL is already fetchable. */
+export async function signStoredRef(
+  ref: string,
+  ttlSeconds?: number
+): Promise<string | null> {
+  const key = mediaKeyFromRef(ref);
+  if (!key) return null;
+  return getSignedReadUrl(key, ttlSeconds);
+}
+
 export function getMediaRedirectUrl(key: string): string | null {
   if (!primaryIsGcs()) return null;
   const base = process.env.GCP_MEDIA_CDN_URL?.replace(/\/$/, "");

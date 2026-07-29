@@ -84,3 +84,61 @@ revokes the entire token family with no automated recovery, and CLAUDE.md
 forbids refreshing from local dev for exactly that reason. Confirming this is
 worth doing from the deployed environment, or with a token minted for the
 purpose — not from a laptop.
+
+---
+
+# UPDATE 2026-07-29 — probed, and both paths now work
+
+Everything below the line supersedes the "not wired" status above.
+
+## video → video: CONFIRMED and shipped
+
+`scripts/probe-seedance-video-input.ts` was run against the live API. Result:
+
+| shape | outcome |
+|---|---|
+| `content[].video_url` with no role | **400** — *"reference media mode requires video role to be reference_video"* |
+| `content[].video_url` + `role: "reference_video"` | **accepted, generated a real video** |
+| top-level `video_urls: []` | accepted (then failed the sample clip on copyright moderation) |
+
+So the working contract is:
+
+```json
+{ "type": "video_url", "video_url": { "url": "…" }, "role": "reference_video" }
+```
+
+The role is **mandatory**, which the image item's optional-role shape would have
+led us to get wrong — the probe paid for itself on the first request.
+
+One thing the probe surfaced that had nothing to do with video: this account has
+**not activated `dreamina-seedance-2-0-fast-260128`**. The first run failed on
+every shape with `404 ModelNotOpen` before the payload was even parsed. The
+standard model is active. `Seedance 2.0 Mini` is not in the model picker so
+nothing reaches it today, but `pickModel` routes any name matching
+mini/fast/lite to that SKU — activate it in the Ark console before exposing it.
+`scripts/probe-seedance-audio.ts` defaulted to that SKU and has been changed to
+default to standard for the same reason.
+
+End-to-end proof, through our own `createVideoTask` and a presigned URL for a
+clip in the library: task `cgt-20260729204201-rg294` → **succeeded**.
+
+## The URL problem, solved
+
+`storage.getSignedReadUrl` / `signStoredRef` issue a 15-minute presigned read,
+S3 and GCS both. Verified against a real stored clip: `HTTP 206`, `video/mp4`,
+fetchable with **no session**, where the ordinary `/api/media/…` URL returns
+**401** — which is exactly why this was needed.
+
+They are server-side only, read-only, single-object, and refuse the `settings/`
+and `migrations/` prefixes the media route denies (verified). Signing happens in
+`/api/queue/execute` at the moment of hand-off; a signed URL is never persisted
+and never sent to the browser.
+
+## Local-environment note, not a bug
+
+While testing, the three most recent videos in the production DB were absent
+from the bucket named by this machine's `.env.local`
+(`ais-film-platform-media`) — `readStoredBuffer` fails for them locally too,
+so it is not a signing fault. Production serves them fine, so production's
+`AWS_S3_BUCKET_NAME` differs from the local one. Worth reconciling before
+anyone trusts a local run of a media-touching script.
