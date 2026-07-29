@@ -21,6 +21,14 @@ import {
 import { encodeBlobWithBudget } from "./client-image-budget";
 import { historyFilterToParams } from "./history-query";
 import {
+  clearFeedCache,
+  dropCached,
+  getCached,
+  patchCached,
+  putFeedCache,
+  writeCachedItems,
+} from "./feed-cache";
+import {
   compareInScope,
   matchesScope,
   scopeKey,
@@ -47,14 +55,6 @@ export interface AssetDraft {
 }
 
 type RightTab = FeedTab;
-
-/** One cached scope's worth of feed. */
-interface CachedFeed {
-  items: GenerationItem[];
-  nextCursor: string | null;
-  /** When it was fetched — drives background revalidation on re-entry. */
-  at: number;
-}
 
 export interface HistoryCounts {
   /** Per-folder breakdown for the active project. */
@@ -236,13 +236,9 @@ const polling = new Set<string>();
 // used to mean refetching from scratch. Keeping the last few keyed by scope
 // makes that instant, and re-entry revalidates behind the cached copy rather
 // than blanking it — the user sees content, then sees it get more correct.
-const feedCache = new Map<string, CachedFeed>();
 /** Cached pages older than this revalidate on re-entry. Short, because history
  *  is team-wide: a teammate's generation should not stay invisible for long. */
 const FEED_FRESH_MS = 30_000;
-/** LRU bound. Feeds are ~20 rows of metadata, but a user clicking through many
- *  folders would otherwise accumulate them for the life of the tab. */
-const FEED_CACHE_MAX = 24;
 
 /** Rows loaded for the centre chat thread. Larger than a grid page because the
  *  thread is read top-to-bottom rather than scanned. */
@@ -254,34 +250,6 @@ const THREAD_PAGE_SIZE = 60;
 let feedSeq = 0;
 let countsSeq = 0;
 let threadSeq = 0;
-
-/** Store a scope, moving it to the most-recently-used end. Map keeps insertion
- *  order but re-setting an existing key does NOT move it, so the delete is what
- *  makes the eviction below true LRU rather than first-in-first-out — otherwise
- *  the scope the user is actually sitting in could age out from under them. */
-function putFeedCache(key: string, value: CachedFeed) {
-  feedCache.delete(key);
-  feedCache.set(key, value);
-  while (feedCache.size > FEED_CACHE_MAX) {
-    const oldest = feedCache.keys().next().value;
-    if (oldest === undefined || oldest === key) break;
-    feedCache.delete(oldest);
-  }
-}
-
-/**
- * Update a cached scope's rows in place, preserving its pagination cursor.
- *
- * Deliberately a no-op when the scope has never been fetched. Creating an entry
- * here would invent `nextCursor: null` for it, and the next visit would serve
- * that as a complete, fresh page — an infinite scroll that stops after the one
- * row a live update happened to put there.
- */
-function writeCache(key: string, items: GenerationItem[]) {
-  const cached = feedCache.get(key);
-  if (!cached) return;
-  putFeedCache(key, { ...cached, items });
-}
 
 /** The scope the right panel is currently showing. */
 function currentScope(s: AppState): FeedScope {
@@ -310,13 +278,7 @@ function patchEverywhere(
   id: string,
   patch: (item: GenerationItem) => GenerationItem
 ) {
-  for (const [key, cached] of feedCache) {
-    if (!cached.items.some((i) => i.id === id)) continue;
-    putFeedCache(key, {
-      ...cached,
-      items: cached.items.map((i) => (i.id === id ? patch(i) : i)),
-    });
-  }
+  patchCached(id, patch);
   set((s) => ({
     items: s.items.map((i) => (i.id === id ? patch(i) : i)),
     threadItems: s.threadItems.map((i) => (i.id === id ? patch(i) : i)),
@@ -329,10 +291,7 @@ function dropEverywhere(
   set: (fn: (s: AppState) => Partial<AppState>) => void,
   id: string
 ) {
-  for (const [key, cached] of feedCache) {
-    if (!cached.items.some((i) => i.id === id)) continue;
-    putFeedCache(key, { ...cached, items: cached.items.filter((i) => i.id !== id) });
-  }
+  dropCached(id);
   set((s) => ({
     items: s.items.filter((i) => i.id !== id),
     threadItems: s.threadItems.filter((i) => i.id !== id),
@@ -343,7 +302,7 @@ function dropEverywhere(
 /** Drop every cached scope. Used when a bulk change (move-to-project, project
  *  delete) invalidates membership across scopes rather than one row's fields. */
 function invalidateFeedCache() {
-  feedCache.clear();
+  clearFeedCache();
 }
 
 /** Look a row up across every pool. Callers act on an id the user clicked, and
@@ -372,7 +331,7 @@ function insertNewItem(
     if (matchesScope(item, scope)) {
       const items = [item, ...s.items.filter((i) => i.id !== item.id)];
       patch.items = items;
-      writeCache(scopeKey(scope), items);
+      writeCachedItems(scopeKey(scope), items);
     }
     if (item.projectId && item.projectId === s.activeProjectId) {
       patch.threadItems = [item, ...s.threadItems.filter((i) => i.id !== item.id)];
@@ -438,7 +397,12 @@ export const useStore = create<AppState>((set, get) => ({
   resolution: DEFAULTS.video.resolution,
   duration: DEFAULTS.video.duration,
   batchCount: 1,
-  generateAudio: false,
+  // On by default: the toggle existing but defaulting off meant the first
+  // Seedance run after shipping it produced a silent video and looked broken.
+  // Only ever reaches the provider on a model that has the field — the route
+  // ANDs it with supportsAudio and setModel clamps it — so a default of true
+  // is inert everywhere else.
+  generateAudio: true,
   prompt: "",
   referenceImages: [],
 
@@ -556,7 +520,7 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
     const key = scopeKey(scope);
-    const cached = feedCache.get(key);
+    const cached = getCached(key);
 
     // Serve the cache first. Re-entering a scope is the common case (clicking
     // between folders, flipping tabs), and re-rendering identical rows behind a
@@ -615,7 +579,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!s.hasMoreHistory) return;
     const scope = currentScope(s);
     const key = scopeKey(scope);
-    const cached = feedCache.get(key);
+    const cached = getCached(key);
     const cursor = cached?.nextCursor;
     if (!cursor) return;
 
@@ -704,7 +668,7 @@ export const useStore = create<AppState>((set, get) => ({
       const items = Array.from(byId.values()).sort((a, b) =>
         compareInScope(a, b, scope)
       );
-      writeCache(scopeKey(scope), items);
+      writeCachedItems(scopeKey(scope), items);
       return { items, pendingItems: [] };
     });
   },
@@ -1140,7 +1104,7 @@ export const useStore = create<AppState>((set, get) => ({
       const moved = s.items.find((i) => i.id === itemId);
       if (!moved || matchesScope(moved, scope)) return {};
       const items = s.items.filter((i) => i.id !== itemId);
-      writeCache(scopeKey(scope), items);
+      writeCachedItems(scopeKey(scope), items);
       return { items };
     });
     void get().loadCounts();
@@ -1343,7 +1307,7 @@ function mergeLiveItems(
         compareInScope(a, b, scope)
       );
       patch.items = items;
-      writeCache(scopeKey(scope), items);
+      writeCachedItems(scopeKey(scope), items);
     }
     if (pendingChanged) patch.pendingItems = Array.from(pendingById.values());
     return patch;
@@ -1569,7 +1533,13 @@ export function restoreComposerDraft() {
       }
       // Validated against the restored model, like every other setting here:
       // a cached `true` must not resurrect on a model that has no audio field.
-      if (typeof d.generateAudio === "boolean") {
+      //
+      // `audioDefault` marks a draft written since audio defaulted to ON.
+      // Without it, every existing user carries a persisted `false` from before
+      // that change and would never see the new default — the setting would
+      // look like it had simply been ignored. Older drafts fall through to the
+      // initial state, which is the only field this resets.
+      if (d.audioDefault && typeof d.generateAudio === "boolean") {
         patch.generateAudio = d.generateAudio && supportsAudio(effModel);
       }
       if (["project", "history", "favorites"].includes(d.rightTab)) {
@@ -1688,6 +1658,7 @@ if (typeof window !== "undefined") {
             duration: s.duration,
             batchCount: s.batchCount,
             generateAudio: s.generateAudio,
+            audioDefault: true,
             rightTab: s.rightTab,
             activeProjectId: s.activeProjectId,
             activeFolderId: s.activeFolderId,

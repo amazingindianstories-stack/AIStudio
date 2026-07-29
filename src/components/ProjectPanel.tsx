@@ -207,9 +207,9 @@ export function ProjectPanel({ cardWidth = 160 }: { cardWidth?: number }) {
         </div>
 
         {/* grid / brief */}
-        <div className="min-h-0 min-w-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {briefView ? (
-            <div className="h-full overflow-y-auto p-3">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3">
               <BriefEditor projectId={project.id} brief={project.brief ?? ""} />
             </div>
           ) : (

@@ -138,11 +138,19 @@ export function AssetGrid({
   const showPending = pendingCount > 0;
 
   return (
-    <div className="relative min-h-0 flex-1">
+    // `h-full` AND `flex-1`, deliberately. In HistoryPanel the parent is a flex
+    // column, so flex-1 is what sizes this; in ProjectPanel it is a stretched
+    // flex ITEM of a row, where flex-1 means nothing and h-full is what works.
+    // Carrying only flex-1 left this box at height:auto under ProjectPanel, so
+    // the scroller below (h-full of an auto height => auto) grew with its
+    // content instead of scrolling, and the asset list simply could not be
+    // scrolled — visible only when the content overflowed, i.e. on some screen
+    // sizes and not others.
+    <div className="relative flex h-full min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
         onScroll={onScroll}
-        className="scroll-thin h-full overflow-y-auto px-4 py-4"
+        className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-4"
       >
         {loading ? (
           <SkeletonGrid cardWidth={cardWidth} />
