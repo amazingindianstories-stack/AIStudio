@@ -157,49 +157,72 @@ body {
 }
 
 /* The bar sheds width in a deliberate order as the panel narrows, cheapest
-   information first. Everything here is reversible detail; the search field is
-   the one control that has a hard floor (set in HistoryPanel.tsx), because a
-   70px search box is not a smaller search box — it is a broken one, which is
-   what this ladder replaces. */
+   information first.
 
-/* 1. Per-scope counts. Nice to have, never the reason you clicked a tab. */
-@container (max-width: 44rem) {
-  .scope-tab-count {
-    display: none;
-  }
-}
+   The thresholds are derived from what the contents actually measure, not
+   picked round: at full fidelity the bar needs roughly 1044px — tab group ~582
+   (project segment ~256 + two tabs ~310 + padding) and filters ~418 (search
+   floor 144 + type pill ~106 + zoom ~152) plus the bar's own padding and gap.
+   The first version of this ladder started at 44rem, which is why the default
+   panel (~735px, well past every breakpoint) degraded not at all and the
+   clusters collided. Each step below states what it buys back.
 
-/* 2. The zoom slider, keeping its +/- buttons — coarser, not absent. Worth
-      about 80px. */
-@container (max-width: 40rem) {
+   Nothing here prevents overlap — that is handled structurally by NOT putting
+   `min-w-0` on either cluster (see HistoryPanel.tsx). This only decides how
+   often the bar has to wrap. */
+
+/* NOTE ON THE THRESHOLDS: a container query resolves against the container's
+   CONTENT box, and .scope-bar carries px-4. Every value below is therefore 32px
+   smaller than the panel width it fires at — 56rem trips at a ~928px panel, not
+   896px. Overlooking that is what made the first calibration fire ~32px late
+   everywhere. Verified by measuring the rendered bar, not by arithmetic. */
+
+/* 1. Zoom slider, keeping its +/- buttons: coarser, not absent. −80px. */
+@container (max-width: 68rem) {
   .scope-zoom-slider {
     display: none;
   }
 }
 
-/* 3. Tab labels. The icons and their fixed order still identify the three
-      scopes, and each label is worth ~70px — between them, more than the
-      search field needs to stay usable. `aria-label`/`title` on the buttons
-      carry the name for screen readers and hover. */
-@container (max-width: 34rem) {
-  .scope-tab-label {
-    display: none;
-  }
-  /* The project's own name stays, since it is the only tab whose label is not
-     recoverable from the icon — just shorter. */
-  .scope-project-name {
-    max-width: 5rem;
-  }
-}
-
-/* 4. Only now does the bar wrap: the tab group takes the first row and the
-      filters the second. Two honest rows beat one row of clipped controls. */
-@container (max-width: 26rem) {
+/* 2. Wrap to two rows: scopes above, filters below.
+      This deliberately comes BEFORE shedding any labels. The tab group needs
+      ~538px with everything shown, and the filters need ~330px, so one row
+      stops being possible at roughly a 900px panel — but the real desktop panel
+      is ~735px, where a single row could only be achieved by stripping both the
+      tab labels and the counts and squeezing the search to ~150px. Measured at
+      735px, this instead gives a first row with all three scopes fully labelled
+      and counted, and a second row with a ~510px search field. Two honest rows
+      beat one row of amputated controls. */
+@container (max-width: 56rem) {
   .scope-tabs {
     width: 100%;
   }
   .scope-actions {
     width: 100%;
     flex-basis: 100%;
+    justify-content: flex-start;
+  }
+}
+
+/* 3. Tab labels — only once even a full-width row cannot hold the tab group.
+      34rem, not 30: fully labelled the group measures ~538px, so 30rem (480px
+      of content) left it overflowing its own row at a 560px panel. Measured.
+      The icons and their fixed order still identify the scopes, and
+      title/aria-label carry the name for hover and screen readers. */
+@container (max-width: 34rem) {
+  .scope-tab-label {
+    display: none;
+  }
+}
+
+/* 4. Last resorts, for the narrow mobile drawer. The project's own name is
+      shortened rather than dropped: it is the one label not recoverable from an
+      icon, and it is the way back from All assets. */
+@container (max-width: 26rem) {
+  .scope-tab-count {
+    display: none;
+  }
+  .scope-project-name {
+    max-width: 6rem;
   }
 }

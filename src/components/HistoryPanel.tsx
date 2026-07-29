@@ -138,102 +138,131 @@ export function HistoryPanel() {
           One row: where you are (project / all / favourites) on the left, how
           you are filtering it on the right.
 
-          The previous version reserved a 20rem floor for the filter cluster and
-          let the tab group shrink freely, which at the panel's real width put
-          the search field at about 70px — clipped to "Pro…" and unusable — while
-          the tab group kept its full size. The floor is now on the search field
-          itself, and the tabs give up their labels first (see the container
-          query in globals.css). Losing a word off a tab you can still identify
-          by icon and position costs less than losing the search box. */}
-      <div className="scope-bar flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2.5">
-        <div className="scope-tabs flex min-w-0 shrink items-center gap-1 rounded-full bg-ink-700 p-1">
-          <Dropdown
-            className="min-w-0 shrink"
-            trigger={(open) => (
-              <span
-                onClick={() => setRightTab("project")}
-                className={cn(
-                  "flex min-w-0 cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium transition",
-                  rightTab === "project"
-                    ? "bg-ink-850 text-white shadow-sm"
-                    : "text-white/60 hover:text-white/90",
-                  open && "bg-ink-850 text-white"
-                )}
-                title={project ? `Project: ${project.name}` : "No project yet"}
-              >
-                <Layers className="h-4 w-4 shrink-0" />
-                <span className="scope-project-name min-w-0 max-w-[9rem] truncate">
-                  {project ? project.name : "Project"}
-                </span>
-                {rightTab === "project" && counts.project.total > 0 && (
-                  <ScopeCount n={counts.project.total} active />
-                )}
-                <ChevronDown
-                  className={cn(
-                    "h-3.5 w-3.5 shrink-0 opacity-60 transition-transform",
-                    open && "rotate-180"
-                  )}
-                />
-              </span>
+          NEITHER cluster carries `min-w-0`, and that is the whole trick. Their
+          children are `shrink-0`, so a cluster allowed to shrink below its own
+          content does not clip — it lets those children spill out and paint
+          over whatever sits beside them, which is exactly how the tabs ended up
+          rendered on top of the search field. Leaving `min-width: auto` (i.e.
+          min-content) means the clusters cannot shrink past their contents, so
+          when both no longer fit the parent's `flex-wrap` moves the filters to
+          a second row. Overlap stops being a tuning problem and becomes
+          structurally impossible; the container queries in globals.css only
+          decide how *often* the wrap is needed, never whether things collide. */}
+      <div className="scope-bar flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2.5">
+        <div className="scope-tabs flex items-center gap-1 rounded-full bg-ink-700 p-1">
+          {/* Split control: the body is the scope, the chevron is the switcher.
+              Previously both were one button, so clicking the project name to
+              come back from All assets also flung open the project menu — and
+              there was no other route back, since the name looked like a
+              dropdown rather than a tab. They are now two sibling buttons
+              (nesting them would be invalid HTML), and the name stays legible
+              while inactive precisely so it reads as somewhere to return to. */}
+          <div
+            className={cn(
+              "flex items-center rounded-full transition",
+              rightTab === "project" && "bg-ink-850 shadow-sm"
             )}
           >
-            {(close) => (
-              <>
-                {projects.map((p) => (
+            <button
+              onClick={() => setRightTab("project")}
+              title={
+                project
+                  ? rightTab === "project"
+                    ? `Project: ${project.name}`
+                    : `Back to ${project.name}`
+                  : "No project yet"
+              }
+              className={cn(
+                "flex items-center gap-1.5 whitespace-nowrap rounded-l-full py-1.5 pl-3 pr-1.5 text-sm font-medium transition",
+                rightTab === "project"
+                  ? "text-white"
+                  : "text-white/60 hover:text-white/90"
+              )}
+            >
+              <Layers className="h-4 w-4 shrink-0" />
+              <span className="scope-project-name max-w-[9rem] truncate">
+                {project ? project.name : "Project"}
+              </span>
+              {counts.project.total > 0 && (
+                <ScopeCount n={counts.project.total} active={rightTab === "project"} />
+              )}
+            </button>
+
+            <Dropdown
+              align="left"
+              label="Switch project"
+              trigger={(open) => (
+                <span
+                  className={cn(
+                    "grid h-7 w-7 place-items-center rounded-full text-white/50 transition hover:bg-white/10 hover:text-white",
+                    open && "bg-white/10 text-white"
+                  )}
+                  title="Switch project"
+                >
+                  <ChevronDown
+                    className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
+                  />
+                </span>
+              )}
+            >
+              {(close) => (
+                <>
+                  {projects.map((p) => (
+                    <MenuItem
+                      key={p.id}
+                      active={p.id === activeProjectId}
+                      onClick={() => {
+                        setActiveProject(p.id);
+                        setRightTab("project");
+                        close();
+                      }}
+                    >
+                      <Layers className="h-4 w-4 text-white/45" />
+                      <span className="flex-1 truncate">{p.name}</span>
+                      {p.id === activeProjectId && <Check className="h-4 w-4 text-brand" />}
+                    </MenuItem>
+                  ))}
+                  <div className="my-1 h-px bg-line" />
                   <MenuItem
-                    key={p.id}
-                    active={p.id === activeProjectId}
                     onClick={() => {
-                      setActiveProject(p.id);
-                      setRightTab("project");
+                      const name = window.prompt("New project name");
+                      if (name?.trim()) createProject(name.trim());
                       close();
                     }}
                   >
-                    <Layers className="h-4 w-4 text-white/45" />
-                    <span className="flex-1 truncate">{p.name}</span>
-                    {p.id === activeProjectId && <Check className="h-4 w-4 text-brand" />}
+                    <Plus className="h-4 w-4 text-white/60" /> New project
                   </MenuItem>
-                ))}
-                <div className="my-1 h-px bg-line" />
-                <MenuItem
-                  onClick={() => {
-                    const name = window.prompt("New project name");
-                    if (name?.trim()) createProject(name.trim());
-                    close();
-                  }}
-                >
-                  <Plus className="h-4 w-4 text-white/60" /> New project
-                </MenuItem>
-                {project && (
-                  <>
-                    <MenuItem
-                      onClick={() => {
-                        const name = window.prompt("Rename project", project.name);
-                        if (name?.trim()) renameProject(project.id, name.trim());
-                        close();
-                      }}
-                    >
-                      <Pencil className="h-4 w-4 text-white/60" /> Rename project
-                    </MenuItem>
-                    <MenuItem
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            `Delete project "${project.name}"? Its items return to All assets.`
+                  {project && (
+                    <>
+                      <MenuItem
+                        onClick={() => {
+                          const name = window.prompt("Rename project", project.name);
+                          if (name?.trim()) renameProject(project.id, name.trim());
+                          close();
+                        }}
+                      >
+                        <Pencil className="h-4 w-4 text-white/60" /> Rename project
+                      </MenuItem>
+                      <MenuItem
+                        onClick={() => {
+                          if (
+                            window.confirm(
+                              `Delete project "${project.name}"? Its items return to All assets.`
+                            )
                           )
-                        )
-                          deleteProject(project.id);
-                        close();
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-400/80" />
-                      <span className="text-red-300/90">Delete project</span>
-                    </MenuItem>
-                  </>
-                )}
-              </>
-            )}
-          </Dropdown>
+                            deleteProject(project.id);
+                          close();
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4 text-red-400/80" />
+                        <span className="text-red-300/90">Delete project</span>
+                      </MenuItem>
+                    </>
+                  )}
+                </>
+              )}
+            </Dropdown>
+          </div>
 
           <TabBtn
             active={rightTab === "history"}
@@ -253,7 +282,7 @@ export function HistoryPanel() {
           </TabBtn>
         </div>
 
-        <div className="scope-actions flex min-w-0 flex-1 items-center justify-end gap-2">
+        <div className="scope-actions flex flex-1 items-center justify-end gap-2">
           {/* A real minimum on the field that needs one, rather than on the
               cluster around it. Below this the bar wraps to a second row, which
               is the correct degradation — a clipped search box is not. */}
@@ -493,30 +522,28 @@ function TabBtn({
   children: React.ReactNode;
 }) {
   return (
+    // The active pill used to be a shared `layoutId` element that slid between
+    // tabs. With the project segment now built differently it could only cover
+    // two of the three, so selecting the project made the pill fly sideways and
+    // then vanish. A plain background per segment is both correct and one less
+    // thing that animates position.
     <button
       onClick={onClick}
       title={label}
       aria-label={label}
       className={cn(
-        "relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
-        active ? "text-white" : "text-white/50 hover:text-white/80"
+        "flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
+        active
+          ? "bg-ink-850 text-white shadow-sm"
+          : "text-white/55 hover:text-white/90"
       )}
     >
-      {active && (
-        <motion.span
-          layoutId="right-tab"
-          transition={{ type: "spring", stiffness: 420, damping: 34 }}
-          className="absolute inset-0 rounded-full bg-ink-600 shadow-sm ring-1 ring-line"
-        />
-      )}
-      <span className="relative z-10 flex items-center gap-1.5">
-        {children}
-        {/* Hidden by the container query when the bar is tight — the icon and
-            position still identify the tab, and the space buys back a usable
-            search field. */}
-        <span className="scope-tab-label whitespace-nowrap">{label}</span>
-        {count > 0 && <ScopeCount n={count} active={active} />}
-      </span>
+      {children}
+      {/* Hidden by the container query when the bar is tight — the icon and
+          position still identify the tab, and the space buys back a usable
+          search field. */}
+      <span className="scope-tab-label whitespace-nowrap">{label}</span>
+      {count > 0 && <ScopeCount n={count} active={active} />}
     </button>
   );
 }
