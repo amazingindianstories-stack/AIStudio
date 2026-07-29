@@ -198,6 +198,8 @@ interface AppState extends ComposerState {
   editInComposer: (id: string) => void;
   cloneToComposer: (id: string) => Promise<void>;
   addReferenceFromUrl: (url: string) => Promise<void>;
+  /** Pull a still frame out of a stored video and add it as a reference. */
+  addReferenceFromVideo: (url: string, atSeconds?: number) => Promise<void>;
 
   // assets
   loadAssets: () => Promise<void>;
@@ -895,6 +897,20 @@ export const useStore = create<AppState>((set, get) => ({
       get().addReference(dataUrl);
     } catch (e) {
       console.error("Failed to add reference from URL:", e);
+    }
+  },
+
+  addReferenceFromVideo: async (url, atSeconds) => {
+    // No provider here accepts an uploaded video, so a frame is how a clip
+    // becomes usable as a reference at all. Decoded in the browser — see
+    // lib/video-frame.ts for why this cannot happen server-side.
+    try {
+      const { extractFrame } = await import("./video-frame");
+      const { dataUrl } = await extractFrame(url, atSeconds);
+      get().addReference(dataUrl);
+    } catch (e: any) {
+      console.error("Failed to take a frame from video:", e);
+      alert(e?.message || "Could not read a frame from this video.");
     }
   },
 

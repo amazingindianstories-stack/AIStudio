@@ -166,6 +166,7 @@ export function DetailModal() {
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
+  const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
   const setMode = useStore((s) => s.setMode);
   const removeItem = useStore((s) => s.removeItem);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
@@ -273,6 +274,7 @@ export function DetailModal() {
                 )}
                 {item.kind === "video" && (
                   <video
+                    data-detail-video
                     src={item.url}
                     poster={item.poster}
                     controls
@@ -355,6 +357,28 @@ export function DetailModal() {
                     title="Add this image as a reference — generate a clean hero, then place them in a crowd"
                   >
                     <ImagePlus className="h-4 w-4" /> Use as reference
+                  </button>
+                )}
+                {/* Videos get the same affordance via a still frame. No
+                    provider here accepts a video as input, but the frame the
+                    user is currently paused on is an ordinary image reference,
+                    which every model does accept — so this is how a clip feeds
+                    back into the next generation. */}
+                {item.kind === "video" && item.url && (
+                  <button
+                    onClick={() => {
+                      const video = document.querySelector<HTMLVideoElement>(
+                        "[data-detail-video]"
+                      );
+                      // Take the frame the user is actually looking at; fall
+                      // back to the library default if the element is gone.
+                      addReferenceFromVideo(item.url!, video?.currentTime);
+                      setActiveId(null);
+                    }}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
+                    title="Grab the current frame and add it to the composer as a reference image"
+                  >
+                    <ImagePlus className="h-4 w-4" /> Use this frame as reference
                   </button>
                 )}
                 <button

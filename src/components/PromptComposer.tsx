@@ -32,6 +32,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
+import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, type MentionHandle } from "./MentionTextarea";
 import {
@@ -66,6 +67,7 @@ export function PromptComposer() {
   const mentionRef = useRef<MentionHandle>(null);
   const toolbarMeasureRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [extractingFrames, setExtractingFrames] = useState(0);
   const [preferredWidth, setPreferredWidth] = useState(768);
 
   // Bring back the locally cached draft (prompt + reference images) after a
@@ -133,6 +135,29 @@ export function PromptComposer() {
   // cropped from — while the last step (1024px/q0.8, today's behavior) is a
   // guaranteed-to-fit floor.
   const addImageFiles = async (files: File[]) => {
+    // Videos are accepted by pulling a still frame out of them in the browser.
+    // No provider here takes an uploaded video (and a video could not survive
+    // Vercel's 4.5MB body limit anyway), but every one of them takes an image —
+    // so a frame turns "video → image" and "video → video" into paths that
+    // already work. See lib/video-frame.ts.
+    const videos = files.filter(isVideoFile);
+    if (videos.length) {
+      setExtractingFrames(videos.length);
+      for (const file of videos) {
+        try {
+          const { dataUrl } = await extractFrame(file);
+          s.addReference(dataUrl);
+        } catch (e: any) {
+          console.error("Frame extraction failed", e);
+          alert(
+            e?.message ||
+              `Could not read a frame from ${file.name}. Try a different format (MP4/WebM).`
+          );
+        }
+      }
+      setExtractingFrames(0);
+    }
+
     const valid = files.filter((f) => f.type.startsWith("image/"));
     if (!valid.length) return;
 
@@ -215,10 +240,18 @@ export function PromptComposer() {
         <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-brand/60 bg-ink-900/85 backdrop-blur-sm">
           <Upload className="h-6 w-6 text-brand" />
           <p className="text-sm font-medium text-white/90">
-            Drop images to add as references
+            Drop images or video to add as references
           </p>
         </div>
       )}
+      {extractingFrames > 0 && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg bg-ink-750 px-3 py-2 text-xs text-white/70">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" />
+          Reading a frame from {extractingFrames}{" "}
+          {extractingFrames === 1 ? "video" : "videos"}…
+        </div>
+      )}
+
       {/* reference thumbnails — click to insert its @imgN tag into the prompt */}
       {s.referenceImages.length > 0 && (
         <div className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1">
@@ -309,7 +342,7 @@ export function PromptComposer() {
         <input
           ref={fileRef}
           type="file"
-          accept="image/*"
+          accept="image/*,video/*"
           multiple
           hidden
           onChange={onFiles}
