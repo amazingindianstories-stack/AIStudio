@@ -18,6 +18,15 @@ import {
   resolutionsForModel,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
+import { historyFilterToParams } from "./history-query";
+import {
+  compareInScope,
+  matchesScope,
+  scopeKey,
+  scopeToQuery,
+  type FeedScope,
+  type FeedTab,
+} from "./feed-scope";
 
 export interface CurrentUser {
   id: string;
@@ -36,7 +45,29 @@ export interface AssetDraft {
   images: string[]; // mix of existing /assets paths and new data URLs
 }
 
-type RightTab = "project" | "history" | "favorites";
+type RightTab = FeedTab;
+
+/** One cached scope's worth of feed. */
+interface CachedFeed {
+  items: GenerationItem[];
+  nextCursor: string | null;
+  /** When it was fetched — drives background revalidation on re-entry. */
+  at: number;
+}
+
+export interface HistoryCounts {
+  /** Per-folder breakdown for the active project. */
+  project: { total: number; unsorted: number; byFolder: Record<string, number> };
+  /** Everything matching the current kind/search filters. */
+  allAssets: number;
+  favorites: number;
+}
+
+const EMPTY_COUNTS: HistoryCounts = {
+  project: { total: 0, unsorted: 0, byFolder: {} },
+  allAssets: 0,
+  favorites: 0,
+};
 
 interface ComposerState {
   mode: GenerationKind;
@@ -51,9 +82,39 @@ interface ComposerState {
 
 interface AppState extends ComposerState {
   view: "studio" | "canvas";
+  /** The active scope's feed — the rows the right panel is showing. Server
+   *  filtered and paged; it is no longer a global window that every view
+   *  filters down in the browser. */
   items: GenerationItem[];
   hasMoreHistory: boolean;
   loading: boolean;
+  /** True while a background revalidation of an already-populated scope is in
+   *  flight. Distinct from `loading`, which means "nothing to show yet" — the
+   *  difference is what lets a cached scope reappear instantly instead of
+   *  flashing a skeleton over content that is about to be identical. */
+  refreshing: boolean;
+  /** True counts from the server, for the folder rail and the tabs. */
+  counts: HistoryCounts;
+  /** Identity of the scope `items` belongs to. The grid resets its scroll
+   *  position when this changes — which is not the same as when `loading`
+   *  changes, because a cached scope is served without ever entering a loading
+   *  state and would otherwise open halfway down the previous view. */
+  feedKey: string;
+
+  /** The project's own chronological thread, backing the centre chat panel.
+   *  Scoped independently of the right panel so browsing the library never
+   *  empties the conversation. */
+  threadItems: GenerationItem[];
+  threadLoading: boolean;
+
+  /** Rows that arrived from the live feed while the grid was scrolled away
+   *  from the top. Held back rather than inserted, because inserting above the
+   *  viewport shifts everything the user is currently reading. */
+  pendingItems: GenerationItem[];
+  /** Set by the grid: true when it is scrolled at (or near) the top, where an
+   *  insert is visible and harmless. */
+  feedPinned: boolean;
+
   generating: boolean;
   rightTab: RightTab;
   mobileHistoryOpen: boolean;
@@ -104,6 +165,16 @@ interface AppState extends ComposerState {
   // data
   loadHistory: () => Promise<void>;
   loadMoreHistory: () => Promise<void>;
+  /** Fetch the current scope's first page. Serves any cached copy immediately
+   *  and revalidates behind it. */
+  loadFeed: (opts?: { force?: boolean }) => Promise<void>;
+  /** Refresh the folder/tab counts for the current scope. */
+  loadCounts: () => Promise<void>;
+  /** Reload the active project's conversation thread. */
+  loadThread: () => Promise<void>;
+  /** Merge buffered live arrivals into the visible feed. */
+  flushPendingItems: () => void;
+  setFeedPinned: (pinned: boolean) => void;
   /** Begin/stop the shared live-update poll. Idempotent; safe to call from an
    *  effect that may run twice under React strict mode. */
   startLiveUpdates: () => void;
@@ -152,6 +223,157 @@ interface AppState extends ComposerState {
 }
 
 const polling = new Set<string>();
+
+// ── scoped feed cache ───────────────────────────────────────────────────────
+// Each library view (a project, a folder, Favourites, All assets, each with its
+// own kind/search filter) is a separate server query, so flipping between them
+// used to mean refetching from scratch. Keeping the last few keyed by scope
+// makes that instant, and re-entry revalidates behind the cached copy rather
+// than blanking it — the user sees content, then sees it get more correct.
+const feedCache = new Map<string, CachedFeed>();
+/** Cached pages older than this revalidate on re-entry. Short, because history
+ *  is team-wide: a teammate's generation should not stay invisible for long. */
+const FEED_FRESH_MS = 30_000;
+/** LRU bound. Feeds are ~20 rows of metadata, but a user clicking through many
+ *  folders would otherwise accumulate them for the life of the tab. */
+const FEED_CACHE_MAX = 24;
+
+/** Rows loaded for the centre chat thread. Larger than a grid page because the
+ *  thread is read top-to-bottom rather than scanned. */
+const THREAD_PAGE_SIZE = 60;
+
+// Monotonic request ids. Every async read stamps one and refuses to write if it
+// is no longer the newest — the fix for a slow reply for folder A landing after
+// a fast reply for folder B and painting the wrong contents.
+let feedSeq = 0;
+let countsSeq = 0;
+let threadSeq = 0;
+
+/** Store a scope, moving it to the most-recently-used end. Map keeps insertion
+ *  order but re-setting an existing key does NOT move it, so the delete is what
+ *  makes the eviction below true LRU rather than first-in-first-out — otherwise
+ *  the scope the user is actually sitting in could age out from under them. */
+function putFeedCache(key: string, value: CachedFeed) {
+  feedCache.delete(key);
+  feedCache.set(key, value);
+  while (feedCache.size > FEED_CACHE_MAX) {
+    const oldest = feedCache.keys().next().value;
+    if (oldest === undefined || oldest === key) break;
+    feedCache.delete(oldest);
+  }
+}
+
+/**
+ * Update a cached scope's rows in place, preserving its pagination cursor.
+ *
+ * Deliberately a no-op when the scope has never been fetched. Creating an entry
+ * here would invent `nextCursor: null` for it, and the next visit would serve
+ * that as a complete, fresh page — an infinite scroll that stops after the one
+ * row a live update happened to put there.
+ */
+function writeCache(key: string, items: GenerationItem[]) {
+  const cached = feedCache.get(key);
+  if (!cached) return;
+  putFeedCache(key, { ...cached, items });
+}
+
+/** The scope the right panel is currently showing. */
+function currentScope(s: AppState): FeedScope {
+  return {
+    tab: s.rightTab,
+    projectId: s.activeProjectId,
+    folderId: s.activeFolderId,
+    kind: s.filterKind,
+    q: s.search,
+  };
+}
+
+/**
+ * Apply a change to one row everywhere it is held.
+ *
+ * Rows now live in several places at once — the visible feed, the chat thread,
+ * the buffered live arrivals, and every cached scope — so a favourite toggle or
+ * a folder move that only updated `items` would be silently reverted the moment
+ * the user switched tabs and came back to a stale cache entry. One helper keeps
+ * that impossible.
+ *
+ * `patch` receives the current row so callers can merge conditionally.
+ */
+function patchEverywhere(
+  set: (fn: (s: AppState) => Partial<AppState>) => void,
+  id: string,
+  patch: (item: GenerationItem) => GenerationItem
+) {
+  for (const [key, cached] of feedCache) {
+    if (!cached.items.some((i) => i.id === id)) continue;
+    putFeedCache(key, {
+      ...cached,
+      items: cached.items.map((i) => (i.id === id ? patch(i) : i)),
+    });
+  }
+  set((s) => ({
+    items: s.items.map((i) => (i.id === id ? patch(i) : i)),
+    threadItems: s.threadItems.map((i) => (i.id === id ? patch(i) : i)),
+    pendingItems: s.pendingItems.map((i) => (i.id === id ? patch(i) : i)),
+  }));
+}
+
+/** Remove a row from every pool, for deletes. */
+function dropEverywhere(
+  set: (fn: (s: AppState) => Partial<AppState>) => void,
+  id: string
+) {
+  for (const [key, cached] of feedCache) {
+    if (!cached.items.some((i) => i.id === id)) continue;
+    putFeedCache(key, { ...cached, items: cached.items.filter((i) => i.id !== id) });
+  }
+  set((s) => ({
+    items: s.items.filter((i) => i.id !== id),
+    threadItems: s.threadItems.filter((i) => i.id !== id),
+    pendingItems: s.pendingItems.filter((i) => i.id !== id),
+  }));
+}
+
+/** Drop every cached scope. Used when a bulk change (move-to-project, project
+ *  delete) invalidates membership across scopes rather than one row's fields. */
+function invalidateFeedCache() {
+  feedCache.clear();
+}
+
+/** Look a row up across every pool. Callers act on an id the user clicked, and
+ *  that row may be in the chat thread but not the current feed (or vice versa),
+ *  so searching only `items` would make the action silently do nothing. */
+function findItem(s: AppState, id: string): GenerationItem | undefined {
+  return (
+    s.items.find((i) => i.id === id) ??
+    s.threadItems.find((i) => i.id === id) ??
+    s.pendingItems.find((i) => i.id === id)
+  );
+}
+
+/** Insert a freshly created row into the pools it belongs in. */
+function insertNewItem(
+  set: (fn: (s: AppState) => Partial<AppState>) => void,
+  item: GenerationItem
+) {
+  set((s) => {
+    const scope = currentScope(s);
+    const patch: Partial<AppState> = {};
+
+    // A new generation is always the newest row, so it goes at the head — no
+    // re-sort needed, and none wanted: re-sorting the visible list is exactly
+    // the movement this work is removing.
+    if (matchesScope(item, scope)) {
+      const items = [item, ...s.items.filter((i) => i.id !== item.id)];
+      patch.items = items;
+      writeCache(scopeKey(scope), items);
+    }
+    if (item.projectId && item.projectId === s.activeProjectId) {
+      patch.threadItems = [item, ...s.threadItems.filter((i) => i.id !== item.id)];
+    }
+    return patch;
+  });
+}
 
 // ── shared live-update poll ─────────────────────────────────────────────────
 // The per-item pollers below only ever attach to items THIS tab already knows
@@ -216,6 +438,13 @@ export const useStore = create<AppState>((set, get) => ({
   items: [],
   hasMoreHistory: true,
   loading: true,
+  refreshing: false,
+  counts: EMPTY_COUNTS,
+  feedKey: "",
+  threadItems: [],
+  threadLoading: true,
+  pendingItems: [],
+  feedPinned: true,
   generating: false,
   rightTab: "project",
   mobileHistoryOpen: false,
@@ -289,19 +518,193 @@ export const useStore = create<AppState>((set, get) => ({
   setFilterKind: (filterKind) => set({ filterKind }),
 
   loadHistory: async () => {
-    try {
-      const res = await apiFetch("/api/history", { cache: "no-store" });
-      const json = await res.json();
-      const items: GenerationItem[] = json.items ?? [];
-      const hasMoreHistory = items.length === HISTORY_PAGE_SIZE;
-      set({ items, loading: false, hasMoreHistory });
-      // resume polling for anything still in flight
-      for (const it of items) {
-        startPolling(it, set, get);
-      }
-    } catch {
-      set({ loading: false });
+    // Everything the first paint needs: the right panel's feed, its counts,
+    // and the centre chat thread. Fired in parallel — they hit different
+    // indexes and none depends on another's result.
+    await Promise.all([
+      get().loadFeed({ force: true }),
+      get().loadCounts(),
+      get().loadThread(),
+    ]);
+  },
+
+  loadFeed: async ({ force = false } = {}) => {
+    const scope = currentScope(get());
+    // The project tab before projects have loaded. Requesting this scope would
+    // omit projectId entirely and so return the whole library — every asset in
+    // the workspace, presented as if it belonged to one project.
+    if (scope.tab === "project" && !scope.projectId) {
+      set({
+        items: [],
+        hasMoreHistory: false,
+        loading: false,
+        refreshing: false,
+        feedKey: scopeKey(scope),
+      });
+      return;
     }
+    const key = scopeKey(scope);
+    const cached = feedCache.get(key);
+
+    // Serve the cache first. Re-entering a scope is the common case (clicking
+    // between folders, flipping tabs), and re-rendering identical rows behind a
+    // skeleton is both slower to read and a layout jump for no information.
+    if (cached && !force) {
+      set({
+        items: cached.items,
+        hasMoreHistory: cached.nextCursor !== null,
+        loading: false,
+        pendingItems: [],
+        feedKey: key,
+      });
+      if (Date.now() - cached.at < FEED_FRESH_MS) return;
+    }
+
+    const hasSomethingToShow = Boolean(cached);
+    set(
+      hasSomethingToShow
+        ? { refreshing: true, feedKey: key }
+        : { loading: true, refreshing: false, items: [], pendingItems: [], feedKey: key }
+    );
+
+    // Every in-flight feed request carries a sequence number; only the newest
+    // may write. Without this, clicking through folders faster than the network
+    // answers lets an earlier reply land last and paint the wrong folder's
+    // contents under the right folder's highlight.
+    const seq = ++feedSeq;
+    try {
+      const params = historyFilterToParams(scopeToQuery(scope));
+      params.set("limit", String(HISTORY_PAGE_SIZE));
+      const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
+      const json = await res.json();
+      if (seq !== feedSeq) return; // superseded
+
+      const items: GenerationItem[] = json.items ?? [];
+      const nextCursor: string | null = json.nextCursor ?? null;
+      putFeedCache(key, { items, nextCursor, at: Date.now() });
+      set({
+        items,
+        hasMoreHistory: nextCursor !== null,
+        loading: false,
+        refreshing: false,
+        pendingItems: [],
+        feedKey: key,
+      });
+      // Resume driving anything still in flight that this page revealed.
+      for (const it of items) startPolling(it, set, get);
+    } catch {
+      if (seq !== feedSeq) return;
+      set({ loading: false, refreshing: false });
+    }
+  },
+
+  loadMoreHistory: async () => {
+    const s = get();
+    if (!s.hasMoreHistory) return;
+    const scope = currentScope(s);
+    const key = scopeKey(scope);
+    const cached = feedCache.get(key);
+    const cursor = cached?.nextCursor;
+    if (!cursor) return;
+
+    const seq = feedSeq; // appends belong to the scope that is current now
+    try {
+      const params = historyFilterToParams(scopeToQuery(scope));
+      params.set("limit", String(HISTORY_PAGE_SIZE));
+      params.set("cursor", cursor);
+      const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
+      const json = await res.json();
+      if (seq !== feedSeq) return; // scope changed while we were paging
+
+      const newItems: GenerationItem[] = json.items ?? [];
+      const nextCursor: string | null = json.nextCursor ?? null;
+
+      set((st) => {
+        // Dedupe by id. A row can legitimately appear in two pages if it was
+        // favourited (Favourites is ordered by favoritedAt, which moves) or
+        // moved between projects mid-scroll; React would then throw on the
+        // duplicate key.
+        const seen = new Set(st.items.map((i) => i.id));
+        const appended = [...st.items, ...newItems.filter((i) => !seen.has(i.id))];
+        putFeedCache(key, { items: appended, nextCursor, at: Date.now() });
+        return { items: appended, hasMoreHistory: nextCursor !== null };
+      });
+      for (const it of newItems) startPolling(it, set, get);
+    } catch (e) {
+      console.error("Failed to load more history:", e);
+    }
+  },
+
+  loadCounts: async () => {
+    const scope = currentScope(get());
+    const seq = ++countsSeq;
+    try {
+      const params = historyFilterToParams({
+        projectId: scope.projectId ?? undefined,
+        kind: scope.kind,
+        q: scope.q,
+      });
+      const res = await apiFetch(`/api/history/counts?${params}`, {
+        cache: "no-store",
+      });
+      const json = await res.json();
+      if (seq !== countsSeq) return;
+      set({
+        counts: {
+          project: json.project ?? EMPTY_COUNTS.project,
+          allAssets: Number(json.allAssets ?? 0),
+          favorites: Number(json.favorites ?? 0),
+        },
+      });
+    } catch {
+      /* counts are decoration — a failure leaves the last known numbers */
+    }
+  },
+
+  loadThread: async () => {
+    const projectId = get().activeProjectId;
+    if (!projectId) {
+      set({ threadItems: [], threadLoading: false });
+      return;
+    }
+    const seq = ++threadSeq;
+    set({ threadLoading: true });
+    try {
+      const params = historyFilterToParams({ projectId });
+      params.set("limit", String(THREAD_PAGE_SIZE));
+      const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
+      const json = await res.json();
+      if (seq !== threadSeq) return;
+      set({ threadItems: json.items ?? [], threadLoading: false });
+      for (const it of json.items ?? []) startPolling(it, set, get);
+    } catch {
+      if (seq !== threadSeq) return;
+      set({ threadLoading: false });
+    }
+  },
+
+  flushPendingItems: () => {
+    set((s) => {
+      if (!s.pendingItems.length) return {};
+      const scope = currentScope(s);
+      const byId = new Map(s.items.map((i) => [i.id, i]));
+      for (const inc of s.pendingItems) byId.set(inc.id, inc);
+      const items = Array.from(byId.values()).sort((a, b) =>
+        compareInScope(a, b, scope)
+      );
+      writeCache(scopeKey(scope), items);
+      return { items, pendingItems: [] };
+    });
+  },
+
+  setFeedPinned: (feedPinned) => {
+    // The grid calls this on every scroll event. Writing unconditionally would
+    // notify every store subscriber on every frame of a scroll, which is a lot
+    // of wasted rendering for a boolean that changes twice per gesture.
+    if (get().feedPinned === feedPinned) return;
+    set({ feedPinned });
+    // Returning to the top is an implicit "show me what arrived".
+    if (feedPinned && get().pendingItems.length) get().flushPendingItems();
   },
 
   startLiveUpdates: () => {
@@ -332,24 +735,6 @@ export const useStore = create<AppState>((set, get) => ({
     if (typeof document !== "undefined" && liveVisibilityHandler) {
       document.removeEventListener("visibilitychange", liveVisibilityHandler);
       liveVisibilityHandler = null;
-    }
-  },
-
-  loadMoreHistory: async () => {
-    const s = get();
-    if (!s.hasMoreHistory || s.items.length === 0) return;
-    const lastItem = s.items[s.items.length - 1];
-    try {
-      const res = await apiFetch(`/api/history?cursor=${lastItem.createdAt}`, { cache: "no-store" });
-      const json = await res.json();
-      const newItems: GenerationItem[] = json.items ?? [];
-      const hasMoreHistory = newItems.length === HISTORY_PAGE_SIZE;
-      set((st) => ({
-        items: [...st.items, ...newItems],
-        hasMoreHistory,
-      }));
-    } catch (e) {
-      console.error("Failed to load more history:", e);
     }
   },
 
@@ -392,14 +777,15 @@ export const useStore = create<AppState>((set, get) => ({
           throw new Error(item.error || `Server error: ${res.status}`);
         }
         if (item?.id) {
-          set((st) => ({
-            items: [item, ...st.items.filter((i) => i.id !== item.id)],
-            prompt: "",
-            rightTab: "history",
-          }));
+          // Stay on the tab the user chose. Forcing "history" (All assets) on
+          // every submit yanked them out of the project they were working in,
+          // which is also the scope the new item was generated into.
+          insertNewItem(set, item);
+          set({ prompt: "" });
           startPolling(item, set, get);
         }
       }
+      void get().loadCounts();
     } catch (e: any) {
       console.error("Generation request failed:", e);
       alert(e.message || "Failed to start generation.");
@@ -409,10 +795,9 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   removeItem: async (id) => {
-    set((s) => ({
-      items: s.items.filter((i) => i.id !== id),
-      activeId: s.activeId === id ? null : s.activeId,
-    }));
+    dropEverywhere(set, id);
+    set((s) => ({ activeId: s.activeId === id ? null : s.activeId }));
+    void get().loadCounts();
     try {
       await apiFetch(`/api/history?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
@@ -423,16 +808,20 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   toggleFavorite: async (id) => {
-    const item = get().items.find((i) => i.id === id);
+    const item = findItem(get(), id);
     if (!item) return;
 
     const nextFavorite = !item.isFavorite;
     const favoritedAt = nextFavorite ? Date.now() : undefined;
-    set((s) => ({
-      items: s.items.map((i) =>
-        i.id === id ? { ...i, isFavorite: nextFavorite, favoritedAt } : i
-      ),
+    patchEverywhere(set, id, (i) => ({
+      ...i,
+      isFavorite: nextFavorite,
+      favoritedAt,
     }));
+    // Un-starring while looking at Favourites is a membership change, not just
+    // a field change: the row no longer belongs in this scope.
+    if (!nextFavorite && get().rightTab === "favorites") dropEverywhere(set, id);
+    void get().loadCounts();
 
     try {
       const res = await apiFetch("/api/history", {
@@ -442,28 +831,21 @@ export const useStore = create<AppState>((set, get) => ({
       });
       if (!res.ok) throw new Error("Favourite update failed.");
       const updated: GenerationItem = await res.json();
-      if (updated?.id) {
-        set((s) => ({
-          items: s.items.map((i) => (i.id === updated.id ? { ...i, ...updated } : i)),
-        }));
-      }
+      if (updated?.id) patchEverywhere(set, updated.id, (i) => ({ ...i, ...updated }));
     } catch {
-      set((s) => ({
-        items: s.items.map((i) =>
-          i.id === id
-            ? {
-                ...i,
-                isFavorite: item.isFavorite,
-                favoritedAt: item.favoritedAt,
-              }
-            : i
-        ),
+      patchEverywhere(set, id, (i) => ({
+        ...i,
+        isFavorite: item.isFavorite,
+        favoritedAt: item.favoritedAt,
       }));
+      // The optimistic removal above has to come back too.
+      if (!nextFavorite && get().rightTab === "favorites") void get().loadFeed({ force: true });
+      void get().loadCounts();
     }
   },
 
   retryTextToVideo: async (id) => {
-    const item = get().items.find((i) => i.id === id);
+    const item = findItem(get(), id);
     if (!item || get().generating) return;
     // Drop @tags so leftover references don't confuse a no-image generation.
     const cleanPrompt = item.prompt
@@ -490,9 +872,7 @@ export const useStore = create<AppState>((set, get) => ({
       });
       const newItem: GenerationItem = await res.json();
       if (newItem?.id) {
-        set((st) => ({
-          items: [newItem, ...st.items.filter((i) => i.id !== newItem.id)],
-        }));
+        insertNewItem(set, newItem);
         if (
           newItem.kind === "video" &&
           (newItem.status === "running" || newItem.status === "queued")
@@ -508,7 +888,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   editInComposer: (id) => {
-    const item = get().items.find((i) => i.id === id);
+    const item = findItem(get(), id);
     if (!item) return;
     set({ mode: item.kind, prompt: item.prompt });
   },
@@ -533,7 +913,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   cloneToComposer: async (id) => {
-    const item = get().items.find((i) => i.id === id);
+    const item = findItem(get(), id);
     if (!item) return;
     set({
       mode: item.kind,
@@ -632,6 +1012,9 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  // The subscription at the bottom of this file watches these and refetches the
+  // feed, counts and thread — so switching project or folder is one state write
+  // here, not a fetch every caller has to remember to make.
   setActiveProject: (id) => set({ activeProjectId: id, activeFolderId: null }),
   setActiveFolder: (id) => set({ activeFolderId: id }),
 
@@ -676,14 +1059,13 @@ export const useStore = create<AppState>((set, get) => ({
           s.activeProjectId === id ? projects[0]?.id ?? null : s.activeProjectId,
         activeFolderId: s.activeProjectId === id ? null : s.activeFolderId,
       }));
-      // Items got orphaned server-side; reflect locally.
-      set((s) => ({
-        items: s.items.map((i) =>
-          i.projectId === id
-            ? { ...i, projectId: undefined, folderId: undefined }
-            : i
-        ),
-      }));
+      // Items got orphaned server-side. That is a membership change across
+      // every project-scoped view at once, so refetch rather than trying to
+      // patch each cached scope into a consistent state.
+      invalidateFeedCache();
+      void get().loadFeed({ force: true });
+      void get().loadCounts();
+      void get().loadThread();
     }
   },
 
@@ -721,23 +1103,33 @@ export const useStore = create<AppState>((set, get) => ({
       set((s) => ({
         projects: json.projects,
         activeFolderId: s.activeFolderId === folderId ? null : s.activeFolderId,
-        items: s.items.map((i) =>
-          i.folderId === folderId ? { ...i, folderId: undefined } : i
-        ),
       }));
+      // Its items became unsorted — a membership change for both the folder's
+      // own scope and the project's unsorted scope.
+      invalidateFeedCache();
+      void get().loadFeed({ force: true });
+      void get().loadCounts();
     }
   },
 
   moveItem: async (itemId, folderId) => {
     const projectId = get().activeProjectId ?? undefined;
-    // optimistic
-    set((s) => ({
-      items: s.items.map((i) =>
-        i.id === itemId
-          ? { ...i, projectId: projectId ?? i.projectId, folderId: folderId ?? undefined }
-          : i
-      ),
+    patchEverywhere(set, itemId, (i) => ({
+      ...i,
+      projectId: projectId ?? i.projectId,
+      folderId: folderId ?? undefined,
     }));
+    // Dragging an item into a folder means it leaves whichever folder view is
+    // on screen, so remove it from the current feed if it no longer qualifies.
+    set((s) => {
+      const scope = currentScope(s);
+      const moved = s.items.find((i) => i.id === itemId);
+      if (!moved || matchesScope(moved, scope)) return {};
+      const items = s.items.filter((i) => i.id !== itemId);
+      writeCache(scopeKey(scope), items);
+      return { items };
+    });
+    void get().loadCounts();
     try {
       await apiFetch("/api/history", {
         method: "PATCH",
@@ -745,7 +1137,11 @@ export const useStore = create<AppState>((set, get) => ({
         body: JSON.stringify({ id: itemId, projectId, folderId }),
       });
     } catch {
-      /* ignore */
+      // The optimistic move may have been wrong — resync rather than leaving
+      // the item shown somewhere the server disagrees with.
+      invalidateFeedCache();
+      void get().loadFeed({ force: true });
+      void get().loadCounts();
     }
   },
 
@@ -760,15 +1156,14 @@ export const useStore = create<AppState>((set, get) => ({
 
   moveItemsToProject: async (ids, projectId, folderId = null) => {
     if (!ids.length) return;
-    // optimistic local update + clear selection
-    set((s) => ({
-      items: s.items.map((i) =>
-        ids.includes(i.id)
-          ? { ...i, projectId, folderId: folderId ?? undefined }
-          : i
-      ),
-      selectedIds: [],
-    }));
+    for (const id of ids) {
+      patchEverywhere(set, id, (i) => ({
+        ...i,
+        projectId,
+        folderId: folderId ?? undefined,
+      }));
+    }
+    set({ selectedIds: [] });
     try {
       await Promise.all(
         ids.map((id) =>
@@ -780,8 +1175,17 @@ export const useStore = create<AppState>((set, get) => ({
         )
       );
     } catch {
-      /* ignore */
+      /* fall through to the resync below */
     }
+    // A bulk move changes membership in several scopes at once (source project,
+    // destination project, every folder view under both). Cheaper and more
+    // honest to re-ask the server than to reconcile each cached scope.
+    invalidateFeedCache();
+    await Promise.all([
+      get().loadFeed({ force: true }),
+      get().loadCounts(),
+      get().loadThread(),
+    ]);
   },
 
   loadMe: async () => {
@@ -833,9 +1237,7 @@ function pollVideo(
       );
       const item: GenerationItem = await res.json();
       if (item?.id) {
-        set((s) => ({
-          items: s.items.map((i) => (i.id === item.id ? { ...i, ...item } : i)),
-        }));
+        patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
         if (item.status === "succeeded" || item.status === "failed") {
           polling.delete(id);
           return;
@@ -851,7 +1253,8 @@ function pollVideo(
 }
 
 /**
- * Merge server rows into the store without losing local truth.
+ * Merge server rows into the store without losing local truth — and without
+ * moving anything the user is currently looking at.
  *
  * Rules, each guarding a specific way this could go wrong:
  *  - Only overwrite when the incoming row is strictly newer by updatedAt, so a
@@ -859,10 +1262,19 @@ function pollVideo(
  *    wrote from /api/queue/execute.
  *  - Preserve queueNote, which is client-only and transient (it never round
  *    trips through the DB), but drop it once the item leaves the queue.
- *  - Only INSERT rows that are newer than the oldest page we've loaded, or
- *    that are still in flight. items is a paginated window; splicing an old
- *    row into the middle of it would create a hole that pagination then
- *    duplicates or skips.
+ *  - Only consider rows that belong in the scope on screen. The feed is a
+ *    server-filtered query now, so splicing in a row from another project would
+ *    show something a refetch immediately removes.
+ *  - Only INSERT rows newer than the oldest page we've loaded, or still in
+ *    flight. items is a paginated window; splicing an old row into the middle
+ *    of it creates a hole that pagination then duplicates or skips.
+ *  - **Never insert above the viewport while the user is scrolled.** An update
+ *    to a row already on screen is a repaint in place and always applied; a new
+ *    row is an insertion at the head, which shifts every card below it. That
+ *    shift is the "it keeps moving around while I scroll" complaint, so new
+ *    arrivals are buffered into `pendingItems` and surfaced as a count the user
+ *    can act on. When the grid is at the top (`feedPinned`) there is nothing
+ *    above to displace, so they go straight in.
  */
 function mergeLiveItems(
   incoming: GenerationItem[],
@@ -870,36 +1282,57 @@ function mergeLiveItems(
 ) {
   if (!incoming.length) return;
   set((s) => {
+    const scope = currentScope(s);
     const byId = new Map(s.items.map((i) => [i.id, i]));
     const oldestLoaded = s.items.length
       ? Math.min(...s.items.map((i) => i.createdAt))
       : 0;
+    const pendingById = new Map(s.pendingItems.map((i) => [i.id, i]));
     let changed = false;
+    let pendingChanged = false;
 
     for (const inc of incoming) {
       const cur = byId.get(inc.id);
       if (cur) {
         if (inc.updatedAt > cur.updatedAt) {
-          byId.set(inc.id, {
+          const merged = {
             ...cur,
             ...inc,
             queueNote: inc.status === "queued" ? cur.queueNote : undefined,
-          });
+          };
+          // An in-place update can still change membership — a job that
+          // finished into another folder, say. Drop it rather than show a row
+          // this view would not have returned.
+          if (matchesScope(merged, scope)) byId.set(inc.id, merged);
+          else byId.delete(inc.id);
           changed = true;
         }
         continue;
       }
+
+      if (!matchesScope(inc, scope)) continue;
       const inFlight = inc.status === "queued" || inc.status === "running";
-      if (inFlight || inc.createdAt > oldestLoaded) {
+      if (!inFlight && inc.createdAt <= oldestLoaded) continue;
+
+      if (s.feedPinned) {
         byId.set(inc.id, inc);
         changed = true;
+      } else if (!pendingById.has(inc.id) || pendingById.get(inc.id)!.updatedAt < inc.updatedAt) {
+        pendingById.set(inc.id, inc);
+        pendingChanged = true;
       }
     }
 
-    if (!changed) return {};
-    return {
-      items: Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt),
-    };
+    const patch: Partial<AppState> = {};
+    if (changed) {
+      const items = Array.from(byId.values()).sort((a, b) =>
+        compareInScope(a, b, scope)
+      );
+      patch.items = items;
+      writeCache(scopeKey(scope), items);
+    }
+    if (pendingChanged) patch.pendingItems = Array.from(pendingById.values());
+    return patch;
   });
 }
 
@@ -1028,11 +1461,14 @@ function pollQueue(
         });
         const finalItem: GenerationItem = await execRes.json();
         if (finalItem?.id) {
-          set((s) => ({
-            items: s.items.map((i) =>
-              i.id === finalItem.id ? { ...i, ...finalItem, queueNote: undefined } : i
-            ),
+          patchEverywhere(set, finalItem.id, (i) => ({
+            ...i,
+            ...finalItem,
+            queueNote: undefined,
           }));
+          // Cost lands with the finished row, and the counts endpoint is what
+          // the folder rail reads.
+          void get().loadCounts();
         }
         polling.delete(id);
         // Videos come back "running" with a provider taskId — hand off to
@@ -1046,11 +1482,7 @@ function pollQueue(
         // next poll off the server's hint — the window frees on a schedule the
         // server knows and the client can't guess, so polling every 3s here
         // would be pure noise (and each poll is a DB round trip).
-        set((s) => ({
-          items: s.items.map((i) =>
-            i.id === id ? { ...i, queueNote: data.heldReason } : i
-          ),
-        }));
+        patchEverywhere(set, id, (i) => ({ ...i, queueNote: data.heldReason }));
         if (polling.has(id)) {
           setTimeout(tick, Math.min(Math.max(Number(data.retryAfterMs) || 5000, 5000), 60_000));
         }
@@ -1061,10 +1493,10 @@ function pollQueue(
         // client that resumed polling on a "running" item actually sees it
         // complete without needing a manual refresh.
         if (data.item?.id) {
-          set((s) => ({
-            items: s.items.map((i) =>
-              i.id === data.item.id ? { ...i, ...data.item, queueNote: undefined } : i
-            ),
+          patchEverywhere(set, data.item.id, (i) => ({
+            ...i,
+            ...data.item,
+            queueNote: undefined,
           }));
         }
         polling.delete(id);
@@ -1146,7 +1578,54 @@ export function restoreComposerDraft() {
   }
 }
 
+// ── scope → fetch ───────────────────────────────────────────────────────────
+// The right panel's contents are a pure function of (tab, project, folder,
+// kind, search), so the fetch belongs to that state rather than to whichever
+// component happens to be mounted. Driving it from one subscription means the
+// two panels that render feeds cannot disagree about when to refetch, and
+// neither has to remember to.
+//
+// Typing is debounced because search is now a database query: firing one per
+// keystroke would issue a request per character and let an early, slower reply
+// paint over a later one. (The sequence guard in loadFeed catches that anyway —
+// this just stops us making the requests in the first place.)
+const SEARCH_DEBOUNCE_MS = 300;
+
 if (typeof window !== "undefined") {
+  let scopeTimer: ReturnType<typeof setTimeout> | undefined;
+  let lastScopeKey: string | null = null;
+
+  useStore.subscribe((s, prev) => {
+    const projectChanged = s.activeProjectId !== prev.activeProjectId;
+    const searchChanged = s.search !== prev.search;
+    const scopeChanged =
+      projectChanged ||
+      searchChanged ||
+      s.rightTab !== prev.rightTab ||
+      s.activeFolderId !== prev.activeFolderId ||
+      s.filterKind !== prev.filterKind;
+    if (!scopeChanged) return;
+
+    const key = scopeKey(currentScope(s));
+    // Switching tabs between two scopes that resolve to the same query (a
+    // project with no folder selected vs. the same, say) is not a refetch.
+    if (key === lastScopeKey && !projectChanged) return;
+    lastScopeKey = key;
+
+    clearTimeout(scopeTimer);
+    const run = () => {
+      const st = useStore.getState();
+      void st.loadFeed();
+      void st.loadCounts();
+      // The chat thread only depends on the project, so leave it alone when
+      // the user is merely filtering the library.
+      if (projectChanged) void st.loadThread();
+    };
+    // Only typing waits; clicking a folder should feel instant.
+    if (searchChanged && !projectChanged) scopeTimer = setTimeout(run, SEARCH_DEBOUNCE_MS);
+    else run();
+  });
+
   let promptTimer: ReturnType<typeof setTimeout> | undefined;
   useStore.subscribe((s, prev) => {
     if (s.prompt !== prev.prompt) {

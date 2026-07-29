@@ -156,17 +156,50 @@ body {
   container-type: inline-size;
 }
 
-@container (max-width: 48rem) {
-  /* Drop the zoom slider but keep its +/- buttons, so the control stays fully
-     usable (coarser, not absent) while giving back ~80px. That is usually the
-     difference between the bar fitting on one row and wrapping. */
+/* The bar sheds width in a deliberate order as the panel narrows, cheapest
+   information first. Everything here is reversible detail; the search field is
+   the one control that has a hard floor (set in HistoryPanel.tsx), because a
+   70px search box is not a smaller search box — it is a broken one, which is
+   what this ladder replaces. */
+
+/* 1. Per-scope counts. Nice to have, never the reason you clicked a tab. */
+@container (max-width: 44rem) {
+  .scope-tab-count {
+    display: none;
+  }
+}
+
+/* 2. The zoom slider, keeping its +/- buttons — coarser, not absent. Worth
+      about 80px. */
+@container (max-width: 40rem) {
   .scope-zoom-slider {
     display: none;
   }
-  /* With the slider gone the action cluster genuinely needs less room, so its
-     wrap floor comes down to match. Keeping the wide-panel floor here would
-     force a wrap that is no longer necessary. */
+}
+
+/* 3. Tab labels. The icons and their fixed order still identify the three
+      scopes, and each label is worth ~70px — between them, more than the
+      search field needs to stay usable. `aria-label`/`title` on the buttons
+      carry the name for screen readers and hover. */
+@container (max-width: 34rem) {
+  .scope-tab-label {
+    display: none;
+  }
+  /* The project's own name stays, since it is the only tab whose label is not
+     recoverable from the icon — just shorter. */
+  .scope-project-name {
+    max-width: 5rem;
+  }
+}
+
+/* 4. Only now does the bar wrap: the tab group takes the first row and the
+      filters the second. Two honest rows beat one row of clipped controls. */
+@container (max-width: 26rem) {
+  .scope-tabs {
+    width: 100%;
+  }
   .scope-actions {
-    min-width: 15rem;
+    width: 100%;
+    flex-basis: 100%;
   }
 }

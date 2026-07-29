@@ -53,13 +53,22 @@ export function MediaCard({
     .toUpperCase();
 
   return (
+    // No `layout` prop, deliberately. It made every card FLIP-animate to any
+    // new position, so each appended page of an infinite scroll set the entire
+    // grid sliding around under the pointer — the "it keeps rearranging while
+    // I scroll" problem. Enter/exit still animate (they are about one card
+    // appearing or leaving), but a card that is merely somewhere else in the
+    // grid now just *is* somewhere else.
+    //
+    // Hover lift moved to a CSS transform for the same reason: `whileHover`
+    // animated `y`, which framer applies as an inline style that a layout pass
+    // has to account for. A transform is composited and cannot move a
+    // neighbour.
     <motion.div
-      layout
-      initial={{ opacity: 0, scale: 0.94, y: 10 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.94 }}
-      transition={{ type: "spring", stiffness: 320, damping: 30 }}
-      whileHover={{ y: -3 }}
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.96 }}
+      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
       onClick={() => {
         if (selectable && useStore.getState().selectedIds.length > 0) {
           toggleSelect(item.id);
@@ -67,9 +76,16 @@ export function MediaCard({
           setActiveId(item.id);
         }
       }}
-      style={{ contentVisibility: "auto", containIntrinsicSize: "200px" }}
+      // `contain-intrinsic-size: auto <fallback>` — the `auto` keyword is what
+      // makes the browser remember each card's last rendered height and reuse
+      // it when the card scrolls back out of range. Without it every skipped
+      // card collapsed to a flat 200px placeholder, so the scroll container's
+      // height changed as cards entered and left the rendering window and the
+      // viewport visibly jumped. The fallback only applies before a card has
+      // ever been rendered.
+      style={{ contentVisibility: "auto", containIntrinsicSize: "auto 240px" }}
       className={cn(
-        "group relative cursor-pointer overflow-hidden rounded-xl bg-ink-750 ring-1 transition-shadow duration-300 hover:shadow-pop",
+        "group relative cursor-pointer overflow-hidden rounded-xl bg-ink-750 ring-1 transition duration-200 hover:-translate-y-0.5 hover:shadow-pop motion-reduce:hover:translate-y-0",
         selected
           ? "ring-2 ring-brand"
           : "ring-line hover:ring-lineStrong"

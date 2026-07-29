@@ -15,6 +15,7 @@
     "lint": "next lint",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.ts",
+    "db:optimize": "tsx scripts/optimize-history-indexes.ts",
     "migrate:postgres:gcp": "tsx scripts/migrate-postgres-to-cloud-sql.ts",
     "migrate:media:gcp": "tsx scripts/migrate-s3-to-gcs.ts",
     "verify:media:gcp": "tsx scripts/verify-media-references-gcs.ts",

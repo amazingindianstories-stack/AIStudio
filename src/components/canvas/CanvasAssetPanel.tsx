@@ -22,6 +22,7 @@ import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
 // modest size instead of the full-resolution original.
 const PANEL_THUMB_WIDTH = 320;
 import { useStore } from "@/lib/store";
+import { useHistoryQuery } from "@/lib/use-history-query";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import type { GenerationItem, Project } from "@/lib/types";
 
@@ -51,18 +52,33 @@ export function CanvasAssetPanel({
   onPlaceAtCenter: (asset: { url: string; aspectRatio?: string; kind: GenerationItem["kind"] }) => void;
   onCollapsedChange?: (collapsed: boolean) => void;
 }) {
-  const items = useStore((s) => s.items);
-  const loading = useStore((s) => s.loading);
-  const hasMoreHistory = useStore((s) => s.hasMoreHistory);
-  const loadMoreHistory = useStore((s) => s.loadMoreHistory);
   const projects = useStore((s) => s.projects);
 
   const [tab, setTab] = useState<AssetTab>("assets");
   const [scope, setScope] = useState<AssetScope>(() => projectId ?? "all");
   const [search, setSearch] = useState("");
   const [collapsed, setCollapsed] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const observerTarget = useRef<HTMLDivElement>(null);
+
+  // This panel asks the server for its own scope rather than filtering the
+  // right panel's feed. Sharing that array meant the canvas library showed
+  // whatever the (unmounted) studio panel had last paged in — so scoping to an
+  // older project produced an empty panel that only filled in if the user went
+  // back to the studio and scrolled. Scope, tab and search are all now
+  // predicates in the query, which is also what makes an old board's project
+  // open at full speed.
+  const {
+    items: filtered,
+    loading,
+    loadingMore: isLoadingMore,
+    hasMore: hasMoreHistory,
+    loadMore,
+  } = useHistoryQuery({
+    projectId: scope === "all" ? undefined : scope,
+    favorite: tab === "favourites",
+    q: search,
+    enabled: !collapsed,
+  });
 
   useEffect(() => {
     try {
@@ -110,50 +126,43 @@ export function CanvasAssetPanel({
   }, [scope]);
 
   useEffect(() => {
+    const target = observerTarget.current;
+    if (!target) return;
     const observer = new IntersectionObserver(
-      async (entries) => {
+      (entries) => {
         if (entries[0].isIntersecting && hasMoreHistory && !isLoadingMore && !loading) {
-          setIsLoadingMore(true);
-          await loadMoreHistory();
-          setIsLoadingMore(false);
+          void loadMore();
         }
       },
       { threshold: 0.1 }
     );
-    if (observerTarget.current) observer.observe(observerTarget.current);
+    observer.observe(target);
     return () => observer.disconnect();
-  }, [hasMoreHistory, isLoadingMore, loadMoreHistory, loading, tab]);
+  }, [hasMoreHistory, isLoadingMore, loadMore, loading]);
 
-  const placeable = useMemo(() => items.filter((i) => i.status === "succeeded"), [items]);
+  // ui-spec §A.5: distinct from "no assets at all" — a single-project scope has
+  // nothing, but assets DO exist elsewhere. The query is scoped server-side
+  // now, so this needs its own unscoped count rather than comparing two
+  // client-side slices of one array; `libraryTotal` is that count.
+  const [libraryTotal, setLibraryTotal] = useState<number | null>(null);
+  useEffect(() => {
+    if (collapsed) return;
+    let cancelled = false;
+    fetch("/api/history/counts", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (!cancelled) setLibraryTotal(Number(j.allAssets ?? 0));
+      })
+      .catch(() => {
+        /* the nudge just doesn't show */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [collapsed]);
 
-  // Scope -> tab -> search, in that order (design.md "Data flow A"): scope
-  // narrows the pool BEFORE the Assets/Favourites tab and search filter it
-  // further. Items with no projectId (pre-project-era generations, or items
-  // detached from a deleted project) never appear under any specific
-  // project — only under "All projects" (spec.md AC2). `scope` is either
-  // "all" or a specific project id (the board's own, or any other project
-  // picked from the list).
-  const scoped = useMemo(() => {
-    if (scope === "all") return placeable;
-    return placeable.filter((i) => i.projectId === scope);
-  }, [placeable, scope]);
-
-  const base = useMemo(
-    () => (tab === "favourites" ? scoped.filter((i) => i.isFavorite) : scoped),
-    [scoped, tab]
-  );
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return base.filter((i) => (q ? i.prompt.toLowerCase().includes(q) : true));
-  }, [base, search]);
-
-  // ui-spec §A.5: distinct from "no assets at all" — a single-project scope
-  // has nothing, but assets DO exist elsewhere. Switching scope wouldn't
-  // help a brand-new user with zero generations anywhere, so that case
-  // still falls through to the generic AssetEmptyState below (placeable
-  // is empty too).
-  const showProjectEmptyNudge = scope !== "all" && scoped.length === 0 && placeable.length > 0;
+  const showProjectEmptyNudge =
+    scope !== "all" && filtered.length === 0 && !loading && (libraryTotal ?? 0) > 0;
 
   if (collapsed) {
     return (
@@ -219,11 +228,14 @@ export function CanvasAssetPanel({
           showProjectEmptyNudge ? (
             <ProjectEmptyNudge onShowAllProjects={() => setScope("all")} />
           ) : (
-            <AssetEmptyState tab={tab} hasAny={tab === "favourites" ? base.some((i) => i.isFavorite) : base.length > 0} />
+            // The query already applied the scope, so an empty result with a
+            // non-empty library means the filters excluded everything rather
+            // than there being nothing to show.
+            <AssetEmptyState tab={tab} hasAny={(libraryTotal ?? 0) > 0} />
           )
         ) : (
           <div className="grid grid-cols-2 gap-2">
-            {filtered.map((item) => (
+            {filtered.map((item: GenerationItem) => (
               <AssetThumb key={item.id} item={item} onPlaceAtCenter={onPlaceAtCenter} />
             ))}
           </div>

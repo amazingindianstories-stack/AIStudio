@@ -88,6 +88,41 @@ This is the most engineered part of the app; the design decisions were measured 
 
 Single-page app: `src/app/page.tsx` composes the panels; all client state is one Zustand store (`src/lib/store.ts`). Right panel has Project | History | Favorites tabs; projects/folders organize generations. Reference images are downscaled client-side before upload to fit Vercel's 4.5MB payload limit — keep that in mind when touching upload paths.
 
+### Library feed: scoped server queries, not a client-filtered window
+
+Every asset view (All assets, a project, a folder, Unsorted, Favourites, each with a kind/search filter) is a **scope**, and each scope is answered by its own indexed query. Before 2026-07-29 there was one global `items` array — `/api/history` had no WHERE clause at all, returned global history 20 rows at a time, and every view filtered that window client-side. Consequences, all reported as separate bugs but all this one cause: an old project rendered empty with every folder counting `0` until the user had scroll-paged through all newer history; search only matched loaded rows; the chat thread for an old project was blank.
+
+- `src/lib/store-db.ts` — `queryHistory(filter, cursor, limit)` and `countHistory`/`countScope`. **Pagination is a row-value keyset** (`(created_at, id) < (…)`), never an offset: offsets re-scan everything before them and shift under the concurrent inserts this table constantly gets. The trailing `id` is load-bearing — `createdAt` is a ms bigint and batch generation writes several rows in one millisecond, so a cursor on `createdAt` alone skips or repeats rows at page boundaries.
+- Favourites order by `favorited_at`, everything else by `created_at`. `scripts/optimize-history-indexes.ts` backfills `favorited_at` for legacy favourites precisely so it can carry a keyset — a NULL there falls outside the row comparison and would strand those rows forever.
+- `src/lib/history-query.ts` — the one filter⇄querystring parser, shared by the feed route, the counts route and the client. `folderId=none` means "in the project, in no folder" and must stay distinguishable from an absent `folderId` ("any folder").
+- `src/lib/feed-scope.ts` — pure scope logic (`scopeKey`, `scopeToQuery`, `matchesScope`, `compareInScope`). `matchesScope` must stay equivalent to `filterConditions` in `store-db.ts`: stricter and a finished generation vanishes until reload, looser and a row appears that a refetch removes. Unit tests in `feed-scope.test.ts`.
+- Store: `items` is the **active scope's** page, not a global pool. Scope changes are driven by one subscription at the bottom of `store.ts` (search debounced 300ms), each read is sequence-guarded so a slow reply can't paint over a newer one, and scopes are LRU-cached (`putFeedCache`) so re-entry is instant with background revalidation. Rows live in several pools at once, so mutations go through `patchEverywhere`/`dropEverywhere` — updating only `items` gets silently reverted by a stale cache entry on the next tab switch.
+- `ConversationPanel` reads its own `threadItems` pool (project-scoped); `CanvasAssetPanel` uses the standalone `useHistoryQuery` hook. Neither may go back to filtering the shared feed — that is what coupled them to the right panel's scroll position.
+
+**Indexes are not created by `db:push`** (a plain `CREATE INDEX` locks the table against writes). Run `npm run db:optimize` — `CREATE INDEX CONCURRENTLY` plus the `favorited_at` backfill, safe to re-run; applied to production 2026-07-29. `scripts/probe-history-query.ts` and `scripts/probe-history-counts.ts` are read-only verification probes (keyset walks with no duplicates/skips, LIKE-escaping, per-folder counts, `EXPLAIN`).
+
+Do **not** expect every feed query to use a keyset index — measured on production at 895 rows, the planner picks them selectively and that is correct:
+
+| query | plan |
+|---|---|
+| selective project (44/895 ≈ 5%) | `generations_project_keyset_idx`, index scan, no sort |
+| favourites | `generations_favorite_keyset_idx`, index scan, no sort |
+| non-selective project (369/895 ≈ 41%) | old `generations_created_at_idx` + Incremental Sort |
+| global feed | old `generations_created_at_idx` + Incremental Sort |
+
+The incremental sort is nearly free because `created_at` is close to unique, so its presorted groups hold ~1 row; a narrower index beats a wider composite one at that point. The composite indexes earn their keep as the table grows and any one project becomes a smaller fraction of it. **Correctness does not depend on which index is chosen** — no-skip/no-duplicate pagination and bounded work per page come from the row-value predicate plus `LIMIT`, not from the index (a mid-table cursor reads ~25 buffers regardless of depth). Total added index size: ~208 kB.
+
+### Why the asset grid must not re-layout on scroll
+
+Reported as "it keeps rearranging while I scroll" and fixed 2026-07-29. Four separate causes compounded, so re-introducing any one of them brings the symptom back:
+
+1. `MediaCard` had framer-motion's `layout` prop — every card FLIP-animated to any new position, so each appended page set the whole grid in motion. Hover lift is now a CSS transform for the same reason (`whileHover` animated `y`, an inline style a layout pass has to honour).
+2. `ProjectPanel` used a balanced CSS multi-column masonry (`columns-… [column-fill:_balance]`). Column balancing is global: appending a page redistributes *every* card. `src/components/AssetGrid.tsx` is now the single grid for both panels — a fixed `repeat(auto-fill, minmax(…))` track is append-stable by construction.
+3. `AnimatePresence mode="popLayout"` absolutely-positions exiting children and animates siblings into the gap — right for a short list, wrong for a grid being appended to.
+4. `contentVisibility: auto` with a flat `containIntrinsicSize: "200px"`. It is now `auto 240px`; the `auto` keyword makes the browser remember each card's real height, without which the scroller's height changed as cards left the rendering window.
+
+Also: the infinite-scroll sentinel lives *outside* the grid (as a grid child it claims a cell and reflows the last row), and live arrivals are **buffered** into `pendingItems` while the user is scrolled away from the top, surfaced as a "N new items" pill instead of being inserted above the viewport. `setFeedPinned` is called per scroll event and must keep its no-op-when-unchanged guard.
+
 ### Canvas Board (FigJam-style whiteboard tab)
 
 A full-screen infinite-canvas whiteboard for spatial storyboarding, launched from a new "Board" rail icon in `Sidebar.tsx`. Users drag assets from their library onto the canvas or create shapes/text/frames/connectors freehand; board state persists to a new `canvas_boards` Postgres table with full graph (nodes, connectors, viewport) stored as `jsonb data`. Single-user v1 (no real-time multiplayer — see D4 in `.council/canvas-board/decisions.md`).
@@ -145,7 +180,7 @@ Research (July 2026) found Higgsfield's edge over baseline NBP was not hidden AP
 - **`SUPERSAMPLE=1`**: Render one resolution step up, downsample to requested size. Measured highest prominence but 1-of-4 scene-accuracy risk (outfit dropped); flag off by default, use for hero shots only. Operationally: combining it with `FACE_BEST_OF>1` is expensive and slow — it was previously unsafe against the 60s cap, which is now 300s, but it still multiplies the parallel-render count that trips Gemini's spend-based 429.
 - **`NEXT_PUBLIC_REF_MAX_DIM` (default `2048`)**: Client reference longest-side cap (was hardcoded 1024). `PromptComposer.tsx` includes a budget ladder (2048/q0.85 → q0.7 → 1536/q0.8 → 1024/q0.8) to stay under Vercel's 4.5MB body limit with high-fidelity refs.
 
-Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts src/lib/providers/gemini.test.ts src/lib/spend-window.test.ts src/lib/video-directive.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
+Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts src/lib/providers/gemini.test.ts src/lib/spend-window.test.ts src/lib/video-directive.test.ts src/lib/feed-scope.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
 
 ## Working conventions
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  readHistory,
+  queryHistory,
+  decodeCursor,
   deleteItem,
   getItem,
   setItemFavorite,
@@ -9,6 +10,7 @@ import {
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { HISTORY_PAGE_SIZE } from "@/lib/config";
+import { parseHistoryFilter, MAX_PAGE_SIZE } from "@/lib/history-query";
 
 export const runtime = "nodejs";
 
@@ -16,13 +18,20 @@ export async function GET(req: NextRequest) {
   if (!(await getSession())) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
-  const cursor = req.nextUrl.searchParams.get("cursor");
-  const limit = req.nextUrl.searchParams.get("limit");
-  const cursorNum = cursor ? parseInt(cursor, 10) : undefined;
-  const limitNum = limit ? parseInt(limit, 10) : HISTORY_PAGE_SIZE;
+  const params = req.nextUrl.searchParams;
+  const filter = parseHistoryFilter(params);
+  const cursor = decodeCursor(params.get("cursor"));
 
-  const items = await readHistory(cursorNum, limitNum);
-  return NextResponse.json({ items });
+  const rawLimit = parseInt(params.get("limit") ?? "", 10);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(Math.max(rawLimit, 1), MAX_PAGE_SIZE)
+    : HISTORY_PAGE_SIZE;
+
+  const page = await queryHistory(filter, cursor, limit);
+  // nextCursor is explicit rather than inferred by the client from
+  // `items.length === limit`, which guesses wrong whenever the total is an
+  // exact multiple of the page size and leaves a sentinel that never resolves.
+  return NextResponse.json(page);
 }
 
 /** Update generation metadata: move into folders or toggle favourites. */

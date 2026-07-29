@@ -1,4 +1,4 @@
-import { eq, desc, lt, or, gt, inArray } from "drizzle-orm";
+import { eq, desc, lt, or, gt, inArray, isNull, and, sql, type SQL } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations } from "./schema";
 import type { GenerationItem } from "./types";
@@ -64,18 +64,217 @@ function itemToValues(item: GenerationItem): typeof generations.$inferInsert {
   };
 }
 
+// ── library feed: scoped, keyset-paginated reads ────────────────────────────
+//
+// Every asset view in the app (All assets, a project, a folder, Favourites) is
+// a filter over this one table, and each used to be produced by pulling global
+// history 20 rows at a time and filtering it in the browser. That made the cost
+// of opening a view proportional to how OLD it was: a project last touched a
+// year ago needed the client to page through every unrelated generation made
+// since before its first item appeared, and until then it rendered as empty
+// with zero counts. The filters below move that work to Postgres, where the
+// indexes declared in schema.ts turn it into a bounded index range scan — page
+// one of an old project now costs the same as page one of today's.
+//
+// Pagination is a row-value keyset, NOT an offset. Offsets re-scan and skip
+// every preceding row (so page 40 is 40× the work of page 1) and they shift
+// under concurrent inserts, which this table gets constantly — a generation
+// finishing mid-scroll would silently duplicate or drop a row at the boundary.
+// A keyset is stable under inserts and costs the same at every depth.
+
+export interface HistoryFilter {
+  /** Restrict to one project. */
+  projectId?: string;
+  /** Restrict to one folder within the project; `null` means "unsorted"
+   *  (in the project, in no folder) — distinct from `undefined` = any folder. */
+  folderId?: string | null;
+  kind?: GenerationItem["kind"];
+  /** Favourites view: also switches the sort to when items were starred. */
+  favorite?: boolean;
+  /** Case-insensitive prompt substring. */
+  q?: string;
+}
+
+/** Keyset position: the sort column's value plus the id tiebreaker. */
+export interface HistoryCursor {
+  sort: number;
+  id: string;
+}
+
+export interface HistoryPage {
+  items: GenerationItem[];
+  /** Opaque; pass back verbatim as `cursor`. `null` means the end. */
+  nextCursor: string | null;
+}
+
+export function encodeCursor(c: HistoryCursor): string {
+  return `${c.sort}.${c.id}`;
+}
+
+/** Parse a client-supplied cursor. Returns undefined for anything malformed so
+ *  a junk querystring degrades to "first page" instead of an error or, worse,
+ *  a predicate built from NaN that silently matches nothing. */
+export function decodeCursor(raw: string | null | undefined): HistoryCursor | undefined {
+  if (!raw) return undefined;
+  const dot = raw.indexOf(".");
+  if (dot <= 0) return undefined;
+  const sort = Number(raw.slice(0, dot));
+  const id = raw.slice(dot + 1);
+  // The id half goes into a ::uuid cast — reject anything that isn't one
+  // rather than letting Postgres raise on the cast.
+  if (!Number.isFinite(sort)) return undefined;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+    return undefined;
+  }
+  return { sort, id };
+}
+
+/** LIKE metacharacters in user input are literals, not wildcards. Postgres's
+ *  default LIKE escape is backslash, so escape it and the two wildcards. */
+function likePattern(q: string): string {
+  return `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+}
+
+/** The WHERE fragments shared by the page query and the count queries — one
+ *  definition so a filter can never mean two different things in the grid and
+ *  in the number next to it. */
+function filterConditions(filter: HistoryFilter): SQL[] {
+  const conds: SQL[] = [];
+  if (filter.projectId) conds.push(eq(generations.projectId, filter.projectId));
+  if (filter.folderId === null) conds.push(isNull(generations.folderId));
+  else if (filter.folderId) conds.push(eq(generations.folderId, filter.folderId));
+  if (filter.kind) conds.push(eq(generations.kind, filter.kind));
+  if (filter.favorite) conds.push(eq(generations.isFavorite, true));
+  const q = filter.q?.trim();
+  if (q) conds.push(sql`${generations.prompt} ilike ${likePattern(q)}`);
+  return conds;
+}
+
+export async function queryHistory(
+  filter: HistoryFilter = {},
+  cursor?: HistoryCursor,
+  limitN = 20
+): Promise<HistoryPage> {
+  const db = await getDb();
+  // Favourites are ordered by when they were starred; everything else by when
+  // it was made. `favorited_at` is backfilled non-null for favourited rows
+  // (scripts/optimize-history-indexes.ts) precisely so this column can carry
+  // the keyset — a NULL here would fall outside the row comparison below and
+  // strand those rows on a page boundary forever.
+  const sortCol = filter.favorite ? generations.favoritedAt : generations.createdAt;
+
+  const conds = filterConditions(filter);
+  if (cursor) {
+    // Row-value comparison: strictly "after" this position in the composite
+    // ordering. Written as one `(a,b) < (c,d)` rather than the expanded
+    // `a < c OR (a = c AND b < d)` because only the row-value form is
+    // recognised as an index range bound.
+    conds.push(
+      sql`(${sortCol}, ${generations.id}) < (${cursor.sort}::bigint, ${cursor.id}::uuid)`
+    );
+  }
+
+  // Fetch one extra row: its existence is what proves there is a next page.
+  // Inferring "more" from `rows.length === limit` guesses wrong exactly when
+  // the total is a multiple of the page size, leaving a permanent phantom
+  // "Loading more…" sentinel that never resolves.
+  const rows = await db
+    .select()
+    .from(generations)
+    .where(conds.length ? and(...conds) : undefined)
+    .orderBy(desc(sortCol), desc(generations.id))
+    .limit(limitN + 1);
+
+  const hasMore = rows.length > limitN;
+  const page = hasMore ? rows.slice(0, limitN) : rows;
+  const items = page.map(rowToItem);
+  const last = page[page.length - 1];
+  const nextCursor =
+    hasMore && last
+      ? encodeCursor({
+          sort: Number(filter.favorite ? last.favoritedAt ?? last.createdAt : last.createdAt),
+          id: last.id,
+        })
+      : null;
+
+  return { items, nextCursor };
+}
+
+export interface HistoryCounts {
+  /** Rows matching the filter, ignoring folderId. */
+  total: number;
+  /** Rows in the project with no folder. */
+  unsorted: number;
+  /** folderId → count. */
+  byFolder: Record<string, number>;
+}
+
+/**
+ * True counts for the folder rail, in one grouped query.
+ *
+ * These used to be `items.filter(...).length` over whatever slice of global
+ * history the client happened to have paged in, which is why a project with
+ * hundreds of assets rendered every folder as "0". `kind`/`q` are honoured so
+ * the number beside a folder always describes what clicking it would show.
+ */
+export async function countHistory(
+  filter: HistoryFilter = {}
+): Promise<HistoryCounts> {
+  const db = await getDb();
+  // folderId is the grouping key here, so it must not also be a predicate.
+  const { folderId: _ignored, ...rest } = filter;
+  const conds = filterConditions(rest);
+  const rows = await db
+    .select({
+      folderId: generations.folderId,
+      n: sql<number>`count(*)::int`,
+    })
+    .from(generations)
+    .where(conds.length ? and(...conds) : undefined)
+    .groupBy(generations.folderId);
+
+  const byFolder: Record<string, number> = {};
+  let total = 0;
+  let unsorted = 0;
+  for (const r of rows) {
+    const n = Number(r.n ?? 0);
+    total += n;
+    if (r.folderId) byFolder[r.folderId] = n;
+    else unsorted += n;
+  }
+  return { total, unsorted, byFolder };
+}
+
+/** Count for a scope that has no folder dimension (All assets, Favourites). */
+export async function countScope(filter: HistoryFilter = {}): Promise<number> {
+  const db = await getDb();
+  const conds = filterConditions(filter);
+  const rows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(generations)
+    .where(conds.length ? and(...conds) : undefined);
+  return Number(rows[0]?.n ?? 0);
+}
+
+/** Unfiltered newest-first read. Retained for the admin dashboard, which wants
+ *  a flat recent-activity log rather than a scoped feed. */
 export async function readHistory(
   cursor?: number,
   limitN = 20
 ): Promise<GenerationItem[]> {
-  const db = await getDb();
-  let query: any = db.select().from(generations);
-  if (cursor) {
-    query = query.where(lt(generations.createdAt, cursor));
-  }
-  const rows = await query.orderBy(desc(generations.createdAt)).limit(limitN);
-  return rows.map(rowToItem);
+  const page = await queryHistory(
+    {},
+    cursor ? { sort: cursor, id: MAX_UUID } : undefined,
+    limitN
+  );
+  return page.items;
 }
+
+/** Highest possible uuid. A legacy createdAt-only cursor carries no tiebreaker,
+ *  so pairing it with the maximum uuid places it just ahead of every real row
+ *  sharing that timestamp — which keeps those rows in the next page instead of
+ *  dropping them, the failure the plain `created_at < cursor` form had. */
+const MAX_UUID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 
 export async function upsertItem(item: GenerationItem): Promise<void> {
   const db = await getDb();
@@ -158,7 +357,6 @@ export async function clearProjectRefs(projectId: string): Promise<void> {
 
 // ---- QUEUE HELPERS ----
 
-import { and, sql } from "drizzle-orm";
 import {
   admits,
   bestOfMultiplier,

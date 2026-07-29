@@ -4,6 +4,7 @@
  * are supplied by the app (crypto.randomUUID()) on insert, matching the
  * existing flow; defaultRandom() is just a fallback.
  */
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -75,6 +76,40 @@ export const generations = pgTable("generations", {
   index("generations_project_id_idx").on(table.projectId),
   index("generations_folder_id_idx").on(table.folderId),
   index("generations_user_created_idx").on(table.userId, table.createdAt),
+
+  // ── keyset-pagination indexes ────────────────────────────────────────────
+  // Every library feed pages with a row-value keyset on (created_at, id) in
+  // DESC order (store-db.ts queryHistory). The trailing `id` is not decorative:
+  // created_at is a millisecond bigint and batch generation inserts several
+  // rows inside the same millisecond, so a cursor on created_at alone either
+  // skips or repeats rows at a page boundary. Column order and direction here
+  // mirror the ORDER BY exactly so Postgres can walk the index instead of
+  // sorting, which is what makes page 1 of a two-year-old project cost the
+  // same as page 1 of today's.
+  index("generations_created_keyset_idx").on(
+    table.createdAt.desc(),
+    table.id.desc()
+  ),
+  // Scope-leading variants: the equality column comes first so the scan is a
+  // range read inside one project/folder rather than a filter over the whole
+  // table. These are what removed the "scroll through all of history to reach
+  // an old project" behaviour.
+  index("generations_project_keyset_idx").on(
+    table.projectId,
+    table.createdAt.desc(),
+    table.id.desc()
+  ),
+  index("generations_folder_keyset_idx").on(
+    table.folderId,
+    table.createdAt.desc(),
+    table.id.desc()
+  ),
+  // Favourites sort by when they were starred, not when they were made, so
+  // they need their own ordering. Partial: only a tiny fraction of rows are
+  // favourited, so the index stays small enough to stay hot.
+  index("generations_favorite_keyset_idx")
+    .on(table.favoritedAt.desc(), table.id.desc())
+    .where(sql`${table.isFavorite}`),
 ]);
 
 export const assets = pgTable("assets", {

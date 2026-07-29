@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Play,
@@ -25,17 +25,20 @@ import type { GenerationItem } from "@/lib/types";
 const FEED_THUMB_WIDTH = 1200;
 
 export function ConversationPanel() {
-  const items = useStore((s) => s.items);
-  const loading = useStore((s) => s.loading);
+  // The thread has its own server-scoped pool rather than filtering the right
+  // panel's feed. It used to read the shared `items` window, which meant the
+  // chat for an older project rendered empty until the user had scrolled the
+  // asset panel far enough back to page those rows in — and browsing to another
+  // project's assets emptied the conversation you were in the middle of.
+  const threadItems = useStore((s) => s.threadItems);
+  const loading = useStore((s) => s.threadLoading);
   const activeProjectId = useStore((s) => s.activeProjectId);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJump, setShowJump] = useState(false);
 
   // Chat is scoped to the active project — each project has its own thread, so a
   // new project starts a fresh, empty chat. Chronological, newest at the bottom.
-  const feed = items
-    .filter((i) => i.projectId === activeProjectId)
-    .reverse();
+  const feed = useMemo(() => [...threadItems].reverse(), [threadItems]);
 
   const scrollToBottom = (smooth = true) => {
     const el = scrollRef.current;

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import {
   Search,
   ChevronDown,
@@ -11,25 +11,31 @@ import {
   Check,
   X,
   Star,
-  Image as ImageIcon,
-  Play,
   ZoomIn,
   ZoomOut,
   Download,
   Plus,
   Pencil,
   Trash2,
+  Loader2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MediaCard } from "./MediaCard";
-import { ProjectPanel } from "./ProjectPanel";
+import { ProjectPanel, EmptyState } from "./ProjectPanel";
+import { AssetGrid } from "./AssetGrid";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { cn } from "@/lib/utils";
-import type { GenerationItem, GenerationKind } from "@/lib/types";
+import type { GenerationKind } from "@/lib/types";
+
+const ZOOM_KEY = "lumina-asset-zoom-v1";
+const ZOOM_MIN = 120;
+const ZOOM_MAX = 260;
 
 export function HistoryPanel() {
   const items = useStore((s) => s.items);
   const loading = useStore((s) => s.loading);
+  const refreshing = useStore((s) => s.refreshing);
+  const counts = useStore((s) => s.counts);
   const rightTab = useStore((s) => s.rightTab);
   const setRightTab = useStore((s) => s.setRightTab);
   const search = useStore((s) => s.search);
@@ -41,68 +47,51 @@ export function HistoryPanel() {
   const clearSelection = useStore((s) => s.clearSelection);
   const moveItemsToProject = useStore((s) => s.moveItemsToProject);
   const projects = useStore((s) => s.projects);
-  // Project switching/management moved up here from ProjectPanel so the scope
-  // bar can be one row — the Project tab is now also the project picker.
   const activeProjectId = useStore((s) => s.activeProjectId);
   const setActiveProject = useStore((s) => s.setActiveProject);
   const createProject = useStore((s) => s.createProject);
   const renameProject = useStore((s) => s.renameProject);
   const deleteProject = useStore((s) => s.deleteProject);
-  const loadMoreHistory = useStore((s) => s.loadMoreHistory);
-  const hasMoreHistory = useStore((s) => s.hasMoreHistory);
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
+
+  // Thumbnail size is a workspace preference, not session state — losing it on
+  // every reload made the control feel like it did not work.
   const [assetCardWidth, setAssetCardWidth] = useState(160);
-  const observerTarget = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
-    const observer = new IntersectionObserver(
-      async (entries) => {
-        if (entries[0].isIntersecting && hasMoreHistory && !isLoadingMore && !loading) {
-          setIsLoadingMore(true);
-          await loadMoreHistory();
-          setIsLoadingMore(false);
-        }
-      },
-      { threshold: 0.1 }
-    );
-    if (observerTarget.current) observer.observe(observerTarget.current);
-    return () => observer.disconnect();
-    // rightTab: the sentinel remounts when switching tabs, so the observer
-    // must re-attach to the new element.
-  }, [hasMoreHistory, isLoadingMore, loadMoreHistory, loading, rightTab]);
+    try {
+      const raw = Number(localStorage.getItem(ZOOM_KEY));
+      if (Number.isFinite(raw) && raw >= ZOOM_MIN && raw <= ZOOM_MAX) {
+        setAssetCardWidth(raw);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  const setZoom = (value: number) => {
+    const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
+    setAssetCardWidth(clamped);
+    try {
+      localStorage.setItem(ZOOM_KEY, String(clamped));
+    } catch {
+      /* ignore */
+    }
+  };
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return items
-      .filter((i) => (filterKind === "all" ? true : i.kind === filterKind))
-      .filter((i) => (q ? i.prompt.toLowerCase().includes(q) : true));
-  }, [items, search, filterKind]);
+  // The search box is a local, immediately-responsive value; the store is
+  // written on the same keystroke but debounces the query behind it. Binding
+  // the input straight to the store would be fine too — this exists so the
+  // field never lags behind typing if a render happens to be slow.
+  const [searchDraft, setSearchDraft] = useState(search);
+  useEffect(() => {
+    setSearchDraft(search);
+  }, [search]);
 
-  const favorites = useMemo(() => {
-    return filtered
-      .filter((i) => i.isFavorite)
-      .sort(
-        (a, b) =>
-          (b.favoritedAt ?? b.updatedAt) - (a.favoritedAt ?? a.updatedAt)
-      );
-  }, [filtered]);
-  const favoriteImages = useMemo(
-    () => favorites.filter((i) => i.kind === "image"),
-    [favorites]
-  );
-  const favoriteVideos = useMemo(
-    () => favorites.filter((i) => i.kind === "video"),
-    [favorites]
-  );
-  const favoriteTotal = items.filter((i) => i.isFavorite).length;
-
-  const filteredIds = useMemo(() => filtered.map((i) => i.id), [filtered]);
+  const itemIds = useMemo(() => items.map((i) => i.id), [items]);
   const allSelected =
-    filteredIds.length > 0 && filteredIds.every((id) => selectedIds.includes(id));
+    itemIds.length > 0 && itemIds.every((id) => selectedIds.includes(id));
   const selectedImageIds = useMemo(
     () =>
       items
@@ -145,21 +134,21 @@ export function HistoryPanel() {
 
   return (
     <div className="flex h-full flex-col bg-ink-850">
-      {/* Scope bar — ONE row for everything that used to take two or three.
-          The three destinations are scopes over the same asset pool, so the
-          active project's name rides inside its own tab rather than getting a
-          near-empty row of its own below. That also removes the old label
-          collision: the global tab now says "All assets" explicitly, while the
-          project's own catch-all row in the folder rail says "All in project". */}
+      {/* ── scope bar ────────────────────────────────────────────────────────
+          One row: where you are (project / all / favourites) on the left, how
+          you are filtering it on the right.
+
+          The previous version reserved a 20rem floor for the filter cluster and
+          let the tab group shrink freely, which at the panel's real width put
+          the search field at about 70px — clipped to "Pro…" and unusable — while
+          the tab group kept its full size. The floor is now on the search field
+          itself, and the tabs give up their labels first (see the container
+          query in globals.css). Losing a word off a tab you can still identify
+          by icon and position costs less than losing the search box. */}
       <div className="scope-bar flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2.5">
-        {/* min-w-0 + shrink is what lets the overflow-x-auto actually engage:
-            without it this group claims its full content width and pushes the
-            controls opposite it off the row. */}
-        <div className="scroll-none flex w-fit min-w-0 max-w-full shrink items-center gap-1 overflow-x-auto rounded-full bg-ink-700 p-1">
-          {/* Project tab doubles as the project switcher + manager, so the
-              separate selector row and its overflow menu both disappear. */}
+        <div className="scope-tabs flex min-w-0 shrink items-center gap-1 rounded-full bg-ink-700 p-1">
           <Dropdown
-            className="min-w-0"
+            className="min-w-0 shrink"
             trigger={(open) => (
               <span
                 onClick={() => setRightTab("project")}
@@ -173,9 +162,12 @@ export function HistoryPanel() {
                 title={project ? `Project: ${project.name}` : "No project yet"}
               >
                 <Layers className="h-4 w-4 shrink-0" />
-                <span className="max-w-[7.5rem] truncate">
+                <span className="scope-project-name min-w-0 max-w-[9rem] truncate">
                   {project ? project.name : "Project"}
                 </span>
+                {rightTab === "project" && counts.project.total > 0 && (
+                  <ScopeCount n={counts.project.total} active />
+                )}
                 <ChevronDown
                   className={cn(
                     "h-3.5 w-3.5 shrink-0 opacity-60 transition-transform",
@@ -243,39 +235,58 @@ export function HistoryPanel() {
             )}
           </Dropdown>
 
-          <TabBtn active={rightTab === "history"} onClick={() => setRightTab("history")}>
-            <LayoutGrid className="h-4 w-4" /> All assets
+          <TabBtn
+            active={rightTab === "history"}
+            onClick={() => setRightTab("history")}
+            label="All assets"
+            count={counts.allAssets}
+          >
+            <LayoutGrid className="h-4 w-4" />
           </TabBtn>
           <TabBtn
             active={rightTab === "favorites"}
             onClick={() => setRightTab("favorites")}
+            label="Favourites"
+            count={counts.favorites}
           >
-            <Star className="h-4 w-4" /> Favourites
+            <Star className="h-4 w-4" />
           </TabBtn>
         </div>
 
-        {/* A real min-width, NOT min-w-0. With min-w-0 this cluster was free to
-            shrink to zero, so instead of wrapping it collapsed and its
-            non-shrinkable children (the type pill, the zoom slider) rendered
-            straight over the tabs — with a long project name the search field
-            disappeared entirely. Giving it a floor makes the parent's
-            flex-wrap do its job: when less than this is free it drops to a
-            second row, which is the correct degradation.
-
-            20rem is the sum of what lives here, not a guess: search (min ~6rem
-            before it stops being usable) + the type pill (~7rem) + the zoom
-            slider (~6rem) + two gaps. Anything smaller and the search field is
-            squeezed to a sliver instead of the row wrapping — which is the
-            failure this replaces, only less obvious. */}
-        <div className="scope-actions flex min-w-[20rem] flex-1 items-center justify-end gap-2">
-          <div className="relative min-w-0 flex-1">
+        <div className="scope-actions flex min-w-0 flex-1 items-center justify-end gap-2">
+          {/* A real minimum on the field that needs one, rather than on the
+              cluster around it. Below this the bar wraps to a second row, which
+              is the correct degradation — a clipped search box is not. */}
+          <div className="relative min-w-[9rem] flex-1">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Prompt keywords"
-              className="w-full rounded-full border border-line bg-ink-700 py-1.5 pl-8 pr-3 text-sm text-white/90 placeholder:text-white/35 outline-none transition focus:border-brand/40 focus:bg-ink-650"
+              value={searchDraft}
+              onChange={(e) => {
+                setSearchDraft(e.target.value);
+                setSearch(e.target.value);
+              }}
+              placeholder="Search prompts"
+              aria-label="Search prompts"
+              className="w-full rounded-full border border-line bg-ink-700 py-1.5 pl-8 pr-8 text-sm text-white/90 outline-none transition placeholder:text-white/35 focus:border-brand/40 focus:bg-ink-650"
             />
+            {/* Search now runs against the database rather than the handful of
+                rows the client had loaded, so an active query can hide a lot.
+                It needs an obvious way out. */}
+            {searchDraft && (
+              <button
+                onClick={() => {
+                  setSearchDraft("");
+                  setSearch("");
+                }}
+                className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-white/40 transition hover:bg-white/10 hover:text-white"
+                aria-label="Clear search"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {refreshing && (
+              <Loader2 className="pointer-events-none absolute right-8 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-white/30" />
+            )}
           </div>
 
           <Dropdown
@@ -309,230 +320,183 @@ export function HistoryPanel() {
             }
           </Dropdown>
 
-          {/* Zoom lived in its own justify-end row on two of the three tabs,
-              costing a full row to hold one control. It belongs here.
-              shrink-0 because it was one of the controls that overflowed. */}
           <AssetZoomControl
             value={assetCardWidth}
-            onChange={setAssetCardWidth}
+            onChange={setZoom}
             className="shrink-0"
           />
         </div>
       </div>
 
+      {/* selection toolbar — only while something is selected, so it stops
+          costing a permanent row for a count nobody was reading */}
+      {selectedIds.length > 0 && (
+        <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line bg-ink-800/60 px-4 py-2">
+          <button
+            onClick={() => (allSelected ? clearSelection() : selectAll(itemIds))}
+            className="flex items-center gap-2 text-sm text-white/70 transition hover:text-white"
+          >
+            <span
+              className={cn(
+                "grid h-4 w-4 place-items-center rounded border transition",
+                allSelected
+                  ? "border-brand bg-brand text-ink-900"
+                  : "border-white/40 text-transparent"
+              )}
+            >
+              <Check className="h-3 w-3" strokeWidth={3} />
+            </span>
+            {allSelected ? "Deselect all" : "Select all"}
+          </button>
+
+          <span className="text-sm text-white/45">{selectedIds.length} selected</span>
+
+          <button
+            onClick={downloadSelectedZip}
+            disabled={!selectedImageIds.length || isDownloadingZip}
+            className="flex items-center gap-2 rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
+            title={
+              selectedImageIds.length
+                ? "Download selected images as a ZIP"
+                : "Select at least one image to download as a ZIP"
+            }
+          >
+            {isDownloadingZip ? (
+              "Preparing ZIP…"
+            ) : (
+              <>
+                <Download className="h-3.5 w-3.5" /> Download ZIP
+              </>
+            )}
+          </button>
+
+          <Dropdown
+            align="right"
+            trigger={(open) => (
+              <span
+                className={cn(
+                  "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30",
+                  open && "bg-brand/30"
+                )}
+              >
+                <Layers className="h-3.5 w-3.5" /> Move to project
+                <ChevronDown
+                  className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
+                />
+              </span>
+            )}
+          >
+            {(close) =>
+              projects.length === 0 ? (
+                <p className="px-2 py-1.5 text-sm text-white/45">No projects yet.</p>
+              ) : (
+                projects.map((p) => (
+                  <MenuItem
+                    key={p.id}
+                    onClick={() => {
+                      moveItemsToProject(selectedIds, p.id, null);
+                      close();
+                    }}
+                  >
+                    <Layers className="h-4 w-4 text-white/45" />
+                    <span className="flex-1 truncate">{p.name}</span>
+                  </MenuItem>
+                ))
+              )
+            }
+          </Dropdown>
+
+          <button
+            onClick={clearSelection}
+            className="ml-auto grid h-7 w-7 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white"
+            aria-label="Clear selection"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* body */}
       {rightTab === "project" ? (
-        <div className="relative min-h-0 flex-1">
-          <ProjectPanel />
-        </div>
-      ) : rightTab === "favorites" ? (
-        <div className="scroll-thin relative min-h-0 flex-1 overflow-y-auto px-4 py-4">
-          {/* zoom control now lives in the scope bar — this row held one widget */}
-          {loading ? (
-            <SkeletonGrid />
-          ) : favorites.length === 0 ? (
-            <EmptyFavorites hasFavorites={favoriteTotal > 0} />
-          ) : filterKind === "all" ? (
-            <div className="space-y-6">
-              {favoriteImages.length > 0 && (
-                <FavoriteSection
-                  title="Images"
-                  count={favoriteImages.length}
-                  icon={<ImageIcon className="h-4 w-4" />}
-                  items={favoriteImages}
-                  cardWidth={assetCardWidth}
-                />
-              )}
-              {favoriteVideos.length > 0 && (
-                <FavoriteSection
-                  title="Videos"
-                  count={favoriteVideos.length}
-                  icon={<Play className="h-4 w-4" />}
-                  items={favoriteVideos}
-                  cardWidth={assetCardWidth}
-                />
-              )}
-            </div>
-          ) : (
-            <FavoriteSection
-              title={filterKind === "image" ? "Images" : "Videos"}
-              count={favorites.length}
-              icon={
-                filterKind === "image" ? (
-                  <ImageIcon className="h-4 w-4" />
-                ) : (
-                  <Play className="h-4 w-4" />
-                )
-              }
-              items={favorites}
-              cardWidth={assetCardWidth}
-            />
-          )}
-          {/* favourites are derived from the loaded history pages — keep
-              paging until everything favourited is in memory */}
-          {hasMoreHistory && !loading && (
-            <div
-              ref={observerTarget}
-              className="flex h-20 w-full items-center justify-center opacity-50"
-            >
-              {isLoadingMore ? "Loading more..." : ""}
-            </div>
-          )}
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <ProjectPanel cardWidth={assetCardWidth} />
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {/* Selection toolbar. The All/Images/Videos pills that used to sit
-              here drove the SAME filterKind state as the scope bar's "All
-              types" dropdown — two controls, two rows, one piece of state.
-              The dropdown won because it works on all three tabs. */}
-          {filtered.length > 0 && (
-            <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
-              <button
-                onClick={() =>
-                  allSelected ? clearSelection() : selectAll(filteredIds)
-                }
-                className="flex items-center gap-2 text-sm text-white/70 hover:text-white"
-              >
-                <span
-                  className={cn(
-                    "grid h-4 w-4 place-items-center rounded border transition",
-                    allSelected
-                      ? "border-brand bg-brand text-ink-900"
-                      : "border-white/40 text-transparent"
-                  )}
-                >
-                  <Check className="h-3 w-3" strokeWidth={3} />
-                </span>
-                {allSelected ? "Deselect all" : "Select all"}
-              </button>
-
-              <span className="text-sm text-white/35">
-                {filtered.length} {filtered.length === 1 ? "item" : "items"}
-              </span>
-
-              {selectedIds.length > 0 && (
-                <>
-                  <span className="text-sm text-white/45">
-                    {selectedIds.length} selected
-                  </span>
-                  <button
-                    onClick={downloadSelectedZip}
-                    disabled={!selectedImageIds.length || isDownloadingZip}
-                    className="flex items-center gap-2 rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
-                    title={
-                      selectedImageIds.length
-                        ? "Download selected images as a ZIP"
-                        : "Select at least one image to download as a ZIP"
-                    }
-                  >
-                    {isDownloadingZip ? (
-                      "Preparing ZIP..."
-                    ) : (
-                      <>
-                        <Download className="h-3.5 w-3.5" /> Download ZIP
-                      </>
-                    )}
-                  </button>
-                  <Dropdown
-                    align="right"
-                    trigger={(open) => (
-                      <span
-                        className={cn(
-                          "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30",
-                          open && "bg-brand/30"
-                        )}
-                      >
-                        <Layers className="h-3.5 w-3.5" /> Move to project
-                        <ChevronDown
-                          className={cn(
-                            "h-3.5 w-3.5 transition-transform",
-                            open && "rotate-180"
-                          )}
-                        />
-                      </span>
-                    )}
-                  >
-                    {(close) =>
-                      projects.length === 0 ? (
-                        <p className="px-2 py-1.5 text-sm text-white/45">
-                          No projects yet.
-                        </p>
-                      ) : (
-                        projects.map((p) => (
-                          <MenuItem
-                            key={p.id}
-                            onClick={() => {
-                              moveItemsToProject(selectedIds, p.id, null);
-                              close();
-                            }}
-                          >
-                            <Layers className="h-4 w-4 text-white/45" />
-                            <span className="flex-1 truncate">{p.name}</span>
-                          </MenuItem>
-                        ))
-                      )
-                    }
-                  </Dropdown>
-                  <button
-                    onClick={clearSelection}
-                    className="grid h-7 w-7 place-items-center rounded-lg text-white/55 hover:bg-white/10 hover:text-white"
-                    aria-label="Clear selection"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </>
-              )}
-
-            </div>
-          )}
-
-          <div className="scroll-thin relative flex-1 overflow-y-auto px-4 py-4">
-            {loading ? (
-              <SkeletonGrid />
-            ) : filtered.length === 0 ? (
-              <EmptyHistory hasItems={items.length > 0} />
-            ) : (
-              <div
-                className="grid gap-3"
-                style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${assetCardWidth}px, 1fr))` }}
-              >
-                <AnimatePresence mode="popLayout">
-                  {filtered.map((item) => (
-                    <div key={item.id}>
-                      <MediaCard item={item} selectable />
-                    </div>
-                  ))}
-                </AnimatePresence>
-                {/* Infinite Scroll Trigger */}
-                {hasMoreHistory && (
-                  <div
-                    ref={observerTarget}
-                    className="col-span-full flex h-20 w-full items-center justify-center opacity-50"
-                  >
-                    {isLoadingMore ? "Loading more..." : ""}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+          <AssetGrid
+            items={items}
+            loading={loading}
+            cardWidth={assetCardWidth}
+            empty={
+              rightTab === "favorites" ? (
+                <EmptyState
+                  icon={<Star className="h-6 w-6 text-amber-300/70" />}
+                  title={
+                    search.trim() || filterKind !== "all"
+                      ? "No matching favourites"
+                      : "No favourites yet"
+                  }
+                  body={
+                    search.trim() || filterKind !== "all"
+                      ? "No starred item matches the current search and type filter."
+                      : "Star your best generations and they collect here, newest first."
+                  }
+                />
+              ) : (
+                <EmptyState
+                  icon={<History className="h-6 w-6" />}
+                  title={
+                    search.trim() || filterKind !== "all"
+                      ? "No matches"
+                      : "Nothing generated yet"
+                  }
+                  body={
+                    search.trim() || filterKind !== "all"
+                      ? "No generation matches the current search and type filter."
+                      : "Every image and video the team generates appears here."
+                  }
+                />
+              )
+            }
+            renderItem={(item) => <MediaCard item={item} selectable />}
+          />
         </div>
       )}
     </div>
   );
 }
 
+function ScopeCount({ n, active }: { n: number; active?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "scope-tab-count shrink-0 rounded-full px-1.5 text-[11px] font-medium tabular-nums",
+        active ? "bg-white/10 text-white/60" : "text-white/35"
+      )}
+    >
+      {n > 999 ? `${Math.floor(n / 1000)}k` : n}
+    </span>
+  );
+}
+
 function TabBtn({
   active,
   onClick,
+  label,
+  count,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  label: string;
+  count: number;
   children: React.ReactNode;
 }) {
   return (
     <button
       onClick={onClick}
+      title={label}
+      aria-label={label}
       className={cn(
         "relative flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
         active ? "text-white" : "text-white/50 hover:text-white/80"
@@ -545,7 +509,14 @@ function TabBtn({
           className="absolute inset-0 rounded-full bg-ink-600 shadow-sm ring-1 ring-line"
         />
       )}
-      <span className="relative z-10 flex items-center gap-1.5">{children}</span>
+      <span className="relative z-10 flex items-center gap-1.5">
+        {children}
+        {/* Hidden by the container query when the bar is tight — the icon and
+            position still identify the tab, and the space buys back a usable
+            search field. */}
+        <span className="scope-tab-label whitespace-nowrap">{label}</span>
+        {count > 0 && <ScopeCount n={count} active={active} />}
+      </span>
     </button>
   );
 }
@@ -560,79 +531,6 @@ function Pill({ open, children }: { open: boolean; children: React.ReactNode }) 
     >
       {children}
     </span>
-  );
-}
-
-// FilterPill removed: it rendered the All/Images/Videos triplet that duplicated
-// the scope bar's "All types" dropdown over the same filterKind state.
-
-function SkeletonGrid() {
-  const heights = [180, 240, 200, 280, 160, 220, 260, 190];
-  return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))" }}>
-      {heights.map((h, i) => (
-        <div
-          key={i}
-          className="skeleton rounded-xl"
-          style={{ height: h }}
-        />
-      ))}
-    </div>
-  );
-}
-
-function EmptyHistory({ hasItems }: { hasItems: boolean }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex h-full flex-col items-center justify-center gap-3 text-center"
-    >
-      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-ink-700 ring-1 ring-line">
-        <History className="h-6 w-6 text-white/40" />
-      </div>
-      <p className="text-sm text-white/55">
-        {hasItems ? "No results match your filters." : "Your generations will appear here."}
-      </p>
-    </motion.div>
-  );
-}
-
-function FavoriteSection({
-  title,
-  count,
-  icon,
-  items,
-  cardWidth,
-}: {
-  title: string;
-  count: number;
-  icon: React.ReactNode;
-  items: GenerationItem[];
-  cardWidth: number;
-}) {
-  return (
-    <section>
-      <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-white/85">
-        <span className="text-amber-300">{icon}</span>
-        <span>{title}</span>
-        <span className="rounded-full bg-white/[0.08] px-1.5 py-0.5 text-[11px] font-medium text-white/45">
-          {count}
-        </span>
-      </div>
-      <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
-      >
-        <AnimatePresence mode="popLayout">
-          {items.map((item) => (
-            <div key={item.id}>
-              <MediaCard item={item} />
-            </div>
-          ))}
-        </AnimatePresence>
-      </div>
-    </section>
   );
 }
 
@@ -654,8 +552,8 @@ function AssetZoomControl({
     >
       <button
         type="button"
-        onClick={() => onChange(Math.max(120, value - 10))}
-        disabled={value <= 120}
+        onClick={() => onChange(value - 20)}
+        disabled={value <= ZOOM_MIN}
         className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
         aria-label="Zoom assets out"
         title="Smaller assets"
@@ -664,8 +562,8 @@ function AssetZoomControl({
       </button>
       <input
         type="range"
-        min={120}
-        max={260}
+        min={ZOOM_MIN}
+        max={ZOOM_MAX}
         step={10}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
@@ -675,8 +573,8 @@ function AssetZoomControl({
       />
       <button
         type="button"
-        onClick={() => onChange(Math.min(260, value + 10))}
-        disabled={value >= 260}
+        onClick={() => onChange(value + 20)}
+        disabled={value >= ZOOM_MAX}
         className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
         aria-label="Zoom assets in"
         title="Larger assets"
@@ -684,24 +582,5 @@ function AssetZoomControl({
         <ZoomIn className="h-3.5 w-3.5" />
       </button>
     </div>
-  );
-}
-
-function EmptyFavorites({ hasFavorites }: { hasFavorites: boolean }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex h-full flex-col items-center justify-center gap-3 text-center"
-    >
-      <div className="grid h-14 w-14 place-items-center rounded-2xl bg-ink-700 ring-1 ring-line">
-        <Star className="h-6 w-6 text-amber-300/70" />
-      </div>
-      <p className="text-sm text-white/55">
-        {hasFavorites
-          ? "No favourites match your filters."
-          : "Star your best generations and they will collect here."}
-      </p>
-    </motion.div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   X,
@@ -160,9 +160,9 @@ function ReferenceCollage({ images }: { images: string[] }) {
 export function DetailModal() {
   const activeId = useStore((s) => s.activeId);
   const items = useStore((s) => s.items);
-  const rightTab = useStore((s) => s.rightTab);
-  const search = useStore((s) => s.search);
-  const filterKind = useStore((s) => s.filterKind);
+  // rightTab/search/filterKind are no longer read here: the feed arrives
+  // already filtered and ordered by those, so re-deriving them would only
+  // create a second, drifting definition of the same list.
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
@@ -170,31 +170,21 @@ export function DetailModal() {
   const removeItem = useStore((s) => s.removeItem);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
 
+  // `items` is already the scope the user is looking at — server-filtered and
+  // in the same order the grid renders — so arrow-key navigation just walks it.
+  // The old per-tab re-filter and re-sort here duplicated the panel's rules and
+  // had already drifted from them (it sorted favourites by favoritedAt but the
+  // grid did not), which showed up as the arrow keys jumping to a different
+  // image than the one visually next to the current card.
   const item = items.find((i) => i.id === activeId) || null;
-  const navigableItems = (() => {
-    if (!item) return [];
-    if (rightTab === "favorites") {
-      const q = search.trim().toLowerCase();
-      return items
-        .filter((candidate) => candidate.isFavorite)
-        .filter((candidate) =>
-          filterKind === "all" ? true : candidate.kind === filterKind
-        )
-        .filter((candidate) =>
-          q ? candidate.prompt.toLowerCase().includes(q) : true
-        )
-        .sort(
-          (a, b) =>
-            (b.favoritedAt ?? b.updatedAt) - (a.favoritedAt ?? a.updatedAt)
-        )
-        .filter(
-          (candidate) => candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
-        );
-    }
-    return items.filter(
-      (candidate) => candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
-    );
-  })();
+  const navigableItems = useMemo(
+    () =>
+      items.filter(
+        (candidate) =>
+          candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
+      ),
+    [items]
+  );
 
   // Closing the modal while a <video>'s native fullscreen is still active
   // (or mid-exit-transition) unmounts the fullscreen element out from under
