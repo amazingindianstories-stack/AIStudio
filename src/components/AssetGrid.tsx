@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -16,9 +23,16 @@ import type { GenerationItem } from "@/lib/types";
  * masonry (`columns-… [column-fill:_balance]`). Column balancing is a global
  * calculation: appending a page of results re-distributes *every* card across
  * the columns, so each turn of the infinite scroll visibly reshuffled
- * everything the user had already scrolled past. A CSS grid with a fixed track
- * definition is append-stable by construction — card N's position never depends
- * on card N+1's existence — which is the property the masonry could not have.
+ * everything the user had already scrolled past.
+ *
+ * Layout is masonry again — but packed in JS by `packColumns`, not by CSS.
+ * The intermediate version here was a uniform CSS grid, which fixed the
+ * reshuffle (a fixed track is append-stable by construction) at the cost of
+ * ragged dead space: a grid row is as tall as its tallest card, so a 9:16
+ * portrait left a visible band of nothing under the 21:9 beside it. Greedy
+ * shortest-column packing gets both properties — it fills the gaps AND depends
+ * only on the items before each card, so appending cannot move what is already
+ * placed. See packColumns.
  *
  * Three further sources of movement are handled here rather than in the store:
  *  - `overflow-anchor` is left at its default so the browser pins the scroll
@@ -52,6 +66,26 @@ export function AssetGrid({
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Column count is derived from the measured scroller, not from a CSS
+  // `auto-fill` track, because the packing below has to know it too — and the
+  // two must agree exactly or cards would be laid out against a different
+  // column count than they were assigned to.
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const measure = () => setWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const columns = useMemo(
+    () => packColumns(items, width, cardWidth),
+    [items, width, cardWidth]
+  );
 
   // Tell the store whether an insert at the head would be visible or would
   // shove the viewport. `pinned` is deliberately a small band rather than
@@ -116,25 +150,29 @@ export function AssetGrid({
           <div className="h-[60vh]">{empty}</div>
         ) : (
           <>
-            <div
-              className="grid gap-3"
-              style={{
-                gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))`,
-              }}
-            >
-              {/* No `mode="popLayout"`. popLayout takes exiting children out of
-                  flow and animates their siblings into the gap, which is the
-                  right effect for a small list and precisely the wrong one for
-                  a grid that is being appended to while scrolled. */}
-              <AnimatePresence initial={false}>
-                {items.map((item) => (
-                  <div key={item.id}>{renderItem(item)}</div>
-                ))}
-              </AnimatePresence>
+            {/* Masonry columns, packed in JS. A uniform CSS grid made every row
+                as tall as its tallest card, so a 9:16 portrait next to a 21:9
+                still left a band of dead space under the short ones — very
+                visible in a library that mixes those aspect ratios. */}
+            <div className="flex items-start gap-3">
+              {columns.map((column, ci) => (
+                <div key={ci} className="flex min-w-0 flex-1 flex-col gap-3">
+                  {/* No `mode="popLayout"`. popLayout takes exiting children
+                      out of flow and animates their siblings into the gap,
+                      which is the right effect for a small list and precisely
+                      the wrong one for a grid being appended to while
+                      scrolled. */}
+                  <AnimatePresence initial={false}>
+                    {column.map((item) => (
+                      <div key={item.id}>{renderItem(item)}</div>
+                    ))}
+                  </AnimatePresence>
+                </div>
+              ))}
             </div>
 
-            {/* Outside the grid: as a grid child this would occupy a cell and
-                shuffle the final row every time it mounted or unmounted. */}
+            {/* Outside the columns: inside one it would lengthen that column
+                and shift its packing every time it mounted or unmounted. */}
             {hasMoreHistory && (
               <div
                 ref={sentinelRef}
@@ -177,6 +215,66 @@ export function AssetGrid({
       </AnimatePresence>
     </div>
   );
+}
+
+const GRID_GAP = 12; // matches gap-3
+
+/** Relative height of a card, from its aspect ratio, in units of one column
+ *  width. Only the ratio matters for packing, so no DOM measurement is needed —
+ *  which is what keeps the layout deterministic and free of a measure/paint
+ *  feedback loop. */
+function relativeHeight(aspectRatio: string | undefined): number {
+  const [w, h] = String(aspectRatio ?? "").split(":").map(Number);
+  if (!w || !h || !Number.isFinite(w) || !Number.isFinite(h)) return 9 / 16;
+  return h / w;
+}
+
+/**
+ * Greedy shortest-column packing — masonry that cannot reshuffle.
+ *
+ * This is the specific property the previous CSS `columns` masonry lacked.
+ * `column-fill: balance` equalises column heights across the WHOLE set, so
+ * appending a page redistributed every card that was already on screen — the
+ * reshuffle-while-scrolling this replaced. Here each item is placed, in order,
+ * into whichever column is currently shortest, so a placement depends only on
+ * the items *before* it. Appending items n+1… therefore cannot change where
+ * items 1…n landed, and re-running the whole pack on every render reproduces
+ * the identical prefix.
+ *
+ * (Re-packing does happen when the column count changes — a panel resize or a
+ * zoom change — and when a new item is prepended. Both are direct consequences
+ * of something the user just did, not movement under a passive scroll.)
+ */
+export function packColumns<T extends { id: string; aspectRatio?: string }>(
+  items: T[],
+  containerWidth: number,
+  cardWidth: number
+): T[][] {
+  const count = columnCount(containerWidth, cardWidth);
+  const columns: T[][] = Array.from({ length: count }, () => []);
+  const heights = new Array(count).fill(0);
+
+  for (const item of items) {
+    let target = 0;
+    for (let i = 1; i < count; i++) {
+      // Strictly-less keeps ties going to the leftmost column, so the very
+      // first row fills left-to-right the way reading order expects.
+      if (heights[i] < heights[target]) target = i;
+    }
+    columns[target].push(item);
+    heights[target] += relativeHeight(item.aspectRatio) + 0.06; // + gap
+  }
+  return columns;
+}
+
+/** How many cards fit across, honouring the zoom control's card width as a
+ *  minimum. Mirrors what `repeat(auto-fill, minmax(cardWidth, 1fr))` would do. */
+export function columnCount(containerWidth: number, cardWidth: number): number {
+  // Before the first measurement, guess one column rather than zero: zero
+  // columns would drop every item on the floor for a frame.
+  if (!containerWidth) return 1;
+  const usable = containerWidth - 32; // px-4 either side
+  return Math.max(1, Math.floor((usable + GRID_GAP) / (cardWidth + GRID_GAP)));
 }
 
 /** Skeleton tiles on the same track definition as the real grid, so the
