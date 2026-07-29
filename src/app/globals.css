@@ -226,3 +226,13 @@ body {
     max-width: 6rem;
   }
 }
+
+/* The chat header's shortcut strip stands in for the collapsed assets panel.
+   It shares the conversation column, which is narrow on small screens, so the
+   two secondary labels go first — their icons and counts still identify them,
+   and the project name is the label actually worth keeping. */
+@media (max-width: 40rem) {
+  .chat-scope-label {
+    display: none;
+  }
+}

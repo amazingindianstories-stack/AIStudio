@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   try {
     user = await getSession();
     costCents = computeCostCents(
-      { kind: "video", model, resolution, duration },
+      { kind: "video", model, resolution, duration, generateAudio },
       await readPricing()
     );
     savedRefs = referenceImages?.length

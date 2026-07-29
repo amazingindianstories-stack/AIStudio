@@ -17,6 +17,7 @@ import {
   Download,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { ChatScopeBar } from "./ChatScopeBar";
 import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
 import type { GenerationItem } from "@/lib/types";
 
@@ -65,6 +66,8 @@ export function ConversationPanel() {
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+      {/* Renders only while the assets panel is collapsed — see ChatScopeBar. */}
+      <ChatScopeBar />
       <div
         ref={scrollRef}
         onScroll={onScroll}

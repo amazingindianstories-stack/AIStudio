@@ -23,7 +23,11 @@ export default function Page() {
   const mobileHistoryOpen = useStore((s) => s.mobileHistoryOpen);
   const setMobileHistoryOpen = useStore((s) => s.setMobileHistoryOpen);
   const view = useStore((s) => s.view);
-  const [rightPanelOpen, setRightPanelOpen] = useState(true);
+  // Panel open/closed is store state now: ConversationPanel renders the
+  // shortcut strip that replaces this panel while it is collapsed, so both
+  // need to agree on which of the two is showing.
+  const rightPanelOpen = useStore((s) => s.rightPanelOpen);
+  const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const mobileDrawerRef = useRef<HTMLElement>(null);
   const mobileCloseRef = useRef<HTMLButtonElement>(null);
 
@@ -118,7 +122,7 @@ export default function Page() {
                 <div className="flex w-10 shrink-0 items-center justify-center border-l border-line bg-ink-900">
                   <button
                     type="button"
-                    onClick={() => setRightPanelOpen((open) => !open)}
+                    onClick={() => setRightPanelOpen(!rightPanelOpen)}
                     className="grid h-9 w-9 place-items-center rounded-lg text-white/55 transition hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
                     aria-expanded={rightPanelOpen}
                     aria-controls="desktop-history-panel"

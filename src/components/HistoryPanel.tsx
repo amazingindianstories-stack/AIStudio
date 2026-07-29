@@ -14,9 +14,6 @@ import {
   ZoomIn,
   ZoomOut,
   Download,
-  Plus,
-  Pencil,
-  Trash2,
   Loader2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -24,6 +21,7 @@ import { MediaCard } from "./MediaCard";
 import { ProjectPanel, EmptyState } from "./ProjectPanel";
 import { AssetGrid } from "./AssetGrid";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { ProjectMenu } from "./ProjectMenu";
 import { cn } from "@/lib/utils";
 import type { GenerationKind } from "@/lib/types";
 
@@ -48,10 +46,6 @@ export function HistoryPanel() {
   const moveItemsToProject = useStore((s) => s.moveItemsToProject);
   const projects = useStore((s) => s.projects);
   const activeProjectId = useStore((s) => s.activeProjectId);
-  const setActiveProject = useStore((s) => s.setActiveProject);
-  const createProject = useStore((s) => s.createProject);
-  const renameProject = useStore((s) => s.renameProject);
-  const deleteProject = useStore((s) => s.deleteProject);
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
@@ -205,62 +199,7 @@ export function HistoryPanel() {
                 </span>
               )}
             >
-              {(close) => (
-                <>
-                  {projects.map((p) => (
-                    <MenuItem
-                      key={p.id}
-                      active={p.id === activeProjectId}
-                      onClick={() => {
-                        setActiveProject(p.id);
-                        setRightTab("project");
-                        close();
-                      }}
-                    >
-                      <Layers className="h-4 w-4 text-white/45" />
-                      <span className="flex-1 truncate">{p.name}</span>
-                      {p.id === activeProjectId && <Check className="h-4 w-4 text-brand" />}
-                    </MenuItem>
-                  ))}
-                  <div className="my-1 h-px bg-line" />
-                  <MenuItem
-                    onClick={() => {
-                      const name = window.prompt("New project name");
-                      if (name?.trim()) createProject(name.trim());
-                      close();
-                    }}
-                  >
-                    <Plus className="h-4 w-4 text-white/60" /> New project
-                  </MenuItem>
-                  {project && (
-                    <>
-                      <MenuItem
-                        onClick={() => {
-                          const name = window.prompt("Rename project", project.name);
-                          if (name?.trim()) renameProject(project.id, name.trim());
-                          close();
-                        }}
-                      >
-                        <Pencil className="h-4 w-4 text-white/60" /> Rename project
-                      </MenuItem>
-                      <MenuItem
-                        onClick={() => {
-                          if (
-                            window.confirm(
-                              `Delete project "${project.name}"? Its items return to All assets.`
-                            )
-                          )
-                            deleteProject(project.id);
-                          close();
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4 text-red-400/80" />
-                        <span className="text-red-300/90">Delete project</span>
-                      </MenuItem>
-                    </>
-                  )}
-                </>
-              )}
+              {(close) => <ProjectMenu close={close} />}
             </Dropdown>
           </div>
 

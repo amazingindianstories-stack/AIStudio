@@ -119,6 +119,11 @@ interface AppState extends ComposerState {
   /** Set by the grid: true when it is scrolled at (or near) the top, where an
    *  insert is visible and harmless. */
   feedPinned: boolean;
+  /** Whether the right-hand assets panel is expanded. Lives here rather than in
+   *  page.tsx because the chat header renders a shortcut strip that stands in
+   *  for the panel while it is collapsed, and the two must not both be on
+   *  screen. Defaults CLOSED so the workspace opens on the conversation. */
+  rightPanelOpen: boolean;
 
   generating: boolean;
   rightTab: RightTab;
@@ -181,6 +186,7 @@ interface AppState extends ComposerState {
   /** Merge buffered live arrivals into the visible feed. */
   flushPendingItems: () => void;
   setFeedPinned: (pinned: boolean) => void;
+  setRightPanelOpen: (open: boolean) => void;
   /** Begin/stop the shared live-update poll. Idempotent; safe to call from an
    *  effect that may run twice under React strict mode. */
   startLiveUpdates: () => void;
@@ -416,6 +422,7 @@ export const useStore = create<AppState>((set, get) => ({
   threadLoading: true,
   pendingItems: [],
   feedPinned: true,
+  rightPanelOpen: false,
   generating: false,
   rightTab: "project",
   mobileHistoryOpen: false,
@@ -672,6 +679,8 @@ export const useStore = create<AppState>((set, get) => ({
       return { items, pendingItems: [] };
     });
   },
+
+  setRightPanelOpen: (rightPanelOpen) => set({ rightPanelOpen }),
 
   setFeedPinned: (feedPinned) => {
     // The grid calls this on every scroll event. Writing unconditionally would
@@ -1545,6 +1554,9 @@ export function restoreComposerDraft() {
       if (["project", "history", "favorites"].includes(d.rightTab)) {
         patch.rightTab = d.rightTab;
       }
+      if (typeof d.rightPanelOpen === "boolean") {
+        patch.rightPanelOpen = d.rightPanelOpen;
+      }
       // loadProjects validates the restored project id against the fetched
       // list, so a stale id self-heals to the default project.
       if (typeof d.activeProjectId === "string") patch.activeProjectId = d.activeProjectId;
@@ -1591,6 +1603,7 @@ if (typeof window !== "undefined") {
       projectChanged ||
       searchChanged ||
       s.rightTab !== prev.rightTab ||
+      s.rightPanelOpen !== prev.rightPanelOpen ||
       s.activeFolderId !== prev.activeFolderId ||
       s.filterKind !== prev.filterKind;
     if (!scopeChanged) return;
@@ -1644,6 +1657,7 @@ if (typeof window !== "undefined") {
       s.batchCount !== prev.batchCount ||
       s.generateAudio !== prev.generateAudio ||
       s.rightTab !== prev.rightTab ||
+      s.rightPanelOpen !== prev.rightPanelOpen ||
       s.activeProjectId !== prev.activeProjectId ||
       s.activeFolderId !== prev.activeFolderId
     ) {
@@ -1660,6 +1674,7 @@ if (typeof window !== "undefined") {
             generateAudio: s.generateAudio,
             audioDefault: true,
             rightTab: s.rightTab,
+            rightPanelOpen: s.rightPanelOpen,
             activeProjectId: s.activeProjectId,
             activeFolderId: s.activeFolderId,
           })

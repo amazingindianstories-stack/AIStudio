@@ -1348,10 +1348,26 @@ function PricingTab({ data, reload }: { data: Data; reload: () => void }) {
   };
   return (
     <div className="space-y-2">
-      <p className="text-xs text-white/45">
-        Cost applied to each generation (in cents). Images: per image (scaled by
-        resolution). Videos: per second × duration.
-      </p>
+      <div className="space-y-1 text-xs text-white/45">
+        <p>
+          Cost applied to each generation, in cents, and stored on the row when
+          it is created — editing a rate affects future generations only, never
+          past totals.
+        </p>
+        <p>
+          <span className="text-white/60">Images:</span> per image × resolution
+          factor (1K ×1, 2K ×1.5, 4K ×3).{" "}
+          <span className="text-white/60">Videos:</span> per second × duration ×
+          resolution factor (480p ×0.44, 720p ×1, 1080p ×2.46), where the base
+          rate is the 720p rate.
+        </p>
+        <p>
+          A <span className="text-white/60">· audio</span> row is a surcharge
+          added on top of its base model, at the same duration, and only when
+          the generation requested audio. These are estimates — calibrate them
+          against a real provider invoice.
+        </p>
+      </div>
       <div className="overflow-hidden rounded-xl border border-line">
         <table className="w-full text-sm">
           <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
@@ -1359,6 +1375,7 @@ function PricingTab({ data, reload }: { data: Data; reload: () => void }) {
               <th className="px-3 py-2">Model</th>
               <th className="px-3 py-2">Unit</th>
               <th className="px-3 py-2">Cost (cents)</th>
+              <th className="px-3 py-2">Notes</th>
             </tr>
           </thead>
           <tbody>
@@ -1375,6 +1392,9 @@ function PricingTab({ data, reload }: { data: Data; reload: () => void }) {
                     }
                     className="w-24 rounded-lg border border-line bg-ink-700 px-2 py-1 text-sm outline-none focus:border-brand/40"
                   />
+                </td>
+                <td className="max-w-[26rem] px-3 py-2 text-xs leading-snug text-white/40">
+                  {p.notes}
                 </td>
               </tr>
             ))}
