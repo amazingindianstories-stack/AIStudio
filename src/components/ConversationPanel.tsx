@@ -15,6 +15,8 @@ import {
   Copy,
   Star,
   Download,
+  RefreshCw,
+  Pencil,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
@@ -171,6 +173,7 @@ function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
+  const regenerate = useStore((s) => s.regenerate);
   const label = item.kind === "image" ? "Image" : "Video";
   const pending = item.status === "running" || item.status === "queued";
 
@@ -274,6 +277,33 @@ function FeedBlock({ item, index }: { item: GenerationItem; index: number }) {
                 <Star
                   className={cn("h-4 w-4", item.isFavorite && "fill-current")}
                 />
+              </button>
+              {/* Retry: same prompt and settings, straight back into the queue.
+                  Edit: same, but stops in the composer so the prompt can be
+                  changed first. Both were only reachable from the detail modal,
+                  which is a long way round for the two most common follow-ups
+                  to looking at a result. */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  regenerate(item.id);
+                }}
+                className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
+                aria-label="Generate again"
+                title="Generate again with the same prompt and settings"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cloneToComposer(item.id);
+                }}
+                className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
+                aria-label="Edit in composer"
+                title="Load this prompt, settings and references into the composer"
+              >
+                <Pencil className="h-4 w-4" />
               </button>
               {item.url && (
                 <a

@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { TAG_REGEX, isImgTag } from "@/lib/mentions";
+import { TAG_REGEX, isImgTag, isVidTag } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 
 export interface MentionHandle {
@@ -29,6 +29,9 @@ interface Props {
   onChange: (v: string) => void;
   onSubmit: () => void;
   references: string[]; // data URLs; index+1 => @imgN
+  /** Attached reference clips; index+1 => @vidN. Count only — the composer
+   *  holds stored refs, not anything renderable as a thumbnail here. */
+  videoRefs?: string[];
   assets?: AssetRef[]; // named asset tags (@slug)
   placeholder?: string;
   className?: string;
@@ -47,7 +50,16 @@ const TYPO =
 
 export const MentionTextarea = forwardRef<MentionHandle, Props>(
   function MentionTextarea(
-    { value, onChange, onSubmit, references, assets = [], placeholder, className },
+    {
+      value,
+      onChange,
+      onSubmit,
+      references,
+      videoRefs = [],
+      assets = [],
+      placeholder,
+      className,
+    },
     ref
   ) {
     const taRef = useRef<HTMLTextAreaElement>(null);
@@ -80,7 +92,24 @@ export const MentionTextarea = forwardRef<MentionHandle, Props>(
         sub: `${a.name} · ${a.kind}`,
         thumb: a.thumb,
       }));
-    const available: Suggestion[] = [...assetSuggestions, ...imgSuggestions];
+    // Attached clips get their own tags. These were missing entirely, so typing
+    // @vid1 offered nothing and highlighted red — the tag existed only in the
+    // provider layer, with nothing on this side producing or validating it.
+    const vidSuggestions: Suggestion[] = Array.from(
+      { length: videoRefs.length },
+      (_, i) => i + 1
+    )
+      .filter((n) => `vid${n}`.startsWith(q))
+      .map((n) => ({
+        tag: `@vid${n}`,
+        label: `@vid${n}`,
+        sub: "attached clip",
+      }));
+    const available: Suggestion[] = [
+      ...assetSuggestions,
+      ...imgSuggestions,
+      ...vidSuggestions,
+    ];
 
     const autosize = () => {
       const ta = taRef.current;
@@ -194,7 +223,7 @@ export const MentionTextarea = forwardRef<MentionHandle, Props>(
             TYPO
           )}
         >
-          {renderHighlighted(value, tagCount, assetSlugs)}
+          {renderHighlighted(value, tagCount, assetSlugs, videoRefs.length)}
           {"\n"}
         </div>
 
@@ -278,7 +307,8 @@ export const MentionTextarea = forwardRef<MentionHandle, Props>(
 function renderHighlighted(
   text: string,
   tagCount: number,
-  assetSlugs: Set<string>
+  assetSlugs: Set<string>,
+  videoCount = 0
 ) {
   const out: React.ReactNode[] = [];
   const re = new RegExp(TAG_REGEX);
@@ -291,6 +321,8 @@ function renderHighlighted(
     const n = parseInt(slug.slice(3), 10);
     const valid = isImgTag(slug)
       ? n >= 1 && n <= tagCount
+      : isVidTag(slug)
+      ? n >= 1 && n <= videoCount
       : assetSlugs.has(slug);
     out.push(
       <span

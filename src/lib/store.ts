@@ -205,6 +205,8 @@ interface AppState extends ComposerState {
   retryTextToVideo: (id: string) => Promise<void>;
   editInComposer: (id: string) => void;
   cloneToComposer: (id: string) => Promise<void>;
+  /** Re-run a generation exactly as it was, without going via the composer. */
+  regenerate: (id: string) => Promise<void>;
   addReferenceFromUrl: (url: string) => Promise<void>;
   /** Pull a still frame out of a stored video and add it as a reference. */
   addReferenceFromVideo: (url: string, atSeconds?: number) => Promise<void>;
@@ -920,6 +922,17 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (e) {
       console.error("Failed to add reference from URL:", e);
     }
+  },
+
+  regenerate: async (id) => {
+    // Reuses cloneToComposer rather than rebuilding the payload: it already
+    // restores model/ratio/resolution/duration/audio AND re-fetches the stored
+    // reference images as data URLs, which a fresh submit needs. Then just
+    // submit what it loaded.
+    if (get().generating) return;
+    await get().cloneToComposer(id);
+    if (!get().prompt.trim()) return;
+    await get().generate();
   },
 
   addReferenceFromVideo: async (url, atSeconds) => {

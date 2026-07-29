@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
+import { VideoRefPicker } from "./VideoRefPicker";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, type MentionHandle } from "./MentionTextarea";
 import {
@@ -43,6 +44,7 @@ import {
   durationsForModel,
   resolutionsForModel,
   supportsAudio,
+  supportsVideoReference,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { GenerationKind } from "@/lib/types";
@@ -68,6 +70,7 @@ export function PromptComposer() {
   const toolbarMeasureRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const [extractingFrames, setExtractingFrames] = useState(0);
+  const [pickingClips, setPickingClips] = useState(false);
   const [preferredWidth, setPreferredWidth] = useState(768);
 
   // Bring back the locally cached draft (prompt + reference images) after a
@@ -244,6 +247,8 @@ export function PromptComposer() {
           </p>
         </div>
       )}
+      {pickingClips && <VideoRefPicker onClose={() => setPickingClips(false)} />}
+
       {extractingFrames > 0 && (
         <div className="mb-2 flex items-center gap-2 rounded-lg bg-ink-750 px-3 py-2 text-xs text-white/70">
           <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" />
@@ -353,6 +358,24 @@ export function PromptComposer() {
               >
                 <Upload className="h-4 w-4 text-white/60" /> Local upload
               </MenuItem>
+              {/* The entry point that was missing: without it the only way to
+                  attach a clip was a button inside the detail modal, so the
+                  @vid tags the composer advertises had no way to exist. */}
+              <MenuItem
+                disabled={!supportsVideoReference(s.model)}
+                onClick={() => {
+                  setPickingClips(true);
+                  close();
+                }}
+              >
+                <Clapperboard
+                  className={cn(
+                    "h-4 w-4",
+                    supportsVideoReference(s.model) ? "text-brand" : "text-white/40"
+                  )}
+                />
+                <span className="flex-1">Attach clip (video&#8209;to&#8209;video)</span>
+              </MenuItem>
               <MenuItem disabled>
                 <BookOpen className="h-4 w-4" /> Material library
               </MenuItem>
@@ -377,6 +400,7 @@ export function PromptComposer() {
           onChange={s.setPrompt}
           onSubmit={s.generate}
           references={s.referenceImages}
+          videoRefs={s.referenceVideos}
           placeholder={
             s.mode === "image"
               ? "Describe the image… type @ to reference uploaded images (@img1, @img2)."

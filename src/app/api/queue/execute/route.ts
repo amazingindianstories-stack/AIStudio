@@ -9,7 +9,7 @@ import {
 } from "@/lib/providers/higgsfield-mcp";
 import { createVideoTask } from "@/lib/providers/seedance";
 import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
-import { resolveReferences } from "@/lib/mentions";
+import { resolveReferences, resolveVideoReferences } from "@/lib/mentions";
 import {
   readImageAsBase64,
   saveBase64,
@@ -233,7 +233,9 @@ async function submitVideo(base: GenerationItem): Promise<GenerationItem> {
       // Signed here, at the last possible moment, and never persisted or sent
       // to the browser. BytePlus fetches the clip itself and /api/media/… is
       // session-gated, so a signed URL is the only thing it can actually read.
-      referenceVideoUrls: await signVideoRefs(base.referenceVideos ?? []),
+      referenceVideoUrls: await signVideoRefs(
+        resolveVideoReferences(prompt, base.referenceVideos ?? [])
+      ),
       // Read off the row, not off this request: /api/generate/video only
       // enqueues, so the user's choice reaches the provider through the
       // persisted column and nothing else.
