@@ -18,9 +18,16 @@ export function middleware(req: NextRequest) {
   // /api/admin/set-token is also exempt: it accepts either an admin session
   // OR an x-setup-secret header (token re-seeding from a script with no
   // cookie), and enforces both itself.
+  // /api/media-grant is exempt because its whole purpose is to be fetched by an
+  // external provider that has no session — BytePlus reading a reference clip.
+  // It is NOT unauthenticated: the request carries a short-lived HMAC-signed
+  // grant naming exactly one object, which the route verifies itself, and the
+  // object path comes out of the signature rather than the querystring. Without
+  // this exemption the 401 below would fire before the route ever ran.
   if (
     pathname.startsWith("/api/auth") ||
     pathname === "/api/admin/set-token" ||
+    pathname === "/api/media-grant" ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   ) {

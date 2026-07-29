@@ -154,15 +154,43 @@ export async function getSignedReadUrl(
   }
 }
 
-/** Sign a stored reference (`/api/media/...` or a CDN URL). Returns null when
- *  the ref is not one of ours — an external URL is already fetchable. */
+/**
+ * A provider-fetchable URL for a stored reference (`/api/media/...` or a CDN
+ * URL). Returns null when the ref is not one of ours — an external URL is
+ * already fetchable.
+ *
+ * Tries the cheapest mechanism that works, in order:
+ *  1. cloud presigned URL (or the public CDN, inside getSignedReadUrl) — the
+ *     cloud serves the bytes and we pay no egress;
+ *  2. our own signed grant route, which always works because it depends on
+ *     nothing but AUTH_SECRET.
+ *
+ * The fallback is not hypothetical: on GCS with Workload Identity Federation
+ * there is no signing key, so step 1 cannot succeed — confirmed in production.
+ * Falling back rather than failing means video-to-video works on either
+ * backend, with or without a CDN, and gets faster for free if one is added.
+ */
 export async function signStoredRef(
   ref: string,
   ttlSeconds?: number
 ): Promise<string | null> {
   const key = mediaKeyFromRef(ref);
   if (!key) return null;
-  return getSignedReadUrl(key, ttlSeconds);
+  try {
+    return await getSignedReadUrl(key, ttlSeconds);
+  } catch (cloudError: any) {
+    const { mediaGrantUrl } = await import("./media-grant");
+    try {
+      return mediaGrantUrl(key, ttlSeconds);
+    } catch (grantError: any) {
+      // Both routes failed — surface both reasons, since the fix differs.
+      throw new Error(
+        `${grantError?.message ?? grantError} (cloud signing also failed: ${
+          cloudError?.message ?? cloudError
+        })`
+      );
+    }
+  }
 }
 
 export function getMediaRedirectUrl(key: string): string | null {
