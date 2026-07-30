@@ -8,6 +8,12 @@ import {
   mcpUploadImage,
 } from "@/lib/providers/higgsfield-mcp";
 import { createVideoTask } from "@/lib/providers/seedance";
+import {
+  generateImageKling,
+  isKlingModel,
+  nearestKlingAspectRatio,
+  prepKlingReference,
+} from "@/lib/providers/kling";
 import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
 import { resolveReferences, resolveVideoReferences } from "@/lib/mentions";
 import {
@@ -25,7 +31,7 @@ import { assemblePrompt } from "@/lib/prompt-assembler";
 import { readAssets } from "@/lib/assets-db";
 import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
-import { computeCostCents } from "@/lib/pricing";
+import { computeCostCents, klingUnitsToCents } from "@/lib/pricing";
 import { logActivity } from "@/lib/activity";
 import type { GenerationItem } from "@/lib/types";
 import sharp from "sharp";
@@ -276,6 +282,10 @@ export async function POST(req: NextRequest) {
 
   const { prompt, aspectRatio, resolution, model, referenceImages } = base;
   let costCents = base.costCents || 0;
+  // Normally the stored ratio is whatever was requested. Kling is the exception:
+  // it ignores aspect_ratio in image-to-image, so the returned image is measured
+  // and this is corrected to match (see the kling branch below).
+  let aspectRatioOut = aspectRatio;
 
   // Video: submit the provider task (remote render) and return the running
   // item — the client's pollVideo then drives /api/generate/video/status.
@@ -340,6 +350,67 @@ export async function POST(req: NextRequest) {
       }
       // Persist Higgsfield's hosted result locally so it survives URL expiry.
       url = await saveFromUrl(done.url, "png", id);
+    } else if (isKlingModel(model)) {
+      // Kling takes ONE reference image on this endpoint (see providers/kling.ts).
+      // We still run assemblePrompt so @tags resolve and the shot-spec system
+      // applies, then hand over whatever single reference it produced — and let
+      // the provider reject the multi-reference case loudly rather than dropping
+      // the extras here.
+      const assembled = await assemblePrompt(prompt, await readAssets(), referenceImages ?? [], {
+        aspectRatio,
+      });
+      const refs: { mimeType: string; data: string }[] = [];
+      for (const ref of referenceImages ?? []) {
+        const raw = await readImageAsBase64(ref);
+        // Kling accepts jpg/png only; this app's uploads may be WebP.
+        refs.push(await prepKlingReference(raw.mimeType, raw.data));
+      }
+      console.log(
+        `[image] kling model=${model} refs=${refs.length} res=${resolution ?? "1K"} ar=${aspectRatio}`
+      );
+      const result = await generateImageKling({
+        model,
+        prompt: assembled.instruction,
+        aspectRatio,
+        resolution,
+        references: refs,
+      });
+      // Kling reports what it actually charged, so replace the enqueue-time
+      // estimate with the real figure. Kling is the only provider here that does
+      // this; everywhere else costCents stays an estimate from the pricing table.
+      const actual = klingUnitsToCents(result.unitDeduction);
+      if (actual != null) {
+        console.log(
+          `[image] kling billed ${result.unitDeduction} units = ${actual}¢ ` +
+            `for ${id} (estimate was ${costCents}¢)`
+        );
+        costCents = actual;
+      }
+      // Download once so the bytes can be both measured and stored. Kling clears
+      // hosted results after 30 days, so re-storing is mandatory either way.
+      const fetched = await fetch(result.url);
+      if (!fetched.ok) {
+        throw new Error(
+          `Kling produced an image but it could not be downloaded (http ${fetched.status}).`
+        );
+      }
+      const bytes = Buffer.from(await fetched.arrayBuffer());
+      // Kling IGNORES aspect_ratio in image-to-image and follows the reference
+      // instead (probe-measured — see providers/kling.ts). It also rounds
+      // text-to-image output to convenient pixel multiples. Storing the
+      // requested ratio would mislabel the card AND give it the wrong shape in
+      // the library's masonry, which lays out from this field. So record what
+      // actually came back.
+      const meta = await sharp(bytes).metadata();
+      const measured = nearestKlingAspectRatio(meta.width ?? 0, meta.height ?? 0);
+      if (measured && measured !== aspectRatio) {
+        console.log(
+          `[image] kling returned ${meta.width}x${meta.height} (${measured}), ` +
+            `not the requested ${aspectRatio} — storing the measured ratio`
+        );
+        aspectRatioOut = measured;
+      }
+      url = await saveBase64(bytes.toString("base64"), "png", id);
     } else {
       // Context engineering: resolve @slug assets + @imgN uploads into a
       // structured, role-labeled payload (literal SCENE + grouped references).
@@ -453,6 +524,7 @@ export async function POST(req: NextRequest) {
       ...base,
       status: "succeeded",
       url,
+      aspectRatio: aspectRatioOut,
       costCents, // includes the NB2 face-refine pass when it ran
       updatedAt: Date.now(),
     };

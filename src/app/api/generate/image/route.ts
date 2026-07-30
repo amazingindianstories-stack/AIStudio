@@ -45,7 +45,17 @@ export async function POST(req: NextRequest) {
   let savedRefs: string[] | undefined;
   try {
     const pricingRows = await readPricing();
-    costCents = computeCostCents({ kind: "image", model, resolution }, pricingRows);
+    costCents = computeCostCents(
+      {
+        kind: "image",
+        model,
+        resolution,
+        // Kling Image 2.1 bills image-to-image at double its text-to-image rate,
+        // so the presence of a reference changes the price, not just the payload.
+        hasReferenceImage: !!referenceImages?.length,
+      },
+      pricingRows
+    );
     // Persist the uploaded references with the item so they can be shown
     // later and reused via "Clone & try" (the provider still gets the raw
     // data URLs).

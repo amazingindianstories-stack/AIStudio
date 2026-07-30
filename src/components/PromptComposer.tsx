@@ -65,6 +65,15 @@ const MODE_ICONS: Record<string, any> = {
 
 export function PromptComposer() {
   const s = useStore();
+  /**
+   * Whether an audio track is even a thing for the current selection. Used by
+   * BOTH the collapsed chip's speaker icon and the panel's Audio segment — they
+   * were separate conditions, and the chip's checked only `generateAudio`. Once
+   * audio started defaulting to ON that put a speaker icon on image
+   * generations, which have no audio at all. One const so they cannot drift
+   * apart again.
+   */
+  const audioApplies = s.mode === "video" && supportsAudio(s.model);
   const fileRef = useRef<HTMLInputElement>(null);
   const mentionRef = useRef<MentionHandle>(null);
   const toolbarMeasureRef = useRef<HTMLDivElement>(null);
@@ -529,8 +538,9 @@ export function PromptComposer() {
                 </>
               )}
               {/* Audio costs extra, so it is visible on the collapsed chip
-                  rather than only inside the panel. */}
-              {s.generateAudio && (
+                  rather than only inside the panel. Gated by audioApplies so it
+                  never appears where the provider has no audio field. */}
+              {audioApplies && s.generateAudio && (
                 <>
                   <span className="composer-secondary-setting text-white/35">·</span>
                   <Volume2 className="composer-secondary-setting h-3.5 w-3.5 text-brand" />
@@ -567,10 +577,10 @@ export function PromptComposer() {
                 value={`${s.batchCount}×`}
                 onChange={(v) => s.setBatchCount(parseInt(v))}
               />
-              {/* Only where the provider has the field. Higgsfield's MCP
-                  Seedance tools and Omni expose no audio parameter, so showing
-                  this for them would be a control that does nothing. */}
-              {s.mode === "video" && supportsAudio(s.model) && (
+              {/* Only where the provider has the field. Omni's Interactions
+                  request exposes no audio parameter, so showing this for it
+                  would be a control that does nothing. */}
+              {audioApplies && (
                 <div>
                   <Segment
                     label="Audio"

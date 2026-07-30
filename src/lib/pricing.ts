@@ -61,6 +61,53 @@ export const DEFAULT_PRICING: PricingRow[] = [
     unit: "per_second",
     notes: "PLACEHOLDER — audio surcharge added on top of Seedance 2.0 Mini; not yet verified against an invoice",
   },
+  // ── Kling ────────────────────────────────────────────────────────────────
+  // These are the only rows here taken from a published vendor price list
+  // rather than estimated (Kling's Basic APIs Pricing → Image, read
+  // 2026-07-30), so don't "correct" them without re-reading it.
+  //
+  //   Kling Image 3.0   text→image AND image→image, 1K/2K   8 units  $0.028
+  //   Kling Image 2.1   text→image,                 1K/2K   4 units  $0.014
+  //   Kling Image 2.1   image→image,                1K/2K   8 units  $0.028
+  //
+  // Two consequences for the model below:
+  //  - Price does NOT vary with resolution (1K and 2K cost the same), unlike
+  //    every other image model here, hence IMAGE_RESOLUTION_FLAT.
+  //  - For 2.1 the price DOUBLES when a reference image is supplied, hence the
+  //    `· image-to-image` companion row.
+  //
+  // unitCostCents is an integer column and these prices are not whole cents
+  // ($0.028 → 2.8¢, $0.014 → 1.4¢), so the rows below are nearest-cent
+  // ESTIMATES used at enqueue time, when the cost has to be known before the
+  // provider has run. They are then RECONCILED: Kling returns
+  // `final_unit_deduction` on the finished task, and /api/queue/execute
+  // recomputes costCents from it via klingUnitsToCents. Verified 2026-07-30 —
+  // a real 2.1 text-to-image job reported exactly 4 units, matching the list
+  // price. So the estimate only ever shows on a job that failed before Kling
+  // reported, and the stored cost is the actual one.
+  {
+    model: "Kling Image 3.0",
+    unitCostCents: 3,
+    unit: "per_image",
+    notes:
+      "kling-v3 — vendor list price 8 units ($0.028)/image at 1K and 2K alike; 3¢ is $0.028 rounded up to whole cents",
+  },
+  {
+    model: "Kling Image 2.1",
+    unitCostCents: 1,
+    unit: "per_image",
+    notes:
+      "kling-v2-1 text-to-image — vendor list price 4 units ($0.014)/image at 1K and 2K alike; see the '· image-to-image' row for reference-image jobs",
+  },
+  {
+    // Replaces (does not add to) the base row when a reference image is used —
+    // unlike the audio rows, which are surcharges. See computeCostCents.
+    model: "Kling Image 2.1 · image-to-image",
+    unitCostCents: 3,
+    unit: "per_image",
+    notes:
+      "kling-v2-1 with a reference image — vendor list price 8 units ($0.028)/image, double the text-to-image rate",
+  },
   {
     model: "Higgsfield Nano Banana Pro",
     unitCostCents: 14,
@@ -110,6 +157,65 @@ export interface CostInput {
   model: string;
   resolution?: string;
   duration?: number;
+  /** Image only: whether a reference image was supplied. Kling Image 2.1 bills
+   *  image-to-image at double its text-to-image rate, so the two modes cannot
+   *  share one number. Ignored for models with no such split. */
+  hasReferenceImage?: boolean;
+}
+
+/**
+ * Models whose per-image price does not vary with resolution.
+ *
+ * Kling publishes one price covering both 1K and 2K, so applying
+ * RESOLUTION_FACTOR to them would invent a 50% premium that Kling never
+ * charges. Matched by prefix because it is a property of the vendor's price
+ * list, not of any one model id.
+ */
+const IMAGE_RESOLUTION_FLAT = [/^kling /i];
+
+function imagePriceScalesWithResolution(model: string): boolean {
+  return !IMAGE_RESOLUTION_FLAT.some((re) => re.test(model.trim()));
+}
+
+/**
+ * Cents per Kling "Unit".
+ *
+ * Kling prices everything in Units and publishes the conversion alongside them:
+ * 8 Units = $0.028 and 4 Units = $0.014, i.e. $0.0035 = 0.35¢ per Unit. Because
+ * the finished task reports `final_unit_deduction`, this turns Kling into the
+ * one provider here whose stored cost is what was actually charged rather than
+ * an estimate — no other vendor in this app reports its own billing back.
+ */
+export const KLING_UNIT_CENTS = 0.35;
+
+/** Actual cost of a Kling job from the units it reported. Returns undefined for
+ *  anything unparseable, so the caller keeps its estimate rather than billing 0. */
+export function klingUnitsToCents(units: string | number | undefined): number | undefined {
+  if (units == null) return undefined;
+  let n: number;
+  if (typeof units === "number") {
+    n = units;
+  } else {
+    const trimmed = units.trim();
+    // Number("") is 0, which would bill a job at zero instead of keeping the
+    // estimate. An absent field is not a report of zero.
+    if (!trimmed) return undefined;
+    n = Number(trimmed);
+  }
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return Math.round(n * KLING_UNIT_CENTS);
+}
+
+/**
+ * Pricing row for a model's image-to-image rate, when it charges a different
+ * one. A row rather than a column, for the same reason as audioRowModel: it
+ * stays editable through the existing Pricing tab with no schema change.
+ *
+ * Unlike audio this REPLACES the base rate rather than adding to it — Kling's
+ * price list gives image-to-image as a total per image, not a surcharge.
+ */
+export function imageToImageRowModel(model: string): string {
+  return `${model} · image-to-image`;
 }
 
 /** Compute the cost in cents for a generation from the pricing rows. */
@@ -164,8 +270,20 @@ export function computeCostCents(
     return Math.round(cents);
   }
   // per_image
-  const factor = input.resolution ? RESOLUTION_FACTOR[input.resolution] ?? 1 : 1;
-  return Math.round(row.unitCostCents * factor);
+  //
+  // An image-to-image job may be priced differently. Look for the companion row
+  // first and fall back to the base rate, so a model without one (or an admin
+  // who deleted it) still bills rather than silently costing nothing.
+  let effective = row;
+  if (input.hasReferenceImage) {
+    const i2i = pricing.find((p) => p.model === imageToImageRowModel(input.model));
+    if (i2i) effective = i2i;
+  }
+  const factor =
+    input.resolution && imagePriceScalesWithResolution(input.model)
+      ? RESOLUTION_FACTOR[input.resolution] ?? 1
+      : 1;
+  return Math.round(effective.unitCostCents * factor);
 }
 
 /** "$1.23" from cents. */

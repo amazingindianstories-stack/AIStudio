@@ -9,18 +9,36 @@ export interface ModelOption {
   hint?: string;
 }
 
+/**
+ * Models offered in the picker.
+ *
+ * The two Higgsfield Seedance entries were removed from this list on 2026-07-30
+ * — Higgsfield is being retired. Only the *picker* entries are gone: the MCP
+ * provider (`providers/higgsfield-mcp.ts`), its pricing rows, its admin token
+ * card and its status check all remain, so historical generations still render
+ * with their model name and nothing 404s. Removing this list entry is what makes
+ * the path unreachable from the UI; deleting the backend is a separate step.
+ * `isHiggsfieldModel` is still consulted by the routes and must stay.
+ */
 export const MODELS: ModelOption[] = [
   { id: "nano-banana-pro", name: "Nano Banana Pro", kind: "image", badge: "BEST" },
-  { id: "higgsfield-seedance", name: "Higgsfield Seedance 2.0", kind: "video", badge: "MULTI-REF" },
-  // NOTE: Higgsfield's web "Mini Unlimited" / "Enhanced Fast Unlimited"
-  // offers are web-UI-only features the MCP does not expose — API jobs on
-  // seedance_2_0_mini bill normally (measured 2.5 credits/s at 720p).
+  // Kling image models (providers/kling.ts). Both run through Kling's
+  // /v1/images/generations, which takes at most ONE reference image — the
+  // multi-reference Omni endpoint is a separate model and is not wired up, so
+  // the hints say so rather than letting a multi-@tag prompt fail unexplained.
   {
-    id: "higgsfield-seedance-mini",
-    name: "Higgsfield Seedance 2.0 Mini",
-    kind: "video",
+    id: "kling-image-3",
+    name: "Kling Image 3.0",
+    kind: "image",
+    badge: "NEW",
+    hint: "Strong prompt adherence, 1K/2K — takes a single reference image",
+  },
+  {
+    id: "kling-image-21",
+    name: "Kling Image 2.1",
+    kind: "image",
     badge: "BUDGET",
-    hint: "Billed per second via API — Higgsfield's web Unlimited offer doesn't apply",
+    hint: "Cheapest text-to-image here (~$0.014) — takes a single reference image",
   },
   // Native BytePlus ModelArk Seedance 2.0 (providers/seedance.ts), i.e. the
   // model direct from its vendor rather than resold through Higgsfield. The
@@ -34,7 +52,11 @@ export const MODELS: ModelOption[] = [
     name: "Seedance 2.0",
     kind: "video",
     badge: "DIRECT",
-    hint: "BytePlus ModelArk direct — its filter rejects photorealistic faces; use Higgsfield for those",
+    // The hint used to end "...use Higgsfield for those", which became wrong
+    // advice the moment Higgsfield left the picker on 2026-07-30. The limitation
+    // is real and worth stating; pointing at an option the user can no longer
+    // select is not.
+    hint: "BytePlus ModelArk direct — its content filter rejects photorealistic faces",
   },
   {
     id: "gemini-omni-flash",
@@ -91,6 +113,10 @@ export function durationsForModel(model: string): number[] {
 export function resolutionsForModel(model: string, kind: GenerationKind): string[] {
   if (/omni/i.test(model)) return ["720p"];
   if (/seedance.*mini/i.test(model)) return ["480p", "720p"];
+  // Kling Image 3.0 / 2.1 are 1K/2K per Kling's capability map — 4K is the Omni
+  // model only. Offering 4K here would produce a 2K image labelled 4K, or a
+  // failed job; the provider rejects it either way, so don't offer it.
+  if (isKlingImageModel(model)) return ["1K", "2K"];
   return RESOLUTIONS[kind];
 }
 
@@ -98,8 +124,26 @@ export function resolutionsForModel(model: string, kind: GenerationKind): string
  *  everything else keeps today's full per-kind list. */
 export function aspectRatiosForModel(model: string, kind: GenerationKind): string[] {
   if (/omni/i.test(model)) return ["16:9", "9:16"];
+  // Kling supports two ratios this app's image list doesn't offer (3:2, 2:3),
+  // so intersecting would silently lose them; list Kling's own set.
+  if (isKlingImageModel(model)) {
+    return ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3", "21:9"];
+  }
   return ASPECT_RATIOS[kind];
 }
+
+/**
+ * Kling image models. Kept as a name test here (rather than importing
+ * providers/kling.ts) because this module is imported by client components and
+ * the provider pulls in `sharp`, which cannot be bundled for the browser.
+ */
+export function isKlingImageModel(model: string): boolean {
+  return /^kling image/i.test(model.trim());
+}
+
+/** Most references Kling's /v1/images/generations will take. Its `image` field
+ *  is a scalar; multi-reference is a different endpoint and model entirely. */
+export const KLING_MAX_REFERENCE_IMAGES = 1;
 
 /**
  * Can this model take an existing CLIP as a reference (video-to-video)?
@@ -143,7 +187,13 @@ export const DEFAULTS = {
     resolution: "2K",
   },
   video: {
-    model: "Higgsfield Seedance 2.0",
+    // Was "Higgsfield Seedance 2.0" until Higgsfield left the picker on
+    // 2026-07-30. A default has to be a model that is actually IN `MODELS`:
+    // restoreComposerDraft validates the persisted model against the list and
+    // falls back here, so a default that isn't in the list leaves the composer
+    // on a model the picker cannot show — and still routes to that provider.
+    // `defaultsAreOfferedModels` in config.test.ts pins this.
+    model: "Seedance 2.0",
     aspectRatio: "16:9",
     resolution: "1080p",
     duration: 5,

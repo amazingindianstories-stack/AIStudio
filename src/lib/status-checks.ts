@@ -97,6 +97,20 @@ export async function checkSeedance(): Promise<CheckOutcome> {
   return { status: "unknown", detail: "ARK_API_KEY not set" };
 }
 
+// ── 6.3b kling — KlingAI image models (CONFIG-PRESENCE) ────────────────────
+// Config-presence only, like its neighbours. Kling *does* have a free
+// read-only task-list endpoint that would prove the key is live, but every
+// other provider check here is deliberately offline so opening the Status tab
+// can never cost money or consume a rate limit; one live check would make the
+// tab's behaviour inconsistent. Use scripts/probe-kling-image.ts to verify the
+// key for real.
+export async function checkKling(): Promise<CheckOutcome> {
+  if (process.env.KLING_API) {
+    return { status: "ok", detail: "KLING_API set (config-presence only)" };
+  }
+  return { status: "unknown", detail: "KLING_API not set" };
+}
+
 // ── 6.4 omni — Gemini Omni Flash (CONFIG-PRESENCE) ─────────────────────────
 export async function checkOmni(): Promise<CheckOutcome> {
   if (process.env.OMNI_USE_VERTEX === "1") {
@@ -135,6 +149,7 @@ export const CHECKS: CheckDef[] = [
   { id: "gemini", name: "Gemini / Nano Banana Pro", fn: checkGemini },
   { id: "higgsfield", name: "Higgsfield MCP", fn: checkHiggsfield },
   { id: "seedance", name: "BytePlus ModelArk / Seedance", fn: checkSeedance },
+  { id: "kling", name: "KlingAI Image", fn: checkKling },
   { id: "omni", name: "Gemini Omni Flash", fn: checkOmni },
   { id: "postgres", name: "Postgres", fn: checkPostgres },
   { id: "storage", name: "Media Storage", fn: checkStorage },

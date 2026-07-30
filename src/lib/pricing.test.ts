@@ -3,8 +3,11 @@ import assert from "node:assert/strict";
 import {
   DEFAULT_PRICING,
   VIDEO_RESOLUTION_FACTOR,
+  KLING_UNIT_CENTS,
   audioRowModel,
   computeCostCents,
+  imageToImageRowModel,
+  klingUnitsToCents,
   type PricingRow,
 } from "./pricing";
 
@@ -120,4 +123,113 @@ test("audio surcharge rows exist only for audio-capable models", () => {
       `${p.model} cannot generate audio and must not have a surcharge row`
     );
   }
+});
+
+// ── Kling: flat-by-resolution, and a distinct image-to-image rate ───────────
+
+const klingRows: PricingRow[] = [
+  { model: "Kling Image 3.0", unitCostCents: 3, unit: "per_image" },
+  { model: "Kling Image 2.1", unitCostCents: 1, unit: "per_image" },
+  { model: "Kling Image 2.1 · image-to-image", unitCostCents: 3, unit: "per_image" },
+  { model: "Nano Banana Pro", unitCostCents: 14, unit: "per_image" },
+];
+
+test("Kling costs the same at 1K and 2K", () => {
+  // Kling publishes ONE price covering both, so applying the generic 1.5×
+  // resolution factor would invent a premium it never charges.
+  const at1k = computeCostCents(
+    { kind: "image", model: "Kling Image 3.0", resolution: "1K" },
+    klingRows
+  );
+  const at2k = computeCostCents(
+    { kind: "image", model: "Kling Image 3.0", resolution: "2K" },
+    klingRows
+  );
+  assert.equal(at1k, 3);
+  assert.equal(at2k, 3);
+});
+
+test("non-Kling image models still scale with resolution", () => {
+  // The flat rule must be scoped to Kling and not leak into everything else.
+  assert.equal(
+    computeCostCents({ kind: "image", model: "Nano Banana Pro", resolution: "1K" }, klingRows),
+    14
+  );
+  assert.equal(
+    computeCostCents({ kind: "image", model: "Nano Banana Pro", resolution: "2K" }, klingRows),
+    21
+  );
+});
+
+test("Kling Image 2.1 bills image-to-image at the higher rate", () => {
+  const t2i = computeCostCents(
+    { kind: "image", model: "Kling Image 2.1", resolution: "1K" },
+    klingRows
+  );
+  const i2i = computeCostCents(
+    { kind: "image", model: "Kling Image 2.1", resolution: "1K", hasReferenceImage: true },
+    klingRows
+  );
+  assert.equal(t2i, 1);
+  assert.equal(i2i, 3, "a reference image should switch to the · image-to-image row");
+});
+
+test("the image-to-image row REPLACES the base rate rather than adding to it", () => {
+  // Unlike the audio rows, which are surcharges. 3, not 1 + 3.
+  assert.equal(
+    computeCostCents(
+      { kind: "image", model: "Kling Image 2.1", hasReferenceImage: true },
+      klingRows
+    ),
+    3
+  );
+});
+
+test("a model with no image-to-image row falls back to its base rate", () => {
+  // Kling Image 3.0 charges one price for both modes, so it has no companion
+  // row — and must not silently become free when a reference is supplied.
+  assert.equal(
+    computeCostCents(
+      { kind: "image", model: "Kling Image 3.0", hasReferenceImage: true },
+      klingRows
+    ),
+    3
+  );
+});
+
+test("imageToImageRowModel matches the seeded row name exactly", () => {
+  const name = imageToImageRowModel("Kling Image 2.1");
+  assert.equal(name, "Kling Image 2.1 · image-to-image");
+  assert.ok(
+    DEFAULT_PRICING.some((r) => r.model === name),
+    "the seeded row name must match what computeCostCents looks up"
+  );
+});
+
+test("the seeded Kling rows exist", () => {
+  for (const m of ["Kling Image 3.0", "Kling Image 2.1"]) {
+    assert.ok(DEFAULT_PRICING.some((r) => r.model === m), m);
+  }
+});
+
+// ── reconciliation from Kling's reported units ──────────────────────────────
+
+test("Kling units convert to cents at the published rate", () => {
+  // 8 units = $0.028 and 4 units = $0.014 → $0.0035/unit = 0.35¢.
+  assert.equal(KLING_UNIT_CENTS, 0.35);
+  // 4 units is what a real 2.1 text-to-image job reported (2026-07-30).
+  assert.equal(klingUnitsToCents(4), 1);
+  assert.equal(klingUnitsToCents(8), 3);
+  assert.equal(klingUnitsToCents(16), 6);
+  assert.equal(klingUnitsToCents("8"), 3);
+});
+
+test("unparseable unit counts keep the estimate rather than billing zero", () => {
+  assert.equal(klingUnitsToCents(undefined), undefined);
+  assert.equal(klingUnitsToCents(""), undefined);
+  assert.equal(klingUnitsToCents("n/a"), undefined);
+  assert.equal(klingUnitsToCents(-1), undefined);
+  // Zero is a legitimate report (a free/retried job), so it must NOT be
+  // conflated with "unknown".
+  assert.equal(klingUnitsToCents(0), 0);
 });

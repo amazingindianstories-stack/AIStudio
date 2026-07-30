@@ -1516,6 +1516,7 @@ const STATUS_ROWS_FALLBACK: { id: string; name: string }[] = [
   { id: "gemini", name: "Gemini / Nano Banana Pro" },
   { id: "higgsfield", name: "Higgsfield MCP" },
   { id: "seedance", name: "BytePlus ModelArk / Seedance" },
+  { id: "kling", name: "KlingAI Image" },
   { id: "omni", name: "Gemini Omni Flash" },
   { id: "postgres", name: "Postgres" },
   { id: "storage", name: "Media Storage" },
