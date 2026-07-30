@@ -3,28 +3,32 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { users, generations } from "@/lib/schema";
 import { adminOrNull } from "@/lib/admin";
-import { readHistory } from "@/lib/store-db";
+import { readAdminStats } from "@/lib/admin-stats";
 import { readPricing } from "@/lib/pricing-db";
 import { readActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
 
-/** Log window returned to the dashboard (newest first). */
+/** Audit-trail window returned to the dashboard (newest first). */
 const LOG_LIMIT = 500;
 
 /**
- * One read for the whole admin dashboard: users (per-user gen count + cost
- * aggregated in SQL over ALL generations, not just the log window), the
- * generation log, the audit-trail activity (logins, generates, deletes, …),
- * and pricing. The client does filtering + chart aggregation in memory (fine
- * at studio scale).
+ * The dashboard's fixed context: users (per-user gen count + cost aggregated in
+ * SQL), headline stats + charts (also SQL), the audit trail, and pricing.
+ *
+ * It deliberately ships **no generation rows**. It used to include the newest
+ * 500 with full prompt text, which made this response 2.2 MB — 95% of it prompts
+ * — and, worse, made every Overview figure secretly mean "over the newest 500"
+ * rather than over the table: the Generations tile sat frozen at 500 and Total
+ * spend under-reported by 41%. Totals now come from readAdminStats() and the
+ * browsable log from /api/admin/logs, which pages and filters server-side.
  */
 export async function GET() {
   const me = await adminOrNull();
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const db = await getDb();
 
-  const [allUsers, gens, pricing, activity, statRows] = await Promise.all([
+  const [allUsers, stats, pricing, activity, statRows] = await Promise.all([
     db
       .select({
         id: users.id,
@@ -37,7 +41,7 @@ export async function GET() {
         createdAt: users.createdAt,
       })
       .from(users),
-    readHistory(undefined, LOG_LIMIT),
+    readAdminStats(),
     readPricing(),
     readActivity(LOG_LIMIT),
     db
@@ -69,20 +73,9 @@ export async function GET() {
     })
     .sort((a, b) => b.costCents - a.costCents);
 
-  const generationsOut = gens.map((g) => ({
-    id: g.id,
-    kind: g.kind,
-    model: g.model,
-    status: g.status,
-    costCents: g.costCents ?? 0,
-    userId: g.userId ?? null,
-    prompt: g.prompt,
-    createdAt: g.createdAt,
-  }));
-
   return NextResponse.json({
     users: usersOut,
-    generations: generationsOut,
+    stats,
     activity,
     pricing,
   });

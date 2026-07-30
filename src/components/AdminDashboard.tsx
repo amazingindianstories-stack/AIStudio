@@ -60,8 +60,27 @@ interface LogRow {
   status: string;
   costCents: number;
   userId: string | null;
+  /** Truncated server-side — see PROMPT_PREVIEW_CHARS in lib/admin-logs.ts. */
   prompt: string;
+  promptTruncated: boolean;
   createdAt: number;
+}
+interface LogPage {
+  rows: LogRow[];
+  total: number;
+  totalCostCents: number;
+  nextCursor: string | null;
+}
+/** Headline figures, aggregated in SQL. Never derive these from an array's
+ *  length: doing exactly that is what pinned "Generations" at 500 and made
+ *  "Total spend" under-report by 41%. */
+interface AdminStats {
+  totalGenerations: number;
+  totalCostCents: number;
+  byKind: { name: string; value: number }[];
+  byModel: { name: string; value: number }[];
+  overTime: { day: string; count: number }[];
+  models: string[];
 }
 interface PricingRow {
   model: string;
@@ -78,7 +97,7 @@ interface ActivityRow {
 }
 interface Data {
   users: AdminUser[];
-  generations: LogRow[];
+  stats: AdminStats;
   activity: ActivityRow[];
   pricing: PricingRow[];
 }
@@ -235,39 +254,29 @@ function Panel({ title, children }: { title: string; children: React.ReactNode }
 }
 
 function Overview({ data }: { data: Data }) {
-  const totalCost = data.generations.reduce((s, g) => s + g.costCents, 0);
+  // Every figure below comes from SQL aggregates over the whole table. It is
+  // deliberately not computed from a rows array: the previous version summed the
+  // 500-row log window the route used to ship, so each of these silently meant
+  // "over the newest 500".
+  const { totalCostCents, totalGenerations, byKind, byModel, overTime } = data.stats;
+
   const costPerUser = data.users
     .filter((u) => u.genCount > 0)
     .map((u) => ({ name: u.name || u.email, cost: u.costCents / 100, color: u.color || "#34d399" }));
 
-  const byType = (["image", "video"] as const).map((k) => ({
-    name: k,
-    value: data.generations.filter((g) => g.kind === k).length,
-  }));
-
-  const byModelMap: Record<string, number> = {};
-  for (const g of data.generations) byModelMap[g.model] = (byModelMap[g.model] || 0) + 1;
-  const byModel = Object.entries(byModelMap).map(([name, value]) => ({ name, value }));
-
-  const overTimeMap: Record<string, number> = {};
-  for (const g of data.generations) {
-    const day = new Date(g.createdAt).toISOString().slice(0, 10);
-    overTimeMap[day] = (overTimeMap[day] || 0) + 1;
-  }
-  const overTime = Object.entries(overTimeMap)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([day, count]) => ({ day: day.slice(5), count }));
+  // Chart wants MM-DD; the wire format is a full UTC date so it stays sortable.
+  const overTimeChart = overTime.map((d) => ({ day: d.day.slice(5), count: d.count }));
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Total spend" value={formatCost(totalCost)} />
-        <Stat label="Generations" value={String(data.generations.length)} />
+        <Stat label="Total spend" value={formatCost(totalCostCents)} />
+        <Stat label="Generations" value={totalGenerations.toLocaleString()} />
         <Stat label="Users" value={String(data.users.length)} />
         <Stat
           label="Avg / generation"
           value={formatCost(
-            data.generations.length ? Math.round(totalCost / data.generations.length) : 0
+            totalGenerations ? Math.round(totalCostCents / totalGenerations) : 0
           )}
         />
       </div>
@@ -291,7 +300,7 @@ function Overview({ data }: { data: Data }) {
 
         <Panel title="Generations over time">
           <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={overTime}>
+            <LineChart data={overTimeChart}>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
               <XAxis dataKey="day" stroke="#ffffff66" fontSize={11} />
               <YAxis stroke="#ffffff66" fontSize={11} allowDecimals={false} />
@@ -304,8 +313,8 @@ function Overview({ data }: { data: Data }) {
         <Panel title="By type">
           <ResponsiveContainer width="100%" height={240}>
             <PieChart>
-              <Pie data={byType} dataKey="value" nameKey="name" outerRadius={90} label>
-                {byType.map((_, i) => (
+              <Pie data={byKind} dataKey="value" nameKey="name" outerRadius={90} label>
+                {byKind.map((_, i) => (
                   <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                 ))}
               </Pie>
@@ -1114,42 +1123,78 @@ function LogsTab({
   const [status, setStatus] = useState("");
   const [q, setQ] = useState("");
 
-  const models = useMemo(
-    () => Array.from(new Set(data.generations.map((g) => g.model))),
-    [data]
-  );
+  const [rows, setRows] = useState<LogRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalCostCents, setTotalCostCents] = useState(0);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
-  const rows = useMemo(() => {
-    const ql = q.trim().toLowerCase();
-    return data.generations
-      .filter((g) => (user ? g.userId === user : true))
-      .filter((g) => (kind ? g.kind === kind : true))
-      .filter((g) => (model ? g.model === model : true))
-      .filter((g) => (status ? g.status === status : true))
-      .filter((g) => (ql ? g.prompt.toLowerCase().includes(ql) : true));
-  }, [data, user, kind, model, status, q]);
+  // Every model that has ever run, from a SQL DISTINCT — not from the loaded
+  // rows, which is why the old dropdown was missing older models.
+  const models = data.stats.models;
 
-  const exportCsv = () => {
-    const head = ["time", "user", "kind", "model", "status", "cost", "prompt"];
-    const lines = rows.map((g) =>
-      [
-        new Date(g.createdAt).toISOString(),
-        usersById[g.userId || ""]?.email || "—",
-        g.kind,
-        g.model,
-        g.status,
-        formatCost(g.costCents),
-        `"${g.prompt.replace(/"/g, '""')}"`,
-      ].join(",")
-    );
-    const blob = new Blob([[head.join(","), ...lines].join("\n")], {
-      type: "text/csv",
-    });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "lumina-logs.csv";
-    a.click();
+  const params = useMemo(() => {
+    const p = new URLSearchParams();
+    if (user) p.set("userId", user);
+    if (kind) p.set("kind", kind);
+    if (model) p.set("model", model);
+    if (status) p.set("status", status);
+    if (q.trim()) p.set("q", q.trim());
+    return p.toString();
+  }, [user, kind, model, status, q]);
+
+  // Filtering happens in Postgres, so a filter change is a refetch. Search is
+  // debounced; the others fire immediately since they come from a select.
+  // Each reply is sequence-guarded so a slow response can't overwrite a newer
+  // one — the same guard the library feed needs.
+  const seq = useRef(0);
+  useEffect(() => {
+    const mine = ++seq.current;
+    setLoading(true);
+    const delay = q.trim() ? 300 : 0;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/admin/logs?${params}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const page: LogPage = await res.json();
+        if (mine !== seq.current) return;
+        setRows(page.rows);
+        setTotal(page.total);
+        setTotalCostCents(page.totalCostCents);
+        setNextCursor(page.nextCursor);
+      } finally {
+        if (mine === seq.current) setLoading(false);
+      }
+    }, delay);
+    return () => clearTimeout(timer);
+    // `q` is redundant with `params` (which changes whenever it does) but is
+    // read directly in the body, so it belongs here for exhaustive-deps.
+  }, [params, q]);
+
+  const loadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    const mine = seq.current;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/admin/logs?${params}${params ? "&" : ""}cursor=${encodeURIComponent(nextCursor)}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return;
+      const page: LogPage = await res.json();
+      // A filter change while this was in flight makes the page irrelevant.
+      if (mine !== seq.current) return;
+      setRows((prev) => [...prev, ...page.rows]);
+      setNextCursor(page.nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
   };
+
+  // The export is a server download: it covers every row matching the filter
+  // with full prompts, not just the rows currently on screen.
+  const exportHref = `/api/admin/logs?${params}${params ? "&" : ""}format=csv`;
 
   const sel =
     "rounded-lg border border-line bg-ink-700 px-2.5 py-1.5 text-sm outline-none focus:border-brand/40";
@@ -1191,15 +1236,24 @@ function LogsTab({
           placeholder="Search prompt…"
           className={cn(sel, "flex-1")}
         />
-        <button
-          onClick={exportCsv}
+        <a
+          href={exportHref}
           className="flex items-center gap-1.5 rounded-lg border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/80 hover:text-white"
         >
           <Download className="h-4 w-4" /> CSV
-        </button>
+        </a>
       </div>
 
-      <p className="text-xs text-white/40">{rows.length} entries</p>
+      <p className="text-xs text-white/40">
+        {loading ? (
+          "Loading…"
+        ) : (
+          <>
+            Showing {rows.length.toLocaleString()} of {total.toLocaleString()} entries
+            {total > 0 && <> · {formatCost(totalCostCents)} total</>}
+          </>
+        )}
+      </p>
 
       <div className="overflow-hidden rounded-xl border border-line">
         <table className="w-full text-sm">
@@ -1215,7 +1269,7 @@ function LogsTab({
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, 500).map((g) => (
+            {rows.map((g) => (
               <tr key={g.id} className="border-t border-line align-top">
                 <td className="whitespace-nowrap px-3 py-2 text-xs text-white/55">
                   {new Date(g.createdAt).toLocaleString()}
@@ -1227,14 +1281,37 @@ function LogsTab({
                 <td className="px-3 py-2 text-xs">{g.model}</td>
                 <td className="px-3 py-2 text-xs">{g.status}</td>
                 <td className="px-3 py-2 tabular-nums">{formatCost(g.costCents)}</td>
-                <td className="max-w-[280px] truncate px-3 py-2 text-xs text-white/60">
+                <td
+                  className="max-w-[280px] truncate px-3 py-2 text-xs text-white/60"
+                  title={g.prompt}
+                >
                   {g.prompt}
+                  {/* Prompts are cut server-side, so say so rather than letting
+                      the cell imply the prompt simply ended there. */}
+                  {g.promptTruncated && <span className="text-white/30"> …</span>}
                 </td>
               </tr>
             ))}
+            {!loading && rows.length === 0 && (
+              <tr className="border-t border-line">
+                <td colSpan={7} className="px-3 py-8 text-center text-xs text-white/40">
+                  No generations match these filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {nextCursor && (
+        <button
+          onClick={loadMore}
+          disabled={loadingMore}
+          className="w-full rounded-lg border border-line bg-ink-700 px-3 py-2 text-sm text-white/70 hover:text-white disabled:opacity-50"
+        >
+          {loadingMore ? "Loading…" : `Load ${Math.min(100, total - rows.length)} more`}
+        </button>
+      )}
 
       <ActivityLog data={data} usersById={usersById} />
     </div>
@@ -1296,7 +1373,14 @@ function ActivityLog({
             </option>
           ))}
         </select>
-        <p className="text-xs text-white/40">{rows.length} events</p>
+        {/* Deliberately not "N events": this is the newest ACTIVITY_LIMIT rows
+            from /api/admin/data, filtered in memory. Labelling a window as a
+            total is exactly what made the Generations tile sit at 500. Unlike
+            that tile there is no total to be wrong about here, so it is named
+            rather than given its own paginated endpoint. */}
+        <p className="text-xs text-white/40">
+          {rows.length} of the most recent {(data.activity ?? []).length} events
+        </p>
       </div>
       <div className="overflow-hidden rounded-xl border border-line">
         <table className="w-full text-sm">

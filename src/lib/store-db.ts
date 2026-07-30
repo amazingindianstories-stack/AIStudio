@@ -134,8 +134,10 @@ export function decodeCursor(raw: string | null | undefined): HistoryCursor | un
 }
 
 /** LIKE metacharacters in user input are literals, not wildcards. Postgres's
- *  default LIKE escape is backslash, so escape it and the two wildcards. */
-function likePattern(q: string): string {
+ *  default LIKE escape is backslash, so escape it and the two wildcards.
+ *  Exported because the admin log search runs the same ILIKE against the same
+ *  column — a second copy of this would be a second chance to get it wrong. */
+export function likePattern(q: string): string {
   return `%${q.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
 }
 
@@ -259,26 +261,6 @@ export async function countScope(filter: HistoryFilter = {}): Promise<number> {
     .where(conds.length ? and(...conds) : undefined);
   return Number(rows[0]?.n ?? 0);
 }
-
-/** Unfiltered newest-first read. Retained for the admin dashboard, which wants
- *  a flat recent-activity log rather than a scoped feed. */
-export async function readHistory(
-  cursor?: number,
-  limitN = 20
-): Promise<GenerationItem[]> {
-  const page = await queryHistory(
-    {},
-    cursor ? { sort: cursor, id: MAX_UUID } : undefined,
-    limitN
-  );
-  return page.items;
-}
-
-/** Highest possible uuid. A legacy createdAt-only cursor carries no tiebreaker,
- *  so pairing it with the maximum uuid places it just ahead of every real row
- *  sharing that timestamp — which keeps those rows in the next page instead of
- *  dropping them, the failure the plain `created_at < cursor` form had. */
-const MAX_UUID = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 
 export async function upsertItem(item: GenerationItem): Promise<void> {
   const db = await getDb();

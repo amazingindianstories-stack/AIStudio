@@ -157,6 +157,29 @@ A full-screen infinite-canvas whiteboard for spatial storyboarding, launched fro
 
 **Full design rationale & decision log:** `.council/canvas-board/spec.md` (acceptance criteria 1–11), `design.md` (architecture trade-offs + 6 binding decisions + data model), `ui-spec.md` (visual contract + responsive bounds), `decisions.md` (D1–D8: design gate, build, Stage 2/3 fixes); v2 additions in `.council/canvas-board-v2/` (spec/design/ui-spec/decisions D1–D8).
 
+### Admin dashboard: totals come from SQL, never from an array's length
+
+Same lesson as the library feed, learned separately and later (2026-07-30). `/api/admin/data` used to ship the newest **500** generation rows with full prompt text, and the Overview computed every figure from that array in the browser. So each figure silently meant "over the newest 500" rather than over the table:
+
+| symptom | measured on production, 916 rows |
+|---|---|
+| `Generations` tile | frozen at **500** since the table crossed 500 |
+| `Total spend` tile | **$152.74** against **$257.18** actual — 41% missing |
+| by-model / by-kind / per-day charts | last 500 only |
+| Logs search + model dropdown | matched only loaded rows |
+| payload on dashboard open | **2,273 kB**, of which 2,044 kB (95%) was prompt text |
+
+Prompts here average 3.8 kB and reach 21 kB (shot-by-shot video prompts), which is why the log dominated the payload. The internal tell was that the **Users** tab was already SQL-aggregated and therefore disagreed with the Overview.
+
+- `src/lib/admin-stats.ts` — `readAdminStats()`: `count(*)`/`sum()`/`GROUP BY` for totals, by-kind, by-model, per-day, and the DISTINCT model list. Day buckets are `to_char(... at time zone 'utc')` **deliberately UTC**, matching the `toISOString().slice(0,10)` the client used, so the chart's buckets didn't shift when this moved server-side. `byKind` returns explicit zeros in fixed order so pie slices don't reorder (and recolour) as the mix changes.
+- `src/lib/admin-logs.ts` + `GET /api/admin/logs` — the browsable log: server-side filtering, the same row-value keyset as the feed (`(created_at, id) <`, reusing `generations_created_keyset_idx`), and `left(prompt, PROMPT_PREVIEW_CHARS)` **in SQL** so the bulk never leaves Postgres. Truncating is exactly *why* search had to move server-side: matching a truncated prompt in the browser would quietly only search its first 300 characters. `promptTruncated` is a `length() >` flag so the cell can show "…" rather than imply the prompt ended.
+- CSV export is a server download (`?format=csv`) covering every row matching the filter with **full** prompts, capped at `MAX_CSV_ROWS`; it used to export only the loaded window.
+- `/api/admin/data` now returns **no generation rows**: users, `stats`, activity, pricing. 2,273 kB → 132 kB on open (17×), +49 kB on the Logs tab.
+- The Activity list is still a flat newest-500 window filtered in memory, and is *labelled* as one ("N of the most recent 500 events") rather than given a paginated endpoint — there is no total for it to be wrong about. It is now ~94% of what `/api/admin/data` returns, so it's the next thing to page if that route ever needs shrinking again.
+- `readHistory()` in `store-db.ts` was deleted; the admin route was its only caller, as its docstring said.
+
+`scripts/probe-admin-payload.ts` is the read-only verification (totals vs independent `count(*)`/`sum()`, full keyset walk asserting no skips or duplicates, filter narrowing, ILIKE-escaping, payload accounting, and it prints the before/after numbers). Filter-parser unit tests in `admin-logs.test.ts`.
+
 ### Admin API status page
 
 A "Status" tab in `AdminDashboard.tsx` (admin-only, via `adminOrNull()`) health-checks every external dependency in parallel on tab-open and on manual Refresh — no auto-polling (checks hit paid/rate-limited APIs). Registry + check functions live in `src/lib/status-checks.ts`, exposed via `GET /api/admin/status`; each check races a 5s timeout so one hung dependency can't block the page.
@@ -186,7 +209,7 @@ Research (July 2026) found Higgsfield's edge over baseline NBP was not hidden AP
 - **`SUPERSAMPLE=1`**: Render one resolution step up, downsample to requested size. Measured highest prominence but 1-of-4 scene-accuracy risk (outfit dropped); flag off by default, use for hero shots only. Operationally: combining it with `FACE_BEST_OF>1` is expensive and slow — it was previously unsafe against the 60s cap, which is now 300s, but it still multiplies the parallel-render count that trips Gemini's spend-based 429.
 - **`NEXT_PUBLIC_REF_MAX_DIM` (default `2048`)**: Client reference longest-side cap (was hardcoded 1024). `PromptComposer.tsx` includes a budget ladder (2048/q0.85 → q0.7 → 1536/q0.8 → 1024/q0.8) to stay under Vercel's 4.5MB body limit with high-fidelity refs.
 
-Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts src/lib/providers/gemini.test.ts src/lib/spend-window.test.ts src/lib/video-directive.test.ts src/lib/feed-scope.test.ts src/lib/config.test.ts src/lib/pack-columns.test.ts src/lib/feed-cache.test.ts src/lib/pricing.test.ts src/lib/mentions.test.ts src/lib/media-grant.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
+Unit tests: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts src/lib/providers/gemini.test.ts src/lib/spend-window.test.ts src/lib/video-directive.test.ts src/lib/feed-scope.test.ts src/lib/config.test.ts src/lib/pack-columns.test.ts src/lib/feed-cache.test.ts src/lib/pricing.test.ts src/lib/mentions.test.ts src/lib/media-grant.test.ts src/lib/admin-logs.test.ts` (Node built-in `node:test` + `node:assert`; no new dependency). For full evidence and per-image metrics, see `.council/higgsfield-nbp-parity/`; for the Omni video integration, see `.council/omni-video/`.
 
 ## Working conventions
 
