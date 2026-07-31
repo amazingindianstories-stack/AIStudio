@@ -95,10 +95,24 @@ interface ActivityRow {
   detail: Record<string, unknown> | null;
   createdAt: number;
 }
+/** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
+ *  because that module pulls in the db client, which cannot be bundled for the
+ *  browser; it only labels the button, so a drift shows a wrong count and
+ *  nothing worse. */
+const ACTIVITY_PAGE_SIZE = 50;
+
+interface ActivityPage {
+  rows: ActivityRow[];
+  total: number;
+  nextCursor: string | null;
+  /** First page only — see admin-activity.ts. */
+  actions?: string[];
+}
+/** What /api/admin/data returns: the dashboard's fixed context and no list rows.
+ *  Both browsable lists have their own paged endpoints. */
 interface Data {
   users: AdminUser[];
   stats: AdminStats;
-  activity: ActivityRow[];
   pricing: PricingRow[];
 }
 
@@ -1152,6 +1166,10 @@ function LogsTab({
   useEffect(() => {
     const mine = ++seq.current;
     setLoading(true);
+    // See the same line in ActivityLog: the cursor belongs to the previous
+    // filter's result set, and keeping it lets Load more append rows from a
+    // different query while this refetch is in flight.
+    setNextCursor(null);
     const delay = q.trim() ? 300 : 0;
     const timer = setTimeout(async () => {
       try {
@@ -1309,7 +1327,11 @@ function LogsTab({
           disabled={loadingMore}
           className="w-full rounded-lg border border-line bg-ink-700 px-3 py-2 text-sm text-white/70 hover:text-white disabled:opacity-50"
         >
-          {loadingMore ? "Loading…" : `Load ${Math.min(100, total - rows.length)} more`}
+          {/* max(0, …) so a rows/total disagreement can never render "Load -16
+              more" — the shape the stale-cursor bug above surfaced as. */}
+          {loadingMore
+            ? "Loading…"
+            : `Load ${Math.min(100, Math.max(0, total - rows.length))} more`}
         </button>
       )}
 
@@ -1351,19 +1373,79 @@ function ActivityLog({
   usersById: Record<string, AdminUser>;
 }) {
   const [action, setAction] = useState("");
-  const actions = useMemo(
-    () => Array.from(new Set((data.activity ?? []).map((a) => a.action))),
-    [data]
-  );
-  const rows = useMemo(
-    () => (data.activity ?? []).filter((a) => (action ? a.action === action : true)),
-    [data, action]
-  );
+  const [user, setUser] = useState("");
+
+  const [rows, setRows] = useState<ActivityRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [actions, setActions] = useState<string[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const params = useMemo(() => {
+    const p = new URLSearchParams();
+    if (action) p.set("action", action);
+    if (user) p.set("userId", user);
+    return p.toString();
+  }, [action, user]);
+
+  // Filtering happens in Postgres, so a filter change is a refetch, and each
+  // reply is sequence-guarded so a slow response can't paint over a newer one.
+  // Both filters come from a select, so there is nothing to debounce.
+  const seq = useRef(0);
+  useEffect(() => {
+    const mine = ++seq.current;
+    setLoading(true);
+    // Drop the cursor before the refetch, not after it resolves. A cursor
+    // belongs to the result set it came from, so leaving it in place lets Load
+    // more page the *previous* filter while this request is still in flight —
+    // the seq guard below can't catch that, because the filter changed before
+    // loadMore started, not during it. Observed as "Showing 100 of 84 events".
+    setNextCursor(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/activity?${params}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const page: ActivityPage = await res.json();
+        if (mine !== seq.current) return;
+        setRows(page.rows);
+        setTotal(page.total);
+        setNextCursor(page.nextCursor);
+        // Sent on the first page only, and it is the unfiltered list — keep the
+        // dropdown's options stable rather than letting the current filter
+        // narrow the set of filters you can still pick.
+        if (page.actions) setActions(page.actions);
+      } finally {
+        if (mine === seq.current) setLoading(false);
+      }
+    })();
+  }, [params]);
+
+  const loadMore = async () => {
+    if (!nextCursor || loadingMore) return;
+    const mine = seq.current;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `/api/admin/activity?${params}${params ? "&" : ""}cursor=${encodeURIComponent(nextCursor)}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return;
+      const page: ActivityPage = await res.json();
+      // A filter change while this was in flight makes the page irrelevant.
+      if (mine !== seq.current) return;
+      setRows((prev) => [...prev, ...page.rows]);
+      setNextCursor(page.nextCursor);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const sel =
     "rounded-lg border border-line bg-ink-700 px-2.5 py-1.5 text-sm outline-none focus:border-brand/40";
   return (
     <div className="space-y-2 pt-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold text-white">Activity</h3>
         <select value={action} onChange={(e) => setAction(e.target.value)} className={sel}>
           <option value="">All actions</option>
@@ -1373,13 +1455,20 @@ function ActivityLog({
             </option>
           ))}
         </select>
-        {/* Deliberately not "N events": this is the newest ACTIVITY_LIMIT rows
-            from /api/admin/data, filtered in memory. Labelling a window as a
-            total is exactly what made the Generations tile sit at 500. Unlike
-            that tile there is no total to be wrong about here, so it is named
-            rather than given its own paginated endpoint. */}
+        <select value={user} onChange={(e) => setUser(e.target.value)} className={sel}>
+          <option value="">All users</option>
+          {data.users.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.name || u.email}
+            </option>
+          ))}
+        </select>
+        {/* A real total now, from count(*) over the whole table under the same
+            filter — not the length of a window. */}
         <p className="text-xs text-white/40">
-          {rows.length} of the most recent {(data.activity ?? []).length} events
+          {loading
+            ? "Loading…"
+            : `Showing ${rows.length.toLocaleString()} of ${total.toLocaleString()} events`}
         </p>
       </div>
       <div className="overflow-hidden rounded-xl border border-line">
@@ -1414,9 +1503,28 @@ function ActivityLog({
                 </td>
               </tr>
             ))}
+            {!loading && rows.length === 0 && (
+              <tr className="border-t border-line">
+                <td colSpan={4} className="px-3 py-8 text-center text-xs text-white/40">
+                  No events match these filters.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+
+      {nextCursor && (
+        <button
+          onClick={loadMore}
+          disabled={loadingMore}
+          className="w-full rounded-lg border border-line bg-ink-700 px-3 py-2 text-sm text-white/70 hover:text-white disabled:opacity-50"
+        >
+          {loadingMore
+            ? "Loading…"
+            : `Load ${Math.min(ACTIVITY_PAGE_SIZE, Math.max(0, total - rows.length))} more`}
+        </button>
+      )}
     </div>
   );
 }

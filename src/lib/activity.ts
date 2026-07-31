@@ -1,4 +1,3 @@
-import { desc } from "drizzle-orm";
 import { getDb } from "./db";
 import { activityLogs } from "./schema";
 
@@ -21,21 +20,9 @@ export async function logActivity(
   }
 }
 
-export interface ActivityRow {
-  id: string;
-  userId: string | null;
-  action: string;
-  detail: unknown;
-  createdAt: number;
-}
-
-/** Most recent audit-trail events, newest first. */
-export async function readActivity(limitN = 500): Promise<ActivityRow[]> {
-  const db = await getDb();
-  const rows = await db
-    .select()
-    .from(activityLogs)
-    .orderBy(desc(activityLogs.createdAt))
-    .limit(limitN);
-  return rows as ActivityRow[];
-}
+/**
+ * Reading the trail lives in `admin-activity.ts`, which pages and filters it in
+ * SQL. The `readActivity(limit)` that used to be here returned a flat newest-N
+ * window straight into /api/admin/data; it was deleted along with that field on
+ * 2026-07-31 rather than left as an unused second way to read the same table.
+ */

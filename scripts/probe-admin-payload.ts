@@ -15,11 +15,11 @@ config({ path: ".env.local" });
 
 import { desc, sql } from "drizzle-orm";
 import { getDb } from "../src/lib/db";
-import { generations, users } from "../src/lib/schema";
+import { activityLogs, generations, users } from "../src/lib/schema";
 import { readAdminStats } from "../src/lib/admin-stats";
-import { readActivity } from "../src/lib/activity";
 import { readPricing } from "../src/lib/pricing-db";
 import { queryAdminLogs, decodeCursor } from "../src/lib/admin-logs";
+import { ACTIVITY_PAGE_SIZE, queryActivity } from "../src/lib/admin-activity";
 
 const OLD_LOG_LIMIT = 500;
 
@@ -137,33 +137,100 @@ async function main() {
   const wild = await queryAdminLogs({ q: "%" }, undefined, 5);
   check("LIKE wildcard escaped", wild.total < truth.rows, `${wild.total} of ${truth.rows}`);
 
+  // ── activity: same window-vs-dataset fault, fixed the same way ───────────
+  const [actTruth] = await db
+    .select({
+      rows: sql<number>`count(*)::int`,
+      actions: sql<number>`count(distinct ${activityLogs.action})::int`,
+    })
+    .from(activityLogs);
+
+  const act = await queryActivity();
+  check("activity total is the table total", act.total === actTruth.rows, `${act.total}`);
+  check(
+    "activity page respects the page size",
+    act.rows.length === Math.min(ACTIVITY_PAGE_SIZE, actTruth.rows),
+    `${act.rows.length}`
+  );
+  check(
+    "action list comes from DISTINCT, not the page",
+    (act.actions?.length ?? 0) === actTruth.actions,
+    `${act.actions?.length} of ${actTruth.actions}`
+  );
+  // Full keyset walk: every event exactly once, no skips, no repeats. The
+  // trailing id in the cursor is what makes this hold — a "generate" event is
+  // written per row of a batch, so several share one createdAt millisecond.
+  const seenActs = new Set<string>();
+  let actCursor: string | null | undefined;
+  let actPages = 0;
+  let sawActionsAgain = false;
+  do {
+    const page = await queryActivity({}, decodeCursor(actCursor), ACTIVITY_PAGE_SIZE);
+    if (actPages > 0 && page.actions) sawActionsAgain = true;
+    for (const r of page.rows) {
+      if (seenActs.has(r.id)) check(`duplicate activity row ${r.id}`, false);
+      seenActs.add(r.id);
+    }
+    actCursor = page.nextCursor;
+    actPages++;
+  } while (actCursor && actPages < 500);
+  check(
+    "activity keyset walk covers the table exactly once",
+    seenActs.size === actTruth.rows,
+    `${seenActs.size} rows over ${actPages} pages`
+  );
+  check("action list is sent once, not per page", !sawActionsAgain);
+
+  // A filter must narrow in SQL, and the total must narrow with it.
+  const firstAction = act.actions?.[0];
+  if (firstAction) {
+    const [filtTruth] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(activityLogs)
+      .where(sql`${activityLogs.action} = ${firstAction}`);
+    const filtered = await queryActivity({ action: firstAction });
+    check(
+      `action filter narrows (${firstAction})`,
+      filtered.total === filtTruth.n && filtered.rows.every((r) => r.action === firstAction),
+      `${filtered.total} of ${actTruth.rows}`
+    );
+  }
+
   // ── payload ──────────────────────────────────────────────────────────────
   // Everything /api/admin/data actually returns, so the figure below is the
   // route's real size and not a flattering subset of it.
-  const [userRows, activity, pricing] = await Promise.all([
-    db.select().from(users),
-    readActivity(500),
-    readPricing(),
-  ]);
+  const [userRows, pricing] = await Promise.all([db.select().from(users), readPricing()]);
   const parts = {
     users: JSON.stringify(userRows).length,
     stats: JSON.stringify(stats).length,
-    activity: JSON.stringify(activity).length,
     pricing: JSON.stringify(pricing).length,
   };
   const dataPayload = Object.values(parts).reduce((a, b) => a + b, 0);
   const logPayload = JSON.stringify(one).length;
+  const actPayload = JSON.stringify(act).length;
+
+  // What the activity list used to cost on open: the newest 500, in full.
+  const oldActivity = await db
+    .select()
+    .from(activityLogs)
+    .orderBy(desc(activityLogs.createdAt))
+    .limit(OLD_LOG_LIMIT);
+  const oldActPayload = JSON.stringify(oldActivity).length;
 
   console.log("\n── payload ───────────────────────────────────────────────────");
-  console.log(`/api/admin/data                    ${kb(dataPayload)}`);
+  console.log(`/api/admin/data                       ${kb(dataPayload)}`);
   for (const [name, size] of Object.entries(parts)) {
-    console.log(`  ${name.padEnd(32)} ${kb(size)}`);
+    console.log(`  ${name.padEnd(35)} ${kb(size)}`);
   }
-  console.log(`/api/admin/logs  (first 100 rows)  ${kb(logPayload)}`);
+  console.log(`/api/admin/logs     (first 100 rows)  ${kb(logPayload)}`);
+  console.log(`/api/admin/activity (first ${ACTIVITY_PAGE_SIZE} rows)   ${kb(actPayload)}`);
   console.log(`\nwas: 2273.3 kB in one request on dashboard open`);
   console.log(
-    `now: ${kb(dataPayload)} on open, +${kb(logPayload)} only on the Logs tab ` +
-      `(${(2273.3 / (dataPayload / 1024)).toFixed(1)}× smaller on open)`
+    `     of which activity was ${kb(oldActPayload)} once the log moved out`
+  );
+  console.log(
+    `now: ${kb(dataPayload)} on open, +${kb(logPayload)} + ${kb(actPayload)} ` +
+      `only on the Logs tab (${(2273.3 / (dataPayload / 1024)).toFixed(1)}× smaller on open)`
   );
 
   console.log(`\n${failures === 0 ? "all checks passed" : `${failures} CHECK(S) FAILED`}`);

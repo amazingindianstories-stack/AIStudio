@@ -5,30 +5,32 @@ import { users, generations } from "@/lib/schema";
 import { adminOrNull } from "@/lib/admin";
 import { readAdminStats } from "@/lib/admin-stats";
 import { readPricing } from "@/lib/pricing-db";
-import { readActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
 
-/** Audit-trail window returned to the dashboard (newest first). */
-const LOG_LIMIT = 500;
-
 /**
- * The dashboard's fixed context: users (per-user gen count + cost aggregated in
- * SQL), headline stats + charts (also SQL), the audit trail, and pricing.
+ * The dashboard's fixed context, and only that: users (per-user gen count + cost
+ * aggregated in SQL), headline stats + charts (also SQL), and pricing.
  *
- * It deliberately ships **no generation rows**. It used to include the newest
- * 500 with full prompt text, which made this response 2.2 MB — 95% of it prompts
- * — and, worse, made every Overview figure secretly mean "over the newest 500"
- * rather than over the table: the Generations tile sat frozen at 500 and Total
- * spend under-reported by 41%. Totals now come from readAdminStats() and the
- * browsable log from /api/admin/logs, which pages and filters server-side.
+ * It ships **no list rows at all** — neither generations nor activity. It used to
+ * carry the newest 500 generations with full prompt text, which made this
+ * response 2.2 MB (95% of it prompts) and, worse, made every Overview figure
+ * secretly mean "over the newest 500" rather than over the table: the
+ * Generations tile sat frozen at 500 and Total spend under-reported by 41%.
+ * Totals now come from readAdminStats(), the browsable log from
+ * /api/admin/logs, and the audit trail from /api/admin/activity — all three
+ * paging and filtering server-side.
+ *
+ * What is left is bounded by the number of users and pricing rows, so this route
+ * no longer grows with usage. Keep it that way: a list belongs in its own paged
+ * endpoint, not here.
  */
 export async function GET() {
   const me = await adminOrNull();
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const db = await getDb();
 
-  const [allUsers, stats, pricing, activity, statRows] = await Promise.all([
+  const [allUsers, stats, pricing, statRows] = await Promise.all([
     db
       .select({
         id: users.id,
@@ -43,7 +45,6 @@ export async function GET() {
       .from(users),
     readAdminStats(),
     readPricing(),
-    readActivity(LOG_LIMIT),
     db
       .select({
         userId: generations.userId,
@@ -76,7 +77,6 @@ export async function GET() {
   return NextResponse.json({
     users: usersOut,
     stats,
-    activity,
     pricing,
   });
 }
