@@ -15,6 +15,7 @@ import {
   prepKlingReference,
 } from "@/lib/providers/kling";
 import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
+import { buildKlingInput } from "@/lib/kling-input";
 import { resolveReferences, resolveVideoReferences } from "@/lib/mentions";
 import {
   readImageAsBase64,
@@ -351,26 +352,32 @@ export async function POST(req: NextRequest) {
       // Persist Higgsfield's hosted result locally so it survives URL expiry.
       url = await saveFromUrl(done.url, "png", id);
     } else if (isKlingModel(model)) {
-      // Kling takes ONE reference image on this endpoint (see providers/kling.ts).
-      // We still run assemblePrompt so @tags resolve and the shot-spec system
-      // applies, then hand over whatever single reference it produced — and let
-      // the provider reject the multi-reference case loudly rather than dropping
-      // the extras here.
+      // Kling takes ONE reference image and ONE prompt string on this endpoint
+      // (see providers/kling.ts). buildKlingInput adapts the assembled payload
+      // to that shape: it counts references from the resolved GROUPS — so a
+      // saved @slug asset actually reaches Kling instead of being dropped the
+      // way iterating the raw uploads did — and rewrites the @tags that Kling
+      // would otherwise receive as literal machine syntax.
       const assembled = await assemblePrompt(prompt, await readAssets(), referenceImages ?? [], {
         aspectRatio,
       });
-      const refs: { mimeType: string; data: string }[] = [];
-      for (const ref of referenceImages ?? []) {
-        const raw = await readImageAsBase64(ref);
-        // Kling accepts jpg/png only; this app's uploads may be WebP.
-        refs.push(await prepKlingReference(raw.mimeType, raw.data));
-      }
+      const klingInput = buildKlingInput(assembled, model);
+      // Kling accepts jpg/png only; this app's uploads may be WebP.
+      const refs = klingInput.reference
+        ? [
+            await prepKlingReference(
+              klingInput.reference.mimeType,
+              klingInput.reference.data
+            ),
+          ]
+        : [];
       console.log(
-        `[image] kling model=${model} refs=${refs.length} res=${resolution ?? "1K"} ar=${aspectRatio}`
+        `[image] kling model=${model} refs=${refs.length} res=${resolution ?? "1K"} ` +
+          `ar=${aspectRatio} promptChars=${klingInput.prompt.length}`
       );
       const result = await generateImageKling({
         model,
-        prompt: assembled.instruction,
+        prompt: klingInput.prompt,
         aspectRatio,
         resolution,
         references: refs,
