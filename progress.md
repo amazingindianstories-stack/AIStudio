@@ -1,5 +1,83 @@
 # Session Progress & Handoff
 
+## 2026-08-05 — /api/media 300s timeouts: stop proxying media bytes (NOT DEPLOYED)
+
+**Trigger**: Vercel alert, 2026-08-04 12:25 UTC — `/api/media/[...path]`, 17 failed
+requests in 5 minutes against a 24h average of 0, all 504s at the 300s ceiling.
+
+**Cause**: the route proxied every byte of every image and video through the
+function, and nothing bounded it. `GCP_MEDIA_CDN_URL` is not set in production
+(confirmed via `vercel env ls production`) and `bootstrap-media-cdn.sh` has never
+been run, so the 307-redirect shortcut was dead code; signing was believed
+impossible under WIF, so there was no other way out. The route had no
+`maxDuration` (inheriting 300), no client-abort propagation, and no upstream
+timeout. A `<video>` — `MediaCard.tsx` renders one per card, `DetailModal` one
+with `autoPlay loop` — opens the connection, reads the moov atom and abandons
+the rest; nothing tore the GCS read down, so each orphan held an invocation for
+the full five minutes. A video-heavy view produces a burst of exactly the shape
+the alert reported.
+
+**The load-bearing correction**: *signing under Workload Identity Federation
+works.* `@google-cloud/storage` wraps the injected `authClient` in a
+`GoogleAuth` (`nodejs-common/util.js:387`), whose `sign()` resolves a
+`BaseExternalAccountClient` to its impersonated SA via `getServiceAccountEmail()`
+and signs through IAM `signBlob` — read directly from the installed SDK. The
+production failure that CLAUDE.md recorded as "WIF has no signing key" was
+almost certainly the runtime SA lacking `roles/iam.serviceAccountTokenCreator`
+**on itself** (`signBlob` is called with the SA's own impersonated token, which
+the pool principal's binding does not cover).
+
+**Shipped**:
+- `/api/media/[...path]` now redirects to a CDN or signed URL and only proxies as
+  a fallback; `maxDuration = 120`; `request.signal` reaches the read stream and
+  the sharp pipeline; disconnects return 499.
+- `storage.ts` — `signReadUrl` (pinned `accessibleAt` so signatures are stable
+  and browser-cacheable), `browserMediaUrl` (bucketed + memoised),
+  `objectExists` (bounded positive cache), `mediaDeliveryMode`, `listMediaKeys`,
+  `withOpenTimeout` (`MEDIA_OPEN_TIMEOUT_MS`, default 15s), `isProtectedMediaKey`.
+- `src/lib/media-derivatives.ts` + tests — write-time thumbnail ladder (512/1280);
+  `uploadBuffer` renders it, the route maps `?w=` onto it and self-heals misses.
+- Admin → Status → **Media Delivery** reports cdn/signed/proxy. The route's
+  fallback is silent by design, so this row is the only way to see which is live.
+- `scripts/backfill-thumbnails.ts` (`npm run media:thumbs [-- --apply]`).
+- **`?inline=1` + `inlineMediaUrl`** — redirecting makes media cross-origin,
+  which silently breaks three same-origin assumptions that were easy to miss
+  and would each have shipped as a separate bug report: `fetch(...).blob()`
+  (needs bucket CORS), `extractFrame`'s canvas draw (taints the canvas), and
+  `<a download>` (ignored cross-origin, navigates instead of saving). Applied
+  to `addReferenceFromUrl`, `addReferenceFromVideo`, the clone-settings
+  reference restore, and the three download anchors.
+
+**Verified**: `npx tsc --noEmit`, `npm run build`, 308 unit tests (12 new).
+`npm run lint` was not run — `next lint` is deprecated in this Next version and
+drops into an interactive ESLint setup prompt; pre-existing, unrelated.
+
+**NOT verified, and it needs a deploy to be**: that signing actually succeeds in
+production. It cannot be exercised from a laptop — WIF credentials only exist
+inside a production/preview deploy, and the OIDC token `vercel env pull` yields
+carries `environment:development`, which the pool's subject condition rejects.
+
+**Do this, in order**:
+1. Grant the SA `roles/iam.serviceAccountTokenCreator` on itself —
+   `infra/gcp/README.md`, "Media delivery: signed URLs". (`gcloud` on this
+   machine needs `gcloud auth login` first; the session was expired.)
+2. Deploy to preview. Open Admin → Status: **Media Delivery** must read
+   `Signed URLs — GCS V4 via IAM signBlob (…)`. If it reads `Proxying bytes…`,
+   the grant has not propagated — everything still works, just slowly, so this
+   is a check rather than a gate.
+3. `npm run media:thumbs` (dry run) then `-- --apply`. Not required for
+   correctness — the read path renders misses — but without it the first person
+   to open the library after deploy pays a sharp decode per card.
+4. Confirm on production that `/api/media/...` returns 307 and that the alert
+   stays quiet.
+
+**Still open**: media is delivered from GCS with no CDN in front, so every view
+that misses the browser cache is GCS egress. `bootstrap-media-cdn.sh` remains
+the answer if that shows up on the bill, and setting `GCP_MEDIA_CDN_URL` needs
+no code change — `browserMediaUrl` prefers it automatically. Note the tradeoff
+that deferred it originally: CDN URLs are unauthenticated and permanent, whereas
+the signed URLs shipped here expire (`MEDIA_SIGNED_URL_BUCKET_HOURS`, default 6).
+
 ## 2026-07-16 — Admin Status Page + Canvas Board v2 shipped and bundled with GCP migration scaffolding (pushed to PREVIEW only)
 
 **Status**: `feature/canvas-board` pushed to preview (`a010c1f`). **Not merged to `main` / not in production** — that step is deliberately gated on one explicit user confirmation (see `.council/canvas-board-v2/decisions.md` D6) and a separate discussion about the GCP cutover itself; do not merge without both.

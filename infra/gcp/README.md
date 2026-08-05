@@ -3,6 +3,37 @@
 The application uses one keyless Vercel workload identity for Cloud SQL and
 Cloud Storage. Do not create or upload a service-account JSON key.
 
+## Media delivery: signed URLs (required)
+
+`GET /api/media/<key>` redirects the browser to a signed GCS URL instead of
+streaming the object through the Vercel function. Without this the function
+proxies every image and video byte, which is what produced the 2026-08-04
+`/api/media/[...path]` 504 alert.
+
+Signing under Workload Identity Federation goes through the IAM `signBlob` API
+rather than a private key, and it is called with the runtime service account's
+own impersonated token — so the service account needs
+`roles/iam.serviceAccountTokenCreator` **on itself**. The workload identity pool
+principal already holds that role on the account (that is what makes
+`generateAccessToken` impersonation work); the self-binding is separate and is
+easy to miss.
+
+```bash
+SA="$(gcloud iam service-accounts list --project=ais-project-for-gcp \
+  --filter='displayName~Vercel OR email~aistudio' --format='value(email)')"
+
+gcloud iam service-accounts add-iam-policy-binding "$SA" \
+  --project=ais-project-for-gcp \
+  --member="serviceAccount:$SA" \
+  --role=roles/iam.serviceAccountTokenCreator
+```
+
+Confirm it took effect from the app itself: **Admin → Status → Media Delivery**
+reports `Signed URLs — GCS V4 via IAM signBlob (...)` when signing works, and
+`Proxying bytes through the function — <reason>` when it does not. The route
+falls back to proxying rather than erroring, so this row is the only place the
+difference is visible.
+
 ## Media CDN
 
 The bucket remains private. Cloud CDN reads it through the Google-managed HTTPS

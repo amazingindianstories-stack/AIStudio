@@ -18,7 +18,7 @@ import {
   Clapperboard,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { cn, thumbUrl } from "@/lib/utils";
+import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 import { supportsVideoReference } from "@/lib/config";
 
 /** Prompt in the details sidebar: minimized by default, hover reveals an
@@ -414,7 +414,7 @@ export function DetailModal() {
                 <div className="flex gap-2">
                   {item.url && (
                     <a
-                      href={item.url}
+                      href={inlineMediaUrl(item.url)}
                       download
                       className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-ink-700 py-2.5 text-sm text-white/80 hover:text-white"
                     >

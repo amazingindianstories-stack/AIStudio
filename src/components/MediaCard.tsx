@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import type { GenerationItem } from "@/lib/types";
 import { useStore } from "@/lib/store";
-import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
+import { aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 
 // Grid cards render at ~160–320 CSS px; request a modest fixed width
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
@@ -245,7 +245,7 @@ export function MediaCard({
 
         {done && item.url && (
           <a
-            href={item.url}
+            href={inlineMediaUrl(item.url)}
             download
             onClick={(e) => e.stopPropagation()}
             className="absolute right-10 top-2 z-30 grid h-7 w-7 place-items-center rounded-md bg-black/55 text-white/70 opacity-0 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35 group-hover:opacity-100"

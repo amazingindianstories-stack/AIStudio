@@ -21,6 +21,7 @@ import {
   MAX_REFERENCE_VIDEOS,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
+import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import {
   clearFeedCache,
@@ -915,7 +916,7 @@ export const useStore = create<AppState>((set, get) => ({
     // Vercel rejected with a non-JSON 413, surfacing as "server returned an
     // empty or invalid response".
     try {
-      const res = await fetch(url);
+      const res = await fetch(inlineMediaUrl(url));
       const blob = await res.blob();
       const dataUrl = await encodeBlobWithBudget(blob);
       get().addReference(dataUrl);
@@ -941,7 +942,7 @@ export const useStore = create<AppState>((set, get) => ({
     // lib/video-frame.ts for why this cannot happen server-side.
     try {
       const { extractFrame } = await import("./video-frame");
-      const { dataUrl } = await extractFrame(url, atSeconds);
+      const { dataUrl } = await extractFrame(inlineMediaUrl(url), atSeconds);
       get().addReference(dataUrl);
     } catch (e: any) {
       console.error("Failed to take a frame from video:", e);
@@ -968,7 +969,7 @@ export const useStore = create<AppState>((set, get) => ({
       const dataUrls = await Promise.all(
         paths.map(async (p) => {
           try {
-            const res = await fetch(p);
+            const res = await fetch(inlineMediaUrl(p));
             const blob = await res.blob();
             return await new Promise<string>((resolve) => {
               const r = new FileReader();

@@ -4,10 +4,18 @@ import {
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  HeadObjectCommand,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
 import { gcpProjectId, getStorageAuth } from "./gcp-auth";
+import {
+  isThumbnailable,
+  originalKeyFromThumb,
+  THUMB_LADDER,
+  THUMB_PREFIX,
+  thumbKey,
+} from "./media-derivatives";
 
 const getBucketName = () =>
   process.env.GCP_MEDIA_BUCKET ||
@@ -88,9 +96,12 @@ export function mediaKeyFromRef(ref: string): string | null {
  * this avoids.
  *
  * Rules, because this deliberately bypasses the auth on that route:
- *  - Server-side only. Never return one of these to the browser, and never
- *    persist one — the whole safety story is that it expires.
+ *  - Never persist one — the whole safety story is that it expires.
  *  - Read-only, single object, no listing.
+ *  - This entry point is for the *provider* handoff and keeps a short TTL.
+ *    Browser-facing URLs go through `browserMediaUrl`, which is a deliberate
+ *    and separately-reasoned exception to what used to be a blanket
+ *    "server-side only" rule here — see the note on that function.
  *  - The same `settings/` and `migrations/` prefixes the media route denies are
  *    denied here too. Those hold secrets and DB dumps that share this bucket,
  *    and a presigned URL would be a way around that check.
@@ -100,23 +111,54 @@ const SIGNED_URL_TTL_SECONDS = 15 * 60;
 /** Prefixes that must never be reachable, matching the media route's denylist. */
 const PRESIGN_DENY = /^(settings|migrations)\//i;
 
-export async function getSignedReadUrl(
+/**
+ * Whether a key is one of the protected prefixes — checked through the
+ * thumbnail namespace as well.
+ *
+ * `thumbs/512/settings/token.json.webp` starts with `thumbs/`, so a plain
+ * prefix test on the requested key says "allowed" while the object it names
+ * lives under `settings/`. No such derivative can exist today (settings blobs
+ * are written by `writePrivateBuffer`, which never renders thumbnails, and
+ * `.json` is not a rasterisable extension), but the whole point of this
+ * denylist is that it holds even when something upstream changes. Adding a
+ * namespace that embeds arbitrary keys means the check has to see through it.
+ */
+export function isProtectedMediaKey(key: string): boolean {
+  if (PRESIGN_DENY.test(key)) return true;
+  const original = originalKeyFromThumb(key);
+  return original ? PRESIGN_DENY.test(original.key) : false;
+}
+
+/**
+ * V4-sign a read URL over an explicit validity window.
+ *
+ * `accessibleAt` is pinned rather than defaulted to "now" because the signature
+ * covers `X-Goog-Date`: two calls a second apart otherwise produce two
+ * different URLs for the same immutable object, and the browser caches by URL.
+ * `browserMediaUrl` uses that to hand every request in a time bucket the
+ * byte-identical URL, so a re-view is a cache hit instead of a re-download.
+ *
+ * **Signing under Workload Identity Federation does work**, contrary to what
+ * this file used to claim. `@google-cloud/storage` wraps whatever `authClient`
+ * it is given in a `GoogleAuth` (nodejs-common/util.js), whose `sign()` sees a
+ * `BaseExternalAccountClient`, resolves the impersonated service account via
+ * `getServiceAccountEmail()`, and signs through the IAM `signBlob` API — no
+ * private key involved. What that call needs is `roles/iam.serviceAccountTokenCreator`
+ * for the runtime service account **on itself**: the pool principal already
+ * holds that role on the SA (it is how `generateAccessToken` impersonation
+ * works), but `signBlob` is invoked with the SA's own impersonated token, so the
+ * self-binding is a separate grant and is the thing that was missing when
+ * signing failed in production. See `infra/gcp/README.md`.
+ */
+async function signReadUrl(
   key: string,
-  ttlSeconds = SIGNED_URL_TTL_SECONDS
+  accessibleAtMs: number,
+  expiresAtMs: number
 ): Promise<string> {
-  if (PRESIGN_DENY.test(key)) {
+  if (isProtectedMediaKey(key)) {
     throw new Error(`Refusing to sign a URL for a protected prefix: ${key}`);
   }
   if (primaryIsGcs()) {
-    // A public CDN URL is preferred when one is configured: it needs no
-    // signing at all, which matters because this deployment authenticates to
-    // GCS by Workload Identity Federation. WIF has no private key, so V4
-    // signing can only work via IAM signBlob on an impersonated service
-    // account — and plain ExternalAccountClient credentials cannot sign at
-    // all. Reaching the signing call below with WIF is therefore expected to
-    // throw, and the message says so rather than surfacing a bare SDK error.
-    const cdn = getMediaRedirectUrl(key);
-    if (cdn) return cdn;
     try {
       const [url] = await storage()
         .bucket(getBucketName())
@@ -124,16 +166,19 @@ export async function getSignedReadUrl(
         .getSignedUrl({
           version: "v4",
           action: "read",
-          expires: Date.now() + ttlSeconds * 1000,
+          accessibleAt: new Date(accessibleAtMs),
+          expires: expiresAtMs,
         });
       return url;
     } catch (e: any) {
       throw new Error(
-        `GCS could not sign a URL for ${key}: ${e?.message ?? e}. ` +
-          `This deployment authenticates by Workload Identity Federation, which ` +
-          `has no signing key — set GCP_MEDIA_CDN_URL so clips can be handed to ` +
-          `the provider as public CDN URLs, or impersonate a service account so ` +
-          `IAM signBlob is available.`
+        `GCS could not sign a URL for ${key}: ${e?.message ?? e}. Signing goes ` +
+          `through the IAM signBlob API under Workload Identity Federation, so a ` +
+          `permission error here means ${
+            process.env.GCP_SERVICE_ACCOUNT_EMAIL ?? "the runtime service account"
+          } is missing roles/iam.serviceAccountTokenCreator on itself — see ` +
+          `infra/gcp/README.md. Setting GCP_MEDIA_CDN_URL also removes the need ` +
+          `to sign at all.`
       );
     }
   }
@@ -142,7 +187,7 @@ export async function getSignedReadUrl(
     return await getSignedUrl(
       legacyS3(),
       new GetObjectCommand({ Bucket: legacyBucketName(), Key: key }),
-      { expiresIn: ttlSeconds }
+      { expiresIn: Math.max(1, Math.round((expiresAtMs - Date.now()) / 1000)) }
     );
   } catch (e: any) {
     throw new Error(
@@ -153,6 +198,114 @@ export async function getSignedReadUrl(
     );
   }
 }
+
+export async function getSignedReadUrl(
+  key: string,
+  ttlSeconds = SIGNED_URL_TTL_SECONDS
+): Promise<string> {
+  if (isProtectedMediaKey(key)) {
+    throw new Error(`Refusing to sign a URL for a protected prefix: ${key}`);
+  }
+  // A public CDN URL is preferred when one is configured: it needs no signing
+  // round-trip at all.
+  const cdn = getMediaRedirectUrl(key);
+  if (cdn) return cdn;
+  const now = Date.now();
+  return signReadUrl(key, now, now + ttlSeconds * 1000);
+}
+
+/**
+ * How long a browser-facing signed URL stays valid, and how coarsely its start
+ * time is rounded. Every request landing in the same bucket gets the identical
+ * URL (see `signReadUrl`), so the bucket length is also the browser cache
+ * lifetime for the bytes; the signature outlives the bucket by one full bucket
+ * so a URL minted at the end of one is still good for a while after.
+ *
+ * The trade-off is the only one here worth tuning: a longer bucket caches
+ * better, and also lengthens how long a leaked URL keeps working. These are
+ * bearer URLs for a single object, handed to a user who is already authorised
+ * to read it, so hours rather than minutes is the right order of magnitude.
+ */
+const SIGNED_BROWSER_URL_BUCKET_MS =
+  Number(process.env.MEDIA_SIGNED_URL_BUCKET_HOURS || 6) * 3600_000;
+
+const browserUrlCache = new Map<string, { url: string; until: number }>();
+
+/**
+ * A URL the *browser* can fetch directly for one stored object, or null if this
+ * deployment cannot produce one (in which case the caller must proxy the bytes).
+ *
+ * This is what keeps media bytes off the serverless function. Handing a signed
+ * URL to the browser is a deliberate widening of `getSignedReadUrl`'s original
+ * "server-side only" rule: that rule existed because the URL bypasses the
+ * session check on `/api/media`, and the reasoning holds for a *provider* but
+ * not for the signed-in user who just proved they may read this object. The
+ * denylisted prefixes are still refused, one object at a time, with no listing.
+ */
+export async function browserMediaUrl(key: string): Promise<string | null> {
+  if (isProtectedMediaKey(key)) return null;
+  const cdn = getMediaRedirectUrl(key);
+  if (cdn) return cdn;
+
+  const now = Date.now();
+  const cached = browserUrlCache.get(key);
+  if (cached && cached.until > now) return cached.url;
+
+  const bucketStart = Math.floor(now / SIGNED_BROWSER_URL_BUCKET_MS) * SIGNED_BROWSER_URL_BUCKET_MS;
+  try {
+    const url = await signReadUrl(
+      key,
+      bucketStart,
+      bucketStart + 2 * SIGNED_BROWSER_URL_BUCKET_MS
+    );
+    browserUrlCache.set(key, {
+      url,
+      until: bucketStart + SIGNED_BROWSER_URL_BUCKET_MS,
+    });
+    return url;
+  } catch (e: any) {
+    // Never fail the request over this — the caller falls back to proxying the
+    // bytes, which is exactly what this deployment did before signing worked.
+    console.warn(`browserMediaUrl: falling back to proxying ${key}:`, e?.message ?? e);
+    return null;
+  }
+}
+
+/**
+ * How this deployment gets media to the browser right now. Surfaced on the
+ * admin Status tab: `proxy` means every byte is still flowing through the
+ * serverless function, which works but is the condition that times out under
+ * load. Uses a key that is not user media, and signs nothing that is served.
+ */
+export async function mediaDeliveryMode(): Promise<{
+  kind: "cdn" | "signed" | "proxy";
+  detail: string;
+}> {
+  const probeKey = "healthcheck/media-delivery-probe";
+  const cdn = getMediaRedirectUrl(probeKey);
+  if (cdn) {
+    return { kind: "cdn", detail: process.env.GCP_MEDIA_CDN_URL ?? "GCP_MEDIA_CDN_URL" };
+  }
+  const now = Date.now();
+  try {
+    await signReadUrl(probeKey, now, now + 60_000);
+    return {
+      kind: "signed",
+      detail: primaryIsGcs()
+        ? `GCS V4 via IAM signBlob (${process.env.GCP_SERVICE_ACCOUNT_EMAIL ?? "runtime SA"})`
+        : `S3 presigned (${legacyBucketName()})`,
+    };
+  } catch (e: any) {
+    return { kind: "proxy", detail: e?.message ?? String(e) };
+  }
+}
+
+/** Seconds a browser may reuse a `/api/media` redirect before re-minting it.
+ * Kept just inside the bucket so a cached redirect can never outlive the URL
+ * it points at. */
+export const BROWSER_URL_REDIRECT_MAX_AGE_S = Math.floor(
+  (SIGNED_BROWSER_URL_BUCKET_MS / 1000) * 0.75
+);
 
 /**
  * A provider-fetchable URL for a stored reference (`/api/media/...` or a CDN
@@ -225,6 +378,50 @@ async function saveBuffer(
   });
 }
 
+/**
+ * Render and store the thumbnail ladder for one image.
+ *
+ * Every ladder step is written even when the source is narrower than the step —
+ * `withoutEnlargement` means those are just a copy at native width. The few tens
+ * of kB that wastes buys a flat invariant the read path can rely on: for a
+ * thumbnailable key, every ladder derivative exists. The alternative (write only
+ * the steps that shrink) makes "absent" mean either "small original" or "not
+ * generated yet", and the read path cannot tell those apart.
+ */
+export async function writeThumbnails(buffer: Buffer, key: string): Promise<void> {
+  if (!isThumbnailable(key)) return;
+  const sharp = (await import("sharp")).default;
+  await Promise.all(
+    THUMB_LADDER.map(async (width) => {
+      const out = await sharp(buffer, { failOn: "error", sequentialRead: true })
+        .resize({ width, withoutEnlargement: true })
+        .webp({ quality: 75 })
+        .toBuffer();
+      await saveBuffer(
+        out,
+        thumbKey(key, width),
+        "image/webp",
+        "public, max-age=31536000, immutable"
+      );
+    })
+  );
+}
+
+/** Persist one already-rendered ladder derivative. Used by the read path when
+ * it has to fill a gap the write path left. */
+export async function saveThumbnailObject(
+  out: Buffer,
+  originalKey: string,
+  width: number
+): Promise<void> {
+  await saveBuffer(
+    out,
+    thumbKey(originalKey, width),
+    "image/webp",
+    "public, max-age=31536000, immutable"
+  );
+}
+
 /** Upload media to the selected backend and return its stable compatibility URL. */
 export async function uploadBuffer(
   buffer: Buffer,
@@ -237,6 +434,14 @@ export async function uploadBuffer(
     extToMime(ext),
     "public, max-age=31536000, immutable"
   );
+  // Best-effort: a thumbnail that fails to render must never fail the
+  // generation whose result this is. The read path regenerates on miss, so the
+  // only cost of failing here is that one image's first view does the work.
+  try {
+    await writeThumbnails(buffer, key);
+  } catch (e: any) {
+    console.warn(`writeThumbnails failed for ${key}:`, e?.message ?? e);
+  }
   return `/api/media/${key}`;
 }
 
@@ -364,6 +569,49 @@ export async function readAsBase64(
   throw new Error(`Unsupported media reference format: ${ref}`);
 }
 
+/**
+ * Positive existence cache for the read path's derivative lookup.
+ *
+ * Objects here are immutable and never deleted out from under a live key, so a
+ * "yes" can be remembered for the life of the instance; a "no" is never cached,
+ * because the very next thing the caller does about a miss is create the object.
+ * Bounded so a long-lived warm instance can't grow without limit.
+ */
+const MAX_REMEMBERED_OBJECTS = 5000;
+const knownObjects = new Set<string>();
+
+export async function objectExists(key: string): Promise<boolean> {
+  if (knownObjects.has(key)) return true;
+  let found: boolean;
+  try {
+    if (primaryIsGcs()) {
+      const [exists] = await withOpenTimeout(
+        storage().bucket(getBucketName()).file(key).exists(),
+        `GCS exists ${key}`
+      );
+      found = exists;
+    } else {
+      await withOpenTimeout(
+        legacyS3().send(
+          new HeadObjectCommand({ Bucket: legacyBucketName(), Key: key })
+        ),
+        `S3 HeadObject ${key}`
+      );
+      found = true;
+    }
+  } catch (error) {
+    if (isNotFound(error) || (error as { name?: string })?.name === "NotFound") {
+      return false;
+    }
+    throw error;
+  }
+  if (found) {
+    if (knownObjects.size >= MAX_REMEMBERED_OBJECTS) knownObjects.clear();
+    knownObjects.add(key);
+  }
+  return found;
+}
+
 export class MediaNotFoundError extends Error {}
 export class InvalidMediaRangeError extends Error {}
 
@@ -395,13 +643,48 @@ export interface OpenMediaObject {
   status: 200 | 206;
 }
 
+/**
+ * Bound a cloud round-trip that has no timeout of its own.
+ *
+ * Neither the GCS client's metadata call nor an S3 GetObject will fail on a
+ * stalled socket within any useful time, and `/api/media/[...path]` awaits them
+ * before it can send a single byte. Without this a hung upstream read holds a
+ * serverless invocation until the platform's own ceiling and surfaces to the
+ * user as a 504 several minutes later — which is what the 2026-08-04 alert on
+ * that route was. Failing in seconds turns that into a retryable 500 and gives
+ * the concurrency slot back.
+ */
+const OPEN_MEDIA_TIMEOUT_MS = Number(process.env.MEDIA_OPEN_TIMEOUT_MS || 15_000);
+
+async function withOpenTimeout<T>(work: Promise<T>, what: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${what} timed out after ${OPEN_MEDIA_TIMEOUT_MS}ms`)),
+          OPEN_MEDIA_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function openLegacyMedia(
   key: string,
-  range?: string
+  range?: string,
+  signal?: AbortSignal
 ): Promise<OpenMediaObject> {
   try {
-    const response = await legacyS3().send(
-      new GetObjectCommand({ Bucket: legacyBucketName(), Key: key, Range: range })
+    const response = await withOpenTimeout(
+      legacyS3().send(
+        new GetObjectCommand({ Bucket: legacyBucketName(), Key: key, Range: range }),
+        { abortSignal: signal as any }
+      ),
+      `S3 GetObject ${key}`
     );
     if (!response.Body) throw new MediaNotFoundError();
     return {
@@ -417,14 +700,25 @@ async function openLegacyMedia(
   }
 }
 
+/**
+ * `signal` is the inbound request's abort signal. It is load-bearing, not
+ * defensive: a `<video>` element opens this route, reads the moov atom and
+ * abandons the rest, and a feed of media cards aborts every request for a card
+ * that scrolls out. Nothing tears the upstream read down on its own, so those
+ * orphaned reads keep their invocation alive to the timeout ceiling.
+ */
 export async function openMediaObject(
   key: string,
-  range?: string
+  range?: string,
+  signal?: AbortSignal
 ): Promise<OpenMediaObject> {
-  if (!primaryIsGcs()) return openLegacyMedia(key, range);
+  if (!primaryIsGcs()) return openLegacyMedia(key, range, signal);
   try {
     const file = storage().bucket(getBucketName()).file(key);
-    const [metadata] = await file.getMetadata();
+    const [metadata] = await withOpenTimeout(
+      file.getMetadata(),
+      `GCS getMetadata ${key}`
+    );
     const size = Number(metadata.size || 0);
     const parsed = range ? parseRange(range, size) : undefined;
     const nodeStream = file.createReadStream(
@@ -432,6 +726,13 @@ export async function openMediaObject(
         ? { start: parsed.start, end: parsed.end, validation: false }
         : { validation: false }
     );
+    if (signal) {
+      if (signal.aborted) nodeStream.destroy();
+      else
+        signal.addEventListener("abort", () => nodeStream.destroy(), {
+          once: true,
+        });
+    }
     return {
       stream: Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>,
       contentType: metadata.contentType || "application/octet-stream",
@@ -443,8 +744,38 @@ export async function openMediaObject(
     if (!isNotFound(error)) throw error;
     if (!legacyReadsEnabled()) throw new MediaNotFoundError();
 
-    return openLegacyMedia(key, range);
+    return openLegacyMedia(key, range, signal);
   }
+}
+
+/**
+ * Every user-media key in the active backend, excluding derivatives and the
+ * protected prefixes. For maintenance scripts (the thumbnail backfill) — the
+ * request path never lists.
+ */
+export async function listMediaKeys(): Promise<string[]> {
+  const keep = (key: string) =>
+    !key.startsWith(THUMB_PREFIX) && !isProtectedMediaKey(key) && !key.endsWith("/");
+
+  if (primaryIsGcs()) {
+    const [files] = await storage().bucket(getBucketName()).getFiles();
+    return files.map((f) => f.name).filter(keep);
+  }
+
+  const { ListObjectsV2Command } = await import("@aws-sdk/client-s3");
+  const out: string[] = [];
+  let token: string | undefined;
+  do {
+    const page = await legacyS3().send(
+      new ListObjectsV2Command({
+        Bucket: legacyBucketName(),
+        ContinuationToken: token,
+      })
+    );
+    for (const o of page.Contents ?? []) if (o.Key && keep(o.Key)) out.push(o.Key);
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+  } while (token);
+  return out;
 }
 
 export async function deleteByUrls(urls: string[]): Promise<void> {

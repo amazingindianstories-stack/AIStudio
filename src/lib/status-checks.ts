@@ -144,6 +144,36 @@ async function checkStorage(): Promise<CheckOutcome> {
   return { status: "ok", detail: `${detail} reachable` };
 }
 
+/**
+ * Whether media can be handed to the browser directly rather than proxied
+ * through `/api/media`.
+ *
+ * This is the one thing about the media path that cannot be established from
+ * config alone and cannot be exercised from a laptop: signing runs through IAM
+ * `signBlob` using the Workload Identity Federation credentials, which only
+ * exist inside a production/preview deploy. When it fails the route silently
+ * (and correctly) falls back to proxying bytes — which is exactly the state
+ * that produced the 2026-08-04 timeout alert — so it needs to be visible rather
+ * than inferred from a latency graph.
+ *
+ * Signing is a local-ish operation against a key that is not user media, so
+ * this costs nothing and generates nothing.
+ */
+async function checkMediaDelivery(): Promise<CheckOutcome> {
+  const { mediaDeliveryMode } = await import("@/lib/storage");
+  const mode = await mediaDeliveryMode();
+  if (mode.kind === "cdn") {
+    return { status: "ok", detail: `Public CDN — ${mode.detail}` };
+  }
+  if (mode.kind === "signed") {
+    return { status: "ok", detail: `Signed URLs — ${mode.detail}` };
+  }
+  return {
+    status: "error",
+    detail: `Proxying bytes through the function — ${mode.detail}`,
+  };
+}
+
 /** The six checks, in the fixed display order. Exported for test injection. */
 export const CHECKS: CheckDef[] = [
   { id: "gemini", name: "Gemini / Nano Banana Pro", fn: checkGemini },
@@ -153,6 +183,7 @@ export const CHECKS: CheckDef[] = [
   { id: "omni", name: "Gemini Omni Flash", fn: checkOmni },
   { id: "postgres", name: "Postgres", fn: checkPostgres },
   { id: "storage", name: "Media Storage", fn: checkStorage },
+  { id: "media-delivery", name: "Media Delivery", fn: checkMediaDelivery },
 ];
 
 class TimeoutError extends Error {}

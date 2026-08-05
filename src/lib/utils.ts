@@ -21,6 +21,34 @@ export function thumbUrl(url: string | undefined | null, width: number): string 
   return `${url}${url.includes("?") ? "&" : "?"}w=${width}`;
 }
 
+/**
+ * Force the same-origin form of a `/api/media/...` URL.
+ *
+ * The media route normally redirects to a CDN or signed cloud URL so the bytes
+ * never touch the serverless function. That is right for display — `<img src>`
+ * and `<video src>` do not care where the bytes come from — but three things in
+ * this app read media *as data* and all of them are same-origin-only:
+ *
+ *  - `fetch(...).blob()` — a cross-origin fetch needs CORS headers on the
+ *    bucket, and gets an opaque failure without them;
+ *  - `extractFrame` draws a `<video>` into a canvas, which taints it
+ *    cross-origin and makes `toDataURL` throw;
+ *  - `<a download>` is ignored by browsers on a cross-origin href, so the
+ *    button navigates instead of saving.
+ *
+ * Those are all user-initiated, one-at-a-time operations, so proxying them
+ * costs nothing worth optimising — unlike the feed, which is what the redirect
+ * exists for. Configuring bucket CORS would let the first two go direct too;
+ * this keeps them working without depending on that.
+ */
+export function inlineMediaUrl(url: string): string;
+export function inlineMediaUrl(url: string | undefined | null): string | undefined;
+export function inlineMediaUrl(url: string | undefined | null): string | undefined {
+  if (!url) return undefined;
+  if (!url.startsWith("/api/media/")) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}inline=1`;
+}
+
 export function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
   const m = Math.floor(diff / 60000);
