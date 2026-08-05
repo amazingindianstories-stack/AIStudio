@@ -362,10 +362,21 @@ const MAX_CONCURRENT: Record<string, number> = { image: 2, video: 2 };
 // (/api/queue/execute). If the platform hard-kills that invocation mid-flight
 // (timeout, crash, cold-start OOM), nothing ever runs to flip the row off
 // "running" — it then permanently occupies one of only MAX_CONCURRENT.image
-// slots and blocks every job queued behind it forever. Video doesn't need
-// this: its own status route already self-heals via POLL_TIMEOUT_MS. Mirror
-// that pattern here. Swept on every status poll so any active client
-// self-heals the whole queue, not just its own job.
+// slots and blocks every job queued behind it forever. Swept on every status
+// poll so any active client self-heals the whole queue, not just its own job.
+//
+// Video also needs a slice of this, for one specific case: /api/queue/execute
+// (shared with images, same maxDuration) locks the row "running" and only
+// afterwards submits it to the provider and stamps taskId. If the invocation
+// dies in between, the row is "running" with taskId still null and nothing
+// can ever poll it to completion — the video status route requires a taskId
+// to have anything to ask the provider about. Its own POLL_TIMEOUT_MS only
+// helps if a client is actively polling that item, but `adoptOrphanedJobs`
+// on the client deliberately skips "running" jobs (a running video is assumed
+// to already be submitted remotely), so a taskId-less zombie with no active
+// tab is invisible to every client-side self-heal path. Once taskId is set,
+// leave it to the status route/self-heal above — this only catches the
+// narrow pre-submission gap.
 //
 // This threshold MUST stay above /api/queue/execute's maxDuration (300s), or
 // the reaper fails jobs that are still legitimately running — the row's
@@ -401,7 +412,10 @@ async function reapStaleRunningImages(): Promise<void> {
     .where(
       and(
         eq(generations.status, "running"),
-        eq(generations.kind, "image"),
+        or(
+          eq(generations.kind, "image"),
+          and(eq(generations.kind, "video"), isNull(generations.taskId))
+        ),
         lt(generations.updatedAt, Date.now() - STALE_RUNNING_MS)
       )
     );

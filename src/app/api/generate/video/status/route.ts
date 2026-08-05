@@ -24,12 +24,13 @@ export async function GET(req: NextRequest) {
   if (item.status === "succeeded" || item.status === "failed") {
     return NextResponse.json(item);
   }
-  if (!item.taskId) {
-    return NextResponse.json(item);
-  }
 
   // Safety net: no provider takes this long — fail instead of spinning forever
-  // (e.g. when the stored task id turns out not to be a real job).
+  // (e.g. when the stored task id turns out not to be a real job, or when
+  // /api/queue/execute died between locking the job "running" and actually
+  // submitting it, leaving taskId permanently null). This must run BEFORE the
+  // `!item.taskId` early return below, or exactly that stuck case never times
+  // out — it just returns the unchanged item on every poll forever.
   const POLL_TIMEOUT_MS = 30 * 60 * 1000;
   if (!isMock() && Date.now() - item.createdAt > POLL_TIMEOUT_MS) {
     const failed = {
@@ -40,6 +41,10 @@ export async function GET(req: NextRequest) {
     };
     await upsertItem(failed);
     return NextResponse.json(failed);
+  }
+
+  if (!item.taskId) {
+    return NextResponse.json(item);
   }
 
   try {
