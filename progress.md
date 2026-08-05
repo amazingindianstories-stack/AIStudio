@@ -1,6 +1,6 @@
 # Session Progress & Handoff
 
-## 2026-08-05 — /api/media 300s timeouts: stop proxying media bytes (NOT DEPLOYED)
+## 2026-08-05 — /api/media 300s timeouts: stop proxying media bytes (DEPLOYED)
 
 **Trigger**: Vercel alert, 2026-08-04 12:25 UTC — `/api/media/[...path]`, 17 failed
 requests in 5 minutes against a 24h average of 0, all 504s at the 300s ceiling.
@@ -57,19 +57,42 @@ production. It cannot be exercised from a laptop — WIF credentials only exist
 inside a production/preview deploy, and the OIDC token `vercel env pull` yields
 carries `environment:development`, which the pool's subject condition rejects.
 
-**Do this, in order**:
-1. Grant the SA `roles/iam.serviceAccountTokenCreator` on itself —
-   `infra/gcp/README.md`, "Media delivery: signed URLs". (`gcloud` on this
-   machine needs `gcloud auth login` first; the session was expired.)
-2. Deploy to preview. Open Admin → Status: **Media Delivery** must read
-   `Signed URLs — GCS V4 via IAM signBlob (…)`. If it reads `Proxying bytes…`,
-   the grant has not propagated — everything still works, just slowly, so this
-   is a check rather than a gate.
-3. `npm run media:thumbs` (dry run) then `-- --apply`. Not required for
-   correctness — the read path renders misses — but without it the first person
-   to open the library after deploy pays a sharp decode per card.
-4. Confirm on production that `/api/media/...` returns 307 and that the alert
-   stays quiet.
+**Done on 2026-08-05**:
+- `roles/iam.serviceAccountTokenCreator` granted to
+  `aistudio-media-sa@ais-project-for-gcp.iam.gserviceaccount.com` **on itself**.
+  That account was identified, not guessed: it is the value of
+  `GCP_SERVICE_ACCOUNT_EMAIL` in the production env and the only SA holding
+  `storage.objectAdmin` on `aistudio-media-bucket`. The other candidate,
+  `aistudio-gcs-sa`, carries a broader `attribute.project/aistudio-v1` binding
+  and is not what the app runs as. `iamcredentials.googleapis.com` was already
+  enabled.
+- Pushed to `main` and deployed to production
+  (`aistudio-v1-b05s1pdei`, alias `www.veevee.ai`).
+- Smoke-tested unauthenticated: `/api/media/...` → 401, and a `settings/` key
+  also → 401, i.e. the auth check fires before the denylist so the denylist
+  leaks nothing about what exists.
+
+**Note for future work**: this project is git-connected and **every push to
+`main` auto-deploys production**. The push and the subsequent `vercel --prod`
+produced two deployments a minute apart; the CLI one holds the alias. There is
+no preview stage in this workflow unless someone pushes a branch.
+
+**Still to do**:
+1. Confirm **Admin → Status → Media Delivery** reads
+   `Signed URLs — GCS V4 via IAM signBlob (…)`. If it reads `Proxying bytes…`
+   the grant has not taken effect — media still works, just via the function,
+   so this is a check rather than a gate. Needs an admin session, so it could
+   not be done from the CLI.
+2. `npm run media:thumbs -- --apply` as a warm-up. Not required for correctness
+   (the read path renders and persists misses), but without it the first person
+   to open the library pays one sharp decode per card. **Running it locally
+   needs `gcloud auth application-default login`** — plain `gcloud auth login`
+   sets the CLI's credentials, not the ADC the Google client libraries read,
+   and the attempt failed on a token fetch because of it. It also needs
+   `MEDIA_BACKEND=gcs GCP_MEDIA_BUCKET=aistudio-media-bucket` in the
+   environment, since `.env.local` has neither and would otherwise send the
+   script at S3.
+3. Watch whether the Vercel alert stays quiet.
 
 **Still open**: media is delivered from GCS with no CDN in front, so every view
 that misses the browser cache is GCS egress. `bootstrap-media-cdn.sh` remains
