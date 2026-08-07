@@ -106,3 +106,27 @@ export function resolveReferences(
     dataUrl: uploads[n - 1],
   }));
 }
+
+/**
+ * Rewrites @imgN tokens so they keep pointing at the same physical image
+ * after the upload array is reordered. @imgN is a live index into whatever
+ * `referenceImages` currently holds (see resolveReferences) rather than a
+ * stored id, so reordering the array without this would silently repoint an
+ * already-typed tag at a different image.
+ *
+ * `mapping[oldIndex]` (0-based) is the image's new 0-based index; an old
+ * index missing from `mapping` (out of range) is left untouched, matching
+ * resolveReferences' "out-of-range tags ignored" behavior.
+ *
+ * Safe for swaps (e.g. @img1 <-> @img2): String.replace with a global regex
+ * resolves every match against the *original* string before substituting, so
+ * an already-replaced token is never re-matched.
+ */
+export function renumberImgMentions(prompt: string, mapping: number[]): string {
+  const re = new RegExp(MENTION_REGEX);
+  return prompt.replace(re, (match, digits: string) => {
+    const oldIndex = parseInt(digits, 10) - 1;
+    const newIndex = mapping[oldIndex];
+    return newIndex === undefined ? match : `@img${newIndex + 1}`;
+  });
+}

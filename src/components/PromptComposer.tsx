@@ -8,7 +8,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
 } from "react";
-import { motion } from "framer-motion";
+import { motion, Reorder } from "framer-motion";
 import {
   Plus,
   Image as ImageIcon,
@@ -289,19 +289,31 @@ export function PromptComposer() {
         </div>
       )}
 
-      {/* reference thumbnails — click to insert its @imgN tag into the prompt */}
+      {/* reference thumbnails — click to insert its @imgN tag into the prompt,
+          drag to reorder. @imgN is a live index into referenceImages (see
+          resolveReferences in mentions.ts), so reordering renumbers any
+          @imgN already typed in the prompt via s.reorderReferences to keep
+          each tag pointing at the same image. */}
       {s.referenceImages.length > 0 && (
-        <div className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1">
+        <Reorder.Group
+          as="div"
+          axis="x"
+          values={s.referenceImages}
+          onReorder={s.reorderReferences}
+          className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1"
+        >
           {s.referenceImages.map((src, i) => (
-            <motion.button
-              key={i}
-              type="button"
+            <Reorder.Item
+              key={src}
+              value={src}
+              as="div"
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
+              whileDrag={{ scale: 1.05, zIndex: 1 }}
+              title={`Insert @img${i + 1} — drag to reorder`}
+              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing"
               onClick={() => mentionRef.current?.insertTag(`@img${i + 1}`)}
-              title={`Insert @img${i + 1}`}
-              className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={src} alt="" className="h-full w-full object-cover" />
@@ -310,6 +322,7 @@ export function PromptComposer() {
               </span>
               <span
                 role="button"
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
                   e.stopPropagation();
                   s.removeReference(i);
@@ -318,9 +331,9 @@ export function PromptComposer() {
               >
                 <X className="h-2.5 w-2.5" />
               </span>
-            </motion.button>
+            </Reorder.Item>
           ))}
-        </div>
+        </Reorder.Group>
       )}
 
       {/* Higgsfield Seedance (via MCP) natively accepts multiple reference

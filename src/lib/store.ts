@@ -21,6 +21,7 @@ import {
   MAX_REFERENCE_VIDEOS,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
+import { renumberImgMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import {
@@ -172,6 +173,7 @@ interface AppState extends ComposerState {
   setPrompt: (p: string) => void;
   addReference: (dataUrl: string) => void;
   removeReference: (index: number) => void;
+  reorderReferences: (newOrder: string[]) => void;
   addReferenceVideo: (ref: string) => void;
   removeReferenceVideo: (index: number) => void;
 
@@ -507,6 +509,20 @@ export const useStore = create<AppState>((set, get) => ({
   removeReference: (index) =>
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
+    })),
+  // Drag-reorder from the composer. Diffs old vs. new position per image
+  // (by value — reference images are treated as distinct, so an exact
+  // byte-identical duplicate upload is the one case this can misnumber) and
+  // renumbers any @imgN already typed in the prompt so it keeps pointing at
+  // the same image rather than silently drifting to whatever else lands in
+  // that slot.
+  reorderReferences: (newOrder) =>
+    set((s) => ({
+      referenceImages: newOrder,
+      prompt: renumberImgMentions(
+        s.prompt,
+        s.referenceImages.map((img) => newOrder.indexOf(img))
+      ),
     })),
   addReferenceVideo: (ref) =>
     set((s) =>

@@ -6,6 +6,7 @@ import {
   parseAssetSlugs,
   parseMentionIndices,
   parseVideoMentionIndices,
+  renumberImgMentions,
   resolveReferences,
   resolveVideoReferences,
 } from "./mentions";
@@ -80,4 +81,45 @@ test("a prompt mixing all three tag kinds resolves each independently", () => {
   assert.deepEqual(parseAssetSlugs(prompt), ["priya"]);
   assert.deepEqual(parseMentionIndices(prompt), [1]);
   assert.deepEqual(parseVideoMentionIndices(prompt), [1]);
+});
+
+/**
+ * Drag-reorder of the composer's reference thumbnails calls this to keep
+ * already-typed @imgN tags pointing at the same image (see the doc comment
+ * on renumberImgMentions — @imgN is a live array index, not a stored id).
+ */
+
+test("renumberImgMentions swaps a pair of tags without clobbering", () => {
+  // mapping[0]=1, mapping[1]=0: images at index 0 and 1 traded places.
+  assert.equal(
+    renumberImgMentions("put @img1 next to @img2", [1, 0]),
+    "put @img2 next to @img1"
+  );
+});
+
+test("renumberImgMentions handles a move-to-end shift", () => {
+  // First image dragged to the last slot; the other two shift down by one.
+  assert.equal(
+    renumberImgMentions("@img1 @img2 @img3", [2, 0, 1]),
+    "@img3 @img1 @img2"
+  );
+});
+
+test("renumberImgMentions leaves out-of-range tags untouched", () => {
+  // Only 2 images in the mapping; @img5 doesn't correspond to any of them.
+  assert.equal(
+    renumberImgMentions("@img1 and @img5", [1, 0]),
+    "@img2 and @img5"
+  );
+});
+
+test("renumberImgMentions is case-insensitive on input, normalizes output", () => {
+  assert.equal(renumberImgMentions("@IMG2 stays put", [1, 0]), "@img1 stays put");
+});
+
+test("renumberImgMentions renumbers every occurrence of a repeated tag", () => {
+  assert.equal(
+    renumberImgMentions("@img1 matches @img1 again", [1, 0]),
+    "@img2 matches @img2 again"
+  );
 });
