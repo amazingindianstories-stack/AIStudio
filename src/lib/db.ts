@@ -21,9 +21,9 @@ interface DbRuntime {
   cloudSqlBuiltAt?: number;
 }
 
-const globalForDb = globalThis as unknown as { __luminaDb?: DbRuntime };
-const runtime = globalForDb.__luminaDb ?? {};
-globalForDb.__luminaDb = runtime;
+const globalForDb = globalThis as unknown as { __veeveeDb?: DbRuntime };
+const runtime = globalForDb.__veeveeDb ?? {};
+globalForDb.__veeveeDb = runtime;
 
 function positiveInt(value: string | undefined, fallback: number): number {
   const parsed = Number(value);

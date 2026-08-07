@@ -28,9 +28,9 @@ export function TopBar() {
     <>
       <header className="relative z-40 flex h-14 shrink-0 items-center justify-between border-b border-line bg-ink-900 px-3 sm:px-5">
         <div className="flex items-center gap-2.5">
-          <img src="/logo.png" alt="Vivi" className="h-8 w-8 rounded-lg shadow-sm" />
+          <img src="/logo.png" alt="Veevee.ai" className="h-8 w-8 rounded-lg shadow-sm" />
           <span className="text-[17px] font-semibold tracking-tight text-white">
-            Vivi
+            Veevee.ai
           </span>
         </div>
 

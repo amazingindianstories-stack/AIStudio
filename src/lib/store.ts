@@ -1556,9 +1556,9 @@ function pollQueue(
 // reference images are written only when they actually change (they can be
 // multi-MB data URLs — serializing them per keystroke would jank typing);
 // composer settings and panel/tab state are tiny and written on change.
-const DRAFT_PROMPT_KEY = "vivi-draft-prompt-v1";
-const DRAFT_REFS_KEY = "vivi-draft-refs-v1";
-const DRAFT_SETTINGS_KEY = "vivi-draft-settings-v1";
+const DRAFT_PROMPT_KEY = "veevee-draft-prompt-v1";
+const DRAFT_REFS_KEY = "veevee-draft-refs-v1";
+const DRAFT_SETTINGS_KEY = "veevee-draft-settings-v1";
 
 /** Restore the locally cached composer draft (prompt + reference images) and
  *  UI state (mode/model/settings, panel tab, active project/folder) once at

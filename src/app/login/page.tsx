@@ -44,9 +44,9 @@ export default function LoginPage() {
         className="w-full max-w-sm rounded-2xl border border-line bg-ink-850 p-7 shadow-pop"
       >
         <div className="mb-6 flex items-center gap-2.5">
-          <img src="/logo.png" alt="Vivi" className="h-9 w-9 rounded-lg shadow-sm" />
+          <img src="/logo.png" alt="Veevee.ai" className="h-9 w-9 rounded-lg shadow-sm" />
           <div>
-            <p className="text-lg font-semibold text-white">Vivi</p>
+            <p className="text-lg font-semibold text-white">Veevee.ai</p>
             <p className="text-xs text-white/45">Sign in to continue</p>
           </div>
         </div>

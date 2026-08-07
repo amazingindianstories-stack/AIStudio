@@ -6,7 +6,7 @@ import { users } from "./schema";
 
 export { hashPassword, verifyPassword } from "./password";
 
-export const SESSION_COOKIE = "lumina_session";
+export const SESSION_COOKIE = "veevee_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const SESSION_TTL_MS = 1000 * SESSION_MAX_AGE_SECONDS;
 

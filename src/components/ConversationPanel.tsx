@@ -352,12 +352,12 @@ function Welcome() {
     >
       <img
         src="/logo.png"
-        alt="Vivi"
+        alt="Veevee.ai"
         className="h-16 w-16 rounded-3xl ring-1 ring-white/10 shadow-sm"
       />
       <div className="space-y-1.5">
         <h1 className="text-2xl font-semibold text-white">
-          Create with <span className="brand-text">Vivi</span>
+          Create with <span className="brand-text">Veevee.ai</span>
         </h1>
         <p className="text-sm text-white/55">
           Generate images with Nano Banana Pro and videos with Seedance.

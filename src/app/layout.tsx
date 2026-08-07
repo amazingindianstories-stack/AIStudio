@@ -9,9 +9,9 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Vivi — AI Image & Video",
+  title: "Veevee.ai — AI Image & Video",
   description:
-    "Generate images with Nano Banana Pro and videos with Seedance. A Vivi creative studio.",
+    "Generate images with Nano Banana Pro and videos with Seedance. A Veevee.ai creative studio.",
 };
 
 export const viewport: Viewport = {

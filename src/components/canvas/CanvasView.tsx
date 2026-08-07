@@ -406,7 +406,7 @@ export function CanvasView() {
             <Monitor className="h-8 w-8 text-white/50" />
             <p className="text-sm font-medium text-white/85">Canvas Board needs a larger screen.</p>
             <p className="text-sm text-white/55">
-              Open Vivi on a desktop (1024px or wider) to use the board.
+              Open Veevee.ai on a desktop (1024px or wider) to use the board.
             </p>
           </div>
         </div>

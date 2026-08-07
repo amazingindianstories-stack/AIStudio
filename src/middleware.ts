@@ -9,7 +9,7 @@ import { NextRequest, NextResponse } from "next/server";
  * Real enforcement (signature + DB + role) happens server-side in the route
  * handlers/pages via getSession()/requireUser()/requireAdmin().
  */
-const SESSION_COOKIE = "lumina_session";
+const SESSION_COOKIE = "veevee_session";
 
 export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;

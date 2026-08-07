@@ -5,7 +5,7 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Lumina dark palette
+        // Veevee dark palette
         ink: {
           900: "#070708",
           850: "#0c0d0f",

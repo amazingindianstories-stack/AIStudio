@@ -31,8 +31,8 @@ type AssetTab = "assets" | "favourites";
  *  project the user picked from the list — see AssetScopeControl). */
 type AssetScope = string;
 
-const COLLAPSE_KEY = "vivi-canvas-asset-panel-collapsed-v1";
-const SCOPE_KEY = "vivi-canvas-asset-scope-v1";
+const COLLAPSE_KEY = "veevee-canvas-asset-panel-collapsed-v1";
+const SCOPE_KEY = "veevee-canvas-asset-scope-v1";
 
 /**
  * Left docked asset library panel (ui-spec §4). Reuses the GLOBAL store's

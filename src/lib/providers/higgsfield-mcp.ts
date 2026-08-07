@@ -273,7 +273,7 @@ async function ensureSession(): Promise<void> {
   await rpc("initialize", {
     protocolVersion: "2025-06-18",
     capabilities: {},
-    clientInfo: { name: "lumina", version: "0.1" },
+    clientInfo: { name: "veevee", version: "0.1" },
   });
   await rpc("notifications/initialized", {}, true);
 }

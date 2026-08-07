@@ -25,7 +25,7 @@ import { ProjectMenu } from "./ProjectMenu";
 import { cn } from "@/lib/utils";
 import type { GenerationKind } from "@/lib/types";
 
-const ZOOM_KEY = "lumina-asset-zoom-v1";
+const ZOOM_KEY = "veevee-asset-zoom-v1";
 const ZOOM_MIN = 120;
 const ZOOM_MAX = 260;
 
