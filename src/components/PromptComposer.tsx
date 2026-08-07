@@ -45,6 +45,8 @@ import {
   resolutionsForModel,
   supportsAudio,
   supportsVideoReference,
+  supportsVideoEditExtend,
+  VIDEO_TASK_MODES,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import type { GenerationKind } from "@/lib/types";
@@ -74,6 +76,12 @@ export function PromptComposer() {
    * apart again.
    */
   const audioApplies = s.mode === "video" && supportsAudio(s.model);
+  // Edit/Extend only exist on Seedance 2.5 (config.supportsVideoEditExtend).
+  // Both require BytePlus's ratio:"adaptive" and Edit also forces duration to
+  // "match the source" — see the videoTaskMode branches on the Aspect
+  // ratio/Duration segments below.
+  const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
+  const videoTaskMode = editExtendApplies ? s.videoTaskMode : "generate";
   const fileRef = useRef<HTMLInputElement>(null);
   const mentionRef = useRef<MentionHandle>(null);
   const toolbarMeasureRef = useRef<HTMLDivElement>(null);
@@ -533,13 +541,25 @@ export function PromptComposer() {
           trigger={(open) => (
             <Chip open={open}>
               <Settings2 className="h-4 w-4 text-white/55" />
-              <span className="composer-setting-value font-medium">{s.aspectRatio}</span>
+              {editExtendApplies && videoTaskMode !== "generate" && (
+                <>
+                  <span className="composer-setting-value font-medium capitalize text-brand">
+                    {videoTaskMode}
+                  </span>
+                  <span className="composer-setting-separator text-white/35">·</span>
+                </>
+              )}
+              <span className="composer-setting-value font-medium">
+                {videoTaskMode === "generate" ? s.aspectRatio : "Adaptive"}
+              </span>
               <span className="composer-setting-separator text-white/35">·</span>
               <span className="composer-secondary-setting">{s.resolution}</span>
               {s.mode === "video" && (
                 <>
                   <span className="composer-secondary-setting text-white/35">·</span>
-                  <span className="composer-secondary-setting">{s.duration}s</span>
+                  <span className="composer-secondary-setting">
+                    {videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}
+                  </span>
                 </>
               )}
               {s.batchCount > 1 && (
@@ -564,19 +584,60 @@ export function PromptComposer() {
         >
           {() => (
             <div className="space-y-3">
-              <Segment
-                label="Aspect ratio"
-                options={aspectRatiosForModel(s.model, s.mode)}
-                value={s.aspectRatio}
-                onChange={s.setAspectRatio}
-              />
+              {/* Edit/Extend only exist on Seedance 2.5 — BytePlus infers the
+                  task type from this plus an attached reference clip, not a
+                  request field (see providers/seedance.ts). */}
+              {editExtendApplies && (
+                <div>
+                  <Segment
+                    label="Video task"
+                    options={VIDEO_TASK_MODES.map(
+                      (m) => m[0].toUpperCase() + m.slice(1)
+                    )}
+                    value={videoTaskMode[0].toUpperCase() + videoTaskMode.slice(1)}
+                    onChange={(v) => s.setVideoTaskMode(v.toLowerCase() as typeof videoTaskMode)}
+                  />
+                  {videoTaskMode !== "generate" && s.referenceVideos.length === 0 && (
+                    <p className="mt-1 text-[11px] leading-snug text-amber-400/90">
+                      Attach a reference clip above to {videoTaskMode} a video.
+                    </p>
+                  )}
+                </div>
+              )}
+              {videoTaskMode === "generate" ? (
+                <Segment
+                  label="Aspect ratio"
+                  options={aspectRatiosForModel(s.model, s.mode)}
+                  value={s.aspectRatio}
+                  onChange={s.setAspectRatio}
+                />
+              ) : (
+                <div>
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                    Aspect ratio
+                  </p>
+                  <p className="text-xs text-white/50">
+                    Adaptive — matches the reference clip
+                  </p>
+                </div>
+              )}
               <Segment
                 label="Resolution"
                 options={resolutionsForModel(s.model, s.mode)}
                 value={s.resolution}
                 onChange={s.setResolution}
               />
-              {s.mode === "video" && (
+              {s.mode === "video" && videoTaskMode === "edit" && (
+                <div>
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                    Duration
+                  </p>
+                  <p className="text-xs text-white/50">
+                    Auto — matches the reference clip
+                  </p>
+                </div>
+              )}
+              {s.mode === "video" && videoTaskMode !== "edit" && (
                 <Segment
                   label="Duration"
                   options={durationsForModel(s.model).map((d) => `${d}s`)}

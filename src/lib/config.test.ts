@@ -4,11 +4,13 @@ import {
   DEFAULTS,
   MAX_REFERENCE_VIDEOS,
   MODELS,
+  VIDEO_TASK_MODES,
   aspectRatiosForModel,
   durationsForModel,
   isKlingImageModel,
   resolutionsForModel,
   supportsAudio,
+  supportsVideoEditExtend,
   supportsVideoReference,
 } from "./config";
 
@@ -54,14 +56,14 @@ test("every model in the picker resolves without throwing", () => {
   }
 });
 
-test("exactly one model in the picker is audio-capable today", () => {
-  // Only "Seedance 2.0" (BytePlus direct) is offered in the UI. The BytePlus
+test("exactly the two native BytePlus models in the picker are audio-capable today", () => {
+  // "Seedance 2.0" and "Seedance 2.5" (both BytePlus direct). The BytePlus
   // mini SKU exists in the provider (pickModel routes mini/fast to
   // SEEDANCE_MODEL_FAST) and has a pricing row, but it has never been added to
   // MODELS. If a native mini is ever added to the picker this assertion should
   // be updated, not deleted.
   const capable = MODELS.filter((m) => supportsAudio(m.name)).map((m) => m.name);
-  assert.deepEqual(capable, ["Seedance 2.0"]);
+  assert.deepEqual(capable, ["Seedance 2.0", "Seedance 2.5"]);
 });
 
 test("no image model is ever audio-capable", () => {
@@ -171,6 +173,58 @@ test("defaultsAreOfferedModels: every DEFAULTS model is in the picker", () => {
     assert.ok(entry, `DEFAULTS.${kind}.model "${name}" is not in MODELS`);
     assert.equal(entry.kind, kind, `DEFAULTS.${kind}.model "${name}" is not a ${kind} model`);
   }
+});
+
+// ── Seedance 2.5 ─────────────────────────────────────────────────────────
+
+test("Seedance 2.5 is in the picker as a video model", () => {
+  const entry = MODELS.find((m) => m.name === "Seedance 2.5");
+  assert.ok(entry, "Seedance 2.5 is not in MODELS");
+  assert.equal(entry!.kind, "video");
+});
+
+test("Seedance 2.5 caps at 480p/720p — no 1080p/4K SKU", () => {
+  assert.deepEqual(resolutionsForModel("Seedance 2.5", "video"), ["480p", "720p"]);
+});
+
+test("Seedance 2.0 keeps its own resolution set unaffected by the 2.5 branch", () => {
+  assert.deepEqual(resolutionsForModel("Seedance 2.0", "video"), [
+    "480p",
+    "720p",
+    "1080p",
+  ]);
+});
+
+test("Seedance 2.5 allows durations up to 30s", () => {
+  const durations = durationsForModel("Seedance 2.5");
+  assert.equal(Math.max(...durations), 30);
+  assert.equal(Math.min(...durations), 4);
+});
+
+test("Seedance 2.0 keeps its 15s cap unaffected by the 2.5 branch", () => {
+  assert.equal(Math.max(...durationsForModel("Seedance 2.0")), 15);
+});
+
+test("only Seedance 2.5 supports Edit/Extend", () => {
+  assert.equal(supportsVideoEditExtend("Seedance 2.5"), true);
+  assert.equal(supportsVideoEditExtend("Seedance 2.0"), false);
+  // The substring trap this codebase keeps hitting: Higgsfield names also
+  // contain "seedance". supportsVideoEditExtend's exact-name match must not
+  // fall for a hypothetical "Higgsfield Seedance 2.5" the way a bare
+  // /seedance/i test would.
+  assert.equal(supportsVideoEditExtend("Higgsfield Seedance 2.0"), false);
+  assert.equal(supportsVideoEditExtend("Gemini Omni Flash"), false);
+});
+
+test("Seedance 2.5 is audio- and video-reference-capable like 2.0", () => {
+  assert.equal(supportsAudio("Seedance 2.5"), true);
+  assert.equal(supportsVideoReference("Seedance 2.5"), true);
+});
+
+test("VIDEO_TASK_MODES always starts with generate", () => {
+  // The default every model that isn't Seedance 2.5 is permanently on.
+  assert.equal(VIDEO_TASK_MODES[0], "generate");
+  assert.deepEqual(VIDEO_TASK_MODES, ["generate", "edit", "extend"]);
 });
 
 test("each DEFAULTS combination is valid for its own model", () => {

@@ -9,6 +9,8 @@ import { isOmniModel, getOmniVideoStatus } from "@/lib/providers/omni";
 import { saveBase64, saveFromUrl } from "@/lib/save-media";
 import { getItem, upsertItem } from "@/lib/store-db";
 import { isMock } from "@/lib/mock";
+import { readPricing } from "@/lib/pricing-db";
+import { computeSeedanceTokenCostCents } from "@/lib/pricing";
 
 export const runtime = "nodejs";
 
@@ -143,10 +145,35 @@ export async function GET(req: NextRequest) {
       } catch {
         // fall back to the remote url if download fails
       }
+      let costCents = item.costCents;
+      // Seedance 2.5 only — BytePlus bills by tokens, and the finished task
+      // reports the real count (usage.total_tokens, see providers/seedance.ts
+      // getVideoTask). Same "provider reports its own billing" pattern as
+      // Kling's final_unit_deduction in queue/execute/route.ts: overwrite the
+      // enqueue-time estimate with the exact figure, or keep the estimate if
+      // the count is missing/unparseable.
+      if (/seedance 2\.5/i.test(item.model)) {
+        const totalTokens = (result as { totalTokens?: number }).totalTokens;
+        const hadVideoInput = (item.referenceVideos?.length ?? 0) > 0;
+        const actual = computeSeedanceTokenCostCents(
+          item.model,
+          totalTokens,
+          hadVideoInput,
+          await readPricing()
+        );
+        if (actual != null) {
+          console.log(
+            `[video] seedance 2.5 billed ${totalTokens} tokens = ${actual}¢ ` +
+              `for ${item.id} (estimate was ${costCents}¢)`
+          );
+          costCents = actual;
+        }
+      }
       const done = {
         ...item,
         status: "succeeded" as const,
         url: localUrl,
+        costCents,
         updatedAt: Date.now(),
       };
       await upsertItem(done);

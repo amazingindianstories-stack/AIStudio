@@ -11,7 +11,7 @@
  * changes future generations only — historical attribution is never rewritten
  * underneath the admin dashboard's totals.
  */
-export type PriceUnit = "per_image" | "per_second";
+export type PriceUnit = "per_image" | "per_second" | "per_million_tokens";
 
 export interface PricingRow {
   model: string;
@@ -60,6 +60,40 @@ export const DEFAULT_PRICING: PricingRow[] = [
     unitCostCents: 1,
     unit: "per_second",
     notes: "PLACEHOLDER — audio surcharge added on top of Seedance 2.0 Mini; not yet verified against an invoice",
+  },
+  // ── Seedance 2.5 ─────────────────────────────────────────────────────────
+  // Unlike 2.0, BytePlus's published Seedance 2.5 price is a flat $/M-token
+  // rate (docs.byteplus.com/en/docs/ModelArk/1544106, read 2026-08-07) with no
+  // per-second component at all, and the finished task's poll response
+  // reports usage.total_tokens — the real count, not an estimate. So this
+  // model follows Kling's pattern (see klingUnitsToCents below), not 2.0's:
+  // the "Seedance 2.5" row's per_second rate is ONLY a placeholder shown while
+  // a job is still running, and computeSeedanceTokenCostCents overwrites
+  // costCents from the two per_million_tokens rows once usage.total_tokens is
+  // known (generate/video/status/route.ts, on the succeeded poll). There is no
+  // separate audio row — total_tokens already reflects whatever the request
+  // actually cost, audio included, so a surcharge added on top would double
+  // count it the moment the real figure lands.
+  {
+    model: "Seedance 2.5",
+    unitCostCents: 8,
+    unit: "per_second",
+    notes:
+      "PLACEHOLDER enqueue-time estimate only, same rough shape as Seedance 2.0's rate — overwritten by the exact token-based cost (see the per-token rows below) the moment the task succeeds.",
+  },
+  {
+    model: "Seedance 2.5 · per-token",
+    unitCostCents: 1070,
+    unit: "per_million_tokens",
+    notes:
+      "Official BytePlus rate, no video input (text-to-video / image-to-video / reference-to-video with no attached clip): $10.70 per 1M tokens.",
+  },
+  {
+    model: "Seedance 2.5 · per-token (video input)",
+    unitCostCents: 640,
+    unit: "per_million_tokens",
+    notes:
+      "Official BytePlus rate when a reference clip is attached (video-to-video, Edit, Extend): $6.40 per 1M tokens, cheaper than the no-video-input rate.",
   },
   // ── Kling ────────────────────────────────────────────────────────────────
   // These are the only rows here taken from a published vendor price list
@@ -204,6 +238,35 @@ export function klingUnitsToCents(units: string | number | undefined): number | 
   }
   if (!Number.isFinite(n) || n < 0) return undefined;
   return Math.round(n * KLING_UNIT_CENTS);
+}
+
+/** Pricing row holding a model's per-token rate for a given input shape (see
+ *  the "Seedance 2.5" comment block above `DEFAULT_PRICING`). A row rather
+ *  than a constant, for the same admin-editable reason as every other rate
+ *  here. */
+function seedanceTokenRowModel(model: string, hadVideoInput: boolean): string {
+  return `${model} · per-token${hadVideoInput ? " (video input)" : ""}`;
+}
+
+/**
+ * Actual cost of a Seedance 2.5 job from the tokens BytePlus reported
+ * (usage.total_tokens on the finished task). Mirrors klingUnitsToCents:
+ * returns undefined for anything unusable so the caller keeps its enqueue-
+ * time estimate rather than billing 0 when the pricing row is missing or the
+ * count is unparseable.
+ */
+export function computeSeedanceTokenCostCents(
+  model: string,
+  totalTokens: number | undefined,
+  hadVideoInput: boolean,
+  pricing: PricingRow[]
+): number | undefined {
+  if (totalTokens == null || !Number.isFinite(totalTokens) || totalTokens < 0) {
+    return undefined;
+  }
+  const row = pricing.find((p) => p.model === seedanceTokenRowModel(model, hadVideoInput));
+  if (!row) return undefined;
+  return Math.round((row.unitCostCents * totalTokens) / 1_000_000);
 }
 
 /**

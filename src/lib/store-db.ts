@@ -28,6 +28,7 @@ function rowToItem(r: Row): GenerationItem {
     moderationBlocked: r.moderationBlocked ?? undefined,
     taskId: r.taskId ?? undefined,
     generateAudio: r.generateAudio ?? undefined,
+    videoTaskMode: (r.videoTaskMode as GenerationItem["videoTaskMode"]) ?? undefined,
     projectId: r.projectId ?? undefined,
     folderId: r.folderId ?? undefined,
     userId: r.userId ?? undefined,
@@ -63,6 +64,7 @@ function itemToValues(item: GenerationItem): typeof generations.$inferInsert {
     favoritedAt: item.favoritedAt ?? null,
     taskId: item.taskId ?? null,
     generateAudio: item.generateAudio ?? null,
+    videoTaskMode: item.videoTaskMode ?? null,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };

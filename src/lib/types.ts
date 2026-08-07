@@ -40,6 +40,10 @@ export interface GenerationItem {
    *  only). Persisted because the enqueue route and the execute route are
    *  different requests — see the column comment in schema.ts. */
   generateAudio?: boolean;
+  /** Seedance 2.5 only: which of its three task types this generation is.
+   *  Undefined/"generate" means ordinary text/image/reference-to-video —
+   *  every other model only ever has this. */
+  videoTaskMode?: "generate" | "edit" | "extend";
   projectId?: string; // owning project (for the Project tab)
   folderId?: string; // shot/folder within the project (null = unsorted / All assets)
   userId?: string; // who generated it (attribution)

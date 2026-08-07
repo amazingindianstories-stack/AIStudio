@@ -80,6 +80,14 @@ export const generations = pgTable("generations", {
   // thing carrying the request between them. Nullable = "never asked",
   // i.e. every row that predates this column.
   generateAudio: boolean("generate_audio"),
+  // Seedance 2.5 only: "edit" | "extend" | null (= "generate", the default
+  // path every other model and Seedance 2.0 always use). Persisted for the
+  // same reason as generateAudio — /api/generate/video only enqueues and
+  // /api/queue/execute is what submits, so the row is the only thing
+  // carrying the choice between them, and it also has to survive to the
+  // status-poll route so the exact post-generation billing correction knows
+  // which per-token rate applied.
+  videoTaskMode: text("video_task_mode"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [

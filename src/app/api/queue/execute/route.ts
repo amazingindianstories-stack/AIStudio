@@ -251,6 +251,9 @@ async function submitVideo(base: GenerationItem): Promise<GenerationItem> {
       // enqueues, so the user's choice reaches the provider through the
       // persisted column and nothing else.
       generateAudio: base.generateAudio === true,
+      // Seedance 2.5 only — Edit/Extend an attached clip. Same "off the row,
+      // not off this request" reasoning as generateAudio above.
+      taskMode: base.videoTaskMode,
     });
   }
   return { ...base, ...refUpdates, taskId, status: "running", updatedAt: Date.now() };

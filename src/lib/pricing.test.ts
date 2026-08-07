@@ -6,6 +6,7 @@ import {
   KLING_UNIT_CENTS,
   audioRowModel,
   computeCostCents,
+  computeSeedanceTokenCostCents,
   imageToImageRowModel,
   klingUnitsToCents,
   type PricingRow,
@@ -232,4 +233,84 @@ test("unparseable unit counts keep the estimate rather than billing zero", () =>
   // Zero is a legitimate report (a free/retried job), so it must NOT be
   // conflated with "unknown".
   assert.equal(klingUnitsToCents(0), 0);
+});
+
+// ── Seedance 2.5: exact post-generation billing from reported tokens ───────
+
+const seedance25Rows: PricingRow[] = [
+  { model: "Seedance 2.5", unitCostCents: 8, unit: "per_second" },
+  { model: "Seedance 2.5 · per-token", unitCostCents: 1070, unit: "per_million_tokens" },
+  {
+    model: "Seedance 2.5 · per-token (video input)",
+    unitCostCents: 640,
+    unit: "per_million_tokens",
+  },
+];
+
+test("computeSeedanceTokenCostCents applies the no-video-input rate", () => {
+  // 1,000,000 tokens at $10.70/M = 1070¢ exactly.
+  assert.equal(
+    computeSeedanceTokenCostCents("Seedance 2.5", 1_000_000, false, seedance25Rows),
+    1070
+  );
+});
+
+test("computeSeedanceTokenCostCents applies the cheaper video-input rate", () => {
+  assert.equal(
+    computeSeedanceTokenCostCents("Seedance 2.5", 1_000_000, true, seedance25Rows),
+    640
+  );
+});
+
+test("computeSeedanceTokenCostCents scales linearly with token count", () => {
+  assert.equal(
+    computeSeedanceTokenCostCents("Seedance 2.5", 500_000, false, seedance25Rows),
+    535
+  );
+});
+
+test("computeSeedanceTokenCostCents keeps the estimate when tokens are missing/invalid", () => {
+  assert.equal(
+    computeSeedanceTokenCostCents("Seedance 2.5", undefined, false, seedance25Rows),
+    undefined
+  );
+  assert.equal(
+    computeSeedanceTokenCostCents("Seedance 2.5", -5, false, seedance25Rows),
+    undefined
+  );
+  assert.equal(
+    computeSeedanceTokenCostCents("Seedance 2.5", NaN, false, seedance25Rows),
+    undefined
+  );
+});
+
+test("computeSeedanceTokenCostCents keeps the estimate when the pricing row is missing", () => {
+  assert.equal(computeSeedanceTokenCostCents("Seedance 2.5", 1_000_000, false, []), undefined);
+});
+
+test("zero tokens is a legitimate report, not treated as missing", () => {
+  assert.equal(computeSeedanceTokenCostCents("Seedance 2.5", 0, false, seedance25Rows), 0);
+});
+
+test("the seeded Seedance 2.5 pricing rows exist", () => {
+  for (const m of [
+    "Seedance 2.5",
+    "Seedance 2.5 · per-token",
+    "Seedance 2.5 · per-token (video input)",
+  ]) {
+    assert.ok(DEFAULT_PRICING.some((r) => r.model === m), m);
+  }
+});
+
+test("the seeded per-token rows match BytePlus's published rates", () => {
+  // docs.byteplus.com/en/docs/ModelArk/1544106, read 2026-08-07:
+  // $10.70/M without video input, $6.40/M with.
+  const noVideo = DEFAULT_PRICING.find((r) => r.model === "Seedance 2.5 · per-token");
+  const withVideo = DEFAULT_PRICING.find(
+    (r) => r.model === "Seedance 2.5 · per-token (video input)"
+  );
+  assert.equal(noVideo?.unitCostCents, 1070);
+  assert.equal(noVideo?.unit, "per_million_tokens");
+  assert.equal(withVideo?.unitCostCents, 640);
+  assert.equal(withVideo?.unit, "per_million_tokens");
 });

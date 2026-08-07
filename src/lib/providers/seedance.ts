@@ -1,5 +1,5 @@
 /**
- * Seedance 2.0  ▸  BytePlus ModelArk  (video generation)
+ * Seedance 2.0 / 2.5  ▸  BytePlus ModelArk  (video generation)
  * Async task API: create a task, then poll until it succeeds.
  *
  * Verified against ModelArk Seedance 2.0:
@@ -12,6 +12,36 @@
  *     ],
  *     "ratio": "16:9", "resolution": "1080p", "duration": 5, "generate_audio": false
  *   }
+ *
+ * Seedance 2.5 (model id "dreamina-seedance-2-5-260628") is the SAME endpoint
+ * family — read from BytePlus's official docs 2026-08-07
+ * (docs.byteplus.com/en/docs/ModelArk/2607688, /1520757, /1521309), not
+ * probed live: the account's API key doesn't have 2.5 activated yet. The
+ * console's "API support" list shows the path as `/v3/contents/generations`
+ * with no `/tasks` suffix, but every documented code sample — including ones
+ * specifically for 2.5 — POSTs `/contents/generations/tasks` and polls
+ * `/contents/generations/tasks/{id}`, so that's almost certainly a truncated
+ * console label, not a different synchronous surface. Re-probe once the key
+ * is activated (see scripts/probe-seedance-video-input.ts for the pattern).
+ *
+ * What's actually different about 2.5:
+ *  - 480p/720p only (no 1080p/4K SKU, despite marketing claiming "up to 4K" —
+ *    BytePlus's own capability table explicitly denies it).
+ *  - Duration 4–30s (vs 2.0's 4–15s).
+ *  - Two extra task types beyond plain generation, both selected by content
+ *    role + PROMPT WORDING rather than a request field: "Edit" (modify an
+ *    attached clip) and "Extend" (continue it forward). Both REQUIRE
+ *    ratio:"adaptive" (Edit also requires duration:-1; Extend allows a real
+ *    duration or -1) — sending anything else 400s as
+ *    InvalidParameter.TaskTypeConstraint, and because task-type
+ *    classification happens after the task is queued, that error surfaces
+ *    async on the POLL, not on the create call. See createVideoTask's
+ *    taskMode handling below.
+ *  - Bills by tokens, not by a flat per-second rate: the finished task's poll
+ *    response carries `usage.total_tokens`, consumed in
+ *    generate/video/status/route.ts via pricing.ts's
+ *    computeSeedanceTokenCostCents (same "provider reports its own billing"
+ *    pattern as Kling's final_unit_deduction).
  *
  * VIDEO-TO-VIDEO (probe-verified 2026-07-29, scripts/probe-seedance-video-input.ts).
  * A reference clip is another `content` item, and the role is MANDATORY:
@@ -119,8 +149,14 @@ const STANDARD_MODEL =
   process.env.SEEDANCE_MODEL || "dreamina-seedance-2-0-260128";
 const FAST_MODEL =
   process.env.SEEDANCE_MODEL_FAST || "dreamina-seedance-2-0-fast-260128";
+const MODEL_25 =
+  process.env.SEEDANCE_MODEL_25 || "dreamina-seedance-2-5-260628";
 
 function pickModel(modelDisplay?: string): string {
+  // Checked before mini/fast/lite: "Seedance 2.5" doesn't contain any of
+  // those words today, but a hypothetical "Seedance 2.5 Mini" shouldn't fall
+  // through to the 2.0 fast SKU if one ever ships.
+  if (modelDisplay && /2\.5/.test(modelDisplay)) return MODEL_25;
   if (modelDisplay && /\b(mini|fast|lite)\b/i.test(modelDisplay)) return FAST_MODEL;
   return STANDARD_MODEL;
 }
@@ -151,6 +187,9 @@ export interface SeedanceCreateInput {
    *  Defaults to false — the historical behaviour, and the safe default since
    *  audio is billed on top of the video. */
   generateAudio?: boolean;
+  /** Seedance 2.5 only: "edit"/"extend" an attached clip instead of ordinary
+   *  generation. Undefined/"generate" is every other model's only mode. */
+  taskMode?: "generate" | "edit" | "extend";
 }
 
 export interface SeedanceTaskStatus {
@@ -158,6 +197,9 @@ export interface SeedanceTaskStatus {
   videoUrl?: string;
   error?: string;
   raw?: unknown;
+  /** BytePlus's own token count for the finished task (usage.total_tokens),
+   *  used to compute the exact cost — see pricing.ts computeSeedanceTokenCostCents. */
+  totalTokens?: number;
 }
 
 export const MODERATION_MESSAGE =
@@ -197,25 +239,51 @@ function friendlyError(status: number, body: string): SeedanceError {
   );
 }
 
+/**
+ * Minimal task-type trigger sentences for Seedance 2.5's Edit/Extend modes
+ * (see the file header — BytePlus classifies by content role + these exact
+ * kinds of phrases, not a request field). Deliberately NOT run through
+ * video-directive.ts: that module's identity-lock/style-follow scaffolding is
+ * built for GENERATING a new video from a reference, and this codebase
+ * already learned once (video-directive.ts's own header) that stacking
+ * unrelated directives contradicts rather than adds — feeding "keep the
+ * subject in sharp foreground focus" etc. at an Edit task would compete with
+ * the user's actual edit instructions for no benefit. The user's raw prompt
+ * carries the instructions; this prefix only has to get BytePlus's
+ * classifier to recognize which task type it's looking at.
+ */
+const EDIT_TRIGGER = "Edit the attached reference video as follows: ";
+const EXTEND_TRIGGER = "Extend the attached reference video forward in time: ";
+
 export async function createVideoTask(
   input: SeedanceCreateInput
 ): Promise<string> {
   const model = pickModel(input.modelDisplay);
   const refs = input.references ?? [];
   const refRole = process.env.SEEDANCE_IMAGE_ROLE || "reference_image";
+  const taskMode = input.taskMode ?? "generate";
 
   // Identity/style scaffolding now lives in lib/video-directive.ts, shared with
   // the Higgsfield path so the two cannot drift apart again. It also assembles
   // the whole text (scaffolding, prompt verbatim, then the precedence rule),
   // because the closing rule has to land AFTER the prompt — which the old
   // `directive + prompt` shape made impossible.
-  const text = legacyDirective()
-    ? legacyHeroDirective(refs.length) + tagsToImageRefs(input.prompt.trim())
-    : buildVideoDirective({
-        prompt: tagsToImageRefs(input.prompt.trim()),
-        refCount: refs.length,
-        tagSyntax: "bracket",
-      });
+  //
+  // Edit/Extend skip it entirely — see the trigger-sentence comment above.
+  let text: string;
+  if (taskMode === "edit") {
+    text = EDIT_TRIGGER + tagsToImageRefs(input.prompt.trim());
+  } else if (taskMode === "extend") {
+    text = EXTEND_TRIGGER + tagsToImageRefs(input.prompt.trim());
+  } else {
+    text = legacyDirective()
+      ? legacyHeroDirective(refs.length) + tagsToImageRefs(input.prompt.trim())
+      : buildVideoDirective({
+          prompt: tagsToImageRefs(input.prompt.trim()),
+          refCount: refs.length,
+          tagSyntax: "bracket",
+        });
+  }
 
   const content: Array<Record<string, unknown>> = [{ type: "text", text }];
   refs.forEach((ref) => {
@@ -242,9 +310,21 @@ export async function createVideoTask(
     // nothing, so nothing starts paying for audio it did not ask for.
     generate_audio: input.generateAudio === true,
   };
-  if (input.ratio) body.ratio = input.ratio;
+  if (taskMode === "edit" || taskMode === "extend") {
+    // BOTH task types require ratio:"adaptive" (output follows the source
+    // clip's own aspect ratio) — sending the UI's own aspectRatio here would
+    // 400 as InvalidParameter.TaskTypeConstraint, reported async on the next
+    // poll rather than on this create call, because classification happens
+    // after the task is already queued. Edit additionally requires
+    // duration:-1 (output matches the source's length); Extend allows a real
+    // duration if the caller gave one.
+    body.ratio = "adaptive";
+    body.duration = taskMode === "edit" ? -1 : input.duration || -1;
+  } else {
+    if (input.ratio) body.ratio = input.ratio;
+    if (input.duration) body.duration = input.duration;
+  }
   if (input.resolution) body.resolution = input.resolution;
-  if (input.duration) body.duration = input.duration;
 
   const res = await fetch(`${arkBase()}/contents/generations/tasks`, {
     method: "POST",
@@ -298,5 +378,13 @@ export async function getVideoTask(
       ? json?.error?.message || json?.error || "Generation failed"
       : undefined;
 
-  return { status, videoUrl, error, raw: json };
+  // Seedance 2.5 only (2.0's response has no `usage` object) — see the file
+  // header and pricing.ts computeSeedanceTokenCostCents.
+  const totalTokensRaw = json?.usage?.total_tokens;
+  const totalTokens =
+    typeof totalTokensRaw === "number" && Number.isFinite(totalTokensRaw)
+      ? totalTokensRaw
+      : undefined;
+
+  return { status, videoUrl, error, raw: json, totalTokens };
 }

@@ -11,7 +11,10 @@ import {
   resolutionsForModel,
   supportsAudio,
   supportsVideoReference,
+  supportsVideoEditExtend,
+  VIDEO_TASK_MODES,
   MAX_REFERENCE_VIDEOS,
+  type VideoTaskMode,
 } from "@/lib/config";
 import { isOmniModel } from "@/lib/providers/omni";
 import type { GenerationItem } from "@/lib/types";
@@ -30,7 +33,6 @@ export async function POST(req: NextRequest) {
   const prompt: string = (body.prompt || "").trim();
   const aspectRatio: string = body.aspectRatio || "16:9";
   const resolution: string | undefined = body.resolution || "1080p";
-  const duration: number | undefined = body.duration || 5;
   const model: string = body.model || "Higgsfield Seedance 2.0";
   const referenceImages: string[] | undefined = body.referenceImages;
   const projectId: string | undefined = body.projectId || undefined;
@@ -46,6 +48,18 @@ export async function POST(req: NextRequest) {
         .filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
         .slice(0, MAX_REFERENCE_VIDEOS)
     : [];
+  // Seedance 2.5 only — Edit/Extend an attached clip instead of ordinary
+  // generation. Anything unrecognized falls back to "generate" rather than
+  // 400ing, since this field didn't exist before this model shipped.
+  const videoTaskMode: VideoTaskMode = VIDEO_TASK_MODES.includes(body.videoTaskMode)
+    ? body.videoTaskMode
+    : "generate";
+  // Edit forces duration to "match the source" at the provider layer
+  // regardless of what's requested (providers/seedance.ts), so defaulting a
+  // missing value to 5 here — right, for every other mode — would store a
+  // number that was never actually asked for. undefined stays undefined.
+  const duration: number | undefined =
+    videoTaskMode === "edit" ? body.duration || undefined : body.duration || 5;
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
@@ -71,6 +85,25 @@ export async function POST(req: NextRequest) {
       { error: `Seedance 2.0 Mini supports 480p/720p only (got ${resolution}).` },
       { status: 400 }
     );
+  }
+  // Edit/Extend need a source clip to act on and only exist on Seedance 2.5 —
+  // reject loudly rather than letting the request reach BytePlus and fail
+  // async on the poll with an opaque TaskTypeConstraint error.
+  if (videoTaskMode !== "generate") {
+    if (!supportsVideoEditExtend(model)) {
+      return NextResponse.json(
+        { error: `${model} does not support ${videoTaskMode === "edit" ? "Edit" : "Extend"}.` },
+        { status: 400 }
+      );
+    }
+    if (!referenceVideos.length) {
+      return NextResponse.json(
+        {
+          error: `Attach a reference clip to ${videoTaskMode === "edit" ? "edit" : "extend"} a video.`,
+        },
+        { status: 400 }
+      );
+    }
   }
   // Omni's request contract is probe-measured (see providers/omni.ts header):
   // 16:9/9:16 only, no controllable resolution, and duration IS a real
@@ -138,6 +171,7 @@ export async function POST(req: NextRequest) {
     referenceImages: savedRefs,
     referenceVideos: referenceVideos.length ? referenceVideos : undefined,
     generateAudio,
+    videoTaskMode: videoTaskMode !== "generate" ? videoTaskMode : undefined,
     projectId,
     folderId,
     userId: user?.id,

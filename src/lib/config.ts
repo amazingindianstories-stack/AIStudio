@@ -58,6 +58,21 @@ export const MODELS: ModelOption[] = [
     // select is not.
     hint: "BytePlus ModelArk direct — its content filter rejects photorealistic faces",
   },
+  // Native BytePlus ModelArk Seedance 2.5 — same async task API as 2.0
+  // (providers/seedance.ts createVideoTask/getVideoTask), a different model
+  // id, tighter resolution cap (480p/720p, no 1080p), a longer duration cap
+  // (30s vs 15s), and two extra task types (Edit / Extend an attached clip —
+  // see supportsVideoEditExtend). The name must stay exactly "Seedance 2.5"
+  // — pricing rows and providers/seedance.ts's pickModel key on it, same as
+  // "Seedance 2.0" above. Not yet activated on the account's API key as of
+  // 2026-08-07; wired up ahead of that so it's ready the moment it is.
+  {
+    id: "seedance-25",
+    name: "Seedance 2.5",
+    kind: "video",
+    badge: "NEW",
+    hint: "BytePlus ModelArk direct — 480p/720p, up to 30s; can edit or extend an attached clip",
+  },
   {
     id: "gemini-omni-flash",
     name: "Gemini Omni Flash",
@@ -102,6 +117,9 @@ export const HISTORY_PAGE_SIZE = 20;
 export function durationsForModel(model: string): number[] {
   if (/omni/i.test(model)) return [4, 6, 8];
   if (/higgsfield/i.test(model)) return [3, 4, 5, 6, 8, 10, 12];
+  // 2.5 raised the cap from 15s to 30s (BytePlus's own "Latest capabilities"
+  // changelog, docs.byteplus.com/en/docs/ModelArk/2607688, read 2026-08-07).
+  if (/seedance 2\.5/i.test(model)) return [4, 5, 8, 10, 15, 20, 25, 30];
   return DURATIONS;
 }
 
@@ -113,6 +131,10 @@ export function durationsForModel(model: string): number[] {
 export function resolutionsForModel(model: string, kind: GenerationKind): string[] {
   if (/omni/i.test(model)) return ["720p"];
   if (/seedance.*mini/i.test(model)) return ["480p", "720p"];
+  // 2.5 caps at 720p — no 1080p/4K SKU. BytePlus's own capability table says
+  // so explicitly, contradicting a launch-tweet "up to 4K" claim (see
+  // docs.byteplus.com/en/docs/ModelArk/2607688, read 2026-08-07).
+  if (/seedance 2\.5/i.test(model)) return ["480p", "720p"];
   // Kling Image 3.0 / 2.1 are 1K/2K per Kling's capability map — 4K is the Omni
   // model only. Offering 4K here would produce a 2K image labelled 4K, or a
   // failed job; the provider rejects it either way, so don't offer it.
@@ -178,6 +200,26 @@ export function supportsAudio(model: string): boolean {
   if (/higgsfield/i.test(model)) return false;
   if (/omni/i.test(model)) return false;
   return /seedance/i.test(model);
+}
+
+/** The three task types Seedance 2.5's single endpoint supports, chosen by
+ *  content role + prompt wording rather than a request field (see
+ *  providers/seedance.ts createVideoTask). "generate" covers ordinary
+ *  text/image/reference-to-video — the only mode every other model has. */
+export type VideoTaskMode = "generate" | "edit" | "extend";
+export const VIDEO_TASK_MODES: VideoTaskMode[] = ["generate", "edit", "extend"];
+
+/**
+ * Can this model Edit or Extend an attached reference clip, not just
+ * generate from one? Seedance 2.5 only — 2.0 has no such task type, and
+ * Edit/Extend both require BytePlus's ratio="adaptive"/duration constraints
+ * (docs.byteplus.com/en/docs/ModelArk/2607688), which nothing else here
+ * needs to enforce. Exact-name match rather than the bare /seedance/i this
+ * file uses elsewhere, because — unlike audio/video-reference — this is NOT
+ * a capability 2.0 also has.
+ */
+export function supportsVideoEditExtend(model: string): boolean {
+  return /seedance 2\.5/i.test(model);
 }
 
 export const DEFAULTS = {

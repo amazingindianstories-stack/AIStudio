@@ -18,7 +18,9 @@ import {
   resolutionsForModel,
   supportsAudio,
   supportsVideoReference,
+  supportsVideoEditExtend,
   MAX_REFERENCE_VIDEOS,
+  type VideoTaskMode,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
 import { renumberImgMentions } from "./mentions";
@@ -85,6 +87,10 @@ interface ComposerState {
    *  models where config.supportsAudio is true; setModel forces it off
    *  otherwise, so it can never be silently true on a path that ignores it. */
   generateAudio: boolean;
+  /** Seedance 2.5 only: "edit"/"extend" an attached clip instead of ordinary
+   *  generation. Only meaningful where config.supportsVideoEditExtend is
+   *  true; setModel forces it back to "generate" otherwise. */
+  videoTaskMode: VideoTaskMode;
   prompt: string;
   referenceImages: string[]; // data URLs
   /** Stored refs (`/api/media/...`) of library clips used as video references.
@@ -170,6 +176,7 @@ interface AppState extends ComposerState {
   setDuration: (d: number) => void;
   setBatchCount: (n: number) => void;
   setGenerateAudio: (v: boolean) => void;
+  setVideoTaskMode: (m: VideoTaskMode) => void;
   setPrompt: (p: string) => void;
   addReference: (dataUrl: string) => void;
   removeReference: (index: number) => void;
@@ -424,6 +431,7 @@ export const useStore = create<AppState>((set, get) => ({
   // ANDs it with supportsAudio and setModel clamps it — so a default of true
   // is inert everywhere else.
   generateAudio: true,
+  videoTaskMode: "generate",
   prompt: "",
   referenceImages: [],
   referenceVideos: [],
@@ -469,6 +477,7 @@ export const useStore = create<AppState>((set, get) => ({
       aspectRatio: d.aspectRatio,
       resolution: d.resolution,
       duration: "duration" in d ? d.duration : get().duration,
+      videoTaskMode: "generate",
     });
   },
   setModel: (model) =>
@@ -496,13 +505,18 @@ export const useStore = create<AppState>((set, get) => ({
       // enabled toggle whose value the provider will silently discard.
       const generateAudio = supportsAudio(model) ? s.generateAudio : false;
       const referenceVideos = supportsVideoReference(model) ? s.referenceVideos : [];
-      return { model, duration, resolution, aspectRatio, generateAudio, referenceVideos };
+      // Same reasoning: Edit/Extend only exist on Seedance 2.5, so switching
+      // away must not leave the composer claiming a mode the new model has
+      // no such task type for.
+      const videoTaskMode = supportsVideoEditExtend(model) ? s.videoTaskMode : "generate";
+      return { model, duration, resolution, aspectRatio, generateAudio, referenceVideos, videoTaskMode };
     }),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set({ resolution }),
   setDuration: (duration) => set({ duration }),
   setBatchCount: (batchCount) => set({ batchCount: Math.min(4, Math.max(1, batchCount)) }),
   setGenerateAudio: (generateAudio) => set({ generateAudio }),
+  setVideoTaskMode: (videoTaskMode) => set({ videoTaskMode }),
   setPrompt: (prompt) => set({ prompt }),
   addReference: (dataUrl) =>
     set((s) => ({ referenceImages: [...s.referenceImages, dataUrl] })),
@@ -773,15 +787,25 @@ export const useStore = create<AppState>((set, get) => ({
     set({ generating: true });
     const endpoint =
       s.mode === "image" ? "/api/generate/image" : "/api/generate/video";
+    const videoTaskMode = s.mode === "video" ? s.videoTaskMode : "generate";
     const payload = {
       prompt,
       model: s.model,
-      aspectRatio: s.aspectRatio,
+      // Edit/Extend require BytePlus's ratio:"adaptive" — sent from here
+      // rather than left to the enqueue route so the STORED row (and
+      // therefore the library card) reflects what was actually requested,
+      // not the composer's last manual aspect-ratio pick for this model.
+      aspectRatio: videoTaskMode === "generate" ? s.aspectRatio : "adaptive",
       resolution: s.resolution,
-      duration: s.duration,
+      // Edit's duration is forced to "match the source" by the provider
+      // layer regardless of what's sent (see providers/seedance.ts), so
+      // omitting it here keeps the stored row honest instead of recording a
+      // number that was never actually requested.
+      duration: videoTaskMode === "edit" ? undefined : s.duration,
       referenceImages: s.referenceImages,
       referenceVideos: s.referenceVideos,
       generateAudio: s.generateAudio,
+      videoTaskMode,
       projectId: s.activeProjectId ?? undefined,
       folderId: s.activeFolderId ?? undefined,
     };
@@ -976,6 +1000,9 @@ export const useStore = create<AppState>((set, get) => ({
       resolution: item.resolution ?? get().resolution,
       duration: item.duration ?? get().duration,
       generateAudio: item.generateAudio === true && supportsAudio(item.model),
+      videoTaskMode: supportsVideoEditExtend(item.model)
+        ? item.videoTaskMode ?? "generate"
+        : "generate",
       prompt: item.prompt,
       referenceImages: [],
     });
