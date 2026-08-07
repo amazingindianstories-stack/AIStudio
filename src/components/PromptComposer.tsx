@@ -315,6 +315,12 @@ export function PromptComposer() {
               key={src}
               value={src}
               as="div"
+              // Without this the browser's own scroll/pan gesture on the
+              // (overflow-x-auto) row competes with Framer's pointer-based
+              // drag for the same horizontal axis — the trackpad/Magic Mouse
+              // case that made this feel unreliable: some drags started a
+              // page-scroll gesture instead of picking the tile up.
+              style={{ touchAction: "none" }}
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
@@ -323,8 +329,21 @@ export function PromptComposer() {
               className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing"
               onClick={() => mentionRef.current?.insertTag(`@img${i + 1}`)}
             >
+              {/* draggable=false + -webkit-user-drag:none: an <img> is
+                  natively draggable in every browser, and that native
+                  "drag the image out" gesture starts on the same mousedown
+                  Framer needs to detect a reorder drag — whichever one wins
+                  the race varies by OS/input device, which is exactly the
+                  "sometimes it just doesn't grab" symptom. Suppressing the
+                  native drag leaves the pointer event free for Framer. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={src} alt="" className="h-full w-full object-cover" />
+              <img
+                src={src}
+                alt=""
+                draggable={false}
+                style={{ WebkitUserDrag: "none" } as React.CSSProperties}
+                className="h-full w-full object-cover"
+              />
               <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
                 @img{i + 1}
               </span>
