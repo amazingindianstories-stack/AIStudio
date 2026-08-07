@@ -82,6 +82,20 @@ export function PromptComposer() {
   // ratio/Duration segments below.
   const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
   const videoTaskMode = editExtendApplies ? s.videoTaskMode : "generate";
+  // Reorder.Group's drag physics expect `values` to update synchronously
+  // within the same render as the gesture — bound straight to the Zustand
+  // store, the set()→subscription→re-render round trip added just enough
+  // lag to feel glitchy (items lagging the cursor, layout animations
+  // fighting each other). Buffering the LIVE drag in local state keeps every
+  // tick synchronous/local; only the settled result is committed to the
+  // store (onDragEnd below), which is also all reorderReferences needs since
+  // it only cares about start vs. end position, not the intermediate ones.
+  const [dragRefs, setDragRefs] = useState(s.referenceImages);
+  const dragRefsRef = useRef(dragRefs);
+  useEffect(() => {
+    dragRefsRef.current = s.referenceImages;
+    setDragRefs(s.referenceImages);
+  }, [s.referenceImages]);
   const fileRef = useRef<HTMLInputElement>(null);
   const mentionRef = useRef<MentionHandle>(null);
   const toolbarMeasureRef = useRef<HTMLDivElement>(null);
@@ -302,15 +316,18 @@ export function PromptComposer() {
           resolveReferences in mentions.ts), so reordering renumbers any
           @imgN already typed in the prompt via s.reorderReferences to keep
           each tag pointing at the same image. */}
-      {s.referenceImages.length > 0 && (
+      {dragRefs.length > 0 && (
         <Reorder.Group
           as="div"
           axis="x"
-          values={s.referenceImages}
-          onReorder={s.reorderReferences}
+          values={dragRefs}
+          onReorder={(newOrder) => {
+            dragRefsRef.current = newOrder;
+            setDragRefs(newOrder);
+          }}
           className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1"
         >
-          {s.referenceImages.map((src, i) => (
+          {dragRefs.map((src, i) => (
             <Reorder.Item
               key={src}
               value={src}
@@ -325,6 +342,12 @@ export function PromptComposer() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               whileDrag={{ scale: 1.05, zIndex: 1 }}
+              // dragRefsRef.current rather than the dragRefs closure: the
+              // final onReorder tick and this onDragEnd can fire within the
+              // same gesture-end dispatch, before React has re-rendered with
+              // the last setDragRefs — reading the ref instead of the closed-
+              // over state guarantees the store gets the settled order.
+              onDragEnd={() => s.reorderReferences(dragRefsRef.current)}
               title={`Insert @img${i + 1} — drag to reorder`}
               className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing"
               onClick={() => mentionRef.current?.insertTag(`@img${i + 1}`)}
