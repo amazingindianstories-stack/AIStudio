@@ -14,15 +14,21 @@
  *   }
  *
  * Seedance 2.5 (model id "dreamina-seedance-2-5-260628") is the SAME endpoint
- * family — read from BytePlus's official docs 2026-08-07
- * (docs.byteplus.com/en/docs/ModelArk/2607688, /1520757, /1521309), not
- * probed live: the account's API key doesn't have 2.5 activated yet. The
- * console's "API support" list shows the path as `/v3/contents/generations`
- * with no `/tasks` suffix, but every documented code sample — including ones
- * specifically for 2.5 — POSTs `/contents/generations/tasks` and polls
- * `/contents/generations/tasks/{id}`, so that's almost certainly a truncated
- * console label, not a different synchronous surface. Re-probe once the key
- * is activated (see scripts/probe-seedance-video-input.ts for the pattern).
+ * family — read from BytePlus's official docs (docs.byteplus.com/en/docs/
+ * ModelArk/2607688, /1520757, /1521309) on 2026-08-07 while still unactivated
+ * on this account, then CONFIRMED LIVE the same day once it was activated
+ * (scripts/probe-seedance-25.ts): a bogus task id returns a proper
+ * `{"error":{"code":"ResourceNotFound",...}}` on `/contents/generations/
+ * tasks/{id}`, and a real text-to-video run returned `raw.model` matching
+ * this exact model id and `usage.total_tokens` in the shape
+ * getVideoTask expects (48437 tokens on a 480p/4s clip → $0.52 at the
+ * no-video-input rate, computed correctly by computeSeedanceTokenCostCents).
+ * So the console's "API support" path, `/v3/contents/generations` with no
+ * `/tasks` suffix, is confirmed to just be a truncated label for this same
+ * async create+poll surface, not a different/synchronous one. Edit/Extend's
+ * ratio/duration constraints (see below) were NOT re-probed — that needs a
+ * real source clip; re-probe with `--edit`/`--extend <video-url>` before
+ * trusting that half blindly.
  *
  * What's actually different about 2.5:
  *  - 480p/720p only (no 1080p/4K SKU, despite marketing claiming "up to 4K" —
