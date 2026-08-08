@@ -1,8 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "framer-motion";
 import {
-  PanelRightOpen,
+  Image as ImageIcon,
+  Clapperboard,
+  Shapes,
+  LayoutGrid,
+  History,
   LogOut,
   Shield,
   ChevronDown,
@@ -11,10 +16,28 @@ import {
 import { useStore } from "@/lib/store";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { AccountSettings } from "./AccountSettings";
+import { LegacyHistoryModal } from "./LegacyHistoryModal";
 import { cn } from "@/lib/utils";
 
+const DESTINATIONS = [
+  { id: "image", icon: ImageIcon, label: "Image" },
+  { id: "video", icon: Clapperboard, label: "Video" },
+  { id: "board", icon: Shapes, label: "Board" },
+] as const;
+
+/**
+ * Horizontal nav lives in the top bar now (was a left-edge rail,
+ * NavRail.tsx, before this pass) — same three destinations plus Library and
+ * History, just laid out across the header instead of down the side, so the
+ * left edge is free for chat width instead of a permanent rail.
+ */
 export function TopBar() {
   const [accountOpen, setAccountOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const mode = useStore((s) => s.mode);
+  const setMode = useStore((s) => s.setMode);
+  const view = useStore((s) => s.view);
+  const setView = useStore((s) => s.setView);
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
   const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const user = useStore((s) => s.currentUser);
@@ -23,27 +46,78 @@ export function TopBar() {
   const logout = useStore((s) => s.logout);
 
   const initial = (user?.name || user?.email || "?").charAt(0).toUpperCase();
+  const activeDestination = view === "canvas" ? "board" : mode;
+
+  const goTo = (id: (typeof DESTINATIONS)[number]["id"]) => {
+    if (id === "board") {
+      setView("canvas");
+    } else {
+      setView("studio");
+      setMode(id);
+    }
+  };
 
   return (
     <>
-      <header className="relative z-40 flex h-14 shrink-0 items-center justify-between border-b border-line bg-ink-900 px-3 sm:px-5">
-        <div className="flex items-center gap-2.5">
+      <header className="relative z-40 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-ink-900 px-3 sm:px-5">
+        <div className="flex shrink-0 items-center gap-2.5">
           <img src="/logo.png" alt="Veevee.ai" className="h-8 w-8 rounded-lg shadow-sm" />
-          <span className="text-[17px] font-semibold tracking-tight text-white">
+          <span className="hidden text-[17px] font-semibold tracking-tight text-white sm:inline">
             Veevee.ai
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <nav aria-label="Sections" className="flex min-w-0 items-center gap-1">
+          {DESTINATIONS.map((d) => {
+            const active = d.id === activeDestination;
+            return (
+              <button
+                key={d.id}
+                onClick={() => goTo(d.id)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  active ? "text-white" : "text-white/50 hover:bg-white/5 hover:text-white/90"
+                )}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="topbar-active"
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    className="absolute inset-0 rounded-lg bg-white/10"
+                  />
+                )}
+                <d.icon className="relative z-10 h-4 w-4" strokeWidth={1.9} />
+                <span className="relative z-10 hidden sm:inline">{d.label}</span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="ml-auto flex shrink-0 items-center gap-1.5">
           <button
-            onClick={() => setRightPanelOpen(true)}
-            className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:bg-white/5 hover:text-white sm:hidden"
+            onClick={() => setRightPanelOpen(!rightPanelOpen)}
             aria-expanded={rightPanelOpen}
             aria-controls="assets-drawer"
-            aria-label="Open assets panel"
+            aria-label={rightPanelOpen ? "Close assets panel" : "Open assets panel"}
+            title="Library"
+            className={cn(
+              "grid h-8 w-8 place-items-center rounded-lg transition-colors",
+              rightPanelOpen ? "bg-white/10 text-white" : "text-white/55 hover:bg-white/5 hover:text-white"
+            )}
           >
-            <PanelRightOpen className="h-[18px] w-[18px]" />
+            <LayoutGrid className="h-[18px] w-[18px]" />
           </button>
+          <button
+            onClick={() => setHistoryOpen(true)}
+            aria-label="History"
+            title="History"
+            className="grid h-8 w-8 place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/5 hover:text-white"
+          >
+            <History className="h-[18px] w-[18px]" />
+          </button>
+
+          <span className="mx-1 h-6 w-px bg-line" aria-hidden />
 
           {user && (
             <Dropdown
@@ -134,6 +208,8 @@ export function TopBar() {
           }}
         />
       )}
+
+      {historyOpen && <LegacyHistoryModal onClose={() => setHistoryOpen(false)} />}
     </>
   );
 }

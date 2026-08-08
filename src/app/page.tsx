@@ -5,7 +5,6 @@ import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { X } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
 import { TopBar } from "@/components/TopBar";
-import { NavRail } from "@/components/NavRail";
 import { StudioChat } from "@/components/StudioChat";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DetailModal } from "@/components/DetailModal";
@@ -85,8 +84,6 @@ export default function Page() {
         <TopBar />
 
         <div className="flex min-h-0 flex-1">
-          <NavRail />
-
           {view === "canvas" ? (
             <CanvasView />
           ) : (

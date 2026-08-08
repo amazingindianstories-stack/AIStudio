@@ -8,7 +8,7 @@ import { ConversationPanel } from "./ConversationPanel";
 
 /**
  * Wraps the pre-redesign per-project generation feed (ConversationPanel,
- * unmodified) in a modal reached from NavRail's "History" entry — the
+ * unmodified) in a modal reached from TopBar's "History" entry — the
  * "old current chat, stored away from this new UI" ask. Nothing about
  * ConversationPanel itself changes; only where it's mounted does.
  */
