@@ -11,9 +11,7 @@ import {
 import { motion } from "framer-motion";
 import {
   AlertCircle,
-  ChevronDown,
   ImagePlus,
-  Layers,
   Loader2,
   Send,
   Sparkles,
@@ -22,10 +20,8 @@ import {
 import { useStore } from "@/lib/store";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { REF_BATCH_BUDGET_BYTES, REF_BUDGET_STEPS, dataUrlBytes, downscaleBlob } from "@/lib/client-image-budget";
-import { ThreadSwitcher } from "./ThreadSwitcher";
 import { ReferenceStrip, SettingsToolbar } from "./ComposerControls";
 import { Dropdown, MenuItem } from "./Dropdown";
-import { ProjectMenu } from "./ProjectMenu";
 import { MentionTextarea, type MentionHandle } from "./MentionTextarea";
 import { MediaCard } from "./MediaCard";
 import { cn } from "@/lib/utils";
@@ -50,11 +46,13 @@ const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
  * generate_{image,video}. A generate_* tool call is picked up here and
  * fires the exact same s.generate() the real Generate button always used,
  * so the result goes through the one existing queue/cost/polling path.
+ *
+ * `conversationId` is owned by StudioView (the parent) rather than here, so
+ * ChatSidebar's thread list and this feed can't disagree about which thread
+ * is open.
  */
-export function StudioChat() {
+export function StudioChat({ conversationId }: { conversationId: string | null }) {
   const mode = useStore((s) => s.mode);
-  const activeProjectId = useStore((s) => s.activeProjectId);
-  const projects = useStore((s) => s.projects);
   const setPrompt = useStore((s) => s.setPrompt);
   const generate = useStore((s) => s.generate);
   const referenceImages = useStore((s) => s.referenceImages);
@@ -62,8 +60,6 @@ export function StudioChat() {
   const items = useStore((s) => s.items);
   const threadItems = useStore((s) => s.threadItems);
 
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const scopeRef = useRef<string | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [loadingThread, setLoadingThread] = useState(true);
   const [sending, setSending] = useState(false);
@@ -78,19 +74,11 @@ export function StudioChat() {
   const fileRef = useRef<HTMLInputElement>(null);
   const requestIdRef = useRef(0);
 
-  // Reset the thread whenever the project or tab changes — a stale thread
-  // from a different project/mode must never be shown (mirrors CanvasView
-  // holding boardId locally and resetting it the same way).
   useEffect(() => {
-    const scope = `${activeProjectId}:${mode}`;
-    if (scope !== scopeRef.current) {
-      scopeRef.current = scope;
-      setConversationId(null);
-      setMessages([]);
-    }
-  }, [activeProjectId, mode]);
-
-  useEffect(() => {
+    // Clear immediately, not just on the new fetch resolving — otherwise
+    // switching threads in ChatSidebar briefly shows the PREVIOUS thread's
+    // messages under the new one's name.
+    setMessages([]);
     if (!conversationId) return;
     const requestId = ++requestIdRef.current;
     setLoadingThread(true);
@@ -234,37 +222,6 @@ export function StudioChat() {
           <p className="text-sm font-medium text-white/90">Drop images to add as references</p>
         </div>
       )}
-
-      {/* header: project switcher + thread switcher */}
-      <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2 sm:px-8">
-        <Dropdown
-          label="Switch project"
-          trigger={(open) => {
-            const proj = projects.find((p) => p.id === activeProjectId);
-            return (
-              <span
-                className={cn(
-                  "flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/85 transition hover:text-white",
-                  open && "border-brand/40"
-                )}
-              >
-                <Layers className="h-3.5 w-3.5 shrink-0 text-white/50" />
-                <span className="max-w-[10rem] truncate">{proj ? proj.name : "No project"}</span>
-                <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
-              </span>
-            );
-          }}
-        >
-          {(close) => <ProjectMenu close={close} />}
-        </Dropdown>
-
-        <ThreadSwitcher
-          projectId={activeProjectId}
-          agentKind={mode}
-          conversationId={conversationId}
-          onConversationIdChange={setConversationId}
-        />
-      </div>
 
       {/* message feed */}
       <div ref={scrollRef} className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8">
