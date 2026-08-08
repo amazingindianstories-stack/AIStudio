@@ -1,38 +1,40 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   listConversations,
-  ensureLegacyConversation,
   createConversation,
   renameConversation,
   deleteConversation,
   getConversation,
 } from "@/lib/agent-conversations-db";
 import { getSession } from "@/lib/auth";
+import type { AgentKind } from "@/lib/agents/orchestrator/types";
 
 export const runtime = "nodejs";
 
-/** Legacy first, then chat threads newest-first — the pinned "Old" thread is
- *  always the first entry ThreadSwitcher renders. */
-function sortForSwitcher<T extends { kind: string; updatedAt: number }>(list: T[]): T[] {
-  return [...list].sort((a, b) => {
-    if (a.kind === "legacy") return -1;
-    if (b.kind === "legacy") return 1;
-    return b.updatedAt - a.updatedAt;
-  });
+function parseAgentKind(value: unknown): AgentKind | null {
+  return value === "image" || value === "video" ? value : null;
 }
 
-/** GET /api/agent-conversations?projectId=<uuid> -> { conversations }.
- *  Auto-creates the pinned "Old" thread on first fetch for a project. */
+/** Newest-first. */
+function sortForSwitcher<T extends { updatedAt: number }>(list: T[]): T[] {
+  return [...list].sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** GET /api/agent-conversations?projectId=<uuid>&agentKind=image|video
+ *  -> { conversations }. */
 export async function GET(req: NextRequest) {
   if (!(await getSession())) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
   const projectId = req.nextUrl.searchParams.get("projectId");
+  const agentKind = parseAgentKind(req.nextUrl.searchParams.get("agentKind"));
   if (!projectId) {
     return NextResponse.json({ error: "projectId required." }, { status: 400 });
   }
-  await ensureLegacyConversation(projectId);
-  const conversations = sortForSwitcher(await listConversations(projectId));
+  if (!agentKind) {
+    return NextResponse.json({ error: "agentKind must be 'image' or 'video'." }, { status: 400 });
+  }
+  const conversations = sortForSwitcher(await listConversations(projectId, agentKind));
   return NextResponse.json({ conversations });
 }
 
@@ -50,14 +52,18 @@ export async function POST(req: NextRequest) {
     case "createConversation": {
       const name = (b.name || "").trim();
       const projectId = b.projectId;
+      const agentKind = parseAgentKind(b.agentKind);
       if (!projectId) {
         return NextResponse.json({ error: "projectId required." }, { status: 400 });
+      }
+      if (!agentKind) {
+        return NextResponse.json({ error: "agentKind must be 'image' or 'video'." }, { status: 400 });
       }
       if (!name) {
         return NextResponse.json({ error: "Name required." }, { status: 400 });
       }
-      const conversation = await createConversation(projectId, name, user.id);
-      const conversations = sortForSwitcher(await listConversations(projectId));
+      const conversation = await createConversation(projectId, agentKind, name, user.id);
+      const conversations = sortForSwitcher(await listConversations(projectId, agentKind));
       return NextResponse.json({ conversations, conversation });
     }
     case "renameConversation": {
@@ -66,11 +72,10 @@ export async function POST(req: NextRequest) {
       if (!existing) {
         return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
       }
-      if (existing.kind === "legacy") {
-        return NextResponse.json({ error: "The Old thread can't be renamed." }, { status: 400 });
-      }
       await renameConversation(b.id, (b.name || "").trim());
-      const conversations = sortForSwitcher(await listConversations(existing.projectId));
+      const conversations = sortForSwitcher(
+        await listConversations(existing.projectId, existing.agentKind)
+      );
       return NextResponse.json({ conversations });
     }
     case "deleteConversation": {
@@ -79,11 +84,10 @@ export async function POST(req: NextRequest) {
       if (!existing) {
         return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
       }
-      if (existing.kind === "legacy") {
-        return NextResponse.json({ error: "The Old thread can't be deleted." }, { status: 400 });
-      }
       await deleteConversation(b.id);
-      const conversations = sortForSwitcher(await listConversations(existing.projectId));
+      const conversations = sortForSwitcher(
+        await listConversations(existing.projectId, existing.agentKind)
+      );
       return NextResponse.json({ conversations });
     }
     default:

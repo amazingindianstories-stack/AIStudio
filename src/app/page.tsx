@@ -2,13 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { TopBar } from "@/components/TopBar";
-import { Sidebar } from "@/components/Sidebar";
-import { ChatColumn } from "@/components/ChatColumn";
-import { PromptComposer } from "@/components/PromptComposer";
+import { NavRail } from "@/components/NavRail";
+import { StudioChat } from "@/components/StudioChat";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DetailModal } from "@/components/DetailModal";
 import { CanvasView } from "@/components/canvas/CanvasView";
@@ -27,7 +26,6 @@ export default function Page() {
   // shortcut strip that replaces this panel while it is collapsed, so both
   // need to agree on which of the two is showing.
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
-  const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const mobileDrawerRef = useRef<HTMLElement>(null);
   const mobileCloseRef = useRef<HTMLButtonElement>(null);
 
@@ -96,58 +94,35 @@ export default function Page() {
         <TopBar />
 
         <div className="flex min-h-0 flex-1">
-          <Sidebar />
+          <NavRail />
 
           {view === "canvas" ? (
             <CanvasView />
           ) : (
             <>
-              {/* left: conversation + composer */}
+              {/* left: merged chat + composer, one window per tab */}
               <main className="flex min-w-0 flex-1 flex-col">
-                <ChatColumn />
-                <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
-                  <div className="mx-auto w-full">
-                    <PromptComposer />
-                  </div>
-                </div>
+                <StudioChat />
               </main>
 
-              {/* right: history (desktop) */}
+              {/* right: history (desktop) — opened via NavRail's Library entry now,
+                  so this section holds no toggle of its own. */}
               <section
                 className={cn(
-                  "hidden shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:flex",
-                  rightPanelOpen ? "w-[clamp(25rem,42vw,48.75rem)]" : "w-10"
+                  "hidden shrink-0 overflow-hidden border-l border-line transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:flex",
+                  rightPanelOpen ? "w-[clamp(25rem,42vw,48.75rem)]" : "w-0 border-l-0"
                 )}
               >
-                <div className="flex w-10 shrink-0 items-center justify-center border-l border-line bg-ink-900">
-                  <button
-                    type="button"
-                    onClick={() => setRightPanelOpen(!rightPanelOpen)}
-                    className="grid h-9 w-9 place-items-center rounded-lg text-white/55 transition hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
-                    aria-expanded={rightPanelOpen}
-                    aria-controls="desktop-history-panel"
-                    aria-label={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
-                    title={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
-                  >
-                    {rightPanelOpen ? (
-                      <ChevronRight className="h-5 w-5" />
-                    ) : (
-                      <ChevronLeft className="h-5 w-5" />
-                    )}
-                  </button>
-                </div>
                 <div
                   id="desktop-history-panel"
                   className={cn(
-                    "min-w-0 flex-1 overflow-hidden border-l border-line transition-opacity duration-200 motion-reduce:transition-none",
+                    "h-full w-[clamp(25rem,42vw,48.75rem)] shrink-0 transition-opacity duration-200 motion-reduce:transition-none",
                     rightPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
                   )}
                   aria-hidden={!rightPanelOpen}
                   inert={!rightPanelOpen}
                 >
-                  <div className="h-full w-full">
-                    <HistoryPanel />
-                  </div>
+                  <HistoryPanel />
                 </div>
               </section>
             </>

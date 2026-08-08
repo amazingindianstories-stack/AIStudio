@@ -133,6 +133,55 @@ test("an unknown tool name is fed back as an error functionResponse rather than 
   }
 });
 
+test("kind='video' declares generate_video (not generate_image) and mentions video in the system prompt", async () => {
+  const originalFetch = global.fetch;
+  const { fn, bodies } = mockFetchSequence([
+    { candidates: [{ content: { parts: [{ text: "Sure." }] } }] },
+  ]);
+  global.fetch = fn;
+  try {
+    await withEnv({ GOOGLE_API_KEY: "test-key" }, () =>
+      runOrchestratorTurn([], "hi", [], "video")
+    );
+    const names = bodies[0].tools[0].functionDeclarations.map((t: any) => t.name);
+    assert.deepEqual(names, ["design_prompt", "generate_video"]);
+    assert.match(bodies[0].systemInstruction.parts[0].text, /generate_video/);
+    assert.doesNotMatch(bodies[0].systemInstruction.parts[0].text, /generate_image/);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("kind='image' (default): a generate_image tool call surfaces via toolTrace for the client to act on", async () => {
+  const originalFetch = global.fetch;
+  const { fn } = mockFetchSequence([
+    {
+      candidates: [
+        {
+          content: {
+            parts: [{ functionCall: { name: "generate_image", args: { prompt: "a red bicycle" } } }],
+          },
+        },
+      ],
+    },
+    { candidates: [{ content: { parts: [{ text: "Generating that now!" }] } }] },
+  ]);
+  global.fetch = fn;
+  try {
+    const result = await withEnv({ GOOGLE_API_KEY: "test-key" }, () =>
+      runOrchestratorTurn([], "generate that")
+    );
+    assert.equal(result.reply, "Generating that now!");
+    assert.deepEqual(result.toolTrace, {
+      tool: "generate_image",
+      args: { prompt: "a red bicycle" },
+      result: { prompt: "a red bicycle" },
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("exceeding the tool-call round limit throws rather than looping forever", async () => {
   const originalFetch = global.fetch;
   // Always returns a functionCall with no text — the model "never finishes".

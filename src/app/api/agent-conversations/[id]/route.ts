@@ -4,10 +4,7 @@ import { getSession } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
-/** GET /api/agent-conversations/[id] -> { conversation, messages }.
- *  A legacy thread's `messages` is always [] — its content is the existing
- *  generation feed, read from /api/history exactly as ConversationPanel
- *  already does; this route doesn't duplicate that. */
+/** GET /api/agent-conversations/[id] -> { conversation, messages }. */
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -20,6 +17,6 @@ export async function GET(
   if (!conversation) {
     return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
   }
-  const messages = conversation.kind === "legacy" ? [] : await listMessages(id);
+  const messages = await listMessages(id);
   return NextResponse.json({ conversation, messages });
 }

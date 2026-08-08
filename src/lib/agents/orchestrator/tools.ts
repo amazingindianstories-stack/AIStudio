@@ -1,5 +1,6 @@
 import type { GeminiPart, GeminiToolDeclaration } from "../llm-provider";
 import { designPrompt } from "./subagents/design-prompt";
+import type { AgentKind } from "./types";
 
 export const DESIGN_PROMPT_TOOL: GeminiToolDeclaration = {
   name: "design_prompt",
@@ -23,7 +24,33 @@ export const DESIGN_PROMPT_TOOL: GeminiToolDeclaration = {
   },
 };
 
-export const TOOLS: GeminiToolDeclaration[] = [DESIGN_PROMPT_TOOL];
+/** No network call — validates and echoes the prompt back. The real
+ *  submission happens client-side via the existing s.generate() pipeline
+ *  (queue, cost, polling, MediaCard) once it sees this tool in the reply;
+ *  see StudioChat.tsx. Keeping this dumb server-side is what lets billed
+ *  generation stay on its one existing code path instead of a second one. */
+const GENERATE_IMAGE_TOOL: GeminiToolDeclaration = {
+  name: "generate_image",
+  description:
+    "Submit the current prompt for real image generation. Only call this once the user has clearly asked to generate (e.g. 'generate that', 'make it') and you and they are aligned on the prompt — confirm briefly first if their ask was vague.",
+  parameters: {
+    type: "object",
+    properties: {
+      prompt: { type: "string", description: "The final prompt to generate, self-contained." },
+    },
+    required: ["prompt"],
+  },
+};
+
+const GENERATE_VIDEO_TOOL: GeminiToolDeclaration = {
+  ...GENERATE_IMAGE_TOOL,
+  name: "generate_video",
+  description: GENERATE_IMAGE_TOOL.description.replace("image generation", "video generation"),
+};
+
+export function toolsForKind(kind: AgentKind): GeminiToolDeclaration[] {
+  return [DESIGN_PROMPT_TOOL, kind === "video" ? GENERATE_VIDEO_TOOL : GENERATE_IMAGE_TOOL];
+}
 
 export interface ToolDispatchResult {
   response: Record<string, unknown>;
@@ -42,6 +69,16 @@ export async function dispatchTool(
       const result = await designPrompt({ idea, references, images });
       return {
         response: { prompt: result.prompt },
+        trace: { tool: name, args, result },
+      };
+    }
+    case "generate_image":
+    case "generate_video": {
+      const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+      if (!prompt) throw new Error(`${name} called with an empty prompt.`);
+      const result = { prompt };
+      return {
+        response: { ok: true, prompt },
         trace: { tool: name, args, result },
       };
     }

@@ -4,11 +4,13 @@
  * reasoning as canvas/types.ts vs canvas-db.ts, so client components can
  * import these safely.
  */
+export type AgentKind = "image" | "video";
+
 export interface AgentConversationMeta {
   id: string;
   projectId: string;
   name: string;
-  kind: "chat" | "legacy";
+  agentKind: AgentKind;
   createdBy: string | null;
   createdAt: number;
   updatedAt: number;

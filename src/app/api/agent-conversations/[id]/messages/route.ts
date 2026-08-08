@@ -25,12 +25,6 @@ export async function POST(
   if (!conversation) {
     return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
   }
-  if (conversation.kind === "legacy") {
-    return NextResponse.json(
-      { error: "The Old thread is read-only history, not a chat." },
-      { status: 400 }
-    );
-  }
 
   const b = await req.json().catch(() => ({}));
   const parsed = parseMessageBody(b);
@@ -53,7 +47,12 @@ export async function POST(
   const userMessage = await appendMessage(id, "user", content);
 
   try {
-    const { reply, toolTrace } = await runOrchestratorTurn(history, content, imageParts);
+    const { reply, toolTrace } = await runOrchestratorTurn(
+      history,
+      content,
+      imageParts,
+      conversation.agentKind
+    );
     const assistantMessage = await appendMessage(id, "assistant", reply, toolTrace ?? null);
     return NextResponse.json({ userMessage, assistantMessage });
   } catch (err) {

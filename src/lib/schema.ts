@@ -164,16 +164,23 @@ export const agentConversations = pgTable("agent_conversations", {
   id: uuid("id").primaryKey().defaultRandom(),
   projectId: uuid("project_id").notNull(),
   name: text("name").notNull(),
-  // "chat" = a real orchestrator conversation; "legacy" = the one pinned,
-  // undeletable row per project standing in for the pre-existing generation
-  // feed (ConversationPanel) — it carries no rows in
-  // agent_conversation_messages, its content is read from generations
-  // (see agent-conversations-db.ts).
+  // Unused as of the StudioChat redesign (was "chat" | "legacy" — the legacy
+  // pinned-thread concept is gone now that the old generation feed has its
+  // own nav entry, LegacyHistoryModal, instead of living in this table).
+  // Left in place rather than dropped — no destructive ALTER on a column
+  // that already has rows.
   kind: text("kind").notNull().default("chat"),
+  // Which tab this thread belongs to — "image" or "video". Nullable only
+  // because rows created before this column existed have none; every row
+  // created going forward always sets it (see agent-conversations-db.ts).
+  agentKind: text("agent_kind"),
   createdBy: uuid("created_by"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-}, (table) => [index("agent_conversations_project_id_idx").on(table.projectId)]);
+}, (table) => [
+  index("agent_conversations_project_id_idx").on(table.projectId),
+  index("agent_conversations_project_kind_idx").on(table.projectId, table.agentKind),
+]);
 
 export const agentConversationMessages = pgTable("agent_conversation_messages", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -1,7 +1,8 @@
 import type { AgentMessage } from "../types";
 import { callGeminiRaw, type GeminiPart } from "../llm-provider";
-import { ORCHESTRATOR_SYSTEM_PROMPT } from "./prompts";
-import { TOOLS, dispatchTool } from "./tools";
+import { systemPromptForKind } from "./prompts";
+import { toolsForKind, dispatchTool } from "./tools";
+import type { AgentKind } from "./types";
 
 const MAX_TOOL_ROUNDS = 4;
 
@@ -35,7 +36,8 @@ function historyToContents(
 export async function runOrchestratorTurn(
   history: AgentMessage[],
   newMessage: string,
-  images: GeminiPart[] = []
+  images: GeminiPart[] = [],
+  kind: AgentKind = "image"
 ): Promise<OrchestratorResult> {
   const contents = historyToContents(history);
   contents.push({ role: "user", parts: [{ text: newMessage }, ...images] });
@@ -44,9 +46,9 @@ export async function runOrchestratorTurn(
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     const { parts, finishReason } = await callGeminiRaw({
-      systemPrompt: ORCHESTRATOR_SYSTEM_PROMPT,
+      systemPrompt: systemPromptForKind(kind),
       contents,
-      tools: TOOLS,
+      tools: toolsForKind(kind),
     });
 
     const functionCallPart = parts.find((p) => p.functionCall);

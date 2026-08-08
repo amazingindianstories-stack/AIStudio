@@ -2,57 +2,58 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal, History } from "lucide-react";
+import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
-import type { AgentConversationMeta } from "@/lib/agents/orchestrator/types";
+import type { AgentConversationMeta, AgentKind } from "@/lib/agents/orchestrator/types";
 
 /**
- * Chat-thread dropdown for the center column — list/create/rename/switch,
- * adapted from BoardSwitcher.tsx (canvas board equivalent). The one
- * structural difference: the server always returns at least the pinned "Old"
- * (kind: "legacy") thread (GET auto-creates it — see
- * agent-conversations-db.ts's ensureLegacyConversation), so this never needs
- * BoardSwitcher's "list is empty, auto-create one" dance. The legacy row is
- * pinned first and has no rename/delete action.
+ * Chat-thread dropdown for StudioChat — list/create/rename/switch, adapted
+ * from BoardSwitcher.tsx (canvas board equivalent). Scoped by `agentKind`:
+ * the Image tab and Video tab each see only their own threads (separate
+ * lists, same as separate boards per project).
  */
 export function ThreadSwitcher({
   projectId,
+  agentKind,
   conversationId,
   onConversationIdChange,
 }: {
   projectId: string | null;
+  agentKind: AgentKind;
   conversationId: string | null;
-  onConversationIdChange: (id: string, kind: "chat" | "legacy") => void;
+  onConversationIdChange: (id: string) => void;
 }) {
   const [conversations, setConversations] = useState<AgentConversationMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [renamingTrigger, setRenamingTrigger] = useState(false);
   const [renamingRowId, setRenamingRowId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AgentConversationMeta | null>(null);
-  const initializedForProject = useRef<string | null>(null);
+  const initializedFor = useRef<string | null>(null);
   const requestIdRef = useRef(0);
 
   useEffect(() => {
-    if (!projectId || initializedForProject.current === projectId) return;
-    initializedForProject.current = projectId;
+    const scopeKey = projectId ? `${projectId}:${agentKind}` : null;
+    if (!scopeKey || initializedFor.current === scopeKey) return;
+    initializedFor.current = scopeKey;
     const requestId = ++requestIdRef.current;
     setLoading(true);
     (async () => {
-      const res = await fetch(`/api/agent-conversations?projectId=${encodeURIComponent(projectId)}`, {
-        cache: "no-store",
-      });
+      const res = await fetch(
+        `/api/agent-conversations?projectId=${encodeURIComponent(projectId!)}&agentKind=${agentKind}`,
+        { cache: "no-store" }
+      );
       const json = await res.json().catch(() => ({}));
-      if (requestIdRef.current !== requestId) return; // superseded by a newer project switch
+      if (requestIdRef.current !== requestId) return; // superseded by a newer switch
       const list: AgentConversationMeta[] = json.conversations ?? [];
       setConversations(list);
       setLoading(false);
       if (!conversationId || !list.some((c) => c.id === conversationId)) {
-        if (list[0]) onConversationIdChange(list[0].id, list[0].kind);
+        if (list[0]) onConversationIdChange(list[0].id);
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, agentKind]);
 
   const current = conversations.find((c) => c.id === conversationId) ?? null;
 
@@ -61,13 +62,13 @@ export function ThreadSwitcher({
     const res = await fetch("/api/agent-conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "createConversation", projectId, name: "New chat" }),
+      body: JSON.stringify({ op: "createConversation", projectId, agentKind, name: "New chat" }),
     });
     const json = await res.json().catch(() => ({}));
     if (json.conversations) {
       setConversations(json.conversations);
       if (json.conversation?.id) {
-        onConversationIdChange(json.conversation.id, "chat");
+        onConversationIdChange(json.conversation.id);
         setRenamingTrigger(true);
       }
     }
@@ -96,7 +97,7 @@ export function ThreadSwitcher({
     const list: AgentConversationMeta[] = json.conversations ?? conversations.filter((c) => c.id !== id);
     setConversations(list);
     if (conversationId === id && list[0]) {
-      onConversationIdChange(list[0].id, list[0].kind);
+      onConversationIdChange(list[0].id);
     }
   };
 
@@ -127,7 +128,6 @@ export function ThreadSwitcher({
                 open && "border-brand/40"
               )}
             >
-              {current?.kind === "legacy" && <History className="h-3.5 w-3.5 shrink-0 text-white/45" />}
               <span className="truncate">{loading ? "Loading chats…" : current?.name ?? "Chat"}</span>
               <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
             </span>
@@ -157,52 +157,49 @@ export function ThreadSwitcher({
                     <MenuItem
                       active={c.id === conversationId}
                       onClick={() => {
-                        onConversationIdChange(c.id, c.kind);
+                        onConversationIdChange(c.id);
                         close();
                       }}
                     >
-                      {c.kind === "legacy" && <History className="h-4 w-4 shrink-0 text-white/45" />}
                       <span className="flex-1 truncate">{c.name}</span>
                       {c.id === conversationId && <Check className="h-4 w-4 shrink-0 text-brand" />}
                     </MenuItem>
-                    {c.kind !== "legacy" && (
-                      <Dropdown
-                        align="right"
-                        trigger={(open) => (
-                          <span
-                            className={cn(
-                              "ml-0.5 hidden h-7 w-7 shrink-0 place-items-center rounded-lg text-white/45 hover:bg-white/10 hover:text-white group-hover:grid",
-                              open && "grid bg-white/10 text-white"
-                            )}
+                    <Dropdown
+                      align="right"
+                      trigger={(open) => (
+                        <span
+                          className={cn(
+                            "ml-0.5 hidden h-7 w-7 shrink-0 place-items-center rounded-lg text-white/45 hover:bg-white/10 hover:text-white group-hover:grid",
+                            open && "grid bg-white/10 text-white"
+                          )}
+                        >
+                          <MoreHorizontal className="h-3.5 w-3.5" />
+                        </span>
+                      )}
+                    >
+                      {(closeRow) => (
+                        <>
+                          <MenuItem
+                            onClick={() => {
+                              setRenamingRowId(c.id);
+                              closeRow();
+                            }}
                           >
-                            <MoreHorizontal className="h-3.5 w-3.5" />
-                          </span>
-                        )}
-                      >
-                        {(closeRow) => (
-                          <>
-                            <MenuItem
-                              onClick={() => {
-                                setRenamingRowId(c.id);
-                                closeRow();
-                              }}
-                            >
-                              <Pencil className="h-4 w-4 text-white/50" /> Rename
-                            </MenuItem>
-                            <MenuItem
-                              onClick={() => {
-                                setDeleteTarget(c);
-                                closeRow();
-                                close();
-                              }}
-                            >
-                              <Trash2 className="h-4 w-4 text-red-400/80" />
-                              <span className="text-red-300/90">Delete</span>
-                            </MenuItem>
-                          </>
-                        )}
-                      </Dropdown>
-                    )}
+                            <Pencil className="h-4 w-4 text-white/50" /> Rename
+                          </MenuItem>
+                          <MenuItem
+                            onClick={() => {
+                              setDeleteTarget(c);
+                              closeRow();
+                              close();
+                            }}
+                          >
+                            <Trash2 className="h-4 w-4 text-red-400/80" />
+                            <span className="text-red-300/90">Delete</span>
+                          </MenuItem>
+                        </>
+                      )}
+                    </Dropdown>
                   </div>
                 )
               )}
