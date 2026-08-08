@@ -20,11 +20,13 @@ import {
   Plus,
   ZoomIn,
   ZoomOut,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, type CanvasTool } from "@/lib/canvas-store";
 import { nodeBounds } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
+import { AgentChat } from "@/components/AgentChat";
 
 type ShapeTool = "rect" | "ellipse" | "triangle" | "diamond";
 
@@ -52,6 +54,7 @@ export function CanvasToolbar({
 }) {
   const tool = useCanvasStore((s) => s.tool);
   const setTool = useCanvasStore((s) => s.setTool);
+  const boardName = useCanvasStore((s) => s.boardName);
   const [lastShape, setLastShape] = useState<ShapeTool>("rect");
 
   const isShapeTool = tool === "rect" || tool === "ellipse" || tool === "triangle" || tool === "diamond";
@@ -206,6 +209,36 @@ export function CanvasToolbar({
           >
             <ImagePlus className="h-4 w-4" />
           </button>
+        </ToolGroup>
+
+        <Divider />
+
+        <ToolGroup>
+          <Dropdown
+            side="top"
+            label="Story assistant"
+            panelClassName="p-2"
+            trigger={(open) => (
+              <span
+                className={cn(
+                  "grid h-9 w-9 place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white",
+                  open && "bg-white/[0.07] text-white"
+                )}
+                title="Story assistant"
+                aria-label="Story assistant"
+              >
+                <Sparkles className="h-4 w-4" />
+              </span>
+            )}
+          >
+            {() => (
+              <AgentChat
+                role="story"
+                context={{ boardName }}
+                placeholder="Ask about beats, shots, or continuity…"
+              />
+            )}
+          </Dropdown>
         </ToolGroup>
       </div>
 

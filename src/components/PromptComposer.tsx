@@ -36,6 +36,7 @@ import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { VideoRefPicker } from "./VideoRefPicker";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, type MentionHandle } from "./MentionTextarea";
+import { AgentChat } from "./AgentChat";
 import {
   DEFAULTS,
   MODELS,
@@ -798,6 +799,34 @@ export function PromptComposer() {
               </div>
             );
           }}
+        </Dropdown>
+
+        {/* AI assistant: prompt-crafting help scoped to the current mode */}
+        <Dropdown
+          className="composer-assistant shrink-0"
+          label={`${s.mode === "image" ? "Image" : "Video"} assistant`}
+          align="right"
+          side="top"
+          panelClassName="p-2"
+          trigger={(open) => (
+            <Chip open={open}>
+              <Sparkles className="h-4 w-4 text-brand" />
+            </Chip>
+          )}
+        >
+          {() => (
+            <AgentChat
+              role={s.mode}
+              context={{
+                currentPrompt: s.prompt,
+                model: s.model,
+                aspectRatio: s.aspectRatio,
+              }}
+              placeholder={
+                s.mode === "image" ? "Ask about this image prompt…" : "Ask about this shot…"
+              }
+            />
+          )}
         </Dropdown>
 
         </div>
