@@ -9,6 +9,12 @@ export { hashPassword, verifyPassword } from "./password";
 export const SESSION_COOKIE = "veevee_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const SESSION_TTL_MS = 1000 * SESSION_MAX_AGE_SECONDS;
+// Rolling renewal: getSession() silently reissues the cookie once a session
+// is this old, resetting the 30-day clock. Without this, the 30 days count
+// from LOGIN, not last use — a daily user still gets logged out a month
+// later. Throttled (not renewed on every request) so an active user gets at
+// most one re-sign per day, not one per request.
+const SESSION_RENEW_AFTER_MS = 1000 * 60 * 60 * 24; // 1 day
 
 export interface SessionUser {
   id: string;
@@ -38,6 +44,26 @@ function b64url(input: string): string {
   return Buffer.from(input).toString("base64url");
 }
 
+/** Single source of truth for the cookie's flags — login, password-change
+ *  re-issue, and getSession()'s rolling renewal all use this, so a maxAge or
+ *  flag fix made once can't drift out of sync between the three. */
+export function sessionCookieOptions() {
+  return {
+    httpOnly: true,
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+    path: "/",
+    maxAge: SESSION_MAX_AGE_SECONDS,
+  };
+}
+
+/** Pure so it's testable without a live cookie store — renew once a session
+ *  is more than SESSION_RENEW_AFTER_MS old (i.e. less than
+ *  SESSION_TTL_MS - SESSION_RENEW_AFTER_MS remains). */
+export function shouldRenewSession(exp: number, now: number = Date.now()): boolean {
+  return exp - now < SESSION_TTL_MS - SESSION_RENEW_AFTER_MS;
+}
+
 export function signSession(userId: string, authVersion: number): string {
   const payload = b64url(
     JSON.stringify({ uid: userId, ver: authVersion, exp: Date.now() + SESSION_TTL_MS })
@@ -54,7 +80,7 @@ export function signSession(userId: string, authVersion: number): string {
  */
 export function verifySessionToken(
   token: string
-): { userId: string; authVersion: number } | null {
+): { userId: string; authVersion: number; exp: number } | null {
   const parts = token.split(".");
   if (parts.length !== 2) return null;
   const [payload, sig] = parts;
@@ -83,7 +109,7 @@ export function verifySessionToken(
     ) {
       return null;
     }
-    return { userId: uid, authVersion: ver };
+    return { userId: uid, authVersion: ver, exp };
   } catch {
     return null;
   }
@@ -115,6 +141,18 @@ export async function getSession(): Promise<AuthenticatedSession | null> {
     .limit(1);
   const u = row[0];
   if (!u || !u.isActive || u.authVersion !== session.authVersion) return null;
+
+  if (shouldRenewSession(session.exp)) {
+    try {
+      store.set(SESSION_COOKIE, signSession(u.id, u.authVersion), sessionCookieOptions());
+    } catch {
+      // cookies().set() only works inside a Route Handler/Server Action's
+      // mutable cookie scope — if getSession() is ever called somewhere else
+      // (a Server Component render), this throws. Renewal is a courtesy;
+      // skip it rather than fail the whole session lookup over it.
+    }
+  }
+
   return {
     id: u.id,
     email: u.email,

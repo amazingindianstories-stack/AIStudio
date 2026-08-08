@@ -402,11 +402,14 @@ function MessageBubble({
         {message.content}
       </div>
 
-      {designedPrompt && (
+      {/* Once a result exists (or one is in flight), the buttons have done
+          their job — replaced by the result itself, same as clicking the
+          real Generate button anywhere else in the app doesn't leave a
+          second stale "Generate" control sitting around after. */}
+      {designedPrompt && !generating && !generatedItem && (
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={generating}
             onClick={async () => {
               setGenerating(true);
               try {
@@ -415,9 +418,8 @@ function MessageBubble({
                 setGenerating(false);
               }
             }}
-            className="flex items-center gap-1 rounded-full bg-brand/20 px-3 py-1 text-xs font-medium text-brand ring-1 ring-brand/40 transition hover:bg-brand/30 disabled:opacity-50"
+            className="flex items-center gap-1 rounded-full bg-brand/20 px-3 py-1 text-xs font-medium text-brand ring-1 ring-brand/40 transition hover:bg-brand/30"
           >
-            {generating && <Loader2 className="h-3 w-3 animate-spin" />}
             Generate
           </button>
           <button
@@ -430,7 +432,11 @@ function MessageBubble({
         </div>
       )}
 
-      {isGenerateTrace && (
+      {/* Inline result — covers both ways a generation can start from this
+          message: the model calling generate_{image,video} itself
+          (isGenerateTrace), or the user clicking the Generate button above
+          on a design_prompt reply (generating/generatedItem). */}
+      {(isGenerateTrace || generating || generatedItem) && (
         <div className="w-56">
           {generatedItem ? (
             <MediaCard item={generatedItem} />

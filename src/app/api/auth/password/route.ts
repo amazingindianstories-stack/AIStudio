@@ -3,7 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import {
   getSession,
   SESSION_COOKIE,
-  SESSION_MAX_AGE_SECONDS,
+  sessionCookieOptions,
   signSession,
 } from "@/lib/auth";
 import { getDb } from "@/lib/db";
@@ -105,13 +105,7 @@ export async function PATCH(req: NextRequest) {
   response.cookies.set(
     SESSION_COOKIE,
     signSession(session.id, updated.authVersion),
-    {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      maxAge: SESSION_MAX_AGE_SECONDS,
-    }
+    sessionCookieOptions()
   );
   await logActivity(session.id, "password_changed");
   return response;

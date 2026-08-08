@@ -6,7 +6,7 @@ import {
   verifyPassword,
   signSession,
   SESSION_COOKIE,
-  SESSION_MAX_AGE_SECONDS,
+  sessionCookieOptions,
 } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 
@@ -59,13 +59,7 @@ export async function POST(req: NextRequest) {
       avatarUrl: u.avatarUrl,
     },
   });
-  res.cookies.set(SESSION_COOKIE, signSession(u.id, u.authVersion), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS,
-  });
+  res.cookies.set(SESSION_COOKIE, signSession(u.id, u.authVersion), sessionCookieOptions());
   await logActivity(u.id, "login");
   return res;
 }
