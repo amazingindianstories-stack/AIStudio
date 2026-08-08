@@ -75,7 +75,22 @@ export function ChatSidebar({
       );
       const json = await res.json().catch(() => ({}));
       if (requestIdRef.current !== requestId) return;
-      const list: AgentConversationMeta[] = json.conversations ?? [];
+      let list: AgentConversationMeta[] = json.conversations ?? [];
+      if (list.length === 0) {
+        // Lazily create the project's first chat for this tab — same
+        // pattern BoardSwitcher.tsx uses for a project's first board.
+        // Without this, a project with no threads yet has nothing to
+        // select, and the feed below shows "Loading chat…" forever with no
+        // way out except manually clicking "+ New chat".
+        const created = await fetch("/api/agent-conversations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, agentKind, name: "New chat" }),
+        });
+        const createdJson = await created.json().catch(() => ({}));
+        if (requestIdRef.current !== requestId) return;
+        list = createdJson.conversations ?? [];
+      }
       setConversations(list);
       setLoading(false);
       if (!conversationId || !list.some((c) => c.id === conversationId)) {
