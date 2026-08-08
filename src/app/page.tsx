@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
-import { ConversationPanel } from "@/components/ConversationPanel";
+import { ChatColumn } from "@/components/ChatColumn";
 import { PromptComposer } from "@/components/PromptComposer";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DetailModal } from "@/components/DetailModal";
@@ -104,7 +104,7 @@ export default function Page() {
             <>
               {/* left: conversation + composer */}
               <main className="flex min-w-0 flex-1 flex-col">
-                <ConversationPanel />
+                <ChatColumn />
                 <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
                   <div className="mx-auto w-full">
                     <PromptComposer />

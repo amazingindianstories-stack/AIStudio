@@ -160,6 +160,35 @@ export const canvasBoards = pgTable("canvas_boards", {
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [index("canvas_boards_project_id_idx").on(table.projectId)]);
 
+export const agentConversations = pgTable("agent_conversations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull(),
+  name: text("name").notNull(),
+  // "chat" = a real orchestrator conversation; "legacy" = the one pinned,
+  // undeletable row per project standing in for the pre-existing generation
+  // feed (ConversationPanel) — it carries no rows in
+  // agent_conversation_messages, its content is read from generations
+  // (see agent-conversations-db.ts).
+  kind: text("kind").notNull().default("chat"),
+  createdBy: uuid("created_by"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => [index("agent_conversations_project_id_idx").on(table.projectId)]);
+
+export const agentConversationMessages = pgTable("agent_conversation_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  conversationId: uuid("conversation_id").notNull(),
+  role: text("role").notNull(), // "user" | "assistant"
+  content: text("content").notNull(),
+  // Which subagent tool ran (if any) and its output, so the UI can show a
+  // trace chip above the reply. Not a provider-protocol replay — each turn
+  // is rebuilt from role+content, not raw functionCall/functionResponse parts.
+  toolTrace: jsonb("tool_trace").$type<{ tool: string; args: unknown; result: unknown } | null>(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => [
+  index("agent_conversation_messages_conversation_id_idx").on(table.conversationId),
+]);
+
 export const activityLogs = pgTable("activity_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id"),

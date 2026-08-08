@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { callLLM, agentModel } from "./llm-provider";
+import { callLLM, callGeminiRaw, agentModel } from "./llm-provider";
 
 function withEnv<T>(vars: Record<string, string | undefined>, fn: () => T): T {
   const prev: Record<string, string | undefined> = {};
@@ -119,6 +119,71 @@ test("callLLM throws when the response has no text candidate", async () => {
         /Agent LLM returned no text \(SAFETY\)/
       )
     );
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("callGeminiRaw omits `tools` from the request body when none are given", async () => {
+  const originalFetch = global.fetch;
+  let sentBody: any;
+  global.fetch = (async (_url: string, init?: any) => {
+    sentBody = JSON.parse(init.body);
+    return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: "ok" }] } }] }) };
+  }) as unknown as typeof fetch;
+  try {
+    await withEnv({ GOOGLE_API_KEY: "test-key" }, () =>
+      callGeminiRaw({ systemPrompt: "sys", contents: [{ role: "user", parts: [{ text: "hi" }] }] })
+    );
+    assert.equal("tools" in sentBody, false);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("callGeminiRaw sends declared tools as functionDeclarations and returns a functionCall part", async () => {
+  const originalFetch = global.fetch;
+  let sentBody: any;
+  global.fetch = (async (_url: string, init?: any) => {
+    sentBody = JSON.parse(init.body);
+    return {
+      ok: true,
+      json: async () => ({
+        candidates: [
+          { content: { parts: [{ functionCall: { name: "do_thing", args: { x: 1 } } }] } },
+        ],
+      }),
+    };
+  }) as unknown as typeof fetch;
+  try {
+    const result = await withEnv({ GOOGLE_API_KEY: "test-key" }, () =>
+      callGeminiRaw({
+        systemPrompt: "sys",
+        contents: [{ role: "user", parts: [{ text: "hi" }] }],
+        tools: [{ name: "do_thing", description: "does a thing", parameters: { type: "object" } }],
+      })
+    );
+    assert.deepEqual(sentBody.tools, [
+      { functionDeclarations: [{ name: "do_thing", description: "does a thing", parameters: { type: "object" } }] },
+    ]);
+    assert.deepEqual(result.parts, [{ functionCall: { name: "do_thing", args: { x: 1 } } }]);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test("callGeminiRaw returns an empty parts array (not a throw) when the candidate has no content", async () => {
+  const originalFetch = global.fetch;
+  global.fetch = (async () => ({
+    ok: true,
+    json: async () => ({ candidates: [{ finishReason: "SAFETY" }] }),
+  })) as unknown as typeof fetch;
+  try {
+    const result = await withEnv({ GOOGLE_API_KEY: "test-key" }, () =>
+      callGeminiRaw({ systemPrompt: "sys", contents: [{ role: "user", parts: [{ text: "hi" }] }] })
+    );
+    assert.deepEqual(result.parts, []);
+    assert.equal(result.finishReason, "SAFETY");
   } finally {
     global.fetch = originalFetch;
   }
