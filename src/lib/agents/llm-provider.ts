@@ -24,6 +24,14 @@ export interface GeminiPart {
   inlineData?: { mimeType: string; data: string };
   functionCall?: { name: string; args: Record<string, unknown> };
   functionResponse?: { name: string; response: Record<string, unknown> };
+  // Sibling field Gemini attaches to a functionCall part on thinking-enabled
+  // models. MUST be echoed back verbatim on the next round or the API 400s
+  // ("Function call is missing a thought_signature in functionCall parts") —
+  // declared here so callers know it exists; the orchestrator's loop passes
+  // the whole received part through rather than reconstructing it, which is
+  // what actually preserves it (TS not declaring a field doesn't strip it
+  // from the real object, but reconstructing a NEW object does).
+  thoughtSignature?: string;
 }
 
 export interface GeminiToolDeclaration {

@@ -108,6 +108,45 @@ test("design_prompt tool call: dispatches to the subagent and continues to a fin
   }
 });
 
+test("a functionCall's thoughtSignature is echoed back verbatim on the next round (Gemini 400s without it)", async () => {
+  const originalFetch = global.fetch;
+  const { fn, bodies } = mockFetchSequence([
+    {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                functionCall: { name: "design_prompt", args: { idea: "a detective" } },
+                thoughtSignature: "opaque-signature-abc123",
+              },
+            ],
+          },
+        },
+      ],
+    },
+    { candidates: [{ content: { parts: [{ text: "A moody portrait." }] } }] },
+    { candidates: [{ content: { parts: [{ text: "Here's your prompt!" }] } }] },
+  ]);
+  global.fetch = fn;
+  try {
+    await withEnv({ GOOGLE_API_KEY: "test-key" }, () =>
+      runOrchestratorTurn([], "design me a detective portrait prompt")
+    );
+    // second call (subagent) and third (continuation) both carry the growing
+    // `contents` array, which includes the model's functionCall turn pushed
+    // after round 1 — assert it kept the sibling thoughtSignature field.
+    const modelTurn = bodies[2].contents.find((c: any) => c.role === "model");
+    assert.equal(modelTurn.parts[0].thoughtSignature, "opaque-signature-abc123");
+    assert.deepEqual(modelTurn.parts[0].functionCall, {
+      name: "design_prompt",
+      args: { idea: "a detective" },
+    });
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test("an unknown tool name is fed back as an error functionResponse rather than throwing", async () => {
   const originalFetch = global.fetch;
   const { fn, bodies } = mockFetchSequence([

@@ -54,7 +54,12 @@ export async function runOrchestratorTurn(
     const functionCallPart = parts.find((p) => p.functionCall);
     if (functionCallPart?.functionCall) {
       const { name, args } = functionCallPart.functionCall;
-      contents.push({ role: "model", parts: [{ functionCall: { name, args } }] });
+      // Echo the part back VERBATIM, not a {name, args} reconstruction — a
+      // thinking-enabled model attaches a thoughtSignature alongside
+      // functionCall (sibling field, outside our GeminiPart type but present
+      // on the real JSON), and Gemini 400s the next round ("Function call is
+      // missing a thought_signature in functionCall parts") if it's dropped.
+      contents.push({ role: "model", parts: [functionCallPart] });
 
       // Dispatch failures (unknown tool, subagent error) are fed back to the
       // model as an error result rather than aborting the whole turn — lets
