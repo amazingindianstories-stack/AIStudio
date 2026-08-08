@@ -141,7 +141,6 @@ interface AppState extends ComposerState {
 
   generating: boolean;
   rightTab: RightTab;
-  mobileHistoryOpen: boolean;
   activeId: string | null;
   search: string;
   filterKind: "all" | GenerationKind;
@@ -186,7 +185,6 @@ interface AppState extends ComposerState {
 
   // ui
   setRightTab: (t: RightTab) => void;
-  setMobileHistoryOpen: (v: boolean) => void;
   setActiveId: (id: string | null) => void;
   setSearch: (s: string) => void;
   setFilterKind: (k: "all" | GenerationKind) => void;
@@ -453,7 +451,6 @@ export const useStore = create<AppState>((set, get) => ({
   rightPanelOpen: false,
   generating: false,
   rightTab: "project",
-  mobileHistoryOpen: false,
   activeId: null,
   search: "",
   filterKind: "all",
@@ -555,7 +552,6 @@ export const useStore = create<AppState>((set, get) => ({
     })),
 
   setRightTab: (rightTab) => set({ rightTab }),
-  setMobileHistoryOpen: (mobileHistoryOpen) => set({ mobileHistoryOpen }),
   setActiveId: (activeId) => set({ activeId }),
   setSearch: (search) => set({ search }),
   setFilterKind: (filterKind) => set({ filterKind }),
@@ -1622,6 +1618,10 @@ export function restoreComposerDraft() {
     if (rawSettings) {
       const d = JSON.parse(rawSettings);
       const patch: Record<string, unknown> = {};
+      // "Refreshing keeps you on the same tab" covers Image/Video (mode) and
+      // Board (view) — the composer settings below are mode-specific, so
+      // mode is resolved first and view is independent of them.
+      if (d.view === "studio" || d.view === "canvas") patch.view = d.view;
       const mode: GenerationKind | undefined =
         d.mode === "image" || d.mode === "video" ? d.mode : undefined;
       if (mode) patch.mode = mode;
@@ -1656,9 +1656,9 @@ export function restoreComposerDraft() {
       if (["project", "history", "favorites"].includes(d.rightTab)) {
         patch.rightTab = d.rightTab;
       }
-      if (typeof d.rightPanelOpen === "boolean") {
-        patch.rightPanelOpen = d.rightPanelOpen;
-      }
+      // rightPanelOpen is deliberately NOT restored — the assets drawer is a
+      // transient overlay, not part of the durable workspace, and always
+      // starts closed (see the drawer in page.tsx).
       // loadProjects validates the restored project id against the fetched
       // list, so a stale id self-heals to the default project.
       if (typeof d.activeProjectId === "string") patch.activeProjectId = d.activeProjectId;
@@ -1751,6 +1751,7 @@ if (typeof window !== "undefined") {
       }
     }
     if (
+      s.view !== prev.view ||
       s.mode !== prev.mode ||
       s.model !== prev.model ||
       s.aspectRatio !== prev.aspectRatio ||
@@ -1759,7 +1760,6 @@ if (typeof window !== "undefined") {
       s.batchCount !== prev.batchCount ||
       s.generateAudio !== prev.generateAudio ||
       s.rightTab !== prev.rightTab ||
-      s.rightPanelOpen !== prev.rightPanelOpen ||
       s.activeProjectId !== prev.activeProjectId ||
       s.activeFolderId !== prev.activeFolderId
     ) {
@@ -1767,6 +1767,7 @@ if (typeof window !== "undefined") {
         localStorage.setItem(
           DRAFT_SETTINGS_KEY,
           JSON.stringify({
+            view: s.view,
             mode: s.mode,
             model: s.model,
             aspectRatio: s.aspectRatio,
@@ -1776,7 +1777,6 @@ if (typeof window !== "undefined") {
             generateAudio: s.generateAudio,
             audioDefault: true,
             rightTab: s.rightTab,
-            rightPanelOpen: s.rightPanelOpen,
             activeProjectId: s.activeProjectId,
             activeFolderId: s.activeFolderId,
           })

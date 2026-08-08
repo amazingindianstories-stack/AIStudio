@@ -15,8 +15,8 @@ import { cn } from "@/lib/utils";
 
 export function TopBar() {
   const [accountOpen, setAccountOpen] = useState(false);
-  const mobileHistoryOpen = useStore((s) => s.mobileHistoryOpen);
-  const setMobileHistoryOpen = useStore((s) => s.setMobileHistoryOpen);
+  const rightPanelOpen = useStore((s) => s.rightPanelOpen);
+  const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const user = useStore((s) => s.currentUser);
   const loadMe = useStore((s) => s.loadMe);
   const loadUsers = useStore((s) => s.loadUsers);
@@ -36,10 +36,10 @@ export function TopBar() {
 
         <div className="flex items-center gap-1.5">
           <button
-            onClick={() => setMobileHistoryOpen(true)}
-            className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:bg-white/5 hover:text-white lg:hidden"
-            aria-expanded={mobileHistoryOpen}
-            aria-controls="mobile-history-panel"
+            onClick={() => setRightPanelOpen(true)}
+            className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:bg-white/5 hover:text-white sm:hidden"
+            aria-expanded={rightPanelOpen}
+            aria-controls="assets-drawer"
             aria-label="Open assets panel"
           >
             <PanelRightOpen className="h-[18px] w-[18px]" />

@@ -24,7 +24,6 @@ export function ChatScopeBar() {
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
   const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const setRightTab = useStore((s) => s.setRightTab);
-  const setMobileHistoryOpen = useStore((s) => s.setMobileHistoryOpen);
   const projects = useStore((s) => s.projects);
   const activeProjectId = useStore((s) => s.activeProjectId);
   const counts = useStore((s) => s.counts);
@@ -36,16 +35,9 @@ export function ChatScopeBar() {
 
   const openPanel = (tab: FeedTab) => {
     setRightTab(tab);
+    // The assets panel is one drawer at every viewport size now (page.tsx),
+    // so opening it is just this — no separate mobile flag to also flip.
     setRightPanelOpen(true);
-    // Below `lg` the docked panel is display:none and the library lives in a
-    // drawer instead, so setting only `rightPanelOpen` there would appear to do
-    // nothing at all. Guarded by the same 1024px breakpoint page.tsx uses.
-    if (
-      typeof window !== "undefined" &&
-      !window.matchMedia("(min-width: 1024px)").matches
-    ) {
-      setMobileHistoryOpen(true);
-    }
   };
 
   return (
