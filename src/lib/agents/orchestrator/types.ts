@@ -16,11 +16,23 @@ export interface AgentConversationMeta {
   updatedAt: number;
 }
 
+export interface AgentConversationToolTrace {
+  tool: string;
+  args: unknown;
+  result: unknown;
+  // Set after the fact, once the client's s.generate() call (fired client-
+  // side after this message was already persisted — see orchestrator.ts's
+  // header) actually creates a GenerationItem. Without this, a reload has no
+  // way to know a generate_{image,video}/design_prompt message already
+  // finished — see StudioChat.tsx.
+  generatedItemId?: string;
+}
+
 export interface AgentConversationMessage {
   id: string;
   conversationId: string;
   role: "user" | "assistant";
   content: string;
-  toolTrace: { tool: string; args: unknown; result: unknown } | null;
+  toolTrace: AgentConversationToolTrace | null;
   createdAt: number;
 }

@@ -79,6 +79,7 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
     // switching threads in ChatSidebar briefly shows the PREVIOUS thread's
     // messages under the new one's name.
     setMessages([]);
+    setGeneratedItemIds({});
     if (!conversationId) return;
     const requestId = ++requestIdRef.current;
     setLoadingThread(true);
@@ -86,7 +87,17 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
       const res = await fetch(`/api/agent-conversations/${conversationId}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (requestIdRef.current !== requestId) return;
-      setMessages(json.messages ?? []);
+      const loaded: DisplayMessage[] = json.messages ?? [];
+      setMessages(loaded);
+      // A reload has no in-memory record of which generation a past
+      // generate_{image,video}/design_prompt message produced — read it back
+      // from what the server persisted (see attachGeneratedItem), so a
+      // finished generation shows its result instead of "Starting…" forever.
+      const seeded: Record<string, string> = {};
+      for (const m of loaded) {
+        if (m.toolTrace?.generatedItemId) seeded[m.id] = m.toolTrace.generatedItemId;
+      }
+      setGeneratedItemIds(seeded);
       setLoadingThread(false);
     })();
   }, [conversationId]);
@@ -103,6 +114,17 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
     const created = await generate();
     if (created[0]) {
       setGeneratedItemIds((cur) => ({ ...cur, [messageId]: created[0].id }));
+      if (conversationId) {
+        // Best-effort: this is what makes the result survive a reload (see
+        // the loader effect above). A failure here just means a refresh
+        // would show "Generated — check your library" instead of the inline
+        // card for this one message — not worth blocking or retrying over.
+        fetch(`/api/agent-conversations/${conversationId}/messages/${messageId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ generatedItemId: created[0].id }),
+        }).catch(() => {});
+      }
     }
   };
 
@@ -245,6 +267,7 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
                 key={m.id}
                 message={m}
                 mode={mode}
+                generatedItemId={generatedItemIds[m.id]}
                 generatedItem={generatedItemIds[m.id] ? findItem(generatedItemIds[m.id]) : undefined}
                 onGenerate={(prompt) => fireGeneration(prompt, m.id)}
                 onEditAndGenerate={(prompt) => setInput(prompt)}
@@ -359,12 +382,14 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
 function MessageBubble({
   message,
   mode,
+  generatedItemId,
   generatedItem,
   onGenerate,
   onEditAndGenerate,
 }: {
   message: DisplayMessage;
   mode: "image" | "video";
+  generatedItemId?: string;
   generatedItem?: GenerationItem;
   onGenerate: (prompt: string) => void;
   onEditAndGenerate: (prompt: string) => void;
@@ -395,7 +420,7 @@ function MessageBubble({
           their job — replaced by the result itself, same as clicking the
           real Generate button anywhere else in the app doesn't leave a
           second stale "Generate" control sitting around after. */}
-      {designedPrompt && !generating && !generatedItem && (
+      {designedPrompt && !generating && !generatedItemId && (
         <div className="flex gap-2">
           <button
             type="button"
@@ -424,11 +449,19 @@ function MessageBubble({
       {/* Inline result — covers both ways a generation can start from this
           message: the model calling generate_{image,video} itself
           (isGenerateTrace), or the user clicking the Generate button above
-          on a design_prompt reply (generating/generatedItem). */}
-      {(isGenerateTrace || generating || generatedItem) && (
+          on a design_prompt reply (generating/generatedItem). Three states,
+          not two: resolved (card), known-but-not-loaded-locally (a reload
+          before the item's pool repopulates, or the item scrolled out of
+          it — say so plainly rather than spin forever pretending it's still
+          running), or genuinely in flight (spinner). */}
+      {(isGenerateTrace || generating || generatedItemId) && (
         <div className="w-56">
           {generatedItem ? (
             <MediaCard item={generatedItem} />
+          ) : generatedItemId ? (
+            <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
+              Generated — check your library to view it.
+            </div>
           ) : (
             <div className="flex items-center gap-1.5 rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
               <Loader2 className="h-3 w-3 animate-spin" /> Starting {mode} generation…

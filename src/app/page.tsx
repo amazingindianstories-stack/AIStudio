@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { X } from "lucide-react";
+import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { TopBar } from "@/components/TopBar";
@@ -52,18 +52,33 @@ export default function Page() {
           {/* Assets library, tablet/desktop: docked, so it resizes the chat
               instead of covering it — you can keep working with it open.
               Closed by default and never restored from a previous session
-              (see restoreComposerDraft's note on rightPanelOpen). */}
+              (see restoreComposerDraft's note on rightPanelOpen). The toggle
+              lives right here as an edge tab — always visible at the width
+              this section never drops below — rather than up in TopBar,
+              disconnected from the panel it opens. */}
           {view !== "canvas" && (
             <section
               id="assets-drawer"
               className={cn(
-                "hidden shrink-0 overflow-hidden border-l border-line transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:flex",
-                rightPanelOpen ? "w-[clamp(22rem,32vw,40rem)]" : "w-0 border-l-0"
+                "hidden shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:flex",
+                rightPanelOpen ? "w-[clamp(22rem,32vw,40rem)]" : "w-10"
               )}
             >
+              <div className="flex w-10 shrink-0 items-center justify-center border-l border-line bg-ink-900">
+                <button
+                  type="button"
+                  onClick={() => setRightPanelOpen(!rightPanelOpen)}
+                  className="grid h-9 w-9 place-items-center rounded-lg text-white/55 transition hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                  aria-expanded={rightPanelOpen}
+                  aria-label={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
+                  title={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
+                >
+                  {rightPanelOpen ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
+                </button>
+              </div>
               <div
                 className={cn(
-                  "h-full w-[clamp(22rem,32vw,40rem)] shrink-0 transition-opacity duration-200 motion-reduce:transition-none",
+                  "min-w-0 flex-1 overflow-hidden border-l border-line transition-opacity duration-200 motion-reduce:transition-none",
                   rightPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
                 )}
                 aria-hidden={!rightPanelOpen}

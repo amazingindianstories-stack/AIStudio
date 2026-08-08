@@ -5,6 +5,7 @@ import { agentConversations, agentConversationMessages } from "./schema";
 import type {
   AgentConversationMeta,
   AgentConversationMessage,
+  AgentConversationToolTrace,
   AgentKind,
 } from "./agents/orchestrator/types";
 
@@ -109,11 +110,44 @@ export async function listMessages(
   }));
 }
 
+/** Attaches the id of the GenerationItem a message's tool call actually
+ *  produced, once s.generate() (client-side, after the message is already
+ *  persisted) creates it — so a reload can tell a finished generation from
+ *  one that's still running instead of showing "Starting…" forever. No-op
+ *  (returns undefined) if the message has no toolTrace to attach onto. */
+export async function attachGeneratedItem(
+  messageId: string,
+  itemId: string
+): Promise<AgentConversationMessage | undefined> {
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(agentConversationMessages)
+    .where(eq(agentConversationMessages.id, messageId))
+    .limit(1);
+  const existing = rows[0];
+  if (!existing || !existing.toolTrace) return undefined;
+  const toolTrace = { ...existing.toolTrace, generatedItemId: itemId };
+  const [row] = await db
+    .update(agentConversationMessages)
+    .set({ toolTrace })
+    .where(eq(agentConversationMessages.id, messageId))
+    .returning();
+  return {
+    id: row.id,
+    conversationId: row.conversationId,
+    role: row.role === "assistant" ? "assistant" : "user",
+    content: row.content,
+    toolTrace: row.toolTrace ?? null,
+    createdAt: row.createdAt,
+  };
+}
+
 export async function appendMessage(
   conversationId: string,
   role: "user" | "assistant",
   content: string,
-  toolTrace: { tool: string; args: unknown; result: unknown } | null = null
+  toolTrace: AgentConversationToolTrace | null = null
 ): Promise<AgentConversationMessage> {
   const db = await getDb();
   const now = Date.now();

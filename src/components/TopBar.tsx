@@ -97,6 +97,11 @@ export function TopBar() {
         </nav>
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
+          {/* Phone-width only — tablet/desktop gets an edge tab right where
+              the docked panel opens from (page.tsx), which makes more sense
+              spatially than a button up here disconnected from it. Phones
+              use the overlay drawer instead (no docked panel to sit next
+              to), so this stays the only way to open it there. */}
           <button
             onClick={() => setRightPanelOpen(!rightPanelOpen)}
             aria-expanded={rightPanelOpen}
@@ -104,7 +109,7 @@ export function TopBar() {
             aria-label={rightPanelOpen ? "Close assets panel" : "Open assets panel"}
             title="Library"
             className={cn(
-              "grid h-8 w-8 place-items-center rounded-lg transition-colors",
+              "grid h-8 w-8 place-items-center rounded-lg transition-colors sm:hidden",
               rightPanelOpen ? "bg-white/10 text-white" : "text-white/55 hover:bg-white/5 hover:text-white"
             )}
           >

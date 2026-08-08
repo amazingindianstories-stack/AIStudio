@@ -190,7 +190,12 @@ export const agentConversationMessages = pgTable("agent_conversation_messages", 
   // Which subagent tool ran (if any) and its output, so the UI can show a
   // trace chip above the reply. Not a provider-protocol replay — each turn
   // is rebuilt from role+content, not raw functionCall/functionResponse parts.
-  toolTrace: jsonb("tool_trace").$type<{ tool: string; args: unknown; result: unknown } | null>(),
+  // generatedItemId (optional, on the same object) is attached after the
+  // fact once the client's own s.generate() call actually creates a row —
+  // see AgentConversationToolTrace's doc comment.
+  toolTrace: jsonb("tool_trace").$type<
+    { tool: string; args: unknown; result: unknown; generatedItemId?: string } | null
+  >(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 }, (table) => [
   index("agent_conversation_messages_conversation_id_idx").on(table.conversationId),
