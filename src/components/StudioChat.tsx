@@ -23,8 +23,8 @@ import { useStore } from "@/lib/store";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { REF_BATCH_BUDGET_BYTES, REF_BUDGET_STEPS, dataUrlBytes, downscaleBlob } from "@/lib/client-image-budget";
 import { ThreadSwitcher } from "./ThreadSwitcher";
-import { ComposerControls } from "./ComposerControls";
-import { Dropdown } from "./Dropdown";
+import { ReferenceStrip, SettingsToolbar } from "./ComposerControls";
+import { Dropdown, MenuItem } from "./Dropdown";
 import { ProjectMenu } from "./ProjectMenu";
 import { MentionTextarea, type MentionHandle } from "./MentionTextarea";
 import { MediaCard } from "./MediaCard";
@@ -302,9 +302,18 @@ export function StudioChat() {
         )}
       </div>
 
-      {/* composer controls + input */}
-      <div className="shrink-0 border-t border-line px-4 py-3 sm:px-8">
-        <div className="mx-auto flex max-w-3xl flex-col gap-2">
+      {/* composer: the same floating rounded/blurred shell the pre-redesign
+          PromptComposer used — refs above the input, settings below it,
+          matching that layout instead of the flat bordered strip this had
+          become. */}
+      <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
+        <motion.div
+          layout="size"
+          initial={{ opacity: 0, y: 24 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 260, damping: 28 }}
+          className="composer-shell relative mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border border-line bg-ink-800/90 p-2.5 shadow-panel backdrop-blur-xl"
+        >
           {extractingFrames > 0 && (
             <div className="flex items-center gap-2 rounded-lg bg-ink-750 px-3 py-2 text-xs text-white/70">
               <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" />
@@ -318,18 +327,36 @@ export function StudioChat() {
             </div>
           )}
 
-          <ComposerControls onInsertTag={(tag) => mentionRef.current?.insertTag(tag)} />
+          <ReferenceStrip onInsertTag={(tag) => mentionRef.current?.insertTag(tag)} />
 
-          <div className="flex items-end gap-1.5">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              title="Attach reference image"
-              aria-label="Attach reference image"
-              className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-dashed border-white/15 text-white/55 transition hover:border-brand/40 hover:text-brand"
+          <div className="flex items-start gap-2">
+            <Dropdown
+              side="top"
+              trigger={(open) => (
+                <span
+                  className={cn(
+                    "grid h-[58px] w-[58px] shrink-0 place-items-center rounded-xl border border-dashed border-white/15 text-white/55 transition-colors hover:border-brand/40 hover:text-brand",
+                    open && "border-brand/50 text-brand"
+                  )}
+                >
+                  <span className="flex flex-col items-center gap-0.5">
+                    <ImagePlus className="h-4 w-4" />
+                    <span className="text-[10px]">reference</span>
+                  </span>
+                </span>
+              )}
             >
-              <ImagePlus className="h-4 w-4" />
-            </button>
+              {(close) => (
+                <MenuItem
+                  onClick={() => {
+                    fileRef.current?.click();
+                    close();
+                  }}
+                >
+                  <ImagePlus className="h-4 w-4 text-white/60" /> Upload image
+                </MenuItem>
+              )}
+            </Dropdown>
             <input ref={fileRef} type="file" accept="image/*,video/*" multiple hidden onChange={onFiles} />
 
             <MentionTextarea
@@ -345,7 +372,12 @@ export function StudioChat() {
                   : "Talk through your shot, or type @ to reference an upload…"
               }
             />
+          </div>
 
+          <div className="flex min-w-0 items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <SettingsToolbar />
+            </div>
             <motion.button
               whileTap={{ scale: 0.92 }}
               onClick={send}
@@ -358,10 +390,10 @@ export function StudioChat() {
               )}
               aria-label="Send"
             >
-              <Send className="h-4 w-4" />
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </motion.button>
           </div>
-        </div>
+        </motion.div>
       </div>
     </div>
   );

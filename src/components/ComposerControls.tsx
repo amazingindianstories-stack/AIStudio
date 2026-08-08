@@ -31,20 +31,20 @@ import { cn } from "@/lib/utils";
 /**
  * Reference-image strip + settings toolbar, extracted verbatim (behavior
  * unchanged) from the pre-redesign PromptComposer.tsx so StudioChat can
- * mount it once instead of duplicating ~500 lines. What stayed behind in
+ * mount them once instead of duplicating ~500 lines. What stayed behind in
  * StudioChat: the upload trigger/paste/drag-drop and the MentionTextarea
  * input itself — those are wired differently there (chat-first input row)
- * and aren't shared logic in the same sense this toolbar is.
+ * and aren't shared logic in the same sense these are.
  *
- * No mode chip — the tab already fixes `s.mode`, so offering a mode switch
- * here would just contradict which tab you're looking at.
+ * Split into two exports (rather than one bundled component) so StudioChat
+ * can lay them out either side of the input row, matching the original
+ * composer's order: references above the input, settings below it.
+ *
+ * No mode chip in the toolbar — the tab already fixes `s.mode`, so offering
+ * a mode switch here would just contradict which tab you're looking at.
  */
-export function ComposerControls({ onInsertTag }: { onInsertTag: (tag: string) => void }) {
+export function ReferenceStrip({ onInsertTag }: { onInsertTag: (tag: string) => void }) {
   const s = useStore();
-  const audioApplies = s.mode === "video" && supportsAudio(s.model);
-  const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
-  const videoTaskMode = editExtendApplies ? s.videoTaskMode : "generate";
-  const modeModels = MODELS.filter((m) => m.kind === s.mode);
 
   // See the original comment in PromptComposer's history: Reorder.Group's
   // drag physics expect `values` to update synchronously within the same
@@ -56,6 +56,8 @@ export function ComposerControls({ onInsertTag }: { onInsertTag: (tag: string) =
     dragRefsRef.current = s.referenceImages;
     setDragRefs(s.referenceImages);
   }, [s.referenceImages]);
+
+  if (s.referenceVideos.length === 0 && dragRefs.length === 0) return null;
 
   return (
     <div className="flex flex-col gap-2">
@@ -144,7 +146,18 @@ export function ComposerControls({ onInsertTag }: { onInsertTag: (tag: string) =
           </span>
         </div>
       )}
+    </div>
+  );
+}
 
+export function SettingsToolbar() {
+  const s = useStore();
+  const audioApplies = s.mode === "video" && supportsAudio(s.model);
+  const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
+  const videoTaskMode = editExtendApplies ? s.videoTaskMode : "generate";
+  const modeModels = MODELS.filter((m) => m.kind === s.mode);
+
+  return (
       <div className="composer-toolbar flex min-w-0 flex-wrap items-center gap-1.5 py-px">
         {/* model */}
         <Dropdown
@@ -375,7 +388,6 @@ export function ComposerControls({ onInsertTag }: { onInsertTag: (tag: string) =
           }}
         </Dropdown>
       </div>
-    </div>
   );
 }
 
