@@ -57,6 +57,8 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
   const generate = useStore((s) => s.generate);
   const referenceImages = useStore((s) => s.referenceImages);
   const addReference = useStore((s) => s.addReference);
+  const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
+  const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
   const items = useStore((s) => s.items);
   const threadItems = useStore((s) => s.threadItems);
 
@@ -66,6 +68,14 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
   const [error, setError] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [generatedItemIds, setGeneratedItemIds] = useState<Record<string, string>>({});
+  // Which messages we actually fired a generation for THIS page load — the
+  // "Starting generation…" spinner is only honest for these. A message
+  // loaded from history with a generate trace but no generatedItemId isn't
+  // necessarily still running — it may be one from before generatedItemId
+  // existed at all (nothing ever linked it), or a session that closed before
+  // the PATCH landed. Either way we can't tell "running" from "orphaned", so
+  // it must NOT spin forever claiming the former.
+  const [liveMessageIds, setLiveMessageIds] = useState<Record<string, true>>({});
   const [dragging, setDragging] = useState(false);
   const [extractingFrames, setExtractingFrames] = useState(0);
 
@@ -80,6 +90,7 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
     // messages under the new one's name.
     setMessages([]);
     setGeneratedItemIds({});
+    setLiveMessageIds({});
     if (!conversationId) return;
     const requestId = ++requestIdRef.current;
     setLoadingThread(true);
@@ -154,6 +165,7 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
       const assistantMessage: DisplayMessage = data.assistantMessage;
       setMessages((cur) => [...cur.filter((m) => m.id !== optimistic.id), data.userMessage, assistantMessage]);
       if (assistantMessage.toolTrace && GENERATE_TOOLS.has(assistantMessage.toolTrace.tool)) {
+        setLiveMessageIds((cur) => ({ ...cur, [assistantMessage.id]: true }));
         const prompt = (assistantMessage.toolTrace.result as { prompt?: string })?.prompt;
         if (prompt) await fireGeneration(prompt, assistantMessage.id);
       }
@@ -215,16 +227,36 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
     }
   };
   const isFileDrag = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  // Same "text/itemId" payload ProjectPanel's drag-to-folder already sets on
+  // asset cards (HistoryPanel now sets it too — see its renderItem) — the
+  // browser lowercases DataTransfer type strings, so check lowercase here.
+  const isAssetDrag = (e: DragEvent) =>
+    Array.from(e.dataTransfer?.types ?? []).includes("text/itemid");
   const onDragOver = (e: DragEvent) => {
-    if (!isFileDrag(e)) return;
+    if (!isFileDrag(e) && !isAssetDrag(e)) return;
     e.preventDefault();
     setDragging(true);
   };
   const onDragLeave = (e: DragEvent) => {
     if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
   };
+  const addAssetReference = async (itemId: string) => {
+    const item = findItem(itemId);
+    if (!item?.url) return;
+    if (item.kind === "video") {
+      await addReferenceFromVideo(item.url);
+    } else {
+      await addReferenceFromUrl(item.url);
+    }
+  };
   const onDrop = (e: DragEvent) => {
     setDragging(false);
+    const itemId = e.dataTransfer.getData("text/itemId");
+    if (itemId) {
+      e.preventDefault();
+      void addAssetReference(itemId);
+      return;
+    }
     if (!isFileDrag(e)) return;
     e.preventDefault();
     addImageFiles(Array.from(e.dataTransfer.files));
@@ -241,7 +273,7 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
       {dragging && (
         <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-1.5 border-2 border-dashed border-brand/60 bg-ink-900/85 backdrop-blur-sm">
           <ImagePlus className="h-6 w-6 text-brand" />
-          <p className="text-sm font-medium text-white/90">Drop images to add as references</p>
+          <p className="text-sm font-medium text-white/90">Drop to add as a reference</p>
         </div>
       )}
 
@@ -267,6 +299,7 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
                 key={m.id}
                 message={m}
                 mode={mode}
+                isLive={!!liveMessageIds[m.id]}
                 generatedItemId={generatedItemIds[m.id]}
                 generatedItem={generatedItemIds[m.id] ? findItem(generatedItemIds[m.id]) : undefined}
                 onGenerate={(prompt) => fireGeneration(prompt, m.id)}
@@ -382,6 +415,7 @@ export function StudioChat({ conversationId }: { conversationId: string | null }
 function MessageBubble({
   message,
   mode,
+  isLive,
   generatedItemId,
   generatedItem,
   onGenerate,
@@ -389,6 +423,7 @@ function MessageBubble({
 }: {
   message: DisplayMessage;
   mode: "image" | "video";
+  isLive: boolean;
   generatedItemId?: string;
   generatedItem?: GenerationItem;
   onGenerate: (prompt: string) => void;
@@ -449,11 +484,15 @@ function MessageBubble({
       {/* Inline result — covers both ways a generation can start from this
           message: the model calling generate_{image,video} itself
           (isGenerateTrace), or the user clicking the Generate button above
-          on a design_prompt reply (generating/generatedItem). Three states,
-          not two: resolved (card), known-but-not-loaded-locally (a reload
-          before the item's pool repopulates, or the item scrolled out of
-          it — say so plainly rather than spin forever pretending it's still
-          running), or genuinely in flight (spinner). */}
+          on a design_prompt reply (generating/generatedItem). Four states:
+          resolved (card); known-but-not-loaded-locally (say so, don't spin);
+          genuinely in flight THIS session (spinner — generating, or a fresh
+          generate_* reply just received via send()); and — the case that
+          was still broken — an OLD message with a generate trace but no
+          generatedItemId that we did NOT just trigger ourselves. That isn't
+          "still running", it's one from before generatedItemId existed (or
+          a session that closed before the PATCH landed), and there is no
+          way to tell those apart from here — so it must not claim either. */}
       {(isGenerateTrace || generating || generatedItemId) && (
         <div className="w-56">
           {generatedItem ? (
@@ -462,9 +501,13 @@ function MessageBubble({
             <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
               Generated — check your library to view it.
             </div>
-          ) : (
+          ) : generating || isLive ? (
             <div className="flex items-center gap-1.5 rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
               <Loader2 className="h-3 w-3 animate-spin" /> Starting {mode} generation…
+            </div>
+          ) : (
+            <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
+              Generation was requested — check your library for the result.
             </div>
           )}
         </div>
