@@ -470,9 +470,17 @@ export function PromptComposer() {
           ref={mentionRef}
           value={s.prompt}
           onChange={s.setPrompt}
-          onSubmit={s.generate}
+          onSubmit={() => {
+            // Purely a UX no-op here — the real gate is server-side in
+            // generate/image and generate/video, which returns a readable
+            // error either way. This just skips a submit already known to
+            // fail rather than round-tripping to find that out.
+            if (s.prompt.length > s.maxPromptLength) return;
+            s.generate();
+          }}
           references={s.referenceImages}
           videoRefs={s.referenceVideos}
+          maxLength={s.maxPromptLength}
           placeholder={
             s.mode === "image"
               ? "Describe the image… type @ to reference uploaded images (@img1, @img2)."
@@ -805,14 +813,15 @@ export function PromptComposer() {
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => s.generate()}
-          disabled={!s.prompt.trim() || s.generating}
+          disabled={!s.prompt.trim() || s.generating || s.prompt.length > s.maxPromptLength}
           className={cn(
             "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
-            s.prompt.trim() && !s.generating
+            s.prompt.trim() && !s.generating && s.prompt.length <= s.maxPromptLength
               ? "bg-gradient-to-br from-brand to-accent text-ink-900 shadow-glow hover:brightness-110"
               : "cursor-not-allowed bg-ink-650 text-white/30"
           )}
           aria-label="Generate"
+          title={s.prompt.length > s.maxPromptLength ? `Prompt exceeds the ${s.maxPromptLength.toLocaleString()}-character limit` : undefined}
         >
           {s.generating ? (
             <Loader2 className="h-5 w-5 animate-spin" />

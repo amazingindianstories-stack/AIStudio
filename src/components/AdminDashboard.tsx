@@ -36,6 +36,7 @@ import {
   RefreshCw,
   AlertCircle,
   AlertTriangle,
+  SlidersHorizontal,
 } from "lucide-react";
 import { formatCost } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
@@ -114,6 +115,7 @@ interface Data {
   users: AdminUser[];
   stats: AdminStats;
   pricing: PricingRow[];
+  maxPromptLength: number;
 }
 
 interface AdminSessionUser {
@@ -125,7 +127,7 @@ interface AdminSessionUser {
   avatarUrl: string | null;
 }
 
-type Tab = "overview" | "users" | "logs" | "pricing" | "status";
+type Tab = "overview" | "users" | "logs" | "pricing" | "limits" | "status";
 const CHART_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#f87171"];
 
 export function AdminDashboard() {
@@ -200,6 +202,7 @@ export function AdminDashboard() {
               ["users", "Users", UsersIcon],
               ["logs", "Logs", ScrollText],
               ["pricing", "Pricing", DollarSign],
+              ["limits", "Limits", SlidersHorizontal],
               ["status", "Status", Activity],
             ] as const
           ).map(([id, label, Icon]) => (
@@ -230,8 +233,10 @@ export function AdminDashboard() {
           <UsersTab data={data} reload={load} currentUserId={currentUser?.id ?? null} />
         ) : tab === "logs" ? (
           <LogsTab data={data} usersById={usersById} />
-        ) : (
+        ) : tab === "pricing" ? (
           <PricingTab data={data} reload={load} />
+        ) : (
+          <LimitsTab data={data} reload={load} />
         )}
       </div>
 
@@ -1592,6 +1597,67 @@ function PricingTab({ data, reload }: { data: Data; reload: () => void }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Limits tab ──────────────────────────────────────────────────────────────
+function LimitsTab({ data, reload }: { data: Data; reload: () => void }) {
+  const [value, setValue] = useState(String(data.maxPromptLength));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync if another admin session changed it and this tab reloads —
+  // mirrors PricingTab's defaultValue-per-row approach, just for one field.
+  useEffect(() => {
+    setValue(String(data.maxPromptLength));
+  }, [data.maxPromptLength]);
+
+  const save = async () => {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n) || n < 1) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      await fetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxPromptLength: n }),
+      });
+      reload();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-line p-4">
+        <label className="mb-1 block text-sm font-medium text-white">
+          Max prompt length
+        </label>
+        <p className="mb-3 text-xs text-white/45">
+          Rejects an image or video generation request if its prompt exceeds
+          this many characters — enforced server-side regardless of what the
+          composer shows. Some models (Kling) already enforce their own
+          tighter, non-configurable cap on top of this one.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={save}
+            className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none focus:border-brand/40"
+          />
+          <span className="text-xs text-white/40">characters</span>
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
+          {saved && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+        </div>
       </div>
     </div>
   );

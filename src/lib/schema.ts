@@ -150,6 +150,16 @@ export const pricing = pgTable("pricing", {
   notes: text("notes"),
 });
 
+// Generic admin-editable key/value settings — mirrors `pricing`'s shape
+// (small, admin-editable table) rather than a dedicated column per setting,
+// so future admin controls (this is the first) don't each need their own
+// migration. Value is always stored as text; readers parse/validate it.
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
 export const canvasBoards = pgTable("canvas_boards", {
   id: uuid("id").primaryKey().defaultRandom(), // app supplies crypto.randomUUID()
   projectId: uuid("project_id").notNull(),

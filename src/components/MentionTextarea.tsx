@@ -35,7 +35,15 @@ interface Props {
   assets?: AssetRef[]; // named asset tags (@slug)
   placeholder?: string;
   className?: string;
+  /** Admin-configurable ceiling (src/lib/settings.ts) — purely a display aid
+   *  here (counter appears once within WARN_RATIO of it, turns red past it).
+   *  Never blocks typing/pasting: the actual submit-time gate lives in the
+   *  caller (disable Generate) and, as the real enforcement, server-side in
+   *  generate/image and generate/video. */
+  maxLength?: number;
 }
+
+const WARN_RATIO = 0.8;
 
 interface Suggestion {
   tag: string; // includes leading "@"
@@ -45,8 +53,42 @@ interface Suggestion {
 }
 
 // Shared typography so the highlight overlay lines up 1:1 with the textarea.
+// `scroll-none` is load-bearing, not cosmetic. The real <textarea> used to
+// carry `scroll-thin` (a visible ~8px scrollbar) while this overlay div —
+// `overflow-hidden`, so it never scrolls or reserves scrollbar space at all
+// — did not. Once a prompt got long enough to need scrolling, that 8px ate
+// into only the textarea's available text-wrapping width, so the two layers
+// wrapped the same text differently, a divergence that compounds with every
+// wrapped line. A click translates a visual (overlay) position into a caret
+// index in the (differently-wrapped) real textarea, so the caret lands
+// increasingly far from where it visually appears the further into the text
+// the click is — reported as "typing lands behind the cursor, worse further
+// from the start." (On macOS this was intermittent-looking because a
+// classic, space-consuming scrollbar only appears with a physical mouse
+// connected; trackpad shows a non-consuming overlay one — but the root
+// cause is this class mismatch, not the input device.) `scroll-none` keeps
+// the textarea scrollable via wheel/keyboard/touch without ever consuming
+// layout width for a scrollbar, so both layers always wrap identically.
 const TYPO =
-  "px-1 py-2 text-[15px] leading-relaxed font-sans whitespace-pre-wrap break-words";
+  "px-1 py-2 text-[15px] leading-relaxed font-sans whitespace-pre-wrap break-words scroll-none";
+
+// Every property that can affect where a browser breaks a line or kerns a
+// character, applied identically to both layers via inline style (not just
+// shared classes) so nothing here can silently drift out of sync the way
+// Tailwind class strings can when one layer's className prop grows a class
+// the other doesn't get. Some of these (tab-size, text-rendering) have no
+// commonly-supported Tailwind utility, hence inline style over classes.
+const SYNCED_TEXT_STYLE: React.CSSProperties = {
+  boxSizing: "border-box",
+  margin: 0,
+  border: 0,
+  letterSpacing: "normal",
+  wordSpacing: "normal",
+  tabSize: 4,
+  textIndent: 0,
+  textRendering: "auto",
+  textTransform: "none",
+};
 
 export const MentionTextarea = forwardRef<MentionHandle, Props>(
   function MentionTextarea(
@@ -59,6 +101,7 @@ export const MentionTextarea = forwardRef<MentionHandle, Props>(
       assets = [],
       placeholder,
       className,
+      maxLength,
     },
     ref
   ) {
@@ -219,9 +262,11 @@ export const MentionTextarea = forwardRef<MentionHandle, Props>(
           ref={highlightRef}
           aria-hidden
           className={cn(
-            "scroll-none pointer-events-none absolute inset-0 max-h-[180px] overflow-hidden text-white/90",
-            TYPO
+            "pointer-events-none absolute inset-0 max-h-[180px] overflow-hidden text-white/90",
+            TYPO,
+            className
           )}
+          style={SYNCED_TEXT_STYLE}
         >
           {renderHighlighted(value, tagCount, assetSlugs, videoRefs.length)}
           {"\n"}
@@ -239,11 +284,29 @@ export const MentionTextarea = forwardRef<MentionHandle, Props>(
           rows={2}
           placeholder={placeholder}
           className={cn(
-            "scroll-thin relative max-h-[180px] min-h-[58px] w-full resize-none bg-transparent text-transparent caret-white outline-none placeholder:text-white/35",
+            // Deliberately NOT scroll-thin: a visible scrollbar (any width)
+            // narrows this element's text-wrapping width relative to the
+            // overlay div above, which never shows one — see TYPO's comment.
+            "relative max-h-[180px] min-h-[58px] w-full resize-none bg-transparent text-transparent caret-white outline-none placeholder:text-white/35",
             TYPO,
             className
           )}
+          style={SYNCED_TEXT_STYLE}
         />
+
+        {/* Character counter — only surfaces once it's actually relevant
+            (near or over the admin-configured limit), so a normal short
+            prompt never carries this clutter. */}
+        {maxLength && value.length > maxLength * WARN_RATIO && (
+          <span
+            className={cn(
+              "pointer-events-none absolute bottom-1 right-1.5 rounded bg-ink-900/80 px-1.5 py-0.5 text-[11px] tabular-nums",
+              value.length > maxLength ? "text-red-400" : "text-white/45"
+            )}
+          >
+            {value.length.toLocaleString()} / {maxLength.toLocaleString()}
+          </span>
+        )}
 
         {/* @ autocomplete */}
         <AnimatePresence>
