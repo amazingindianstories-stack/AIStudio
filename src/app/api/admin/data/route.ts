@@ -42,6 +42,7 @@ export async function GET() {
         avatarUrl: users.avatarUrl,
         isActive: users.isActive,
         createdAt: users.createdAt,
+        maxPromptLength: users.maxPromptLength,
       })
       .from(users),
     readAdminStats(),
@@ -70,6 +71,7 @@ export async function GET() {
         avatarUrl: u.avatarUrl,
         isActive: u.isActive,
         createdAt: u.createdAt,
+        maxPromptLength: u.maxPromptLength,
         genCount: stat?.genCount ?? 0,
         costCents: stat?.costCents ?? 0,
       };

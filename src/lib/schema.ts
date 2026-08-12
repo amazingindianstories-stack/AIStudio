@@ -29,6 +29,13 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").notNull().default(true),
   authVersion: integer("auth_version").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  // Per-user override of settings.maxPromptLength — null means "use the
+  // admin's global default", not "unlimited". Nullable rather than a
+  // required column with the default baked in, so an admin can tell "this
+  // user was never given a personal limit" apart from "this user's limit
+  // happens to equal the current global default" (which would otherwise
+  // silently stop tracking the global default if it's changed later).
+  maxPromptLength: integer("max_prompt_length"),
 });
 
 export const projects = pgTable("projects", {
