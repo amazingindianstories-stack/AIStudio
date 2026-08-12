@@ -100,7 +100,7 @@ interface ComposerState {
 }
 
 interface AppState extends ComposerState {
-  view: "studio" | "canvas";
+  view: "studio" | "canvas" | "agents";
   /** The active scope's feed — the rows the right panel is showing. Server
    *  filtered and paged; it is no longer a global window that every view
    *  filters down in the browser. */
@@ -166,7 +166,7 @@ interface AppState extends ComposerState {
   activeFolderId: string | null; // null = All assets / unsorted
 
   // view
-  setView: (v: "studio" | "canvas") => void;
+  setView: (v: "studio" | "canvas" | "agents") => void;
 
   // composer setters
   setMode: (mode: GenerationKind) => void;
@@ -209,7 +209,11 @@ interface AppState extends ComposerState {
    *  effect that may run twice under React strict mode. */
   startLiveUpdates: () => void;
   stopLiveUpdates: () => void;
-  generate: () => Promise<void>;
+  /** Returns the item(s) created this call (empty if the request failed
+   *  before any row existed) — lets a caller (e.g. StudioChat) render an
+   *  inline result card via the same store-tracked item the feed/library
+   *  already keep live through polling, with no separate lookup needed. */
+  generate: () => Promise<GenerationItem[]>;
   removeItem: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => Promise<void>;
   retryTextToVideo: (id: string) => Promise<void>;
@@ -782,7 +786,7 @@ export const useStore = create<AppState>((set, get) => ({
   generate: async () => {
     const s = get();
     const prompt = s.prompt.trim();
-    if (!prompt || s.generating) return;
+    if (!prompt || s.generating) return [];
 
     set({ generating: true });
     const endpoint =
@@ -810,6 +814,7 @@ export const useStore = create<AppState>((set, get) => ({
       folderId: s.activeFolderId ?? undefined,
     };
 
+    const created: GenerationItem[] = [];
     try {
       // Batch: enqueue N independent jobs with the same payload. The queue's
       // per-kind concurrency cap decides how many actually run at once.
@@ -836,6 +841,7 @@ export const useStore = create<AppState>((set, get) => ({
           insertNewItem(set, item);
           set({ prompt: "" });
           startPolling(item, set, get);
+          created.push(item);
         }
       }
       void get().loadCounts();
@@ -845,6 +851,7 @@ export const useStore = create<AppState>((set, get) => ({
     } finally {
       set({ generating: false });
     }
+    return created;
   },
 
   removeItem: async (id) => {
