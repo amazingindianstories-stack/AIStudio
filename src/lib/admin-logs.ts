@@ -165,7 +165,10 @@ export async function queryAdminLogs(
     db
       .select({
         count: sql<number>`count(*)::int`,
-        cost: sql<number>`coalesce(sum(${generations.costCents}), 0)::int`,
+        // Succeeded-only, same rule as the Overview tile (admin-stats.ts) —
+        // so a filtered view (e.g. status=failed) honestly totals $0 rather
+        // than disagreeing with Overview about what "spend" means.
+        cost: sql<number>`coalesce(sum(case when ${generations.status} = 'succeeded' then ${generations.costCents} else 0 end), 0)::int`,
       })
       .from(generations)
       .where(conds.length ? and(...conds) : undefined),

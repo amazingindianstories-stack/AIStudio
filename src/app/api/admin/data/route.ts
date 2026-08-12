@@ -52,7 +52,9 @@ export async function GET() {
       .select({
         userId: generations.userId,
         genCount: sql<number>`count(*)::int`,
-        costCents: sql<number>`coalesce(sum(${generations.costCents}), 0)::int`,
+        // Only counts rows that actually reached the provider and finished —
+        // see the comment in admin-stats.ts's identical fix for why.
+        costCents: sql<number>`coalesce(sum(case when ${generations.status} = 'succeeded' then ${generations.costCents} else 0 end), 0)::int`,
       })
       .from(generations)
       .groupBy(generations.userId),

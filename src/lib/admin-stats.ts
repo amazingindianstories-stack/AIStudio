@@ -57,8 +57,23 @@ export async function readAdminStats(): Promise<AdminStats> {
   const [totalRows, kindRows, modelRows, dayRows] = await Promise.all([
     db
       .select({
+        // Unconditional — "Generations" means every attempt, same as before.
         count: sql<number>`count(*)::int`,
-        cost: sql<number>`coalesce(sum(${generations.costCents}), 0)::int`,
+        // Conditional on the row's OWN status: costCents is written at
+        // enqueue time as an estimate, before the provider is ever called,
+        // and is never zeroed on failure (see readEffectiveMaxPromptLength's
+        // sibling note in generate/image and generate/video — same file
+        // family, same reasoning). Summing it unconditionally counted
+        // queued-and-never-run and failed-before-any-provider-cost rows as
+        // "spend" that was never actually incurred. Matches the precedent
+        // already in spend-window.ts, which excludes 429-rejected rows from
+        // the Gemini admission-control window for the identical reason
+        // ("they were rejected, so they cost nothing"). The one provider
+        // that reports real billing (Kling) only overwrites costCents on
+        // the succeeded path anyway, so this doesn't change anything for
+        // rows where we already know the truth — it only stops treating an
+        // estimate on a row that never became real as if it had.
+        cost: sql<number>`coalesce(sum(case when ${generations.status} = 'succeeded' then ${generations.costCents} else 0 end), 0)::int`,
       })
       .from(generations),
     db
