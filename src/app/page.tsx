@@ -6,12 +6,12 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { TopBar } from "@/components/TopBar";
-import { Sidebar } from "@/components/Sidebar";
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { PromptComposer } from "@/components/PromptComposer";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DetailModal } from "@/components/DetailModal";
 import { CanvasView } from "@/components/canvas/CanvasView";
+import { StudioView } from "@/components/StudioView";
 
 export default function Page() {
   const loadHistory = useStore((s) => s.loadHistory);
@@ -28,8 +28,21 @@ export default function Page() {
   // need to agree on which of the two is showing.
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
   const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
+  const currentUser = useStore((s) => s.currentUser);
+  const setView = useStore((s) => s.setView);
   const mobileDrawerRef = useRef<HTMLElement>(null);
   const mobileCloseRef = useRef<HTMLButtonElement>(null);
+
+  // The Agents nav tab is only reachable via TopBar's own admin check, but a
+  // role can change (or resolve async on load) out from under an open tab —
+  // bounce back to Studio rather than leave a non-admin sitting on a panel
+  // whose backing API now 403s. Cosmetic only; api/agent-conversations/* is
+  // the real access control.
+  useEffect(() => {
+    if (view === "agents" && currentUser && currentUser.role !== "admin") {
+      setView("studio");
+    }
+  }, [view, currentUser, setView]);
 
   useEffect(() => {
     loadMe();
@@ -96,20 +109,25 @@ export default function Page() {
         <TopBar />
 
         <div className="flex min-h-0 flex-1">
-          <Sidebar />
-
           {view === "canvas" ? (
             <CanvasView />
           ) : (
             <>
-              {/* left: conversation + composer */}
+              {/* left: conversation + composer (Studio), or the orchestrator
+                  chat (Agents) — same right-side history panel either way */}
               <main className="flex min-w-0 flex-1 flex-col">
-                <ConversationPanel />
-                <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
-                  <div className="mx-auto w-full">
-                    <PromptComposer />
-                  </div>
-                </div>
+                {view === "agents" ? (
+                  <StudioView />
+                ) : (
+                  <>
+                    <ConversationPanel />
+                    <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
+                      <div className="mx-auto w-full">
+                        <PromptComposer />
+                      </div>
+                    </div>
+                  </>
+                )}
               </main>
 
               {/* right: history (desktop) */}

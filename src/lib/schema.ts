@@ -160,6 +160,47 @@ export const canvasBoards = pgTable("canvas_boards", {
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [index("canvas_boards_project_id_idx").on(table.projectId)]);
 
+export const agentConversations = pgTable("agent_conversations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  projectId: uuid("project_id").notNull(),
+  name: text("name").notNull(),
+  // Unused as of the StudioChat redesign (was "chat" | "legacy" — the legacy
+  // pinned-thread concept is gone now that the old generation feed has its
+  // own nav entry, LegacyHistoryModal, instead of living in this table).
+  // Left in place rather than dropped — no destructive ALTER on a column
+  // that already has rows.
+  kind: text("kind").notNull().default("chat"),
+  // Which tab this thread belongs to — "image" or "video". Nullable only
+  // because rows created before this column existed have none; every row
+  // created going forward always sets it (see agent-conversations-db.ts).
+  agentKind: text("agent_kind"),
+  createdBy: uuid("created_by"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+}, (table) => [
+  index("agent_conversations_project_id_idx").on(table.projectId),
+  index("agent_conversations_project_kind_idx").on(table.projectId, table.agentKind),
+]);
+
+export const agentConversationMessages = pgTable("agent_conversation_messages", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  conversationId: uuid("conversation_id").notNull(),
+  role: text("role").notNull(), // "user" | "assistant"
+  content: text("content").notNull(),
+  // Which subagent tool ran (if any) and its output, so the UI can show a
+  // trace chip above the reply. Not a provider-protocol replay — each turn
+  // is rebuilt from role+content, not raw functionCall/functionResponse parts.
+  // generatedItemId (optional, on the same object) is attached after the
+  // fact once the client's own s.generate() call actually creates a row —
+  // see AgentConversationToolTrace's doc comment.
+  toolTrace: jsonb("tool_trace").$type<
+    { tool: string; args: unknown; result: unknown; generatedItemId?: string } | null
+  >(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => [
+  index("agent_conversation_messages_conversation_id_idx").on(table.conversationId),
+]);
+
 export const activityLogs = pgTable("activity_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id"),
