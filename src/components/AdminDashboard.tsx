@@ -51,6 +51,9 @@ interface AdminUser {
   avatarUrl: string | null;
   isActive: boolean;
   createdAt: number;
+  /** Personal override of the global max-prompt-length default (Limits tab)
+   *  — null means "no override, uses the default". */
+  maxPromptLength: number | null;
   genCount: number;
   costCents: number;
 }
@@ -679,6 +682,12 @@ function UsersTab({
               <span className="text-xs text-white/45">
                 {user.genCount} gens · {formatCost(user.costCents)}
               </span>
+              <MaxPromptLengthField
+                user={user}
+                defaultValue={data.maxPromptLength}
+                patchUser={patchUser}
+                className="w-24"
+              />
               <UserActions
                 user={user}
                 isSelf={isSelf}
@@ -692,13 +701,14 @@ function UsersTab({
       </div>
 
       <div className="scroll-thin hidden overflow-x-auto rounded-xl border border-line sm:block">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[860px] text-sm">
           <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
             <tr>
               <th className="px-3 py-2">User</th>
               <th className="px-3 py-2">Role</th>
               <th className="px-3 py-2">Gens</th>
               <th className="px-3 py-2">Cost</th>
+              <th className="px-3 py-2">Max prompt</th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
             </tr>
@@ -735,6 +745,14 @@ function UsersTab({
                 </td>
                 <td className="px-3 py-2 tabular-nums">{user.genCount}</td>
                 <td className="px-3 py-2 tabular-nums">{formatCost(user.costCents)}</td>
+                <td className="px-3 py-2">
+                  <MaxPromptLengthField
+                    user={user}
+                    defaultValue={data.maxPromptLength}
+                    patchUser={patchUser}
+                    className="w-24"
+                  />
+                </td>
                 <td className="px-3 py-2">
                   <button
                     type="button"
@@ -818,6 +836,59 @@ function AdminAvatar({ user, className }: { user: AdminUser; className?: string 
         <img src={user.avatarUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
       )}
     </span>
+  );
+}
+
+/** Per-user override of the global max-prompt-length default. Empty field =
+ *  no override (shows the current default as a placeholder, not a value —
+ *  so it visibly tracks the default if that's later changed, rather than
+ *  silently freezing at whatever the default happened to be when this
+ *  loaded). Saves on blur, matching PricingTab's pattern. */
+function MaxPromptLengthField({
+  user,
+  defaultValue,
+  patchUser,
+  className,
+}: {
+  user: AdminUser;
+  defaultValue: number;
+  patchUser: (id: string, body: Record<string, unknown>, successMessage: string) => Promise<boolean>;
+  className?: string;
+}) {
+  const [value, setValue] = useState(
+    user.maxPromptLength != null ? String(user.maxPromptLength) : ""
+  );
+
+  useEffect(() => {
+    setValue(user.maxPromptLength != null ? String(user.maxPromptLength) : "");
+  }, [user.maxPromptLength]);
+
+  const save = () => {
+    if (value.trim() === "") {
+      if (user.maxPromptLength != null) {
+        patchUser(user.id, { maxPromptLength: null }, "Reverted to the default limit.");
+      }
+      return;
+    }
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n) || n < 1 || n === user.maxPromptLength) return;
+    patchUser(user.id, { maxPromptLength: n }, "Personal prompt limit updated.");
+  };
+
+  return (
+    <input
+      type="number"
+      min={1}
+      value={value}
+      placeholder={`Default (${defaultValue.toLocaleString()})`}
+      aria-label={`Max prompt length for ${user.name || user.email}`}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={save}
+      className={cn(
+        "rounded-lg border border-line bg-ink-700 px-2 py-1 text-xs outline-none placeholder:text-white/30 focus:border-brand/40",
+        className
+      )}
+    />
   );
 }
 
@@ -1637,13 +1708,16 @@ function LimitsTab({ data, reload }: { data: Data; reload: () => void }) {
     <div className="space-y-4">
       <div className="rounded-xl border border-line p-4">
         <label className="mb-1 block text-sm font-medium text-white">
-          Max prompt length
+          Max prompt length (default)
         </label>
         <p className="mb-3 text-xs text-white/45">
           Rejects an image or video generation request if its prompt exceeds
           this many characters — enforced server-side regardless of what the
-          composer shows. Some models (Kling) already enforce their own
-          tighter, non-configurable cap on top of this one.
+          composer shows. This is the default for every user; give an
+          individual user their own limit from the Users tab, which
+          overrides this value for them specifically. Some models (Kling)
+          already enforce their own tighter, non-configurable cap on top of
+          whichever limit applies.
         </p>
         <div className="flex items-center gap-2">
           <input
