@@ -5,7 +5,7 @@ import { users, generations } from "@/lib/schema";
 import { adminOrNull } from "@/lib/admin";
 import { readAdminStats } from "@/lib/admin-stats";
 import { readPricing } from "@/lib/pricing-db";
-import { readMaxPromptLength } from "@/lib/settings-db";
+import { readAllGlobalLimits, readAllUserLimits } from "@/lib/limits-db";
 
 export const runtime = "nodejs";
 
@@ -31,7 +31,7 @@ export async function GET() {
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const db = await getDb();
 
-  const [allUsers, stats, pricing, maxPromptLength, statRows] = await Promise.all([
+  const [allUsers, stats, pricing, globalLimits, allUserLimits, statRows] = await Promise.all([
     db
       .select({
         id: users.id,
@@ -42,12 +42,12 @@ export async function GET() {
         avatarUrl: users.avatarUrl,
         isActive: users.isActive,
         createdAt: users.createdAt,
-        maxPromptLength: users.maxPromptLength,
       })
       .from(users),
     readAdminStats(),
     readPricing(),
-    readMaxPromptLength(),
+    readAllGlobalLimits(),
+    readAllUserLimits(),
     db
       .select({
         userId: generations.userId,
@@ -73,7 +73,10 @@ export async function GET() {
         avatarUrl: u.avatarUrl,
         isActive: u.isActive,
         createdAt: u.createdAt,
-        maxPromptLength: u.maxPromptLength,
+        // Only the keys this user has a personal override for — see
+        // readAllUserLimits's doc comment. The client falls back to
+        // globalLimits for anything not present here.
+        limits: allUserLimits[u.id] ?? {},
         genCount: stat?.genCount ?? 0,
         costCents: stat?.costCents ?? 0,
       };
@@ -84,6 +87,6 @@ export async function GET() {
     users: usersOut,
     stats,
     pricing,
-    maxPromptLength,
+    limits: globalLimits,
   });
 }
