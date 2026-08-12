@@ -5,6 +5,7 @@ import { users, generations } from "@/lib/schema";
 import { adminOrNull } from "@/lib/admin";
 import { readAdminStats } from "@/lib/admin-stats";
 import { readPricing } from "@/lib/pricing-db";
+import { readMaxPromptLength } from "@/lib/settings-db";
 
 export const runtime = "nodejs";
 
@@ -30,7 +31,7 @@ export async function GET() {
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const db = await getDb();
 
-  const [allUsers, stats, pricing, statRows] = await Promise.all([
+  const [allUsers, stats, pricing, maxPromptLength, statRows] = await Promise.all([
     db
       .select({
         id: users.id,
@@ -45,6 +46,7 @@ export async function GET() {
       .from(users),
     readAdminStats(),
     readPricing(),
+    readMaxPromptLength(),
     db
       .select({
         userId: generations.userId,
@@ -78,5 +80,6 @@ export async function GET() {
     users: usersOut,
     stats,
     pricing,
+    maxPromptLength,
   });
 }
