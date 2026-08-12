@@ -32,6 +32,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
+import { limitDefinition } from "@/lib/limits";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { VideoRefPicker } from "./VideoRefPicker";
 import { Dropdown, MenuItem } from "./Dropdown";
@@ -67,6 +68,11 @@ const MODE_ICONS: Record<string, any> = {
 
 export function PromptComposer() {
   const s = useStore();
+  // s.limits is populated async on load (store.ts's loadLimits) and starts
+  // empty — fall back to the registry's own default so there's no window
+  // where every prompt looks "too long" before that fetch resolves.
+  const maxPromptLength =
+    s.limits.maxPromptLength ?? limitDefinition("maxPromptLength")!.defaultValue;
   /**
    * Whether an audio track is even a thing for the current selection. Used by
    * BOTH the collapsed chip's speaker icon and the panel's Audio segment — they
@@ -475,12 +481,12 @@ export function PromptComposer() {
             // generate/image and generate/video, which returns a readable
             // error either way. This just skips a submit already known to
             // fail rather than round-tripping to find that out.
-            if (s.prompt.length > s.maxPromptLength) return;
+            if (s.prompt.length > maxPromptLength) return;
             s.generate();
           }}
           references={s.referenceImages}
           videoRefs={s.referenceVideos}
-          maxLength={s.maxPromptLength}
+          maxLength={maxPromptLength}
           placeholder={
             s.mode === "image"
               ? "Describe the image… type @ to reference uploaded images (@img1, @img2)."
@@ -813,15 +819,15 @@ export function PromptComposer() {
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => s.generate()}
-          disabled={!s.prompt.trim() || s.generating || s.prompt.length > s.maxPromptLength}
+          disabled={!s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength}
           className={cn(
             "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
-            s.prompt.trim() && !s.generating && s.prompt.length <= s.maxPromptLength
+            s.prompt.trim() && !s.generating && s.prompt.length <= maxPromptLength
               ? "bg-gradient-to-br from-brand to-accent text-ink-900 shadow-glow hover:brightness-110"
               : "cursor-not-allowed bg-ink-650 text-white/30"
           )}
           aria-label="Generate"
-          title={s.prompt.length > s.maxPromptLength ? `Prompt exceeds the ${s.maxPromptLength.toLocaleString()}-character limit` : undefined}
+          title={s.prompt.length > maxPromptLength ? `Prompt exceeds the ${maxPromptLength.toLocaleString()}-character limit` : undefined}
         >
           {s.generating ? (
             <Loader2 className="h-5 w-5 animate-spin" />

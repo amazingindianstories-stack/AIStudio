@@ -4,7 +4,7 @@ import { upsertItem } from "@/lib/store-db";
 import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents } from "@/lib/pricing";
-import { readEffectiveMaxPromptLength } from "@/lib/settings-db";
+import { readEffectiveLimit } from "@/lib/limits-db";
 import { logActivity } from "@/lib/activity";
 import {
   aspectRatiosForModel,
@@ -33,8 +33,8 @@ export async function POST(req: NextRequest) {
   // Fetched up front (not just where it was previously used, deeper in this
   // function) so the per-user prompt-length override below has it — this
   // route allows anonymous requests, so getSession() returning undefined
-  // here is expected, not an error; readEffectiveMaxPromptLength falls back
-  // to the global default when there's no user to look an override up on.
+  // here is expected, not an error; readEffectiveLimit falls back to the
+  // global default when there's no user to look an override up on.
   const user = await getSession();
   const body = await req.json().catch(() => ({}));
   const prompt: string = (body.prompt || "").trim();
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
   }
-  const maxPromptLength = await readEffectiveMaxPromptLength(user?.id);
+  const maxPromptLength = await readEffectiveLimit("maxPromptLength", user?.id);
   if (prompt.length > maxPromptLength) {
     return NextResponse.json(
       {
