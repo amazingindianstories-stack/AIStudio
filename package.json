@@ -14,15 +14,15 @@
     "start": "next start",
     "lint": "next lint",
     "db:push": "drizzle-kit push",
-    "db:seed": "tsx scripts/seed.ts",
-    "db:optimize": "tsx scripts/optimize-history-indexes.ts",
-    "migrate:postgres:gcp": "tsx scripts/migrate-postgres-to-cloud-sql.ts",
-    "migrate:media:gcp": "tsx scripts/migrate-s3-to-gcs.ts",
-    "verify:media:gcp": "tsx scripts/verify-media-references-gcs.ts",
-    "media:thumbs": "tsx scripts/backfill-thumbnails.ts",
-    "sync:shiv-sati-storyboard": "tsx scripts/sync-shiv-sati-storyboard.ts",
-    "migrate-media": "tsx scripts/migrate-to-blob.ts",
-    "migrate-s3": "tsx scripts/migrate-to-s3.ts",
+    "db:seed": "tsx scripts/seed.js",
+    "db:optimize": "tsx scripts/optimize-history-indexes.js",
+    "migrate:postgres:gcp": "tsx scripts/migrate-postgres-to-cloud-sql.js",
+    "migrate:media:gcp": "tsx scripts/migrate-s3-to-gcs.js",
+    "verify:media:gcp": "tsx scripts/verify-media-references-gcs.js",
+    "media:thumbs": "tsx scripts/backfill-thumbnails.js",
+    "sync:shiv-sati-storyboard": "tsx scripts/sync-shiv-sati-storyboard.js",
+    "migrate-media": "tsx scripts/migrate-to-blob.js",
+    "migrate-s3": "tsx scripts/migrate-to-s3.js",
     "hf:login": "node scripts/hf-mcp-auth.mjs"
   },
   "dependencies": {
@@ -49,16 +49,11 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
-    "@types/node": "^22.10.7",
-    "@types/pg": "^8.20.0",
-    "@types/react": "^19.0.7",
-    "@types/react-dom": "^19.0.3",
     "autoprefixer": "^10.4.20",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "postcss": "^8.5.19",
     "tailwindcss": "^3.4.17",
-    "tsx": "^4.22.4",
-    "typescript": "^5.7.3"
+    "tsx": "^4.22.4"
   }
 }
