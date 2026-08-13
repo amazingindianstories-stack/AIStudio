@@ -197,9 +197,24 @@ export async function GET(req) {
     return NextResponse.json(updated);
   } catch (e) {
     console.error("[video status poll error]:", e);
-    // Transient poll error — keep the item running in the DB, but surface the error message
-    // so the frontend can potentially show a warning. 
-    // For debugging, we temporarily mark it as failed in the response (not DB) so the user can see it!
-    return NextResponse.json({ ...item, status: "failed", error: `Poll Error: ${e?.message || String(e)}` });
+    // Transient poll error (network blip, provider 502/503, a momentary MCP
+    // socket drop) — the DB row is untouched, still "running"/"queued". The
+    // response must NOT claim status:"failed": the client's pollVideo() only
+    // reads this JSON body and stops polling the instant it sees a terminal
+    // status (see store.js), with no way to tell "really failed" apart from
+    // "the poll itself failed". Reporting failure here would silently lose a
+    // render that finishes seconds later on the provider's side — this was
+    // shipped as debug scaffolding ("temporarily mark it as failed... so the
+    // user can see it") and never cleaned up.
+    //
+    // Deliberately omitting `id` from the body (rather than spreading
+    // `...item`) is what makes this safe: pollVideo() only patches state and
+    // evaluates the terminal-status check inside `if (item?.id)`, so a body
+    // with no `id` falls through to its trailing retry timer untouched. The
+    // 502 status is for logs/monitoring, not client branching.
+    return NextResponse.json(
+      { error: `Poll error: ${e?.message || String(e)}`, transientError: true },
+      { status: 502 }
+    );
   }
 }

@@ -3,6 +3,65 @@
 > **Audit Date:** August 2026  
 > **Scope:** Backend Architecture, API Routes, Database Layer, Auth & Session Model, Media Storage & Proxy, AI Providers, Middleware, Queue Execution Pipeline, and Utility Subsystems.
 
+> **2026-08-13 status update:** This document predates the TS→JS conversion —
+> every file link below still points at a `.ts`/`.tsx` path; the same file
+> now lives at the equivalent `.js`/`.jsx` path (and, for most of the API
+> surface, also has a Django port under `backend/apps/`; both were fixed
+> together where applicable). Resolved in this session:
+> - **SEC-01 / SEC-03** (IDOR on history delete, canvas board rename/delete):
+>   addressed deliberately, not by requiring strict per-user ownership. This
+>   is a shared team workspace by design — any signed-in user can still
+>   view/favorite/refile/edit anyone else's items and anyone's board
+>   contents. What changed is a `canManage(user, ownerId)` gate
+>   (`src/lib/auth.js`, `backend/apps/common/session_auth.py::can_manage`) on
+>   just the irreversible actions: permanently deleting a generation, and
+>   deleting/renaming a shared board. Favoriting, refiling, and board content
+>   edits (the PUT autosave route) remain open to the whole project.
+> - **SEC-02** (IDOR on queue execute): the ownership-gate fix above was
+>   *tried* here first and then reverted — a testing pass caught that it
+>   broke a real, intentional feature (`adoptOrphanedJobs` in `store.js`:
+>   any open tab may drive a teammate's stale queued job to completion if
+>   the owner's tab has gone away), and that an ownership check wasn't
+>   actually the load-bearing protection this route needed anyway. The real
+>   finding: `/api/queue/execute` had **no admission control of its own** —
+>   `getQueuePosition`/`get_queue_position` (MAX_CONCURRENT cap + the Gemini
+>   spend-window gate) only backed `/api/queue/status`; execute trusted the
+>   client to call it only once status reported position 0, which any direct
+>   POST could skip, bypassing both the concurrency cap and the spend
+>   throttle. Fixed by having `queue_execute`/`POST /api/queue/execute` call
+>   `getQueuePosition` itself before locking/running anything, in both
+>   stacks — this protects against premature/duplicate execution regardless
+>   of who's calling, and doesn't block legitimate orphan-job adoption.
+> - **SEC-04** (non-constant-time session signature comparison): already
+>   fixed prior to this audit being read — `auth.js`'s `verifySessionToken`
+>   uses `crypto.timingSafeEqual`. This finding was stale when written.
+> - **BUG-01** (video status route reporting transient poll errors as
+>   terminal `status: "failed"`): fixed in both
+>   `src/app/api/generate/video/status/route.js` and
+>   `backend/apps/generation/generation_views.py::video_status` — a transient
+>   error now returns a body with no `id` field and HTTP 502, which the
+>   frontend's existing `pollVideo()` logic already treats as "keep polling"
+>   rather than "job finished."
+> - **BUG-02** (CSV truncation marker breaking RFC 4180): fixed in both
+>   `admin/logs` routes — truncation is now signalled via `X-Logs-Truncated`/
+>   `X-Logs-Truncated-At` response headers, not an appended comment line.
+> - **BUG-03** (download-zip always guessing `.bin` because the content-type
+>   argument was hardcoded `null`): fixed via a new shared, unit-tested
+>   magic-byte sniffer (`src/lib/media-sniff.js` /
+>   `backend/apps/media/media_sniff.py`) that reads the actual downloaded
+>   bytes instead.
+> - **BUG-04** (best-of-N memory pressure) and the storage-adapter /
+>   Higgsfield-refresh-lock items in §5–§6 are **not yet addressed** — real
+>   changes, out of scope for this pass; still open.
+> - **Stale/dormant code (§4)**: `vertex-imagen.ts`/`.js` and the completed
+>   one-off migration scripts were removed in this session's repo-hygiene
+>   pass (see CLAUDE.md's working-conventions history / git log rather than
+>   this document for the current file list, since entries here will keep
+>   drifting as further cleanup happens).
+> - **status-checks.js comment drift**: fixed (`src/lib/status-checks.js` now
+>   says 8, matches `CHECKS.length`, and a test pins the count so it can't
+>   drift silently again).
+
 ---
 
 ## 1. Executive Summary

@@ -159,3 +159,23 @@ class IsAdminUser(BasePermission):
 
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated and request.user.role == "admin")
+
+
+def can_manage(user, owner_id) -> bool:
+    """Direct port of canManage() in src/lib/auth.js — keep both in sync.
+
+    Every project here is a shared workspace: any signed-in teammate can see,
+    favorite, refile, and edit anyone else's items, and that's intentional,
+    not a gap. This only gates the small set of actions that either destroy
+    data outright (permanently deleting a generation, deleting/renaming a
+    shared board) or spend/consume another person's in-flight job (triggering
+    someone else's queued execution). Those require the acting user to be the
+    owner or an admin. A falsy owner_id (rows created before ownership was
+    tracked, or a board with no recorded creator) can't prove anyone's
+    ownership, so it falls to admin-only rather than defaulting open.
+    """
+    if not user or not getattr(user, "is_authenticated", False):
+        return False
+    if user.role == "admin":
+        return True
+    return bool(owner_id) and str(user.id) == str(owner_id)

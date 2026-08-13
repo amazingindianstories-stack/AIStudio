@@ -11,6 +11,13 @@ build
 !/public/generations/.gitkeep
 /public/media/*
 !/public/media/.gitkeep
+# 19 real reference-image uploads (~271MB) had accumulated here and were
+# committed — this directory was missing from the ignore list that already
+# covers its two siblings above. Media lives in S3/GCS at runtime; nothing
+# reads from this local path (confirmed unreferenced outside save-media.js's
+# unrelated `references/` *storage key* prefix, which is a different thing).
+/public/references/*
+!/public/references/.gitkeep
 /data/*.json
 pyserver/models/
 .vercel
@@ -24,3 +31,16 @@ backend/**/__pycache__
 backend/staticfiles
 backend/db.sqlite3
 *.pyc
+
+# Local-only GCP tooling/scratch — these were committed by accident in the
+# past (gcp-sa-key.json and hmac.json were always empty placeholders, never a
+# real leaked key, but the filenames are exactly the shape a real secret
+# would have; cloud-sql-proxy is a ~32MB per-platform downloadable binary,
+# not source — see infra/gcp/README.md for how to fetch it locally).
+cloud-sql-proxy
+gcp-sa-key.json
+hmac.json
+build*.log
+
+# Local Claude Code / Cowork session settings — machine-specific, not shared repo config.
+.claude/

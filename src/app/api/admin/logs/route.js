@@ -70,9 +70,12 @@ async function csvResponse(filter) {
         .join(",")
     ),
   ];
-  if (rows.length === MAX_CSV_ROWS) {
-    lines.push(`# truncated at ${MAX_CSV_ROWS} rows — narrow the filter for the rest`);
-  }
+  // Truncation used to be signalled with an appended `# truncated at...`
+  // comment line. RFC 4180 has no comment syntax, so every real parser
+  // (Excel, pandas, Sheets) either errors or reads it as a malformed final
+  // row with the wrong column count — the file itself must stay pure CSV.
+  // A response header carries the same information losslessly instead.
+  const truncated = rows.length === MAX_CSV_ROWS;
 
   return new NextResponse(lines.join("\n"), {
     headers: {
@@ -81,6 +84,8 @@ async function csvResponse(filter) {
         .toISOString()
         .slice(0, 10)}.csv"`,
       "Cache-Control": "no-store",
+      "X-Logs-Truncated": String(truncated),
+      ...(truncated ? { "X-Logs-Truncated-At": String(MAX_CSV_ROWS) } : {}),
     },
   });
 }

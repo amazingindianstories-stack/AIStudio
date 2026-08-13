@@ -70,6 +70,18 @@ database authentication. Schema administration should use the Auth Proxy and
 the built-in `postgres` account; do not grant DDL privileges to the runtime
 service account.
 
+`cloud-sql-proxy` is a per-platform binary (~32MB) — it is gitignored and
+must be downloaded locally, not committed:
+
+```bash
+curl -o cloud-sql-proxy \
+  https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2/cloud-sql-proxy.<darwin|linux>.<amd64|arm64>
+chmod +x cloud-sql-proxy
+```
+
+See https://cloud.google.com/sql/docs/postgres/sql-proxy#install for the
+current release and the exact platform/arch suffix.
+
 ```bash
 ./cloud-sql-proxy --port 6543 \
   ais-project-for-gcp:us-central1:aistudio-db

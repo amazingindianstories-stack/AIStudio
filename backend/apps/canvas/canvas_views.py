@@ -5,6 +5,7 @@ import json
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
+from apps.common.session_auth import can_manage
 from apps.media.save_media import save_canvas_asset
 
 from . import canvas_db
@@ -40,6 +41,11 @@ def canvas_boards(request):
         existing = canvas_db.get_board(body["id"])
         if not existing:
             return Response({"error": "Board not found."}, status=404)
+        # Editing the board's contents (PUT canvas_board_detail) stays open to
+        # the whole project — it's a shared whiteboard. Renaming/deleting the
+        # board itself is gated the same as a permanent delete elsewhere.
+        if not can_manage(request.user, existing.get("createdBy")):
+            return Response({"error": "FORBIDDEN"}, status=403)
         canvas_db.rename_board(body["id"], (body.get("name") or "").strip())
         return Response({"boards": canvas_db.list_boards(existing["projectId"])})
 
@@ -49,6 +55,8 @@ def canvas_boards(request):
         existing = canvas_db.get_board(body["id"])
         if not existing:
             return Response({"error": "Board not found."}, status=404)
+        if not can_manage(request.user, existing.get("createdBy")):
+            return Response({"error": "FORBIDDEN"}, status=403)
         canvas_db.delete_board(body["id"])
         return Response({"boards": canvas_db.list_boards(existing["projectId"])})
 

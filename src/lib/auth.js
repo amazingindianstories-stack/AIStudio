@@ -162,3 +162,19 @@ export async function requireAdmin() {
   if (u.role !== "admin") throw new Error("FORBIDDEN");
   return u;
 }
+
+/** Every project here is a shared workspace — any signed-in teammate can see,
+ *  favorite, refile, and edit anyone else's items, and that's intentional,
+ *  not a gap. This helper draws the one line that does matter: it gates the
+ *  small set of actions that either destroy data outright (permanently
+ *  deleting a generation, deleting/renaming a shared board) or spend/consume
+ *  another person's in-flight job (triggering someone else's queued
+ *  execution). Those require the acting user to be the owner or an admin.
+ *  A null/undefined ownerId (rows created before ownership was tracked, or a
+ *  board with no recorded creator) can't prove anyone's ownership, so it
+ *  falls to admin-only rather than defaulting open. */
+export function canManage(user, ownerId) {
+  if (!user) return false;
+  if (user.role === "admin") return true;
+  return !!ownerId && user.id === ownerId;
+}

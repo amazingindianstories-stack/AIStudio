@@ -9,7 +9,9 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from apps.common.activity import log_activity
+from apps.common.session_auth import can_manage
 from apps.media import storage
+from apps.media.media_sniff import extension_from_bytes
 
 from . import generations_service as gs
 from .history_query import parse_history_filter
@@ -48,6 +50,13 @@ def history(request):
     if not item_id:
         return Response({"error": "Missing id."}, status=400)
     item = gs.get_item(item_id)
+    if not item:
+        return Response({"error": "Not found."}, status=404)
+    # Anyone on the shared project can view/favorite/refile this item —
+    # deletion is the one irreversible action, so it's the one gated to the
+    # owner or an admin. See can_manage()'s docstring in session_auth.py.
+    if not can_manage(request.user, item.user_id):
+        return Response({"error": "FORBIDDEN"}, status=403)
     gs.delete_item(item_id)
     log_activity(
         str(request.user.id),
@@ -89,24 +98,6 @@ def history_updates(request):
     return Response({"items": items, "now": int(time.time() * 1000)})
 
 
-def _extension_from_content_type(content_type: str | None, fallback_url: str) -> str:
-    t = (content_type or "").lower()
-    if "png" in t:
-        return "png"
-    if "webp" in t:
-        return "webp"
-    if "gif" in t:
-        return "gif"
-    if "jpeg" in t or "jpg" in t:
-        return "jpg"
-    if "avif" in t:
-        return "avif"
-    if "mp4" in t:
-        return "mp4"
-    url_ext = fallback_url.split("?")[0].rsplit(".", 1)[-1].lower() if "." in fallback_url.split("?")[0] else ""
-    return url_ext if url_ext and len(url_ext) <= 5 else "bin"
-
-
 @api_view(["POST"])
 def history_download_zip(request):
     body = request.data or {}
@@ -128,7 +119,10 @@ def history_download_zip(request):
                 data = storage.read_stored_buffer(key)
             except Exception:
                 continue
-            ext = _extension_from_content_type(None, item.url)
+            # Sniff the format from the actual bytes rather than the URL —
+            # see media_sniff.py's docstring for why the old None-content-type
+            # call here silently produced ".bin" for extensionless keys.
+            ext = extension_from_bytes(data, item.url)
             zf.writestr(f"{str(index + 1).zfill(2)}-{item.id}.{ext}", data)
             count += 1
 

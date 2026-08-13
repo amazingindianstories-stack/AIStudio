@@ -42,7 +42,10 @@ const EMPTY_COUNTS = {
   favorites: 0,
 };
 
-const polling = new Set();
+// Exported for store.test.js only, so adoptOrphanedJobs's "already being
+// driven by this tab" skip branch is directly testable (pre-populate an id,
+// assert startPolling is not re-triggered) without faking a real poll cycle.
+export const polling = new Set();
 
 // ── scoped feed cache ───────────────────────────────────────────────────────
 // Each library view (a project, a folder, Favourites, All assets, each with its
@@ -86,8 +89,13 @@ function currentScope(s) {
  * that impossible.
  *
  * `patch` receives the current row so callers can merge conditionally.
+ *
+ * Exported (along with dropEverywhere/findItem/mergeLiveItems/
+ * adoptOrphanedJobs below) purely for unit testing — see store.test.js.
+ * Nothing outside this module is meant to call these directly; every real
+ * caller goes through the store's own actions.
  */
-function patchEverywhere(
+export function patchEverywhere(
   set,
   id,
   patch
@@ -101,7 +109,7 @@ function patchEverywhere(
 }
 
 /** Remove a row from every pool, for deletes. */
-function dropEverywhere(
+export function dropEverywhere(
   set,
   id
 ) {
@@ -122,7 +130,7 @@ function invalidateFeedCache() {
 /** Look a row up across every pool. Callers act on an id the user clicked, and
  *  that row may be in the chat thread but not the current feed (or vice versa),
  *  so searching only `items` would make the action silently do nothing. */
-function findItem(s, id) {
+export function findItem(s, id) {
   return (
     s.items.find((i) => i.id === id) ??
     s.threadItems.find((i) => i.id === id) ??
@@ -598,10 +606,10 @@ export const useStore = create((set, get) => ({
     };
 
     const created = [];
+    // Batch: enqueue N independent jobs with the same payload. The queue's
+    // per-kind concurrency cap decides how many actually run at once.
+    const count = Math.min(4, Math.max(1, s.batchCount || 1));
     try {
-      // Batch: enqueue N independent jobs with the same payload. The queue's
-      // per-kind concurrency cap decides how many actually run at once.
-      const count = Math.min(4, Math.max(1, s.batchCount || 1));
       for (let i = 0; i < count; i++) {
         const res = await apiFetch(endpoint, {
           method: "POST",
@@ -627,26 +635,63 @@ export const useStore = create((set, get) => ({
           created.push(item);
         }
       }
-      void get().loadCounts();
     } catch (e) {
       console.error("Generation request failed:", e);
-      alert(e.message || "Failed to start generation.");
+      // The batch loop above is sequential (awaited one at a time), so a
+      // failure on request K of N leaves 1..K-1 already submitted, already
+      // in the feed, and already polling. Reporting only "failed" here reads
+      // as "nothing happened" and invites a re-click that doubles up the
+      // jobs that already went through — say how many actually started.
+      const message = e.message || "Failed to start generation.";
+      alert(
+        created.length > 0
+          ? `${created.length} of ${count} generations started. The rest failed: ${message}`
+          : message
+      );
     } finally {
+      // Moved out of the try block's tail so partial batches still get an
+      // accurate folder-rail count instead of waiting for some unrelated
+      // reload to correct it.
+      void get().loadCounts();
       set({ generating: false });
     }
     return created;
   },
 
   removeItem: async (id) => {
+    // Captured before the optimistic drop below, so a failed delete has
+    // something to restore — dropEverywhere removes the row from every pool
+    // it might be in, not just `items`.
+    const item = findItem(get(), id);
+
     dropEverywhere(set, id);
     set((s) => ({ activeId: s.activeId === id ? null : s.activeId }));
     void get().loadCounts();
     try {
-      await apiFetch(`/api/history?id=${encodeURIComponent(id)}`, {
+      const res = await apiFetch(`/api/history?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-    } catch {
-      /* ignore */
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(
+          res.status === 403
+            ? "You don't have permission to delete this."
+            : body.error || `Delete failed (${res.status}).`
+        );
+      }
+    } catch (e) {
+      // The optimistic removal above has to come back — this used to be a
+      // silent no-op on failure, which meant a rejected delete (permission
+      // denied, a network blip, the row already gone) left the item
+      // invisible in this tab even though it was untouched server-side,
+      // with zero indication anything went wrong. Mirrors toggleFavorite's
+      // rollback below. insertNewItem's head-of-list placement is a rough
+      // approximation of where the row was — loadFeed corrects the exact
+      // position/scope membership right after.
+      if (item) insertNewItem(set, item);
+      void get().loadFeed({ force: true });
+      void get().loadCounts();
+      alert(e.message || "Failed to delete.");
     }
   },
 
@@ -1163,7 +1208,7 @@ function pollVideo(
  *    can act on. When the grid is at the top (`feedPinned`) there is nothing
  *    above to displace, so they go straight in.
  */
-function mergeLiveItems(
+export function mergeLiveItems(
   incoming,
   set
 ) {
@@ -1239,7 +1284,7 @@ function mergeLiveItems(
  * request and cannot be resumed by anyone, and a running video is already
  * submitted remotely — the live feed alone will carry it to completion.
  */
-function adoptOrphanedJobs(
+export function adoptOrphanedJobs(
   incoming,
   serverNow,
   set,
@@ -1347,6 +1392,27 @@ function pollQueue(
           body: JSON.stringify({ id }),
         });
         const finalItem = await execRes.json();
+
+        if (finalItem?.notAdmitted) {
+          // Lost a race with the server's own admission check — the
+          // concurrency cap or spend window filled between our /status read
+          // and this call. This is the same "held" state /api/queue/status
+          // itself reports (see getQueuePosition), so handle it identically
+          // rather than treating the call as done.
+          if (finalItem.heldForBudget) {
+            patchEverywhere(set, id, (i) => ({ ...i, queueNote: finalItem.heldReason }));
+            if (polling.has(id)) {
+              setTimeout(
+                tick,
+                Math.min(Math.max(Number(finalItem.retryAfterMs) || 5000, 5000), 60_000)
+              );
+            }
+          } else if (polling.has(id)) {
+            setTimeout(tick, 3000);
+          }
+          return;
+        }
+
         if (finalItem?.id) {
           patchEverywhere(set, finalItem.id, (i) => ({
             ...i,
@@ -1356,13 +1422,21 @@ function pollQueue(
           // Cost lands with the finished row, and the counts endpoint is what
           // the folder rail reads.
           void get().loadCounts();
+          // Videos come back "running" with a provider taskId — hand off to
+          // the remote-render status poller.
+          if (finalItem.kind === "video" && finalItem.status === "running") {
+            pollVideo(finalItem.id, set, get);
+          }
         }
+        // A response with neither `id` nor `notAdmitted` means execute
+        // genuinely failed to run this job — it vanished, or another tab's
+        // execute call won the same race after admission was already
+        // granted to both ("Job is already running or invalid."). Either
+        // way this tab is no longer driving it: don't guess at a status
+        // here, the live feed (mergeLiveItems) reconciles the real outcome
+        // shortly, and overwriting status to "failed" client-side would be
+        // actively wrong if the other caller's execute succeeds.
         polling.delete(id);
-        // Videos come back "running" with a provider taskId — hand off to
-        // the remote-render status poller.
-        if (finalItem?.kind === "video" && finalItem.status === "running") {
-          pollVideo(finalItem.id, set, get);
-        }
         return; // done
       } else if (data.heldForBudget) {
         // Held by the spend gate, not by a backlog. Surface why, and pace the
