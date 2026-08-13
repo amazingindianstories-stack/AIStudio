@@ -70,7 +70,7 @@ export function PromptComposer() {
   // empty — fall back to the registry's own default so there's no window
   // where every prompt looks "too long" before that fetch resolves.
   const maxPromptLength =
-    s.limits.maxPromptLength ?? limitDefinition("maxPromptLength")!.defaultValue;
+    s.limits.maxPromptLength ?? limitDefinition("maxPromptLength").defaultValue;
   /**
    * Whether an audio track is even a thing for the current selection. Used by
    * BOTH the collapsed chip's speaker icon and the panel's Audio segment — they
