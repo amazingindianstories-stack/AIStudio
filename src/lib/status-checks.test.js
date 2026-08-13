@@ -44,6 +44,7 @@ import {
   runAllChecks,
   checkSeedance,
   checkOmni,
+  CHECKS,
 
 } from "./status-checks";
 
@@ -413,4 +414,18 @@ test("checkOmni: OMNI_USE_VERTEX unset, GOOGLE_API_KEY set/unset -> ok/unknown",
     if (prevKey === undefined) delete process.env.GOOGLE_API_KEY;
     else process.env.GOOGLE_API_KEY = prevKey;
   }
+});
+
+test("CHECKS registry: the header comments' check count stays honest", () => {
+  // Regression test: a doc comment above CHECKS once said "the six checks"
+  // while the array actually held 8 — caught in a later audit, not by any
+  // test. Pinning the length here means a future check added or removed
+  // fails this test instead of silently drifting the comment out of date
+  // again. If this fails because you intentionally changed CHECKS, update
+  // both the array and the two doc comments in status-checks.js together.
+  assert.equal(CHECKS.length, 8);
+  assert.deepEqual(
+    CHECKS.map((c) => c.id),
+    ["gemini", "higgsfield", "seedance", "kling", "omni", "postgres", "storage", "media-delivery"]
+  );
 });

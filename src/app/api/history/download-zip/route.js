@@ -3,20 +3,9 @@ import { getSession } from "@/lib/auth";
 import { getItem } from "@/lib/store-db";
 import { createZipArchive } from "@/lib/zip";
 import { mediaKeyFromRef, readStoredBuffer } from "@/lib/storage";
+import { extensionFromBytes } from "@/lib/media-sniff";
 
 export const runtime = "nodejs";
-
-function extensionFromContentType(contentType, fallbackUrl) {
-  const type = (contentType || "").toLowerCase();
-  if (type.includes("png")) return "png";
-  if (type.includes("webp")) return "webp";
-  if (type.includes("gif")) return "gif";
-  if (type.includes("jpeg") || type.includes("jpg")) return "jpg";
-  if (type.includes("avif")) return "avif";
-  if (type.includes("mp4")) return "mp4";
-  const urlExt = fallbackUrl.split("?")[0].split(".").pop()?.toLowerCase();
-  return urlExt && urlExt.length <= 5 ? urlExt : "bin";
-}
 
 export async function POST(req) {
   if (!(await getSession())) {
@@ -52,7 +41,10 @@ export async function POST(req) {
     } catch {
       continue;
     }
-    const ext = extensionFromContentType(null, item.url);
+    // Sniff the format from the actual bytes rather than the URL — see
+    // media-sniff.js's docstring for why the old null-content-type call
+    // here silently produced ".bin" for extensionless storage keys.
+    const ext = extensionFromBytes(bytes, item.url);
     entries.push({
       name: `${String(index + 1).padStart(2, "0")}-${item.id}.${ext}`,
       data: bytes,

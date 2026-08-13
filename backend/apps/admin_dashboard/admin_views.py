@@ -318,14 +318,22 @@ def _csv_response(filter: dict):
         lines.append(",".join(_csv_cell(v) for v in [
             iso_time, email_by_id.get(r["userId"], ""), r["kind"], r["model"], r["status"], r["costCents"], r["prompt"],
         ]))
-    if len(rows) == admin_logs.MAX_CSV_ROWS:
-        lines.append(f"# truncated at {admin_logs.MAX_CSV_ROWS} rows — narrow the filter for the rest")
+    # Truncation used to be signalled with an appended `# truncated at...`
+    # comment line. RFC 4180 has no comment syntax, so every real parser
+    # (Excel, pandas, Sheets) either errors or reads it as a malformed final
+    # row with the wrong column count — the file itself must stay pure CSV.
+    # A response header carries the same information losslessly instead.
+    # Mirrors the same fix in src/app/api/admin/logs/route.js; keep in sync.
+    truncated = len(rows) == admin_logs.MAX_CSV_ROWS
 
     body = "\n".join(lines)
     filename = f"veevee-logs-{time.strftime('%Y-%m-%d')}.csv"
     response = HttpResponse(body, content_type="text/csv; charset=utf-8")
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     response["Cache-Control"] = "no-store"
+    response["X-Logs-Truncated"] = str(truncated)
+    if truncated:
+        response["X-Logs-Truncated-At"] = str(admin_logs.MAX_CSV_ROWS)
     return response
 
 

@@ -7,6 +7,7 @@ import {
   shouldRenewSession,
   sessionCookieOptions,
   SESSION_MAX_AGE_SECONDS,
+  canManage,
 } from "./auth";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
@@ -77,4 +78,30 @@ test("sessionCookieOptions matches the full 30-day retention window and is httpO
   assert.equal(opts.httpOnly, true);
   assert.equal(opts.sameSite, "lax");
   assert.equal(opts.path, "/");
+});
+
+test("canManage: the owner may manage their own item", () => {
+  const user = { id: "u1", role: "user" };
+  assert.equal(canManage(user, "u1"), true);
+});
+
+test("canManage: a non-owning regular user may not manage someone else's item", () => {
+  const user = { id: "u1", role: "user" };
+  assert.equal(canManage(user, "u2"), false);
+});
+
+test("canManage: an admin may manage anyone's item, owner or not", () => {
+  const admin = { id: "u1", role: "admin" };
+  assert.equal(canManage(admin, "u2"), true);
+  assert.equal(canManage(admin, null), true);
+});
+
+test("canManage: an ownerless item (legacy row, no recorded creator) is admin-only, not open", () => {
+  const user = { id: "u1", role: "user" };
+  assert.equal(canManage(user, null), false);
+  assert.equal(canManage(user, undefined), false);
+});
+
+test("canManage: no session means no access", () => {
+  assert.equal(canManage(null, "u1"), false);
 });

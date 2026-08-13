@@ -7,7 +7,7 @@ import {
   setItemFavorite,
   setItemFolder,
 } from "@/lib/store-db";
-import { getSession } from "@/lib/auth";
+import { getSession, canManage } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import { HISTORY_PAGE_SIZE } from "@/lib/config";
 import { parseHistoryFilter, MAX_PAGE_SIZE } from "@/lib/history-query";
@@ -68,6 +68,15 @@ export async function DELETE(req) {
   }
   // Capture what is being deleted before it's gone, for the audit trail.
   const item = await getItem(id);
+  if (!item) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
+  }
+  // Anyone on the shared project can view/favorite/refile this item — deletion
+  // is the one irreversible action, so it's the one gated to the owner or an
+  // admin. See canManage()'s docstring in auth.js for the reasoning.
+  if (!canManage(user, item.userId)) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+  }
   await deleteItem(id);
   await logActivity(user.id, "delete", {
     id,

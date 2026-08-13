@@ -127,6 +127,40 @@ class AdminRouteAuthTests(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn("text/csv", resp["Content-Type"])
 
+    def test_admin_logs_csv_not_truncated_reports_false_header(self):
+        user = _make_user(role="admin")
+        self.client.cookies["veevee_session"] = _cookie_for(str(user.id))
+        resp = self.client.get("/api/admin/logs?format=csv")
+        self.assertEqual(resp["X-Logs-Truncated"], "False")
+        self.assertNotIn("X-Logs-Truncated-At", resp)
+
+    def test_admin_logs_csv_truncation_is_signalled_by_header_not_a_comment_row(self):
+        # Regression test: truncation used to be signalled with an appended
+        # `# truncated at...` line inside the CSV body itself, which breaks
+        # RFC 4180 parsers (Excel, pandas, Sheets) that hit a malformed final
+        # row. It must now be header-only, and the body must stay pure CSV —
+        # every data line has exactly the same column count as the header.
+        from unittest.mock import patch
+
+        user = _make_user(role="admin")
+        self.client.cookies["veevee_session"] = _cookie_for(str(user.id))
+
+        fake_row = {
+            "id": "x", "createdAt": 0, "userId": None, "kind": "image",
+            "model": "m", "status": "succeeded", "costCents": 0, "prompt": "p",
+        }
+        with patch.object(admin_logs, "MAX_CSV_ROWS", 3), \
+             patch.object(admin_logs, "read_admin_logs_for_export", return_value=[fake_row] * 3):
+            resp = self.client.get("/api/admin/logs?format=csv")
+
+        self.assertEqual(resp["X-Logs-Truncated"], "True")
+        self.assertEqual(resp["X-Logs-Truncated-At"], "3")
+        lines = resp.content.decode().splitlines()
+        header_cols = len(lines[0].split(","))
+        for line in lines[1:]:
+            self.assertFalse(line.startswith("#"))
+            self.assertEqual(len(line.split(",")), header_cols)
+
     def test_admin_pricing_requires_admin(self):
         resp = self.client.post("/api/admin/pricing", {"model": "x", "unitCostCents": 1, "unit": "per_image"}, content_type="application/json")
         self.assertEqual(resp.status_code, 403)

@@ -1,8 +1,12 @@
 /**
  * Admin "Status" tab — live health checks for every external dependency the
- * app relies on (4 generation providers + Postgres + media storage). See
- * `.council/admin-status-page/design.md` for the full contract this module
- * implements; this file is the single source of truth for check logic.
+ * app relies on: 5 generation providers (Gemini/NBP, Higgsfield, Seedance,
+ * Kling, Omni) + Postgres + media storage + media delivery mode, 8 checks
+ * total (see CHECKS below — this count drifted out of sync with the actual
+ * array once before; if you add or remove a check, update this number too).
+ * See `.council/admin-status-page/design.md` for the full contract this
+ * module implements; this file is the single source of truth for check
+ * logic.
  *
  * Hard safety constraint (design.md §6.2, §12-R1): the Higgsfield check may
  * ONLY call `loadToken()`/`isFresh()` — it must never trigger a refresh-token
@@ -144,7 +148,7 @@ async function checkMediaDelivery() {
   };
 }
 
-/** The six checks, in the fixed display order. Exported for test injection. */
+/** The eight checks, in the fixed display order. Exported for test injection. */
 export const CHECKS = [
   { id: "gemini", name: "Gemini / Nano Banana Pro", fn: checkGemini },
   { id: "higgsfield", name: "Higgsfield MCP", fn: checkHiggsfield },

@@ -1,13 +1,19 @@
 import time
 import uuid
 
+from django.http import QueryDict
 from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.common.test_utils import SECRET, _cookie_for, _make_user
 
 from .. import generations_service as gs
+from ..history_query import MAX_QUERY_LENGTH, parse_history_filter
 from ..models import Generation
+
+
+def _parse(qs: str) -> dict:
+    return parse_history_filter(QueryDict(qs))
 
 
 class DecodeCursorTests(TestCase):
@@ -33,6 +39,52 @@ class LikePatternTests(TestCase):
 
     def test_escapes_backslash(self):
         self.assertEqual(gs.like_pattern("a\\b"), "%a\\\\b%")
+
+
+class ParseHistoryFilterTests(TestCase):
+    """Port of the parser half of src/lib/history-query.test.js — the
+    `*FilterToParams` builder stays frontend-only (querystring construction
+    for the client fetch), same reasoning as admin-logs.js's equivalent. This
+    parser had zero test coverage on either side of the split before now."""
+
+    def test_empty_querystring_is_empty_filter(self):
+        self.assertEqual(_parse(""), {})
+
+    def test_project_id_read_through(self):
+        self.assertEqual(_parse("projectId=p1"), {"projectId": "p1"})
+
+    def test_folder_id_none_maps_to_explicit_null(self):
+        filter = _parse("folderId=none")
+        self.assertIn("folderId", filter)
+        self.assertIsNone(filter["folderId"])
+
+    def test_absent_folder_id_means_any_folder_not_present_at_all(self):
+        self.assertNotIn("folderId", _parse(""))
+
+    def test_real_folder_id_read_through_distinct_from_none(self):
+        self.assertEqual(_parse("folderId=f1"), {"folderId": "f1"})
+
+    def test_kind_accepts_only_image_or_video(self):
+        self.assertEqual(_parse("kind=image")["kind"], "image")
+        self.assertEqual(_parse("kind=video")["kind"], "video")
+        self.assertNotIn("kind", _parse("kind=all"))
+        self.assertNotIn("kind", _parse("kind=bogus"))
+
+    def test_favorite_true_only_for_literal_1(self):
+        self.assertEqual(_parse("favorite=1")["favorite"], True)
+        self.assertNotIn("favorite", _parse("favorite=true"))
+        self.assertNotIn("favorite", _parse("favorite=0"))
+        self.assertNotIn("favorite", _parse(""))
+
+    def test_q_is_trimmed(self):
+        self.assertEqual(_parse("q=%20%20hello%20%20")["q"], "hello")
+
+    def test_whitespace_only_q_is_dropped(self):
+        self.assertNotIn("q", _parse("q=%20%20%20"))
+
+    def test_q_truncated_to_max_query_length(self):
+        long = "x" * (MAX_QUERY_LENGTH + 500)
+        self.assertEqual(len(_parse(f"q={long}")["q"]), MAX_QUERY_LENGTH)
 
 
 def _make_generation(**overrides) -> Generation:

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { listBoards, createBoard, renameBoard, deleteBoard, getBoard } from "@/lib/canvas-db";
-import { getSession } from "@/lib/auth";
+import { getSession, canManage } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -50,6 +50,12 @@ export async function POST(req) {
       // up to scope the returned list, matching op "createBoard"/"deleteBoard".
       const existing = await getBoard(b.id);
       if (!existing) return NextResponse.json({ error: "Board not found." }, { status: 404 });
+      // Editing the board's contents (PUT [id]) stays open to the whole
+      // project — it's a shared whiteboard. Renaming/deleting the board
+      // itself is gated the same as a permanent delete elsewhere.
+      if (!canManage(user, existing.createdBy)) {
+        return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+      }
       await renameBoard(b.id, (b.name || "").trim());
       const boards = await listBoards(existing.projectId);
       return NextResponse.json({ boards });
@@ -58,6 +64,9 @@ export async function POST(req) {
       if (!b.id) return NextResponse.json({ error: "id required." }, { status: 400 });
       const existing = await getBoard(b.id);
       if (!existing) return NextResponse.json({ error: "Board not found." }, { status: 404 });
+      if (!canManage(user, existing.createdBy)) {
+        return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+      }
       await deleteBoard(b.id);
       const boards = await listBoards(existing.projectId);
       return NextResponse.json({ boards });

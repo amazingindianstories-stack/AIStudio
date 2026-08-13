@@ -404,7 +404,22 @@ def video_status(request):
         queue_service.upsert_item(updated)
         return Response(updated)
     except Exception as e:
-        return Response({**item, "status": "failed", "error": f"Poll Error: {e}"})
+        # Transient poll error (network blip, provider 502/503, a momentary MCP
+        # socket drop) — the DB row is untouched, still "running"/"queued". The
+        # response must NOT claim status "failed": the frontend's pollVideo()
+        # only reads this JSON body and stops polling the instant it sees a
+        # terminal status, with no way to tell "really failed" apart from "the
+        # poll itself failed" — reporting failure here would silently lose a
+        # render that finishes seconds later on the provider's side. Mirrors
+        # the same fix in generate/video/status/route.js; keep both in sync.
+        #
+        # Deliberately omitting "id" from the body (rather than spreading
+        # **item) is what makes this safe: pollVideo() only patches state and
+        # evaluates the terminal-status check inside `if (item?.id)`, so a
+        # body with no "id" falls through to its trailing retry timer
+        # untouched. The 502 status is for logs/monitoring, not client
+        # branching.
+        return Response({"error": f"Poll error: {e}", "transientError": True}, status=502)
 
 
 @api_view(["POST"])
@@ -413,6 +428,35 @@ def queue_execute(request):
     item_id = body.get("id")
     if not item_id:
         return Response({"error": "Job ID is required."}, status=400)
+
+    # Admission is checked before the lock is acquired, not after: lock_job()
+    # flips the row to "running" unconditionally and there is no unlock path
+    # to undo that, so rejecting an inadmissible job afterward would strand
+    # it "running" until the stale-job reaper caught it minutes later. A
+    # plain read has no such side effect.
+    #
+    # This used to be an ownership check instead (only the job's owner or an
+    # admin could call execute). That was addressing the wrong risk: the real
+    # hazard here was never "the wrong teammate ran a ready job" — it's that
+    # this route had NO admission control of its own. get_queue_position()
+    # (also used by /api/queue/status) is where MAX_CONCURRENT and the Gemini
+    # spend-window gate actually live; this route used to trust the client to
+    # only call it once /api/queue/status reported position 0, which any
+    # direct POST (a retry bug, a race) could simply skip, bypassing both the
+    # concurrency cap and the spend throttle spend_window.py exists to
+    # enforce. Re-running the same admission check here closes that
+    # regardless of who's calling — including the legitimate case of a
+    # teammate's tab adopting a job whose owner's tab has gone away (see
+    # adoptOrphanedJobs in store.js), which an ownership-only gate would have
+    # blocked outright. Mirrors the same fix in queue/execute/route.js.
+    position = queue_service.get_queue_position(item_id)
+    if not position:
+        return Response({"error": "Job not found."}, status=404)
+    if position["position"] != 0:
+        # Not actually our turn (or the spend window won't admit it yet).
+        # Report the same shape /api/queue/status uses so the client's
+        # existing heldForBudget/backoff handling applies uniformly.
+        return Response({**position, "notAdmitted": True})
 
     locked = queue_service.lock_job(item_id)
     if not locked:
