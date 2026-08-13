@@ -18,3 +18,9 @@ pyserver/models/
 vercel-gcp-cred.json
 test.json
 tsconfig.tsbuildinfo
+backend/venv
+backend/__pycache__
+backend/**/__pycache__
+backend/staticfiles
+backend/db.sqlite3
+*.pyc
