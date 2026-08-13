@@ -235,3 +235,18 @@ export const activityLogs = pgTable("activity_logs", {
   detail: jsonb("detail"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 }, (table) => [index("activity_logs_created_at_idx").on(table.createdAt)]);
+
+// One row per FAILED login attempt (never successful ones — a successful
+// login needs no throttling and the rolling window ages failures out on its
+// own). Keyed by the lowercased email rather than userId so an attempt
+// against an email that doesn't even exist still throttles, without leaking
+// which emails are real accounts. src/lib/login-throttle.js opportunistically
+// deletes rows older than the window on every check, so this table never
+// needs its own cleanup job.
+export const loginAttempts = pgTable("login_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  identifier: text("identifier").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => [
+  index("login_attempts_identifier_created_idx").on(table.identifier, table.createdAt),
+]);

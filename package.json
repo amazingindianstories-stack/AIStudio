@@ -6,7 +6,8 @@
     "node": "22.x"
   },
   "overrides": {
-    "postcss": "$postcss"
+    "postcss": "$postcss",
+    "uuid": "^11.1.1"
   },
   "scripts": {
     "dev": "next dev",
