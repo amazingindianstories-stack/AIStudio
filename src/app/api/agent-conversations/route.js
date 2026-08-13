@@ -6,7 +6,7 @@ import {
   deleteConversation,
   getConversation,
 } from "@/lib/agent-conversations-db";
-import { getSession } from "@/lib/auth";
+import { adminOrNull } from "@/lib/admin";
 
 export const runtime = "nodejs";
 
@@ -20,10 +20,11 @@ function sortForSwitcher(list) {
 }
 
 /** GET /api/agent-conversations?projectId=<uuid>&agentKind=image|video
- *  -> { conversations }. */
+ *  -> { conversations }. Admin-only while the Agents tab is gated in the UI —
+ *  the lock on the nav tab is cosmetic, this is the actual access control. */
 export async function GET(req) {
-  if (!(await getSession())) {
-    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  if (!(await adminOrNull())) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
   const projectId = req.nextUrl.searchParams.get("projectId");
   const agentKind = parseAgentKind(req.nextUrl.searchParams.get("agentKind"));
@@ -40,9 +41,9 @@ export async function GET(req) {
 /** Single mutation endpoint, switched on `op` — mirrors
  *  api/canvas-boards/route.ts's createBoard/renameBoard/deleteBoard shape. */
 export async function POST(req) {
-  const user = await getSession();
+  const user = await adminOrNull();
   if (!user) {
-    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
   const b = await req.json().catch(() => ({}));
   const op = b.op;

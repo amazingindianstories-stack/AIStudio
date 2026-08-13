@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getConversation, listMessages, appendMessage } from "@/lib/agent-conversations-db";
-import { getSession } from "@/lib/auth";
+import { adminOrNull } from "@/lib/admin";
 import { runOrchestratorTurn } from "@/lib/agents/orchestrator/orchestrator";
 import { imagesToParts } from "@/lib/agents/orchestrator/images";
 import { parseMessageBody } from "@/lib/agents/orchestrator/validate-message";
@@ -10,14 +10,14 @@ export const maxDuration = 60; // a tool-calling turn is at most 2 sequential Ge
 
 /** POST /api/agent-conversations/[id]/messages { content, images? }
  *  -> { userMessage, assistantMessage }. Persists the user turn, runs the
- *  orchestrator's tool-calling loop, persists the reply, returns both. */
+ *  orchestrator's tool-calling loop, persists the reply, returns both.
+ *  Admin-only — this is the LLM-calling endpoint the gated Agents tab drives. */
 export async function POST(
   req,
   { params }
 ) {
-  const user = await getSession();
-  if (!user) {
-    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  if (!(await adminOrNull())) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
   const { id } = await params;
   const conversation = await getConversation(id);

@@ -16,7 +16,6 @@ import {
   Wand2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { apiFetch } from "@/lib/api";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { REF_BATCH_BUDGET_BYTES, REF_BUDGET_STEPS, dataUrlBytes, downscaleBlob } from "@/lib/client-image-budget";
 import { ReferenceStrip, SettingsToolbar } from "./ComposerControls";
@@ -88,7 +87,7 @@ export function StudioChat({ conversationId }) {
     const requestId = ++requestIdRef.current;
     setLoadingThread(true);
     (async () => {
-      const res = await apiFetch(`/api/agent-conversations/${conversationId}`, { cache: "no-store" });
+      const res = await fetch(`/api/agent-conversations/${conversationId}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (requestIdRef.current !== requestId) return;
       const loaded = json.messages ?? [];
@@ -123,7 +122,7 @@ export function StudioChat({ conversationId }) {
         // the loader effect above). A failure here just means a refresh
         // would show "Generated — check your library" instead of the inline
         // card for this one message — not worth blocking or retrying over.
-        apiFetch(`/api/agent-conversations/${conversationId}/messages/${messageId}`, {
+        fetch(`/api/agent-conversations/${conversationId}/messages/${messageId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ generatedItemId: created[0].id }),
@@ -148,7 +147,7 @@ export function StudioChat({ conversationId }) {
     setError(null);
     setSending(true);
     try {
-      const res = await apiFetch(`/api/agent-conversations/${conversationId}/messages`, {
+      const res = await fetch(`/api/agent-conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, images: referenceImages }),

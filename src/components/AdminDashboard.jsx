@@ -36,6 +36,7 @@ import {
   RefreshCw,
   AlertCircle,
   AlertTriangle,
+  SlidersHorizontal,
 } from "lucide-react";
 import { formatCost } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
@@ -122,6 +123,7 @@ export function AdminDashboard() {
               ["users", "Users", UsersIcon],
               ["logs", "Logs", ScrollText],
               ["pricing", "Pricing", DollarSign],
+              ["limits", "Limits", SlidersHorizontal],
               ["status", "Status", Activity],
             ] 
           ).map(([id, label, Icon]) => (
@@ -152,8 +154,10 @@ export function AdminDashboard() {
           <UsersTab data={data} reload={load} currentUserId={currentUser?.id ?? null} />
         ) : tab === "logs" ? (
           <LogsTab data={data} usersById={usersById} />
-        ) : (
+        ) : tab === "pricing" ? (
           <PricingTab data={data} reload={load} />
+        ) : (
+          <LimitsTab data={data} reload={load} />
         )}
       </div>
 
@@ -591,6 +595,12 @@ function UsersTab({
               <span className="text-xs text-white/45">
                 {user.genCount} gens · {formatCost(user.costCents)}
               </span>
+              <MaxPromptLengthField
+                user={user}
+                defaultValue={data.maxPromptLength}
+                patchUser={patchUser}
+                className="w-24"
+              />
               <UserActions
                 user={user}
                 isSelf={isSelf}
@@ -604,13 +614,14 @@ function UsersTab({
       </div>
 
       <div className="scroll-thin hidden overflow-x-auto rounded-xl border border-line sm:block">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[860px] text-sm">
           <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
             <tr>
               <th className="px-3 py-2">User</th>
               <th className="px-3 py-2">Role</th>
               <th className="px-3 py-2">Gens</th>
               <th className="px-3 py-2">Cost</th>
+              <th className="px-3 py-2">Max prompt</th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
             </tr>
@@ -647,6 +658,14 @@ function UsersTab({
                 </td>
                 <td className="px-3 py-2 tabular-nums">{user.genCount}</td>
                 <td className="px-3 py-2 tabular-nums">{formatCost(user.costCents)}</td>
+                <td className="px-3 py-2">
+                  <MaxPromptLengthField
+                    user={user}
+                    defaultValue={data.maxPromptLength}
+                    patchUser={patchUser}
+                    className="w-24"
+                  />
+                </td>
                 <td className="px-3 py-2">
                   <button
                     type="button"
@@ -730,6 +749,56 @@ function AdminAvatar({ user, className }) {
         <img src={user.avatarUrl} alt="" className="absolute inset-0 h-full w-full object-cover" />
       )}
     </span>
+  );
+}
+
+/** Per-user override of the global max-prompt-length default. Empty field =
+ *  no override (shows the current default as a placeholder, not a value —
+ *  so it visibly tracks the default if that's later changed, rather than
+ *  silently freezing at whatever the default happened to be when this
+ *  loaded). Saves on blur, matching PricingTab's pattern. */
+function MaxPromptLengthField({
+  user,
+  defaultValue,
+  patchUser,
+  className,
+}
+
+) {
+  const [value, setValue] = useState(
+    user.maxPromptLength != null ? String(user.maxPromptLength) : ""
+  );
+
+  useEffect(() => {
+    setValue(user.maxPromptLength != null ? String(user.maxPromptLength) : "");
+  }, [user.maxPromptLength]);
+
+  const save = () => {
+    if (value.trim() === "") {
+      if (user.maxPromptLength != null) {
+        patchUser(user.id, { maxPromptLength: null }, "Reverted to the default limit.");
+      }
+      return;
+    }
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n) || n < 1 || n === user.maxPromptLength) return;
+    patchUser(user.id, { maxPromptLength: n }, "Personal prompt limit updated.");
+  };
+
+  return (
+    <input
+      type="number"
+      min={1}
+      value={value}
+      placeholder={`Default (${defaultValue.toLocaleString()})`}
+      aria-label={`Max prompt length for ${user.name || user.email}`}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={save}
+      className={cn(
+        "rounded-lg border border-line bg-ink-700 px-2 py-1 text-xs outline-none placeholder:text-white/30 focus:border-brand/40",
+        className
+      )}
+    />
   );
 }
 
@@ -1099,7 +1168,7 @@ function LogsTab({
     const mine = seq.current;
     setLoadingMore(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/admin/logs?${params}${params ? "&" : ""}cursor=${encodeURIComponent(nextCursor)}`,
         { cache: "no-store" }
       );
@@ -1329,7 +1398,7 @@ function ActivityLog({
     const mine = seq.current;
     setLoadingMore(true);
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `/api/admin/activity?${params}${params ? "&" : ""}cursor=${encodeURIComponent(nextCursor)}`,
         { cache: "no-store" }
       );
@@ -1495,6 +1564,70 @@ function PricingTab({ data, reload }) {
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Limits tab ──────────────────────────────────────────────────────────────
+function LimitsTab({ data, reload }) {
+  const [value, setValue] = useState(String(data.maxPromptLength));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  // Re-sync if another admin session changed it and this tab reloads —
+  // mirrors PricingTab's defaultValue-per-row approach, just for one field.
+  useEffect(() => {
+    setValue(String(data.maxPromptLength));
+  }, [data.maxPromptLength]);
+
+  const save = async () => {
+    const n = Math.round(Number(value));
+    if (!Number.isFinite(n) || n < 1) return;
+    setSaving(true);
+    setSaved(false);
+    try {
+      await apiFetch("/api/admin/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ maxPromptLength: n }),
+      });
+      reload();
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-line p-4">
+        <label className="mb-1 block text-sm font-medium text-white">
+          Max prompt length (default)
+        </label>
+        <p className="mb-3 text-xs text-white/45">
+          Rejects an image or video generation request if its prompt exceeds
+          this many characters — enforced server-side regardless of what the
+          composer shows. This is the default for every user; give an
+          individual user their own limit from the Users tab, which
+          overrides this value for them specifically. Some models (Kling)
+          already enforce their own tighter, non-configurable cap on top of
+          whichever limit applies.
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={1}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onBlur={save}
+            className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none focus:border-brand/40"
+          />
+          <span className="text-xs text-white/40">characters</span>
+          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
+          {saved && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+        </div>
       </div>
     </div>
   );

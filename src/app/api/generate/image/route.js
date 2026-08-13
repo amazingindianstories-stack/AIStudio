@@ -4,6 +4,7 @@ import { upsertItem } from "@/lib/store-db";
 import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents } from "@/lib/pricing";
+import { readEffectiveMaxPromptLength } from "@/lib/settings-db";
 import { logActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
@@ -31,6 +32,16 @@ export async function POST(req) {
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+  }
+
+  const maxPromptLength = await readEffectiveMaxPromptLength(user.id);
+  if (prompt.length > maxPromptLength) {
+    return NextResponse.json(
+      {
+        error: `Prompt is too long (max ${maxPromptLength} characters, this one is ${prompt.length}). An admin can raise this limit from the dashboard.`,
+      },
+      { status: 400 }
+    );
   }
 
   const id = crypto.randomUUID();

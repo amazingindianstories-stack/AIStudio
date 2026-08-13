@@ -18,6 +18,7 @@ import {
 import { encodeBlobWithBudget } from "./client-image-budget";
 import { renumberImgMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
+import { DEFAULT_MAX_PROMPT_LENGTH } from "./settings";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch } from "./api";
 import {
@@ -233,6 +234,7 @@ export const useStore = create((set, get) => ({
   pendingItems: [],
   feedPinned: true,
   rightPanelOpen: false,
+  mobileHistoryOpen: false,
   generating: false,
   rightTab: "project",
   activeId: null,
@@ -247,6 +249,7 @@ export const useStore = create((set, get) => ({
 
   currentUser: null,
   usersById: {},
+  maxPromptLength: DEFAULT_MAX_PROMPT_LENGTH,
 
   projects: [],
   activeProjectId: null,
@@ -521,6 +524,7 @@ export const useStore = create((set, get) => ({
   },
 
   setRightPanelOpen: (rightPanelOpen) => set({ rightPanelOpen }),
+  setMobileHistoryOpen: (mobileHistoryOpen) => set({ mobileHistoryOpen }),
 
   setFeedPinned: (feedPinned) => {
     // The grid calls this on every scroll event. Writing unconditionally would
@@ -1063,6 +1067,22 @@ export const useStore = create((set, get) => ({
       const json = await res.json();
       if (json.user) set({ currentUser: json.user });
       else window.location.href = "/login";
+    } catch {
+      /* ignore */
+    }
+  },
+
+  // Failure leaves maxPromptLength at its DEFAULT_MAX_PROMPT_LENGTH initial
+  // value rather than 0/undefined — a fetch hiccup must never make every
+  // prompt look "too long" client-side. The server enforces the real admin
+  // value regardless, so this is display/UX only, never the source of truth.
+  loadSettings: async () => {
+    try {
+      const res = await apiFetch("/api/settings", { cache: "no-store" });
+      const json = await res.json();
+      if (typeof json.maxPromptLength === "number") {
+        set({ maxPromptLength: json.maxPromptLength });
+      }
     } catch {
       /* ignore */
     }

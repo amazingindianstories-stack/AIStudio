@@ -4,6 +4,7 @@ import { upsertItem } from "@/lib/store-db";
 import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents } from "@/lib/pricing";
+import { readEffectiveMaxPromptLength } from "@/lib/settings-db";
 import { logActivity } from "@/lib/activity";
 import {
   aspectRatiosForModel,
@@ -28,6 +29,12 @@ export const maxDuration = 60;
  * submission, so concurrent load stays inside the per-kind caps.
  */
 export async function POST(req) {
+  // Fetched up front (not just where it was previously used, deeper in this
+  // function) so the per-user prompt-length override below has it — this
+  // route allows anonymous requests, so getSession() returning undefined
+  // here is expected, not an error; readEffectiveMaxPromptLength falls back
+  // to the global default when there's no user to look an override up on.
+  const user = await getSession();
   const body = await req.json().catch(() => ({}));
   const prompt = (body.prompt || "").trim();
   const aspectRatio = body.aspectRatio || "16:9";
@@ -62,6 +69,15 @@ export async function POST(req) {
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+  }
+  const maxPromptLength = await readEffectiveMaxPromptLength(user?.id);
+  if (prompt.length > maxPromptLength) {
+    return NextResponse.json(
+      {
+        error: `Prompt is too long (max ${maxPromptLength} characters, this one is ${prompt.length}). An admin can raise this limit from the dashboard.`,
+      },
+      { status: 400 }
+    );
   }
   // Reject loudly rather than silently dropping the extras — the user chose
   // those clips and would otherwise get a result that ignored some of them.
@@ -140,11 +156,9 @@ export async function POST(req) {
   // otherwise crash the route with no JSON body at all, and the client's
   // `res.json()` fails with a raw "Unexpected end of JSON input" instead of
   // a readable error.
-  let user;
   let costCents;
   let savedRefs;
   try {
-    user = await getSession();
     costCents = computeCostCents(
       { kind: "video", model, resolution, duration, generateAudio },
       await readPricing()

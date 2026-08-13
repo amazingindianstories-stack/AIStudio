@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import { getConversation, listMessages } from "@/lib/agent-conversations-db";
-import { getSession } from "@/lib/auth";
+import { adminOrNull } from "@/lib/admin";
 
 export const runtime = "nodejs";
 
-/** GET /api/agent-conversations/[id] -> { conversation, messages }. */
+/** GET /api/agent-conversations/[id] -> { conversation, messages }. Admin-only. */
 export async function GET(
   _req,
   { params }
 ) {
-  if (!(await getSession())) {
-    return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
+  if (!(await adminOrNull())) {
+    return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
   const { id } = await params;
   const conversation = await getConversation(id);

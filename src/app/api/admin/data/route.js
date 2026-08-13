@@ -5,6 +5,7 @@ import { users, generations } from "@/lib/schema";
 import { adminOrNull } from "@/lib/admin";
 import { readAdminStats } from "@/lib/admin-stats";
 import { readPricing } from "@/lib/pricing-db";
+import { readMaxPromptLength } from "@/lib/settings-db";
 
 export const runtime = "nodejs";
 
@@ -30,7 +31,7 @@ export async function GET() {
   if (!me) return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   const db = await getDb();
 
-  const [allUsers, stats, pricing, statRows] = await Promise.all([
+  const [allUsers, stats, pricing, maxPromptLength, statRows] = await Promise.all([
     db
       .select({
         id: users.id,
@@ -41,15 +42,19 @@ export async function GET() {
         avatarUrl: users.avatarUrl,
         isActive: users.isActive,
         createdAt: users.createdAt,
+        maxPromptLength: users.maxPromptLength,
       })
       .from(users),
     readAdminStats(),
     readPricing(),
+    readMaxPromptLength(),
     db
       .select({
         userId: generations.userId,
         genCount: sql`count(*)::int`,
-        costCents: sql`coalesce(sum(${generations.costCents}), 0)::int`,
+        // Only counts rows that actually reached the provider and finished —
+        // see the comment in admin-stats.ts's identical fix for why.
+        costCents: sql`coalesce(sum(case when ${generations.status} = 'succeeded' then ${generations.costCents} else 0 end), 0)::int`,
       })
       .from(generations)
       .groupBy(generations.userId),
@@ -68,6 +73,7 @@ export async function GET() {
         avatarUrl: u.avatarUrl,
         isActive: u.isActive,
         createdAt: u.createdAt,
+        maxPromptLength: u.maxPromptLength,
         genCount: stat?.genCount ?? 0,
         costCents: stat?.costCents ?? 0,
       };
@@ -78,5 +84,6 @@ export async function GET() {
     users: usersOut,
     stats,
     pricing,
+    maxPromptLength,
   });
 }

@@ -29,6 +29,7 @@ const SAFE_USER_FIELDS = {
   avatarUrl: users.avatarUrl,
   isActive: users.isActive,
   createdAt: users.createdAt,
+  maxPromptLength: users.maxPromptLength,
 };
 
 /** Create a user. Body: { email, password, name, role } */
@@ -149,10 +150,18 @@ export async function PATCH(req) {
       return NextResponse.json({ error: passwordError }, { status: 400 });
     }
   }
+  // null clears the override (falls back to the admin's global default);
+  // undefined means this field wasn't part of the request at all, so it
+  // must be left alone rather than treated the same as "clear it."
+  if (
+    body.maxPromptLength !== undefined &&
+    body.maxPromptLength !== null &&
+    (!Number.isFinite(body.maxPromptLength) || body.maxPromptLength < 1)
+  ) {
+    return NextResponse.json({ error: "Invalid max prompt length." }, { status: 400 });
+  }
 
-  const set
-
- = {};
+  const set = {};
   const changedFields = [];
   let revokeSessions = false;
 
@@ -182,6 +191,13 @@ export async function PATCH(req) {
     set.passwordSalt = salt;
     changedFields.push("password");
     revokeSessions = true;
+  }
+  if (
+    (body.maxPromptLength === null || typeof body.maxPromptLength === "number") &&
+    body.maxPromptLength !== target.maxPromptLength
+  ) {
+    set.maxPromptLength = body.maxPromptLength;
+    changedFields.push("maxPromptLength");
   }
   if (!changedFields.length) {
     return NextResponse.json({ error: "Nothing to update." }, { status: 400 });

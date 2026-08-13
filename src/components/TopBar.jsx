@@ -6,8 +6,9 @@ import {
   Image as ImageIcon,
   Clapperboard,
   Shapes,
-  LayoutGrid,
-  History,
+  Sparkles,
+  Lock,
+  PanelRightOpen,
   LogOut,
   Shield,
   ChevronDown,
@@ -16,7 +17,6 @@ import {
 import { useStore } from "@/lib/store";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { AccountSettings } from "./AccountSettings";
-import { LegacyHistoryModal } from "./LegacyHistoryModal";
 import { cn } from "@/lib/utils";
 
 const DESTINATIONS = [
@@ -26,27 +26,31 @@ const DESTINATIONS = [
 ] ;
 
 /**
- * Horizontal nav lives in the top bar now (was a left-edge rail,
- * NavRail.tsx, before this pass) — same three destinations plus Library and
- * History, just laid out across the header instead of down the side, so the
- * left edge is free for chat width instead of a permanent rail.
+ * Horizontal nav lives in the top bar now (was the left-edge Sidebar rail
+ * before this pass) — same three destinations plus the new admin-only
+ * Agents tab, laid out across the header instead of down the side.
+ *
+ * Agents is visible to every signed-in user but only clickable for admins —
+ * this is cosmetic only, the real access control is the 403 the
+ * /api/agent-conversations routes return for a non-admin (see adminOrNull
+ * in those routes). Never rely on this lock alone.
  */
 export function TopBar() {
   const [accountOpen, setAccountOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
   const view = useStore((s) => s.view);
   const setView = useStore((s) => s.setView);
-  const rightPanelOpen = useStore((s) => s.rightPanelOpen);
-  const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
+  const mobileHistoryOpen = useStore((s) => s.mobileHistoryOpen);
+  const setMobileHistoryOpen = useStore((s) => s.setMobileHistoryOpen);
   const user = useStore((s) => s.currentUser);
   const loadMe = useStore((s) => s.loadMe);
   const loadUsers = useStore((s) => s.loadUsers);
   const logout = useStore((s) => s.logout);
 
+  const isAdmin = user?.role === "admin";
   const initial = (user?.name || user?.email || "?").charAt(0).toUpperCase();
-  const activeDestination = view === "canvas" ? "board" : mode;
+  const activeDestination = view === "canvas" ? "board" : view === "agents" ? "agents" : mode;
 
   const goTo = (id) => {
     if (id === "board") {
@@ -94,37 +98,53 @@ export function TopBar() {
               </button>
             );
           })}
+
+          <span className="mx-0.5 h-5 w-px shrink-0 bg-line" aria-hidden />
+
+          {isAdmin ? (
+            <button
+              onClick={() => setView("agents")}
+              aria-current={activeDestination === "agents" ? "page" : undefined}
+              className={cn(
+                "relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                activeDestination === "agents"
+                  ? "text-white"
+                  : "text-white/50 hover:bg-white/5 hover:text-white/90"
+              )}
+            >
+              {activeDestination === "agents" && (
+                <motion.span
+                  layoutId="topbar-active"
+                  transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                  className="absolute inset-0 rounded-lg bg-white/10"
+                />
+              )}
+              <Sparkles className="relative z-10 h-4 w-4 text-brand" strokeWidth={1.9} />
+              <span className="relative z-10 hidden sm:inline">Agents</span>
+            </button>
+          ) : (
+            <span
+              title="Agents — admins only"
+              aria-disabled="true"
+              className="flex cursor-not-allowed items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white/25"
+            >
+              <Sparkles className="h-4 w-4" strokeWidth={1.9} />
+              <span className="hidden sm:inline">Agents</span>
+              <Lock className="h-3 w-3" strokeWidth={2} />
+            </span>
+          )}
         </nav>
 
         <div className="ml-auto flex shrink-0 items-center gap-1.5">
-          {/* Phone-width only — tablet/desktop gets an edge tab right where
-              the docked panel opens from (page.tsx), which makes more sense
-              spatially than a button up here disconnected from it. Phones
-              use the overlay drawer instead (no docked panel to sit next
-              to), so this stays the only way to open it there. */}
           <button
-            onClick={() => setRightPanelOpen(!rightPanelOpen)}
-            aria-expanded={rightPanelOpen}
-            aria-controls="assets-drawer"
-            aria-label={rightPanelOpen ? "Close assets panel" : "Open assets panel"}
-            title="Library"
-            className={cn(
-              "grid h-8 w-8 place-items-center rounded-lg transition-colors sm:hidden",
-              rightPanelOpen ? "bg-white/10 text-white" : "text-white/55 hover:bg-white/5 hover:text-white"
-            )}
+            onClick={() => setMobileHistoryOpen(true)}
+            className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:bg-white/5 hover:text-white lg:hidden"
+            aria-expanded={mobileHistoryOpen}
+            aria-controls="mobile-history-panel"
+            aria-label="Open assets panel"
           >
-            <LayoutGrid className="h-[18px] w-[18px]" />
+            <PanelRightOpen className="h-[18px] w-[18px]" />
           </button>
-          <button
-            onClick={() => setHistoryOpen(true)}
-            aria-label="History"
-            title="History"
-            className="grid h-8 w-8 place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/5 hover:text-white"
-          >
-            <History className="h-[18px] w-[18px]" />
-          </button>
-
-          <span className="mx-1 h-6 w-px bg-line" aria-hidden />
 
           {user && (
             <Dropdown
@@ -215,8 +235,6 @@ export function TopBar() {
           }}
         />
       )}
-
-      {historyOpen && <LegacyHistoryModal onClose={() => setHistoryOpen(false)} />}
     </>
   );
 }

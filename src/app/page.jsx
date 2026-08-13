@@ -1,42 +1,106 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, } from "react";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
-import { useStore, restoreComposerDraft } from "@/lib/store";
+import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { TopBar } from "@/components/TopBar";
-import { StudioView } from "@/components/StudioView";
+import { ConversationPanel } from "@/components/ConversationPanel";
+import { PromptComposer } from "@/components/PromptComposer";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DetailModal } from "@/components/DetailModal";
 import { CanvasView } from "@/components/canvas/CanvasView";
+import { StudioView } from "@/components/StudioView";
 
 export default function Page() {
   const loadHistory = useStore((s) => s.loadHistory);
   const loadProjects = useStore((s) => s.loadProjects);
   const loadMe = useStore((s) => s.loadMe);
   const loadUsers = useStore((s) => s.loadUsers);
+  const loadSettings = useStore((s) => s.loadSettings);
   const startLiveUpdates = useStore((s) => s.startLiveUpdates);
   const stopLiveUpdates = useStore((s) => s.stopLiveUpdates);
+  const mobileHistoryOpen = useStore((s) => s.mobileHistoryOpen);
+  const setMobileHistoryOpen = useStore((s) => s.setMobileHistoryOpen);
   const view = useStore((s) => s.view);
+  // Panel open/closed is store state now: ConversationPanel renders the
+  // shortcut strip that replaces this panel while it is collapsed, so both
+  // need to agree on which of the two is showing.
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
   const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
+  const currentUser = useStore((s) => s.currentUser);
+  const setView = useStore((s) => s.setView);
+  const mobileDrawerRef = useRef(null);
+  const mobileCloseRef = useRef(null);
+
+  // The Agents nav tab is only reachable via TopBar's own admin check, but a
+  // role can change (or resolve async on load) out from under an open tab —
+  // bounce back to Studio rather than leave a non-admin sitting on a panel
+  // whose backing API now 403s. Cosmetic only; api/agent-conversations/* is
+  // the real access control.
+  useEffect(() => {
+    if (view === "agents" && currentUser && currentUser.role !== "admin") {
+      setView("studio");
+    }
+  }, [view, currentUser, setView]);
 
   useEffect(() => {
-    // Restores mode/view/model/settings/active project — so a refresh lands
-    // back on the same tab instead of resetting to the store's hardcoded
-    // defaults. Deliberately does NOT restore rightPanelOpen (see the note
-    // on that field in store.ts) — the assets panel always starts closed.
-    restoreComposerDraft();
     loadMe();
     loadUsers();
     loadHistory();
     loadProjects();
+    loadSettings();
     // Shared live feed: picks up completions from any tab, device or teammate,
     // so finishing a generation no longer needs a manual refresh.
     startLiveUpdates();
     return () => stopLiveUpdates();
-  }, [loadMe, loadUsers, loadHistory, loadProjects, startLiveUpdates, stopLiveUpdates]);
+  }, [loadMe, loadUsers, loadHistory, loadProjects, loadSettings, startLiveUpdates, stopLiveUpdates]);
+
+  useEffect(() => {
+    if (!mobileHistoryOpen) return;
+    const previousFocus = document.activeElement ;
+    mobileCloseRef.current?.focus();
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setMobileHistoryOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(
+        mobileDrawerRef.current?.querySelectorAll(
+          'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+        ) ?? []
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [mobileHistoryOpen, setMobileHistoryOpen]);
+
+  useEffect(() => {
+    const desktop = window.matchMedia("(min-width: 1024px)");
+    const closeDrawer = (event) => {
+      if (event.matches) setMobileHistoryOpen(false);
+    };
+    desktop.addEventListener("change", closeDrawer);
+    return () => desktop.removeEventListener("change", closeDrawer);
+  }, [setMobileHistoryOpen]);
 
   return (
     <MotionConfig
@@ -47,74 +111,96 @@ export default function Page() {
         <TopBar />
 
         <div className="flex min-h-0 flex-1">
-          {view === "canvas" ? <CanvasView /> : <StudioView />}
-
-          {/* Assets library, tablet/desktop: docked, so it resizes the chat
-              instead of covering it — you can keep working with it open.
-              Closed by default and never restored from a previous session
-              (see restoreComposerDraft's note on rightPanelOpen). The toggle
-              lives right here as an edge tab — always visible at the width
-              this section never drops below — rather than up in TopBar,
-              disconnected from the panel it opens. */}
-          {view !== "canvas" && (
-            <section
-              id="assets-drawer"
-              className={cn(
-                "hidden shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:flex",
-                rightPanelOpen ? "w-[clamp(22rem,32vw,40rem)]" : "w-10"
-              )}
-            >
-              <div className="flex w-10 shrink-0 items-center justify-center border-l border-line bg-ink-900">
-                <button
-                  type="button"
-                  onClick={() => setRightPanelOpen(!rightPanelOpen)}
-                  className="grid h-9 w-9 place-items-center rounded-lg text-white/55 transition hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
-                  aria-expanded={rightPanelOpen}
-                  aria-label={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
-                  title={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
-                >
-                  {rightPanelOpen ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
-                </button>
-              </div>
-              <div
-                className={cn(
-                  "min-w-0 flex-1 overflow-hidden border-l border-line transition-opacity duration-200 motion-reduce:transition-none",
-                  rightPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
+          {view === "canvas" ? (
+            <CanvasView />
+          ) : (
+            <>
+              {/* left: conversation + composer (Studio), or the orchestrator
+                  chat (Agents) — same right-side history panel either way */}
+              <main className="flex min-w-0 flex-1 flex-col">
+                {view === "agents" ? (
+                  <StudioView />
+                ) : (
+                  <>
+                    <ConversationPanel />
+                    <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
+                      <div className="mx-auto w-full">
+                        <PromptComposer />
+                      </div>
+                    </div>
+                  </>
                 )}
-                aria-hidden={!rightPanelOpen}
-                inert={!rightPanelOpen}
+              </main>
+
+              {/* right: history (desktop) */}
+              <section
+                className={cn(
+                  "hidden shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:flex",
+                  rightPanelOpen ? "w-[clamp(25rem,42vw,48.75rem)]" : "w-10"
+                )}
               >
-                <HistoryPanel />
-              </div>
-            </section>
+                <div className="flex w-10 shrink-0 items-center justify-center border-l border-line bg-ink-900">
+                  <button
+                    type="button"
+                    onClick={() => setRightPanelOpen(!rightPanelOpen)}
+                    className="grid h-9 w-9 place-items-center rounded-lg text-white/55 transition hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+                    aria-expanded={rightPanelOpen}
+                    aria-controls="desktop-history-panel"
+                    aria-label={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
+                    title={rightPanelOpen ? "Hide assets panel" : "Show assets panel"}
+                  >
+                    {rightPanelOpen ? (
+                      <ChevronRight className="h-5 w-5" />
+                    ) : (
+                      <ChevronLeft className="h-5 w-5" />
+                    )}
+                  </button>
+                </div>
+                <div
+                  id="desktop-history-panel"
+                  className={cn(
+                    "min-w-0 flex-1 overflow-hidden border-l border-line transition-opacity duration-200 motion-reduce:transition-none",
+                    rightPanelOpen ? "opacity-100" : "pointer-events-none opacity-0"
+                  )}
+                  aria-hidden={!rightPanelOpen}
+                  inert={!rightPanelOpen}
+                >
+                  <div className="h-full w-full">
+                    <HistoryPanel />
+                  </div>
+                </div>
+              </section>
+            </>
           )}
         </div>
 
-        {/* Assets library, phone width: a docked panel has nowhere to go at
-            this size, so this stays an overlay drawer here only. */}
+        {/* mobile history drawer */}
         <AnimatePresence>
-          {view !== "canvas" && rightPanelOpen && (
+          {view !== "canvas" && mobileHistoryOpen && (
             <>
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={() => setRightPanelOpen(false)}
-                className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm sm:hidden"
+                onClick={() => setMobileHistoryOpen(false)}
+                className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm lg:hidden"
               />
               <motion.aside
+                id="mobile-history-panel"
+                ref={mobileDrawerRef}
                 initial={{ x: "100%" }}
                 animate={{ x: 0 }}
                 exit={{ x: "100%" }}
                 transition={{ type: "spring", stiffness: 320, damping: 36 }}
-                className="fixed inset-y-0 right-0 z-50 flex w-[90%] max-w-md flex-col bg-ink-850 shadow-pop sm:hidden"
+                className="fixed inset-y-0 right-0 z-50 flex w-[90%] max-w-md flex-col bg-ink-850 shadow-pop lg:hidden"
                 role="dialog"
                 aria-modal="true"
                 aria-label="Assets panel"
               >
                 <div className="flex h-12 shrink-0 items-center justify-end border-b border-line px-3">
                   <button
-                    onClick={() => setRightPanelOpen(false)}
+                    ref={mobileCloseRef}
+                    onClick={() => setMobileHistoryOpen(false)}
                     className="grid h-9 w-9 place-items-center rounded-lg bg-white/10 text-white/80 hover:bg-white/20"
                     aria-label="Close assets panel"
                   >

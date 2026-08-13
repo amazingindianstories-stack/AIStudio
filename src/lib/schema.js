@@ -28,6 +28,13 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").notNull().default(true),
   authVersion: integer("auth_version").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  // Per-user override of settings.maxPromptLength — null means "use the
+  // admin's global default", not "unlimited". Nullable rather than a
+  // required column with the default baked in, so an admin can tell "this
+  // user was never given a personal limit" apart from "this user's limit
+  // happens to equal the current global default" (which would otherwise
+  // silently stop tracking the global default if it's changed later).
+  maxPromptLength: integer("max_prompt_length"),
 });
 
 export const projects = pgTable("projects", {
@@ -149,6 +156,16 @@ export const pricing = pgTable("pricing", {
   notes: text("notes"),
 });
 
+// Generic admin-editable key/value settings — mirrors `pricing`'s shape
+// (small, admin-editable table) rather than a dedicated column per setting,
+// so future admin controls (this is the first) don't each need their own
+// migration. Value is always stored as text; readers parse/validate it.
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
 export const canvasBoards = pgTable("canvas_boards", {
   id: uuid("id").primaryKey().defaultRandom(), // app supplies crypto.randomUUID()
   projectId: uuid("project_id").notNull(),
@@ -192,9 +209,7 @@ export const agentConversationMessages = pgTable("agent_conversation_messages", 
   // generatedItemId (optional, on the same object) is attached after the
   // fact once the client's own s.generate() call actually creates a row —
   // see AgentConversationToolTrace's doc comment.
-  toolTrace: jsonb("tool_trace").$type
-
-(),
+  toolTrace: jsonb("tool_trace").$type(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 }, (table) => [
   index("agent_conversation_messages_conversation_id_idx").on(table.conversationId),

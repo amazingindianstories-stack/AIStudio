@@ -13,7 +13,6 @@ import {
   Trash2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { ProjectMenu } from "./ProjectMenu";
@@ -80,7 +79,7 @@ export function ChatSidebar({
         // Without this, a project with no threads yet has nothing to
         // select, and the feed below shows "Loading chat…" forever with no
         // way out except manually clicking "+ New chat".
-        const created = await apiFetch("/api/agent-conversations", {
+        const created = await fetch("/api/agent-conversations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, agentKind, name: "New chat" }),
@@ -100,7 +99,7 @@ export function ChatSidebar({
 
   const createConversation = async () => {
     if (!activeProjectId) return;
-    const res = await apiFetch("/api/agent-conversations", {
+    const res = await fetch("/api/agent-conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, agentKind, name: "New chat" }),
@@ -119,7 +118,7 @@ export function ChatSidebar({
     const trimmed = name.trim();
     if (!trimmed) return;
     setConversations((cs) => cs.map((c) => (c.id === id ? { ...c, name: trimmed } : c)));
-    const res = await apiFetch("/api/agent-conversations", {
+    const res = await fetch("/api/agent-conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "renameConversation", id, name: trimmed }),
@@ -129,7 +128,7 @@ export function ChatSidebar({
   };
 
   const deleteConversation = async (id) => {
-    const res = await apiFetch("/api/agent-conversations", {
+    const res = await fetch("/api/agent-conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "deleteConversation", id }),
