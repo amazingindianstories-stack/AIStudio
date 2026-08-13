@@ -18,7 +18,6 @@ import {
 import { encodeBlobWithBudget } from "./client-image-budget";
 import { renumberImgMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
-import { DEFAULT_MAX_PROMPT_LENGTH } from "./settings";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch } from "./api";
 import {
@@ -249,7 +248,7 @@ export const useStore = create((set, get) => ({
 
   currentUser: null,
   usersById: {},
-  maxPromptLength: DEFAULT_MAX_PROMPT_LENGTH,
+  limits: {},
 
   projects: [],
   activeProjectId: null,
@@ -1072,17 +1071,16 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  // Failure leaves maxPromptLength at its DEFAULT_MAX_PROMPT_LENGTH initial
-  // value rather than 0/undefined — a fetch hiccup must never make every
-  // prompt look "too long" client-side. The server enforces the real admin
-  // value regardless, so this is display/UX only, never the source of truth.
-  loadSettings: async () => {
+  // Failure leaves `limits` empty rather than throwing — call sites fall
+  // back to each limit's own registry default (src/lib/limits.ts) in that
+  // case, so a fetch hiccup never makes every prompt look "too long"
+  // client-side. The server enforces the real admin value regardless; this
+  // is display/UX only, never the source of truth.
+  loadLimits: async () => {
     try {
       const res = await apiFetch("/api/settings", { cache: "no-store" });
       const json = await res.json();
-      if (typeof json.maxPromptLength === "number") {
-        set({ maxPromptLength: json.maxPromptLength });
-      }
+      if (json && typeof json === "object") set({ limits: json });
     } catch {
       /* ignore */
     }

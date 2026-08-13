@@ -14,6 +14,7 @@ import {
   jsonb,
   uuid,
   index,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -28,13 +29,6 @@ export const users = pgTable("users", {
   isActive: boolean("is_active").notNull().default(true),
   authVersion: integer("auth_version").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
-  // Per-user override of settings.maxPromptLength — null means "use the
-  // admin's global default", not "unlimited". Nullable rather than a
-  // required column with the default baked in, so an admin can tell "this
-  // user was never given a personal limit" apart from "this user's limit
-  // happens to equal the current global default" (which would otherwise
-  // silently stop tracking the global default if it's changed later).
-  maxPromptLength: integer("max_prompt_length"),
 });
 
 export const projects = pgTable("projects", {
@@ -165,6 +159,25 @@ export const settings = pgTable("settings", {
   value: text("value").notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
+
+// Per-user overrides of `settings` rows — same key/value shape, scoped to a
+// user instead of the whole app. One generic table for every override type
+// rather than a dedicated nullable column per limit on `users`, so adding a
+// new limit (src/lib/limits.ts's LIMIT_DEFINITIONS) never needs a migration
+// or new columns — only a new registry entry. A user with no row for a given
+// key has no override for it; absence itself is the "use the global
+// default" signal, not a stored value that could drift from later changes
+// to that default.
+export const userLimits = pgTable(
+  "user_limits",
+  {
+    userId: uuid("user_id").notNull(),
+    key: text("key").notNull(),
+    value: text("value").notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.key] })]
+);
 
 export const canvasBoards = pgTable("canvas_boards", {
   id: uuid("id").primaryKey().defaultRandom(), // app supplies crypto.randomUUID()

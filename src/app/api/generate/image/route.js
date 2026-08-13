@@ -4,7 +4,7 @@ import { upsertItem } from "@/lib/store-db";
 import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents } from "@/lib/pricing";
-import { readEffectiveMaxPromptLength } from "@/lib/settings-db";
+import { readEffectiveLimit } from "@/lib/limits-db";
 import { logActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
@@ -34,7 +34,7 @@ export async function POST(req) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
   }
 
-  const maxPromptLength = await readEffectiveMaxPromptLength(user.id);
+  const maxPromptLength = await readEffectiveLimit("maxPromptLength", user.id);
   if (prompt.length > maxPromptLength) {
     return NextResponse.json(
       {

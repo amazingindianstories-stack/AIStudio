@@ -39,6 +39,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { formatCost } from "@/lib/pricing";
+import { LIMIT_DEFINITIONS, } from "@/lib/limits";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
@@ -362,6 +363,7 @@ function UsersTab({
   const [createNotice, setCreateNotice] = useState(null);
   const [notice, setNotice] = useState(null);
   const [resetUser, setResetUser] = useState(null);
+  const [limitsUser, setLimitsUser] = useState(null);
   const [pendingAction, setPendingAction] = useState(null);
   const [actionBusy, setActionBusy] = useState(false);
 
@@ -595,15 +597,10 @@ function UsersTab({
               <span className="text-xs text-white/45">
                 {user.genCount} gens · {formatCost(user.costCents)}
               </span>
-              <MaxPromptLengthField
-                user={user}
-                defaultValue={data.maxPromptLength}
-                patchUser={patchUser}
-                className="w-24"
-              />
               <UserActions
                 user={user}
                 isSelf={isSelf}
+                onLimits={() => setLimitsUser(user)}
                 onReset={() => setResetUser(user)}
                 onDelete={() => setPendingAction({ kind: "delete", user })}
                 className="ml-auto"
@@ -614,14 +611,13 @@ function UsersTab({
       </div>
 
       <div className="scroll-thin hidden overflow-x-auto rounded-xl border border-line sm:block">
-        <table className="w-full min-w-[860px] text-sm">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
             <tr>
               <th className="px-3 py-2">User</th>
               <th className="px-3 py-2">Role</th>
               <th className="px-3 py-2">Gens</th>
               <th className="px-3 py-2">Cost</th>
-              <th className="px-3 py-2">Max prompt</th>
               <th className="px-3 py-2">Status</th>
               <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
             </tr>
@@ -659,14 +655,6 @@ function UsersTab({
                 <td className="px-3 py-2 tabular-nums">{user.genCount}</td>
                 <td className="px-3 py-2 tabular-nums">{formatCost(user.costCents)}</td>
                 <td className="px-3 py-2">
-                  <MaxPromptLengthField
-                    user={user}
-                    defaultValue={data.maxPromptLength}
-                    patchUser={patchUser}
-                    className="w-24"
-                  />
-                </td>
-                <td className="px-3 py-2">
                   <button
                     type="button"
                     onClick={() => setPendingAction({ kind: "status", user })}
@@ -686,6 +674,7 @@ function UsersTab({
                   <UserActions
                     user={user}
                     isSelf={isSelf}
+                    onLimits={() => setLimitsUser(user)}
                     onReset={() => setResetUser(user)}
                     onDelete={() => setPendingAction({ kind: "delete", user })}
                   />
@@ -730,6 +719,15 @@ function UsersTab({
             onConfirm={confirmAction}
           />
         )}
+        {limitsUser && (
+          <UserLimitsModal
+            key={`limits-${limitsUser.id}`}
+            user={limitsUser}
+            globalLimits={data.limits}
+            onClose={() => setLimitsUser(null)}
+            onSaved={reload}
+          />
+        )}
       </AnimatePresence>
     </div>
   );
@@ -752,59 +750,10 @@ function AdminAvatar({ user, className }) {
   );
 }
 
-/** Per-user override of the global max-prompt-length default. Empty field =
- *  no override (shows the current default as a placeholder, not a value —
- *  so it visibly tracks the default if that's later changed, rather than
- *  silently freezing at whatever the default happened to be when this
- *  loaded). Saves on blur, matching PricingTab's pattern. */
-function MaxPromptLengthField({
-  user,
-  defaultValue,
-  patchUser,
-  className,
-}
-
-) {
-  const [value, setValue] = useState(
-    user.maxPromptLength != null ? String(user.maxPromptLength) : ""
-  );
-
-  useEffect(() => {
-    setValue(user.maxPromptLength != null ? String(user.maxPromptLength) : "");
-  }, [user.maxPromptLength]);
-
-  const save = () => {
-    if (value.trim() === "") {
-      if (user.maxPromptLength != null) {
-        patchUser(user.id, { maxPromptLength: null }, "Reverted to the default limit.");
-      }
-      return;
-    }
-    const n = Math.round(Number(value));
-    if (!Number.isFinite(n) || n < 1 || n === user.maxPromptLength) return;
-    patchUser(user.id, { maxPromptLength: n }, "Personal prompt limit updated.");
-  };
-
-  return (
-    <input
-      type="number"
-      min={1}
-      value={value}
-      placeholder={`Default (${defaultValue.toLocaleString()})`}
-      aria-label={`Max prompt length for ${user.name || user.email}`}
-      onChange={(e) => setValue(e.target.value)}
-      onBlur={save}
-      className={cn(
-        "rounded-lg border border-line bg-ink-700 px-2 py-1 text-xs outline-none placeholder:text-white/30 focus:border-brand/40",
-        className
-      )}
-    />
-  );
-}
-
 function UserActions({
   user,
   isSelf,
+  onLimits,
   onReset,
   onDelete,
   className,
@@ -813,6 +762,15 @@ function UserActions({
 ) {
   return (
     <div className={cn("flex justify-end gap-1", className)}>
+      <button
+        type="button"
+        onClick={onLimits}
+        aria-label={`Limits for ${user.name || user.email}`}
+        title="Limits"
+        className="grid h-8 w-8 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      >
+        <SlidersHorizontal className="h-4 w-4" />
+      </button>
       <button
         type="button"
         onClick={onReset}
@@ -927,6 +885,115 @@ function PasswordResetDialog({
           </button>
         </div>
       </form>
+    </AdminModal>
+  );
+}
+
+/** Every registered limit (src/lib/limits.ts) for one user, each with its
+ *  own override field — the whole point of the registry pattern is that
+ *  this component never needs to change when a new limit type is added; it
+ *  just renders one more row. */
+function UserLimitsModal({
+  user,
+  globalLimits,
+  onClose,
+  onSaved,
+}
+
+) {
+  const [values, setValues] = useState(() => {
+    const init = {};
+    for (const def of LIMIT_DEFINITIONS) {
+      const override = user.limits[def.key];
+      init[def.key] = override != null ? String(override) : "";
+    }
+    return init;
+  });
+  // What's actually persisted, tracked locally rather than read back off the
+  // `user` prop — mutating a prop object is the wrong way to reflect a save,
+  // and onSaved() (a background reload()) won't hand this modal a fresh
+  // `user` object anyway, since `limitsUser` in the parent is a separate
+  // snapshot that reload() doesn't touch.
+  const [savedOverrides, setSavedOverrides] = useState(() => {
+    const init = {};
+    for (const def of LIMIT_DEFINITIONS) init[def.key] = user.limits[def.key] ?? null;
+    return init;
+  });
+  const [busyKey, setBusyKey] = useState(null);
+  const [savedKey, setSavedKey] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  const save = async (def) => {
+    const raw = values[def.key].trim();
+    const nextValue = raw === "" ? null : Math.round(Number(raw));
+    if (nextValue === savedOverrides[def.key]) return;
+    if (nextValue !== null && (!Number.isFinite(nextValue) || nextValue < def.min)) {
+      setNotice({ kind: "error", text: `Invalid ${def.label.toLowerCase()}.` });
+      return;
+    }
+    setBusyKey(def.key);
+    setNotice(null);
+    try {
+      const res = await apiFetch("/api/admin/user-limits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, key: def.key, value: nextValue }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "Could not update the limit.");
+      setSavedOverrides((s) => ({ ...s, [def.key]: nextValue }));
+      onSaved();
+      setSavedKey(def.key);
+      setTimeout(() => setSavedKey((k) => (k === def.key ? null : k)), 2000);
+    } catch (error) {
+      setNotice({
+        kind: "error",
+        text: error instanceof Error ? error.message : "Could not update the limit.",
+      });
+    } finally {
+      setBusyKey(null);
+    }
+  };
+
+  return (
+    <AdminModal title={`Limits for ${user.name || user.email}`} onClose={onClose}>
+      <div className="space-y-4">
+        <p className="text-sm leading-5 text-white/55">
+          Leave a field blank to use the global default (Limits tab). A value
+          here overrides it for this user specifically.
+        </p>
+        {LIMIT_DEFINITIONS.map((def) => (
+          <div key={def.key} className="rounded-xl border border-line p-3">
+            <label className="mb-1 block text-sm font-medium text-white">{def.label}</label>
+            <p className="mb-2 text-xs leading-5 text-white/45">{def.description}</p>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={def.min}
+                value={values[def.key]}
+                placeholder={`Default (${globalLimits[def.key]?.toLocaleString() ?? def.defaultValue.toLocaleString()})`}
+                onChange={(e) => setValues((v) => ({ ...v, [def.key]: e.target.value }))}
+                onBlur={() => save(def)}
+                disabled={busyKey === def.key}
+                className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none placeholder:text-white/30 focus:border-brand/40 disabled:opacity-50"
+              />
+              <span className="text-xs text-white/40">{def.unit}</span>
+              {busyKey === def.key && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
+              {savedKey === def.key && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+            </div>
+          </div>
+        ))}
+        <AdminNoticeLine notice={notice} />
+        <div className="flex justify-end border-t border-line pt-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/[0.06] hover:text-white"
+          >
+            Done
+          </button>
+        </div>
+      </div>
     </AdminModal>
   );
 }
@@ -1570,27 +1637,49 @@ function PricingTab({ data, reload }) {
 }
 
 // ── Limits tab ──────────────────────────────────────────────────────────────
+/** Global default for every registered limit (src/lib/limits.ts). Renders
+ *  one card per LIMIT_DEFINITIONS entry — adding a new limit to that
+ *  registry needs no change here, it just appears as another card. A
+ *  personal override for one user is set from the Users tab instead of
+ *  here (UserLimitsModal), which is what actually takes precedence over
+ *  the value edited on this tab for that user. */
 function LimitsTab({ data, reload }) {
-  const [value, setValue] = useState(String(data.maxPromptLength));
+  return (
+    <div className="space-y-4">
+      {LIMIT_DEFINITIONS.map((def) => (
+        <GlobalLimitCard key={def.key} def={def} data={data} reload={reload} />
+      ))}
+    </div>
+  );
+}
+
+function GlobalLimitCard({
+  def,
+  data,
+  reload,
+}
+
+) {
+  const [value, setValue] = useState(String(data.limits[def.key] ?? def.defaultValue));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   // Re-sync if another admin session changed it and this tab reloads —
   // mirrors PricingTab's defaultValue-per-row approach, just for one field.
   useEffect(() => {
-    setValue(String(data.maxPromptLength));
-  }, [data.maxPromptLength]);
+    setValue(String(data.limits[def.key] ?? def.defaultValue));
+  }, [data.limits, def.key, def.defaultValue]);
 
   const save = async () => {
     const n = Math.round(Number(value));
-    if (!Number.isFinite(n) || n < 1) return;
+    if (!Number.isFinite(n) || n < def.min) return;
     setSaving(true);
     setSaved(false);
     try {
-      await apiFetch("/api/admin/settings", {
+      await apiFetch("/api/admin/limits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ maxPromptLength: n }),
+        body: JSON.stringify({ key: def.key, value: n }),
       });
       reload();
       setSaved(true);
@@ -1601,33 +1690,25 @@ function LimitsTab({ data, reload }) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-xl border border-line p-4">
-        <label className="mb-1 block text-sm font-medium text-white">
-          Max prompt length (default)
-        </label>
-        <p className="mb-3 text-xs text-white/45">
-          Rejects an image or video generation request if its prompt exceeds
-          this many characters — enforced server-side regardless of what the
-          composer shows. This is the default for every user; give an
-          individual user their own limit from the Users tab, which
-          overrides this value for them specifically. Some models (Kling)
-          already enforce their own tighter, non-configurable cap on top of
-          whichever limit applies.
-        </p>
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min={1}
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            onBlur={save}
-            className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none focus:border-brand/40"
-          />
-          <span className="text-xs text-white/40">characters</span>
-          {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
-          {saved && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
-        </div>
+    <div className="rounded-xl border border-line p-4">
+      <label className="mb-1 block text-sm font-medium text-white">{def.label}</label>
+      <p className="mb-3 text-xs leading-5 text-white/45">
+        {def.description} This is the default for every user; give an
+        individual user their own limit from the Users tab, which overrides
+        this value for them specifically.
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={def.min}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={save}
+          className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none focus:border-brand/40"
+        />
+        <span className="text-xs text-white/40">{def.unit}</span>
+        {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
+        {saved && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
       </div>
     </div>
   );
