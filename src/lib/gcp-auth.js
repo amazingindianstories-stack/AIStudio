@@ -4,18 +4,10 @@ import {
   GoogleAuth,
 
 } from "google-auth-library";
-import {
-  ExternalAccountClient as StorageExternalAccountClient,
-  GoogleAuth as StorageGoogleAuth,
-
-} from "google-auth-library-v9";
 
 const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 
 let cachedAuth;
-let cachedStorageAuth
-
-;
 
 function required(name) {
   const value = process.env[name];
@@ -69,24 +61,27 @@ export function getGoogleAuth() {
   return cachedAuth;
 }
 
-/** Storage 7 still requires google-auth-library v9 at runtime. */
-export function getStorageAuth()
-
- {
-  if (cachedStorageAuth) return cachedStorageAuth;
-
-  if (process.env.GCP_AUTH_MODE !== "wif") {
-    cachedStorageAuth = new StorageGoogleAuth({
-      projectId: process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT,
-      scopes: [CLOUD_PLATFORM_SCOPE],
-    });
-    return cachedStorageAuth;
-  }
-
-  const client = StorageExternalAccountClient.fromJSON(externalAccountOptions());
-  if (!client) throw new Error("Unable to initialize Vercel GCS federation");
-  cachedStorageAuth = client;
-  return cachedStorageAuth;
+/**
+ * Storage-specific credentials — a raw external_account JSON blob, not a
+ * pre-built client. `@google-cloud/storage` pins its own nested
+ * `google-auth-library` (a different major version than this app's
+ * top-level one — see package.json's `google-auth-library-v9` alias, which
+ * this function used to build a client from). An `ExternalAccountClient`
+ * built from that aliased package is a different class than the one
+ * Storage's own bundled copy checks for internally, so its signing code
+ * fails an `instanceof` check on the client we handed it, silently falls
+ * back to attempting ambient ADC discovery, and dies with "Unable to find
+ * credentials in current environment" — which is what actually broke GCS
+ * signing (both reads and writes) in production. This was previously
+ * misdiagnosed as a missing `roles/iam.serviceAccountTokenCreator`
+ * self-binding, which was already correctly granted (found 2026-08-14).
+ * Passing the raw JSON as `credentials` instead lets Storage build the
+ * client from ITS OWN nested google-auth-library, so every internal
+ * instanceof check sees a class it actually recognizes.
+ */
+export function getStorageCredentials() {
+  if (process.env.GCP_AUTH_MODE !== "wif") return undefined;
+  return externalAccountOptions();
 }
 
 export function gcpProjectId() {

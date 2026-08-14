@@ -8,7 +8,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { gcpProjectId, getStorageAuth } from "./gcp-auth";
+import { gcpProjectId, getStorageCredentials } from "./gcp-auth";
 import {
   isThumbnailable,
   originalKeyFromThumb,
@@ -35,10 +35,13 @@ let storageClient;
 let legacyS3Client;
 
 function storage() {
-  storageClient ??= new Storage({
-    projectId: gcpProjectId(),
-    authClient: getStorageAuth() ,
-  });
+  if (!storageClient) {
+    const credentials = getStorageCredentials();
+    storageClient = new Storage({
+      projectId: gcpProjectId(),
+      ...(credentials ? { credentials } : {}),
+    });
+  }
   return storageClient;
 }
 
