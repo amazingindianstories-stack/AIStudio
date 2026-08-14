@@ -17,3 +17,9 @@ easydict
 einops
 tqdm
 matplotlib
+# ultralytics' YOLO.track() (used by trackCharacters — see
+# _write_tracked_composite) needs `lap` for its default tracker's linear
+# assignment step; it's not pulled in by the base ultralytics install.
+# Only hit when a real trackCharacters=true job actually runs .track(), so
+# the plain-depth path (already verified end-to-end) never exercised this.
+lap
