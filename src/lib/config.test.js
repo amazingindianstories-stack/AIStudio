@@ -2,8 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   DEFAULTS,
+  DEPTH_ENCODERS,
+  DEPTH_MODEL_NAME,
   MAX_REFERENCE_VIDEOS,
   MODELS,
+  MODES,
   VIDEO_TASK_MODES,
   aspectRatiosForModel,
   durationsForModel,
@@ -173,6 +176,27 @@ test("defaultsAreOfferedModels: every DEFAULTS model is in the picker", () => {
     assert.ok(entry, `DEFAULTS.${kind}.model "${name}" is not in MODELS`);
     assert.equal(entry.kind, kind, `DEFAULTS.${kind}.model "${name}" is not a ${kind} model`);
   }
+});
+
+// ── Depth-map worker ─────────────────────────────────────────────────────
+
+test("depthDefaultIsOfferedModel: DEFAULTS.depth.model matches the one kind='depth' MODELS entry", () => {
+  assert.equal(DEFAULTS.depth.model, DEPTH_MODEL_NAME);
+  const entry = MODELS.find((m) => m.kind === "depth");
+  assert.ok(entry, "no MODELS entry has kind='depth'");
+  assert.equal(entry.name, DEPTH_MODEL_NAME);
+  // Exactly one — a second depth entry would be ambiguous, since the
+  // composer has no model picker for this mode to disambiguate with.
+  assert.equal(MODELS.filter((m) => m.kind === "depth").length, 1);
+});
+
+test("MODES includes depth alongside image/video", () => {
+  assert.ok(MODES.some((m) => m.id === "depth" && m.enabled));
+});
+
+test("DEPTH_ENCODERS: default (DEFAULTS.depth.resolution) is a valid encoder", () => {
+  assert.ok(DEPTH_ENCODERS.includes(DEFAULTS.depth.resolution));
+  assert.deepEqual(DEPTH_ENCODERS, ["vits", "vitb", "vitl"]);
 });
 
 // ── Seedance 2.5 ─────────────────────────────────────────────────────────

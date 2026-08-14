@@ -10,7 +10,7 @@ from apps.common.db_flags import TEST_MANAGED
 
 class Generation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)
-    kind = models.TextField()  # 'image' | 'video'
+    kind = models.TextField()  # 'image' | 'video' | 'depth'
     status = models.TextField()
     prompt = models.TextField()
     model = models.TextField()
@@ -32,6 +32,14 @@ class Generation(models.Model):
     task_id = models.TextField(null=True)
     generate_audio = models.BooleanField(null=True)
     video_task_mode = models.TextField(null=True)
+    # Depth-map jobs only (kind='depth') — see schema.js's generations table
+    # for why these are worker-reported columns rather than an in-request
+    # value like image/video's status fields.
+    progress_percent = models.IntegerField(null=True)
+    progress_message = models.TextField(null=True)
+    # See schema.js's trackCharacters comment — YOLOv8-seg person tracking
+    # composited onto the depth map, worker-side toggle.
+    track_characters = models.BooleanField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
 
@@ -49,3 +57,24 @@ class Pricing(models.Model):
     class Meta:
         managed = TEST_MANAGED
         db_table = "pricing"
+
+
+class DepthWorker(models.Model):
+    """Mirrors schema.js's depth_workers table — see that file's docstring
+    for the "online" derivation and why workerId (not row id) is the stable
+    upsert key."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    worker_id = models.TextField(unique=True)
+    label = models.TextField(null=True)
+    device = models.TextField(null=True)
+    status = models.TextField(default="idle")
+    current_job_id = models.UUIDField(null=True)
+    ram_limit_mb = models.IntegerField(null=True)
+    ram_used_mb = models.IntegerField(null=True)
+    last_seen_at = models.BigIntegerField()
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        managed = TEST_MANAGED
+        db_table = "depth_workers"

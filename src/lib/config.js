@@ -11,6 +11,19 @@
  * the path unreachable from the UI; deleting the backend is a separate step.
  * `isHiggsfieldModel` is still consulted by the routes and must stay.
  */
+
+/** Stamped on every depth-map generation row (generate/depth/route.js) and
+ *  the one MODELS entry with kind="depth" below — see that entry's comment.
+ *  Declared ahead of MODELS because the entry below references it. */
+export const DEPTH_MODEL_NAME = "Depth Anything (Local)";
+
+/** vits = fastest/lowest quality, vitb = balanced (default), vitl = slowest/
+ *  highest quality — see Video-Depth-Anything's own README for the params
+ *  each trades off (28M/113M/382M). vitl is sized for A100-class GPUs per
+ *  that README's own benchmark table, so it's offered but not defaulted to
+ *  on Apple Silicon. */
+export const DEPTH_ENCODERS = ["vits", "vitb", "vitl"];
+
 export const MODELS = [
   { id: "nano-banana-pro", name: "Nano Banana Pro", kind: "image", badge: "BEST" },
   // Kling image models (providers/kling.ts). Both run through Kling's
@@ -71,21 +84,46 @@ export const MODELS = [
     badge: "NEW",
     hint: "Google Interactions API — full NBP-style reference scaffolding, 16:9/9:16 only",
   },
+  // The only "depth" entry, and the only model in this list that runs on
+  // hardware this app doesn't pay cloud rates for — see the backend/ Depth
+  // section in CLAUDE.md. Its composer is a different shape from image/video
+  // (no prompt, no @tags, a video upload instead) so it isn't offered
+  // through the normal model picker; DEPTH_MODEL_NAME above is what the
+  // enqueue route stamps on every depth row, kept in sync with this entry's
+  // `name` by depthDefaultIsOfferedModel in config.test.js the same way
+  // defaultsAreOfferedModels already pins image/video.
+  {
+    id: "depth-anything-local",
+    name: DEPTH_MODEL_NAME,
+    kind: "depth",
+    badge: "LOCAL",
+    hint: "Runs on a local worker machine, not the cloud — offline if nobody's machine is running it",
+  },
 ];
 
 export const MODES = [
   { id: "image", label: "AI Image", icon: "Image", enabled: true },
   { id: "video", label: "AI Video", icon: "Clapperboard", enabled: true },
+  { id: "depth", label: "Depth Map", icon: "Layers", enabled: true },
 ];
 
+// depth: [] on both — the depth composer has no aspect-ratio or resolution
+// picker (aspect ratio is measured from the output after the fact, same as
+// Kling image-to-image; DEPTH_ENCODERS is the closest depth analogue to
+// "resolution" and is a separate list, not folded in here). Present as empty
+// rather than omitted so aspectRatiosForModel/resolutionsForModel and
+// restoreComposerDraft's `.includes()` validation degrade to "nothing
+// restored" instead of a TypeError on `undefined.includes`.
 export const ASPECT_RATIOS = {
   image: ["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"],
   video: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+  depth: [],
 };
 
 export const RESOLUTIONS = {
   image: ["1K", "2K", "4K"],
   video: ["480p", "720p", "1080p"],
+  depth: [],
 };
 
 export const DURATIONS = [4, 5, 8, 10, 15]; // seconds (video)
@@ -223,5 +261,14 @@ export const DEFAULTS = {
     aspectRatio: "16:9",
     resolution: "1080p",
     duration: 5,
+  },
+  depth: {
+    model: DEPTH_MODEL_NAME,
+    // Placeholders — corrected/ignored the same way described on ASPECT_RATIOS
+    // and RESOLUTIONS above. Present so setMode's generic `DEFAULTS[mode]`
+    // lookup never has to special-case depth to avoid reading undefined
+    // fields off this object.
+    aspectRatio: "16:9",
+    resolution: DEPTH_ENCODERS[1], // "vitb" — see DEPTH_ENCODERS
   },
 };

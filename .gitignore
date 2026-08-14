@@ -20,6 +20,8 @@ build
 !/public/references/.gitkeep
 /data/*.json
 pyserver/models/
+depth-worker/.venv
+depth-worker/.worker-id
 .vercel
 .env*
 vercel-gcp-cred.json

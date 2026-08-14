@@ -243,6 +243,11 @@ export const useStore = create((set, get) => ({
   rightPanelOpen: false,
   mobileHistoryOpen: false,
   generating: false,
+  // Depth-mode composer only — polled by the status pill (see
+  // loadDepthWorkerStatus below). null until the first successful poll, so
+  // the pill can show a neutral "checking..." state instead of guessing
+  // online/offline before any real answer has come back.
+  depthWorkerStatus: null,
   rightTab: "project",
   activeId: null,
   search: "",
@@ -656,6 +661,67 @@ export const useStore = create((set, get) => ({
       set({ generating: false });
     }
     return created;
+  },
+
+  /**
+   * Depth mode's own submit path — not folded into generate() above because
+   * the payload shape barely overlaps (a storage key instead of a prompt, no
+   * aspect ratio/resolution/reference-image machinery, no batch loop: a
+   * depth job runs on one local worker, so submitting four at once would
+   * just queue three of them behind the first with nothing to show for it
+   * yet). `inputVideoKey` must already be uploaded — see DepthComposer.jsx's
+   * use of /api/uploads/presign.
+   */
+  generateDepthMap: async ({ inputVideoKey, encoder, trackCharacters, originalName }) => {
+    if (get().generating) return null;
+    set({ generating: true });
+    try {
+      const res = await apiFetch("/api/generate/depth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inputVideoKey,
+          encoder,
+          trackCharacters,
+          originalName,
+          projectId: get().activeProjectId ?? undefined,
+          folderId: get().activeFolderId ?? undefined,
+        }),
+      });
+      let item;
+      try {
+        item = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): the server returned an empty or invalid response.`);
+      }
+      if (!res.ok) throw new Error(item.error || `Server error: ${res.status}`);
+      if (item?.id) {
+        insertNewItem(set, item);
+        startPolling(item, set, get);
+      }
+      return item;
+    } catch (e) {
+      console.error("Depth-map request failed:", e);
+      alert(e.message || "Failed to start depth-map generation.");
+      return null;
+    } finally {
+      void get().loadCounts();
+      set({ generating: false });
+    }
+  },
+
+  /** Polled by DepthComposer / the nav status pill — see depth-jobs-db.js's
+   *  readDepthWorkerStatus for the response shape. Failures leave the last
+   *  known status in place rather than flashing the pill to a wrong state on
+   *  one dropped request. */
+  loadDepthWorkerStatus: async () => {
+    try {
+      const res = await apiFetch("/api/worker/depth/status", { cache: "no-store" });
+      const json = await res.json();
+      set({ depthWorkerStatus: json });
+    } catch {
+      /* keep the last known status */
+    }
   },
 
   removeItem: async (id) => {
@@ -1352,6 +1418,16 @@ function startPolling(
   set,
   get
 ) {
+  // Depth jobs never go through /api/queue/execute's admission control (see
+  // generate/depth/route.js's docstring) — queued or running, the only thing
+  // that can change the row is the worker itself, so both states use the
+  // same plain-read poller.
+  if (item.kind === "depth") {
+    if (item.status === "queued" || item.status === "running") {
+      pollDepthStatus(item.id, set, get);
+    }
+    return;
+  }
   if (item.status === "queued") {
     pollQueue(item.id, set, get);
   } else if (item.status === "running") {
@@ -1367,6 +1443,42 @@ function startPolling(
       pollQueue(item.id, set, get);
     }
   }
+}
+
+/** Depth jobs' own poller — a plain read (see generate/depth/status/route.js's
+ *  docstring for why there's nothing to "advance" server-side here, unlike
+ *  pollVideo). Shorter interval than pollVideo's 4s: progressPercent/
+ *  progressMessage update frequently while a job is running (see
+ *  reportDepthProgress) and the composer is meant to show that moving. */
+function pollDepthStatus(
+  id,
+  set,
+  get
+) {
+  if (polling.has(id)) return;
+  polling.add(id);
+
+  const tick = async () => {
+    try {
+      const res = await apiFetch(`/api/generate/depth/status?id=${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      const item = await res.json();
+      if (item?.id) {
+        patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
+        if (item.status === "succeeded" || item.status === "failed") {
+          polling.delete(id);
+          void get().loadCounts();
+          return;
+        }
+      }
+    } catch {
+      /* keep trying */
+    }
+    if (polling.has(id)) setTimeout(tick, 2500);
+  };
+
+  setTimeout(tick, 1500);
 }
 
 function pollQueue(

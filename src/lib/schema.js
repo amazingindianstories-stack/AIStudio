@@ -49,7 +49,7 @@ export const folders = pgTable("folders", {
 
 export const generations = pgTable("generations", {
   id: uuid("id").primaryKey().defaultRandom(),
-  kind: text("kind").notNull(), // 'image' | 'video'
+  kind: text("kind").notNull(), // 'image' | 'video' | 'depth'
   status: text("status").notNull(),
   prompt: text("prompt").notNull(),
   model: text("model").notNull(),
@@ -88,6 +88,24 @@ export const generations = pgTable("generations", {
   // status-poll route so the exact post-generation billing correction knows
   // which per-token rate applied.
   videoTaskMode: text("video_task_mode"),
+  // Depth-map jobs only (kind='depth'). Unlike image/video, a depth job is
+  // driven by a worker dialing OUT to this app rather than this app calling a
+  // cloud provider — see depth-workers.js — so there is no single request in
+  // flight to hang a progress read off. The worker POSTs here periodically
+  // and the browser polls the row, the same way it already polls for
+  // status/url on every other kind. Cleared back to null on completion so
+  // "absent" always means "not currently reporting progress", not "0%".
+  progressPercent: integer("progress_percent"),
+  progressMessage: text("progress_message"),
+  // Depth-map jobs only. When true, the worker also runs YOLOv8-seg person
+  // tracking (ultralytics .track(persist=True, classes=[0])) and tints each
+  // tracked person a distinct color on the depth map — the composite
+  // video-depth-maps/scripts/color_code_depth.py already produces locally —
+  // instead of a plain grayscale depth video. A dedicated column rather than
+  // reusing generateAudio (also a per-job worker-consumed boolean, but for a
+  // wholly different kind, which would read as a depth row somehow having an
+  // audio setting).
+  trackCharacters: boolean("track_characters"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [
@@ -131,6 +149,31 @@ export const generations = pgTable("generations", {
     .on(table.favoritedAt.desc(), table.id.desc())
     .where(sql`${table.isFavorite}`),
 ]);
+
+/**
+ * Registry of local depth-map workers (see depth-workers.js). One row per
+ * worker process, upserted on every heartbeat — "online" is derived from
+ * `lastSeenAt` recency at read time, never stored as a boolean, so a worker
+ * that was killed -9 or lost network self-heals to "offline" the moment its
+ * heartbeat goes stale rather than requiring a clean shutdown to report it.
+ *
+ * `workerId` is a stable id the worker process generates once and persists
+ * locally (see depth-worker/worker.py), not the DB row id — a restarted
+ * worker upserts the same row instead of leaving a dead one behind and
+ * spawning a new one.
+ */
+export const depthWorkers = pgTable("depth_workers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  workerId: text("worker_id").notNull().unique(),
+  label: text("label"), // e.g. "Rohit's Mac Studio" — set once, cosmetic only
+  device: text("device"), // 'mps' | 'cuda' | 'cpu', reported by the worker
+  status: text("status").notNull().default("idle"), // 'idle' | 'busy' — never 'offline': that's derived from lastSeenAt
+  currentJobId: uuid("current_job_id"),
+  ramLimitMb: integer("ram_limit_mb"),
+  ramUsedMb: integer("ram_used_mb"),
+  lastSeenAt: bigint("last_seen_at", { mode: "number" }).notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+});
 
 export const assets = pgTable("assets", {
   id: uuid("id").primaryKey().defaultRandom(),

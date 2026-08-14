@@ -5,6 +5,15 @@ pins the TS side)."""
 
 import re
 
+# Stamped on every depth-map generation row (depth_views.py) and the one
+# MODELS entry with kind="depth" below — see that entry's comment. Declared
+# ahead of MODELS because the entry below references it, mirroring config.js.
+DEPTH_MODEL_NAME = "Depth Anything (Local)"
+
+# vits = fastest/lowest quality, vitb = balanced (default), vitl = slowest/
+# highest quality — see config.js's DEPTH_ENCODERS comment.
+DEPTH_ENCODERS = ["vits", "vitb", "vitl"]
+
 MODELS = [
     {"id": "nano-banana-pro", "name": "Nano Banana Pro", "kind": "image", "badge": "BEST"},
     {
@@ -42,21 +51,32 @@ MODELS = [
         "badge": "NEW",
         "hint": "Google Interactions API — full NBP-style reference scaffolding, 16:9/9:16 only",
     },
+    # The only "depth" entry — see config.js's matching MODELS entry comment.
+    {
+        "id": "depth-anything-local",
+        "name": DEPTH_MODEL_NAME,
+        "kind": "depth",
+        "badge": "LOCAL",
+        "hint": "Runs on a local worker machine, not the cloud — offline if nobody's machine is running it",
+    },
 ]
 
 MODES = [
     {"id": "image", "label": "AI Image", "icon": "Image", "enabled": True},
     {"id": "video", "label": "AI Video", "icon": "Clapperboard", "enabled": True},
+    {"id": "depth", "label": "Depth Map", "icon": "Layers", "enabled": True},
 ]
 
 ASPECT_RATIOS = {
     "image": ["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"],
     "video": ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
+    "depth": [],
 }
 
 RESOLUTIONS = {
     "image": ["1K", "2K", "4K"],
     "video": ["480p", "720p", "1080p"],
+    "depth": [],
 }
 
 DURATIONS = [4, 5, 8, 10, 15]
@@ -137,4 +157,5 @@ def supports_video_edit_extend(model: str) -> bool:
 DEFAULTS = {
     "image": {"model": "Nano Banana Pro", "aspectRatio": "1:1", "resolution": "2K"},
     "video": {"model": "Seedance 2.0", "aspectRatio": "16:9", "resolution": "1080p", "duration": 5},
+    "depth": {"model": DEPTH_MODEL_NAME, "aspectRatio": "16:9", "resolution": DEPTH_ENCODERS[1]},
 }

@@ -33,6 +33,7 @@ import { useStore, restoreComposerDraft } from "@/lib/store";
 import { limitDefinition } from "@/lib/limits";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { VideoRefPicker } from "./VideoRefPicker";
+import { DepthComposer } from "./DepthComposer";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, } from "./MentionTextarea";
 import {
@@ -62,6 +63,7 @@ const MODE_ICONS = {
   MessageSquare,
   UserRound,
   AudioLines,
+  Layers,
 };
 
 export function PromptComposer() {
@@ -259,6 +261,14 @@ export function PromptComposer() {
     e.preventDefault();
     addImageFiles(Array.from(e.dataTransfer.files));
   };
+
+  // Depth mode is a different shape entirely (a video upload, not a prompt +
+  // @tags), so it's a separate component rather than another branch woven
+  // through the JSX below — after every hook above, never before, so hook
+  // call order stays identical across a mode switch (rules of hooks).
+  if (s.mode === "depth") {
+    return <DepthComposer />;
+  }
 
   return (
     <motion.div
@@ -526,7 +536,7 @@ export function PromptComposer() {
                   active={m.id === s.mode}
                   disabled={!m.enabled}
                   onClick={() => {
-                    if (m.id === "image" || m.id === "video") s.setMode(m.id);
+                    if (m.id === "image" || m.id === "video" || m.id === "depth") s.setMode(m.id);
                     close();
                   }}
                 >
