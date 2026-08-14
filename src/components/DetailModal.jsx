@@ -16,9 +16,11 @@ import {
   ChevronDown,
   ChevronUp,
   Clapperboard,
+  Layers,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
+import { DEPTH_ENCODER_LABELS } from "@/lib/config";
 import { supportsVideoReference } from "@/lib/config";
 
 /** Prompt in the details sidebar: minimized by default, hover reveals an
@@ -288,6 +290,17 @@ export function DetailModal() {
                     className="h-full w-full object-contain"
                   />
                 )}
+                {item.kind === "depth" && item.url && (
+                  <video
+                    data-detail-video
+                    src={item.url}
+                    controls
+                    autoPlay
+                    loop
+                    playsInline
+                    className="h-full w-full object-contain"
+                  />
+                )}
               </div>
             </div>
 
@@ -298,6 +311,8 @@ export function DetailModal() {
                 <div className="grid h-8 w-8 place-items-center rounded-lg bg-gradient-to-br from-brand/30 to-accent/10 ring-1 ring-brand/30">
                   {item.kind === "image" ? (
                     <Sparkles className="h-4 w-4 text-brand" />
+                  ) : item.kind === "depth" ? (
+                    <Layers className="h-4 w-4 text-brand" />
                   ) : (
                     <Play className="h-4 w-4 text-brand" />
                   )}
@@ -330,7 +345,21 @@ export function DetailModal() {
               </p>
               <div className="mb-6 grid grid-cols-2 gap-2">
                 <Param label="Aspect" value={item.aspectRatio} />
-                {item.resolution && <Param label="Resolution" value={item.resolution} />}
+                {item.kind === "depth" ? (
+                  <>
+                    {item.resolution && (
+                      <Param
+                        label="Quality"
+                        value={DEPTH_ENCODER_LABELS[item.resolution]?.label ?? item.resolution}
+                      />
+                    )}
+                    {item.trackCharacters && (
+                      <Param label="Character tracking" value="On" />
+                    )}
+                  </>
+                ) : (
+                  item.resolution && <Param label="Resolution" value={item.resolution} />
+                )}
                 {item.duration && <Param label="Duration" value={`${item.duration}s`} />}
                 <Param label="Model" value={item.model} icon={<Box className="h-3.5 w-3.5" />} />
               </div>

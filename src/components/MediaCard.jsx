@@ -6,6 +6,7 @@ import {
   Loader2,
   AlertCircle,
   ImageIcon,
+  Layers,
   Trash2,
   ShieldAlert,
   Wand2,
@@ -152,6 +153,32 @@ export function MediaCard({
             </div>
           </>
         )}
+        {done && item.kind === "depth" && item.url && (
+          // Same treatment as the video kind — depth output is a real video
+          // file (see worker.py), just never a poster (nothing renders one
+          // for depth, same as real image/video generations today; only
+          // MOCK_GENERATION sets poster). <video preload="metadata"> shows
+          // its own first frame with no poster needed. Layers badge instead
+          // of Play to match the Depth Map mode's icon in config.js's MODES.
+          <>
+            <video
+              src={item.url}
+              muted
+              loop
+              playsInline
+              preload="metadata"
+              onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
+              onMouseLeave={(e) => {
+                e.currentTarget.pause();
+                e.currentTarget.currentTime = 0;
+              }}
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <div className="pointer-events-none absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/45 backdrop-blur-sm">
+              <Layers className="h-3.5 w-3.5 text-white" />
+            </div>
+          </>
+        )}
 
         {/* pending skeleton */}
         {pending && (
@@ -168,6 +195,27 @@ export function MediaCard({
               <span className="text-[10px] leading-snug text-white/40">
                 {item.queueNote}
               </span>
+            )}
+            {/* Depth jobs are the one kind with real progress to show — the
+                worker POSTs progressPercent/progressMessage periodically (see
+                CLAUDE.md's depth-map-worker section) and pollDepthStatus in
+                store.js already patches them onto this exact item every
+                2.5s, so no new data plumbing is needed here, only the
+                render. Other kinds never populate these fields. */}
+            {item.kind === "depth" && item.progressPercent != null && (
+              <div className="mt-1 w-full max-w-[140px]">
+                <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
+                  <div
+                    className="h-full rounded-full bg-brand transition-[width] duration-500"
+                    style={{ width: `${item.progressPercent}%` }}
+                  />
+                </div>
+                {item.progressMessage && (
+                  <span className="mt-1 block truncate text-[10px] leading-snug text-white/40">
+                    {item.progressMessage}
+                  </span>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -199,25 +247,36 @@ export function MediaCard({
                   <Wand2 className="h-3 w-3" /> Retry as text-to-video
                 </button>
               )}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  cloneToComposer(item.id);
-                }}
-                className="flex items-center gap-1 rounded-md bg-brand/20 px-2 py-1 text-[11px] font-semibold text-brand transition hover:bg-brand/30"
-                title="Restore this prompt, settings and references into the composer"
-              >
-                <Copy className="h-3 w-3" /> Clone &amp; try
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  editInComposer(item.id);
-                }}
-                className="flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[11px] font-medium text-white/80 transition hover:bg-white/20"
-              >
-                <Pencil className="h-3 w-3" /> Edit prompt
-              </button>
+              {/* cloneToComposer/editInComposer restore prompt/references
+                  from image/video-shaped fields (referenceImages, prompt as
+                  free text) that a depth row doesn't have in a usable form —
+                  it has referenceVideos and a placeholder label instead, so
+                  both would silently just switch to an empty DepthComposer
+                  rather than actually cloning anything. Suppressed for depth
+                  rather than shipping a dead-end button. */}
+              {item.kind !== "depth" && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    cloneToComposer(item.id);
+                  }}
+                  className="flex items-center gap-1 rounded-md bg-brand/20 px-2 py-1 text-[11px] font-semibold text-brand transition hover:bg-brand/30"
+                  title="Restore this prompt, settings and references into the composer"
+                >
+                  <Copy className="h-3 w-3" /> Clone &amp; try
+                </button>
+              )}
+              {item.kind !== "depth" && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    editInComposer(item.id);
+                  }}
+                  className="flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[11px] font-medium text-white/80 transition hover:bg-white/20"
+                >
+                  <Pencil className="h-3 w-3" /> Edit prompt
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -296,6 +355,8 @@ export function MediaCard({
         <div className="pointer-events-none absolute right-2 top-10 z-10 flex items-center gap-1 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/80 backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100">
           {item.kind === "image" ? (
             <ImageIcon className="h-3 w-3" />
+          ) : item.kind === "depth" ? (
+            <Layers className="h-3 w-3" />
           ) : (
             <Play className="h-3 w-3" />
           )}
