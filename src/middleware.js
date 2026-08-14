@@ -24,10 +24,15 @@ export function middleware(req) {
   // grant naming exactly one object, which the route verifies itself, and the
   // object path comes out of the signature rather than the querystring. Without
   // this exemption the 401 below would fire before the route ever ran.
+  // /api/worker/depth/* is exempt for the same reason — the caller is the
+  // depth-map worker Python process (see depth-worker-auth.js), which has no
+  // browser and no session cookie. It is NOT unauthenticated: every request
+  // carries its own DEPTH_WORKER_TOKEN bearer auth, verified by the route.
   if (
     pathname.startsWith("/api/auth") ||
     pathname === "/api/admin/set-token" ||
     pathname === "/api/media-grant" ||
+    pathname.startsWith("/api/worker/depth/") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   ) {
