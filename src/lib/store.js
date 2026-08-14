@@ -224,7 +224,22 @@ export const useStore = create((set, get) => ({
   videoTaskMode: "generate",
   prompt: "",
   referenceImages: [],
+  // Parallel to referenceImages, same length/order — "image" | "video",
+  // recording whether each entry was a real image upload or a frame
+  // extracted from a video file (addImageFiles/addReferenceFromVideo).
+  // Display-only: it never leaves the client, never reaches a provider, and
+  // the actual @imgN tag/index math in mentions.ts is entirely unaffected —
+  // this only decides whether the composer shows a "from video" badge.
+  // Restored/cloned references default to "image" since a saved
+  // generation's stored referenceImages don't carry the original kind.
+  referenceKinds: [],
   referenceVideos: [],
+  // Local-only audio "notes" — @audio1, @audio2… tags. Deliberately NOT a
+  // real attachment: no file is stored anywhere, no provider ever sees
+  // this. It exists purely so a filename can be referenced by tag in the
+  // prompt text, the same way a person might type "(see attached)" — see
+  // PromptComposer's audio picker.
+  audioNotes: [],
 
   items: [],
   hasMoreHistory: true,
@@ -314,26 +329,36 @@ export const useStore = create((set, get) => ({
   setGenerateAudio: (generateAudio) => set({ generateAudio }),
   setVideoTaskMode: (videoTaskMode) => set({ videoTaskMode }),
   setPrompt: (prompt) => set({ prompt }),
-  addReference: (dataUrl) =>
-    set((s) => ({ referenceImages: [...s.referenceImages, dataUrl] })),
+  addReference: (dataUrl, kind = "image") =>
+    set((s) => ({
+      referenceImages: [...s.referenceImages, dataUrl],
+      referenceKinds: [...s.referenceKinds, kind],
+    })),
   removeReference: (index) =>
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
+      referenceKinds: s.referenceKinds.filter((_, i) => i !== index),
     })),
   // Drag-reorder from the composer. Diffs old vs. new position per image
   // (by value — reference images are treated as distinct, so an exact
   // byte-identical duplicate upload is the one case this can misnumber) and
   // renumbers any @imgN already typed in the prompt so it keeps pointing at
   // the same image rather than silently drifting to whatever else lands in
-  // that slot.
+  // that slot. referenceKinds is carried along by the same index mapping so
+  // a reordered video-derived reference keeps its badge.
   reorderReferences: (newOrder) =>
-    set((s) => ({
-      referenceImages: newOrder,
-      prompt: renumberImgMentions(
-        s.prompt,
-        s.referenceImages.map((img) => newOrder.indexOf(img))
-      ),
-    })),
+    set((s) => {
+      const mapping = s.referenceImages.map((img) => newOrder.indexOf(img));
+      const newKinds = new Array(newOrder.length);
+      mapping.forEach((newIndex, oldIndex) => {
+        if (newIndex >= 0) newKinds[newIndex] = s.referenceKinds[oldIndex];
+      });
+      return {
+        referenceImages: newOrder,
+        referenceKinds: newKinds,
+        prompt: renumberImgMentions(s.prompt, mapping),
+      };
+    }),
   addReferenceVideo: (ref) =>
     set((s) =>
       s.referenceVideos.includes(ref) ||
@@ -345,6 +370,11 @@ export const useStore = create((set, get) => ({
     set((s) => ({
       referenceVideos: s.referenceVideos.filter((_, i) => i !== index),
     })),
+
+  // See audioNotes' comment above — filename only, no real attachment.
+  addAudioNote: (name) => set((s) => ({ audioNotes: [...s.audioNotes, name] })),
+  removeAudioNote: (index) =>
+    set((s) => ({ audioNotes: s.audioNotes.filter((_, i) => i !== index) })),
 
   setRightTab: (rightTab) => set({ rightTab }),
   setActiveId: (activeId) => set({ activeId }),
@@ -852,7 +882,7 @@ export const useStore = create((set, get) => ({
     try {
       const { extractFrame } = await import("./video-frame");
       const { dataUrl } = await extractFrame(inlineMediaUrl(url), atSeconds);
-      get().addReference(dataUrl);
+      get().addReference(dataUrl, "video");
     } catch (e) {
       console.error("Failed to take a frame from video:", e);
       alert(e?.message || "Could not read a frame from this video.");
@@ -874,6 +904,7 @@ export const useStore = create((set, get) => ({
         : "generate",
       prompt: item.prompt,
       referenceImages: [],
+      referenceKinds: [],
     });
     // Restore the stored reference images as data URLs so every provider works.
     const paths = item.referenceImages ?? [];
@@ -893,7 +924,11 @@ export const useStore = create((set, get) => ({
           }
         })
       );
-      set({ referenceImages: dataUrls.filter((d) => !!d) });
+      const restored = dataUrls.filter((d) => !!d);
+      // Original upload kind isn't stored on the saved generation, so a
+      // cloned reference always defaults to "image" (no video badge) —
+      // cosmetic-only consequence, same as the restoreComposerDraft case.
+      set({ referenceImages: restored, referenceKinds: restored.map(() => "image") });
     }
   },
 
@@ -1599,9 +1634,13 @@ export function restoreComposerDraft() {
     const refsRaw = localStorage.getItem(DRAFT_REFS_KEY);
     const refs = refsRaw ? JSON.parse(refsRaw) : [];
     if (!prompt && !(Array.isArray(refs) && refs.length)) return;
+    const restoredRefs = Array.isArray(refs) ? refs.filter((r) => typeof r === "string") : [];
     useStore.setState({
       prompt,
-      referenceImages: Array.isArray(refs) ? refs.filter((r) => typeof r === "string") : [],
+      referenceImages: restoredRefs,
+      // Kind isn't persisted to the draft cache — defaults to "image", same
+      // cosmetic-only tradeoff as cloneToComposer.
+      referenceKinds: restoredRefs.map(() => "image"),
     });
   } catch {
     /* corrupt or unavailable draft — start clean */

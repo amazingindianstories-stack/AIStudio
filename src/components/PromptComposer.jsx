@@ -186,7 +186,7 @@ export function PromptComposer() {
       for (const file of videos) {
         try {
           const { dataUrl } = await extractFrame(file);
-          s.addReference(dataUrl);
+          s.addReference(dataUrl, "video");
         } catch (e) {
           console.error("Frame extraction failed", e);
           alert(
@@ -196,6 +196,14 @@ export function PromptComposer() {
         }
       }
       setExtractingFrames(0);
+    }
+
+    // Audio has no image/video-style content to fold into a reference — no
+    // provider here takes one, and there's no frame to extract. It's kept as
+    // a filename-only @audioN tag purely so it can be mentioned in the
+    // prompt text, never uploaded or stored anywhere.
+    for (const file of files.filter((f) => f.type.startsWith("audio/"))) {
+      s.addAudioNote(file.name);
     }
 
     const valid = files.filter((f) => f.type.startsWith("image/"));
@@ -384,6 +392,19 @@ export function PromptComposer() {
               <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
                 @img{i + 1}
               </span>
+              {/* This is still an @imgN tag functionally — @vid1 already
+                  means something else entirely (an attached video-to-video
+                  clip, see VideoRefPicker) — this badge just flags "this
+                  particular image was a frame grabbed from a video file",
+                  cosmetic only. */}
+              {s.referenceKinds[i] === "video" && (
+                <span
+                  title="Extracted from a video file"
+                  className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white/85"
+                >
+                  <Clapperboard className="h-2.5 w-2.5" />
+                </span>
+              )}
               <span
                 role="button"
                 onPointerDown={(e) => e.stopPropagation()}
@@ -398,6 +419,45 @@ export function PromptComposer() {
             </Reorder.Item>
           ))}
         </Reorder.Group>
+      )}
+
+      {/* @audioN chips — filename-only tags, no real attachment (see
+          audioNotes' comment in store.js): clicking inserts the tag into the
+          prompt text the same way an @imgN thumbnail does, but there is no
+          file, upload, or provider on the other end of it. */}
+      {s.audioNotes.length > 0 && (
+        <div className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1">
+          {s.audioNotes.map((name, i) => (
+            <div
+              key={`${name}-${i}`}
+              title={name}
+              className="group relative flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg bg-ink-750 px-1 ring-1 ring-line transition hover:ring-brand/50"
+            >
+              <button
+                onClick={() => mentionRef.current?.insertTag(`@audio${i + 1}`)}
+                className="flex flex-1 flex-col items-center justify-center gap-1"
+              >
+                <AudioLines className="h-4 w-4 text-brand" />
+                <span className="line-clamp-1 w-full text-center text-[9px] leading-tight text-white/60">
+                  {name}
+                </span>
+              </button>
+              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
+                @audio{i + 1}
+              </span>
+              <span
+                role="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  s.removeAudioNote(i);
+                }}
+                className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white/90 opacity-0 transition group-hover:opacity-100"
+              >
+                <X className="h-2.5 w-2.5" />
+              </span>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Higgsfield Seedance (via MCP) natively accepts multiple reference
@@ -474,7 +534,7 @@ export function PromptComposer() {
         <input
           ref={fileRef}
           type="file"
-          accept="image/*,video/*"
+          accept="image/*,video/*,audio/*"
           multiple
           hidden
           onChange={onFiles}
