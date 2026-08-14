@@ -147,7 +147,11 @@ function insertNewItem(
       patch.items = items;
       writeCachedItems(scopeKey(scope), items);
     }
-    if (item.projectId && item.projectId === s.activeProjectId) {
+    // Depth rows stay project-scoped (the `items` branch above) but never
+    // join the conversational thread — they're not a prompt/response chat
+    // turn the way image/video generations are, and mixing a worker-run
+    // depth job into that feed was explicitly unwanted.
+    if (item.kind !== "depth" && item.projectId && item.projectId === s.activeProjectId) {
       patch.threadItems = [item, ...s.threadItems.filter((i) => i.id !== item.id)];
     }
     return patch;
@@ -505,8 +509,17 @@ export const useStore = create((set, get) => ({
       const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
       const json = await res.json();
       if (seq !== threadSeq) return;
-      set({ threadItems: json.items ?? [], threadLoading: false });
-      for (const it of json.items ?? []) startPolling(it, set, get);
+      // Depth rows are excluded from the thread (see insertNewItem's comment) —
+      // filtered client-side rather than via the shared history-query `kind`
+      // param, which only supports a single "image"|"video" inclusion filter
+      // used across the feed/admin logs/etc; adding exclusion there for this
+      // one low-volume kind isn't worth the shared-surface risk. This can
+      // undershoot THREAD_PAGE_SIZE when a page happens to contain depth
+      // rows — acceptable for a kind this infrequent, on an unpaginated
+      // single fetch.
+      const threadItems = (json.items ?? []).filter((it) => it.kind !== "depth");
+      set({ threadItems, threadLoading: false });
+      for (const it of threadItems) startPolling(it, set, get);
     } catch {
       if (seq !== threadSeq) return;
       set({ threadLoading: false });
