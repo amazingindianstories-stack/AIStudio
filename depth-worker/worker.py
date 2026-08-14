@@ -273,7 +273,13 @@ def _run_depth(input_path: str, output_path: str, encoder: str, track_characters
         _write_tracked_composite(frames, depths, output_path, out_fps)
     else:
         _report_progress(job_id, 85, "Encoding output video")
-        save_video(depths, output_path, fps=out_fps, is_depths=True, grayscale=False)
+        # Plain grayscale, not the inferno colormap dc_utils.save_video
+        # defaults to — matches vda_video_test.ipynb's GRAYSCALE=True (the
+        # reference quality bar: see output/fal test_vis.mp4 in the sibling
+        # repo) and _write_tracked_composite's own base_depth_rgb above,
+        # which is already effectively grayscale. Colored-by-distance was
+        # the inferno default nobody asked for.
+        save_video(depths, output_path, fps=out_fps, is_depths=True, grayscale=True)
 
     h, w = depths[0].shape[-2], depths[0].shape[-1]
     if track_characters:
