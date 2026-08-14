@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyWorkerToken } from "@/lib/depth-worker-auth";
 import { claimNextDepthJob, completeDepthJob } from "@/lib/depth-jobs-db";
-import { signStoredRef } from "@/lib/storage";
+import { getSignedReadUrl } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -14,9 +14,20 @@ export const runtime = "nodejs";
  *
  * The claim itself (claimNextDepthJob) is the atomic step; this route's own
  * job is just to hand back a URL the worker can actually download the input
- * video from, since referenceVideos stores an internal media key/ref, not a
- * fetchable URL — the same signStoredRef used to hand BytePlus a
- * provider-fetchable URL for a stored reference.
+ * video from, since referenceVideos stores a raw storage key, not a
+ * fetchable URL.
+ *
+ * Uses `getSignedReadUrl` directly rather than `signStoredRef` (which
+ * `queue/execute` uses to hand BytePlus a provider-fetchable URL) —
+ * `signStoredRef` exists to disambiguate a ref that could be either an
+ * `/api/media/...` path or a CDN URL, silently returning `null` for
+ * anything else. A depth job's `referenceVideos[0]` is always already a
+ * bare storage key (see generate/depth/route.js's own comment on
+ * `inputVideoKey`), never wrapped in either of those forms, so it isn't the
+ * ambiguous case that function handles — and going through it meant a
+ * `null` return became `inputVideoUrl: null` in a job the worker otherwise
+ * treated as claimable, which surfaced client-side as Python's
+ * `requests` choking on a `None` URL rather than a clean job failure.
  */
 export async function POST(req) {
   if (!verifyWorkerToken(req)) {
@@ -46,7 +57,7 @@ export async function POST(req) {
 
   let inputVideoUrl;
   try {
-    inputVideoUrl = await signStoredRef(inputRef, 30 * 60);
+    inputVideoUrl = await getSignedReadUrl(inputRef, 30 * 60);
   } catch (e) {
     await completeDepthJob(job.id, {
       ok: false,
