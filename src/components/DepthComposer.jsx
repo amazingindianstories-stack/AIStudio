@@ -3,14 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { UploadCloud, Loader2, X, Users } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { DEPTH_ENCODERS } from "@/lib/config";
+import { DEPTH_ENCODERS, DEPTH_ENCODER_LABELS as ENCODER_LABELS } from "@/lib/config";
 import { cn } from "@/lib/utils";
-
-const ENCODER_LABELS = {
-  vits: { label: "Fast", hint: "Small model — quickest, lowest detail" },
-  vitb: { label: "Balanced", hint: "Default — good detail at a reasonable speed" },
-  vitl: { label: "Best", hint: "Large model — most detail, slowest (sized for a real GPU)" },
-};
 
 /**
  * The composer for depth-map jobs (mode="depth") — a different shape from

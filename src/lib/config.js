@@ -24,6 +24,16 @@ export const DEPTH_MODEL_NAME = "Depth Anything (Local)";
  *  on Apple Silicon. */
 export const DEPTH_ENCODERS = ["vits", "vitb", "vitl"];
 
+/** Human-readable label/hint for each encoder — shown in the composer's
+ *  picker and reused wherever a finished depth row's `resolution` (which
+ *  carries the encoder choice, see DEPTH_ENCODERS) needs to read as
+ *  something friendlier than the raw "vitb" string, e.g. DetailModal. */
+export const DEPTH_ENCODER_LABELS = {
+  vits: { label: "Fast", hint: "Small model — quickest, lowest detail" },
+  vitb: { label: "Balanced", hint: "Default — good detail at a reasonable speed" },
+  vitl: { label: "Best", hint: "Large model — most detail, slowest (sized for a real GPU)" },
+};
+
 export const MODELS = [
   { id: "nano-banana-pro", name: "Nano Banana Pro", kind: "image", badge: "BEST" },
   // Kling image models (providers/kling.ts). Both run through Kling's
