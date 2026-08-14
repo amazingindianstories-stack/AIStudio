@@ -318,6 +318,28 @@ def browser_media_url(key: str) -> str | None:
 BROWSER_URL_REDIRECT_MAX_AGE_S = int((SIGNED_BROWSER_URL_BUCKET_MS / 1000) * 0.75)
 
 
+SIGNED_UPLOAD_URL_TTL_SECONDS = 30 * 60
+
+
+def get_signed_upload_url(key: str, content_type: str, ttl_seconds: int = SIGNED_UPLOAD_URL_TTL_SECONDS) -> str:
+    """Port of storage.js's getSignedUploadUrl — see that docstring. A URL
+    the caller can PUT raw bytes to directly, added for the depth-map
+    worker's input/output video transfer (both well over Vercel's 4.5MB body
+    limit that every other upload path here inlines base64 under)."""
+    if is_protected_media_key(key):
+        raise ValueError(f"Refusing to sign an upload URL for a protected prefix: {key}")
+    if primary_is_gcs():
+        blob = _gcs().bucket(_get_bucket_name()).blob(key)
+        return blob.generate_signed_url(
+            version="v4", expiration=ttl_seconds, method="PUT", content_type=content_type
+        )
+    return _s3().generate_presigned_url(
+        "put_object",
+        Params={"Bucket": _legacy_bucket_name(), "Key": key, "ContentType": content_type},
+        ExpiresIn=ttl_seconds,
+    )
+
+
 def sign_stored_ref(ref: str, ttl_seconds: int | None = None) -> str | None:
     key = media_key_from_ref(ref)
     if not key:

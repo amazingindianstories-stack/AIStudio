@@ -214,6 +214,71 @@ export async function getSignedReadUrl(
   return signReadUrl(key, now, now + ttlSeconds * 1000);
 }
 
+/** How long a presigned upload URL stays valid. Longer than the read TTL —
+ *  a large video PUT over a home upload link can legitimately take minutes,
+ *  and an expired-mid-upload URL fails as a confusing generic network error
+ *  rather than a clear "please retry" the caller can act on. */
+const SIGNED_UPLOAD_URL_TTL_SECONDS = 30 * 60;
+
+/**
+ * A short-lived URL the caller can PUT raw bytes to directly, bypassing this
+ * app's own request handlers entirely.
+ *
+ * Added for the depth-map worker (depth-workers.js): both the browser's
+ * input-video upload and the worker's result-video upload are, at video
+ * sizes, well over Vercel's 4.5MB body limit that every other upload path in
+ * this app (saveReferenceImages, saveBase64, ...) stays under by inlining
+ * base64 in the request body. A signed PUT is the same trick
+ * getSignedReadUrl/browserMediaUrl already use for reads, mirrored for
+ * writes: no bytes ever pass through a serverless function.
+ *
+ * No CDN shortcut here (unlike getSignedReadUrl) — a public CDN only serves
+ * reads, it has no concept of "accept an upload."
+ */
+export async function getSignedUploadUrl(
+  key,
+  contentType,
+  ttlSeconds = SIGNED_UPLOAD_URL_TTL_SECONDS
+) {
+  if (isProtectedMediaKey(key)) {
+    throw new Error(`Refusing to sign an upload URL for a protected prefix: ${key}`);
+  }
+  const now = Date.now();
+  const expiresAtMs = now + ttlSeconds * 1000;
+  if (primaryIsGcs()) {
+    try {
+      const [url] = await storage()
+        .bucket(getBucketName())
+        .file(key)
+        .getSignedUrl({
+          version: "v4",
+          action: "write",
+          expires: expiresAtMs,
+          contentType,
+        });
+      return url;
+    } catch (e) {
+      throw new Error(
+        `GCS could not sign an upload URL for ${key}: ${e?.message ?? e}. Same ` +
+          `IAM signBlob requirement as read signing — see the note on signReadUrl.`
+      );
+    }
+  }
+  try {
+    const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+    return await getSignedUrl(
+      legacyS3(),
+      new PutObjectCommand({ Bucket: legacyBucketName(), Key: key, ContentType: contentType }),
+      { expiresIn: ttlSeconds }
+    );
+  } catch (e) {
+    throw new Error(
+      `S3 could not sign an upload URL for ${key} in bucket ${legacyBucketName()}: ` +
+        `${e?.message ?? e}.`
+    );
+  }
+}
+
 /**
  * How long a browser-facing signed URL stays valid, and how coarsely its start
  * time is rounded. Every request landing in the same bucket gets the identical

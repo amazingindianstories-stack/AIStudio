@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Image as ImageIcon,
   Clapperboard,
+  Layers,
   Shapes,
   Sparkles,
   Lock,
@@ -22,8 +23,15 @@ import { cn } from "@/lib/utils";
 const DESTINATIONS = [
   { id: "image", icon: ImageIcon, label: "Image" },
   { id: "video", icon: Clapperboard, label: "Video" },
+  { id: "depth", icon: Layers, label: "Depth" },
   { id: "board", icon: Shapes, label: "Board" },
 ] ;
+
+/** How often the top bar refreshes the depth-worker status dot. This is the
+ *  one always-mounted place that owns the poll loop; DepthComposer.jsx just
+ *  triggers one extra immediate refresh on mount so switching into depth
+ *  mode doesn't show a stale answer for up to this long. */
+const DEPTH_STATUS_POLL_MS = 12_000;
 
 /**
  * Horizontal nav lives in the top bar now (was the left-edge Sidebar rail
@@ -47,10 +55,21 @@ export function TopBar() {
   const loadMe = useStore((s) => s.loadMe);
   const loadUsers = useStore((s) => s.loadUsers);
   const logout = useStore((s) => s.logout);
+  const depthWorkerStatus = useStore((s) => s.depthWorkerStatus);
+  const loadDepthWorkerStatus = useStore((s) => s.loadDepthWorkerStatus);
 
   const isAdmin = user?.role === "admin";
   const initial = (user?.name || user?.email || "?").charAt(0).toUpperCase();
   const activeDestination = view === "canvas" ? "board" : view === "agents" ? "agents" : mode;
+
+  // Polls regardless of which destination is active — the Depth nav button's
+  // dot should already say "online"/"offline" before the user ever clicks
+  // into that mode, not just once they're already looking at the composer.
+  useEffect(() => {
+    loadDepthWorkerStatus();
+    const t = setInterval(loadDepthWorkerStatus, DEPTH_STATUS_POLL_MS);
+    return () => clearInterval(t);
+  }, [loadDepthWorkerStatus]);
 
   const goTo = (id) => {
     if (id === "board") {
@@ -93,7 +112,28 @@ export function TopBar() {
                     className="absolute inset-0 rounded-lg bg-white/10"
                   />
                 )}
-                <d.icon className="relative z-10 h-4 w-4" strokeWidth={1.9} />
+                <span className="relative z-10 flex items-center">
+                  <d.icon className="h-4 w-4" strokeWidth={1.9} />
+                  {d.id === "depth" && (
+                    <span
+                      className={cn(
+                        "ml-1 h-1.5 w-1.5 shrink-0 rounded-full",
+                        depthWorkerStatus === null
+                          ? "bg-white/25"
+                          : depthWorkerStatus.online
+                            ? "bg-emerald-400"
+                            : "bg-red-400"
+                      )}
+                      title={
+                        depthWorkerStatus === null
+                          ? "Checking worker status…"
+                          : depthWorkerStatus.online
+                            ? "Depth worker online"
+                            : "Depth worker offline"
+                      }
+                    />
+                  )}
+                </span>
                 <span className="relative z-10 hidden sm:inline">{d.label}</span>
               </button>
             );
