@@ -6,3 +6,14 @@ imageio[ffmpeg]
 requests
 psutil
 ultralytics
+# Runtime deps of the vendored Video-Depth-Anything checkout itself (its
+# video_depth_anything/ model package and utils/dc_utils.py, which worker.py
+# imports directly) — not listed in VDA's own requirements.txt at the
+# versions this file's own torch/torchvision resolve to, since that file
+# pins older exact versions (torch==2.1.1 etc.) that would fight this file's
+# unpinned, MPS-capable ones. Traced from the actual import chain worker.py
+# exercises, not copied wholesale from VDA's requirements.txt.
+easydict
+einops
+tqdm
+matplotlib
