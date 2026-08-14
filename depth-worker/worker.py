@@ -254,7 +254,19 @@ def _run_depth(input_path: str, output_path: str, encoder: str, track_characters
     # call rather than tracking real per-frame progress through it. Patching
     # the vendored inference loop for true granularity is a reasonable
     # follow-up, not attempted here.
-    depths, out_fps = model.infer_video_depth(frames, fps, input_size=518, device=device, fp32=False)
+    # fp16 (fp32=False) is VDA's own default and the fast path on CUDA, but it
+    # silently produces all-NaN depths on MPS — confirmed 2026-08-14 against
+    # this exact checkpoint/device by comparing fp32=False vs fp32=True output
+    # directly (NaN min/max/mean vs real values). The NaN doesn't crash
+    # anything downstream: dc_utils.save_video's normalization casts it to a
+    # uniformly-zero uint8 array, which the inferno colormap renders as a
+    # video that looks plausible at a glance (not a black screen, just a
+    # uniformly near-black one) and uploads/completes successfully — so this
+    # produced a "succeeded" job with a genuinely broken depth map end to end
+    # before being caught. CPU gets the same treatment since it has no
+    # real fp16 speed benefit to trade away.
+    fp32 = device != "cuda"
+    depths, out_fps = model.infer_video_depth(frames, fps, input_size=518, device=device, fp32=fp32)
 
     if track_characters:
         _report_progress(job_id, 70, "Compositing character tracking")
