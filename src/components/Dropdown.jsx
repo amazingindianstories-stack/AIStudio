@@ -34,6 +34,50 @@ export function Dropdown({
     requestAnimationFrame(() => triggerRef.current?.focus());
   }, []);
 
+  // Opening via the keyboard (ArrowDown/ArrowUp on the trigger) lands focus
+  // on the first/last menuitem, mirroring native <select>/menu conventions
+  // on both Mac and Windows — otherwise a keyboard-only user can open the
+  // panel but has no way to reach an item inside it.
+  const openAndFocus = useCallback((fromEnd) => {
+    setOpen(true);
+    requestAnimationFrame(() => {
+      const items = panelRef.current?.querySelectorAll(
+        '[role="menuitem"]:not(:disabled)'
+      );
+      const target = fromEnd ? items?.[items.length - 1] : items?.[0];
+      target?.focus();
+    });
+  }, []);
+
+  // Arrow-key roving focus among menuitem children once the panel is open.
+  // Scoped to [role="menuitem"] specifically (not every focusable element in
+  // the panel) so this never hijacks arrow keys inside a non-menu panel —
+  // e.g. the composer settings panel's duration slider, which relies on
+  // ArrowLeft/Right to adjust its own value.
+  const onPanelKeyDown = useCallback((e) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Home" && e.key !== "End") {
+      return;
+    }
+    const items = Array.from(
+      panelRef.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') ?? []
+    );
+    if (!items.length) return;
+    e.preventDefault();
+    if (e.key === "Home") {
+      items[0].focus();
+      return;
+    }
+    if (e.key === "End") {
+      items[items.length - 1].focus();
+      return;
+    }
+    const dir = e.key === "ArrowDown" ? 1 : -1;
+    const current = items.indexOf(document.activeElement );
+    const next =
+      current === -1 ? (dir === 1 ? 0 : items.length - 1) : (current + dir + items.length) % items.length;
+    items[next].focus();
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onDown = (e) => {
@@ -104,6 +148,16 @@ export function Dropdown({
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => {
+          if (open) return;
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            openAndFocus(false);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            openAndFocus(true);
+          }
+        }}
         className="block max-w-full"
         aria-label={label}
         aria-haspopup="menu"
@@ -120,6 +174,7 @@ export function Dropdown({
                 ref={panelRef}
                 id={panelId}
                 role="menu"
+                onKeyDown={onPanelKeyDown}
                 initial={{ opacity: 0, y: side === "bottom" ? -6 : 6, scale: 0.97 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: side === "bottom" ? -6 : 6, scale: 0.97 }}
