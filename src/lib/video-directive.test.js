@@ -169,6 +169,48 @@ test("hasCameraDirection: ordinary English uses of 'blocking' and 'framing' do n
   assert.equal(hasCameraDirection("framing the photograph on the wall"), false);
 });
 
+// ── temporal staging + camera-movement vocabulary (2026-08-17, Phase 2.1) ──
+
+test("TEMPORAL STAGING block is present whenever there is at least one reference", () => {
+  const out = build("She laughs and looks away.");
+  assert.match(out, /TEMPORAL STAGING \(apply ONLY where the PROMPT does not already stage/);
+  assert.match(out, /distribute the prompt's action smoothly across the FULL duration/i);
+});
+
+test("TEMPORAL STAGING is absent for a bare text-to-video prompt (refCount 0) — untouched, as before", () => {
+  const prompt = "Rain on a window, slow push in.";
+  const out = buildVideoDirective({ prompt, refCount: 0, tagSyntax: "bracket" });
+  assert.equal(out, prompt);
+  assert.doesNotMatch(out, /TEMPORAL STAGING/);
+});
+
+test("TEMPORAL STAGING self-conditions rather than being regex-gated — always emitted even when the prompt already stages its own beats, deferring to the model", () => {
+  // No detector function exists for this (see file header) — the text itself
+  // carries the "apply ONLY where..." conditional, same belt-and-braces
+  // pattern as DEFAULT_FRAMING's own fallback wording.
+  const out = build("First she enters the room, then pauses, and finally sits down.");
+  assert.match(out, /TEMPORAL STAGING \(apply ONLY where the PROMPT does not already stage/);
+});
+
+test("default camera-movement guidance appears alongside default framing when the prompt gives no camera direction", () => {
+  const out = build("She laughs and looks away.");
+  assert.match(out, /Hold ONE deliberate camera treatment for the whole shot/);
+  assert.match(out, /rather than unmotivated cuts, random handheld shake/);
+});
+
+test("default camera-movement guidance is dropped (not just outranked) when the prompt directs the camera", () => {
+  const out = build("Wide establishing shot in deep focus, the crowd fills frame.");
+  assert.doesNotMatch(out, /Hold ONE deliberate camera treatment/);
+});
+
+test("block ordering: TEMPORAL STAGING lands after FRAMING and before LITERAL PROMPT", () => {
+  const out = build("She laughs and looks away.");
+  const framingPos = out.indexOf("FRAMING (default");
+  const stagingPos = out.indexOf("TEMPORAL STAGING");
+  const literalPos = out.indexOf("LITERAL PROMPT:");
+  assert.ok(framingPos > -1 && framingPos < stagingPos && stagingPos < literalPos);
+});
+
 // ── per-reference role legend (2026-08-17, Phase 1.3) ───────────────────────
 //
 // Fix for the video-side half of the mixed-batch style-drift defect (see

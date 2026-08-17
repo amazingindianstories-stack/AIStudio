@@ -73,6 +73,43 @@
  * no resolvable roles at all (the common untagged case) all fall through to
  * the ORIGINAL generic wording, byte-identical to before this change — so
  * this is additive, not a rewrite, and needs no bake-off to ship safely.
+ *
+ * TEMPORAL STAGING + CAMERA-MOVEMENT VOCABULARY (2026-08-17, Phase 2.1).
+ * Everything above governs WHAT is in the shot (identity, style, focus); this
+ * addresses HOW it unfolds over the clip's own duration, which stills never
+ * needed and which this file never actually addressed. Two additions:
+ *
+ * 1. DEFAULT_FRAMING gains a camera-movement default alongside its existing
+ *    focus/depth-of-field guidance — hold ONE deliberate treatment (static,
+ *    or a single smooth motivated move) for the whole shot, rather than
+ *    unmotivated cuts or aimless handheld drift. Same self-conditional
+ *    pattern as the rest of the block: dropped outright by hasCameraDirection
+ *    when confident, and self-yielding in its own wording otherwise.
+ * 2. A new TEMPORAL_STAGING block, always included within the referenced
+ *    path (see below), tells the model to distribute the prompt's action
+ *    across the FULL clip rather than front-loading everything into the
+ *    first moment and holding static or looping for the remainder — a
+ *    common video-generation failure mode with no stills equivalent.
+ *    Unlike camera direction, there's no reliable regex for "this prompt
+ *    already stages its own beats" (phrasing varies too much — "first...
+ *    then...", numbered shots, explicit second marks), so this block skips a
+ *    detector function entirely and carries its own conditional in the text,
+ *    the same belt-and-braces fallback DEFAULT_FRAMING already uses for a
+ *    missed camera-direction detection.
+ *
+ *    Notably, PRECEDENCE has named "pacing" and "staging" as prompt-
+ *    overridable dimensions since this file's very first version — nothing
+ *    ever actually wrote default pacing guidance until now, so that promise
+ *    was previously unbacked for those two words specifically.
+ *
+ *    Scope: like every other block in this file, TEMPORAL_STAGING only
+ *    appears within the refCount > 0 path. A bare text-to-video prompt
+ *    (refCount <= 0) still returns completely untouched, exactly as before
+ *    — see buildVideoDirective's own doc comment for why that early return
+ *    exists and is deliberately left alone here.
+ *
+ *    NOT bake-off measured, same as everything else in this file — reasoned
+ *    from the observed front-loading failure mode, not A/B-tested.
  */
 
 import { buildReferenceLegend } from "./shot-spec";
@@ -289,7 +326,11 @@ const DEFAULT_FRAMING =
   "focus or camera work; if it does, follow the PROMPT and ignore this " +
   "entirely): keep the referenced subject in sharp focus as the clear focal " +
   "point, and render background people softer so they never compete with or " +
-  "are mistaken for it.";
+  "are mistaken for it. Hold ONE deliberate camera treatment for the whole " +
+  "shot — either a static, steady frame, or a single smooth, motivated " +
+  "movement (a slow push, pull, pan or tilt) that suits the scene — rather " +
+  "than unmotivated cuts, random handheld shake, or the camera drifting " +
+  "without purpose.";
 
 /** Acknowledges the user's own camera work and forbids substituting ours. */
 const USER_FRAMING =
@@ -298,6 +339,20 @@ const USER_FRAMING =
   "lens, angle and movement it specifies. Do not substitute conventional " +
   "coverage for what it asks for, and do not add focal effects it did not " +
   "request.";
+
+/**
+ * Temporal pacing default. See the file header ("TEMPORAL STAGING +
+ * CAMERA-MOVEMENT VOCABULARY") for why this carries its own conditional
+ * instead of a detector function like hasCameraDirection.
+ */
+const TEMPORAL_STAGING =
+  "TEMPORAL STAGING (apply ONLY where the PROMPT does not already stage the " +
+  "action over time — naming a sequence, a beginning/middle/end, or specific " +
+  "beats; if it does, follow the PROMPT's own pacing instead): this is one " +
+  "continuous shot, not a slideshow. Distribute the prompt's action smoothly " +
+  "across the FULL duration of the clip, with a natural start, middle and " +
+  "end, rather than front-loading everything into the first moment and " +
+  "holding static, looping or freezing for the remainder.";
 
 const LITERAL =
   "LITERAL PROMPT: the prompt is a binding specification — execute it exactly " +
@@ -384,6 +439,7 @@ export function buildVideoDirective(input) {
     styleLock(input.refCount, promptNamesStyle, entries),
     identityLock(input.refCount, input.tagSyntax, photoreal, entries),
     userDirectsCamera ? USER_FRAMING : DEFAULT_FRAMING,
+    TEMPORAL_STAGING,
     LITERAL,
     `PROMPT:\n${prompt}`,
     PRECEDENCE,
