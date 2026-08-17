@@ -527,8 +527,19 @@ export function PromptComposer() {
                 />
                 <span className="flex-1">Attach clip (video&#8209;to&#8209;video)</span>
               </MenuItem>
-              <MenuItem disabled>
-                <BookOpen className="h-4 w-4" /> Material library
+              {/* Opens the asset library (AssetLibrary.jsx) — saved characters,
+                  outfits, locations, styles and props, referenced in a prompt
+                  by their @slug. The whole path already worked server-side
+                  (readAssets → assemblePrompt in queue/execute); this menu item
+                  was the missing way in, which is why assets-db.js described
+                  itself as "dormant in the UI". */}
+              <MenuItem
+                onClick={() => {
+                  s.setAssetLibraryOpen(true);
+                  close();
+                }}
+              >
+                <BookOpen className="h-4 w-4 text-brand" /> Material library
               </MenuItem>
               <MenuItem disabled>
                 <Images className="h-4 w-4" /> Portrait Gallery
@@ -557,6 +568,7 @@ export function PromptComposer() {
             if (s.prompt.length > maxPromptLength) return;
             s.generate();
           }}
+          assets={s.assets}
           references={s.referenceImages}
           videoRefs={s.referenceVideos}
           maxLength={maxPromptLength}
@@ -752,7 +764,7 @@ export function PromptComposer() {
               )}
               <Segment
                 label="Resolution"
-                options={resolutionsForModel(s.model, s.mode)}
+                options={resolutionsForModel(s.model, s.mode, s.referenceImages.length > 0)}
                 value={s.resolution}
                 onChange={s.setResolution}
               />
