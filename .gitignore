@@ -46,3 +46,9 @@ build*.log
 
 # Local Claude Code / Cowork session settings — machine-specific, not shared repo config.
 .claude/
+
+# OAuth tokens written by `npm run hf:login`. NEVER commit — this repo is
+# public, and the file holds a live access_token/refresh_token pair. Runtime
+# reads it only as a local fallback (object storage and env vars come first in
+# loadToken), so untracking it costs production nothing.
+.higgsfield-mcp-token.json
