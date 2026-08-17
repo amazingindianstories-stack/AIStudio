@@ -21,7 +21,6 @@ import {
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
 import { aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
-import { DEPTH_ENCODER_LABELS } from "@/lib/config";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
 // under typical multi-megapixel originals while staying sharp at ~2x DPR.
@@ -105,46 +104,6 @@ export function ConversationPanel() {
   );
 }
 
-/** Fixed milestone sequence worker.py's _report_progress calls send, in
- *  order — see depth-worker/worker.py's _process_job/_run_depth. Matched by
- *  exact message text since the worker has no structured step enum; always
- *  7 steps (compositing vs. encoding are mutually exclusive on
- *  trackCharacters, never both fire). Cosmetic, not load-bearing — an
- *  unrecognized message (e.g. a future worker.py wording change) just
- *  omits the step count rather than breaking anything. */
-function depthStepList(trackCharacters) {
-  return [
-    "Downloading input video",
-    "Loading model",
-    "Reading input video",
-    "Running depth estimation",
-    trackCharacters ? "Compositing character tracking" : "Encoding output video",
-    "Requesting an upload slot",
-    "Uploading result",
-  ];
-}
-const DEPTH_STEP_COUNT = 7;
-
-/** Live mm:ss ticking off item.createdAt — "how long this has been
- *  running", not a predictive ETA (nothing in this codebase tracks past-job
- *  durations to estimate one from). No existing timer pattern to match; see
- *  ConversationPanel investigation notes. */
-function ElapsedTime({ since }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const totalSeconds = Math.max(0, Math.floor((now - since) / 1000));
-  const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
-  const ss = String(totalSeconds % 60).padStart(2, "0");
-  return (
-    <span>
-      {mm}:{ss}
-    </span>
-  );
-}
-
 /** Sent prompts render minimized (2 lines); hovering reveals an expand cue in
  *  the top-right corner. Short single-line prompts skip the machinery. */
 function PromptText({ text }) {
@@ -214,13 +173,8 @@ function FeedBlock({ item, index }) {
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const regenerate = useStore((s) => s.regenerate);
-  const label =
-    item.kind === "image" ? "Image" : item.kind === "depth" ? "Depth Map" : "Video";
+  const label = item.kind === "image" ? "Image" : "Video";
   const pending = item.status === "running" || item.status === "queued";
-  const depthStepIndex =
-    item.kind === "depth" && item.progressMessage
-      ? depthStepList(item.trackCharacters).indexOf(item.progressMessage) + 1 || null
-      : null;
 
   return (
     <motion.div
@@ -232,8 +186,6 @@ function FeedBlock({ item, index }) {
       <span className="inline-flex w-fit items-center gap-1.5 rounded-md bg-ink-700 px-2 py-1 text-xs font-medium text-white/70 ring-1 ring-line">
         {item.kind === "image" ? (
           <Sparkles className="h-3.5 w-3.5 text-brand" />
-        ) : item.kind === "depth" ? (
-          <Layers className="h-3.5 w-3.5 text-brand" />
         ) : (
           <Play className="h-3.5 w-3.5 text-brand" />
         )}
@@ -245,18 +197,7 @@ function FeedBlock({ item, index }) {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
         <Meta icon={<Layers className="h-3.5 w-3.5" />}>{item.model}</Meta>
         <Meta>Proportion {item.aspectRatio}</Meta>
-        {item.kind === "depth" ? (
-          <>
-            {item.resolution && (
-              <Meta>
-                Quality {DEPTH_ENCODER_LABELS[item.resolution]?.label ?? item.resolution}
-              </Meta>
-            )}
-            {item.trackCharacters && <Meta>Character tracking on</Meta>}
-          </>
-        ) : (
-          item.resolution && <Meta>Resolution {item.resolution}</Meta>
-        )}
+        {item.resolution && <Meta>Resolution {item.resolution}</Meta>}
         {item.duration && <Meta>Duration {item.duration}s</Meta>}
       </div>
 
@@ -287,53 +228,15 @@ function FeedBlock({ item, index }) {
               className="absolute inset-0 h-full w-full bg-black object-contain"
             />
           )}
-          {item.status === "succeeded" && item.kind === "depth" && item.url && (
-            // Same as the video branch — depth output is a real video file,
-            // just never a poster (nothing renders one for depth, matching
-            // real image/video generations; only MOCK_GENERATION sets one).
-            <video
-              src={item.url}
-              controls
-              playsInline
-              className="absolute inset-0 h-full w-full bg-black object-contain"
-            />
-          )}
 
           {pending && (
-            <div className="skeleton absolute inset-0 flex flex-col items-center justify-center gap-2.5 p-6 text-center">
+            <div className="skeleton absolute inset-0 flex flex-col items-center justify-center gap-2.5">
               <Loader2 className="h-7 w-7 animate-spin text-brand/80" />
               <span className="text-xs text-white/60">
                 {item.kind === "video"
                   ? "Rendering your video… this can take a minute"
-                  : item.kind === "depth"
-                  ? item.progressMessage || "Starting…"
                   : "Painting your image…"}
               </span>
-              {/* Depth is the one kind with real progress data — see
-                  MediaCard.jsx's matching block. progressPercent/Message are
-                  already live on this item (pollDepthStatus patches
-                  threadItems every 2.5s), so this is a pure render addition:
-                  a percent bar, a step count derived from the worker's own
-                  fixed milestone sequence (depthStepList above), and a
-                  ticking elapsed-time clock off createdAt. */}
-              {item.kind === "depth" && (
-                <div className="mt-1 flex w-full max-w-xs flex-col items-center gap-1.5">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-brand transition-[width] duration-500"
-                      style={{ width: `${item.progressPercent ?? 0}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center gap-3 text-[11px] text-white/40">
-                    {depthStepIndex != null && (
-                      <span>
-                        Step {depthStepIndex} of {DEPTH_STEP_COUNT}
-                      </span>
-                    )}
-                    <ElapsedTime since={item.createdAt} />
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -341,22 +244,16 @@ function FeedBlock({ item, index }) {
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-red-950/30 p-6 text-center">
               <AlertCircle className="h-7 w-7 text-red-400" />
               <span className="text-sm text-red-200/80">{item.error}</span>
-              {/* Same reasoning as MediaCard.jsx: cloneToComposer restores
-                  referenceImages/free-text prompt, which a depth row doesn't
-                  have in a usable form (referenceVideos + a placeholder
-                  label instead) — a dead end, not a useful action. */}
-              {item.kind !== "depth" && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cloneToComposer(item.id);
-                  }}
-                  className="mt-1 flex items-center gap-1.5 rounded-lg bg-brand/20 px-3 py-1.5 text-xs font-semibold text-brand transition hover:bg-brand/30"
-                  title="Restore this prompt, settings and references into the composer"
-                >
-                  <Copy className="h-3.5 w-3.5" /> Clone &amp; try
-                </button>
-              )}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cloneToComposer(item.id);
+                }}
+                className="mt-1 flex items-center gap-1.5 rounded-lg bg-brand/20 px-3 py-1.5 text-xs font-semibold text-brand transition hover:bg-brand/30"
+                title="Restore this prompt, settings and references into the composer"
+              >
+                <Copy className="h-3.5 w-3.5" /> Clone &amp; try
+              </button>
             </div>
           )}
 
@@ -384,40 +281,29 @@ function FeedBlock({ item, index }) {
                   Edit: same, but stops in the composer so the prompt can be
                   changed first. Both were only reachable from the detail modal,
                   which is a long way round for the two most common follow-ups
-                  to looking at a result.
-                  Neither works for depth: regenerate() goes through
-                  cloneToComposer() then the generic generate() action, which
-                  has no mode==="depth" handling at all (depth submits through
-                  DepthComposer's own upload+enqueue flow), and cloneToComposer
-                  alone restores referenceImages/free-text prompt a depth row
-                  doesn't have in a usable form. Suppressed rather than left as
-                  a broken/dead action. */}
-              {item.kind !== "depth" && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    regenerate(item.id);
-                  }}
-                  className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
-                  aria-label="Generate again"
-                  title="Generate again with the same prompt and settings"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                </button>
-              )}
-              {item.kind !== "depth" && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cloneToComposer(item.id);
-                  }}
-                  className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
-                  aria-label="Edit in composer"
-                  title="Load this prompt, settings and references into the composer"
-                >
-                  <Pencil className="h-4 w-4" />
-                </button>
-              )}
+                  to looking at a result. */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  regenerate(item.id);
+                }}
+                className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
+                aria-label="Generate again"
+                title="Generate again with the same prompt and settings"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cloneToComposer(item.id);
+                }}
+                className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
+                aria-label="Edit in composer"
+                title="Load this prompt, settings and references into the composer"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
               {item.url && (
                 <a
                   href={inlineMediaUrl(item.url)}

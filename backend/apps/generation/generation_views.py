@@ -237,6 +237,22 @@ def generate_video(request):
     if re.search(r"seedance.*mini", model, re.IGNORECASE) and (resolution or "") not in ("480p", "720p"):
         return Response({"error": f"Seedance 2.0 Mini supports 480p/720p only (got {resolution})."}, status=400)
 
+    # Seedance 2.0/2.5 take any integer duration within BytePlus's documented
+    # bounds rather than a fixed enum (see config.duration_range_for_model) —
+    # reject outside that range up front, mirroring generate/video/route.js.
+    # Edit forces duration to -1 (match source) at the provider layer
+    # regardless of what's sent, so it's exempt; Extend passes through a
+    # real duration when given, so it stays covered.
+    if video_task_mode != "edit":
+        duration_range = config.duration_range_for_model(model)
+        if duration_range is not None and duration is not None and (
+            not isinstance(duration, int) or duration < duration_range["min"] or duration > duration_range["max"]
+        ):
+            return Response(
+                {"error": f"{model} supports {duration_range['min']}-{duration_range['max']}s durations (got {duration})."},
+                status=400,
+            )
+
     if video_task_mode != "generate":
         if not config.supports_video_edit_extend(model):
             return Response({"error": f"{model} does not support {'Edit' if video_task_mode == 'edit' else 'Extend'}."}, status=400)

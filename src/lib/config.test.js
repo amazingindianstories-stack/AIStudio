@@ -10,6 +10,7 @@ import {
   VIDEO_TASK_MODES,
   aspectRatiosForModel,
   durationsForModel,
+  durationRangeForModel,
   isKlingImageModel,
   resolutionsForModel,
   supportsAudio,
@@ -227,6 +228,20 @@ test("Seedance 2.5 allows durations up to 30s", () => {
 
 test("Seedance 2.0 keeps its 15s cap unaffected by the 2.5 branch", () => {
   assert.equal(Math.max(...durationsForModel("Seedance 2.0")), 15);
+});
+
+test("durationRangeForModel gives Seedance 2.0/2.5 a continuous bounded range, not an enum", () => {
+  assert.deepEqual(durationRangeForModel("Seedance 2.0"), { min: 4, max: 15, step: 1 });
+  assert.deepEqual(durationRangeForModel("Seedance 2.5"), { min: 4, max: 30, step: 1 });
+  assert.deepEqual(durationRangeForModel("Seedance 2.0 Mini"), { min: 4, max: 15, step: 1 });
+});
+
+test("durationRangeForModel is null for true-enum providers (Higgsfield/Omni)", () => {
+  // The substring trap this codebase keeps hitting: Higgsfield model names
+  // also contain "seedance", so a bare /seedance/i test would wrongly hand
+  // it a continuous range its MCP doesn't support.
+  assert.equal(durationRangeForModel("Higgsfield Seedance 2.0"), null);
+  assert.equal(durationRangeForModel("Gemini Omni Flash"), null);
 });
 
 test("only Seedance 2.5 supports Edit/Extend", () => {

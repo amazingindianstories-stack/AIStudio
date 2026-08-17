@@ -155,6 +155,22 @@ export function durationsForModel(model) {
   return DURATIONS;
 }
 
+/** Native BytePlus Seedance (2.0 and 2.5) accepts any *integer* duration
+ *  within its documented bounds, not a fixed enum — `providers/seedance.js`
+ *  passes `input.duration` straight through as `body.duration` with no
+ *  membership check. Higgsfield's MCP and Omni's Interactions API are true
+ *  enums (see the file-header comments on those providers), so this only
+ *  ever applies to the two direct-BytePlus models; everything else stays on
+ *  `durationsForModel`'s discrete list and the composer's Segment control.
+ *  Bounds: BytePlus's own docs (docs.byteplus.com/en/docs/ModelArk/2607688,
+ *  read 2026-08-17) — 2.0 is 4-15s, 2.5's raised cap is 4-30s. */
+export function durationRangeForModel(model) {
+  if (/higgsfield/i.test(model) || /omni/i.test(model)) return null;
+  if (/seedance 2\.5/i.test(model)) return { min: 4, max: 30, step: 1 };
+  if (/seedance/i.test(model)) return { min: 4, max: 15, step: 1 };
+  return null;
+}
+
 /** Valid resolutions per model. Seedance 2.0 Mini supports 480p/720p only
  *  (per its MCP schema — no 1080p/4k SKU on the mini). Omni doesn't accept a
  *  resolution request param (probe-confirmed) — "720p" is exposed as the

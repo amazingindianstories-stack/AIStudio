@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Play,
@@ -26,6 +27,44 @@ import { aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 const CARD_THUMB_WIDTH = 480;
 import { formatCost } from "@/lib/pricing";
 
+/** Fixed milestone sequence worker.py's _report_progress calls send, in
+ *  order — see depth-worker/worker.py's _process_job/_run_depth. Matched by
+ *  exact message text since the worker has no structured step enum; always
+ *  7 steps (compositing vs. encoding are mutually exclusive on
+ *  trackCharacters, never both fire). Cosmetic, not load-bearing — an
+ *  unrecognized message just omits the step count rather than breaking. */
+function depthStepList(trackCharacters) {
+  return [
+    "Downloading input video",
+    "Loading model",
+    "Reading input video",
+    "Running depth estimation",
+    trackCharacters ? "Compositing character tracking" : "Encoding output video",
+    "Requesting an upload slot",
+    "Uploading result",
+  ];
+}
+const DEPTH_STEP_COUNT = 7;
+
+/** Live mm:ss ticking off item.createdAt — "how long this has been
+ *  running", not a predictive ETA (nothing here tracks past-job durations
+ *  to estimate one from). */
+function ElapsedTime({ since }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const totalSeconds = Math.max(0, Math.floor((now - since) / 1000));
+  const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+  const ss = String(totalSeconds % 60).padStart(2, "0");
+  return (
+    <span>
+      {mm}:{ss}
+    </span>
+  );
+}
+
 export function MediaCard({
   item,
   selectable = false,
@@ -47,6 +86,10 @@ export function MediaCard({
   const pending = item.status === "running" || item.status === "queued";
   const failed = item.status === "failed";
   const done = item.status === "succeeded";
+  const depthStepIndex =
+    item.kind === "depth" && item.progressMessage
+      ? depthStepList(item.trackCharacters).indexOf(item.progressMessage) + 1 || null
+      : null;
 
   const creatorInitial = (creator?.name || creator?.email || "?")
     .charAt(0)
@@ -215,6 +258,18 @@ export function MediaCard({
                     {item.progressMessage}
                   </span>
                 )}
+                {/* Step count derived from the worker's own fixed milestone
+                    sequence (depthStepList above); elapsed time ticks off
+                    createdAt — "how long this has been running", not a
+                    predictive ETA. */}
+                <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[9px] text-white/30">
+                  {depthStepIndex != null && (
+                    <span>
+                      Step {depthStepIndex}/{DEPTH_STEP_COUNT}
+                    </span>
+                  )}
+                  <ElapsedTime since={item.createdAt} />
+                </div>
               </div>
             )}
           </div>
