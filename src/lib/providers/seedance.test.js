@@ -95,6 +95,52 @@ test("createVideoTask: @imgN/@vidN tags are translated to Seedance's bracket for
   assert.match(body.content[0].text, /\[video 2\]/);
 });
 
+// ── per-reference role legend wiring (2026-08-17, Phase 1.3/1.4) ───────────
+//
+// video-directive.test.js pins buildVideoDirective's own behavior once
+// handed a refRoles map; these pin that createVideoTask actually BUILDS that
+// map correctly from a real prompt + references array — the wiring that
+// would ship broken even with a fully passing video-directive.test.js (e.g.
+// a tag/index mismatch, or the wrong prompt being scanned).
+
+test("createVideoTask: mixed person+style references wire a scoped role legend into the directive", async () => {
+  const prompt =
+    "THIS EXACT FACE and identity from @img1. She dances under neon light. " +
+    "Match the exact mood and color grade from @img2.";
+  const { body } = await withFakeArkResponse("task792", () =>
+    createVideoTask({
+      prompt,
+      references: [
+        { tag: "@img1", index: 1, dataUrl: "data:image/png;base64,AAAA" },
+        { tag: "@img2", index: 2, dataUrl: "data:image/png;base64,BBBB" },
+      ],
+    })
+  );
+  const text = body.content[0].text;
+  assert.match(
+    text,
+    /REFERENCES:\n\[image 1\] = the exact face\/identity of the subject.*\n\[image 2\] = the exact visual style\/grade to match\./
+  );
+  assert.match(text, /STYLE — FOLLOW THIS TAGGED REFERENCE ONLY/);
+  assert.match(text, /\[image 2\] defines the visual style of this shot/);
+  assert.match(
+    text,
+    /IDENTITY LOCK: this tagged reference — \[image 1\] — defines the exact, fixed appearance/
+  );
+});
+
+test("createVideoTask: untagged references produce the original generic wording (buildRefRoles wiring is a no-op without resolvable tags)", async () => {
+  const { body } = await withFakeArkResponse("task793", () =>
+    createVideoTask({
+      prompt: "she dances under neon light",
+      references: [{ tag: "@img1", index: 1, dataUrl: "data:image/png;base64,AAAA" }],
+    })
+  );
+  const text = body.content[0].text;
+  assert.doesNotMatch(text, /REFERENCES:\n/);
+  assert.match(text, /STYLE — FOLLOW THE REFERENCE \(unless/);
+});
+
 test("createVideoTask: missing ARK_API_KEY throws a clear, actionable error before any network call", async () => {
   const originalKey = process.env.ARK_API_KEY;
   delete process.env.ARK_API_KEY;

@@ -364,7 +364,7 @@ function toHiggsfieldTags(prompt) {
  *  parseRefRoles can't itself know about. No vision call: same free keyword
  *  scan the image path already runs. Returns undefined when nothing is
  *  resolvable, so buildVideoDirective's own `refRoles` default takes over. */
-function buildRefRoles(rawPrompt, mediaCount) {
+export function buildRefRoles(rawPrompt, mediaCount) {
   if (!mediaCount) return undefined;
   const roleByTag = parseRefRoles(rawPrompt);
   if (!roleByTag.size) return undefined;
