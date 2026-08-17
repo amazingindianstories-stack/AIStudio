@@ -32,25 +32,35 @@ import sharp from "sharp";
  *   So: >1 resolved reference is a loud error, never a silent drop of the extras
  *   (see the image-cap precedent in gemini.ts).
  *
- * PER-MODEL CAPABILITIES — what this file ENFORCES, which is not identical to
- * what the Image Capability Map says (re-read live 2026-08-17):
+ * PER-MODEL CAPABILITIES (Image Capability Map, re-read live 2026-08-17):
  *   kling-v3   (Kling Image 3.0) — text→image, image→image, 1K/2K, 8 ratios
- *   kling-v2-1 (Kling Image 2.1) — text→image, image→image, 1K only, 8 ratios
- *                                  ← the map grants it 2K; the endpoint does
- *                                    not. See the RESOLUTION note below.
+ *   kling-v2-1 (Kling Image 2.1) — text→image, image→image, 1K/2K, 8 ratios,
+ *                                  but 2K only WITHOUT a reference image —
+ *                                  measured, undocumented. See RESOLUTION.
  *   Neither supports 4K (that is kling-v3-omni only), so a 4K request errors
  *   rather than quietly returning 2K under a 4K label.
  *
- * RESOLUTION: THE OFFICIAL DOCS AND THE LIVE ENDPOINT CONTRADICT EACH OTHER.
+ * RESOLUTION: 2K ON kling-v2-1 IS CONDITIONAL ON THERE BEING NO REFERENCE.
  *   `resolution: "2k"` on kling-v2-1 returns
  *       http 400, code 1201: resolution value '2k' is not supported
- *   while the byte-identical request on kling-v3 succeeds. Measured from
- *   production rows on 2026-08-17 (v3 2K succeeded at 09:47:03, v2-1 2K failed
- *   at 09:47:21 and 09:47:23).
+ *   *when an `image` is attached*, but works fine without one. Measured from
+ *   this app's own generation history, which is why the restriction is scoped
+ *   to the reference rather than to the model:
+ *       2026-07-30  v2-1  2K  refs=0  → succeeded ×4
+ *       2026-08-17  v2-1  2K  refs=1  → failed ×2 (code 1201)
+ *   Every success had no reference; both failures had one, and there is no
+ *   counter-example either way. kling-v3 does 2K with a reference happily
+ *   (2026-08-12/13/17), so it is the way forward for 2K reference work.
  *
- *   THE DOCS SAY IT SHOULD WORK, and that has been checked properly rather
+ *   An earlier fix for this made it model-wide (`resolutions: ["1K"]`) on the
+ *   strength of the 08-17 failures alone. That was wrong — it would have
+ *   broken 2K text-to-image on 2.1, a configuration with four successful rows
+ *   behind it. Don't re-narrow it without checking the history again.
+ *
+ *   THE DOCS AGREE THAT 2.1 DOES 2K, and that was checked properly rather
  *   than assumed — read live in a real browser on 2026-08-17, since the docs
- *   answer plain fetchers with 446:
+ *   answer plain fetchers with 446. What no doc mentions is the reference
+ *   condition:
  *     - The Capability Map (/document-api/guides/capability-map/image) is the
  *       per-model authority every parameter page defers to, and its Resolution
  *       row grants 2.1 both 1K and 2K (3.0=1K,2K · 3.0 Omni=1K,2K,4K ·
@@ -64,15 +74,16 @@ import sharp from "sharp";
  *       map grants 4K.
  *     - 1201 is documented as plain parameter validation ("Invalid parameters,
  *       such as an incorrect key or invalid value"), NOT plan/quota gating.
- *   No doc explains the refusal, so the code follows the endpoint: refusing
+ *   So the reference condition is undocumented behaviour, and refusing it
  *   locally turns a wasted round-trip and a failed row into an instant error.
  *
- *   THE SCOPE IS STILL UNMEASURED — the open question. Both failing rows
- *   carried a reference image, so "2K is out on v2-1" and "2K is out on v2-1
- *   *with a reference*" both fit, and the latter would make ["1K"] too narrow.
- *   probe-kling-image.js settles it live and for free (every model × 1k/2k ×
- *   t2i/i2i with n=99 against a max of 9, so nothing is ever created). Run it
- *   before widening or narrowing this.
+ *   STILL UNCONFIRMED AGAINST A LIVE PROBE: the history is a natural
+ *   experiment, not a controlled one — nothing rules out a Kling-side change
+ *   between 07-30 and 08-17 that took 2K away from v2-1 entirely and would
+ *   also fit these rows. probe-kling-image.js distinguishes the two live and
+ *   for free (every model × 1k/2k × t2i/i2i with n=99 against a max of 9, so
+ *   nothing is ever created) and its two checks name the exact edit to make
+ *   in either direction. Run it before widening or narrowing this.
  *
  *   Note the wire casing is NOT the problem: lowercase `2k` is exactly what
  *   kling-v3 accepts. Don't "fix" this by sending "2K".
@@ -138,9 +149,10 @@ export const KLING_MODELS = [
   {
     modelName: "kling-v2-1",
     display: "Kling Image 2.1",
-    // 1K only — the endpoint refuses 2k here even though the Capability Map
-    // grants it. See the RESOLUTION note in the header before changing this.
-    resolutions: ["1K"],
+    resolutions: ["1K", "2K"],
+    // …but 2K only WITHOUT a reference image. See the RESOLUTION note in the
+    // header; this is measured from our own history, not assumed.
+    twoKNeedsNoReference: true,
     aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9"],
   },
 ];
@@ -249,6 +261,13 @@ export function buildKlingPayload(input) {
     throw new Error(
       `${spec.display} supports ${spec.resolutions.join("/")} only; ` +
         `${resolution} was requested.${where}`
+    );
+  }
+  if (spec.twoKNeedsNoReference && resolution === "2K" && references.length) {
+    throw new Error(
+      `${spec.display} cannot render 2K from a reference image — Kling rejects ` +
+        `it with "resolution value '2k' is not supported". Drop to 1K, remove ` +
+        `the reference, or use Kling Image 3.0, which does 2K with a reference.`
     );
   }
 

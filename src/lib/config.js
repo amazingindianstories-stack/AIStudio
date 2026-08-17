@@ -52,7 +52,7 @@ export const MODELS = [
     name: "Kling Image 2.1",
     kind: "image",
     badge: "BUDGET",
-    hint: "Cheapest text-to-image here (~$0.014) — 1K only, single reference image",
+    hint: "Cheapest text-to-image here (~$0.014) — 2K only without a reference",
   },
   // Native BytePlus ModelArk Seedance 2.0 (providers/seedance.ts), i.e. the
   // model direct from its vendor rather than resold through Higgsfield. The
@@ -176,7 +176,7 @@ export function durationRangeForModel(model) {
  *  resolution request param (probe-confirmed) — "720p" is exposed as the
  *  single non-choice for UI consistency with other models' resolution
  *  picker; the provider ignores it. */
-export function resolutionsForModel(model, kind) {
+export function resolutionsForModel(model, kind, hasReference = false) {
   if (/omni/i.test(model)) return ["720p"];
   if (/seedance.*mini/i.test(model)) return ["480p", "720p"];
   // 2.5 caps at 720p — no 1080p/4K SKU. BytePlus's own capability table says
@@ -187,15 +187,17 @@ export function resolutionsForModel(model, kind) {
   // produce a 2K image labelled 4K, or a failed job; the provider rejects it
   // either way, so don't offer it.
   //
-  // 2K is Kling Image 3.0 only — measured, not read. Kling's capability map
-  // lists 1K/2K for BOTH models, and that is what this used to offer, but
-  // /v1/images/generations answers `resolution: "2k"` on kling-v2-1 with
-  // `http 400, code 1201: resolution value '2k' is not supported` while the
-  // identical request on kling-v3 succeeds (production rows, 2026-08-17
-  // 09:47:03 vs 09:47:21). The capability map has already been wrong about
-  // v2-1 once before — see the `image_reference`/`human_fidelity` note in
-  // providers/kling.js's header — so the endpoint's own answer governs.
-  if (isKlingImageModel(model)) return isKling2KModel(model) ? ["1K", "2K"] : ["1K"];
+  // Kling Image 2.1 does 2K, but ONLY without a reference image — measured
+  // from our own history, not read: four 2K text-to-image rows succeeded on
+  // 2026-07-30 (refs=0), while 2K *with* a reference returned
+  // `http 400, code 1201: resolution value '2k' is not supported` on
+  // 2026-08-17. `hasReference` is therefore part of the answer here; when it
+  // is unknown the full list is returned, and providers/kling.js still refuses
+  // the combination, so a missed call site degrades to a clear pre-spend error
+  // rather than a wasted round-trip.
+  if (isKlingImageModel(model)) {
+    return hasReference && !isKling2KModel(model) ? ["1K"] : ["1K", "2K"];
+  }
   return RESOLUTIONS[kind];
 }
 
@@ -221,11 +223,12 @@ export function isKlingImageModel(model) {
 }
 
 /**
- * Which Kling image models actually accept `resolution: "2k"` on
- * /v1/images/generations. Only 3.0 does — see resolutionsForModel above for the
- * measurement. Deliberately matches on the major version rather than the exact
- * display name, so a future "Kling Image 3.x" inherits 2K rather than silently
- * being downgraded to 1K by a name that no longer matches.
+ * Which Kling image models accept `resolution: "2k"` *together with a reference
+ * image*. Only 3.0 does — 2.1 does 2K in text-to-image only; see
+ * resolutionsForModel above for the measurement. Deliberately matches on the
+ * major version rather than the exact display name, so a future "Kling Image
+ * 3.x" inherits the capability rather than being silently downgraded by a name
+ * that no longer matches.
  */
 export function isKling2KModel(model) {
   return /^kling image 3\b/i.test(model.trim());

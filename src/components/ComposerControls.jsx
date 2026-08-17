@@ -277,7 +277,7 @@ export function SettingsToolbar() {
               )}
               <Segment
                 label="Resolution"
-                options={resolutionsForModel(s.model, s.mode)}
+                options={resolutionsForModel(s.model, s.mode, s.referenceImages.length > 0)}
                 value={s.resolution}
                 onChange={s.setResolution}
               />

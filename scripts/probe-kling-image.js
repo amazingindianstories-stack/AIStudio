@@ -249,18 +249,24 @@ async function main() {
     check(`kling-v3 accepts 2k (${mode})`, !blames[`kling-v3:2k:${mode}`]);
     check(`kling-v2-1 accepts 1k (${mode})`, !blames[`kling-v2-1:1k:${mode}`]);
   }
-  // The belief this repo now encodes, and the exact line to revisit. If EITHER
-  // of these fails, kling-v2-1 has 2K on the API after all — widen
-  // KLING_MODELS in providers/kling.js and isKling2KModel in config.js (and
-  // their Python twins). If only the i2i one fails, the restriction should
-  // become reference-conditional rather than model-wide.
-  for (const mode of ["t2i", "i2i"]) {
-    check(
-      `kling-v2-1 rejects 2k (${mode})`,
-      blames[`kling-v2-1:2k:${mode}`],
-      blames[`kling-v2-1:2k:${mode}`] ? "" : "→ 2K works here; widen the spec"
-    );
-  }
+  // The belief this repo encodes, and the two lines to revisit if either flips.
+  // Derived from our own generation history: four 2K text-to-image rows on
+  // kling-v2-1 succeeded 2026-07-30 (refs=0), and 2K WITH a reference failed
+  // 2026-08-17 with code 1201.
+  check(
+    "kling-v2-1 accepts 2k in text-to-image",
+    !blames["kling-v2-1:2k:t2i"],
+    blames["kling-v2-1:2k:t2i"]
+      ? "→ 2K is now refused for v2-1 outright; narrow KLING_MODELS to ['1K']"
+      : ""
+  );
+  check(
+    "kling-v2-1 rejects 2k with a reference",
+    blames["kling-v2-1:2k:i2i"],
+    blames["kling-v2-1:2k:i2i"]
+      ? ""
+      : "→ 2K+reference works now; drop twoKNeedsNoReference and isKling2KModel"
+  );
 
   // ── 5. optional: one real, billed generation ──────────────────────────────
   if (process.argv.includes("--generate")) {

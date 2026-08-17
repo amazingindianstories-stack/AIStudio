@@ -34,14 +34,13 @@ KLING_MODELS = [
     {
         "modelName": "kling-v2-1",
         "display": "Kling Image 2.1",
-        # 1K only — measured, not read. Kling's capability map claims 1K/2K for
-        # both models and this used to say so, but /v1/images/generations answers
-        # `resolution: "2k"` on kling-v2-1 with
-        #   http 400, code 1201: resolution value '2k' is not supported
-        # while the byte-identical request on kling-v3 succeeds (production rows,
-        # 2026-08-17). The wire casing is not the problem — lowercase `2k` is
-        # exactly what kling-v3 accepts. Keep in sync with providers/kling.js.
-        "resolutions": ["1K"],
+        "resolutions": ["1K", "2K"],
+        # …but 2K only WITHOUT a reference image, measured from our own history:
+        # four 2K text-to-image rows succeeded 2026-07-30 (refs=0), while 2K with
+        # a reference returned `http 400, code 1201: resolution value '2k' is not
+        # supported` on 2026-08-17. The wire casing is not the problem — lowercase
+        # `2k` is exactly what kling-v3 accepts. Keep in sync with kling.js.
+        "twoKNeedsNoReference": True,
         "aspectRatios": ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9"],
     },
 ]
@@ -135,6 +134,13 @@ def build_kling_payload(
         raise ValueError(
             f"{spec['display']} supports {'/'.join(spec['resolutions'])} only; "
             f"{resolution} was requested.{where}"
+        )
+    if spec.get("twoKNeedsNoReference") and resolution == "2K" and references:
+        raise ValueError(
+            f"{spec['display']} cannot render 2K from a reference image — Kling "
+            f"rejects it with \"resolution value '2k' is not supported\". Drop to "
+            f"1K, remove the reference, or use Kling Image 3.0, which does 2K "
+            f"with a reference."
         )
 
     aspect_ratio = aspect_ratio or "1:1"
