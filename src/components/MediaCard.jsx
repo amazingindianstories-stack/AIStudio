@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Play,
@@ -20,6 +20,7 @@ import {
 
 import { useStore } from "@/lib/store";
 import { aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
+import { useNearViewport } from "@/lib/use-near-viewport";
 
 // Grid cards render at ~160–320 CSS px; request a modest fixed width
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
@@ -95,6 +96,12 @@ export function MediaCard({
     .charAt(0)
     .toUpperCase();
 
+  // Only cards near the viewport mount a real <video>. An infinite feed can
+  // hold hundreds of them, and each one that stays mounted holds a decoder and
+  // its buffered metadata for the rest of the session — see use-near-viewport.
+  const cardRef = useRef(null);
+  const nearViewport = useNearViewport(cardRef);
+
   return (
     // No `layout` prop, deliberately. It made every card FLIP-animate to any
     // new position, so each appended page of an infinite scroll set the entire
@@ -108,6 +115,7 @@ export function MediaCard({
     // has to account for. A transform is composited and cannot move a
     // neighbour.
     <motion.div
+      ref={cardRef}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.96 }}
@@ -166,7 +174,7 @@ export function MediaCard({
         )}
         {done && item.kind === "video" && (
           <>
-            {item.url ? (
+            {item.url && nearViewport ? (
               <video
                 src={item.url}
                 poster={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
@@ -181,6 +189,19 @@ export function MediaCard({
                 }}
                 className="absolute inset-0 h-full w-full object-cover"
               />
+            ) : item.url ? (
+              // Scrolled away: the poster carries the card on its own, so the
+              // <video> is unmounted rather than left holding a decoder. Same
+              // pixels either way — the poster is what the video renders until
+              // it is hovered.
+              item.poster && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
+                  alt={item.prompt}
+                  className="absolute inset-0 h-full w-full object-cover"
+                />
+              )
             ) : (
               item.poster && (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -204,19 +225,31 @@ export function MediaCard({
           // its own first frame with no poster needed. Layers badge instead
           // of Play to match the Depth Map mode's icon in config.js's MODES.
           <>
-            <video
-              src={item.url}
-              muted
-              loop
-              playsInline
-              preload="metadata"
-              onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
-              onMouseLeave={(e) => {
-                e.currentTarget.pause();
-                e.currentTarget.currentTime = 0;
-              }}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
+            {/* Gated on proximity for the same reason as the video kind, and
+                it matters more here: with no poster there is nothing else
+                holding the frame, so an ungated depth card is a media element
+                that can never be replaced by an image. Off-screen it falls
+                back to the flat tile below, which is all a skipped card was
+                rendering anyway under content-visibility. */}
+            {nearViewport ? (
+              <video
+                src={item.url}
+                muted
+                loop
+                playsInline
+                preload="metadata"
+                onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
+                onMouseLeave={(e) => {
+                  e.currentTarget.pause();
+                  e.currentTarget.currentTime = 0;
+                }}
+                className="absolute inset-0 h-full w-full object-cover"
+              />
+            ) : (
+              <div className="absolute inset-0 grid place-items-center bg-ink-800">
+                <Layers className="h-6 w-6 text-white/20" />
+              </div>
+            )}
             <div className="pointer-events-none absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/45 backdrop-blur-sm">
               <Layers className="h-3.5 w-3.5 text-white" />
             </div>
