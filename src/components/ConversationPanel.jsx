@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
-import { aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
+import { aspectMaxWidth, aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
 // under typical multi-megapixel originals while staying sharp at ~2x DPR.
@@ -203,8 +203,14 @@ function FeedBlock({ item, index }) {
 
       <div
         onClick={() => item.status === "succeeded" && setActiveId(item.id)}
+        // Without the cap, a 9:16 result is 177% of the column's width — around
+        // 1370px tall in a ~770px column — so the thread showed a slice of the
+        // image and the user had to scroll a screen and a half past every one.
+        // Capping the width bounds the height at every ratio without cropping;
+        // the frame now hugs the image instead of the column, hence mx-auto.
+        style={{ maxWidth: aspectMaxWidth(item.aspectRatio) }}
         className={cn(
-          "group/media relative w-full overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] focus-within:ring-white/25",
+          "group/media relative mx-auto w-full overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] focus-within:ring-white/25",
           item.status === "succeeded" && "cursor-pointer"
         )}
       >
