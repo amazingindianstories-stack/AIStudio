@@ -1,6 +1,7 @@
 
 
 import { buildVideoDirective } from "../video-directive";
+import { parseRefRoles } from "../shot-spec";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
  *  hand-written directives on BOTH Seedance paths, without a deploy. The new
@@ -82,6 +83,28 @@ function pickModel(modelDisplay) {
   if (modelDisplay && /2\.5/.test(modelDisplay)) return MODEL_25;
   if (modelDisplay && /\b(mini|fast|lite)\b/i.test(modelDisplay)) return FAST_MODEL;
   return STANDARD_MODEL;
+}
+
+/** Per-reference role hint for buildVideoDirective's legend (2026-08-17,
+ *  video-directive.ts "PER-REFERENCE ROLE LEGEND"). `refs` is whatever was
+ *  actually resolved onto this request (resolveReferences' tagged subset, or
+ *  everything when the prompt tags nothing) — each entry already carries its
+ *  own `@imgN` tag and 1-based original `index`, so this only has to look up
+ *  each attached ref's role and key the map by that same original index,
+ *  which is exactly the number `tagsToImageRefs` prints as "[image N]". No
+ *  vision call: parseRefRoles is the same free keyword scan the image path
+ *  already runs. Returns undefined (not an empty Map) when nothing is
+ *  resolvable, so buildVideoDirective's own `refRoles` default takes over. */
+function buildRefRoles(refs, rawPrompt) {
+  if (!refs.length) return undefined;
+  const roleByTag = parseRefRoles(rawPrompt);
+  if (!roleByTag.size) return undefined;
+  const map = new Map();
+  for (const ref of refs) {
+    const role = roleByTag.get(ref.tag);
+    if (role) map.set(ref.index, role);
+  }
+  return map.size ? map : undefined;
 }
 
 /** Seedance reads "[image N]" references in the prompt. Translate the UI's
@@ -176,6 +199,7 @@ export async function createVideoTask(
           prompt: tagsToImageRefs(input.prompt.trim()),
           refCount: refs.length,
           tagSyntax: "bracket",
+          refRoles: buildRefRoles(refs, input.prompt),
         });
   }
 

@@ -18,6 +18,7 @@ import path from "node:path";
 import { readStoredBuffer, writePrivateBuffer } from "@/lib/storage";
 import { buildVideoDirective } from "@/lib/video-directive";
 import { legacyDirective } from "@/lib/providers/seedance";
+import { parseRefRoles } from "@/lib/shot-spec";
 
 const MCP_URL = "https://mcp.higgsfield.ai/mcp";
 const TOKEN_URL = "https://mcp.higgsfield.ai/oauth2/token";
@@ -354,6 +355,29 @@ function toHiggsfieldTags(prompt) {
   return prompt.replace(/@img(\d+)/gi, (_, n) => `<<<image_${n}>>>`);
 }
 
+/** Per-reference role hint for buildVideoDirective's legend (2026-08-17,
+ *  video-directive.ts "PER-REFERENCE ROLE LEGEND"). Unlike Seedance native,
+ *  this path always attaches EVERY entry of `base.referenceImages` in order
+ *  (see queue/execute/route.ts — no tag-based filtering happens before
+ *  mcpGenerateVideo), so @imgN reliably maps to mediaIds[N-1] and the only
+ *  thing to guard is an out-of-range tag (e.g. @img9 with 3 uploads), which
+ *  parseRefRoles can't itself know about. No vision call: same free keyword
+ *  scan the image path already runs. Returns undefined when nothing is
+ *  resolvable, so buildVideoDirective's own `refRoles` default takes over. */
+function buildRefRoles(rawPrompt, mediaCount) {
+  if (!mediaCount) return undefined;
+  const roleByTag = parseRefRoles(rawPrompt);
+  if (!roleByTag.size) return undefined;
+  const map = new Map();
+  for (const [tag, role] of roleByTag) {
+    const m = /^@img(\d+)$/.exec(tag);
+    if (!m) continue; // named @slug assets aren't positionally mapped here
+    const index = parseInt(m[1], 10);
+    if (index >= 1 && index <= mediaCount) map.set(index, role);
+  }
+  return map.size ? map : undefined;
+}
+
 /**
  * Hard identity + literalness contract for video prompts that carry reference
  * images. The MCP has no system-prompt channel, so it rides at the head of the
@@ -415,6 +439,7 @@ export async function mcpGenerateVideo(input) {
           prompt,
           refCount: input.mediaIds.length,
           tagSyntax: "angle",
+          refRoles: buildRefRoles(input.prompt, input.mediaIds.length),
         });
   }
   if (input.aspectRatio) params.aspect_ratio = input.aspectRatio;

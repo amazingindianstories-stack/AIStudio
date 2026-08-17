@@ -168,3 +168,103 @@ test("hasCameraDirection: ordinary English uses of 'blocking' and 'framing' do n
   assert.equal(hasCameraDirection("he stands blocking the door"), false);
   assert.equal(hasCameraDirection("framing the photograph on the wall"), false);
 });
+
+// ── per-reference role legend (2026-08-17, Phase 1.3) ───────────────────────
+//
+// Fix for the video-side half of the mixed-batch style-drift defect (see
+// prompt-assembler.test.js for the image-side fix). An identity reference
+// tagged alongside an untagged/differently-tagged style or location board
+// must not have both locks address "the references" as one undifferentiated
+// group — see video-directive.ts's "PER-REFERENCE ROLE LEGEND" header.
+
+test("refRoles present but all-one-role (e.g. two selfie angles): still falls back to generic wording, no legend", () => {
+  const refRoles = new Map([[1, "person"], [2, "person"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] and [image 2] laughing together",
+    refCount: 2,
+    tagSyntax: "bracket",
+    refRoles,
+  });
+  assert.match(out, /STYLE — FOLLOW THE REFERENCES \(unless/);
+  assert.match(out, /IDENTITY LOCK: the reference images define the exact, fixed appearance of the people and elements they show\./);
+  assert.doesNotMatch(out, /REFERENCES:\n/);
+});
+
+test("mixed batch (person + style, bracket syntax): emits a legend and scopes both locks to the tagged references", () => {
+  const refRoles = new Map([[1, "person"], [2, "style"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] dances under neon light in the mood of [image 2]",
+    refCount: 2,
+    tagSyntax: "bracket",
+    refRoles,
+  });
+
+  // Legend present, in order, before the locks.
+  assert.match(out, /REFERENCES:\n\[image 1\] = the exact face\/identity of the subject.*\n\[image 2\] = the exact visual style\/grade to match\./);
+
+  // Style scoped to [image 2] only, and explicitly excludes other references.
+  assert.match(out, /STYLE — FOLLOW THIS TAGGED REFERENCE ONLY/);
+  assert.match(out, /\[image 2\] defines the visual style of this shot/);
+  assert.match(out, /Do NOT take style cues from any other tagged reference/);
+  assert.doesNotMatch(out, /STYLE — FOLLOW THE REFERENCES \(unless/);
+
+  // Identity scoped to [image 1] only, and names the other reference's role.
+  assert.match(out, /IDENTITY LOCK: this tagged reference — \[image 1\] — defines the exact, fixed appearance of the people it shows\./);
+  assert.match(out, /\(\[image 2\] = style\) contributes only their own content — not an additional face or person\./);
+  assert.doesNotMatch(out, /IDENTITY LOCK: the reference images define the exact, fixed appearance of the people and elements they show\./);
+
+  // Legend ordering: DOMAIN_LOCK, then legend, then style/identity — legend
+  // must appear before both locks.
+  const legendPos = out.indexOf("REFERENCES:\n");
+  const stylePos = out.indexOf("STYLE —");
+  const identityPos = out.indexOf("IDENTITY LOCK:");
+  assert.ok(legendPos > -1 && legendPos < stylePos && stylePos < identityPos);
+});
+
+test("mixed batch, angle syntax (Higgsfield): tokens rendered as <<<image_N>>>", () => {
+  const refRoles = new Map([[1, "person"], [2, "location"]]);
+  const out = buildVideoDirective({
+    prompt: "<<<image_1>>> walks through <<<image_2>>>",
+    refCount: 2,
+    tagSyntax: "angle",
+    refRoles,
+  });
+  assert.match(out, /REFERENCES:\n<<<image_1>>> = the exact face\/identity of the subject.*\n<<<image_2>>> = the exact location\/setting of the scene\./);
+  assert.match(out, /IDENTITY LOCK: this tagged reference — <<<image_1>>> — defines the exact, fixed appearance/);
+  assert.match(out, /\(<<<image_2>>> = location\) contributes only their own content/);
+});
+
+test("mixed batch with a non-contiguous/out-of-order refRoles map: legend still renders in ascending index order", () => {
+  const refRoles = new Map([[3, "style"], [1, "person"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] in the style of [image 3]",
+    refCount: 2, // only 2 images were actually attached (a tagged subset)
+    tagSyntax: "bracket",
+    refRoles,
+  });
+  const legendBlock = out.match(/REFERENCES:\n([^]*?)\n\n/)[1];
+  assert.equal(legendBlock, "[image 1] = the exact face/identity of the subject — must be reproduced with exact fidelity to the reference and in its medium, never a lookalike.\n[image 3] = the exact visual style/grade to match.");
+});
+
+test("mixed batch with multiple person-tagged references: plural grammar (define/they/their)", () => {
+  const refRoles = new Map([[1, "person"], [2, "person"], [3, "outfit"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] and [image 2] wearing [image 3]",
+    refCount: 3,
+    tagSyntax: "bracket",
+    refRoles,
+  });
+  assert.match(out, /IDENTITY LOCK: these tagged references — \[image 1\], \[image 2\] — define the exact, fixed appearance of the people they show\./);
+});
+
+test("promptNamesStyle still wins over refRoles-based style scoping (prompt is always authoritative)", () => {
+  const refRoles = new Map([[1, "person"], [2, "style"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] rendered as anime, inspired by [image 2]",
+    refCount: 2,
+    tagSyntax: "bracket",
+    refRoles,
+  });
+  assert.match(out, /STYLE — THE PROMPT WINS/);
+  assert.doesNotMatch(out, /STYLE — FOLLOW THIS TAGGED REFERENCE ONLY/);
+});
