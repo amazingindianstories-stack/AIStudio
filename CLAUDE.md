@@ -15,8 +15,11 @@ npm run lint           # next lint (no ESLint config committed — was never set
 npm run db:push        # push src/lib/schema.js to Postgres (drizzle-kit)
 npm run db:seed        # idempotent seed: bucket, admin user, pricing rows
 npm run hf:login       # one-time Higgsfield MCP OAuth (writes .higgsfield-mcp-token.json)
-npx tsx scripts/<x>.js # ad-hoc/debug scripts (no test framework exists)
+npx tsx --tsconfig jsconfig.json scripts/<x>.js   # ad-hoc/debug scripts (no test framework exists)
+npm run recover:videos # re-check videos failed by the old age-based timeout (dry run; -- --apply to repair)
 ```
+
+**`--tsconfig jsconfig.json` is required for any script whose import graph reaches an `@/…` alias** — `tsx` only auto-discovers a file literally named `tsconfig.json`, which the TS→JS conversion deleted, so a bare `npx tsx scripts/x.js` dies with `Cannot find module '@/lib/storage'` before running a line of the script's own logic. Relative-import-only scripts still work without it, which is why this went unnoticed. Same flag, same reason as the unit-test invocation below.
 
 Environment: copy `.env.local.example` → `.env.local`. `MOCK_GENERATION=1` runs the whole app without real API calls. `scripts/` load `.env.local` explicitly via dotenv.
 
