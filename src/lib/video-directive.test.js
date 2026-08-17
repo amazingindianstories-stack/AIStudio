@@ -5,6 +5,7 @@ import {
   hasCameraDirection,
   hasExplicitStyle,
 } from "./video-directive";
+import { VIDEO_NEGATIVE_CODA } from "./shot-spec";
 
 const build = (prompt, refCount = 1) =>
   buildVideoDirective({ prompt, refCount, tagSyntax: "bracket" });
@@ -209,6 +210,41 @@ test("block ordering: TEMPORAL STAGING lands after FRAMING and before LITERAL PR
   const stagingPos = out.indexOf("TEMPORAL STAGING");
   const literalPos = out.indexOf("LITERAL PROMPT:");
   assert.ok(framingPos > -1 && framingPos < stagingPos && stagingPos < literalPos);
+});
+
+// ── in-prompt negative block (2026-08-17, Phase 2.2) ────────────────────────
+
+test("AVOID block is present whenever there is at least one reference, and is shared verbatim with shot-spec's VIDEO_NEGATIVE_CODA", () => {
+  const out = build("She laughs and looks away.");
+  assert.ok(out.includes(`AVOID: ${VIDEO_NEGATIVE_CODA}`));
+});
+
+test("AVOID block is absent for a bare text-to-video prompt (refCount 0) — untouched, as before", () => {
+  const prompt = "Rain on a window, slow push in.";
+  const out = buildVideoDirective({ prompt, refCount: 0, tagSyntax: "bracket" });
+  assert.equal(out, prompt);
+  assert.doesNotMatch(out, /AVOID:/);
+});
+
+test("AVOID block names style/grade drift specifically, not just identity/wardrobe drift", () => {
+  const out = build("She laughs and looks away.");
+  assert.match(out, /style or grade drift across the shot/i);
+  assert.match(out, /identity or wardrobe drift between frames/);
+});
+
+test("AVOID block appears regardless of hasCameraDirection (unlike FRAMING, it is never swapped for a prompt-wins variant)", () => {
+  const directed = build("Wide establishing shot in deep focus, the crowd fills frame.");
+  const undirected = build("She laughs and looks away.");
+  assert.ok(directed.includes(`AVOID: ${VIDEO_NEGATIVE_CODA}`));
+  assert.ok(undirected.includes(`AVOID: ${VIDEO_NEGATIVE_CODA}`));
+});
+
+test("block ordering: AVOID lands after TEMPORAL STAGING and before LITERAL PROMPT", () => {
+  const out = build("She laughs and looks away.");
+  const stagingPos = out.indexOf("TEMPORAL STAGING");
+  const avoidPos = out.indexOf("AVOID:");
+  const literalPos = out.indexOf("LITERAL PROMPT:");
+  assert.ok(stagingPos > -1 && stagingPos < avoidPos && avoidPos < literalPos);
 });
 
 // ── per-reference role legend (2026-08-17, Phase 1.3) ───────────────────────

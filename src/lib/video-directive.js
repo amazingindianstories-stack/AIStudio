@@ -110,9 +110,21 @@
  *
  *    NOT bake-off measured, same as everything else in this file — reasoned
  *    from the observed front-loading failure mode, not A/B-tested.
+ *
+ * IN-PROMPT NEGATIVE BLOCK (2026-08-17, Phase 2.2). This file had no
+ * app-authored AVOID list at all — LITERAL only makes the USER's own
+ * "NEGATIVE PROMPT"/"no …" phrasing binding, it never told the model what
+ * WE want it to avoid, unlike the image path (shot-spec.ts's NEGATIVE_CODA)
+ * and Omni video (VIDEO_NEGATIVE_CODA, same file). Now reuses
+ * VIDEO_NEGATIVE_CODA directly — gained style/grade drift wording as part of
+ * this same change, the temporal analogue of the mixed-batch style-drift
+ * defect this whole phase exists to fix — so this path, Omni and (once
+ * ported) any future video provider all name the same failure modes in the
+ * same words. Same scope as TEMPORAL_STAGING: only appears within the
+ * refCount > 0 path; a bare text-to-video prompt is unaffected.
  */
 
-import { buildReferenceLegend } from "./shot-spec";
+import { buildReferenceLegend, VIDEO_NEGATIVE_CODA } from "./shot-spec";
 
 /** How a provider expects reference images to be named inside the prompt.
  *  BytePlus reads "[image 1]"; Higgsfield reads "<<<image_1>>>". */
@@ -354,6 +366,12 @@ const TEMPORAL_STAGING =
   "end, rather than front-loading everything into the first moment and " +
   "holding static, looping or freezing for the remainder.";
 
+/** App-authored AVOID list — see the file header ("IN-PROMPT NEGATIVE
+ *  BLOCK"). Constant text, reused verbatim from shot-spec.ts's
+ *  VIDEO_NEGATIVE_CODA so this path and Omni never say the same thing in
+ *  different words. */
+const AVOID = `AVOID: ${VIDEO_NEGATIVE_CODA}`;
+
 const LITERAL =
   "LITERAL PROMPT: the prompt is a binding specification — execute it exactly " +
   "as written. Every stated subject, count, wardrobe item, colour, action and " +
@@ -440,6 +458,7 @@ export function buildVideoDirective(input) {
     identityLock(input.refCount, input.tagSyntax, photoreal, entries),
     userDirectsCamera ? USER_FRAMING : DEFAULT_FRAMING,
     TEMPORAL_STAGING,
+    AVOID,
     LITERAL,
     `PROMPT:\n${prompt}`,
     PRECEDENCE,
