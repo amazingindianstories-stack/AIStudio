@@ -32,22 +32,65 @@ import sharp from "sharp";
  *   So: >1 resolved reference is a loud error, never a silent drop of the extras
  *   (see the image-cap precedent in gemini.ts).
  *
- * PER-MODEL CAPABILITIES (from the Image Capability Map, 2026-07-30):
+ * PER-MODEL CAPABILITIES — what this file ENFORCES, which is not identical to
+ * what the Image Capability Map says (re-read live 2026-08-17):
  *   kling-v3   (Kling Image 3.0) — text→image, image→image, 1K/2K, 8 ratios
- *   kling-v2-1 (Kling Image 2.1) — text→image, image→image, 1K/2K, 8 ratios
+ *   kling-v2-1 (Kling Image 2.1) — text→image, image→image, 1K only, 8 ratios
+ *                                  ← the map grants it 2K; the endpoint does
+ *                                    not. See the RESOLUTION note below.
  *   Neither supports 4K (that is kling-v3-omni only), so a 4K request errors
  *   rather than quietly returning 2K under a 4K label.
+ *
+ * RESOLUTION: THE OFFICIAL DOCS AND THE LIVE ENDPOINT CONTRADICT EACH OTHER.
+ *   `resolution: "2k"` on kling-v2-1 returns
+ *       http 400, code 1201: resolution value '2k' is not supported
+ *   while the byte-identical request on kling-v3 succeeds. Measured from
+ *   production rows on 2026-08-17 (v3 2K succeeded at 09:47:03, v2-1 2K failed
+ *   at 09:47:21 and 09:47:23).
+ *
+ *   THE DOCS SAY IT SHOULD WORK, and that has been checked properly rather
+ *   than assumed — read live in a real browser on 2026-08-17, since the docs
+ *   answer plain fetchers with 446:
+ *     - The Capability Map (/document-api/guides/capability-map/image) is the
+ *       per-model authority every parameter page defers to, and its Resolution
+ *       row grants 2.1 both 1K and 2K (3.0=1K,2K · 3.0 Omni=1K,2K,4K ·
+ *       O1=1K,2K · 2.1=1K,2K · 2.0 New=1K). Do not rewrite this comment to say
+ *       the map only allows 1K there — it does not.
+ *     - The per-version API pages are shared boilerplate and prove nothing
+ *       per-model: every block says "Different model versions support varying
+ *       ranges — refer to the Capability Map", and the 3.0 Omni page documents
+ *       /v1/images/generations, omits kling-v3-omni from its own model_name
+ *       enum, and lists resolution 1k|2k with no 4K — for the one model the
+ *       map grants 4K.
+ *     - 1201 is documented as plain parameter validation ("Invalid parameters,
+ *       such as an incorrect key or invalid value"), NOT plan/quota gating.
+ *   No doc explains the refusal, so the code follows the endpoint: refusing
+ *   locally turns a wasted round-trip and a failed row into an instant error.
+ *
+ *   THE SCOPE IS STILL UNMEASURED — the open question. Both failing rows
+ *   carried a reference image, so "2K is out on v2-1" and "2K is out on v2-1
+ *   *with a reference*" both fit, and the latter would make ["1K"] too narrow.
+ *   probe-kling-image.js settles it live and for free (every model × 1k/2k ×
+ *   t2i/i2i with n=99 against a max of 9, so nothing is ever created). Run it
+ *   before widening or narrowing this.
+ *
+ *   Note the wire casing is NOT the problem: lowercase `2k` is exactly what
+ *   kling-v3 accepts. Don't "fix" this by sending "2K".
  *
  * PARAMETERS WE DELIBERATELY DO NOT SEND:
  *   - `negative_prompt`: documented as unsupported whenever `image` is non-empty.
  *     Rather than send it in one mode and not the other, we never send it — the
  *     shot-spec system already puts its NEGATIVE block inside the prompt text.
- *   - `image_reference` / `image_fidelity` / `human_fidelity`: the endpoint doc
- *     scopes these to kling-v1 / kling-v1-5 only. The capability map does show
- *     "Character/Face Feature Reference" for kling-v2-1, so these two sources
- *     disagree; omitting them is the safe reading, since sending a parameter a
- *     model doesn't accept risks a 400 while omitting it only forgoes a knob.
- *     Probe before adding them.
+ *   - `image_reference` / `image_fidelity` / `human_fidelity`: RE-READ LIVE on
+ *     2026-08-17 on the Kling Image 2.1 page itself, and the scoping is still
+ *     v1/v1-5 in Kling's own words — `image_reference` is "Required when using
+ *     kling-v1-5 and image parameter is not empty", `image_fidelity` is "Only
+ *     kling-v1, kling-v1-5 support this parameter". The Capability Map does
+ *     show ✓ for Character/Face Feature Reference on 2.1, so the two sources
+ *     still disagree (the same pattern as the 2K row), and omitting remains the
+ *     safe reading: sending a parameter a model doesn't accept risks a 400,
+ *     omitting it only forgoes a knob. Whatever the map's ✓ refers to, it is
+ *     not these three fields on this endpoint.
  *   - `element_list`: needs the Element Library (uploaded, managed elements),
  *     which this app has no concept of.
  *
@@ -95,7 +138,9 @@ export const KLING_MODELS = [
   {
     modelName: "kling-v2-1",
     display: "Kling Image 2.1",
-    resolutions: ["1K", "2K"],
+    // 1K only — the endpoint refuses 2k here even though the Capability Map
+    // grants it. See the RESOLUTION note in the header before changing this.
+    resolutions: ["1K"],
     aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9"],
   },
 ];
@@ -192,9 +237,18 @@ export function buildKlingPayload(input) {
 
   const resolution = input.resolution ?? "1K";
   if (!spec.resolutions.includes(resolution)) {
+    // Name the model that CAN do what was asked, rather than only what this one
+    // can't — 2K and 4K have different answers and the old single parenthetical
+    // pointed a 2K-on-2.1 request at Omni, which is not where 2K lives.
+    const where =
+      resolution === "2K"
+        ? " Use Kling Image 3.0 for 2K."
+        : resolution === "4K"
+        ? " 4K is Kling Image 3.0 Omni only, which is not wired up here."
+        : "";
     throw new Error(
       `${spec.display} supports ${spec.resolutions.join("/")} only; ` +
-        `${resolution} was requested. (4K is Kling Image 3.0 Omni only.)`
+        `${resolution} was requested.${where}`
     );
   }
 

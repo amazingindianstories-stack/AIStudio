@@ -139,9 +139,12 @@ test("Kling gets neither audio nor a video reference", () => {
 });
 
 test("Kling is offered 1K/2K only — 4K is the Omni model", () => {
-  for (const name of ["Kling Image 3.0", "Kling Image 2.1"]) {
-    assert.deepEqual(resolutionsForModel(name, "image"), ["1K", "2K"]);
-  }
+  // 2K is 3.0 only. Kling's capability map claims 1K/2K for both, and this test
+  // used to assert that, but /v1/images/generations rejects `2k` on kling-v2-1
+  // with `400 code 1201` while accepting it on kling-v3 — measured on
+  // production 2026-08-17. Neither model gets 4K (that is the Omni model).
+  assert.deepEqual(resolutionsForModel("Kling Image 3.0", "image"), ["1K", "2K"]);
+  assert.deepEqual(resolutionsForModel("Kling Image 2.1", "image"), ["1K"]);
   // Unchanged for everything else.
   assert.ok(resolutionsForModel("Nano Banana Pro", "image").includes("4K"));
 });

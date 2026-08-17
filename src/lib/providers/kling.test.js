@@ -9,6 +9,7 @@ import {
   nearestKlingAspectRatio,
 
 } from "./kling";
+import { resolutionsForModel } from "../config";
 
 /**
  * These pin the parameter gating that came out of Kling's docs, so a future
@@ -116,11 +117,41 @@ test("the multi-reference error names a way forward", () => {
   );
 });
 
-test("4K is rejected for both models", () => {
+test("4K is rejected for both models, and points at Omni", () => {
   for (const m of KLING_MODELS) {
     expectThrow(
       () => buildKlingPayload({ ...base, model: m.display, resolution: "4K" }),
-      /supports 1K\/2K only/
+      /4K is Kling Image 3\.0 Omni only/
+    );
+  }
+});
+
+test("2K is accepted by 3.0 and rejected by 2.1", () => {
+  // Not a doc reading: Kling's capability map claims 1K/2K for both, but
+  // /v1/images/generations answers `resolution: "2k"` on kling-v2-1 with
+  // `400 code 1201: resolution value '2k' is not supported`, while the
+  // byte-identical request on kling-v3 succeeds (production, 2026-08-17).
+  // Rejecting locally turns a billed round-trip and a failed row into an
+  // instant, explainable error.
+  assert.equal(
+    buildKlingPayload({ ...base, model: "Kling Image 3.0", resolution: "2K" }).resolution,
+    "2k"
+  );
+  expectThrow(
+    () => buildKlingPayload({ ...base, model: "Kling Image 2.1", resolution: "2K" }),
+    /supports 1K only; 2K was requested\. Use Kling Image 3\.0 for 2K\./
+  );
+});
+
+test("the composer never offers a Kling resolution the provider will reject", () => {
+  // resolutionsForModel (the picker) and KLING_MODELS (the provider's gate) are
+  // two separate lists, and the 2K-on-2.1 failure was exactly this drift: the
+  // UI offered a value the endpoint 400s on. Pin them together.
+  for (const m of KLING_MODELS) {
+    assert.deepEqual(
+      resolutionsForModel(m.display, "image"),
+      m.resolutions,
+      m.display
     );
   }
 });

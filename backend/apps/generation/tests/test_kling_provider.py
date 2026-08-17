@@ -75,8 +75,32 @@ class BuildKlingPayloadTests(SimpleTestCase):
 
     def test_4k_rejected_for_both_models(self):
         for m in k.KLING_MODELS:
-            with self.assertRaisesRegex(ValueError, r"supports 1K/2K only"):
+            with self.assertRaisesRegex(ValueError, r"4K is Kling Image 3\.0 Omni only"):
                 build(model=m["display"], resolution="4K")
+
+    def test_2k_accepted_by_30_rejected_by_21(self):
+        """Not a doc reading: Kling's capability map claims 1K/2K for both, but
+        /v1/images/generations answers `resolution: "2k"` on kling-v2-1 with
+        `400 code 1201: resolution value '2k' is not supported`, while the
+        byte-identical request on kling-v3 succeeds (production, 2026-08-17)."""
+        self.assertEqual(
+            build(model="Kling Image 3.0", resolution="2K")["resolution"], "2k"
+        )
+        with self.assertRaisesRegex(
+            ValueError, r"supports 1K only; 2K was requested\. Use Kling Image 3\.0 for 2K\."
+        ):
+            build(model="Kling Image 2.1", resolution="2K")
+
+    def test_picker_never_offers_a_resolution_the_provider_rejects(self):
+        """resolutions_for_model (the picker) and KLING_MODELS (the provider's
+        gate) are two lists that must not drift — the 2K-on-2.1 failure was
+        exactly that drift."""
+        from ..config import resolutions_for_model
+
+        for m in k.KLING_MODELS:
+            self.assertEqual(
+                resolutions_for_model(m["display"], "image"), m["resolutions"], m["display"]
+            )
 
     def test_overlength_prompt_rejected_with_both_numbers(self):
         with self.assertRaisesRegex(ValueError, "up to 2500 characters; this one is 2501"):

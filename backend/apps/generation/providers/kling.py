@@ -34,7 +34,14 @@ KLING_MODELS = [
     {
         "modelName": "kling-v2-1",
         "display": "Kling Image 2.1",
-        "resolutions": ["1K", "2K"],
+        # 1K only — measured, not read. Kling's capability map claims 1K/2K for
+        # both models and this used to say so, but /v1/images/generations answers
+        # `resolution: "2k"` on kling-v2-1 with
+        #   http 400, code 1201: resolution value '2k' is not supported
+        # while the byte-identical request on kling-v3 succeeds (production rows,
+        # 2026-08-17). The wire casing is not the problem — lowercase `2k` is
+        # exactly what kling-v3 accepts. Keep in sync with providers/kling.js.
+        "resolutions": ["1K"],
         "aspectRatios": ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9"],
     },
 ]
@@ -116,9 +123,18 @@ def build_kling_payload(
 
     resolution = resolution or "1K"
     if resolution not in spec["resolutions"]:
+        # Name the model that CAN do what was asked — 2K and 4K have different
+        # answers, and one shared parenthetical pointed a 2K request at Omni,
+        # which is not where 2K lives.
+        if resolution == "2K":
+            where = " Use Kling Image 3.0 for 2K."
+        elif resolution == "4K":
+            where = " 4K is Kling Image 3.0 Omni only, which is not wired up here."
+        else:
+            where = ""
         raise ValueError(
             f"{spec['display']} supports {'/'.join(spec['resolutions'])} only; "
-            f"{resolution} was requested. (4K is Kling Image 3.0 Omni only.)"
+            f"{resolution} was requested.{where}"
         )
 
     aspect_ratio = aspect_ratio or "1:1"

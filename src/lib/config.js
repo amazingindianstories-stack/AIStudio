@@ -52,7 +52,7 @@ export const MODELS = [
     name: "Kling Image 2.1",
     kind: "image",
     badge: "BUDGET",
-    hint: "Cheapest text-to-image here (~$0.014) — takes a single reference image",
+    hint: "Cheapest text-to-image here (~$0.014) — 1K only, single reference image",
   },
   // Native BytePlus ModelArk Seedance 2.0 (providers/seedance.ts), i.e. the
   // model direct from its vendor rather than resold through Higgsfield. The
@@ -183,10 +183,19 @@ export function resolutionsForModel(model, kind) {
   // so explicitly, contradicting a launch-tweet "up to 4K" claim (see
   // docs.byteplus.com/en/docs/ModelArk/2607688, read 2026-08-07).
   if (/seedance 2\.5/i.test(model)) return ["480p", "720p"];
-  // Kling Image 3.0 / 2.1 are 1K/2K per Kling's capability map — 4K is the Omni
-  // model only. Offering 4K here would produce a 2K image labelled 4K, or a
-  // failed job; the provider rejects it either way, so don't offer it.
-  if (isKlingImageModel(model)) return ["1K", "2K"];
+  // 4K is the Omni model only for both Kling images. Offering it here would
+  // produce a 2K image labelled 4K, or a failed job; the provider rejects it
+  // either way, so don't offer it.
+  //
+  // 2K is Kling Image 3.0 only — measured, not read. Kling's capability map
+  // lists 1K/2K for BOTH models, and that is what this used to offer, but
+  // /v1/images/generations answers `resolution: "2k"` on kling-v2-1 with
+  // `http 400, code 1201: resolution value '2k' is not supported` while the
+  // identical request on kling-v3 succeeds (production rows, 2026-08-17
+  // 09:47:03 vs 09:47:21). The capability map has already been wrong about
+  // v2-1 once before — see the `image_reference`/`human_fidelity` note in
+  // providers/kling.js's header — so the endpoint's own answer governs.
+  if (isKlingImageModel(model)) return isKling2KModel(model) ? ["1K", "2K"] : ["1K"];
   return RESOLUTIONS[kind];
 }
 
@@ -209,6 +218,17 @@ export function aspectRatiosForModel(model, kind) {
  */
 export function isKlingImageModel(model) {
   return /^kling image/i.test(model.trim());
+}
+
+/**
+ * Which Kling image models actually accept `resolution: "2k"` on
+ * /v1/images/generations. Only 3.0 does — see resolutionsForModel above for the
+ * measurement. Deliberately matches on the major version rather than the exact
+ * display name, so a future "Kling Image 3.x" inherits 2K rather than silently
+ * being downgraded to 1K by a name that no longer matches.
+ */
+export function isKling2KModel(model) {
+  return /^kling image 3\b/i.test(model.trim());
 }
 
 /** Most references Kling's /v1/images/generations will take. Its `image` field
