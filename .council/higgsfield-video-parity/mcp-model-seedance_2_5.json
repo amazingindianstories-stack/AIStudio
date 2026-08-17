@@ -1,0 +1,111 @@
+{
+  "id": "seedance_2_5",
+  "name": "Seedance 2.5",
+  "provider_name": "Bytedance",
+  "description": "Seedance 2.5 text-to-video, multimodal omni-reference generation, video edit, and video extension",
+  "output_type": "video",
+  "parameters": [
+    {
+      "name": "mode",
+      "required": "optional",
+      "type": "string",
+      "description": "Generation mode: 't2v' for prompt-only generation, 'omni_reference' for image, video, or audio references, 'video_edit' to edit one reference video (billed by that video's duration; 'duration' and 'aspect_ratio' are ignored), or 'video_extension' to extend a reference video ('aspect_ratio' follows the extended video).",
+      "options": [
+        "t2v",
+        "omni_reference",
+        "video_edit",
+        "video_extension"
+      ],
+      "default": "t2v"
+    },
+    {
+      "name": "duration",
+      "required": "optional",
+      "type": "number",
+      "description": "Duration in seconds (4-30).",
+      "min": 4,
+      "max": 30,
+      "default": 5
+    },
+    {
+      "name": "resolution",
+      "required": "optional",
+      "type": "string",
+      "description": "Output resolution: 480p, 720p, or 1080p.",
+      "options": [
+        "480p",
+        "720p",
+        "1080p"
+      ],
+      "default": "720p"
+    },
+    {
+      "name": "generate_audio",
+      "required": "optional",
+      "type": "bool",
+      "description": "Generate audio for the output video.",
+      "default": true
+    },
+    {
+      "name": "bitrate_mode",
+      "required": "optional",
+      "type": "string",
+      "description": "'standard' = normal output bitrate; 'high' = higher bitrate output.",
+      "options": [
+        "standard",
+        "high"
+      ],
+      "default": "standard"
+    },
+    {
+      "name": "extension_mode",
+      "required": "optional",
+      "type": "string",
+      "description": "Extension direction; required for mode 'video_extension' and not allowed otherwise.",
+      "options": [
+        "backward",
+        "forward"
+      ],
+      "nullable": true
+    }
+  ],
+  "medias": [
+    {
+      "name": "medias",
+      "type": "image",
+      "roles": [
+        "start_image",
+        "end_image",
+        "image_references",
+        "video_references",
+        "audio_references"
+      ]
+    }
+  ],
+  "aspect_ratios": [
+    "auto",
+    "21:9",
+    "16:9",
+    "4:3",
+    "1:1",
+    "3:4",
+    "9:16"
+  ],
+  "tags": [
+    "text-to-video",
+    "reference",
+    "identity",
+    "audio-reference",
+    "video-reference",
+    "video-edit",
+    "video-extension",
+    "480p",
+    "720p",
+    "1080p"
+  ],
+  "unlim": {
+    "available": false,
+    "remaining": null,
+    "expires_at": null
+  }
+}
