@@ -334,12 +334,28 @@ def video_status(request):
     if item["status"] in ("succeeded", "failed"):
         return Response(item)
 
-    if not mock.is_mock() and int(time.time() * 1000) - item["createdAt"] > POLL_TIMEOUT_MS:
-        failed = {**item, "status": "failed", "error": "Generation timed out — the provider never returned a result.", "updatedAt": int(time.time() * 1000)}
-        queue_service.upsert_item(failed)
-        return Response(failed)
+    # AGE ALONE MUST NEVER FAIL A JOB THE PROVIDER MIGHT HAVE FINISHED.
+    #
+    # This check used to run here, before the provider was asked, so the first
+    # poll after the 30-minute mark failed the row without ever calling the
+    # provider. Polling is not continuous — it stops when the tab is closed and
+    # resumes when the user returns — so "older than 30 minutes" mostly means
+    # "nobody was watching". A user who came back later had their finished, and
+    # billed, video replaced with a timeout error, terminally. Measured on
+    # production: every row carrying this error had a real taskId, and their
+    # created→failed gaps (38.8/47.4/286.1 min) all sat past the threshold
+    # rather than on it, i.e. the failing poll followed a gap in polling.
+    #
+    # The timeout now applies only where it cannot destroy a result: below,
+    # once the provider itself has said the job is still pending.
+    aged_out = not mock.is_mock() and int(time.time() * 1000) - item["createdAt"] > POLL_TIMEOUT_MS
 
     if not item.get("taskId"):
+        # Nothing to ask — never submitted, so age is all there is.
+        if aged_out:
+            failed = {**item, "status": "failed", "error": "Generation timed out — the provider never returned a result.", "updatedAt": int(time.time() * 1000)}
+            queue_service.upsert_item(failed)
+            return Response(failed)
         return Response(item)
 
     try:
@@ -416,6 +432,13 @@ def video_status(request):
             queue_service.upsert_item(failed)
             return Response(failed)
 
+        # Still running/queued. The one place the age check is safe: the
+        # provider has just said it has no result, so failing cannot throw one
+        # away.
+        if aged_out:
+            failed = {**item, "status": "failed", "error": "Generation timed out — the provider never returned a result.", "updatedAt": int(time.time() * 1000)}
+            queue_service.upsert_item(failed)
+            return Response(failed)
         updated = {**item, "status": result["status"], "updatedAt": int(time.time() * 1000)}
         queue_service.upsert_item(updated)
         return Response(updated)

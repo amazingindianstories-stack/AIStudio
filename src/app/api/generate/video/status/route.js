@@ -30,22 +30,40 @@ export async function GET(req) {
   // Safety net: no provider takes this long — fail instead of spinning forever
   // (e.g. when the stored task id turns out not to be a real job, or when
   // /api/queue/execute died between locking the job "running" and actually
-  // submitting it, leaving taskId permanently null). This must run BEFORE the
-  // `!item.taskId` early return below, or exactly that stuck case never times
-  // out — it just returns the unchanged item on every poll forever.
+  // submitting it, leaving taskId permanently null).
   const POLL_TIMEOUT_MS = 30 * 60 * 1000;
-  if (!isMock() && Date.now() - item.createdAt > POLL_TIMEOUT_MS) {
-    const failed = {
-      ...item,
-      status: "failed" ,
-      error: "Generation timed out — the provider never returned a result.",
-      updatedAt: Date.now(),
-    };
-    await upsertItem(failed);
-    return NextResponse.json(failed);
-  }
+  const agedOut = !isMock() && Date.now() - item.createdAt > POLL_TIMEOUT_MS;
 
+  // AGE ALONE MUST NEVER FAIL A JOB THE PROVIDER MIGHT HAVE FINISHED.
+  //
+  // This check used to run here, before the provider was asked, so the first
+  // poll after the 30-minute mark failed the row without ever calling BytePlus.
+  // Polling is not continuous — it stops when the tab is closed and resumes
+  // when the user comes back — so "older than 30 minutes" mostly means "nobody
+  // was watching", not "the provider is stuck". A user who closed the tab and
+  // returned later had their finished, *billed* video thrown away and replaced
+  // with a timeout error, and the row was terminal so nothing ever re-checked.
+  //
+  // Measured on production: all three rows carrying this error had a real
+  // taskId, i.e. every one had been submitted to the provider. Their
+  // created→failed gaps were 38.8, 47.4 and 286.1 minutes — all past the
+  // threshold, which means the failing poll came after a gap in polling rather
+  // than at the 30-minute mark a continuously-polled job would have hit.
+  //
+  // The timeout now applies only where it cannot destroy a result: below, once
+  // the provider itself has said the job is still pending.
   if (!item.taskId) {
+    // Nothing to ask — the task was never submitted, so age is all there is.
+    if (agedOut) {
+      const failed = {
+        ...item,
+        status: "failed" ,
+        error: "Generation timed out — the provider never returned a result.",
+        updatedAt: Date.now(),
+      };
+      await upsertItem(failed);
+      return NextResponse.json(failed);
+    }
     return NextResponse.json(item);
   }
 
@@ -191,12 +209,29 @@ export async function GET(req) {
       await upsertItem(failed);
       return NextResponse.json(failed);
     }
-    // still running/queued
+    // Still running/queued. This is the one place the age check is safe: the
+    // provider has just told us it has no result, so failing here cannot throw
+    // one away.
+    if (agedOut) {
+      const failed = {
+        ...item,
+        status: "failed" ,
+        error: "Generation timed out — the provider never returned a result.",
+        updatedAt: Date.now(),
+      };
+      await upsertItem(failed);
+      return NextResponse.json(failed);
+    }
     const updated = { ...item, status: result.status, updatedAt: Date.now() };
     await upsertItem(updated);
     return NextResponse.json(updated);
   } catch (e) {
     console.error("[video status poll error]:", e);
+    // NOTE: the age check above is deliberately NOT applied here. A row whose
+    // polls always throw therefore stays "running" indefinitely, which is the
+    // accepted cost of never failing a job on a network blip — losing a
+    // finished, billed render is strictly worse than a stuck spinner, and the
+    // spinner is visible while the loss is silent.
     // Transient poll error (network blip, provider 502/503, a momentary MCP
     // socket drop) — the DB row is untouched, still "running"/"queued". The
     // response must NOT claim status:"failed": the client's pollVideo() only
