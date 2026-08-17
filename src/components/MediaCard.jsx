@@ -169,6 +169,7 @@ export function MediaCard({
             src={thumbUrl(item.url, CARD_THUMB_WIDTH)}
             alt={item.prompt}
             loading="lazy"
+            decoding="async"
             className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
           />
         )}
@@ -189,25 +190,25 @@ export function MediaCard({
                 }}
                 className="absolute inset-0 h-full w-full object-cover"
               />
-            ) : item.url ? (
-              // Scrolled away: the poster carries the card on its own, so the
-              // <video> is unmounted rather than left holding a decoder. Same
-              // pixels either way — the poster is what the video renders until
-              // it is hovered.
-              item.poster && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
-                  alt={item.prompt}
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-              )
             ) : (
+              // Either scrolled away (the <video> is unmounted rather than left
+              // holding a decoder) or still rendering (no url yet). Same markup
+              // for both: the poster is what a <video> displays until it is
+              // hovered, so the pixels are identical either way.
+              //
+              // `loading="lazy"` is load-bearing, not decoration. Without it
+              // every card the user scrolls past fetches its poster eagerly,
+              // and each distinct (key, width) miss is a real /api/media
+              // invocation — trading one leaked decoder per row for one eager
+              // request per row. content-visibility does NOT defer this: it
+              // skips layout and paint, not resource loading.
               item.poster && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
                   alt={item.prompt}
+                  loading="lazy"
+                  decoding="async"
                   className="absolute inset-0 h-full w-full object-cover"
                 />
               )
