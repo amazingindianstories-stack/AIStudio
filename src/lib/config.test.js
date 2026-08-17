@@ -139,11 +139,26 @@ test("Kling gets neither audio nor a video reference", () => {
 });
 
 test("Kling is offered 1K/2K only — 4K is the Omni model", () => {
-  for (const name of ["Kling Image 3.0", "Kling Image 2.1"]) {
-    assert.deepEqual(resolutionsForModel(name, "image"), ["1K", "2K"]);
-  }
+  // Both models do 1K/2K with no reference attached; neither gets 4K (that is
+  // the Omni model). 2.1 loses 2K only once a reference is attached — measured,
+  // see the reference-conditional test below.
+  assert.deepEqual(resolutionsForModel("Kling Image 3.0", "image"), ["1K", "2K"]);
+  assert.deepEqual(resolutionsForModel("Kling Image 2.1", "image"), ["1K", "2K"]);
   // Unchanged for everything else.
   assert.ok(resolutionsForModel("Nano Banana Pro", "image").includes("4K"));
+});
+
+test("attaching a reference drops 2K for Kling 2.1 but not for 3.0", () => {
+  // Four 2K text-to-image rows on 2.1 succeeded 2026-07-30 (refs=0); 2K with a
+  // reference failed 2026-08-17 with `400 code 1201: resolution value '2k' is
+  // not supported`. So this is about the reference, not the model.
+  assert.deepEqual(resolutionsForModel("Kling Image 2.1", "image", true), ["1K"]);
+  assert.deepEqual(resolutionsForModel("Kling Image 3.0", "image", true), ["1K", "2K"]);
+  // Nothing else takes the flag into account.
+  assert.deepEqual(
+    resolutionsForModel("Nano Banana Pro", "image", true),
+    resolutionsForModel("Nano Banana Pro", "image", false)
+  );
 });
 
 test("Kling exposes its own aspect-ratio set, including 3:2 and 2:3", () => {

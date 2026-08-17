@@ -52,7 +52,7 @@ export const MODELS = [
     name: "Kling Image 2.1",
     kind: "image",
     badge: "BUDGET",
-    hint: "Cheapest text-to-image here (~$0.014) — takes a single reference image",
+    hint: "Cheapest text-to-image here (~$0.014) — 2K only without a reference",
   },
   // Native BytePlus ModelArk Seedance 2.0 (providers/seedance.ts), i.e. the
   // model direct from its vendor rather than resold through Higgsfield. The
@@ -176,17 +176,28 @@ export function durationRangeForModel(model) {
  *  resolution request param (probe-confirmed) — "720p" is exposed as the
  *  single non-choice for UI consistency with other models' resolution
  *  picker; the provider ignores it. */
-export function resolutionsForModel(model, kind) {
+export function resolutionsForModel(model, kind, hasReference = false) {
   if (/omni/i.test(model)) return ["720p"];
   if (/seedance.*mini/i.test(model)) return ["480p", "720p"];
   // 2.5 caps at 720p — no 1080p/4K SKU. BytePlus's own capability table says
   // so explicitly, contradicting a launch-tweet "up to 4K" claim (see
   // docs.byteplus.com/en/docs/ModelArk/2607688, read 2026-08-07).
   if (/seedance 2\.5/i.test(model)) return ["480p", "720p"];
-  // Kling Image 3.0 / 2.1 are 1K/2K per Kling's capability map — 4K is the Omni
-  // model only. Offering 4K here would produce a 2K image labelled 4K, or a
-  // failed job; the provider rejects it either way, so don't offer it.
-  if (isKlingImageModel(model)) return ["1K", "2K"];
+  // 4K is the Omni model only for both Kling images. Offering it here would
+  // produce a 2K image labelled 4K, or a failed job; the provider rejects it
+  // either way, so don't offer it.
+  //
+  // Kling Image 2.1 does 2K, but ONLY without a reference image — measured
+  // from our own history, not read: four 2K text-to-image rows succeeded on
+  // 2026-07-30 (refs=0), while 2K *with* a reference returned
+  // `http 400, code 1201: resolution value '2k' is not supported` on
+  // 2026-08-17. `hasReference` is therefore part of the answer here; when it
+  // is unknown the full list is returned, and providers/kling.js still refuses
+  // the combination, so a missed call site degrades to a clear pre-spend error
+  // rather than a wasted round-trip.
+  if (isKlingImageModel(model)) {
+    return hasReference && !isKling2KModel(model) ? ["1K"] : ["1K", "2K"];
+  }
   return RESOLUTIONS[kind];
 }
 
@@ -209,6 +220,18 @@ export function aspectRatiosForModel(model, kind) {
  */
 export function isKlingImageModel(model) {
   return /^kling image/i.test(model.trim());
+}
+
+/**
+ * Which Kling image models accept `resolution: "2k"` *together with a reference
+ * image*. Only 3.0 does — 2.1 does 2K in text-to-image only; see
+ * resolutionsForModel above for the measurement. Deliberately matches on the
+ * major version rather than the exact display name, so a future "Kling Image
+ * 3.x" inherits the capability rather than being silently downgraded by a name
+ * that no longer matches.
+ */
+export function isKling2KModel(model) {
+  return /^kling image 3\b/i.test(model.trim());
 }
 
 /** Most references Kling's /v1/images/generations will take. Its `image` field

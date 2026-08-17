@@ -9,6 +9,7 @@ import {
   nearestKlingAspectRatio,
 
 } from "./kling";
+import { resolutionsForModel } from "../config";
 
 /**
  * These pin the parameter gating that came out of Kling's docs, so a future
@@ -116,12 +117,63 @@ test("the multi-reference error names a way forward", () => {
   );
 });
 
-test("4K is rejected for both models", () => {
+test("4K is rejected for both models, and points at Omni", () => {
   for (const m of KLING_MODELS) {
     expectThrow(
       () => buildKlingPayload({ ...base, model: m.display, resolution: "4K" }),
-      /supports 1K\/2K only/
+      /4K is Kling Image 3\.0 Omni only/
     );
+  }
+});
+
+test("2.1 does 2K in text-to-image but not from a reference", () => {
+  // Measured from our own history, not read from a doc: four 2K text-to-image
+  // rows on Kling Image 2.1 succeeded on 2026-07-30 with refs=0, while 2K WITH
+  // a reference returned `400 code 1201: resolution value '2k' is not
+  // supported` on 2026-08-17. Every success had no reference; both failures
+  // had one. So the restriction is reference-conditional, NOT model-wide —
+  // making it model-wide would break a configuration that provably worked.
+  assert.equal(
+    buildKlingPayload({ ...base, model: "Kling Image 2.1", resolution: "2K" }).resolution,
+    "2k"
+  );
+  expectThrow(
+    () =>
+      buildKlingPayload({
+        ...base,
+        model: "Kling Image 2.1",
+        resolution: "2K",
+        references: [ref],
+      }),
+    /cannot render 2K from a reference image/
+  );
+});
+
+test("3.0 does 2K with a reference, which is what makes it the way forward", () => {
+  const p = buildKlingPayload({
+    ...base,
+    model: "Kling Image 3.0",
+    resolution: "2K",
+    references: [ref],
+  });
+  assert.equal(p.resolution, "2k");
+  assert.equal(p.image, "AAAA");
+});
+
+test("the composer never offers a Kling resolution the provider will reject", () => {
+  // resolutionsForModel (the picker) and KLING_MODELS (the provider's gate) are
+  // two separate lists, and the 2K-on-2.1 failure was exactly this drift: the
+  // UI offered a value the endpoint 400s on. Pin them together in BOTH
+  // reference states, since that is now part of the answer.
+  for (const m of KLING_MODELS) {
+    assert.deepEqual(resolutionsForModel(m.display, "image", false), m.resolutions, m.display);
+    const withRef = resolutionsForModel(m.display, "image", true);
+    for (const r of withRef) {
+      assert.doesNotThrow(
+        () => buildKlingPayload({ ...base, model: m.display, resolution: r, references: [ref] }),
+        `${m.display} @ ${r} with a reference`
+      );
+    }
   }
 });
 

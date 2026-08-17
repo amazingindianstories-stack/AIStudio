@@ -10,6 +10,8 @@ import { ConversationPanel } from "@/components/ConversationPanel";
 import { PromptComposer } from "@/components/PromptComposer";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DetailModal } from "@/components/DetailModal";
+import { AssetLibrary } from "@/components/AssetLibrary";
+import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { StudioView } from "@/components/StudioView";
 
@@ -19,6 +21,7 @@ export default function Page() {
   const loadMe = useStore((s) => s.loadMe);
   const loadUsers = useStore((s) => s.loadUsers);
   const loadLimits = useStore((s) => s.loadLimits);
+  const loadAssets = useStore((s) => s.loadAssets);
   const startLiveUpdates = useStore((s) => s.startLiveUpdates);
   const stopLiveUpdates = useStore((s) => s.stopLiveUpdates);
   const mobileHistoryOpen = useStore((s) => s.mobileHistoryOpen);
@@ -51,11 +54,21 @@ export default function Page() {
     loadHistory();
     loadProjects();
     loadLimits();
+    // Needed at startup, not just when the asset library opens: MentionTextarea
+    // autocompletes and highlights @slug tags off this list, so without it a
+    // saved asset's tag renders as unknown text until the modal is opened once.
+    loadAssets();
     // Shared live feed: picks up completions from any tab, device or teammate,
     // so finishing a generation no longer needs a manual refresh.
     startLiveUpdates();
-    return () => stopLiveUpdates();
-  }, [loadMe, loadUsers, loadHistory, loadProjects, loadLimits, startLiveUpdates, stopLiveUpdates]);
+    // Records main-thread stalls so an unreproducible "the page froze" report
+    // comes with numbers next time — see freeze-watchdog.js.
+    startFreezeWatchdog();
+    return () => {
+      stopLiveUpdates();
+      stopFreezeWatchdog();
+    };
+  }, [loadMe, loadUsers, loadHistory, loadProjects, loadLimits, loadAssets, startLiveUpdates, stopLiveUpdates]);
 
   useEffect(() => {
     if (!mobileHistoryOpen) return;
@@ -216,6 +229,7 @@ export default function Page() {
         </AnimatePresence>
 
         <DetailModal />
+        <AssetLibrary />
       </div>
     </MotionConfig>
   );

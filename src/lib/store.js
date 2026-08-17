@@ -321,7 +321,7 @@ export const useStore = create((set, get) => ({
           ? s.duration
           : durations[durations.length - 1];
       }
-      const resolutions = resolutionsForModel(model, s.mode);
+      const resolutions = resolutionsForModel(model, s.mode, s.referenceImages.length > 0);
       const resolution = resolutions.includes(s.resolution)
         ? s.resolution
         : resolutions[resolutions.length - 1];
@@ -348,10 +348,22 @@ export const useStore = create((set, get) => ({
   setVideoTaskMode: (videoTaskMode) => set({ videoTaskMode }),
   setPrompt: (prompt) => set({ prompt }),
   addReference: (dataUrl, kind = "image") =>
-    set((s) => ({
-      referenceImages: [...s.referenceImages, dataUrl],
-      referenceKinds: [...s.referenceKinds, kind],
-    })),
+    set((s) => {
+      const referenceImages = [...s.referenceImages, dataUrl];
+      // Attaching a reference can itself invalidate the chosen resolution:
+      // Kling Image 2.1 does 2K in text-to-image but not from a reference
+      // (measured — see resolutionsForModel). Clamp here for the same reason
+      // the model switch clamps, or the composer keeps showing 2K selected
+      // while the picker no longer offers it and the provider refuses it.
+      const resolutions = resolutionsForModel(s.model, s.mode, referenceImages.length > 0);
+      return {
+        referenceImages,
+        referenceKinds: [...s.referenceKinds, kind],
+        resolution: resolutions.includes(s.resolution)
+          ? s.resolution
+          : resolutions[resolutions.length - 1],
+      };
+    }),
   removeReference: (index) =>
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
@@ -1650,6 +1662,10 @@ function pollQueue(
 // composer settings and panel/tab state are tiny and written on change.
 const DRAFT_PROMPT_KEY = "veevee-draft-prompt-v1";
 const DRAFT_REFS_KEY = "veevee-draft-refs-v1";
+/** Past this, restoring the draft is not worth a multi-megabyte synchronous
+ *  write that the ~5MB origin quota would likely reject anyway. Measured in
+ *  characters of base64, which is close enough to bytes for a guard. */
+const DRAFT_REFS_MAX_BYTES = 2_000_000;
 const DRAFT_SETTINGS_KEY = "veevee-draft-settings-v1";
 
 /** Restore the locally cached composer draft (prompt + reference images) and
@@ -1787,6 +1803,7 @@ if (typeof window !== "undefined") {
   });
 
   let promptTimer;
+  let refsTimer;
   useStore.subscribe((s, prev) => {
     if (s.prompt !== prev.prompt) {
       clearTimeout(promptTimer);
@@ -1797,14 +1814,28 @@ if (typeof window !== "undefined") {
       }, 400);
     }
     if (s.referenceImages !== prev.referenceImages) {
-      try {
-        localStorage.setItem(DRAFT_REFS_KEY, JSON.stringify(s.referenceImages));
-      } catch {
-        // Quota exceeded — drop the cached refs but keep the prompt cache.
+      // References are base64 data URLs sized against a ~4MB upload budget, so
+      // this is the largest thing the app ever writes — and localStorage is
+      // synchronous, main-thread and disk-backed. Serialising several MB on
+      // the spot janks the UI at exactly the moment the user is adding or
+      // reordering images. Debounced like the prompt beside it, and skipped
+      // outright past a size the quota would reject anyway (typically 5MB for
+      // the whole origin, shared with the prompt and settings drafts): the
+      // stringify is most of the cost, so checking first avoids doing the
+      // expensive part only to throw it away.
+      clearTimeout(refsTimer);
+      refsTimer = setTimeout(() => {
+        const bytes = s.referenceImages.reduce((n, r) => n + r.length, 0);
         try {
-          localStorage.removeItem(DRAFT_REFS_KEY);
-        } catch {}
-      }
+          if (bytes > DRAFT_REFS_MAX_BYTES) localStorage.removeItem(DRAFT_REFS_KEY);
+          else localStorage.setItem(DRAFT_REFS_KEY, JSON.stringify(s.referenceImages));
+        } catch {
+          // Quota exceeded anyway — drop the cached refs but keep the prompt.
+          try {
+            localStorage.removeItem(DRAFT_REFS_KEY);
+          } catch {}
+        }
+      }, 400);
     }
     if (
       s.view !== prev.view ||

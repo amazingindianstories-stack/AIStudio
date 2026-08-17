@@ -35,6 +35,12 @@ KLING_MODELS = [
         "modelName": "kling-v2-1",
         "display": "Kling Image 2.1",
         "resolutions": ["1K", "2K"],
+        # …but 2K only WITHOUT a reference image, measured from our own history:
+        # four 2K text-to-image rows succeeded 2026-07-30 (refs=0), while 2K with
+        # a reference returned `http 400, code 1201: resolution value '2k' is not
+        # supported` on 2026-08-17. The wire casing is not the problem — lowercase
+        # `2k` is exactly what kling-v3 accepts. Keep in sync with kling.js.
+        "twoKNeedsNoReference": True,
         "aspectRatios": ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9"],
     },
 ]
@@ -116,9 +122,25 @@ def build_kling_payload(
 
     resolution = resolution or "1K"
     if resolution not in spec["resolutions"]:
+        # Name the model that CAN do what was asked — 2K and 4K have different
+        # answers, and one shared parenthetical pointed a 2K request at Omni,
+        # which is not where 2K lives.
+        if resolution == "2K":
+            where = " Use Kling Image 3.0 for 2K."
+        elif resolution == "4K":
+            where = " 4K is Kling Image 3.0 Omni only, which is not wired up here."
+        else:
+            where = ""
         raise ValueError(
             f"{spec['display']} supports {'/'.join(spec['resolutions'])} only; "
-            f"{resolution} was requested. (4K is Kling Image 3.0 Omni only.)"
+            f"{resolution} was requested.{where}"
+        )
+    if spec.get("twoKNeedsNoReference") and resolution == "2K" and references:
+        raise ValueError(
+            f"{spec['display']} cannot render 2K from a reference image — Kling "
+            f"rejects it with \"resolution value '2k' is not supported\". Drop to "
+            f"1K, remove the reference, or use Kling Image 3.0, which does 2K "
+            f"with a reference."
         )
 
     aspect_ratio = aspect_ratio or "1:1"

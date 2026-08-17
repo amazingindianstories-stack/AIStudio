@@ -78,6 +78,13 @@ export const MentionTextarea = forwardRef(
     const [menuOpen, setMenuOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [activeIdx, setActiveIdx] = useState(0);
+    // onKeyDown moves activeIdx (or closes/selects) for nav keys while the
+    // menu is open; the browser then fires onKeyUp for the *same* keypress,
+    // which used to call detectMention unconditionally — since neither the
+    // text nor the caret moved, it re-matched the same @query and reset
+    // activeIdx back to 0, silently undoing the ArrowUp/ArrowDown just
+    // handled. This flag makes the matching keyup a no-op instead.
+    const suppressNextKeyUp = useRef(false);
 
     const tagCount = references.length;
     const assetSlugs = new Set(assets.map((a) => a.slug));
@@ -121,6 +128,18 @@ export const MentionTextarea = forwardRef(
       ...imgSuggestions,
       ...vidSuggestions,
     ];
+
+    // Keeps the keyboard-selected suggestion visible: the list scrolls
+    // (max-h-64 overflow-y-auto) once it has more entries than fit, and
+    // without this ArrowDown/ArrowUp could move activeIdx past the visible
+    // window with no visual sign anything happened.
+    const menuRef = useRef(null);
+    useEffect(() => {
+      if (!menuOpen) return;
+      menuRef.current
+        ?.querySelector(`[data-suggestion-idx="${activeIdx}"]`)
+        ?.scrollIntoView({ block: "nearest" });
+    }, [activeIdx, menuOpen]);
 
     const autosize = () => {
       const ta = taRef.current;
@@ -199,26 +218,31 @@ export const MentionTextarea = forwardRef(
       if (menuOpen && available.length) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
+          suppressNextKeyUp.current = true;
           setActiveIdx((i) => (i + 1) % available.length);
           return;
         }
         if (e.key === "ArrowUp") {
           e.preventDefault();
+          suppressNextKeyUp.current = true;
           setActiveIdx((i) => (i - 1 + available.length) % available.length);
           return;
         }
         if (e.key === "Enter" || e.key === "Tab") {
           e.preventDefault();
+          suppressNextKeyUp.current = true;
           selectTag(available[activeIdx].tag);
           return;
         }
         if (e.key === "Escape") {
+          suppressNextKeyUp.current = true;
           setMenuOpen(false);
           return;
         }
       }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
+        suppressNextKeyUp.current = true;
         onSubmit();
       }
     };
@@ -247,7 +271,13 @@ export const MentionTextarea = forwardRef(
           onKeyDown={onKeyDown}
           onScroll={syncScroll}
           onClick={(e) => detectMention(value, e.currentTarget.selectionStart)}
-          onKeyUp={(e) => detectMention(value, e.currentTarget.selectionStart)}
+          onKeyUp={(e) => {
+            if (suppressNextKeyUp.current) {
+              suppressNextKeyUp.current = false;
+              return;
+            }
+            detectMention(value, e.currentTarget.selectionStart);
+          }}
           onBlur={() => setTimeout(() => setMenuOpen(false), 120)}
           rows={2}
           placeholder={placeholder}
@@ -280,6 +310,8 @@ export const MentionTextarea = forwardRef(
         <AnimatePresence>
           {menuOpen && available.length > 0 && (
             <motion.div
+              ref={menuRef}
+              role="listbox"
               initial={{ opacity: 0, y: 6, scale: 0.97 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 6, scale: 0.97 }}
@@ -292,6 +324,9 @@ export const MentionTextarea = forwardRef(
               {available.map((sug, i) => (
                 <button
                   key={sug.tag}
+                  role="option"
+                  aria-selected={i === activeIdx}
+                  data-suggestion-idx={i}
                   onMouseDown={(e) => {
                     e.preventDefault();
                     selectTag(sug.tag);

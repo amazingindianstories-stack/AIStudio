@@ -109,14 +109,18 @@ def duration_range_for_model(model: str) -> dict | None:
     return None
 
 
-def resolutions_for_model(model: str, kind: str) -> list[str]:
+def resolutions_for_model(model: str, kind: str, has_reference: bool = False) -> list[str]:
     if re.search(r"omni", model, re.IGNORECASE):
         return ["720p"]
     if re.search(r"seedance.*mini", model, re.IGNORECASE):
         return ["480p", "720p"]
     if re.search(r"seedance 2\.5", model, re.IGNORECASE):
         return ["480p", "720p"]
+    # Kling Image 2.1 does 2K, but only WITHOUT a reference image — measured,
+    # not read. See providers/kling.py's KLING_MODELS and the JS twin.
     if is_kling_image_model(model):
+        if has_reference and not is_kling_2k_model(model):
+            return ["1K"]
         return ["1K", "2K"]
     return RESOLUTIONS[kind]
 
@@ -131,6 +135,17 @@ def aspect_ratios_for_model(model: str, kind: str) -> list[str]:
 
 def is_kling_image_model(model: str) -> bool:
     return bool(re.match(r"^kling image", model.strip(), re.IGNORECASE))
+
+
+def is_kling_2k_model(model: str) -> bool:
+    """Which Kling image models accept `resolution: "2k"` *with a reference
+    image*. Only 3.0 does; 2.1 does 2K in text-to-image only.
+
+    Matches on the major version rather than the exact display name so a future
+    "Kling Image 3.x" inherits 2K instead of being silently downgraded to 1K.
+    Mirrors isKling2KModel in src/lib/config.js.
+    """
+    return bool(re.match(r"^kling image 3\b", model.strip(), re.IGNORECASE))
 
 
 KLING_MAX_REFERENCE_IMAGES = 1

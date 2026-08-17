@@ -18,6 +18,7 @@
  *
  *   npx tsx scripts/probe-kling-image.ts --generate
  */
+import sharp from "sharp";
 import { config } from "dotenv";
 config({ path: ".env.local" });
 
@@ -61,6 +62,18 @@ async function call(path, init) {
 async function main() {
   if (!KEY) {
     console.error("KLING_API is not set in .env.local");
+    process.exit(1);
+  }
+  // Some checkouts carry a scrubbed .env.local whose values are the literal
+  // string "[SENSITIVE]". Without this, the first fetch dies on an unhelpful
+  // "Failed to parse URL from [SENSITIVE]/v1/..." instead of saying what is
+  // actually wrong.
+  if (!/^https?:\/\//.test(HOST)) {
+    console.error(
+      `KLING_API_HOST is not a URL (got ${JSON.stringify(HOST)}).\n` +
+        `This .env.local looks scrubbed — run this where the real Kling ` +
+        `credentials are, or unset KLING_API_HOST to use the default.`
+    );
     process.exit(1);
   }
   console.log(`host: ${HOST}\n`);
@@ -166,6 +179,94 @@ async function main() {
       `code=${r.json?.code} message=${msg.slice(0, 90)}`
     );
   }
+
+  // ── 4b. which resolutions each model really accepts ───────────────────────
+  //
+  // FOUR SOURCES DISAGREE HERE, so this is settled by asking the endpoint.
+  //   - the API reference for Kling Image 2.1 lists enum `1k | 2k`
+  //   - the kling.ai WEB app offers "2K HD" on IMAGE 2.1
+  //   - the Capability Map lists 1K/2K for both models
+  //   - production returned, on kling-v2-1 only:
+  //       http 400, code 1201: resolution value '2k' is not supported
+  // The first three are not as strong as they look: the enum block on the API
+  // page carries "Different model versions support varying ranges — refer to
+  // the Capability Map", i.e. it is the UNION across versions rather than a
+  // per-model guarantee; the web product is a different surface from the Open
+  // Platform; and the Capability Map has now over-claimed for v2-1 twice (see
+  // also image_reference/human_fidelity in providers/kling.js's header). Only
+  // the endpoint's own answer decides what we are allowed to send.
+  //
+  // Both failing production rows carried a reference image, so this tests
+  // text-to-image AND image-to-image separately — "2k is invalid for v2-1" and
+  // "2k is invalid for v2-1 *with a reference*" are different bugs with
+  // different fixes, and the second would mean 2K is still reachable for
+  // prompt-only jobs.
+  //
+  // FREE: every request carries n=99 against a documented max of 9, so
+  // validation always fails and no task is ever created. We only read which
+  // field Kling blames. If it names the resolution, that resolution is out; if
+  // it names n (as the 1k controls do), the resolution got through.
+  console.log("\n── resolution enum per model × mode (free, no task created) ──");
+  // A real 512×512 PNG: Kling requires references ≥300px, and a token 1×1 would
+  // be blamed for its size instead of telling us anything about `resolution`.
+  const refPng = (
+    await sharp({
+      create: { width: 512, height: 512, channels: 3, background: { r: 200, g: 40, b: 40 } },
+    })
+      .png()
+      .toBuffer()
+  ).toString("base64");
+
+  const blames = {};
+  for (const m of KLING_MODELS) {
+    for (const res of ["1k", "2k"]) {
+      for (const mode of ["t2i", "i2i"]) {
+        const r = await call("/v1/images/generations", {
+          method: "POST",
+          body: JSON.stringify({
+            model_name: m.modelName,
+            prompt: "a red bicycle",
+            aspect_ratio: "1:1",
+            resolution: res,
+            n: 99,
+            ...(mode === "i2i" ? { image: refPng } : {}),
+          }),
+        });
+        const msg = String(r.json?.message ?? "");
+        const blamed = /resolution/i.test(msg);
+        blames[`${m.modelName}:${res}:${mode}`] = blamed;
+        console.log(
+          `      ${m.modelName.padEnd(11)} ${res}  ${mode}  →  ` +
+            `${blamed ? "RESOLUTION REJECTED" : "resolution accepted"}` +
+            `   (code=${r.json?.code} ${msg.slice(0, 60)})`
+        );
+      }
+    }
+  }
+
+  for (const mode of ["t2i", "i2i"]) {
+    check(`kling-v3 accepts 1k (${mode})`, !blames[`kling-v3:1k:${mode}`]);
+    check(`kling-v3 accepts 2k (${mode})`, !blames[`kling-v3:2k:${mode}`]);
+    check(`kling-v2-1 accepts 1k (${mode})`, !blames[`kling-v2-1:1k:${mode}`]);
+  }
+  // The belief this repo encodes, and the two lines to revisit if either flips.
+  // Derived from our own generation history: four 2K text-to-image rows on
+  // kling-v2-1 succeeded 2026-07-30 (refs=0), and 2K WITH a reference failed
+  // 2026-08-17 with code 1201.
+  check(
+    "kling-v2-1 accepts 2k in text-to-image",
+    !blames["kling-v2-1:2k:t2i"],
+    blames["kling-v2-1:2k:t2i"]
+      ? "→ 2K is now refused for v2-1 outright; narrow KLING_MODELS to ['1K']"
+      : ""
+  );
+  check(
+    "kling-v2-1 rejects 2k with a reference",
+    blames["kling-v2-1:2k:i2i"],
+    blames["kling-v2-1:2k:i2i"]
+      ? ""
+      : "→ 2K+reference works now; drop twoKNeedsNoReference and isKling2KModel"
+  );
 
   // ── 5. optional: one real, billed generation ──────────────────────────────
   if (process.argv.includes("--generate")) {
