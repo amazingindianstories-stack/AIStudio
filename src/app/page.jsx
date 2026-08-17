@@ -11,6 +11,7 @@ import { PromptComposer } from "@/components/PromptComposer";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DetailModal } from "@/components/DetailModal";
 import { AssetLibrary } from "@/components/AssetLibrary";
+import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { StudioView } from "@/components/StudioView";
 
@@ -60,7 +61,13 @@ export default function Page() {
     // Shared live feed: picks up completions from any tab, device or teammate,
     // so finishing a generation no longer needs a manual refresh.
     startLiveUpdates();
-    return () => stopLiveUpdates();
+    // Records main-thread stalls so an unreproducible "the page froze" report
+    // comes with numbers next time — see freeze-watchdog.js.
+    startFreezeWatchdog();
+    return () => {
+      stopLiveUpdates();
+      stopFreezeWatchdog();
+    };
   }, [loadMe, loadUsers, loadHistory, loadProjects, loadLimits, loadAssets, startLiveUpdates, stopLiveUpdates]);
 
   useEffect(() => {
