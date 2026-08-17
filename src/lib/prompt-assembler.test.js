@@ -251,3 +251,135 @@ test("untagged classifier uncertainty preserves the legacy identity fallback", a
     assert.equal(assembled.groups[0].identity, true);
   });
 });
+
+// ── mixed untagged batches (2026-08-17 style-drift fix) ─────────────────────
+//
+// These run outside withShotSpec's env (which disables FACE_CROP_MIDDLEWARE
+// for every other test in this file) because the bug being fixed only shows
+// up when per-image identity detection is actually active.
+
+const STYLE_IMG =
+  "data:image/png;base64,ZmFrZS1zdHlsZS1ib2FyZC1pbWFnZS1kYXRh";
+
+async function withMixedBatchDetection(fn) {
+  const keys = [
+    "PROMPT_SHOT_SPEC",
+    "PROMPT_ROLE_DETECT",
+    "FACE_CROP_MIDDLEWARE",
+    "GOOGLE_API_KEY",
+  ];
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  process.env.PROMPT_SHOT_SPEC = "1";
+  process.env.PROMPT_ROLE_DETECT = "0";
+  delete process.env.FACE_CROP_MIDDLEWARE; // leave identity detection ON
+  process.env.GOOGLE_API_KEY = "test-key";
+  const previousFetch = globalThis.fetch;
+  try {
+    return await fn();
+  } finally {
+    globalThis.fetch = previousFetch;
+    for (const key of keys) {
+      const value = previous.get(key);
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+}
+
+function mockClassifierFetch(faceDataB64) {
+  return async (_url, init) => {
+    const body = JSON.parse(init.body);
+    const parts = body.contents[0].parts;
+    const promptText = parts.find((p) => typeof p.text === "string")?.text ?? "";
+    const inlineData = parts.find((p) => p.inlineData)?.inlineData;
+    const isFaceImage = inlineData?.data === faceDataB64;
+
+    if (promptText.includes("helping build a face-identity pipeline")) {
+      const json = isFaceImage
+        ? { person_reference: true, face_box_2d: [100, 100, 900, 900], panel_boxes: null }
+        : { person_reference: false, face_box_2d: null, panel_boxes: null };
+      return new Response(
+        JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(json) }] } }] }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    if (promptText.includes("Classify the PRIMARY subject")) {
+      return new Response(
+        JSON.stringify({
+          candidates: [{ content: { parts: [{ text: '{"role":"style"}' }] } }],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    throw new Error("unexpected fetch in test: " + promptText.slice(0, 80));
+  };
+}
+
+test("mixed untagged batch: face + style board split into separate groups, not folded into one SUBJECT", async () => {
+  await withMixedBatchDetection(async () => {
+    globalThis.fetch = mockClassifierFetch(PNG.split(",")[1]);
+
+    const assembled = await assemblePrompt(
+      "He walks home through the city at dusk.",
+      [],
+      [PNG, STYLE_IMG],
+      { aspectRatio: "16:9" }
+    );
+
+    assert.equal(assembled.groups.length, 2, "face and style board land in separate groups");
+    const subject = assembled.groups.find((g) => g.tag === "SUBJECT");
+    const styleGroup = assembled.groups.find((g) => g.tag !== "SUBJECT");
+
+    assert.ok(subject, "face image kept its own SUBJECT group");
+    assert.equal(subject.images.length, 1);
+    assert.equal(subject.identity, true);
+
+    assert.ok(styleGroup, "style board split into its own non-person group");
+    assert.equal(styleGroup.images.length, 1);
+    assert.equal(styleGroup.identity, false);
+    assert.match(styleGroup.header, /STYLE reference/i);
+    assert.match(
+      assembled.shotInstruction ?? "",
+      /exact visual style\/grade to match/i
+    );
+  });
+});
+
+test("mixed untagged batch: all-person images stay on the single legacy SUBJECT path", async () => {
+  await withMixedBatchDetection(async () => {
+    // Both images read as faces — nothing confidently non-person, so this
+    // must behave exactly like before: one merged SUBJECT group.
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      person_reference: true,
+                      face_box_2d: [100, 100, 900, 900],
+                      panel_boxes: null,
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+
+    const assembled = await assemblePrompt(
+      "Two angles of the same person, cinematic lighting.",
+      [],
+      [PNG, STYLE_IMG],
+      { aspectRatio: "16:9" }
+    );
+
+    assert.equal(assembled.groups.length, 1);
+    assert.equal(assembled.groups[0].tag, "SUBJECT");
+    assert.equal(assembled.groups[0].images.length, 2);
+  });
+});

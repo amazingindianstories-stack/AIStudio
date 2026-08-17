@@ -403,11 +403,13 @@ export async function assemblePrompt(
       const images = await readAll(uploads);
       if (!shotSpecOn || !images.length) {
         await pushLegacySubject(images);
-      } else {
+      } else if (images.length === 1) {
         // Untagged uploads historically mean one person's reference angles.
         // Preserve that on any human cue, found face, person classification,
         // or detector uncertainty. Only a confident visual non-person result
         // may opt a location/object/style ref out of the identity pipeline.
+        // Single image only — no batch-mixing risk, so this stays exactly as
+        // it was (see the `else` branch below for the multi-image case).
         const tiles = await faceCrops(images, "SUBJECT");
         if (hasVisiblePeople(prompt) || tiles.length > 0) {
           await pushLegacySubject(images, tiles);
@@ -420,6 +422,77 @@ export async function assemblePrompt(
             pushNonPersonGroup("REFERENCE", detectedRole, images);
           } else {
             await pushLegacySubject(images, tiles);
+          }
+        }
+      } else {
+        // Multiple untagged uploads previously made ONE decision for the
+        // whole batch: any face found anywhere (or the prompt merely
+        // mentioning a person) folded EVERY image — including style/
+        // location/mood boards — into "SUBJECT: multiple angles of the same
+        // person". A style reference then never got its KIND_RULE.style
+        // treatment at all; it was told to help define a face it isn't a
+        // photo of. That's a direct, mechanical cause of style drift when an
+        // artist attaches a face plus mood/location boards without @tagging
+        // each one (fixed 2026-08-17).
+        //
+        // Fix: classify each image independently instead. Cost tradeoff,
+        // deliberate: this runs one identity-detection call per image
+        // (gemini-2.5-flash — cheap/fast, not the generation model) rather
+        // than the old cap of ~2 calls for the whole batch. Uncertain images
+        // (detection unavailable, or inconclusive) still default to the
+        // SUBJECT bucket — "uncertainty preserves the legacy person
+        // assumption" holds per-image now, not just per-batch.
+        const classified = await Promise.all(
+          images.map(async (img) => {
+            const { personReference, crops } = await analyzeIdentityReference(
+              img.mimeType,
+              img.data
+            );
+            return { img, tiles: crops, personReference };
+          })
+        );
+        const isPerson = (c) => c.personReference === true || c.tiles.length > 0;
+        const isConfidentNonPerson = (c) => c.personReference === false;
+
+        const personEntries = classified.filter(isPerson);
+        const nonPersonEntries = classified.filter(isConfidentNonPerson);
+        const unknownEntries = classified.filter(
+          (c) => !isPerson(c) && !isConfidentNonPerson(c)
+        );
+
+        if (nonPersonEntries.length === 0) {
+          // Nothing in the batch confidently read as non-person (all faces,
+          // or detection unavailable/inconclusive throughout) — preserve
+          // today's behavior exactly rather than guessing.
+          const tiles = personEntries.flatMap((c) => c.tiles);
+          await pushLegacySubject(images, tiles.length ? tiles : undefined);
+        } else {
+          console.log(
+            `[prompt-assembler] untagged batch split: ` +
+              `${personEntries.length + unknownEntries.length} SUBJECT, ` +
+              `${nonPersonEntries.length} non-person (mixed-reference fix)`
+          );
+          const subjectEntries = [...personEntries, ...unknownEntries];
+          if (subjectEntries.length) {
+            const tiles = subjectEntries.flatMap((c) => c.tiles);
+            await pushLegacySubject(
+              subjectEntries.map((c) => c.img),
+              tiles.length ? tiles : undefined
+            );
+          }
+          // Each non-person image gets its own role classification so a
+          // style board and a location board (say) land in separate,
+          // correctly-labeled groups rather than one catch-all "REFERENCE".
+          const byRole = new Map();
+          for (const c of nonPersonEntries) {
+            const role =
+              (await detectReferenceRole(c.img.mimeType, c.img.data)) ||
+              "object";
+            if (!byRole.has(role)) byRole.set(role, []);
+            byRole.get(role).push(c.img);
+          }
+          for (const [role, imgs] of byRole) {
+            pushNonPersonGroup(`REFERENCE-${role.toUpperCase()}`, role, imgs);
           }
         }
       }

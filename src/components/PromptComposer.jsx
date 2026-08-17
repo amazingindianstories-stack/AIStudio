@@ -30,6 +30,7 @@ import {
   Volume2,
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
+import { parseMentionIndices } from "@/lib/mentions";
 import { limitDefinition } from "@/lib/limits";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { VideoRefPicker } from "./VideoRefPicker";
@@ -464,6 +465,26 @@ export function PromptComposer() {
           ))}
         </div>
       )}
+
+      {/* Untagged mixed references risk being silently misread — e.g. a
+          style/mood board folded into "another photo of the same face"
+          because nothing marks it as a style reference (2026-08-17 fix,
+          see prompt-assembler.js). Skipped when the more specific Higgsfield
+          banner below already covers the same advice for that model. */}
+      {s.referenceImages.length > 1 &&
+        parseMentionIndices(s.prompt).length === 0 &&
+        !(s.mode === "video" && /higgsfield/i.test(s.model)) && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-snug text-amber-200/90">
+            <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              {s.referenceImages.length} references attached, none tagged — mixed
+              references (a face plus a style or location board) can get
+              misread as more photos of the same person. Tag each one for the
+              right treatment: <b>@img1</b> for identity,{" "}
+              <b>@img2 in this exact style</b> for a look/mood reference.
+            </span>
+          </div>
+        )}
 
       {/* Higgsfield Seedance (via MCP) natively accepts multiple reference
           images, so several characters/locations can drive one shot. */}
