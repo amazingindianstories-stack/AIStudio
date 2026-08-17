@@ -8,6 +8,7 @@ import {
   HISTORY_PAGE_SIZE,
   aspectRatiosForModel,
   durationsForModel,
+  durationRangeForModel,
   resolutionsForModel,
   supportsAudio,
   supportsVideoReference,
@@ -299,10 +300,19 @@ export const useStore = create((set, get) => ({
       // clamp would silently leave 5s selected and the enqueue guard would
       // 400 on an untouched-defaults happy path. Also covers Higgsfield
       // Seedance (12s cap), Seedance Mini (720p cap), Omni (16:9/9:16 only).
-      const durations = durationsForModel(model);
-      const duration = durations.includes(s.duration)
-        ? s.duration
-        : durations[durations.length - 1];
+      // Seedance 2.0/2.5 are the one exception: BytePlus takes any integer
+      // duration in a bounded range rather than an enum (see
+      // durationRangeForModel), so those clamp by min/max instead.
+      const durationRange = durationRangeForModel(model);
+      let duration;
+      if (durationRange) {
+        duration = Math.min(durationRange.max, Math.max(durationRange.min, s.duration));
+      } else {
+        const durations = durationsForModel(model);
+        duration = durations.includes(s.duration)
+          ? s.duration
+          : durations[durations.length - 1];
+      }
       const resolutions = resolutionsForModel(model, s.mode);
       const resolution = resolutions.includes(s.resolution)
         ? s.resolution
@@ -1598,7 +1608,13 @@ export function restoreComposerDraft() {
       if (resolutionsForModel(effModel, effMode).includes(d.resolution)) {
         patch.resolution = d.resolution;
       }
-      if (durationsForModel(effModel).includes(d.duration)) {
+      const effDurationRange = durationRangeForModel(effModel);
+      const durationValid = effDurationRange
+        ? Number.isInteger(d.duration) &&
+          d.duration >= effDurationRange.min &&
+          d.duration <= effDurationRange.max
+        : durationsForModel(effModel).includes(d.duration);
+      if (durationValid) {
         patch.duration = d.duration;
       }
       if ([1, 2, 3, 4].includes(d.batchCount)) {

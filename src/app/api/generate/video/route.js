@@ -9,6 +9,7 @@ import { logActivity } from "@/lib/activity";
 import {
   aspectRatiosForModel,
   durationsForModel,
+  durationRangeForModel,
   resolutionsForModel,
   supportsAudio,
   supportsVideoReference,
@@ -100,6 +101,27 @@ export async function POST(req) {
       { error: `Seedance 2.0 Mini supports 480p/720p only (got ${resolution}).` },
       { status: 400 }
     );
+  }
+  // Seedance 2.0/2.5 take any integer duration within BytePlus's documented
+  // bounds rather than a fixed enum (see durationRangeForModel) — reject
+  // outside that range up front instead of letting BytePlus 400 it async on
+  // the poll. Edit forces duration to -1 (match source) at the provider
+  // layer regardless of what's sent, so it's exempt; Extend passes through
+  // a real duration when given, so it stays covered.
+  if (videoTaskMode !== "edit") {
+    const durationRange = durationRangeForModel(model);
+    if (
+      durationRange &&
+      duration != null &&
+      (!Number.isInteger(duration) || duration < durationRange.min || duration > durationRange.max)
+    ) {
+      return NextResponse.json(
+        {
+          error: `${model} supports ${durationRange.min}-${durationRange.max}s durations (got ${duration}).`,
+        },
+        { status: 400 }
+      );
+    }
   }
   // Edit/Extend need a source clip to act on and only exist on Seedance 2.5 —
   // reject loudly rather than letting the request reach BytePlus and fail

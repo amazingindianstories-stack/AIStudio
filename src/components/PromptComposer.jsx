@@ -42,6 +42,7 @@ import {
   MODES,
   aspectRatiosForModel,
   durationsForModel,
+  durationRangeForModel,
   resolutionsForModel,
   supportsAudio,
   supportsVideoReference,
@@ -88,6 +89,10 @@ export function PromptComposer() {
   // ratio/Duration segments below.
   const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
   const videoTaskMode = editExtendApplies ? s.videoTaskMode : "generate";
+  // Seedance 2.0/2.5 take any integer duration within a bounded range rather
+  // than a fixed enum (see durationRangeForModel) — non-null here switches
+  // the Duration control below from Segment buttons to a slider.
+  const durationRange = s.mode === "video" ? durationRangeForModel(s.model) : null;
   // Reorder.Group's drag physics expect `values` to update synchronously
   // within the same render as the gesture — bound straight to the Zustand
   // store, the set()→subscription→re-render round trip added just enough
@@ -761,7 +766,29 @@ export function PromptComposer() {
                   </p>
                 </div>
               )}
-              {s.mode === "video" && videoTaskMode !== "edit" && (
+              {s.mode === "video" && videoTaskMode !== "edit" && durationRange && (
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                    Duration
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={durationRange.min}
+                      max={durationRange.max}
+                      step={durationRange.step}
+                      value={s.duration}
+                      onChange={(e) => s.setDuration(Number(e.target.value))}
+                      className="h-1.5 flex-1 cursor-pointer accent-brand"
+                      aria-label="Duration"
+                    />
+                    <span className="w-8 shrink-0 text-right text-xs font-medium tabular-nums text-white/70">
+                      {s.duration}s
+                    </span>
+                  </div>
+                </div>
+              )}
+              {s.mode === "video" && videoTaskMode !== "edit" && !durationRange && (
                 <Segment
                   label="Duration"
                   options={durationsForModel(s.model).map((d) => `${d}s`)}

@@ -94,6 +94,21 @@ def durations_for_model(model: str) -> list[int]:
     return DURATIONS
 
 
+# Mirrors config.js's durationRangeForModel. Native BytePlus Seedance (2.0
+# and 2.5) takes any integer duration within a bounded range rather than a
+# fixed enum; Higgsfield's MCP and Omni's Interactions API are true enums,
+# so this only ever applies to the two direct-BytePlus models — see the
+# comment on the JS side for the source of the 4-15/4-30 bounds.
+def duration_range_for_model(model: str) -> dict | None:
+    if re.search(r"higgsfield", model, re.IGNORECASE) or re.search(r"omni", model, re.IGNORECASE):
+        return None
+    if re.search(r"seedance 2\.5", model, re.IGNORECASE):
+        return {"min": 4, "max": 30, "step": 1}
+    if re.search(r"seedance", model, re.IGNORECASE):
+        return {"min": 4, "max": 15, "step": 1}
+    return None
+
+
 def resolutions_for_model(model: str, kind: str) -> list[str]:
     if re.search(r"omni", model, re.IGNORECASE):
         return ["720p"]
