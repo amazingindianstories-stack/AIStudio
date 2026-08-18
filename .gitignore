@@ -52,3 +52,13 @@ build*.log
 # reads it only as a local fallback (object storage and env vars come first in
 # loadToken), so untracking it costs production nothing.
 .higgsfield-mcp-token.json
+
+# scripts/eval-regression.js fixtures (Phase 3.4) — real face-identity test
+# images and the fixture files that reference them. This repo is public;
+# real people's faces do not belong in git history regardless of consent.
+# README.md and example.fixture.json (no real image, template only) are the
+# only tracked files in that directory — see its own README for setup.
+scripts/eval-fixtures/*
+!scripts/eval-fixtures/README.md
+!scripts/eval-fixtures/example.fixture.json
+scripts/eval-results/
