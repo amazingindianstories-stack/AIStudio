@@ -15,6 +15,7 @@ import {
   prepKlingReference,
 } from "@/lib/providers/kling";
 import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
+import { supportsSeed } from "@/lib/config";
 import { buildKlingInput } from "@/lib/kling-input";
 import { resolveReferences, resolveVideoReferences } from "@/lib/mentions";
 import {
@@ -160,7 +161,7 @@ async function toProviderDataUrls(refs) {
 /** Create the provider task for a locked video job. Returns the item with
  *  taskId + status "running" (does not persist). */
 async function submitVideo(base) {
-  const { id, prompt, aspectRatio, resolution, duration, model } = base;
+  const { id, prompt, aspectRatio, resolution, duration, model, seed } = base;
 
   if (isMock()) {
     return {
@@ -253,6 +254,10 @@ async function submitVideo(base) {
       // Seedance 2.5 only — Edit/Extend an attached clip. Same "off the row,
       // not off this request" reasoning as generateAudio above.
       taskMode: base.videoTaskMode,
+      // Reproducibility seed (Phase 3.1) — native BytePlus only; supportsSeed()
+      // never generates one for Omni/Higgsfield, so this is null on those paths
+      // and createVideoTask's own typeof guard omits it from the request body.
+      seed,
     });
   }
   return { ...base, ...refUpdates, taskId, status: "running", updatedAt: Date.now() };
@@ -316,6 +321,17 @@ export async function POST(req) {
 
   const { prompt, aspectRatio, resolution, model, referenceImages } = base;
   let costCents = base.costCents || 0;
+  // Reproducibility seed (Phase 3.1). Only filled in for models supportsSeed
+  // actually confirms support for (today: Gemini/NBP here, native BytePlus
+  // Seedance in the video branch below) — every other model keeps whatever
+  // was already on the row (normally null) untouched. A fresh int32 is
+  // generated here, not left to the provider's own default, so every
+  // supported generation ends up with a concrete seed to regenerate from —
+  // "regenerate with same seed" has nothing to reuse against a null.
+  let seed = base.seed ?? null;
+  if (supportsSeed(model) && seed == null) {
+    seed = Math.floor(Math.random() * 2147483647);
+  }
   // Normally the stored ratio is whatever was requested. Kling is the exception:
   // it ignores aspect_ratio in image-to-image, so the returned image is measured
   // and this is corrected to match (see the kling branch below).
@@ -327,7 +343,7 @@ export async function POST(req) {
   // the queue's per-kind cap.
   if (base.kind === "video") {
     try {
-      const running = await submitVideo(base);
+      const running = await submitVideo({ ...base, seed });
       await upsertItem(running);
       return NextResponse.json(running);
     } catch (e) {
@@ -476,6 +492,7 @@ export async function POST(req) {
         aspectRatio,
         imageSize: renderSize,
         modelDisplay: model,
+        seed,
       };
       // Best-of-N: generation is stochastic (identity swings 5–65 on the same
       // config), so when a face is locked we generate N candidates in parallel,
@@ -493,8 +510,20 @@ export async function POST(req) {
       let base64;
       let mimeType;
       if (bestOf > 1) {
+        // Per-candidate seed offset, not the same seed repeated N times — an
+        // identical seed across parallel candidates would (to the extent NBP's
+        // seed determinism holds at all — see gemini.ts's own doc comment on
+        // the field) collapse best-of-N's diversity to a single image N times
+        // over, defeating the whole point of the judge picking among distinct
+        // renders. Offsetting by candidate index keeps every candidate
+        // individually reproducible while still varying between candidates.
         const settled = await Promise.allSettled(
-          Array.from({ length: bestOf }, () => generateImageGemini(input))
+          Array.from({ length: bestOf }, (_, i) =>
+            generateImageGemini({
+              ...input,
+              seed: seed != null ? seed + i : undefined,
+            })
+          )
         );
         const candidates = settled.filter(
           (s) =>
@@ -566,6 +595,7 @@ export async function POST(req) {
       url,
       aspectRatio: aspectRatioOut,
       costCents, // includes the NB2 face-refine pass when it ran
+      seed, // the freshly generated/reused value, not base's stale one
       updatedAt: Date.now(),
     };
     await upsertItem(done);

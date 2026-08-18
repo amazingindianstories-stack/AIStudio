@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { retryDelayMs } from "./gemini";
+import { retryDelayMs, generateImageGemini } from "./gemini";
 
 /** A real 429 body, shaped like the one measured on 2026-07-28 when a burst of
  *  21:9/2K best-of-N renders tripped the spend-based rate limit. */
@@ -61,4 +61,66 @@ test("retryDelayMs: ignores a RetryInfo whose retryDelay is missing or malformed
     ),
     null
   );
+});
+
+// ── reproducibility seed (Phase 3.1) ────────────────────────────────────────
+
+/** Mocks global fetch for one call, capturing the request body, and restores
+ *  the original afterward regardless of outcome. Mirrors seedance.test.js's
+ *  withFakeArkResponse for the same reason: generateImageGemini does a real
+ *  network call, so its request-body construction is only reachable by
+ *  intercepting fetch rather than unit-testing a pure helper. */
+async function withFakeGeminiResponse(run) {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.GOOGLE_API_KEY;
+  let capturedBody;
+  process.env.GOOGLE_API_KEY = "test-key";
+  globalThis.fetch = async (_url, init) => {
+    capturedBody = JSON.parse(init.body);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        candidates: [
+          {
+            content: {
+              parts: [{ inlineData: { data: "ZmFrZQ==", mimeType: "image/png" } }],
+            },
+          },
+        ],
+      }),
+      text: async () => "",
+    };
+  };
+  try {
+    const result = await run();
+    return { result, body: capturedBody };
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.GOOGLE_API_KEY;
+    else process.env.GOOGLE_API_KEY = originalKey;
+  }
+}
+
+const MINIMAL_ASSEMBLED = { instruction: "a scene", groups: [] };
+
+test("generateImageGemini: seed is included in generationConfig when a number is given", async () => {
+  const { body } = await withFakeGeminiResponse(() =>
+    generateImageGemini({ assembled: MINIMAL_ASSEMBLED, seed: 42 })
+  );
+  assert.equal(body.generationConfig.seed, 42);
+});
+
+test("generateImageGemini: seed is omitted entirely (not null/undefined) when not given", async () => {
+  const { body } = await withFakeGeminiResponse(() =>
+    generateImageGemini({ assembled: MINIMAL_ASSEMBLED })
+  );
+  assert.equal("seed" in body.generationConfig, false);
+});
+
+test("generateImageGemini: a non-number seed is not sent, same as absent", async () => {
+  const { body } = await withFakeGeminiResponse(() =>
+    generateImageGemini({ assembled: MINIMAL_ASSEMBLED, seed: "42" })
+  );
+  assert.equal("seed" in body.generationConfig, false);
 });

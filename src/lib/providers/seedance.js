@@ -243,6 +243,10 @@ export async function createVideoTask(
     if (input.duration) body.duration = input.duration;
   }
   if (input.resolution) body.resolution = input.resolution;
+  // Real, documented ModelArk field (Phase 3.1, live docs check this session).
+  // Omitted entirely — not sent as null/undefined — when the caller has no
+  // seed, matching gemini.js's identical convention for the same field.
+  if (typeof input.seed === "number") body.seed = input.seed;
 
   const res = await fetch(`${arkBase()}/contents/generations/tasks`, {
     method: "POST",

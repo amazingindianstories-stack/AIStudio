@@ -94,18 +94,30 @@ def retry_delay_ms(err_text: str) -> int | None:
 RETRY_BUDGET_MS = 90_000
 
 
-def generate_image_gemini(assembled: dict, aspect_ratio: str | None = None, image_size: str | None = None) -> dict:
+def generate_image_gemini(
+    assembled: dict,
+    aspect_ratio: str | None = None,
+    image_size: str | None = None,
+    seed: int | None = None,
+) -> dict:
     """Returns {"base64", "mimeType"}."""
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY is not set.")
 
+    generation_config = {
+        "responseModalities": ["TEXT", "IMAGE"],
+        "imageConfig": {"aspectRatio": aspect_ratio or "1:1", "imageSize": image_size or "1K"},
+    }
+    # Real, documented GenerationConfig field (Phase 3.1) — mirrors gemini.js's
+    # identical convention: omitted entirely (not sent as null) when the
+    # caller has no seed.
+    if isinstance(seed, int):
+        generation_config["seed"] = seed
+
     body = {
         "contents": [{"role": "user", "parts": build_parts(assembled)}],
-        "generationConfig": {
-            "responseModalities": ["TEXT", "IMAGE"],
-            "imageConfig": {"aspectRatio": aspect_ratio or "1:1", "imageSize": image_size or "1K"},
-        },
+        "generationConfig": generation_config,
     }
 
     last_error = ""

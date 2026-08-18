@@ -53,6 +53,7 @@ def row_to_item(g: Generation) -> dict:
         "folderId": str(g.folder_id) if g.folder_id else None,
         "userId": str(g.user_id) if g.user_id else None,
         "costCents": g.cost_cents,
+        "seed": g.seed,
         "isFavorite": g.is_favorite,
         "favoritedAt": g.favorited_at,
         "createdAt": g.created_at,

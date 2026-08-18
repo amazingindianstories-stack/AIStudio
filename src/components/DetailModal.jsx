@@ -17,6 +17,7 @@ import {
   ChevronUp,
   Clapperboard,
   Layers,
+  RefreshCw,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
@@ -169,6 +170,7 @@ export function DetailModal() {
   // create a second, drifting definition of the same list.
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
+  const regenerateWithSameSeed = useStore((s) => s.regenerateWithSameSeed);
   const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
   const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
   const addReferenceVideo = useStore((s) => s.addReferenceVideo);
@@ -362,6 +364,7 @@ export function DetailModal() {
                 )}
                 {item.duration && <Param label="Duration" value={`${item.duration}s`} />}
                 <Param label="Model" value={item.model} icon={<Box className="h-3.5 w-3.5" />} />
+                {item.seed != null && <Param label="Seed" value={item.seed} />}
               </div>
 
               {item.referenceImages && item.referenceImages.length > 0 && (
@@ -440,6 +443,24 @@ export function DetailModal() {
                 >
                   <Copy className="h-4 w-4" /> Clone &amp; try
                 </button>
+                {/* Only offered when this row actually carries a seed —
+                    config.supportsSeed models only (Nano Banana Pro, native
+                    BytePlus Seedance), and only rows generated after Phase
+                    3.1 shipped. Distinct from Clone & try: this pins the
+                    ORIGINAL seed rather than starting a fresh render, so the
+                    two buttons produce deliberately different results. */}
+                {item.seed != null && (
+                  <button
+                    onClick={() => {
+                      regenerateWithSameSeed(item.id);
+                      setActiveId(null);
+                    }}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-line bg-white/[0.06] py-2.5 text-sm font-semibold text-white/85 hover:bg-white/[0.1]"
+                    title={`Regenerate using the same seed (${item.seed}) for a reproducible result`}
+                  >
+                    <RefreshCw className="h-4 w-4" /> Regenerate (same seed)
+                  </button>
+                )}
                 <div className="flex gap-2">
                   {item.url && (
                     <a

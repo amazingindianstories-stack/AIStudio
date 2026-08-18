@@ -124,7 +124,7 @@ EXTEND_TRIGGER = "Extend the attached reference video forward in time: "
 def create_video_task(
     prompt: str, model_display: str | None = None, ratio: str | None = None, resolution: str | None = None,
     duration: int | None = None, references: list[dict] | None = None, reference_video_urls: list[str] | None = None,
-    generate_audio: bool = False, task_mode: str = "generate",
+    generate_audio: bool = False, task_mode: str = "generate", seed: int | None = None,
 ) -> str:
     """references: [{"dataUrl": "..."}] (already resolved LabeledRef dicts,
     only .dataUrl is used here). Returns the created task id."""
@@ -161,6 +161,10 @@ def create_video_task(
             body["duration"] = duration
     if resolution:
         body["resolution"] = resolution
+    # Real, documented ModelArk field (Phase 3.1) — mirrors seedance.js's
+    # identical convention, omitted entirely when the caller has no seed.
+    if isinstance(seed, int):
+        body["seed"] = seed
 
     res = requests.post(
         f"{_ark_base()}/contents/generations/tasks",

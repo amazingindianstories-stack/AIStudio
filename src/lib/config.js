@@ -293,6 +293,42 @@ export function supportsVideoEditExtend(model) {
   return /seedance 2\.5/i.test(model);
 }
 
+/**
+ * Can this model take a request-level reproducibility `seed` we've actually
+ * confirmed (Phase 3.1)? Deliberately narrower than "every provider probably
+ * has one somewhere":
+ * - Gemini/Nano Banana Pro: `generationConfig.seed` is a real, documented
+ *   GenerationConfig field (confirmed via Google's own docs/forums, 2026-08).
+ *   Google's own developer forum reports it does NOT reliably guarantee
+ *   determinism on every model — treat it as "nudges toward similar output",
+ *   not a promise — but it is a real, accepted field, safe to send.
+ * - Native BytePlus Seedance: `seed` is a documented ModelArk request field
+ *   (confirmed via a live docs read, 2026-08-17 — see the ModelArk console
+ *   docs page linked in providers/seedance.ts).
+ * - Kling: UNCONFIRMED. Kling's own docs page is client-rendered and answers
+ *   plain fetchers with an empty shell (same issue as every other Kling doc
+ *   check in this codebase — needs Claude-in-Chrome or a live probe). A
+ *   third-party aggregator's schema for this exact model does NOT list a
+ *   request-side seed field, which is grounds for caution, not confidence
+ *   either way. `scripts/probe-kling-seed.js` verifies this for free
+ *   (invalid-parameter trick, no task created) — run it before flipping this.
+ * - Omni (Gemini Interactions API): explicitly NOT included. providers/omni.ts's
+ *   own header documents a narrow, probe-verified request body
+ *   (`{model, input, background, response_format}`) and states unknown
+ *   top-level parameters 400 the whole request — there is no probe evidence
+ *   `seed` is one of the accepted ones, and guessing wrong breaks every Omni
+ *   video generation, not just seed reproducibility.
+ * - Higgsfield MCP: not included for the same reason as Kling/Omni — no
+ *   catalog or probe evidence either way, and Higgsfield is already out of
+ *   the model picker (2026-07-30) so there's no live path to verify against
+ *   without re-enabling it.
+ */
+export function supportsSeed(model) {
+  if (/nano banana/i.test(model)) return true;
+  if (/higgsfield|omni|kling/i.test(model)) return false;
+  return /seedance/i.test(model);
+}
+
 export const DEFAULTS = {
   image: {
     model: "Nano Banana Pro",

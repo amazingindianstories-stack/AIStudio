@@ -12,6 +12,7 @@ import {
   durationRangeForModel,
   resolutionsForModel,
   supportsAudio,
+  supportsSeed,
   supportsVideoReference,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
@@ -67,6 +68,11 @@ export async function POST(req) {
   // number that was never actually asked for. undefined stays undefined.
   const duration =
     videoTaskMode === "edit" ? body.duration || undefined : body.duration || 5;
+  // "Regenerate with same seed" (Phase 3.1) — native BytePlus Seedance only;
+  // see supportsSeed's doc comment for why Omni/Higgsfield/Kling are excluded.
+  // Dropped silently for unsupported models, same convention generateAudio
+  // uses just above.
+  const seed = supportsSeed(model) && Number.isInteger(body.seed) ? body.seed : undefined;
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
@@ -211,6 +217,7 @@ export async function POST(req) {
     folderId,
     userId: user?.id,
     costCents,
+    seed,
     createdAt: now,
     updatedAt: now,
   };

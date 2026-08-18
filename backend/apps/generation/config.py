@@ -175,6 +175,18 @@ def supports_audio(model: str) -> bool:
     return bool(re.search(r"seedance", model, re.IGNORECASE))
 
 
+def supports_seed(model: str) -> bool:
+    """Mirrors config.js's supportsSeed exactly — see that file's doc comment
+    for the full per-provider verification status. Gemini/NBP and native
+    BytePlus Seedance only; Kling/Omni/Higgsfield are explicitly excluded for
+    lack of probe/docs evidence, not tested-and-rejected."""
+    if re.search(r"nano banana", model, re.IGNORECASE):
+        return True
+    if re.search(r"higgsfield|omni|kling", model, re.IGNORECASE):
+        return False
+    return bool(re.search(r"seedance", model, re.IGNORECASE))
+
+
 VIDEO_TASK_MODES = ["generate", "edit", "extend"]
 
 

@@ -231,6 +231,13 @@ export const useStore = create((set, get) => ({
   // is inert everywhere else.
   generateAudio: true,
   videoTaskMode: "generate",
+  // Reproducibility seed (Phase 3.1). null for an ordinary "Generate" click —
+  // the enqueue route only honours it for models config.supportsSeed
+  // confirms, and generate() clears it back to null after a successful
+  // submit (see below) so it never silently reattaches to an unrelated
+  // follow-up generation. regenerateWithSameSeed is the only action that
+  // sets this deliberately.
+  seed: null,
   prompt: "",
   referenceImages: [],
   // Parallel to referenceImages, same length/order — "image" | "video",
@@ -288,6 +295,8 @@ export const useStore = create((set, get) => ({
   activeFolderId: null,
 
   setView: (view) => set({ view }),
+
+  setSeed: (seed) => set({ seed }),
 
   setMode: (mode) => {
     const d = DEFAULTS[mode];
@@ -671,6 +680,11 @@ export const useStore = create((set, get) => ({
       referenceVideos: s.referenceVideos,
       generateAudio: s.generateAudio,
       videoTaskMode,
+      // Only ever non-null when regenerateWithSameSeed set it deliberately —
+      // the enqueue route re-checks config.supportsSeed itself and drops it
+      // silently for a model that doesn't support it, same convention as
+      // generateAudio above.
+      seed: s.seed ?? undefined,
       projectId: s.activeProjectId ?? undefined,
       folderId: s.activeFolderId ?? undefined,
     };
@@ -700,7 +714,10 @@ export const useStore = create((set, get) => ({
           // every submit yanked them out of the project they were working in,
           // which is also the scope the new item was generated into.
           insertNewItem(set, item);
-          set({ prompt: "" });
+          // Clear seed here, not just prompt: a one-shot flag set by
+          // regenerateWithSameSeed, not a standing composer preference — left
+          // set, the NEXT ordinary "Generate" click would silently reuse it.
+          set({ prompt: "", seed: null });
           startPolling(item, set, get);
           created.push(item);
         }
@@ -942,6 +959,23 @@ export const useStore = create((set, get) => ({
     await get().generate();
   },
 
+  /** Same as regenerate, but pins the composer's seed to the ORIGINAL item's
+   *  seed before submitting — a deliberately different result from
+   *  regenerate() above, which produces a fresh (usually different) render.
+   *  Only meaningful for a model config.supportsSeed confirms and only when
+   *  the item actually carries one (older rows predate Phase 3.1 and are
+   *  null); callers should gate the UI entry point on `item.seed != null`
+   *  rather than relying on this to silently no-op. */
+  regenerateWithSameSeed: async (id) => {
+    if (get().generating) return;
+    const item = findItem(get(), id);
+    if (!item || item.seed == null) return;
+    await get().cloneToComposer(id);
+    set({ seed: item.seed });
+    if (!get().prompt.trim()) return;
+    await get().generate();
+  },
+
   addReferenceFromVideo: async (url, atSeconds) => {
     // No provider here accepts an uploaded video, so a frame is how a clip
     // becomes usable as a reference at all. Decoded in the browser — see
@@ -969,6 +1003,9 @@ export const useStore = create((set, get) => ({
       videoTaskMode: supportsVideoEditExtend(item.model)
         ? item.videoTaskMode ?? "generate"
         : "generate",
+      // A plain clone starts fresh, not pinned — regenerateWithSameSeed sets
+      // this explicitly right after calling cloneToComposer.
+      seed: null,
       prompt: item.prompt,
       referenceImages: [],
       referenceKinds: [],

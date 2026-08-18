@@ -40,6 +40,11 @@ class Generation(models.Model):
     # See schema.js's trackCharacters comment — YOLOv8-seg person tracking
     # composited onto the depth map, worker-side toggle.
     track_characters = models.BooleanField(null=True)
+    # Reproducibility seed (Phase 3.1) — mirrors schema.js's `seed` column
+    # verbatim, see that file's comment for the full semantics (only filled
+    # in for models config.supports_seed confirms; null means "not asked" or
+    # "unsupported").
+    seed = models.IntegerField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
 

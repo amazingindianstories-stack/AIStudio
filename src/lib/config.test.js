@@ -14,6 +14,7 @@ import {
   isKlingImageModel,
   resolutionsForModel,
   supportsAudio,
+  supportsSeed,
   supportsVideoEditExtend,
   supportsVideoReference,
 } from "./config";
@@ -73,6 +74,50 @@ test("exactly the two native BytePlus models in the picker are audio-capable tod
 test("no image model is ever audio-capable", () => {
   for (const m of MODELS.filter((m) => m.kind === "image")) {
     assert.equal(supportsAudio(m.name), false, m.name);
+  }
+});
+
+// ── reproducibility seed gating (Phase 3.1) ─────────────────────────────────
+//
+// Only the two probe/docs-confirmed request-side seed fields (Gemini/NBP,
+// native BytePlus Seedance) return true — everything else is an explicit
+// "no evidence either way" exclusion, not a tested-and-rejected claim. Same
+// higgsfield-before-seedance substring trap as supportsAudio: "Higgsfield
+// Seedance 2.0" contains "seedance" too.
+
+test("Nano Banana Pro supports seed", () => {
+  assert.equal(supportsSeed("Nano Banana Pro"), true);
+});
+
+test("native BytePlus Seedance supports seed", () => {
+  assert.equal(supportsSeed("Seedance 2.0"), true);
+  assert.equal(supportsSeed("Seedance 2.0 Mini"), true);
+});
+
+test("Higgsfield Seedance does NOT get seed, despite containing 'seedance'", () => {
+  assert.equal(supportsSeed("Higgsfield Seedance 2.0"), false);
+  assert.equal(supportsSeed("Higgsfield Seedance 2.0 Mini"), false);
+});
+
+test("Omni and Kling are explicitly excluded (no probe evidence either way)", () => {
+  assert.equal(supportsSeed("Gemini Omni Flash"), false);
+  assert.equal(supportsSeed("Kling Image 3.0"), false);
+  assert.equal(supportsSeed("Kling Image 2.1"), false);
+});
+
+test("Higgsfield Soul (image) is not seed-capable", () => {
+  assert.equal(supportsSeed("Higgsfield Soul"), false);
+});
+
+test("seed matching is case-insensitive", () => {
+  assert.equal(supportsSeed("nano banana pro"), true);
+  assert.equal(supportsSeed("SEEDANCE 2.0"), true);
+  assert.equal(supportsSeed("HIGGSFIELD SEEDANCE 2.0"), false);
+});
+
+test("every model in the picker resolves supportsSeed without throwing", () => {
+  for (const m of MODELS) {
+    assert.equal(typeof supportsSeed(m.name), "boolean", m.name);
   }
 });
 

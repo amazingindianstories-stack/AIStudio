@@ -87,6 +87,29 @@ test("createVideoTask: generate_audio is only true when explicitly requested", a
   assert.equal(body.generate_audio, true);
 });
 
+// ── reproducibility seed (Phase 3.1) ────────────────────────────────────────
+
+test("createVideoTask: seed is included when a number is given", async () => {
+  const { body } = await withFakeArkResponse("task-seed-1", () =>
+    createVideoTask({ prompt: "a scene", seed: 42 })
+  );
+  assert.equal(body.seed, 42);
+});
+
+test("createVideoTask: seed is omitted entirely (not null/undefined) when not given", async () => {
+  const { body } = await withFakeArkResponse("task-seed-2", () =>
+    createVideoTask({ prompt: "a scene" })
+  );
+  assert.equal("seed" in body, false);
+});
+
+test("createVideoTask: a non-number seed is not sent, same as absent", async () => {
+  const { body } = await withFakeArkResponse("task-seed-3", () =>
+    createVideoTask({ prompt: "a scene", seed: "42" })
+  );
+  assert.equal("seed" in body, false);
+});
+
 test("createVideoTask: @imgN/@vidN tags are translated to Seedance's bracket form", async () => {
   const { body } = await withFakeArkResponse("task791", () =>
     createVideoTask({ prompt: "use @img1 and continue @vid2", taskMode: "edit" })

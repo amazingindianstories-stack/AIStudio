@@ -106,6 +106,19 @@ export const generations = pgTable("generations", {
   // wholly different kind, which would read as a depth row somehow having an
   // audio setting).
   trackCharacters: boolean("track_characters"),
+  // Reproducibility seed (Phase 3.1, 2026-08-18). Only Gemini/NBP (image) and
+  // native BytePlus Seedance (video) have a probe/docs-confirmed `seed`
+  // request field — see config.ts's supportsSeed. For those, /api/queue/execute
+  // fills this in with a random int32 BEFORE calling the provider whenever the
+  // composer didn't supply one, so every supported generation ends up with a
+  // concrete, persisted seed to regenerate from — never left null just because
+  // the user didn't think to set one. Null means either "not asked yet" (a
+  // pre-3.1 row) or "this model doesn't support seed at all" (Kling/Omni/
+  // Higgsfield — unverified against their own APIs, see config.ts). Persisted
+  // for the same structural reason as generateAudio/videoTaskMode: the
+  // generate route only enqueues, execute is what actually submits, so the
+  // row is the only thing carrying the value between them.
+  seed: integer("seed"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [
