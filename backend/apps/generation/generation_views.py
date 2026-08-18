@@ -572,6 +572,11 @@ def queue_execute(request):
             return Response(failed)
 
     try:
+        # Winning best-of-N candidate's judge score (Phase 3.5) — mirrors
+        # route.js's identical placement/reasoning: declared before every
+        # branch so it's in scope for the single `done` dict below, and only
+        # ever set inside the Gemini best-of-N branch further down.
+        judge_score = None
         if mock.is_mock():
             time.sleep(0.7)
             url = mock.mock_placeholder(item_id, prompt, aspect_ratio, model)
@@ -655,12 +660,14 @@ def queue_execute(request):
                 if os.environ.get("JUDGE_COMPOSITE") == "1":
                     scores = [judge_candidate(assembled["judgeFace"], {"mimeType": c["mimeType"], "data": c["base64"]}) for c in results]
                     best = select_best_candidate(scores, 8)
+                    judge_score = scores[best] if scores[best] is not None else None
                 else:
                     scores = [judge_identity(assembled["judgeFace"], {"mimeType": c["mimeType"], "data": c["base64"]}) for c in results]
                     best = 0
                     for i in range(1, len(scores)):
                         if (scores[i] if scores[i] is not None else -1) > (scores[best] if scores[best] is not None else -1):
                             best = i
+                    judge_score = {"identity": scores[best]} if scores[best] is not None else None
                 base64_out, mime_type = results[best]["base64"], results[best]["mimeType"]
             else:
                 result = gemini_provider.generate_image_gemini(assembled, aspect_ratio, render_size, seed)
@@ -675,7 +682,7 @@ def queue_execute(request):
             ext = "jpg" if "jpeg" in mime_type else "png"
             url = save_media.save_base64(base64_out, ext, item_id)
 
-        done = {**base, "status": "succeeded", "url": url, "aspectRatio": aspect_ratio_out, "costCents": cost_cents, "seed": seed, "updatedAt": int(time.time() * 1000)}
+        done = {**base, "status": "succeeded", "url": url, "aspectRatio": aspect_ratio_out, "costCents": cost_cents, "seed": seed, "judgeScore": judge_score, "updatedAt": int(time.time() * 1000)}
         queue_service.upsert_item(done)
         return Response(done)
     except Exception as e:

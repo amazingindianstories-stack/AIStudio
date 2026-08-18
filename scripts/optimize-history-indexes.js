@@ -54,6 +54,23 @@ const STATEMENTS = [
             on generations (favorited_at desc, id desc)
           where is_favorite`,
   },
+  {
+    // Same reasoning as the favorited_at backfill above, for the same reason
+    // (Phase 3.5): a flagged row with a NULL flagged_at would sit outside the
+    // (flagged_at, id) row comparison the partial index below is built on.
+    // No legacy rows exist for this one yet (the column is new), but future
+    // re-runs of this idempotent script are what makes it safe regardless.
+    label: "backfill flagged_at for legacy flagged rows",
+    sql: `update generations
+             set flagged_at = created_at
+           where flagged and flagged_at is null`,
+  },
+  {
+    label: "generations_flagged_keyset_idx (flagged rows / eval-fixture export)",
+    sql: `create index concurrently if not exists generations_flagged_keyset_idx
+            on generations (flagged_at desc, id desc)
+          where flagged`,
+  },
 ];
 
 async function main() {

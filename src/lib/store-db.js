@@ -38,6 +38,10 @@ function rowToItem(r) {
     continuationFrameUrl: r.continuationFrameUrl ?? undefined,
     isFavorite: r.isFavorite,
     favoritedAt: r.favoritedAt ?? undefined,
+    flagged: r.flagged,
+    flaggedAt: r.flaggedAt ?? undefined,
+    flagReason: r.flagReason ?? undefined,
+    judgeScore: r.judgeScore ?? undefined,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -68,6 +72,10 @@ function itemToValues(item) {
     continuationFrameUrl: item.continuationFrameUrl ?? null,
     isFavorite: item.isFavorite ?? false,
     favoritedAt: item.favoritedAt ?? null,
+    flagged: item.flagged ?? false,
+    flaggedAt: item.flaggedAt ?? null,
+    flagReason: item.flagReason ?? null,
+    judgeScore: item.judgeScore ?? null,
     taskId: item.taskId ?? null,
     generateAudio: item.generateAudio ?? null,
     videoTaskMode: item.videoTaskMode ?? null,
@@ -293,6 +301,30 @@ export async function setItemFavorite(
     .set({
       isFavorite,
       favoritedAt: isFavorite ? Date.now() : null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(generations.id, id))
+    .returning();
+  return rows[0] ? rowToItem(rows[0]) : undefined;
+}
+
+/** Flag/unflag a generation for quality review (Phase 3.5). Independent of
+ *  isFavorite — see schema.js's doc comment on `flagged` for why these are
+ *  two separate booleans rather than one scale. `reason` is only meaningful
+ *  when flagging; unflagging always clears it, so a stale reason from a
+ *  previous flag can't linger and be misread as still describing the row. */
+export async function setItemFlagged(
+  id,
+  flagged,
+  reason
+) {
+  const db = await getDb();
+  const rows = await db
+    .update(generations)
+    .set({
+      flagged,
+      flaggedAt: flagged ? Date.now() : null,
+      flagReason: flagged ? reason ?? null : null,
       updatedAt: Date.now(),
     })
     .where(eq(generations.id, id))

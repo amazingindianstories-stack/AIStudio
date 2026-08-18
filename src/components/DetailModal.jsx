@@ -19,6 +19,7 @@ import {
   Layers,
   RefreshCw,
   SkipForward,
+  Flag,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
@@ -180,6 +181,7 @@ export function DetailModal() {
   const setMode = useStore((s) => s.setMode);
   const removeItem = useStore((s) => s.removeItem);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
+  const toggleFlag = useStore((s) => s.toggleFlag);
 
   // `items` is already the scope the user is looking at — server-filtered and
   // in the same order the grid renders — so arrow-key navigation just walks it.
@@ -326,9 +328,32 @@ export function DetailModal() {
                   <p className="text-xs capitalize text-white/45">{item.kind} generation</p>
                 </div>
                 <button
-                  onClick={() => toggleFavorite(item.id)}
+                  onClick={() => toggleFlag(item.id)}
                   className={cn(
                     "ml-auto grid h-8 w-8 place-items-center rounded-lg border transition",
+                    item.flagged
+                      ? "border-red-400/35 bg-red-500/15 text-red-300"
+                      : "border-line bg-ink-700 text-white/55 hover:text-white"
+                  )}
+                  aria-label={
+                    item.flagged
+                      ? "Unflag this generation"
+                      : "Flag this generation for quality review"
+                  }
+                  title={
+                    item.flagged
+                      ? item.flagReason
+                        ? `Flagged: ${item.flagReason}`
+                        : "Flagged — click to unflag"
+                      : "Flag this generation for quality review"
+                  }
+                >
+                  <Flag className={cn("h-4 w-4", item.flagged && "fill-current")} />
+                </button>
+                <button
+                  onClick={() => toggleFavorite(item.id)}
+                  className={cn(
+                    "grid h-8 w-8 place-items-center rounded-lg border transition",
                     item.isFavorite
                       ? "border-amber-300/35 bg-amber-400/15 text-amber-300"
                       : "border-line bg-ink-700 text-white/55 hover:text-white"
@@ -343,6 +368,16 @@ export function DetailModal() {
                   />
                 </button>
               </div>
+              {item.flagged && (
+                <div className="mb-5 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-2">
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-red-300">
+                    <Flag className="h-3 w-3 fill-current" /> Flagged for review
+                  </p>
+                  {item.flagReason && (
+                    <p className="mt-1 text-xs text-red-200/80">{item.flagReason}</p>
+                  )}
+                </div>
+              )}
 
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
                 Parameters

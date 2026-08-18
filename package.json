@@ -26,7 +26,8 @@
     "sync:shiv-sati-storyboard": "tsx scripts/sync-shiv-sati-storyboard.js",
     "hf:login": "node scripts/hf-mcp-auth.mjs",
     "recover:videos": "tsx --tsconfig jsconfig.json scripts/recover-timed-out-videos.js",
-    "eval:regression": "tsx --tsconfig jsconfig.json scripts/eval-regression.js"
+    "eval:regression": "tsx --tsconfig jsconfig.json scripts/eval-regression.js",
+    "export:flagged-fixtures": "tsx --tsconfig jsconfig.json scripts/export-flagged-fixtures.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1081.0",

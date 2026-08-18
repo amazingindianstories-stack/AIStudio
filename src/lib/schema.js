@@ -143,6 +143,34 @@ export const generations = pgTable("generations", {
   // "an ordinary generation, not a continuation" — the overwhelmingly common
   // case, so this is nullable rather than an empty-string sentinel.
   continuationFrameUrl: text("continuation_frame_url"),
+  // Lightweight quality feedback signal (Phase 3.5) — deliberately separate
+  // from isFavorite: favourite means "good, keep it visible"; flagged means
+  // "wrong in a way worth reviewing" (identity drift, style break, a broken
+  // limb) and is meant to be acted on, not just remembered. A row can be
+  // both, or neither — they're independent booleans, not opposite ends of
+  // one scale. `flagReason` is optional free text (see store.js's
+  // toggleFlag — a window.prompt(), same convention this app already uses
+  // for folder/project naming) so a flagged row carries WHY without forcing
+  // one. Everything scripts/export-flagged-fixtures.js needs beyond this —
+  // prompt, model, referenceImages — already lives on the row; only the
+  // flag itself and (below) the judge's score were missing.
+  flagged: boolean("flagged").notNull().default(false),
+  flaggedAt: bigint("flagged_at", { mode: "number" }),
+  flagReason: text("flag_reason"),
+  // The winning best-of-N candidate's judge score (middleware/face-judge.js
+  // — {identity} from judgeIdentity, or {identity,prominence,sharpness} from
+  // judgeCandidate under JUDGE_COMPOSITE=1), captured at generation time in
+  // queue/execute.js's image path and generate/video/status.js's video
+  // best-of resolution. This used to be computed and only ever logged to
+  // the console (see the "best-of-N ... scores:" console.log lines) — real
+  // signal that vanished the moment the request finished. Null whenever no
+  // best-of-N judging ran for this row (single-pass generation, or a row
+  // that predates this column), which is the common case, hence nullable
+  // rather than an empty-object default. This is what makes a flagged row's
+  // "scores" in scripts/export-flagged-fixtures.js real data instead of a
+  // TODO — no re-judging happens at flag or export time, the row already
+  // carries what the judge said when the image was made.
+  judgeScore: jsonb("judge_score").$type(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [
@@ -185,6 +213,16 @@ export const generations = pgTable("generations", {
   index("generations_favorite_keyset_idx")
     .on(table.favoritedAt.desc(), table.id.desc())
     .where(sql`${table.isFavorite}`),
+  // Same partial-index shape as favourites, for the same reason: flagged
+  // rows are a tiny fraction of the table, and scripts/export-flagged-
+  // fixtures.js (Phase 3.5) walks them in flaggedAt order. No feed view
+  // reads this yet, but the index costs nothing to have ready and matches
+  // this codebase's own "indexes are not created by db:push" convention
+  // (see CLAUDE.md's Library feed section) — added here, applied via
+  // `npm run db:optimize`, same as favorited_at was.
+  index("generations_flagged_keyset_idx")
+    .on(table.flaggedAt.desc(), table.id.desc())
+    .where(sql`${table.flagged}`),
 ]);
 
 /**

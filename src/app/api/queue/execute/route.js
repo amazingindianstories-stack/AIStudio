@@ -430,6 +430,13 @@ export async function POST(req) {
 
   try {
     let url;
+    // Winning candidate's judge score (Phase 3.5), persisted onto the row
+    // below so a later "flag this generation" carries real evidence, not
+    // just a prompt/model snapshot — see schema.js's `judgeScore` comment.
+    // Declared up here (not inside the Gemini branch below) so it's in scope
+    // for every branch's `done` object; stays null except when Gemini
+    // best-of-N judging actually ran.
+    let judgeScore = null;
     if (isMock()) {
       await new Promise((r) => setTimeout(r, 700));
       url = await mockPlaceholder(id, prompt, aspectRatio, model);
@@ -624,6 +631,7 @@ export async function POST(req) {
                 .map((s) => (s ? `id${s.identity}/pr${s.prominence}/sh${s.sharpness}` : "n/a"))
                 .join(", ")} → picked #${best + 1}`
           );
+          judgeScore = scores[best] ?? null;
           ({ base64, mimeType } = candidates[best].value);
         } else {
           const scores = await Promise.all(
@@ -642,6 +650,7 @@ export async function POST(req) {
             `[image] best-of-${candidates.length} identity scores: ` +
               `${scores.map((s) => s ?? "n/a").join(", ")} → picked #${best + 1}`
           );
+          judgeScore = scores[best] != null ? { identity: scores[best] } : null;
           ({ base64, mimeType } = candidates[best].value);
         }
       } else {
@@ -665,6 +674,7 @@ export async function POST(req) {
       aspectRatio: aspectRatioOut,
       costCents, // includes the NB2 face-refine pass when it ran
       seed, // the freshly generated/reused value, not base's stale one
+      judgeScore, // null unless best-of-N judging ran (see above)
       updatedAt: Date.now(),
     };
     await upsertItem(done);

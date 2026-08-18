@@ -5,6 +5,7 @@ import {
   deleteItem,
   getItem,
   setItemFavorite,
+  setItemFlagged,
   setItemFolder,
 } from "@/lib/store-db";
 import { getSession, canManage } from "@/lib/auth";
@@ -34,7 +35,11 @@ export async function GET(req) {
   return NextResponse.json(page);
 }
 
-/** Update generation metadata: move into folders or toggle favourites. */
+/** Update generation metadata: move into folders, toggle favourites, or
+ *  flag/unflag for quality review (Phase 3.5). Mutually exclusive per
+ *  request, same as the favourite/folder branches already were — a single
+ *  PATCH body is read as "whichever one field changed", not a general
+ *  partial-update endpoint. */
 export async function PATCH(req) {
   if (!(await getSession())) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
@@ -46,6 +51,8 @@ export async function PATCH(req) {
   const updated =
     typeof b.isFavorite === "boolean"
       ? await setItemFavorite(b.id, b.isFavorite)
+      : typeof b.flagged === "boolean"
+      ? await setItemFlagged(b.id, b.flagged, b.flagReason)
       : await setItemFolder(
           b.id,
           b.projectId ?? undefined,

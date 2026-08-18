@@ -58,6 +58,18 @@ class Generation(models.Model):
     # `continuation_frame_url`. A stored media URL for a frame extracted from
     # a previous generation, submitted as the new video's starting frame.
     continuation_frame_url = models.TextField(null=True)
+    # Lightweight quality feedback signal (Phase 3.5) — mirrors schema.js's
+    # `flagged`/`flagged_at`/`flag_reason`/`judge_score` verbatim. Independent
+    # of is_favorite (see that file's comment). judge_score is the winning
+    # best-of-N candidate's face-judge score, captured at generation time —
+    # only ever written by the Next.js queue/execute + video status routes
+    # today (this Django port only mirrors the columns, not that write path,
+    # same "schema mirrored, pipeline not" pattern as candidate_task_ids
+    # above — Django isn't live yet).
+    flagged = models.BooleanField(default=False)
+    flagged_at = models.BigIntegerField(null=True)
+    flag_reason = models.TextField(null=True)
+    judge_score = models.JSONField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
 

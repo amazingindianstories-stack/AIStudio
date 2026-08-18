@@ -29,6 +29,18 @@ image files placed alongside it. Set your own fixtures up locally:
    a `prompt-assembler.js`/`gemini.js`/`face-judge.js` change that quietly
    makes identity locking worse.
 
+## Populating fixtures from flagged generations
+
+Flagging a generation in the app (the flag icon next to Favourite in the
+detail view — Phase 3.5) is a lighter-weight way to build up fixtures than
+setting them up by hand. `npm run export:flagged-fixtures` reads every
+flagged image row, downloads its first reference image, and writes a
+ready-to-run `flagged-<id>.fixture.json` here (free — no billed calls, it
+only reads already-stored data). Review what it produces before trusting
+it: the prompt/model/aspect ratio come straight from the flagged row, but
+`samples`/`identityFloor` still need a real `--update-floors` run, same as
+any hand-built fixture.
+
 ## Cost
 
 **Every run makes real, billed Nano Banana Pro generations** — `samples`

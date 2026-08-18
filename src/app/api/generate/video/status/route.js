@@ -106,6 +106,10 @@ async function resolveVideoBestOf(item, agedOut) {
   const pool = judged.length ? judged : succeeded.map((r) => ({ ...r, frame: null }));
 
   let winner = pool[0];
+  // Winning candidate's judge score (Phase 3.5) — same "persist what the
+  // judge said, not just log it" reasoning as queue/execute's image path.
+  // Stays null when there was nothing to compare (0 or 1 judged frames).
+  let judgeScore = null;
   if (judged.length > 1) {
     if (useComposite) {
       const scores = await Promise.all(
@@ -113,6 +117,7 @@ async function resolveVideoBestOf(item, agedOut) {
       );
       const best = selectBestCandidate(scores, 8);
       winner = judged[best];
+      judgeScore = scores[best] ?? null;
       console.log(
         `[video best-of-N] composite scores: ` +
           `${scores.map((s) => (s ? `id${s.identity}/pr${s.prominence}/sh${s.sharpness}` : "n/a")).join(", ")} ` +
@@ -125,6 +130,7 @@ async function resolveVideoBestOf(item, agedOut) {
         if ((scores[i] ?? -1) > (scores[best] ?? -1)) best = i;
       }
       winner = judged[best];
+      judgeScore = scores[best] != null ? { identity: scores[best] } : null;
       console.log(
         `[video best-of-N] identity scores: ${scores.map((s) => s ?? "n/a").join(", ")} ` +
           `→ picked candidate ${winner.taskId}`
@@ -151,6 +157,7 @@ async function resolveVideoBestOf(item, agedOut) {
     status: "succeeded",
     url: localUrl,
     candidateTaskIds: null,
+    judgeScore,
     updatedAt: Date.now(),
   };
 }

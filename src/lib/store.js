@@ -896,6 +896,50 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  // Lightweight quality feedback signal (Phase 3.5) — independent of
+  // toggleFavorite above (see schema.js's `flagged` comment for why these
+  // are two separate booleans). Unflagging never asks for a reason; flagging
+  // does, via window.prompt — same convention this file already uses for
+  // folder/project naming (ProjectPanel.jsx, ProjectMenu.jsx). An empty or
+  // cancelled prompt still flags the row (a null reason is a valid flag,
+  // just an unexplained one) — only an explicit Cancel-with-no-flag case
+  // doesn't happen here because the flag itself isn't gated on the prompt.
+  toggleFlag: async (id) => {
+    const item = findItem(get(), id);
+    if (!item) return;
+
+    const nextFlagged = !item.flagged;
+    const reason = nextFlagged
+      ? window.prompt("Flag this generation — what's wrong with it? (optional)") || null
+      : null;
+    const flaggedAt = nextFlagged ? Date.now() : undefined;
+    patchEverywhere(set, id, (i) => ({
+      ...i,
+      flagged: nextFlagged,
+      flaggedAt,
+      flagReason: reason,
+    }));
+
+    try {
+      const res = await apiFetch("/api/history", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, flagged: nextFlagged, flagReason: reason }),
+      });
+      if (!res.ok) throw new Error("Flag update failed.");
+      const updated = await res.json();
+      if (updated?.id) patchEverywhere(set, updated.id, (i) => ({ ...i, ...updated }));
+    } catch {
+      patchEverywhere(set, id, (i) => ({
+        ...i,
+        flagged: item.flagged,
+        flaggedAt: item.flaggedAt,
+        flagReason: item.flagReason,
+      }));
+      alert("Failed to update flag — please try again.");
+    }
+  },
+
   retryTextToVideo: async (id) => {
     const item = findItem(get(), id);
     if (!item || get().generating) return;
