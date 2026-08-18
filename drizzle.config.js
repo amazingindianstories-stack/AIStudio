@@ -24,6 +24,7 @@ const DRIZZLE_OWNED_TABLES = [
   "agent_conversations",
   "agent_conversation_messages",
   "activity_logs",
+  "login_attempts",
 ];
 
 export default {
