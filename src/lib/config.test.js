@@ -15,6 +15,7 @@ import {
   resolutionsForModel,
   supportsAudio,
   supportsSeed,
+  supportsVideoBestOf,
   supportsVideoEditExtend,
   supportsVideoReference,
 } from "./config";
@@ -118,6 +119,43 @@ test("seed matching is case-insensitive", () => {
 test("every model in the picker resolves supportsSeed without throwing", () => {
   for (const m of MODELS) {
     assert.equal(typeof supportsSeed(m.name), "boolean", m.name);
+  }
+});
+
+// ── video best-of-N + frame-judge gating (Phase 3.2) ────────────────────────
+//
+// Scoped narrower than supportsSeed: it's a submission-shape decision (submit
+// N provider tasks in parallel), not a provider-capability claim, so only the
+// one video path this phase actually extended (native BytePlus) is true.
+
+test("native BytePlus Seedance supports video best-of-N", () => {
+  assert.equal(supportsVideoBestOf("Seedance 2.0"), true);
+  assert.equal(supportsVideoBestOf("Seedance 2.0 Mini"), true);
+  assert.equal(supportsVideoBestOf("Seedance 2.5"), true);
+});
+
+test("Higgsfield Seedance does NOT get best-of-N, despite containing 'seedance'", () => {
+  assert.equal(supportsVideoBestOf("Higgsfield Seedance 2.0"), false);
+  assert.equal(supportsVideoBestOf("Higgsfield Seedance 2.0 Mini"), false);
+});
+
+test("Omni is excluded — it has its own separate submission path", () => {
+  assert.equal(supportsVideoBestOf("Gemini Omni Flash"), false);
+});
+
+test("image models are not video-best-of-N capable", () => {
+  assert.equal(supportsVideoBestOf("Nano Banana Pro"), false);
+  assert.equal(supportsVideoBestOf("Kling Image 3.0"), false);
+});
+
+test("video best-of-N matching is case-insensitive", () => {
+  assert.equal(supportsVideoBestOf("SEEDANCE 2.0"), true);
+  assert.equal(supportsVideoBestOf("HIGGSFIELD SEEDANCE 2.0"), false);
+});
+
+test("every model in the picker resolves supportsVideoBestOf without throwing", () => {
+  for (const m of MODELS) {
+    assert.equal(typeof supportsVideoBestOf(m.name), "boolean", m.name);
   }
 });
 

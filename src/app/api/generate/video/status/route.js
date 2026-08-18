@@ -6,13 +6,154 @@ import {
 } from "@/lib/providers/seedance";
 import { isHiggsfieldModel, mcpJobStatus } from "@/lib/providers/higgsfield-mcp";
 import { isOmniModel, getOmniVideoStatus } from "@/lib/providers/omni";
-import { saveBase64, saveFromUrl } from "@/lib/save-media";
+import { saveBase64, saveFromUrl, readImageAsBase64 } from "@/lib/save-media";
 import { getItem, upsertItem } from "@/lib/store-db";
 import { isMock } from "@/lib/mock";
 import { readPricing } from "@/lib/pricing-db";
 import { computeSeedanceTokenCostCents } from "@/lib/pricing";
+import { extractLastFrameServer } from "@/lib/video-frame-server";
+import { judgeCandidate, judgeIdentity, selectBestCandidate } from "@/lib/middleware/face-judge";
 
 export const runtime = "nodejs";
+// Frame extraction downloads a full candidate video then shells out to
+// ffmpeg — real wall-clock work, on top of this route's normal provider
+// poll. maxDuration wasn't set here before (implicit default) because a
+// single-candidate poll is fast; best-of-N's judging pass is not.
+export const maxDuration = 120;
+
+/**
+ * Resolves a video best-of-N row (Phase 3.2) — one with `candidateTaskIds`
+ * set, meaning queue/execute submitted multiple provider tasks in parallel.
+ * Polls every candidate task; only proceeds to judging once ALL have
+ * reached a terminal state (succeeded/failed), same "don't act until the
+ * provider itself has an answer" principle the single-candidate path below
+ * follows for its own age-timeout handling.
+ *
+ * Returns null when there's nothing to persist yet (still waiting on one or
+ * more candidates) so the caller can fall through to its existing
+ * still-running response.
+ */
+async function resolveVideoBestOf(item, agedOut) {
+  const allTaskIds = [item.taskId, ...(item.candidateTaskIds ?? [])];
+  const results = await Promise.all(
+    allTaskIds.map(async (taskId) => {
+      try {
+        return { taskId, ...(await getVideoTask(taskId)) };
+      } catch (e) {
+        // A transient poll error on ONE candidate must not fail the whole
+        // job — same reasoning the single-candidate path's outer catch
+        // block already documents. Reported as "running" so this candidate
+        // is simply retried on the next poll instead of prematurely
+        // excluding it from judging.
+        console.error(`[video best-of-N] poll error for candidate ${taskId}:`, e);
+        return { taskId, status: "running" };
+      }
+    })
+  );
+
+  const pending = results.filter((r) => r.status !== "succeeded" && r.status !== "failed");
+  if (pending.length > 0) {
+    if (agedOut) {
+      return {
+        ...item,
+        status: "failed",
+        error: "Generation timed out — not every candidate returned a result in time.",
+        candidateTaskIds: null,
+        updatedAt: Date.now(),
+      };
+    }
+    return null; // still waiting — nothing to persist yet
+  }
+
+  const succeeded = results.filter((r) => r.status === "succeeded" && r.videoUrl);
+  if (!succeeded.length) {
+    const blocked = results.some((r) => isModerationMessage(r.error || ""));
+    return {
+      ...item,
+      status: "failed",
+      error: blocked
+        ? MODERATION_MESSAGE
+        : results.find((r) => r.error)?.error || "All candidates failed to generate.",
+      moderationBlocked: blocked,
+      candidateTaskIds: null,
+      updatedAt: Date.now(),
+    };
+  }
+
+  // Reference face: the first uploaded reference image, same one
+  // buildVideoDirective's identityLock was told to hold every candidate to.
+  // judgeCandidate/judgeIdentity don't require a tight crop — they hand the
+  // image straight to a Gemini vision comparison call — so the raw upload
+  // works fine as ground truth without running the heavier
+  // prompt-assembler/faceCrops pipeline just to get one.
+  const refRaw = await readImageAsBase64(item.referenceImages[0]);
+  const useComposite = process.env.JUDGE_COMPOSITE === "1";
+
+  const frames = await Promise.all(
+    succeeded.map(async (r) => {
+      try {
+        return { ...r, frame: await extractLastFrameServer(r.videoUrl) };
+      } catch (e) {
+        console.error(`[video best-of-N] frame extraction failed for ${r.taskId}:`, e);
+        return { ...r, frame: null };
+      }
+    })
+  );
+  const judged = frames.filter((f) => f.frame);
+  // Every extraction failed (e.g. ffmpeg unavailable in this deploy) — fall
+  // back to the first successfully-generated candidate rather than losing
+  // every billed render to a judging-infrastructure problem.
+  const pool = judged.length ? judged : succeeded.map((r) => ({ ...r, frame: null }));
+
+  let winner = pool[0];
+  if (judged.length > 1) {
+    if (useComposite) {
+      const scores = await Promise.all(
+        judged.map((f) => judgeCandidate(refRaw, f.frame))
+      );
+      const best = selectBestCandidate(scores, 8);
+      winner = judged[best];
+      console.log(
+        `[video best-of-N] composite scores: ` +
+          `${scores.map((s) => (s ? `id${s.identity}/pr${s.prominence}/sh${s.sharpness}` : "n/a")).join(", ")} ` +
+          `→ picked candidate ${winner.taskId}`
+      );
+    } else {
+      const scores = await Promise.all(judged.map((f) => judgeIdentity(refRaw, f.frame)));
+      let best = 0;
+      for (let i = 1; i < scores.length; i++) {
+        if ((scores[i] ?? -1) > (scores[best] ?? -1)) best = i;
+      }
+      winner = judged[best];
+      console.log(
+        `[video best-of-N] identity scores: ${scores.map((s) => s ?? "n/a").join(", ")} ` +
+          `→ picked candidate ${winner.taskId}`
+      );
+    }
+  }
+
+  let localUrl = winner.videoUrl;
+  try {
+    localUrl = await saveFromUrl(winner.videoUrl, "mp4", item.id);
+  } catch {
+    // fall back to the remote url if download fails
+  }
+
+  // costCents was already billed at submission time as the per-candidate
+  // estimate × videoBestOf (see queue/execute) — every candidate is a real
+  // separately-billed provider task regardless of which one wins, so that
+  // total stands. NOT refined against Seedance 2.5's real per-token usage
+  // the way the single-candidate path below does: doing that correctly here
+  // would mean summing every succeeded candidate's own totalTokens, not just
+  // the winner's, and that refinement wasn't built for this first cut.
+  return {
+    ...item,
+    status: "succeeded",
+    url: localUrl,
+    candidateTaskIds: null,
+    updatedAt: Date.now(),
+  };
+}
 
 export async function GET(req) {
   const id = req.nextUrl.searchParams.get("id");
@@ -68,6 +209,19 @@ export async function GET(req) {
   }
 
   try {
+    // Video best-of-N (Phase 3.2) — only set on native BytePlus rows that
+    // queue/execute submitted multiple candidates for. Checked before the
+    // mock/Omni/single-candidate branches below since it's an orthogonal
+    // concern: a best-of-N row is still, underneath, a native-BytePlus row.
+    if (!isMock() && item.candidateTaskIds && item.candidateTaskIds.length > 0) {
+      const resolved = await resolveVideoBestOf(item, agedOut);
+      if (resolved) {
+        await upsertItem(resolved);
+        return NextResponse.json(resolved);
+      }
+      return NextResponse.json(item); // still waiting on one or more candidates
+    }
+
     if (isMock()) {
       // Pretend it finishes ~6s after creation; "video" reuses the poster image.
       if (Date.now() - item.createdAt > 6000) {

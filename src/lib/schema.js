@@ -119,6 +119,20 @@ export const generations = pgTable("generations", {
   // generate route only enqueues, execute is what actually submits, so the
   // row is the only thing carrying the value between them.
   seed: integer("seed"),
+  // Video best-of-N (Phase 3.2). `taskId` above stays the PRIMARY candidate;
+  // this holds the remaining N-1 provider task ids submitted in parallel
+  // alongside it. Cleared back to null once the status-poll route has judged
+  // the finished candidates and settled on a winner — "absent" always means
+  // "no extra candidates in flight or to reconcile", the same convention
+  // progressPercent/progressMessage use for "not currently reporting".
+  // Native BytePlus Seedance only (config.supportsVideoBestOf) — Omni/
+  // Higgsfield have their own separate submission paths this phase didn't
+  // extend to. Gated off by default (VIDEO_BEST_OF unset): the frame-
+  // extraction step needs a real ffmpeg binary bundled into the serverless
+  // function, which is a genuinely new, unverified-on-Vercel risk — see
+  // video-frame-server.js's header before ever flipping this on in
+  // production.
+  candidateTaskIds: jsonb("candidate_task_ids").$type(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [

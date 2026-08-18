@@ -329,6 +329,29 @@ export function supportsSeed(model) {
   return /seedance/i.test(model);
 }
 
+/**
+ * Video best-of-N + frame-judge scoring (Phase 3.2). Native BytePlus
+ * Seedance only, same higgsfield-before-seedance ordering supportsAudio/
+ * supportsSeed use ("Higgsfield Seedance 2.0" also contains "seedance") —
+ * this is a submission-shape decision (queue/execute submits N
+ * createVideoTask calls in parallel), not a provider-capability one, so it
+ * is scoped to the one video path this phase actually extended. Omni and
+ * Higgsfield have their own separate submission flows in submitVideo() that
+ * were not touched.
+ *
+ * Distinct from — and additionally gated behind — the VIDEO_BEST_OF env var
+ * itself (default unset = off): even on a supported model, this feature
+ * needs a real ffmpeg binary bundled into the serverless function to judge
+ * candidates (see video-frame-server.js's header for the unverified-on-
+ * Vercel risk that gate exists to contain). Callers should check
+ * `supportsVideoBestOf(model) && process.env.VIDEO_BEST_OF`, not this
+ * function alone.
+ */
+export function supportsVideoBestOf(model) {
+  if (/higgsfield|omni/i.test(model)) return false;
+  return /seedance/i.test(model);
+}
+
 export const DEFAULTS = {
   image: {
     model: "Nano Banana Pro",

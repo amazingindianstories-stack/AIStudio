@@ -187,6 +187,18 @@ def supports_seed(model: str) -> bool:
     return bool(re.search(r"seedance", model, re.IGNORECASE))
 
 
+def supports_video_best_of(model: str) -> bool:
+    """Mirrors config.js's supportsVideoBestOf. Native BytePlus Seedance
+    only — a submission-shape decision (submit N tasks in parallel), not a
+    provider-capability claim, so it's scoped to the one video path Phase
+    3.2 actually extended. NOT wired into any Django view — see
+    generation_views.py's own note; this also needs a real ffmpeg binary in
+    the runtime, which this backend has no equivalent of yet."""
+    if re.search(r"higgsfield|omni", model, re.IGNORECASE):
+        return False
+    return bool(re.search(r"seedance", model, re.IGNORECASE))
+
+
 VIDEO_TASK_MODES = ["generate", "edit", "extend"]
 
 

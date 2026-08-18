@@ -45,6 +45,15 @@ class Generation(models.Model):
     # in for models config.supports_seed confirms; null means "not asked" or
     # "unsupported").
     seed = models.IntegerField(null=True)
+    # Video best-of-N (Phase 3.2) — mirrors schema.js's `candidate_task_ids`
+    # column. NOT wired into any Django view (the queue/execute + video
+    # status-poll changes for this phase were only built on the Next.js
+    # side — see generation_views.py's own note; Django isn't live yet and
+    # this feature additionally needs a real ffmpeg binary in the runtime,
+    # which this backend has no equivalent of). Column exists so the model
+    # stays a faithful mirror of the live table regardless of which app
+    # wrote a given row.
+    candidate_task_ids = models.JSONField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
 

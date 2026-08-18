@@ -54,6 +54,7 @@ def row_to_item(g: Generation) -> dict:
         "userId": str(g.user_id) if g.user_id else None,
         "costCents": g.cost_cents,
         "seed": g.seed,
+        "candidateTaskIds": g.candidate_task_ids,
         "isFavorite": g.is_favorite,
         "favoritedAt": g.favorited_at,
         "createdAt": g.created_at,
