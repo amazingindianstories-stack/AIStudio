@@ -28,6 +28,7 @@ import {
   Layers,
   Sparkles,
   Volume2,
+  SkipForward,
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
 import { parseMentionIndices } from "@/lib/mentions";
@@ -500,6 +501,34 @@ export function PromptComposer() {
             </span>
           </div>
         )}
+
+      {/* Multi-shot chaining (Phase 3.3) — set by continueShot (DetailModal's
+          "Continue this shot" button), not a standing preference. Shown so
+          the user isn't puzzled why an otherwise-ordinary video request is
+          actually starting from a specific frame; dismissible without
+          discarding the rest of the composer's state. */}
+      {s.continuationFrame && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/10 px-2.5 py-1.5 text-[11px] leading-snug text-brand/90">
+          <img
+            src={s.continuationFrame}
+            alt="Continuation starting frame"
+            className="h-8 w-8 shrink-0 rounded object-cover"
+          />
+          <SkipForward className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">
+            Continuing from this frame — write what happens next.
+          </span>
+          <button
+            type="button"
+            onClick={() => s.setContinuationFrame(null)}
+            className="shrink-0 rounded p-0.5 text-brand/70 hover:bg-brand/20 hover:text-brand"
+            aria-label="Remove continuation frame"
+            title="Remove continuation frame"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* input row */}
       <div className="flex items-start gap-2">

@@ -18,11 +18,12 @@ import {
   Clapperboard,
   Layers,
   RefreshCw,
+  SkipForward,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
-import { supportsVideoReference } from "@/lib/config";
+import { supportsFirstFrameContinuation, supportsVideoReference } from "@/lib/config";
 
 /** Prompt in the details sidebar: minimized by default, hover reveals an
  *  expand cue in the top-right corner (same pattern as the feed). Keyed by
@@ -171,6 +172,7 @@ export function DetailModal() {
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const regenerateWithSameSeed = useStore((s) => s.regenerateWithSameSeed);
+  const continueShot = useStore((s) => s.continueShot);
   const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
   const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
   const addReferenceVideo = useStore((s) => s.addReferenceVideo);
@@ -417,6 +419,28 @@ export function DetailModal() {
                     <ImagePlus className="h-4 w-4" /> Use this frame as reference
                   </button>
                 )}
+                {/* Multi-shot chaining (Phase 3.3) — extracts the LAST frame
+                    (not "the frame you're paused on", unlike the button
+                    above) and submits it as the next generation's starting
+                    frame, so a sequence of shots can flow continuously.
+                    Gated on the ITEM's own model, not the composer's current
+                    one — continueShot switches the composer to item.model
+                    itself, so the button's availability should track what
+                    the source clip can actually continue from. */}
+                {item.kind === "video" &&
+                  item.url &&
+                  supportsFirstFrameContinuation(item.model) && (
+                    <button
+                      onClick={() => {
+                        continueShot(item.id);
+                        setActiveId(null);
+                      }}
+                      className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
+                      title="Start a new video from this clip's last frame — write what happens next"
+                    >
+                      <SkipForward className="h-4 w-4" /> Continue this shot
+                    </button>
+                  )}
                 {/* True video-to-video, BytePlus only. Gated on the model the
                     composer is set to, because it is the only one with a
                     reference_video field — offering it otherwise would attach a

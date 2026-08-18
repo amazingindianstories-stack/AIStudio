@@ -211,6 +211,38 @@ export async function createVideoTask(
       role: refRole,
     });
   });
+  // Multi-shot chaining (Phase 3.3): "continue this shot" extracts the last
+  // frame of a finished video (client-side, via lib/video-frame.js — the
+  // browser <video>+<canvas> path, not video-frame-server.js's ffmpeg one;
+  // this doesn't need server-side decode because the frame comes from a
+  // video the USER is already looking at) and resubmits it here as the
+  // starting frame of a new generation.
+  //
+  // NOT BACKED BY OFFICIAL DOCS THE WAY EVERY OTHER PAYLOAD SHAPE IN THIS
+  // FILE IS — docs.byteplus.com's Video Generation API pages are a
+  // client-rendered SPA that answers plain fetchers (and this session's
+  // WebFetch) with a nav-only shell, and Claude-in-Chrome was unavailable
+  // to read the JS-rendered content directly. The `role: "first_frame"` /
+  // `role: "last_frame"` content-item pattern below comes from a detailed,
+  // code-and-results third-party tutorial (DataCamp's Seedance 2 API guide,
+  // read 2026-08-18) that ran real requests and showed real generated
+  // output — evidence, not a guess, but a materially weaker grade of
+  // evidence than this file's other fields (seed, generate_audio, the
+  // Edit/Extend ratio:"adaptive" behavior), which were confirmed either
+  // against BytePlus's own docs or a live probe against this app's own key.
+  // `scripts/probe-seedance-first-frame.js` is the live check to run before
+  // trusting this in production — it is NOT free (unlike the Kling seed/
+  // resolution probes), since nothing about first_frame validates
+  // synchronously the way an out-of-range n or an unsupported resolution
+  // does; confirming it actually constrains the output needs a real,
+  // billed generation.
+  if (input.firstFrame) {
+    content.push({
+      type: "image_url",
+      image_url: { url: input.firstFrame.dataUrl },
+      role: "first_frame",
+    });
+  }
   // `role` is required here, unlike on image items — see the header. Capped at
   // the documented 3 rather than letting the provider reject the whole request.
   for (const url of (input.referenceVideoUrls ?? []).slice(0, 3)) {

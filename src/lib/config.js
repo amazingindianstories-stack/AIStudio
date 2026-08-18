@@ -352,6 +352,25 @@ export function supportsVideoBestOf(model) {
   return /seedance/i.test(model);
 }
 
+/**
+ * Multi-shot chaining / "Continue this shot" (Phase 3.3) — can this model
+ * take a `first_frame` starting-frame image? Native BytePlus Seedance only,
+ * same higgsfield-before-seedance ordering as every other gate in this file.
+ *
+ * Weaker evidence than every other gate here: `role: "first_frame"` is not
+ * confirmed against BytePlus's own docs (client-rendered SPA, unreachable
+ * this session) or a live probe against this app's key — it comes from a
+ * detailed third-party tutorial with real executed code and results (see
+ * providers/seedance.ts's identical note on createVideoTask). Run
+ * scripts/probe-seedance-first-frame.js (real, billed generation — no free
+ * validation trick exists for this field) before leaning on this in
+ * production beyond what's already shipped.
+ */
+export function supportsFirstFrameContinuation(model) {
+  if (/higgsfield|omni/i.test(model)) return false;
+  return /seedance/i.test(model);
+}
+
 export const DEFAULTS = {
   image: {
     model: "Nano Banana Pro",

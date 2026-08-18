@@ -125,9 +125,15 @@ def create_video_task(
     prompt: str, model_display: str | None = None, ratio: str | None = None, resolution: str | None = None,
     duration: int | None = None, references: list[dict] | None = None, reference_video_urls: list[str] | None = None,
     generate_audio: bool = False, task_mode: str = "generate", seed: int | None = None,
+    first_frame: dict | None = None,
 ) -> str:
     """references: [{"dataUrl": "..."}] (already resolved LabeledRef dicts,
-    only .dataUrl is used here). Returns the created task id."""
+    only .dataUrl is used here). first_frame: {"dataUrl": "..."} — multi-shot
+    chaining (Phase 3.3), see seedance.js's identical parameter for the full
+    evidence note: the `role: "first_frame"` shape is from a third-party
+    tutorial with real verified results, NOT official BytePlus docs (which
+    were unreachable as a client-rendered SPA this session) or a live probe
+    against this app's own key. Returns the created task id."""
     model = _pick_model(model_display)
     refs = references or []
     ref_role = os.environ.get("SEEDANCE_IMAGE_ROLE", "reference_image")
@@ -147,6 +153,8 @@ def create_video_task(
     content: list[dict] = [{"type": "text", "text": text}]
     for ref in refs:
         content.append({"type": "image_url", "image_url": {"url": ref["dataUrl"]}, "role": ref_role})
+    if first_frame:
+        content.append({"type": "image_url", "image_url": {"url": first_frame["dataUrl"]}, "role": "first_frame"})
     for url in (reference_video_urls or [])[:3]:
         content.append({"type": "video_url", "video_url": {"url": url}, "role": "reference_video"})
 

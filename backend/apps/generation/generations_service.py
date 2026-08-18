@@ -55,6 +55,7 @@ def row_to_item(g: Generation) -> dict:
         "costCents": g.cost_cents,
         "seed": g.seed,
         "candidateTaskIds": g.candidate_task_ids,
+        "continuationFrameUrl": g.continuation_frame_url,
         "isFavorite": g.is_favorite,
         "favoritedAt": g.favorited_at,
         "createdAt": g.created_at,

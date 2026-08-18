@@ -11,6 +11,7 @@ import {
   durationRangeForModel,
   resolutionsForModel,
   supportsAudio,
+  supportsFirstFrameContinuation,
   supportsVideoReference,
   supportsVideoEditExtend,
   MAX_REFERENCE_VIDEOS,
@@ -238,6 +239,13 @@ export const useStore = create((set, get) => ({
   // follow-up generation. regenerateWithSameSeed is the only action that
   // sets this deliberately.
   seed: null,
+  // Multi-shot chaining (Phase 3.3) — "Continue this shot" (continueShot
+  // action, below). A single data URL, not part of referenceImages/@imgN:
+  // it's not a tagged reference the user chose to include, it's the exact
+  // starting frame of THIS generation, submitted with BytePlus's
+  // "first_frame" content role. One-shot like seed — cleared after every
+  // successful submit, see generate() below.
+  continuationFrame: null,
   prompt: "",
   referenceImages: [],
   // Parallel to referenceImages, same length/order — "image" | "video",
@@ -297,6 +305,7 @@ export const useStore = create((set, get) => ({
   setView: (view) => set({ view }),
 
   setSeed: (seed) => set({ seed }),
+  setContinuationFrame: (continuationFrame) => set({ continuationFrame }),
 
   setMode: (mode) => {
     const d = DEFAULTS[mode];
@@ -685,6 +694,12 @@ export const useStore = create((set, get) => ({
       // silently for a model that doesn't support it, same convention as
       // generateAudio above.
       seed: s.seed ?? undefined,
+      // Multi-shot chaining (Phase 3.3) — only ever non-null when
+      // continueShot set it deliberately. The enqueue route re-checks
+      // config.supportsFirstFrameContinuation itself and drops it silently
+      // for a model that doesn't support it, same convention as seed/
+      // generateAudio above.
+      continuationFrame: s.continuationFrame ?? undefined,
       projectId: s.activeProjectId ?? undefined,
       folderId: s.activeFolderId ?? undefined,
     };
@@ -714,10 +729,11 @@ export const useStore = create((set, get) => ({
           // every submit yanked them out of the project they were working in,
           // which is also the scope the new item was generated into.
           insertNewItem(set, item);
-          // Clear seed here, not just prompt: a one-shot flag set by
-          // regenerateWithSameSeed, not a standing composer preference — left
-          // set, the NEXT ordinary "Generate" click would silently reuse it.
-          set({ prompt: "", seed: null });
+          // Clear seed/continuationFrame here, not just prompt: both are
+          // one-shot flags (set by regenerateWithSameSeed / continueShot),
+          // not standing composer preferences — left set, the NEXT ordinary
+          // "Generate" click would silently reuse them.
+          set({ prompt: "", seed: null, continuationFrame: null });
           startPolling(item, set, get);
           created.push(item);
         }
@@ -976,6 +992,46 @@ export const useStore = create((set, get) => ({
     await get().generate();
   },
 
+  /**
+   * Multi-shot chaining (Phase 3.3) — "Continue this shot". Unlike
+   * regenerate/regenerateWithSameSeed, this deliberately does NOT
+   * auto-submit: it loads the extracted frame into the composer and clears
+   * the prompt so the user writes what happens NEXT, then generates
+   * normally. Gated on config.supportsFirstFrameContinuation — the caller
+   * (DetailModal) should already only show this action for a model that
+   * supports it, but this re-checks so a stale button (composer switched
+   * models after the item finished) can't silently submit a continuation
+   * frame nothing will act on.
+   */
+  continueShot: async (id) => {
+    const item = findItem(get(), id);
+    if (!item || item.kind !== "video" || item.status !== "succeeded" || !item.url) return;
+    if (!supportsFirstFrameContinuation(item.model)) {
+      alert(`${item.model} doesn't support continuing a shot yet.`);
+      return;
+    }
+    try {
+      const { extractFrame } = await import("./video-frame");
+      // Infinity is clamped to (duration - 0.05) by seekTo — the same
+      // last-frame convention video-frame-server.js's ffmpeg path uses
+      // server-side (-sseof -1), just expressed for the browser API instead.
+      const { dataUrl } = await extractFrame(inlineMediaUrl(item.url), Infinity);
+      set({
+        mode: "video",
+        model: item.model,
+        aspectRatio: item.aspectRatio,
+        resolution: item.resolution ?? get().resolution,
+        continuationFrame: dataUrl,
+        prompt: "",
+        referenceImages: [],
+        referenceKinds: [],
+      });
+    } catch (e) {
+      console.error("Failed to extract the last frame for continuation:", e);
+      alert(e?.message || "Could not read the last frame from this video.");
+    }
+  },
+
   addReferenceFromVideo: async (url, atSeconds) => {
     // No provider here accepts an uploaded video, so a frame is how a clip
     // becomes usable as a reference at all. Decoded in the browser — see
@@ -1006,6 +1062,9 @@ export const useStore = create((set, get) => ({
       // A plain clone starts fresh, not pinned — regenerateWithSameSeed sets
       // this explicitly right after calling cloneToComposer.
       seed: null,
+      // Same reasoning — continueShot below sets this itself, after loading
+      // its own extracted frame, not by going through cloneToComposer at all.
+      continuationFrame: null,
       prompt: item.prompt,
       referenceImages: [],
       referenceKinds: [],

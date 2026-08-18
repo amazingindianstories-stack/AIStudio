@@ -54,6 +54,10 @@ class Generation(models.Model):
     # stays a faithful mirror of the live table regardless of which app
     # wrote a given row.
     candidate_task_ids = models.JSONField(null=True)
+    # Multi-shot chaining (Phase 3.3) — mirrors schema.js's
+    # `continuation_frame_url`. A stored media URL for a frame extracted from
+    # a previous generation, submitted as the new video's starting frame.
+    continuation_frame_url = models.TextField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
 

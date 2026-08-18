@@ -14,6 +14,7 @@ import {
   isKlingImageModel,
   resolutionsForModel,
   supportsAudio,
+  supportsFirstFrameContinuation,
   supportsSeed,
   supportsVideoBestOf,
   supportsVideoEditExtend,
@@ -156,6 +157,33 @@ test("video best-of-N matching is case-insensitive", () => {
 test("every model in the picker resolves supportsVideoBestOf without throwing", () => {
   for (const m of MODELS) {
     assert.equal(typeof supportsVideoBestOf(m.name), "boolean", m.name);
+  }
+});
+
+// ── multi-shot chaining / first_frame gating (Phase 3.3) ────────────────────
+//
+// Same scope as supportsVideoBestOf: native BytePlus Seedance only. Weaker
+// evidence grade than every other gate in this file — see the function's own
+// doc comment (third-party tutorial, not official docs or a live probe).
+
+test("native BytePlus Seedance supports first-frame continuation", () => {
+  assert.equal(supportsFirstFrameContinuation("Seedance 2.0"), true);
+  assert.equal(supportsFirstFrameContinuation("Seedance 2.0 Mini"), true);
+  assert.equal(supportsFirstFrameContinuation("Seedance 2.5"), true);
+});
+
+test("Higgsfield Seedance does NOT get first-frame continuation, despite containing 'seedance'", () => {
+  assert.equal(supportsFirstFrameContinuation("Higgsfield Seedance 2.0"), false);
+});
+
+test("Omni and image models are excluded from first-frame continuation", () => {
+  assert.equal(supportsFirstFrameContinuation("Gemini Omni Flash"), false);
+  assert.equal(supportsFirstFrameContinuation("Nano Banana Pro"), false);
+});
+
+test("every model in the picker resolves supportsFirstFrameContinuation without throwing", () => {
+  for (const m of MODELS) {
+    assert.equal(typeof supportsFirstFrameContinuation(m.name), "boolean", m.name);
   }
 });
 

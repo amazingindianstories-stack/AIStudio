@@ -153,10 +153,18 @@ def _submit_video(base: dict) -> dict:
         inlined = _to_provider_data_urls(base.get("referenceImages") or [])
         references = resolve_references(prompt, inlined)
         signed_video_refs = _sign_video_refs(resolve_video_references(prompt, base.get("referenceVideos") or []))
+        # Multi-shot chaining (Phase 3.3) — reuses the same stored-ref →
+        # inline data-URL materialisation referenceImages already goes
+        # through; see queue/execute/route.js's identical comment.
+        continuation_frame_url = base.get("continuationFrameUrl")
+        first_frame = (
+            {"dataUrl": _to_provider_data_urls([continuation_frame_url])[0]}
+            if continuation_frame_url else None
+        )
         task_id = seedance_provider.create_video_task(
             prompt, model, aspect_ratio, resolution, duration, references, signed_video_refs,
             base.get("generateAudio") is True, base.get("videoTaskMode") or "generate",
-            seed,
+            seed, first_frame,
         )
 
     return {**base, **ref_updates, "taskId": task_id, "status": "running", "updatedAt": int(time.time() * 1000)}
@@ -237,6 +245,14 @@ def generate_video(request):
     # excluded. Dropped silently for unsupported models, same convention
     # generate_audio uses just above.
     seed = body.get("seed") if config.supports_seed(model) and isinstance(body.get("seed"), int) else None
+    # Multi-shot chaining (Phase 3.3) — "Continue this shot" hands over a
+    # data URL of a frame extracted from a previous generation. Same gate/
+    # drop convention as generate_audio/seed above.
+    continuation_frame = (
+        body.get("continuationFrame")
+        if config.supports_first_frame_continuation(model) and isinstance(body.get("continuationFrame"), str)
+        else None
+    )
 
     if not prompt:
         return Response({"error": "Prompt is required."}, status=400)
@@ -298,6 +314,14 @@ def generate_video(request):
             pricing_db.read_pricing(),
         )
         saved_refs = save_media.save_reference_images(reference_images, item_id) if reference_images else None
+        # Suffixed id, not the bare generation id — save_reference_images
+        # numbers its own outputs from 0 per call, so reusing item_id here
+        # would collide with referenceImages' own references/{id}-0.ext when
+        # both are present on the same request.
+        continuation_frame_url = (
+            save_media.save_reference_images([continuation_frame], f"{item_id}-continuation")[0]
+            if continuation_frame else None
+        )
     except Exception as e:
         return Response({"error": str(e) or "Failed to prepare the generation request."}, status=500)
 
@@ -305,6 +329,7 @@ def generate_video(request):
         "id": item_id, "kind": "video", "status": "queued", "prompt": prompt, "model": model,
         "aspectRatio": aspect_ratio, "resolution": resolution, "duration": duration,
         "referenceImages": saved_refs, "referenceVideos": reference_videos or None,
+        "continuationFrameUrl": continuation_frame_url,
         "generateAudio": generate_audio, "videoTaskMode": video_task_mode if video_task_mode != "generate" else None,
         "projectId": project_id, "folderId": folder_id, "userId": str(request.user.id) if request.user else None,
         "costCents": cost_cents, "seed": seed, "createdAt": now, "updatedAt": now,

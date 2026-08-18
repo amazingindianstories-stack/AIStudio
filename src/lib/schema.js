@@ -133,6 +133,16 @@ export const generations = pgTable("generations", {
   // video-frame-server.js's header before ever flipping this on in
   // production.
   candidateTaskIds: jsonb("candidate_task_ids").$type(),
+  // Multi-shot chaining (Phase 3.3). A stored media URL — same convention as
+  // referenceImages entries — pointing at a frame extracted from a PREVIOUS
+  // generation (client-side, via the "Continue this shot" action), submitted
+  // as the new video's starting frame (BytePlus content role "first_frame").
+  // Persisted for the usual structural reason: /api/generate/video only
+  // enqueues, /api/queue/execute is what actually calls the provider, so the
+  // row is the only thing carrying it between the two requests. Null means
+  // "an ordinary generation, not a continuation" — the overwhelmingly common
+  // case, so this is nullable rather than an empty-string sentinel.
+  continuationFrameUrl: text("continuation_frame_url"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [

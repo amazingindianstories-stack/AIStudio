@@ -110,6 +110,43 @@ test("createVideoTask: a non-number seed is not sent, same as absent", async () 
   assert.equal("seed" in body, false);
 });
 
+// ── multi-shot chaining / first_frame (Phase 3.3) ───────────────────────────
+
+test("createVideoTask: firstFrame adds a role:\"first_frame\" content item", async () => {
+  const { body } = await withFakeArkResponse("task-firstframe-1", () =>
+    createVideoTask({
+      prompt: "a scene",
+      firstFrame: { dataUrl: "data:image/jpeg;base64,AAAA" },
+    })
+  );
+  const item = body.content.find((c) => c.role === "first_frame");
+  assert.ok(item, "expected a first_frame content item");
+  assert.equal(item.type, "image_url");
+  assert.equal(item.image_url.url, "data:image/jpeg;base64,AAAA");
+});
+
+test("createVideoTask: no first_frame content item when firstFrame is absent", async () => {
+  const { body } = await withFakeArkResponse("task-firstframe-2", () =>
+    createVideoTask({ prompt: "a scene" })
+  );
+  assert.equal(
+    body.content.some((c) => c.role === "first_frame"),
+    false
+  );
+});
+
+test("createVideoTask: firstFrame coexists with ordinary reference_image items", async () => {
+  const { body } = await withFakeArkResponse("task-firstframe-3", () =>
+    createVideoTask({
+      prompt: "a scene",
+      references: [{ dataUrl: "data:image/png;base64,BBBB", tag: "@img1", index: 1 }],
+      firstFrame: { dataUrl: "data:image/jpeg;base64,AAAA" },
+    })
+  );
+  const roles = body.content.filter((c) => c.type === "image_url").map((c) => c.role);
+  assert.deepEqual(roles.sort(), ["first_frame", "reference_image"].sort());
+});
+
 test("createVideoTask: @imgN/@vidN tags are translated to Seedance's bracket form", async () => {
   const { body } = await withFakeArkResponse("task791", () =>
     createVideoTask({ prompt: "use @img1 and continue @vid2", taskMode: "edit" })

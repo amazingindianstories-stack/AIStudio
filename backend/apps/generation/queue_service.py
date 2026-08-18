@@ -52,6 +52,7 @@ def upsert_item(item: dict) -> None:
             "cost_cents": item.get("costCents") or 0,
             "seed": item.get("seed"),
             "candidate_task_ids": item.get("candidateTaskIds"),
+            "continuation_frame_url": item.get("continuationFrameUrl"),
             "is_favorite": item.get("isFavorite") or False,
             "favorited_at": item.get("favoritedAt"),
             "task_id": item.get("taskId"),

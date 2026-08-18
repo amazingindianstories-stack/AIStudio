@@ -187,6 +187,15 @@ def supports_seed(model: str) -> bool:
     return bool(re.search(r"seedance", model, re.IGNORECASE))
 
 
+def supports_first_frame_continuation(model: str) -> bool:
+    """Mirrors config.js's supportsFirstFrameContinuation — see that
+    function's doc comment for the evidence caveat (third-party tutorial,
+    not official docs or a live probe)."""
+    if re.search(r"higgsfield|omni", model, re.IGNORECASE):
+        return False
+    return bool(re.search(r"seedance", model, re.IGNORECASE))
+
+
 def supports_video_best_of(model: str) -> bool:
     """Mirrors config.js's supportsVideoBestOf. Native BytePlus Seedance
     only — a submission-shape decision (submit N tasks in parallel), not a

@@ -237,9 +237,18 @@ async function submitVideo(base) {
       resolveVideoReferences(prompt, base.referenceVideos ?? [])
     );
     const resolvedRefs = resolveReferences(prompt, inlined);
+    // Multi-shot chaining (Phase 3.3) — reuses the same stored-ref → inline
+    // data-URL materialisation referenceImages already goes through; a
+    // continuation frame is stored exactly like a reference image (see
+    // generate/video/route.js), just kept in its own column instead of the
+    // referenceImages array so it can't be mistaken for one of the tagged
+    // @imgN references or counted against MAX_REFERENCE_VIDEOS-style limits.
+    const [firstFrameDataUrl] = base.continuationFrameUrl
+      ? await toProviderDataUrls([base.continuationFrameUrl])
+      : [];
     console.log(
       `[video] BytePlus seedance with ${inlined.length} reference image(s), ` +
-        `bestOf=${videoBestOf ?? 1}`
+        `bestOf=${videoBestOf ?? 1}, continuation=${!!firstFrameDataUrl}`
     );
     const taskInput = (candidateSeed) => ({
       prompt,
@@ -263,6 +272,9 @@ async function submitVideo(base) {
       // never generates one for Omni/Higgsfield, so this is null on those paths
       // and createVideoTask's own typeof guard omits it from the request body.
       seed: candidateSeed,
+      // Multi-shot chaining (Phase 3.3) — see createVideoTask's own header
+      // for the evidence caveat (third-party tutorial, not official docs).
+      firstFrame: firstFrameDataUrl ? { dataUrl: firstFrameDataUrl } : undefined,
     });
 
     if ((videoBestOf ?? 1) > 1) {

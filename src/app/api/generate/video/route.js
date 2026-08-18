@@ -12,6 +12,7 @@ import {
   durationRangeForModel,
   resolutionsForModel,
   supportsAudio,
+  supportsFirstFrameContinuation,
   supportsSeed,
   supportsVideoReference,
   supportsVideoEditExtend,
@@ -73,6 +74,15 @@ export async function POST(req) {
   // Dropped silently for unsupported models, same convention generateAudio
   // uses just above.
   const seed = supportsSeed(model) && Number.isInteger(body.seed) ? body.seed : undefined;
+  // Multi-shot chaining (Phase 3.3) — "Continue this shot" hands over a data
+  // URL of a frame extracted from a previous generation. Same gate/drop
+  // convention as generateAudio/seed above: honoured only where
+  // config.supportsFirstFrameContinuation confirms the model has the field,
+  // silently ignored everywhere else rather than stored and never acted on.
+  const continuationFrame =
+    supportsFirstFrameContinuation(model) && typeof body.continuationFrame === "string"
+      ? body.continuationFrame
+      : undefined;
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
@@ -186,6 +196,7 @@ export async function POST(req) {
   // a readable error.
   let costCents;
   let savedRefs;
+  let continuationFrameUrl;
   try {
     costCents = computeCostCents(
       { kind: "video", model, resolution, duration, generateAudio },
@@ -193,6 +204,13 @@ export async function POST(req) {
     );
     savedRefs = referenceImages?.length
       ? await saveReferenceImages(referenceImages, id)
+      : undefined;
+    // Suffixed id, not the bare generation id: saveReferenceImages numbers
+    // its own outputs from 0 per call, so reusing the same id here would
+    // collide with referenceImages' own references/${id}-0.ext when both are
+    // present on the same request.
+    continuationFrameUrl = continuationFrame
+      ? (await saveReferenceImages([continuationFrame], `${id}-continuation`))[0]
       : undefined;
   } catch (e) {
     return NextResponse.json(
@@ -211,6 +229,7 @@ export async function POST(req) {
     duration,
     referenceImages: savedRefs,
     referenceVideos: referenceVideos.length ? referenceVideos : undefined,
+    continuationFrameUrl,
     generateAudio,
     videoTaskMode: videoTaskMode !== "generate" ? videoTaskMode : undefined,
     projectId,
