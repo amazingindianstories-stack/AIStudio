@@ -610,6 +610,7 @@ export function PromptComposer() {
           ref={mentionRef}
           value={s.prompt}
           onChange={s.setPrompt}
+          submitOnEnter={false}
           onSubmit={() => {
             // Purely a UX no-op here — the real gate is server-side in
             // generate/image and generate/video, which returns a readable
