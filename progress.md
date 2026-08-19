@@ -128,7 +128,7 @@ vulnerability, independent of the migration itself: `src/app/api/media/[...path]
 never called `getSession()` — the only gate was `middleware.ts`'s cheap
 cookie-*presence* check (by design just a UX redirect, not real
 enforcement; see that file's own docstring), so any request with a
-non-empty but invalid `lumina_session` cookie could read **any** object in
+non-empty but invalid `veevee_session` cookie could read **any** object in
 the media bucket. Two concrete secrets were reachable this way: the live
 Higgsfield MCP OAuth token (`settings/higgsfield-mcp-token.json`) and full
 Postgres `pg_dump` snapshots the migration script writes to `migrations/*`

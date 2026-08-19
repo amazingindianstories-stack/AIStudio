@@ -122,7 +122,7 @@ def verify_session_token(token: str) -> dict | None:
     return {"user_id": uid, "auth_version": ver, "exp": exp}
 
 
-class LuminaSessionAuthentication(BaseAuthentication):
+class VeeveeSessionAuthentication(BaseAuthentication):
     """DRF authentication backend reading the veevee_session cookie.
 
     Equivalent to getSession() in auth.js: verify the HMAC, then confirm the
@@ -132,7 +132,7 @@ class LuminaSessionAuthentication(BaseAuthentication):
     """
 
     def authenticate(self, request):
-        token = request.COOKIES.get(settings.LUMINA_SESSION_COOKIE)
+        token = request.COOKIES.get(settings.VEEVEE_SESSION_COOKIE)
         if not token:
             return None
 

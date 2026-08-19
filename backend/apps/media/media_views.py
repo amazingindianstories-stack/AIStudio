@@ -33,7 +33,7 @@ def _parse_thumb_width(raw: str | None) -> int | None:
 
 
 def serve_media(request, path):
-    token = request.COOKIES.get(settings.LUMINA_SESSION_COOKIE)
+    token = request.COOKIES.get(settings.VEEVEE_SESSION_COOKIE)
     if not token or not verify_session_token(token):
         return JsonResponse({"error": "UNAUTHENTICATED"}, status=401)
 

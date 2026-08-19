@@ -1,5 +1,5 @@
 """
-Django settings for the Lumina Studio backend.
+Django settings for the Veevee backend.
 
 Strangler-fig migration off the Next.js API: this app is deployed as a
 *separate* service (Railway) from the Next.js frontend (Vercel), so every
@@ -129,11 +129,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # every fetch that must carry the session cookie needs credentials:"include"
 # on the client and a cookie that isn't scoped SameSite=Lax (Lax cookies
 # aren't sent on cross-site XHR/fetch even for top-level-safe requests).
-# AUTH_SECRET/LUMINA_SESSION_COOKIE mirror src/lib/auth.js exactly — see
+# AUTH_SECRET/VEEVEE_SESSION_COOKIE mirror src/lib/auth.js exactly — see
 # apps/common/session_auth.py — because both apps must agree on the cookie
 # name and HMAC secret for a cookie minted by one to verify on the other.
 AUTH_SECRET = env("AUTH_SECRET", default="dev-insecure-secret-change-me")
-LUMINA_SESSION_COOKIE = env("LUMINA_SESSION_COOKIE", default="veevee_session")
+VEEVEE_SESSION_COOKIE = env("VEEVEE_SESSION_COOKIE", default="veevee_session")
 
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
 CORS_ALLOW_CREDENTIALS = True
@@ -142,7 +142,7 @@ CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "apps.common.session_auth.LuminaSessionAuthentication",
+        "apps.common.session_auth.VeeveeSessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",

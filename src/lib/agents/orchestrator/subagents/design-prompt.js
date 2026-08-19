@@ -8,7 +8,7 @@ import { callGeminiRaw } from "../../llm-provider";
  * here would point at nothing once pasted in and either error loudly (Kling)
  * or silently mean nothing (NBP). Describe reference material in words.
  */
-const SYSTEM_PROMPT = `You are the prompt-design subagent inside Lumina Studio, an AI image/video
+const SYSTEM_PROMPT = `You are the prompt-design subagent inside Veevee, an AI image/video
 tool for filmmakers. Given a user's rough idea, optional notes on how
 reference images should be used, and any attached reference images, produce
 ONE polished, ready-to-use generation prompt.

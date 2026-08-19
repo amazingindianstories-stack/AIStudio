@@ -1,4 +1,4 @@
-# Lumina — Local InstantID service
+# Veevee — Local InstantID service
 
 Runs **SDXL (RealVisXL V4.0) + InstantID** on your Mac's GPU (Apple MPS) to
 generate images that **lock the face** from an uploaded reference. No API key,

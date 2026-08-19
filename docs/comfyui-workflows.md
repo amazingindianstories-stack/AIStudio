@@ -1,7 +1,7 @@
 # ComfyUI Workflow Documentation
 
 **Status:** living document — new workflows get appended to §6 (Catalog) and logged in §11.
-**Owner:** Lumina Studio (`image-video-project`)
+**Owner:** Veevee (`image-video-project`)
 **Started:** 2026-07-29
 **Scope of this revision:** the workflow set required to make the project chat a real,
 two-way, LLM-backed conversation with per-project system instructions and knowledge,
@@ -85,8 +85,8 @@ without touching TypeScript. That is the reason to accept the extra hop.
 ComfyUI custom nodes can push arbitrary messages to connected clients via
 `PromptServer.instance.send_sync(event, data, sid)` — the same mechanism the built-in
 `progress` and `executing` events use ([ComfyUI server comms docs](https://docs.comfy.org/development/comfyui-server/comms_overview)).
-So `LuminaStreamSink` (§5.4, ours) consumes the model server's SSE stream and re-emits
-each delta as a `lumina.token` websocket event tagged with the `prompt_id`. The Next.js
+So `VeeveeStreamSink` (§5.4, ours) consumes the model server's SSE stream and re-emits
+each delta as a `veevee.token` websocket event tagged with the `prompt_id`. The Next.js
 adapter holds one websocket to ComfyUI and relays those deltas to the browser as SSE.
 
 This is the single most important piece of custom code in the whole integration. If it
@@ -151,7 +151,7 @@ Cloudflare Tunnel (or Tailscale Funnel) → `https://comfy-llm.<internal-domain>
 
 | Pack | Pinned to | Used by | Audit note |
 |---|---|---|---|
-| `comfyui-lumina-nodes` *(ours, in-repo)* | this repo, `comfy/nodes/` | all | Reviewed as normal app code |
+| `comfyui-veevee-nodes` *(ours, in-repo)* | this repo, `comfy/nodes/` | all | Reviewed as normal app code |
 | [`comfyui-ollama`](https://github.com/stavsap/comfyui-ollama) | commit pin | prototyping only (§5.2 alternative) | Small, readable, no network beyond Ollama |
 | [`comfyui_LLM_party`](https://github.com/heshengtao/comfyui_LLM_party) | commit pin | evaluated for W4/W5 only | **Large surface, many outbound integrations.** Not adopted in v1 — see §6.4 note |
 
@@ -185,7 +185,7 @@ comfy/workflows/README.md                          ← points here
 Node ids in an API export are integers that renumber when the graph is edited. Binding
 on them produces a class of bug where the workflow still runs but silently reads the
 wrong string. So every injectable input node carries a `_meta.title` of the form
-`LUMINA_IN::<key>`, and the adapter walks the JSON:
+`VEEVEE_IN::<key>`, and the adapter walks the JSON:
 
 ```ts
 // comfy/bind.ts — sketch
@@ -193,8 +193,8 @@ function bind(graph: ComfyGraph, values: Record<string, unknown>) {
   const found = new Set<string>();
   for (const node of Object.values(graph)) {
     const title = node._meta?.title ?? "";
-    if (!title.startsWith("LUMINA_IN::")) continue;
-    const key = title.slice("LUMINA_IN::".length);
+    if (!title.startsWith("VEEVEE_IN::")) continue;
+    const key = title.slice("VEEVEE_IN::".length);
     if (!(key in values)) throw new Error(`workflow expects input "${key}"`);
     node.inputs.value = values[key];
     found.add(key);
@@ -209,8 +209,8 @@ slot means the workflow would run with a stale default. Neither is allowed to be
 
 ### 4.3 One JSON input, not twelve string inputs
 
-Every workflow takes **exactly one** required injected value, `LUMINA_IN::request`, a
-JSON string, plus at most one optional `LUMINA_IN::debug`. `LuminaRequest` (§5.1) parses
+Every workflow takes **exactly one** required injected value, `VEEVEE_IN::request`, a
+JSON string, plus at most one optional `VEEVEE_IN::debug`. `VeeveeRequest` (§5.1) parses
 it and fans it out to typed sockets inside the graph.
 
 The alternative — a titled primitive per field — was rejected: adding a field then means
@@ -225,14 +225,14 @@ Images enter as **HTTPS URLs**, not base64 and not ComfyUI uploads:
 - The URL is a short-lived signed link from `GET /api/media/[...path]` (which already
   enforces session auth and blocks the `settings/`/`migrations/` prefixes — see
   `CLAUDE.md` § Media storage).
-- `LuminaFetchImage` (§5.6) fetches with a 10 s timeout, a 20 MB cap, and a
+- `VeeveeFetchImage` (§5.6) fetches with a 10 s timeout, a 20 MB cap, and a
   JPEG/PNG/WebP/GIF MIME allowlist that mirrors `splitDataUrl` in `src/lib/storage.ts`.
 - Base64 in the request JSON is forbidden: a 4-reference turn would push the `/prompt`
   body past 20 MB and it would be logged in ComfyUI's history verbatim.
 
 ### 4.5 Outputs
 
-Every workflow terminates in exactly one `LuminaOutput` node (§5.4) whose `ui` payload
+Every workflow terminates in exactly one `VeeveeOutput` node (§5.4) whose `ui` payload
 lands in `GET /history/{prompt_id}`:
 
 ```jsonc
@@ -259,14 +259,14 @@ nodes catch their own errors and emit them into this envelope.
 
 ### 4.6 Streaming
 
-`LuminaStreamSink` emits, over ComfyUI's `/ws`:
+`VeeveeStreamSink` emits, over ComfyUI's `/ws`:
 
 | Event | Payload | When |
 |---|---|---|
-| `lumina.start` | `{prompt_id, workflow, version, model}` | first token requested |
-| `lumina.token` | `{prompt_id, seq, delta}` | per SSE delta from the model server |
-| `lumina.done` | `{prompt_id, text, telemetry}` | stream closed |
-| `lumina.error` | `{prompt_id, code, message}` | stream aborted |
+| `veevee.start` | `{prompt_id, workflow, version, model}` | first token requested |
+| `veevee.token` | `{prompt_id, seq, delta}` | per SSE delta from the model server |
+| `veevee.done` | `{prompt_id, text, telemetry}` | stream closed |
+| `veevee.error` | `{prompt_id, code, message}` | stream aborted |
 
 `seq` is monotonic per `prompt_id` so the relay can detect a dropped frame and fall back
 to the `/history` result rather than showing a message with a hole in it.
@@ -291,7 +291,7 @@ and race the enqueue.
 
 - ComfyUI caches node outputs across runs when inputs are identical. For chat this is
   *wrong* — a re-asked question would replay a cached answer. Every workflow therefore
-  includes a `nonce` field in the request JSON, wired into `LuminaRequest`, so the graph
+  includes a `nonce` field in the request JSON, wired into `VeeveeRequest`, so the graph
   hash differs per turn.
 - Except where we want caching: W4 (ingest) and W8 (asset describe) deliberately keep a
   stable nonce derived from a content hash, so re-running over unchanged content is free.
@@ -323,24 +323,24 @@ months of real usage produce no training data, which is the expensive kind of mi
 These are the reusable pieces. `(ours)` = custom node we write and review in-repo under
 `comfy/nodes/`; everything else is stock or from a pinned pack.
 
-### 5.1 `LuminaRequest` (ours)
+### 5.1 `VeeveeRequest` (ours)
 
-Parses `LUMINA_IN::request` and exposes typed outputs. One node, many sockets, so
+Parses `VEEVEE_IN::request` and exposes typed outputs. One node, many sockets, so
 downstream nodes stay stock-shaped.
 
 - **Inputs:** `request` (STRING, multiline).
-- **Outputs:** `system` (STRING), `messages` (LUMINA_MESSAGES), `params` (LUMINA_PARAMS),
-  `context` (STRING), `images` (LUMINA_URLS), `meta` (LUMINA_META).
+- **Outputs:** `system` (STRING), `messages` (VEEVEE_MESSAGES), `params` (VEEVEE_PARAMS),
+  `context` (STRING), `images` (VEEVEE_URLS), `meta` (VEEVEE_META).
 - **Behaviour:** validates against the workflow's JSON Schema (bundled per workflow id);
   on failure emits an `ok:false` envelope and short-circuits rather than throwing.
 
-### 5.2 `LuminaLLMChat` (ours) — the inference call
+### 5.2 `VeeveeLLMChat` (ours) — the inference call
 
 Calls an OpenAI-compatible `POST /v1/chat/completions` with `stream: true`.
 
 - **Inputs:** `messages`, `params`, `endpoint` (from env, not from the request — a
   request-supplied endpoint is an SSRF hole), `stream_sink` (link to §5.4).
-- **Outputs:** `text` (STRING), `telemetry` (LUMINA_TELEMETRY).
+- **Outputs:** `text` (STRING), `telemetry` (VEEVEE_TELEMETRY).
 - **Params honoured:** `model`, `temperature`, `top_p`, `max_tokens`, `stop`,
   `response_format` (for W3), `timeout_ms`.
 - **Retries:** one retry on connection error or HTTP 5xx, none on 4xx. No retry after the
@@ -351,7 +351,7 @@ Calls an OpenAI-compatible `POST /v1/chat/completions` with `stream: true`.
 the fastest way to get a graph running end to end. They do **not** stream to the client,
 so they are for bring-up and A/B only, not the shipped chat path.
 
-### 5.3 `LuminaPromptAssemble` (ours)
+### 5.3 `VeeveePromptAssemble` (ours)
 
 Builds the final message array in a fixed order. Order is load-bearing: stable content
 goes first so hosted-provider prompt caching (if we fall back to one) can hit, and so the
@@ -367,13 +367,13 @@ untrusted blocks are always *after* the instructions that describe how to treat 
 [n+1] user  ← current message (+ image parts)
 ```
 
-### 5.4 `LuminaStreamSink` / `LuminaOutput` (ours)
+### 5.4 `VeeveeStreamSink` / `VeeveeOutput` (ours)
 
 Sink emits the websocket events in §4.6. Output writes the §4.5 envelope into the node's
 `ui` dict so it appears in `/history/{prompt_id}`. They are separate nodes because W4,
 W6, W8 and W9 want the envelope with no streaming at all.
 
-### 5.5 `LuminaJsonGuard` (ours)
+### 5.5 `VeeveeJsonGuard` (ours)
 
 For structured-output workflows. Validates the model's text against a JSON Schema; on
 failure, re-prompts once with the validation error appended, then fails cleanly.
@@ -384,23 +384,23 @@ be invented that wasn't in the allowed set. A model that silently drops `@priya`
 a generation with no identity reference — a failure the user only discovers after paying
 for the render.
 
-### 5.6 `LuminaFetchImage` (ours)
+### 5.6 `VeeveeFetchImage` (ours)
 
 URL → IMAGE, with the timeout/size/MIME rules from §4.4. Strips EXIF. Downscales the
 longest side to `params.vision_max_dim` (default 1024) before handing to a VLM, so visual
 token cost stays bounded and comparable across turns.
 
-### 5.7 `LuminaEmbed` (ours)
+### 5.7 `VeeveeEmbed` (ours)
 
 Calls `POST /v1/embeddings`. Batches up to 64 inputs per call. Outputs vectors plus the
 model id and dimension — both are written alongside every stored vector, because a model
 swap invalidates the index and we need to be able to detect that rather than silently
 mixing embedding spaces.
 
-### 5.8 `LuminaTelemetry` (ours)
+### 5.8 `VeeveeTelemetry` (ours)
 
 Merges telemetry from every node that produced any, and stamps `workflow`, `version`,
-and wall-clock. Terminal-adjacent; feeds `LuminaOutput`.
+and wall-clock. Terminal-adjacent; feeds `VeeveeOutput`.
 
 ---
 
@@ -454,25 +454,25 @@ read-only `ConversationPanel` into an actual chat.
 
 | # | Node | Source | Role |
 |---|---|---|---|
-| 1 | `LUMINA_IN::request` (String primitive) | core | injection slot |
-| 2 | `LuminaRequest` | ours | parse + schema-validate |
-| 3 | `LuminaPromptAssemble` | ours | ordered message array (§5.3) |
-| 4 | `LuminaTokenBudget` | ours | trim oldest verbatim turns to fit `n_ctx`; reports whether W7 should run |
-| 5 | `LuminaStreamSink` | ours | websocket token relay |
-| 6 | `LuminaLLMChat` | ours | the streamed inference call |
-| 7 | `LuminaTelemetry` | ours | merge counters |
-| 8 | `LuminaOutput` | ours | final envelope |
+| 1 | `VEEVEE_IN::request` (String primitive) | core | injection slot |
+| 2 | `VeeveeRequest` | ours | parse + schema-validate |
+| 3 | `VeeveePromptAssemble` | ours | ordered message array (§5.3) |
+| 4 | `VeeveeTokenBudget` | ours | trim oldest verbatim turns to fit `n_ctx`; reports whether W7 should run |
+| 5 | `VeeveeStreamSink` | ours | websocket token relay |
+| 6 | `VeeveeLLMChat` | ours | the streamed inference call |
+| 7 | `VeeveeTelemetry` | ours | merge counters |
+| 8 | `VeeveeOutput` | ours | final envelope |
 
 **High-level design.**
 
 ```
-[1] request ──▶ [2] LuminaRequest ─┬─ system  ──▶ [3] PromptAssemble ──▶ [4] TokenBudget ──┐
+[1] request ──▶ [2] VeeveeRequest ─┬─ system  ──▶ [3] PromptAssemble ──▶ [4] TokenBudget ──┐
                                    ├─ context ──▶ [3]                                       │
                                    ├─ summary ──▶ [3]                                       │
                                    ├─ messages ─▶ [3]                                       │
                                    └─ params ───────────────────────────────────────┐       │
                                                                                     ▼       ▼
-                                                                       [6] LuminaLLMChat ◀──┘
+                                                                       [6] VeeveeLLMChat ◀──┘
                                                                             │  │
                                                           tokens ──▶ [5] StreamSink ──▶ /ws
                                                                             ▼
@@ -481,7 +481,7 @@ read-only `ConversationPanel` into an actual chat.
 
 **Design notes.**
 
-- Node 4 (`LuminaTokenBudget`) is what stops this workflow from failing at turn 60. It
+- Node 4 (`VeeveeTokenBudget`) is what stops this workflow from failing at turn 60. It
   drops oldest *verbatim* turns, never the system blocks or the summary, and sets
   `telemetry.needs_summary = true` so the app can schedule W7 out-of-band. Summarising
   inline would add 4–6 s to a user-visible turn.
@@ -496,7 +496,7 @@ read-only `ConversationPanel` into an actual chat.
 | Failure | Handling |
 |---|---|
 | Model server down | one retry, then `ok:false` code `MODEL_UNAVAILABLE`; app falls back per `LLM_BACKEND` |
-| Stream stalls mid-message | sink's 20 s inter-token watchdog → `lumina.error`; partial text is persisted with `truncated: true` rather than discarded |
+| Stream stalls mid-message | sink's 20 s inter-token watchdog → `veevee.error`; partial text is persisted with `truncated: true` rather than discarded |
 | Context overflow despite node 4 | `ok:false` code `CONTEXT_OVERFLOW`; app forces W7 and retries once |
 | User closes tab | app calls `/interrupt` per §4.7 |
 
@@ -524,8 +524,8 @@ contract (W2's request is W1's plus `images[]`).
 
 | # | Node | Source | Role |
 |---|---|---|---|
-| 2a | `LuminaFetchImage` (batched) | ours | URL → IMAGE, allowlist + resize + EXIF strip |
-| 2b | `LuminaVisionParts` | ours | interleave image parts with their `@tag` labels into the user message |
+| 2a | `VeeveeFetchImage` (batched) | ours | URL → IMAGE, allowlist + resize + EXIF strip |
+| 2b | `VeeveeVisionParts` | ours | interleave image parts with their `@tag` labels into the user message |
 
 **Design notes.**
 
@@ -536,7 +536,7 @@ contract (W2's request is W1's plus `images[]`).
 - `max_images` default 6, matching the maximum reference count actually observed in the
   ledger (research doc §"What was measured"). Exceeding it is a validation error, not a
   silent drop — same principle as the 14-image hard limit in `gemini.ts`.
-- Reference analyses are cacheable: `LuminaFetchImage` keys on the media path + content
+- Reference analyses are cacheable: `VeeveeFetchImage` keys on the media path + content
   hash, so revising a prompt over the same references does not re-pay visual tokens.
   This is the research doc's "store reference analyses" recommendation, at graph level.
 
@@ -581,10 +581,10 @@ hosted path stay interchangeable and A/B-comparable.
 | # | Node | Source | Role |
 |---|---|---|---|
 | 1–4 | as W1 | | |
-| 5 | `LuminaProviderProfile` | ours | injects the versioned profile for `target.model` (reference limits, tag syntax, camera vocabulary, known failure modes) |
-| 6 | `LuminaLLMChat` (non-streaming, JSON mode / grammar-constrained) | ours | |
-| 7 | `LuminaJsonGuard` | ours | schema validate + tag-preservation invariant + one repair retry |
-| 8 | `LuminaOutput` | ours | |
+| 5 | `VeeveeProviderProfile` | ours | injects the versioned profile for `target.model` (reference limits, tag syntax, camera vocabulary, known failure modes) |
+| 6 | `VeeveeLLMChat` (non-streaming, JSON mode / grammar-constrained) | ours | |
+| 7 | `VeeveeJsonGuard` | ours | schema validate + tag-preservation invariant + one repair retry |
+| 8 | `VeeveeOutput` | ours | |
 
 **High-level design — two-pass.**
 
@@ -597,7 +597,7 @@ brief + style card + provider profile + available_tags ────────�
                                                                              ▼
                                           PASS B: LLMChat(temp 0.2, json_schema)
                                                           ▼
-                                                   LuminaJsonGuard ──▶ Output
+                                                   VeeveeJsonGuard ──▶ Output
 ```
 
 Pass A extracts only *observable* attributes from the references; Pass B writes the
@@ -607,7 +607,7 @@ testable, per the research doc's two-pass recommendation.
 
 **Design notes.**
 
-- `LuminaProviderProfile` is the boundary that keeps model quirks out of the weights.
+- `VeeveeProviderProfile` is the boundary that keeps model quirks out of the weights.
   Profiles live in code (`src/lib/prompt-profiles/`) and are injected, so "Omni is 16:9
   or 9:16 only" is a config change, not a retraining problem. Version them; log the
   version with every draft.
@@ -643,9 +643,9 @@ pasted notes) into retrievable chunks — the "custom GPT knowledge" half of the
 | # | Node | Source | Role |
 |---|---|---|---|
 | 1–2 | request + parse | ours | |
-| 3 | `LuminaChunk` | ours | recursive split on headings → paragraphs → sentences; carries `title` + `ord` into each chunk's text (retrieval without provenance is unusable) |
-| 4 | `LuminaEmbed` | ours | batched `/v1/embeddings` |
-| 5 | `LuminaOutput` | ours | returns chunks + vectors |
+| 3 | `VeeveeChunk` | ours | recursive split on headings → paragraphs → sentences; carries `title` + `ord` into each chunk's text (retrieval without provenance is unusable) |
+| 4 | `VeeveeEmbed` | ours | batched `/v1/embeddings` |
+| 5 | `VeeveeOutput` | ours | returns chunks + vectors |
 
 **Design note — the vector store is Postgres, not ComfyUI.**
 
@@ -687,7 +687,7 @@ could do in 5 ms locally is latency we spend on every single turn.
 **Contract.** `{ "query":"…", "project_id":"…", "params":{"embed_model":"bge-m3"} }`
 → `json: { "embedding":[…], "model":"bge-m3", "dim":1024 }`
 
-**Nodes.** request → parse → `LuminaEmbed` → output. Four nodes.
+**Nodes.** request → parse → `VeeveeEmbed` → output. Four nodes.
 
 **Notes.**
 
@@ -760,8 +760,8 @@ tags correctly. A local VLM does all three for free.
 //         "immutable_attributes":["…"], "warnings":[] }
 ```
 
-**Nodes.** request → parse → `LuminaFetchImage` → `LuminaVisionParts` → LLMChat (JSON) →
-`LuminaJsonGuard` → Output.
+**Nodes.** request → parse → `VeeveeFetchImage` → `VeeveeVisionParts` → LLMChat (JSON) →
+`VeeveeJsonGuard` → Output.
 
 **Notes.**
 
@@ -874,12 +874,12 @@ is off, exactly as `MOCK_GENERATION=1` exists for the generation path.
 | Stage | Deliverable | Proves |
 |---|---|---|
 | 0 | `comfy-llm` instance + model server + tunnel + W9 | the whole transport works before any product code |
-| 1 | `comfyui-lumina-nodes`: Request, LLMChat, StreamSink, Output, Telemetry | streaming reaches a browser |
+| 1 | `comfyui-veevee-nodes`: Request, LLMChat, StreamSink, Output, Telemetry | streaming reaches a browser |
 | 2 | W1 + chat schema + SSE route + panel rewrite | two-way chat exists |
 | 3 | W6, W7 | threads are navigable and survive length |
-| 4 | W2 + `LuminaFetchImage` | chat about images |
+| 4 | W2 + `VeeveeFetchImage` | chat about images |
 | 5 | W4, W5 + pgvector | per-project knowledge |
-| 6 | W3 + `LuminaJsonGuard` + provider profiles | the feature that pays for itself |
+| 6 | W3 + `VeeveeJsonGuard` + provider profiles | the feature that pays for itself |
 | 7 | W8 | asset descriptions, then role-detect A/B |
 
 Stage 0 first is the point. Every hard problem here (tunnel auth, websocket relay,

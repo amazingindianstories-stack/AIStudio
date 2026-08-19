@@ -15,7 +15,7 @@ from rest_framework.response import Response
 
 from apps.common.activity import log_activity
 from apps.common.password import hash_password, validate_password
-from apps.common.session_auth import LuminaSessionAuthentication
+from apps.common.session_auth import VeeveeSessionAuthentication
 from apps.generation import pricing_db
 from apps.generation.generations_service import decode_cursor
 from apps.generation.models import Generation
@@ -37,7 +37,7 @@ def _admin_from_request(request):
     """For plain (non-@api_view) Django views, which don't get DRF's
     authentication classes run automatically — see admin_logs_view's
     docstring for why this route has to be a plain view."""
-    result = LuminaSessionAuthentication().authenticate(request)
+    result = VeeveeSessionAuthentication().authenticate(request)
     if not result:
         return None
     user, _ = result

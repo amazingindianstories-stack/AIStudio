@@ -87,7 +87,7 @@ async function runAllowingAlreadyExists(command, args) {
 }
 
 async function main() {
-  const workdir = await mkdtemp(path.join(tmpdir(), "lumina-cloud-sql-"));
+  const workdir = await mkdtemp(path.join(tmpdir(), "veevee-cloud-sql-"));
   try {
     const dump = path.join(workdir, "railway.sql");
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
