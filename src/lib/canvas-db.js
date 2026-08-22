@@ -21,6 +21,29 @@ function rowToMeta(r) {
   };
 }
 
+/** Postgres compares `uuid` columns by casting the operand, so a non-uuid
+ *  string raises rather than returning no rows. Every caller here takes its
+ *  id straight off a URL path, so the shape is checked first and a malformed
+ *  id is simply "not found". */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Does this board exist? Selects the id alone rather than going through
+ * `getBoard`, which returns the whole `data` blob — up to 2 MB (see the PUT
+ * route's cap) for what is only ever an existence question.
+ */
+export async function boardExists(id) {
+  if (typeof id !== "string" || !UUID_RE.test(id)) return false;
+  const db = await getDb();
+  const rows = await db
+    .select({ id: canvasBoards.id })
+    .from(canvasBoards)
+    .where(eq(canvasBoards.id, id))
+    .limit(1);
+  return rows.length > 0;
+}
+
 /** Metadata only (omits `data`) — keeps the board switcher light. */
 export async function listBoards(projectId) {
   const db = await getDb();

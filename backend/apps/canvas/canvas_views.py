@@ -88,12 +88,23 @@ def canvas_board_detail(request, board_id):
 
 @api_view(["POST"])
 def canvas_board_upload(request, board_id):
+    """POST /api/canvas-boards/<id>/upload — mirrors the TS route.
+
+    `board_id` used to be accepted and then ignored, so any signed-in user
+    could write bytes into the media bucket under a board id that need not
+    exist. The board is resolved first now, and the id namespaces the stored
+    key. Deliberately not gated on ownership: board contents are editable by
+    the whole project (see the autosave PUT), so existence — not ownership —
+    is what was missing.
+    """
+    if not canvas_db.board_exists(board_id):
+        return Response({"error": "Board not found."}, status=404)
     body = request.data or {}
     data_url = body.get("dataUrl")
     if not data_url or not isinstance(data_url, str) or not data_url.startswith("data:"):
         return Response({"error": "dataUrl required."}, status=400)
     try:
-        url = save_canvas_asset(data_url)
+        url = save_canvas_asset(data_url, board_id)
         return Response({"url": url})
     except Exception:
         return Response({"error": "Upload failed."}, status=400)

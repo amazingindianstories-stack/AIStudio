@@ -54,14 +54,23 @@ export async function deleteAssetImage(url) {
   await deleteByUrls([url]);
 }
 
-/** Persist a canvas board image upload/paste (data URL); returns its public URL. */
-export async function saveCanvasAsset(dataUrl) {
+/**
+ * Persist a canvas board image upload/paste (data URL); returns its public URL.
+ *
+ * `boardId` namespaces the stored key. It is optional only so the signature
+ * stays backward compatible; every real caller passes one, because a key that
+ * records which board an object belongs to is what makes an orphaned canvas
+ * upload identifiable after the board is deleted. Callers are responsible for
+ * having verified the board exists — this function does not check.
+ */
+export async function saveCanvasAsset(dataUrl, boardId) {
   const { ext, data } = splitDataUrl(dataUrl);
   // data is base64; raw byte length is ~3/4 of the encoded string length.
   if (Buffer.byteLength(data, "base64") > MAX_CANVAS_UPLOAD_BYTES) {
     throw new Error("Images must be 8 MB or smaller.");
   }
-  return uploadBase64(data, `canvas/${randomUUID()}.${ext}`, ext);
+  const prefix = boardId ? `canvas/${boardId}` : "canvas";
+  return uploadBase64(data, `${prefix}/${randomUUID()}.${ext}`, ext);
 }
 
 /** Normalize an uploaded profile image and store it under a non-reused key. */
