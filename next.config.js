@@ -13,6 +13,16 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  // @ffmpeg-installer/ffmpeg resolves its platform binary with a dynamic
+  // require() (`require(path.join(__dirname, ..., process.platform + "-" +
+  // process.arch))`) that webpack can't statically analyze — bundling it
+  // anyway ("Critical dependency: the request of a dependency is an
+  // expression") mangles that require's runtime path and the build fails at
+  // "Collecting page data" for /api/generate/video/status with a
+  // MODULE_NOT_FOUND for the platform package, even though the package is
+  // genuinely installed. Excluding it from the server bundle lets it resolve
+  // normally against the real node_modules at runtime instead.
+  serverExternalPackages: ["@ffmpeg-installer/ffmpeg"],
   // Baseline security headers. Deliberately NOT including Content-Security-Policy
   // here — this app serves media from S3/GCS signed URLs and a CDN whose exact
   // domains vary by environment, and getting a CSP wrong (missing a domain,
