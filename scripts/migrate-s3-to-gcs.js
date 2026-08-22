@@ -7,7 +7,7 @@ import {
 
 } from "@aws-sdk/client-s3";
 import { Storage, } from "@google-cloud/storage";
-import { gcpProjectId, getStorageAuth } from "../src/lib/gcp-auth";
+import { gcpProjectId, getStorageCredentials } from "../src/lib/gcp-auth";
 
 config({ path: process.env.ENV_FILE || ".env.local" });
 
@@ -33,9 +33,16 @@ const s3 = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
+// Same construction as storage.js's own `storage()` — an `authClient` option
+// here (this script's previous shape) doesn't exist on the Storage
+// constructor at all; `credentials` is what actually wires WIF's raw
+// external_account JSON through to the SDK's own nested google-auth-library
+// (see gcp-auth.js's getStorageCredentials doc comment for why that
+// specific shape matters). Locally / off Vercel this returns undefined and
+// the client falls back to ambient ADC, same as storage.js.
 const gcs = new Storage({
   projectId: gcpProjectId(),
-  authClient: getStorageAuth() ,
+  ...(getStorageCredentials() ? { credentials: getStorageCredentials() } : {}),
 });
 
 async function listSourceObjects() {
