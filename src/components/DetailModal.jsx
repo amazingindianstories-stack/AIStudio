@@ -123,14 +123,12 @@ function CopyPromptButton({ text }) {
 }
 
 function ReferenceCollage({ images }) {
-  const visible = images.slice(0, 4);
-  const extra = images.length - visible.length;
-  const layoutClass =
-    visible.length === 1
-      ? "grid-cols-1"
-      : visible.length === 2
-      ? "grid-cols-2"
-      : "grid-cols-2";
+  // Every reference is shown — this panel scrolls (its parent carries
+  // overflow-y-auto), so there's no layout reason to truncate. This used to
+  // slice(0, 4) and print a "+N more" count for the rest with no way to
+  // actually open them, so a job with more than 4 references had references
+  // the user could never see or click through to.
+  const layoutClass = images.length === 1 ? "grid-cols-1" : "grid-cols-2";
 
   return (
     <div className="mb-5">
@@ -138,7 +136,7 @@ function ReferenceCollage({ images }) {
         Reference images
       </p>
       <div className={cn("grid gap-2", layoutClass)}>
-        {visible.map((src, i) => (
+        {images.map((src, i) => (
           <a
             key={i}
             href={src}
@@ -146,8 +144,7 @@ function ReferenceCollage({ images }) {
             rel="noreferrer"
             className={cn(
               "group relative overflow-hidden rounded-xl border border-line bg-ink-700 ring-1 ring-white/5 transition hover:border-brand/40 hover:ring-brand/20",
-              i === 0 && visible.length > 2 && "row-span-2 min-h-32",
-              visible.length === 2 && "min-h-24"
+              images.length === 2 && "min-h-24"
             )}
             title="Open reference image"
           >
@@ -157,9 +154,6 @@ function ReferenceCollage({ images }) {
           </a>
         ))}
       </div>
-      {extra > 0 && (
-        <p className="mt-2 text-[11px] text-white/45">+{extra} more reference image{extra === 1 ? "" : "s"}</p>
-      )}
     </div>
   );
 }
@@ -167,6 +161,7 @@ function ReferenceCollage({ images }) {
 export function DetailModal() {
   const activeId = useStore((s) => s.activeId);
   const items = useStore((s) => s.items);
+  const gridColumns = useStore((s) => s.gridColumns);
   // rightTab/search/filterKind are no longer read here: the feed arrives
   // already filtered and ordered by those, so re-deriving them would only
   // create a second, drifting definition of the same list.
@@ -184,11 +179,12 @@ export function DetailModal() {
   const toggleFlag = useStore((s) => s.toggleFlag);
 
   // `items` is already the scope the user is looking at — server-filtered and
-  // in the same order the grid renders — so arrow-key navigation just walks it.
-  // The old per-tab re-filter and re-sort here duplicated the panel's rules and
-  // had already drifted from them (it sorted favourites by favoritedAt but the
-  // grid did not), which showed up as the arrow keys jumping to a different
-  // image than the one visually next to the current card.
+  // in the same order the grid renders — so Left/Right (reading order) just
+  // walks it. The old per-tab re-filter and re-sort here duplicated the
+  // panel's rules and had already drifted from them (it sorted favourites by
+  // favoritedAt but the grid did not), which showed up as arrow-key
+  // navigation jumping to a different image than the one visually next to
+  // the current card.
   const item = items.find((i) => i.id === activeId) || null;
   const navigableItems = useMemo(
     () =>
@@ -197,6 +193,27 @@ export function DetailModal() {
           candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
       ),
     [items]
+  );
+
+  // Up/Down can't reuse flat `items` order the way Left/Right does: the grid
+  // is a packed masonry (AssetGrid's packColumns), so the item immediately
+  // before/after the current one in list order usually lands in a *different*
+  // column at a similar row, not the card visually above/below it — pressing
+  // Up would as often show something below as above. `gridColumns` is the
+  // actual column assignment AssetGrid just rendered, published live via the
+  // store; each column is filtered down to navigable ids (preserving order)
+  // so the placeholder/failed cards the grid also renders don't break the
+  // walk. Falls back to flat order (same as Left/Right) when the active item
+  // isn't in any column — DetailModal can be opened from views with no grid
+  // mounted at all, e.g. a chat thread.
+  const navigableColumns = useMemo(
+    () => {
+      const navigableIds = new Set(navigableItems.map((i) => i.id));
+      return gridColumns
+        .map((col) => col.filter((id) => navigableIds.has(id)))
+        .filter((col) => col.length > 0);
+    },
+    [gridColumns, navigableItems]
   );
 
   // Closing the modal while a <video>'s native fullscreen is still active
@@ -227,14 +244,26 @@ export function DetailModal() {
         return;
       }
 
-      const delta =
-        event.key === "ArrowLeft" || event.key === "ArrowUp"
-          ? -1
-          : event.key === "ArrowRight" || event.key === "ArrowDown"
-          ? 1
-          : 0;
-      if (delta === 0 || navigableItems.length < 2) return;
+      const isVertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+      const isHorizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+      if (!isVertical && !isHorizontal) return;
+      const delta = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1;
 
+      if (isVertical) {
+        const column = navigableColumns.find((col) => col.includes(item.id));
+        if (column && column.length > 1) {
+          event.preventDefault();
+          const currentIndex = column.indexOf(item.id);
+          const nextIndex = (currentIndex + delta + column.length) % column.length;
+          setActiveId(column[nextIndex]);
+          return;
+        }
+        // No column info (or a lone item in its column) — fall through to
+        // the same flat-order walk Left/Right uses, rather than doing
+        // nothing.
+      }
+
+      if (navigableItems.length < 2) return;
       event.preventDefault();
       const currentIndex = navigableItems.findIndex(
         (candidate) => candidate.id === item.id
@@ -245,7 +274,7 @@ export function DetailModal() {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [item, navigableItems, setActiveId]);
+  }, [item, navigableItems, navigableColumns, setActiveId]);
 
   return (
     <AnimatePresence>

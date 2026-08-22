@@ -285,6 +285,11 @@ export const useStore = create((set, get) => ({
   depthWorkerStatus: null,
   rightTab: "project",
   activeId: null,
+  // The currently-mounted AssetGrid's packed column layout (arrays of item
+  // ids, left to right) — published by AssetGrid whenever it repacks, so
+  // DetailModal's Up/Down keys can walk visual neighbors instead of flat
+  // list order. See setGridColumns below.
+  gridColumns: [],
   search: "",
   filterKind: "all",
   selectedIds: [],
@@ -426,6 +431,12 @@ export const useStore = create((set, get) => ({
 
   setRightTab: (rightTab) => set({ rightTab }),
   setActiveId: (activeId) => set({ activeId }),
+  // `columns` is AssetGrid's packColumns() output (arrays of items). Stored
+  // as id arrays only — DetailModal doesn't need the items themselves, and
+  // this avoids holding a second reference to objects that already live in
+  // `items`/the feed cache.
+  setGridColumns: (columns) =>
+    set({ gridColumns: columns.map((col) => col.map((item) => item.id)) }),
   setSearch: (search) => set({ search }),
   setFilterKind: (filterKind) => set({ filterKind }),
 
