@@ -40,6 +40,36 @@ class Generation(models.Model):
     # See schema.js's trackCharacters comment — YOLOv8-seg person tracking
     # composited onto the depth map, worker-side toggle.
     track_characters = models.BooleanField(null=True)
+    # Reproducibility seed (Phase 3.1) — mirrors schema.js's `seed` column
+    # verbatim, see that file's comment for the full semantics (only filled
+    # in for models config.supports_seed confirms; null means "not asked" or
+    # "unsupported").
+    seed = models.IntegerField(null=True)
+    # Video best-of-N (Phase 3.2) — mirrors schema.js's `candidate_task_ids`
+    # column. NOT wired into any Django view (the queue/execute + video
+    # status-poll changes for this phase were only built on the Next.js
+    # side — see generation_views.py's own note; Django isn't live yet and
+    # this feature additionally needs a real ffmpeg binary in the runtime,
+    # which this backend has no equivalent of). Column exists so the model
+    # stays a faithful mirror of the live table regardless of which app
+    # wrote a given row.
+    candidate_task_ids = models.JSONField(null=True)
+    # Multi-shot chaining (Phase 3.3) — mirrors schema.js's
+    # `continuation_frame_url`. A stored media URL for a frame extracted from
+    # a previous generation, submitted as the new video's starting frame.
+    continuation_frame_url = models.TextField(null=True)
+    # Lightweight quality feedback signal (Phase 3.5) — mirrors schema.js's
+    # `flagged`/`flagged_at`/`flag_reason`/`judge_score` verbatim. Independent
+    # of is_favorite (see that file's comment). judge_score is the winning
+    # best-of-N candidate's face-judge score, captured at generation time —
+    # only ever written by the Next.js queue/execute + video status routes
+    # today (this Django port only mirrors the columns, not that write path,
+    # same "schema mirrored, pipeline not" pattern as candidate_task_ids
+    # above — Django isn't live yet).
+    flagged = models.BooleanField(default=False)
+    flagged_at = models.BigIntegerField(null=True)
+    flag_reason = models.TextField(null=True)
+    judge_score = models.JSONField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
 

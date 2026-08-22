@@ -16,6 +16,7 @@ its TS source line for line.
 
 import io
 import os
+import random
 import re
 import time
 import uuid
@@ -112,8 +113,9 @@ def _to_provider_data_urls(refs: list[str]) -> list[str]:
 def _submit_video(base: dict) -> dict:
     """Create the provider task for a locked video job. Returns the item
     with taskId + status "running" (does not persist)."""
-    item_id, prompt, aspect_ratio, resolution, duration, model = (
-        base["id"], base["prompt"], base["aspectRatio"], base.get("resolution"), base.get("duration"), base["model"]
+    item_id, prompt, aspect_ratio, resolution, duration, model, seed = (
+        base["id"], base["prompt"], base["aspectRatio"], base.get("resolution"), base.get("duration"),
+        base["model"], base.get("seed"),
     )
 
     if mock.is_mock():
@@ -151,9 +153,18 @@ def _submit_video(base: dict) -> dict:
         inlined = _to_provider_data_urls(base.get("referenceImages") or [])
         references = resolve_references(prompt, inlined)
         signed_video_refs = _sign_video_refs(resolve_video_references(prompt, base.get("referenceVideos") or []))
+        # Multi-shot chaining (Phase 3.3) — reuses the same stored-ref →
+        # inline data-URL materialisation referenceImages already goes
+        # through; see queue/execute/route.js's identical comment.
+        continuation_frame_url = base.get("continuationFrameUrl")
+        first_frame = (
+            {"dataUrl": _to_provider_data_urls([continuation_frame_url])[0]}
+            if continuation_frame_url else None
+        )
         task_id = seedance_provider.create_video_task(
             prompt, model, aspect_ratio, resolution, duration, references, signed_video_refs,
             base.get("generateAudio") is True, base.get("videoTaskMode") or "generate",
+            seed, first_frame,
         )
 
     return {**base, **ref_updates, "taskId": task_id, "status": "running", "updatedAt": int(time.time() * 1000)}
@@ -169,6 +180,11 @@ def generate_image(request):
     reference_images = body.get("referenceImages")
     project_id = body.get("projectId") or None
     folder_id = body.get("folderId") or None
+    # "Regenerate with same seed" (Phase 3.1) — only honoured for models
+    # config.supports_seed confirms; dropped silently elsewhere rather than
+    # stored and never acted on. queue_execute backfills a fresh seed when
+    # this is None and the model supports it.
+    seed = body.get("seed") if config.supports_seed(model) and isinstance(body.get("seed"), int) else None
 
     if not prompt:
         return Response({"error": "Prompt is required."}, status=400)
@@ -190,7 +206,7 @@ def generate_image(request):
         "id": item_id, "kind": "image", "status": "queued", "prompt": prompt, "model": model,
         "aspectRatio": aspect_ratio, "resolution": resolution, "referenceImages": saved_refs,
         "projectId": project_id, "folderId": folder_id, "userId": str(request.user.id),
-        "costCents": cost_cents, "createdAt": now, "updatedAt": now,
+        "costCents": cost_cents, "seed": seed, "createdAt": now, "updatedAt": now,
     }
     try:
         queue_service.upsert_item(base)
@@ -223,6 +239,19 @@ def generate_video(request):
     video_task_mode = body.get("videoTaskMode") if body.get("videoTaskMode") in config.VIDEO_TASK_MODES else "generate"
     duration = (
         (body.get("duration") or None) if video_task_mode == "edit" else (body.get("duration") or 5)
+    )
+    # "Regenerate with same seed" (Phase 3.1) — native BytePlus Seedance only;
+    # see config.supports_seed's doc comment for why Omni/Higgsfield/Kling are
+    # excluded. Dropped silently for unsupported models, same convention
+    # generate_audio uses just above.
+    seed = body.get("seed") if config.supports_seed(model) and isinstance(body.get("seed"), int) else None
+    # Multi-shot chaining (Phase 3.3) — "Continue this shot" hands over a
+    # data URL of a frame extracted from a previous generation. Same gate/
+    # drop convention as generate_audio/seed above.
+    continuation_frame = (
+        body.get("continuationFrame")
+        if config.supports_first_frame_continuation(model) and isinstance(body.get("continuationFrame"), str)
+        else None
     )
 
     if not prompt:
@@ -285,6 +314,14 @@ def generate_video(request):
             pricing_db.read_pricing(),
         )
         saved_refs = save_media.save_reference_images(reference_images, item_id) if reference_images else None
+        # Suffixed id, not the bare generation id — save_reference_images
+        # numbers its own outputs from 0 per call, so reusing item_id here
+        # would collide with referenceImages' own references/{id}-0.ext when
+        # both are present on the same request.
+        continuation_frame_url = (
+            save_media.save_reference_images([continuation_frame], f"{item_id}-continuation")[0]
+            if continuation_frame else None
+        )
     except Exception as e:
         return Response({"error": str(e) or "Failed to prepare the generation request."}, status=500)
 
@@ -292,9 +329,10 @@ def generate_video(request):
         "id": item_id, "kind": "video", "status": "queued", "prompt": prompt, "model": model,
         "aspectRatio": aspect_ratio, "resolution": resolution, "duration": duration,
         "referenceImages": saved_refs, "referenceVideos": reference_videos or None,
+        "continuationFrameUrl": continuation_frame_url,
         "generateAudio": generate_audio, "videoTaskMode": video_task_mode if video_task_mode != "generate" else None,
         "projectId": project_id, "folderId": folder_id, "userId": str(request.user.id) if request.user else None,
-        "costCents": cost_cents, "createdAt": now, "updatedAt": now,
+        "costCents": cost_cents, "seed": seed, "createdAt": now, "updatedAt": now,
     }
     try:
         queue_service.upsert_item(base)
@@ -510,11 +548,18 @@ def queue_execute(request):
         base["prompt"], base["aspectRatio"], base.get("resolution"), base["model"], base.get("referenceImages")
     )
     cost_cents = base.get("costCents") or 0
+    # Reproducibility seed (Phase 3.1) — mirrors queue/execute/route.js
+    # exactly: only filled in for models config.supports_seed confirms, and
+    # only generated fresh when the row doesn't already carry one (so
+    # "regenerate with same seed" has something concrete to reuse).
+    seed = base.get("seed")
+    if config.supports_seed(model) and seed is None:
+        seed = random.randint(0, 2147483647)
     aspect_ratio_out = aspect_ratio
 
     if base["kind"] == "video":
         try:
-            running = _submit_video(base)
+            running = _submit_video({**base, "seed": seed})
             queue_service.upsert_item(running)
             return Response(running)
         except seedance_provider.SeedanceError as e:
@@ -527,6 +572,11 @@ def queue_execute(request):
             return Response(failed)
 
     try:
+        # Winning best-of-N candidate's judge score (Phase 3.5) — mirrors
+        # route.js's identical placement/reasoning: declared before every
+        # branch so it's in scope for the single `done` dict below, and only
+        # ever set inside the Gemini best-of-N branch further down.
+        judge_score = None
         if mock.is_mock():
             time.sleep(0.7)
             url = mock.mock_placeholder(item_id, prompt, aspect_ratio, model)
@@ -585,8 +635,18 @@ def queue_execute(request):
             if best_of > 1:
                 import concurrent.futures
 
+                # Per-candidate seed offset, not the same seed repeated N
+                # times — mirrors queue/execute/route.js's identical reasoning:
+                # an identical seed across parallel candidates would collapse
+                # best-of-N's diversity to one image N times over.
                 with concurrent.futures.ThreadPoolExecutor(max_workers=best_of) as executor:
-                    futures = [executor.submit(gemini_provider.generate_image_gemini, assembled, aspect_ratio, render_size) for _ in range(best_of)]
+                    futures = [
+                        executor.submit(
+                            gemini_provider.generate_image_gemini, assembled, aspect_ratio, render_size,
+                            seed + i if seed is not None else None,
+                        )
+                        for i in range(best_of)
+                    ]
                     results = []
                     errors = []
                     for f in futures:
@@ -600,15 +660,17 @@ def queue_execute(request):
                 if os.environ.get("JUDGE_COMPOSITE") == "1":
                     scores = [judge_candidate(assembled["judgeFace"], {"mimeType": c["mimeType"], "data": c["base64"]}) for c in results]
                     best = select_best_candidate(scores, 8)
+                    judge_score = scores[best] if scores[best] is not None else None
                 else:
                     scores = [judge_identity(assembled["judgeFace"], {"mimeType": c["mimeType"], "data": c["base64"]}) for c in results]
                     best = 0
                     for i in range(1, len(scores)):
                         if (scores[i] if scores[i] is not None else -1) > (scores[best] if scores[best] is not None else -1):
                             best = i
+                    judge_score = {"identity": scores[best]} if scores[best] is not None else None
                 base64_out, mime_type = results[best]["base64"], results[best]["mimeType"]
             else:
-                result = gemini_provider.generate_image_gemini(assembled, aspect_ratio, render_size)
+                result = gemini_provider.generate_image_gemini(assembled, aspect_ratio, render_size, seed)
                 base64_out, mime_type = result["base64"], result["mimeType"]
 
             if os.environ.get("POST_CRISPEN") == "1":
@@ -620,7 +682,7 @@ def queue_execute(request):
             ext = "jpg" if "jpeg" in mime_type else "png"
             url = save_media.save_base64(base64_out, ext, item_id)
 
-        done = {**base, "status": "succeeded", "url": url, "aspectRatio": aspect_ratio_out, "costCents": cost_cents, "updatedAt": int(time.time() * 1000)}
+        done = {**base, "status": "succeeded", "url": url, "aspectRatio": aspect_ratio_out, "costCents": cost_cents, "seed": seed, "judgeScore": judge_score, "updatedAt": int(time.time() * 1000)}
         queue_service.upsert_item(done)
         return Response(done)
     except Exception as e:

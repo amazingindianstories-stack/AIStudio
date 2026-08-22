@@ -14,6 +14,9 @@ import {
   isKlingImageModel,
   resolutionsForModel,
   supportsAudio,
+  supportsFirstFrameContinuation,
+  supportsSeed,
+  supportsVideoBestOf,
   supportsVideoEditExtend,
   supportsVideoReference,
 } from "./config";
@@ -73,6 +76,114 @@ test("exactly the two native BytePlus models in the picker are audio-capable tod
 test("no image model is ever audio-capable", () => {
   for (const m of MODELS.filter((m) => m.kind === "image")) {
     assert.equal(supportsAudio(m.name), false, m.name);
+  }
+});
+
+// ── reproducibility seed gating (Phase 3.1) ─────────────────────────────────
+//
+// Only the two probe/docs-confirmed request-side seed fields (Gemini/NBP,
+// native BytePlus Seedance) return true — everything else is an explicit
+// "no evidence either way" exclusion, not a tested-and-rejected claim. Same
+// higgsfield-before-seedance substring trap as supportsAudio: "Higgsfield
+// Seedance 2.0" contains "seedance" too.
+
+test("Nano Banana Pro supports seed", () => {
+  assert.equal(supportsSeed("Nano Banana Pro"), true);
+});
+
+test("native BytePlus Seedance supports seed", () => {
+  assert.equal(supportsSeed("Seedance 2.0"), true);
+  assert.equal(supportsSeed("Seedance 2.0 Mini"), true);
+});
+
+test("Higgsfield Seedance does NOT get seed, despite containing 'seedance'", () => {
+  assert.equal(supportsSeed("Higgsfield Seedance 2.0"), false);
+  assert.equal(supportsSeed("Higgsfield Seedance 2.0 Mini"), false);
+});
+
+test("Omni and Kling are explicitly excluded (no probe evidence either way)", () => {
+  assert.equal(supportsSeed("Gemini Omni Flash"), false);
+  assert.equal(supportsSeed("Kling Image 3.0"), false);
+  assert.equal(supportsSeed("Kling Image 2.1"), false);
+});
+
+test("Higgsfield Soul (image) is not seed-capable", () => {
+  assert.equal(supportsSeed("Higgsfield Soul"), false);
+});
+
+test("seed matching is case-insensitive", () => {
+  assert.equal(supportsSeed("nano banana pro"), true);
+  assert.equal(supportsSeed("SEEDANCE 2.0"), true);
+  assert.equal(supportsSeed("HIGGSFIELD SEEDANCE 2.0"), false);
+});
+
+test("every model in the picker resolves supportsSeed without throwing", () => {
+  for (const m of MODELS) {
+    assert.equal(typeof supportsSeed(m.name), "boolean", m.name);
+  }
+});
+
+// ── video best-of-N + frame-judge gating (Phase 3.2) ────────────────────────
+//
+// Scoped narrower than supportsSeed: it's a submission-shape decision (submit
+// N provider tasks in parallel), not a provider-capability claim, so only the
+// one video path this phase actually extended (native BytePlus) is true.
+
+test("native BytePlus Seedance supports video best-of-N", () => {
+  assert.equal(supportsVideoBestOf("Seedance 2.0"), true);
+  assert.equal(supportsVideoBestOf("Seedance 2.0 Mini"), true);
+  assert.equal(supportsVideoBestOf("Seedance 2.5"), true);
+});
+
+test("Higgsfield Seedance does NOT get best-of-N, despite containing 'seedance'", () => {
+  assert.equal(supportsVideoBestOf("Higgsfield Seedance 2.0"), false);
+  assert.equal(supportsVideoBestOf("Higgsfield Seedance 2.0 Mini"), false);
+});
+
+test("Omni is excluded — it has its own separate submission path", () => {
+  assert.equal(supportsVideoBestOf("Gemini Omni Flash"), false);
+});
+
+test("image models are not video-best-of-N capable", () => {
+  assert.equal(supportsVideoBestOf("Nano Banana Pro"), false);
+  assert.equal(supportsVideoBestOf("Kling Image 3.0"), false);
+});
+
+test("video best-of-N matching is case-insensitive", () => {
+  assert.equal(supportsVideoBestOf("SEEDANCE 2.0"), true);
+  assert.equal(supportsVideoBestOf("HIGGSFIELD SEEDANCE 2.0"), false);
+});
+
+test("every model in the picker resolves supportsVideoBestOf without throwing", () => {
+  for (const m of MODELS) {
+    assert.equal(typeof supportsVideoBestOf(m.name), "boolean", m.name);
+  }
+});
+
+// ── multi-shot chaining / first_frame gating (Phase 3.3) ────────────────────
+//
+// Same scope as supportsVideoBestOf: native BytePlus Seedance only. Weaker
+// evidence grade than every other gate in this file — see the function's own
+// doc comment (third-party tutorial, not official docs or a live probe).
+
+test("native BytePlus Seedance supports first-frame continuation", () => {
+  assert.equal(supportsFirstFrameContinuation("Seedance 2.0"), true);
+  assert.equal(supportsFirstFrameContinuation("Seedance 2.0 Mini"), true);
+  assert.equal(supportsFirstFrameContinuation("Seedance 2.5"), true);
+});
+
+test("Higgsfield Seedance does NOT get first-frame continuation, despite containing 'seedance'", () => {
+  assert.equal(supportsFirstFrameContinuation("Higgsfield Seedance 2.0"), false);
+});
+
+test("Omni and image models are excluded from first-frame continuation", () => {
+  assert.equal(supportsFirstFrameContinuation("Gemini Omni Flash"), false);
+  assert.equal(supportsFirstFrameContinuation("Nano Banana Pro"), false);
+});
+
+test("every model in the picker resolves supportsFirstFrameContinuation without throwing", () => {
+  for (const m of MODELS) {
+    assert.equal(typeof supportsFirstFrameContinuation(m.name), "boolean", m.name);
   }
 });
 

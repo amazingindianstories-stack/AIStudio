@@ -64,6 +64,12 @@ export const MentionTextarea = forwardRef(
       value,
       onChange,
       onSubmit,
+      // Enter-to-send. Correct for a chat box, wrong for the generation
+      // composer: there Enter fires a real, billed image/video job, and the
+      // prompts typed into it are long multi-line shot specs where reaching
+      // for a newline is constant. PromptComposer passes false so only the
+      // Send button submits; Shift+Enter still inserts a newline either way.
+      submitOnEnter = true,
       references,
       videoRefs = [],
       assets = [],
@@ -240,7 +246,7 @@ export const MentionTextarea = forwardRef(
           return;
         }
       }
-      if (e.key === "Enter" && !e.shiftKey) {
+      if (submitOnEnter && e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         suppressNextKeyUp.current = true;
         onSubmit();

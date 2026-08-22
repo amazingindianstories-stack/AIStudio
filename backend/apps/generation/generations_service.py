@@ -53,8 +53,15 @@ def row_to_item(g: Generation) -> dict:
         "folderId": str(g.folder_id) if g.folder_id else None,
         "userId": str(g.user_id) if g.user_id else None,
         "costCents": g.cost_cents,
+        "seed": g.seed,
+        "candidateTaskIds": g.candidate_task_ids,
+        "continuationFrameUrl": g.continuation_frame_url,
         "isFavorite": g.is_favorite,
         "favoritedAt": g.favorited_at,
+        "flagged": g.flagged,
+        "flaggedAt": g.flagged_at,
+        "flagReason": g.flag_reason,
+        "judgeScore": g.judge_score,
         "createdAt": g.created_at,
         "updatedAt": g.updated_at,
     }
@@ -198,6 +205,21 @@ def set_item_favorite(item_id: str, is_favorite: bool) -> dict | None:
     now = int(time.time() * 1000)
     updated = Generation.objects.filter(id=item_id).update(
         is_favorite=is_favorite, favorited_at=now if is_favorite else None, updated_at=now
+    )
+    if not updated:
+        return None
+    return row_to_item(Generation.objects.get(id=item_id))
+
+
+def set_item_flagged(item_id: str, flagged: bool, reason: str | None = None) -> dict | None:
+    """Mirrors store-db.js's setItemFlagged (Phase 3.5) — independent of
+    is_favorite, see models.py's comment on the `flagged` field."""
+    now = int(time.time() * 1000)
+    updated = Generation.objects.filter(id=item_id).update(
+        flagged=flagged,
+        flagged_at=now if flagged else None,
+        flag_reason=(reason or None) if flagged else None,
+        updated_at=now,
     )
     if not updated:
         return None

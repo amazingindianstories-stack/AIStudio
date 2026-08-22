@@ -358,11 +358,22 @@ export const ENVIRONMENT_NEGATIVE_CODA =
 /** In-prompt NEGATIVE block for medium "video" — targets temporal artifacts
  *  (identity/wardrobe drift, morphing, flicker) instead of stills-only
  *  framing complaints. Omni has no negative-prompt param, so this in-prompt
- *  block is the only lever and stays for video too. */
+ *  block is the only lever and stays for video too.
+ *
+ *  Gained style/grade drift (2026-08-17, Phase 2.2) — the temporal analogue
+ *  of the mixed-batch style-drift defect fixed elsewhere this phase: a shot
+ *  starting in the reference's style/grade and sliding away from it partway
+ *  through. Shared with video-directive.ts's own AVOID block (native Seedance
+ *  + Higgsfield) so all three video paths — this one (Omni, via
+ *  buildShotInstruction), and the other two — name the same failure modes in
+ *  the same words instead of drifting apart, the same lesson video-directive.ts's
+ *  own header already states for identity/style scaffolding. */
 export const VIDEO_NEGATIVE_CODA =
-  "identity or wardrobe drift between frames, face morphing, flicker, " +
-  "duplicated or extra limbs, warped anatomy, a small or distant subject, " +
-  "smeared or plasticky skin.";
+  "identity or wardrobe drift between frames, style or grade drift across " +
+  "the shot — colour palette, lighting, grain, line quality or rendering " +
+  "treatment sliding away from the reference partway through — face " +
+  "morphing, flicker, duplicated or extra limbs, warped anatomy, a small or " +
+  "distant subject, smeared or plasticky skin.";
 
 /** Compose the final structured instruction. rawPrompt is inserted VERBATIM.
  *  Layout:

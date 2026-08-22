@@ -11,6 +11,7 @@ import {
   durationRangeForModel,
   resolutionsForModel,
   supportsAudio,
+  supportsFirstFrameContinuation,
   supportsVideoReference,
   supportsVideoEditExtend,
   MAX_REFERENCE_VIDEOS,
@@ -231,6 +232,20 @@ export const useStore = create((set, get) => ({
   // is inert everywhere else.
   generateAudio: true,
   videoTaskMode: "generate",
+  // Reproducibility seed (Phase 3.1). null for an ordinary "Generate" click —
+  // the enqueue route only honours it for models config.supportsSeed
+  // confirms, and generate() clears it back to null after a successful
+  // submit (see below) so it never silently reattaches to an unrelated
+  // follow-up generation. regenerateWithSameSeed is the only action that
+  // sets this deliberately.
+  seed: null,
+  // Multi-shot chaining (Phase 3.3) — "Continue this shot" (continueShot
+  // action, below). A single data URL, not part of referenceImages/@imgN:
+  // it's not a tagged reference the user chose to include, it's the exact
+  // starting frame of THIS generation, submitted with BytePlus's
+  // "first_frame" content role. One-shot like seed — cleared after every
+  // successful submit, see generate() below.
+  continuationFrame: null,
   prompt: "",
   referenceImages: [],
   // Parallel to referenceImages, same length/order — "image" | "video",
@@ -270,6 +285,11 @@ export const useStore = create((set, get) => ({
   depthWorkerStatus: null,
   rightTab: "project",
   activeId: null,
+  // The currently-mounted AssetGrid's packed column layout (arrays of item
+  // ids, left to right) — published by AssetGrid whenever it repacks, so
+  // DetailModal's Up/Down keys can walk visual neighbors instead of flat
+  // list order. See setGridColumns below.
+  gridColumns: [],
   search: "",
   filterKind: "all",
   selectedIds: [],
@@ -288,6 +308,9 @@ export const useStore = create((set, get) => ({
   activeFolderId: null,
 
   setView: (view) => set({ view }),
+
+  setSeed: (seed) => set({ seed }),
+  setContinuationFrame: (continuationFrame) => set({ continuationFrame }),
 
   setMode: (mode) => {
     const d = DEFAULTS[mode];
@@ -408,6 +431,12 @@ export const useStore = create((set, get) => ({
 
   setRightTab: (rightTab) => set({ rightTab }),
   setActiveId: (activeId) => set({ activeId }),
+  // `columns` is AssetGrid's packColumns() output (arrays of items). Stored
+  // as id arrays only — DetailModal doesn't need the items themselves, and
+  // this avoids holding a second reference to objects that already live in
+  // `items`/the feed cache.
+  setGridColumns: (columns) =>
+    set({ gridColumns: columns.map((col) => col.map((item) => item.id)) }),
   setSearch: (search) => set({ search }),
   setFilterKind: (filterKind) => set({ filterKind }),
 
@@ -671,6 +700,17 @@ export const useStore = create((set, get) => ({
       referenceVideos: s.referenceVideos,
       generateAudio: s.generateAudio,
       videoTaskMode,
+      // Only ever non-null when regenerateWithSameSeed set it deliberately —
+      // the enqueue route re-checks config.supportsSeed itself and drops it
+      // silently for a model that doesn't support it, same convention as
+      // generateAudio above.
+      seed: s.seed ?? undefined,
+      // Multi-shot chaining (Phase 3.3) — only ever non-null when
+      // continueShot set it deliberately. The enqueue route re-checks
+      // config.supportsFirstFrameContinuation itself and drops it silently
+      // for a model that doesn't support it, same convention as seed/
+      // generateAudio above.
+      continuationFrame: s.continuationFrame ?? undefined,
       projectId: s.activeProjectId ?? undefined,
       folderId: s.activeFolderId ?? undefined,
     };
@@ -700,7 +740,11 @@ export const useStore = create((set, get) => ({
           // every submit yanked them out of the project they were working in,
           // which is also the scope the new item was generated into.
           insertNewItem(set, item);
-          set({ prompt: "" });
+          // Clear seed/continuationFrame here, not just prompt: both are
+          // one-shot flags (set by regenerateWithSameSeed / continueShot),
+          // not standing composer preferences — left set, the NEXT ordinary
+          // "Generate" click would silently reuse them.
+          set({ prompt: "", seed: null, continuationFrame: null });
           startPolling(item, set, get);
           created.push(item);
         }
@@ -863,6 +907,50 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  // Lightweight quality feedback signal (Phase 3.5) — independent of
+  // toggleFavorite above (see schema.js's `flagged` comment for why these
+  // are two separate booleans). Unflagging never asks for a reason; flagging
+  // does, via window.prompt — same convention this file already uses for
+  // folder/project naming (ProjectPanel.jsx, ProjectMenu.jsx). An empty or
+  // cancelled prompt still flags the row (a null reason is a valid flag,
+  // just an unexplained one) — only an explicit Cancel-with-no-flag case
+  // doesn't happen here because the flag itself isn't gated on the prompt.
+  toggleFlag: async (id) => {
+    const item = findItem(get(), id);
+    if (!item) return;
+
+    const nextFlagged = !item.flagged;
+    const reason = nextFlagged
+      ? window.prompt("Flag this generation — what's wrong with it? (optional)") || null
+      : null;
+    const flaggedAt = nextFlagged ? Date.now() : undefined;
+    patchEverywhere(set, id, (i) => ({
+      ...i,
+      flagged: nextFlagged,
+      flaggedAt,
+      flagReason: reason,
+    }));
+
+    try {
+      const res = await apiFetch("/api/history", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, flagged: nextFlagged, flagReason: reason }),
+      });
+      if (!res.ok) throw new Error("Flag update failed.");
+      const updated = await res.json();
+      if (updated?.id) patchEverywhere(set, updated.id, (i) => ({ ...i, ...updated }));
+    } catch {
+      patchEverywhere(set, id, (i) => ({
+        ...i,
+        flagged: item.flagged,
+        flaggedAt: item.flaggedAt,
+        flagReason: item.flagReason,
+      }));
+      alert("Failed to update flag — please try again.");
+    }
+  },
+
   retryTextToVideo: async (id) => {
     const item = findItem(get(), id);
     if (!item || get().generating) return;
@@ -942,6 +1030,63 @@ export const useStore = create((set, get) => ({
     await get().generate();
   },
 
+  /** Same as regenerate, but pins the composer's seed to the ORIGINAL item's
+   *  seed before submitting — a deliberately different result from
+   *  regenerate() above, which produces a fresh (usually different) render.
+   *  Only meaningful for a model config.supportsSeed confirms and only when
+   *  the item actually carries one (older rows predate Phase 3.1 and are
+   *  null); callers should gate the UI entry point on `item.seed != null`
+   *  rather than relying on this to silently no-op. */
+  regenerateWithSameSeed: async (id) => {
+    if (get().generating) return;
+    const item = findItem(get(), id);
+    if (!item || item.seed == null) return;
+    await get().cloneToComposer(id);
+    set({ seed: item.seed });
+    if (!get().prompt.trim()) return;
+    await get().generate();
+  },
+
+  /**
+   * Multi-shot chaining (Phase 3.3) — "Continue this shot". Unlike
+   * regenerate/regenerateWithSameSeed, this deliberately does NOT
+   * auto-submit: it loads the extracted frame into the composer and clears
+   * the prompt so the user writes what happens NEXT, then generates
+   * normally. Gated on config.supportsFirstFrameContinuation — the caller
+   * (DetailModal) should already only show this action for a model that
+   * supports it, but this re-checks so a stale button (composer switched
+   * models after the item finished) can't silently submit a continuation
+   * frame nothing will act on.
+   */
+  continueShot: async (id) => {
+    const item = findItem(get(), id);
+    if (!item || item.kind !== "video" || item.status !== "succeeded" || !item.url) return;
+    if (!supportsFirstFrameContinuation(item.model)) {
+      alert(`${item.model} doesn't support continuing a shot yet.`);
+      return;
+    }
+    try {
+      const { extractFrame } = await import("./video-frame");
+      // Infinity is clamped to (duration - 0.05) by seekTo — the same
+      // last-frame convention video-frame-server.js's ffmpeg path uses
+      // server-side (-sseof -1), just expressed for the browser API instead.
+      const { dataUrl } = await extractFrame(inlineMediaUrl(item.url), Infinity);
+      set({
+        mode: "video",
+        model: item.model,
+        aspectRatio: item.aspectRatio,
+        resolution: item.resolution ?? get().resolution,
+        continuationFrame: dataUrl,
+        prompt: "",
+        referenceImages: [],
+        referenceKinds: [],
+      });
+    } catch (e) {
+      console.error("Failed to extract the last frame for continuation:", e);
+      alert(e?.message || "Could not read the last frame from this video.");
+    }
+  },
+
   addReferenceFromVideo: async (url, atSeconds) => {
     // No provider here accepts an uploaded video, so a frame is how a clip
     // becomes usable as a reference at all. Decoded in the browser — see
@@ -969,6 +1114,12 @@ export const useStore = create((set, get) => ({
       videoTaskMode: supportsVideoEditExtend(item.model)
         ? item.videoTaskMode ?? "generate"
         : "generate",
+      // A plain clone starts fresh, not pinned — regenerateWithSameSeed sets
+      // this explicitly right after calling cloneToComposer.
+      seed: null,
+      // Same reasoning — continueShot below sets this itself, after loading
+      // its own extracted frame, not by going through cloneToComposer at all.
+      continuationFrame: null,
       prompt: item.prompt,
       referenceImages: [],
       referenceKinds: [],

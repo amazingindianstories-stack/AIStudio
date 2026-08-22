@@ -102,6 +102,12 @@ export async function generateImageGemini(
     contents: [{ role: "user", parts: buildParts(input.assembled) }],
     generationConfig: {
       responseModalities: ["TEXT", "IMAGE"],
+      // Real, documented GenerationConfig field (Phase 3.1) — but Google's own
+      // developer forum reports it doesn't reliably guarantee determinism on
+      // every model, so this is "nudges toward similar output", not a promise
+      // of an identical image. Omitted entirely (not sent as null/undefined)
+      // when the caller has no seed, matching every other optional field here.
+      ...(typeof input.seed === "number" ? { seed: input.seed } : {}),
       imageConfig: {
         aspectRatio: input.aspectRatio || "1:1",
         imageSize: input.imageSize || "1K",

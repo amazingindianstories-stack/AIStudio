@@ -1,0 +1,62 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "id: 3dde96be-ac39-4253-802f-1b9181520dad\nstatus: completed\njob_set_type: seedance_2_5\npoll_after_seconds: null"
+    }
+  ],
+  "structuredContent": {
+    "raw_data": {
+      "id": "3dde96be-ac39-4253-802f-1b9181520dad",
+      "status": "completed",
+      "job_set_type": "seedance_2_5",
+      "display_name": "Seedance 2.5",
+      "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260817_123522_3dde96be-ac39-4253-802f-1b9181520dad.mp4",
+      "min_result_url": null,
+      "h264_url": null,
+      "thumbnail_url": "https://cdn.higgsfield.ai/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260817_123522_3dde96be-ac39-4253-802f-1b9181520dad_thumbnail.webp",
+      "result_json": null,
+      "text": null,
+      "meta": null,
+      "created_at": 1786970122.028408,
+      "params": {
+        "width": 1344,
+        "height": 576,
+        "prompt": "Create a **cinematic 30-second historical-war montage** based on the provided references.\n\n**<<<image_1>>> — Maharana Pratap:** strict character reference. Preserve his exact face, moustache, red-gold Rajput turban, armour, chainmail, royal drape, physique, jewellery, weapons and commanding presence.\n\n**<<<image_2>>> — Chetak:** strict horse reference. Preserve the exact white Marwari horse, facial structure, curved ears, muscular proportions, mane, coat texture, brown-red-gold royal saddle, bridle and ornamental tack.\n\nThe sequence begins as majestic historical memory and gradually erupts into the **Battle of Haldighati**, ending with the iconic image of **Pratap and Chetak launching toward a massive war elephant**.\n\n## COLOUR PALETTE + LIGHTING\n\nUse a poetic naturalistic palette derived from the supplied visual references: **warm amber and honey-gold sunlight, burnt-orange dust, weathered earth, muted olive and dusty forest greens, slate-blue and steel-blue mountain shadows, faint lavender dawn atmosphere and natural ivory-white highlights on Chetak.** Keep **rich midtones, open readable blacks, soft highlight roll-off and restrained saturation**, avoiding glossy blockbuster colour.\nLighting must feel motivated by the real environment — **low dawn sun, atmospheric haze, dust, fire and natural sky fill**. Strong golden backlight catches Pratap's armour edges, turban, spear and Chetak's mane while cooler blue-grey ambient light remains in the mountain shadows.\n\n## 30-SECOND SEQUENCE\n\n### SHOT 1 — 00:00–00:05\n\n**Extreme aerial establishing shot — Aravalli Mountains at dawn.**\n\nCamera glides over immense mist-covered rocky valleys of Mewar. Ancient hill forts emerge from the haze; distant lakes catch the first honey-gold sunlight. Foreground ridges remain slate-blue and muted olive. Dust and morning mist create enormous layered depth.\n\n**VOICEOVER:**\n*\"Some kings inherit a kingdom...\"*\n\n### SHOT 2 — 00:05–00:10\n\n**Heroic preparation montage — Pratap and Chetak.**\n\nLow-angle medium close shot of Maharana Pratap from **<<<image_1>>>**, already mounted on Chetak from **<<<image_2>>>**. Wind moves his red royal drape and Chetak's pale mane. Extreme inserts: Pratap's unwavering eyes, fingers closing around the sword hilt, spear point catching sunrise, Chetak's curved ears turning forward, hoof striking dry earth.\n\nPratap slowly draws his sword.\n\n**PRATAP:**\n*\"HAR HAR MAHADEV!\"*\n\n### SHOT 3 — 00:10–00:15\n\n**The army answers — charge begins.**\n\nMassive frontal telephoto shot. Thousands of Rajput warriors raise swords, spears and shields behind Pratap. The valley erupts:\n\n**ARMY:**\n*\"HAR HAR MAHADEV!\"*\n\nChetak surges forward. Pratap leads the charge directly toward camera before the cavalry thunder past. Hooves rip through dry ground, creating a huge burnt-orange dust wall illuminated from behind by golden sunlight.\n\n### SHOT 4 — 00:15–00:20\n\n**HALDIGHATI ERUPTS.**\n\nEmbedded handheld battlefield montage. Rajput cavalry collides with opposing cavalry. Spears crash against shields. Arrows streak overhead. War elephants push through dust. Horses weave between infantry. Chetak turns violently between two spearmen while Pratap remains perfectly balanced, sword cutting through the chaotic movement.\n\nKeep geography readable despite the violence — bodies, shields, horse flanks and dust repeatedly occlude the lens.\n\n### SHOT 5 — 00:20–00:25\n\n**Pratap breaks through.**\n\nDynamic low side-tracking shot racing beside Chetak. A spear flashes toward Pratap; Chetak pivots sharply and the weapon misses by inches. Pratap immediately counters with one powerful sword strike.\n\nCut to Pratap's POV through swirling amber dust: a **towering armored war elephant** emerges directly ahead.\n\nPratap lowers his long spear.\n\nChetak's ears lock forward.\n\nThey do not slow down.\n\n### SHOT 6 — 00:25–00:30\n\n**CHETAK'S LEAP.**\n\nBegin extremely low behind Chetak's pounding hooves as horse and rider accelerate straight toward the elephant.\n\nThe elephant raises its trunk.\n\nChetak launches upward.\n\n**TIME SLOWS.**\n\nWide side silhouette: Chetak suspended above the battlefield, white body glowing against amber dust and pale lavender-blue sky; Pratap rises powerfully in the saddle, spear lowered toward the elephant below. Thousands of warriors become tiny shapes beneath them.\n\nPush into Pratap's fierce eyes at the apex of the leap.\n\n**SMASH CUT TO BLACK before impact.**\n\n## CAMERA + CINEMATIC LANGUAGE\n\n**ARRI Alexa 35, ARRIRAW, Cooke Anamorphic character, 2.39:1**, organic film grain, natural skin and horse texture, gentle halation, soft highlight rolloff and strong atmospheric depth. The supplied reference format emphasizes strict image continuity and timed cinematic shot progression.\n\nMove from controlled majestic aerials and slow push-ins into immersive battlefield handheld and tracking coverage. Use foreground warriors, horse bodies, weapons, flags and dust for layered depth. Camera should feel physically present inside the battle rather than floating above it.\n\n## PERFORMANCE + PHYSICALITY\n\nMaharana Pratap is **fearless, controlled and commanding**, never theatrical. His war cry comes from absolute conviction. Keep his posture upright and powerful even at full gallop.\n\nChetak is equally heroic — intelligent, fearless, explosive and completely synchronized with Pratap. Horse movement must have realistic weight, hoof contact, muscle deformation, acceleration and jumping physics.\n\nThe army feels enormous, exhausted, dusty and physically real.\n\n## NEGATIVE PROMPT\n\nNo fantasy magic, no supernatural glowing weapons, no modern objects, no generic European medieval armour, no polished fantasy castle aesthetic, no plastic CGI skin, no glossy horse coat, no weightless horses, no floating hooves, no rubbery anatomy, no cloned soldiers, no pristine battlefield, no exaggerated superhero poses, no cartoon violence, no random slow motion except Chetak's final leap, no crushed blacks, no clipped highlights, no oversaturated orange-teal blockbuster grade, no text overlays, no subtitles, no watermark.",
+        "genre": "auto",
+        "medias": [
+          {
+            "data": {
+              "id": "37580263-3bca-4f78-99ed-d53b04262584",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/37580263-3bca-4f78-99ed-d53b04262584_resize.jpg",
+              "type": "media_input"
+            },
+            "role": "image"
+          },
+          {
+            "data": {
+              "id": "2dbc7123-c154-4027-b865-9aaa64ec0619",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/2dbc7123-c154-4027-b865-9aaa64ec0619.png",
+              "type": "media_input"
+            },
+            "role": "image"
+          }
+        ],
+        "duration": 30,
+        "resolution": "720p",
+        "aspect_ratio": "21:9",
+        "generate_audio": true,
+        "multi_shots": false,
+        "multi_shot_mode": "custom",
+        "multi_prompt": [],
+        "speedramp": "auto",
+        "reference_elements": [],
+        "prompt_language": "en",
+        "model": "default",
+        "extension_mode": null,
+        "bitrate_mode": "high"
+      },
+      "debug": null
+    }
+  }
+}

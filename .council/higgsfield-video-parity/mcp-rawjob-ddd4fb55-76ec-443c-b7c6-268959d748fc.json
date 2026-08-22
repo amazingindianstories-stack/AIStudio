@@ -1,0 +1,62 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "id: ddd4fb55-76ec-443c-b7c6-268959d748fc\nstatus: completed\njob_set_type: seedance_2_0\npoll_after_seconds: null"
+    }
+  ],
+  "structuredContent": {
+    "raw_data": {
+      "id": "ddd4fb55-76ec-443c-b7c6-268959d748fc",
+      "status": "completed",
+      "job_set_type": "seedance_2_0",
+      "display_name": "Seedance 2.0",
+      "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260605_110253_ddd4fb55-76ec-443c-b7c6-268959d748fc.mp4",
+      "min_result_url": null,
+      "h264_url": null,
+      "thumbnail_url": "https://cdn.higgsfield.ai/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260605_110253_ddd4fb55-76ec-443c-b7c6-268959d748fc_thumbnail.webp",
+      "result_json": null,
+      "text": null,
+      "meta": null,
+      "created_at": 1780657373.930642,
+      "params": {
+        "width": 2016,
+        "height": 864,
+        "prompt": "Replace the <<<video_1>>> green-screen background with the dramatic cliff-edge cityscape from <<<image_1>>>. Keep the woman unchanged. Make the background move naturally with subtle cinematic parallax, realistic depth, and stable camera motion. Match lighting, shadows, perspective, and golden-hour atmosphere. Ensure the cliff, storm clouds, sun rays, and distant city feel smoothly integrated with the video.",
+        "genre": "auto",
+        "medias": [
+          {
+            "data": {
+              "id": "2f4da72f-0dd3-4c43-84b1-3baaf9490e6f",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/2f4da72f-0dd3-4c43-84b1-3baaf9490e6f.mp4",
+              "type": "video_input"
+            },
+            "role": "video"
+          },
+          {
+            "data": {
+              "id": "3267d16f-3fc0-4c6a-9dd5-9b68b7a71764",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/3267d16f-3fc0-4c6a-9dd5-9b68b7a71764.png",
+              "type": "media_input"
+            },
+            "role": "image"
+          }
+        ],
+        "duration": 8,
+        "resolution": "1080p",
+        "aspect_ratio": "21:9",
+        "generate_audio": true,
+        "multi_shots": false,
+        "multi_shot_mode": "custom",
+        "multi_prompt": [],
+        "speedramp": "auto",
+        "reference_elements": [],
+        "prompt_language": "en",
+        "mode": "std",
+        "model": "seedance_2_0",
+        "bitrate_mode": "standard"
+      },
+      "debug": null
+    }
+  }
+}

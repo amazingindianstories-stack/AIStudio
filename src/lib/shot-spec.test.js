@@ -21,6 +21,7 @@ import {
   hasVisiblePeople,
   ENVIRONMENT_NEGATIVE_CODA,
   NEGATIVE_CODA,
+  VIDEO_NEGATIVE_CODA,
   VIEWPOINT_POLICY,
   ZERO_CAST_POLICY,
 } from "./shot-spec";
@@ -274,6 +275,29 @@ test("buildShotInstruction: medium:'video' AVOID block mentions cross-frame drif
     /(drift.{0,30}frame|frame.{0,30}drift|flicker|morph)/i.test(result),
     `expected temporal-artifact AVOID wording for video medium, got: ${result}`
   );
+});
+
+test("VIDEO_NEGATIVE_CODA (2026-08-17, Phase 2.2): names style/grade drift, not just identity/wardrobe drift", () => {
+  // The temporal analogue of the mixed-batch style-drift defect fixed
+  // elsewhere this phase — a shot starting in the reference's style/grade
+  // and sliding away from it partway through. Shared verbatim with
+  // video-directive.ts's own AVOID block (see that file's test suite) so
+  // Omni and the native Seedance/Higgsfield paths never drift apart.
+  assert.match(VIDEO_NEGATIVE_CODA, /style or grade drift/i);
+  assert.match(VIDEO_NEGATIVE_CODA, /colour palette, lighting, grain, line quality or rendering treatment/i);
+  // The original identity/wardrobe-drift wording must survive untouched.
+  assert.match(VIDEO_NEGATIVE_CODA, /identity or wardrobe drift between frames/);
+});
+
+test("buildShotInstruction: medium:'video' AVOID block includes the style/grade drift addition", () => {
+  const result = buildShotInstruction({
+    rawPrompt: "A scene.",
+    legend: null,
+    aspectRatio: "1:1",
+    medium: "video",
+  });
+  assert.ok(result.includes(`AVOID: ${VIDEO_NEGATIVE_CODA}`));
+  assert.match(result, /style or grade drift across the shot/i);
 });
 
 test("buildShotInstruction: default (no medium argument) output is unchanged from documented image-medium behavior", () => {

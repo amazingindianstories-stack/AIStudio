@@ -1,0 +1,62 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "id: 7198e058-e68f-4bee-b3c3-7026ac7944fe\nstatus: completed\njob_set_type: seedance_2_0\npoll_after_seconds: null"
+    }
+  ],
+  "structuredContent": {
+    "raw_data": {
+      "id": "7198e058-e68f-4bee-b3c3-7026ac7944fe",
+      "status": "completed",
+      "job_set_type": "seedance_2_0",
+      "display_name": "Seedance 2.0",
+      "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260622_122344_7198e058-e68f-4bee-b3c3-7026ac7944fe.mp4",
+      "min_result_url": null,
+      "h264_url": null,
+      "thumbnail_url": "https://cdn.higgsfield.ai/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260622_122344_7198e058-e68f-4bee-b3c3-7026ac7944fe_thumbnail.webp",
+      "result_json": null,
+      "text": null,
+      "meta": null,
+      "created_at": 1782131024.212262,
+      "params": {
+        "width": 2016,
+        "height": 864,
+        "prompt": "References:\n\nCHARACTER:\n<<<image_1>>> = Shirin, young Indian female anchor.\n\nLOCATION:\n<<<image_2>>> = Film Express interview studio.\n\nCAMERA & LOOK:\nARRIFLEX 35mm motion picture camera, Hawk Anamorphic lenses, mixed live-broadcast and documentary-style studio coverage. The direct main broadcast camera angle is static, locked-off and steady whenever Shirin is seen through the actual live camera. All other angles are handheld shoulder-mounted with subtle natural camera shake, layered foreground depth, organic focus breathing and natural focus drift. Use 100mm-150mm long-lens coverage for intimate compressed angles, shallow depth of field in every shot, layered foreground compositions using broadcast cameras, studio equipment, monitor edges, chair edges and soft foreground obstructions. Observational television-production realism, realistic live broadcast environment, fine 35mm film grain. Shirin is seated throughout in a confident crossed-leg pose, preparing herself, then speaking directly to the main camera. No visible earpiece, no visible microphone.\nLIGHTING:\nWarm amber studio key lighting, soft overhead television studio illumination, subtle atmospheric haze, warm practical reflections on equipment surfaces, natural skin tones, rich shadow detail, open blacks, realistic broadcast-studio contrast, gentle highlight rolloff, soft monitor spill where appropriate.\nSEQUENCE:\nSHOT 1 -\nA handheld low side-angle close shot of Shirin seated on the left interview chair in a confident crossed-leg pose. The blurred edge of a broadcast camera and a strip of studio equipment occupy the foreground, creating layered shallow-focus depth. The curtain behind her sits softly out of focus in the background.\nShirin listens to Ria from off-screen, then quietly answers with controlled readiness.\nSHIRIN:\n\"Alright then.\"\nShe tries to shake off her negative energy. She stretches her face slightly into a professional smile, not exaggerated, just a small physical reset before going live. She composes herself and looks toward the curtain behind her for a brief second, mentally preparing for the biggest interview of the show.\nSHOT 2 -\nA static close shot from the main live broadcast camera positioned directly in front of Shirin. The frame is clean, steady and locked-off like the actual on-air feed. Shirin sits in a confident crossed-leg pose, turns her attention back to the main camera, gives a polished professional smile and begins the show.\nSHIRIN:\n\"Hello friends, film express par Shirin Kaul show mein aapka swagat hai,\"\nHer voice is warm, practiced and confident. Her face carries the discipline of a professional anchor who has buried all private irritation behind a broadcast smile.\nSHOT 3 -\nA handheld side low-angle medium close shot from Shirin’s right side. A blurred camera rig edge passes across the foreground, and the main broadcast camera is visible in the background aimed at her. Shirin remains seated, crossed-leg, body facing the main camera, speaking only to that lens.\nSHIRIN:\n\"aaj ki raat iss show ki history mein sabse badi raat hai.\"\nHer posture stays composed. The handheld coverage has subtle live-event tension, as if another cinematographer is quietly capturing the broadcast from inside the studio.\nSHOT 4 -\nAn extreme close shot of Shirin’s mouth and lower face as she speaks. A soft monitor edge and dark equipment shape create foreground blur. The skin texture remains natural, lips moving clearly with the words, shallow depth of field isolating every small movement.\nSHIRIN:\n\"Ye mein nahi keh rahi hoon,\"\nThe delivery is smooth and professional, with no dramatic emphasis.\nSHOT 5 -\nAn extreme close shot from just behind the side of Shirin’s face, near her cheek and jawline. The main broadcast camera sits in the background, softly blurred but clearly aimed at her. The studio lights, curtain and warm amber haze create depth behind the camera body.\nShirin continues speaking toward the main camera without turning away.\nSHIRIN:\n\"numbers keh rahe hai.\"\nSHOT 6 -\nA handheld front extreme close shot of Shirin’s face from slightly below eye level, placed near the main camera line but not the actual live feed. Her eyes remain locked toward the main broadcast camera. Her professional smile settles into calm authority as she finishes the sentence.\nShe holds the look for a beat, seated in a confident crossed-leg pose, steady, composed and fully in control of the opening.\nNEGATIVE PROMPT:\nNo visible earpiece, no visible microphone, no glamour-fashion photography, no beauty-commercial lighting, no exaggerated acting, no dramatic emotional breakdowns, no theatrical gestures, no fast camera moves, no perfect digital sharpness, no robotic focus pulls, no excessive camera shake, no cyberpunk lighting, no futuristic equipment, no empty studio, no CGI appearance, no over-stylized lens flares, no action-movie energy, no artificial facial expressions, no slow motion, no staged newsroom clichés, no lip-sync mismatch, no incorrect mouth movement, no looking away from the main camera while delivering the broadcast lines.",
+        "genre": "auto",
+        "medias": [
+          {
+            "data": {
+              "id": "e8cf318e-bf39-467f-a6a7-26ef54236477",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/e8cf318e-bf39-467f-a6a7-26ef54236477_resize.jpg",
+              "type": "media_input"
+            },
+            "role": "image"
+          },
+          {
+            "data": {
+              "id": "444dafd1-f89b-4e80-8ed1-35cfab873bc5",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/444dafd1-f89b-4e80-8ed1-35cfab873bc5_resize.jpg",
+              "type": "media_input"
+            },
+            "role": "image"
+          }
+        ],
+        "duration": 15,
+        "resolution": "1080p",
+        "aspect_ratio": "21:9",
+        "generate_audio": true,
+        "multi_shots": false,
+        "multi_shot_mode": "custom",
+        "multi_prompt": [],
+        "speedramp": "auto",
+        "reference_elements": [],
+        "prompt_language": "en",
+        "mode": "std",
+        "model": "seedance_2_0",
+        "bitrate_mode": "high"
+      },
+      "debug": null
+    }
+  }
+}

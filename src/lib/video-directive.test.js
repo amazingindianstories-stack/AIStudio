@@ -5,6 +5,7 @@ import {
   hasCameraDirection,
   hasExplicitStyle,
 } from "./video-directive";
+import { VIDEO_NEGATIVE_CODA } from "./shot-spec";
 
 const build = (prompt, refCount = 1) =>
   buildVideoDirective({ prompt, refCount, tagSyntax: "bracket" });
@@ -167,4 +168,181 @@ test("hasCameraDirection: ordinary English uses of 'blocking' and 'framing' do n
   // framing guidance for a prompt that never mentioned the camera.
   assert.equal(hasCameraDirection("he stands blocking the door"), false);
   assert.equal(hasCameraDirection("framing the photograph on the wall"), false);
+});
+
+// ── temporal staging + camera-movement vocabulary (2026-08-17, Phase 2.1) ──
+
+test("TEMPORAL STAGING block is present whenever there is at least one reference", () => {
+  const out = build("She laughs and looks away.");
+  assert.match(out, /TEMPORAL STAGING \(apply ONLY where the PROMPT does not already stage/);
+  assert.match(out, /distribute the prompt's action smoothly across the FULL duration/i);
+});
+
+test("TEMPORAL STAGING is absent for a bare text-to-video prompt (refCount 0) — untouched, as before", () => {
+  const prompt = "Rain on a window, slow push in.";
+  const out = buildVideoDirective({ prompt, refCount: 0, tagSyntax: "bracket" });
+  assert.equal(out, prompt);
+  assert.doesNotMatch(out, /TEMPORAL STAGING/);
+});
+
+test("TEMPORAL STAGING self-conditions rather than being regex-gated — always emitted even when the prompt already stages its own beats, deferring to the model", () => {
+  // No detector function exists for this (see file header) — the text itself
+  // carries the "apply ONLY where..." conditional, same belt-and-braces
+  // pattern as DEFAULT_FRAMING's own fallback wording.
+  const out = build("First she enters the room, then pauses, and finally sits down.");
+  assert.match(out, /TEMPORAL STAGING \(apply ONLY where the PROMPT does not already stage/);
+});
+
+test("default camera-movement guidance appears alongside default framing when the prompt gives no camera direction", () => {
+  const out = build("She laughs and looks away.");
+  assert.match(out, /Hold ONE deliberate camera treatment for the whole shot/);
+  assert.match(out, /rather than unmotivated cuts, random handheld shake/);
+});
+
+test("default camera-movement guidance is dropped (not just outranked) when the prompt directs the camera", () => {
+  const out = build("Wide establishing shot in deep focus, the crowd fills frame.");
+  assert.doesNotMatch(out, /Hold ONE deliberate camera treatment/);
+});
+
+test("block ordering: TEMPORAL STAGING lands after FRAMING and before LITERAL PROMPT", () => {
+  const out = build("She laughs and looks away.");
+  const framingPos = out.indexOf("FRAMING (default");
+  const stagingPos = out.indexOf("TEMPORAL STAGING");
+  const literalPos = out.indexOf("LITERAL PROMPT:");
+  assert.ok(framingPos > -1 && framingPos < stagingPos && stagingPos < literalPos);
+});
+
+// ── in-prompt negative block (2026-08-17, Phase 2.2) ────────────────────────
+
+test("AVOID block is present whenever there is at least one reference, and is shared verbatim with shot-spec's VIDEO_NEGATIVE_CODA", () => {
+  const out = build("She laughs and looks away.");
+  assert.ok(out.includes(`AVOID: ${VIDEO_NEGATIVE_CODA}`));
+});
+
+test("AVOID block is absent for a bare text-to-video prompt (refCount 0) — untouched, as before", () => {
+  const prompt = "Rain on a window, slow push in.";
+  const out = buildVideoDirective({ prompt, refCount: 0, tagSyntax: "bracket" });
+  assert.equal(out, prompt);
+  assert.doesNotMatch(out, /AVOID:/);
+});
+
+test("AVOID block names style/grade drift specifically, not just identity/wardrobe drift", () => {
+  const out = build("She laughs and looks away.");
+  assert.match(out, /style or grade drift across the shot/i);
+  assert.match(out, /identity or wardrobe drift between frames/);
+});
+
+test("AVOID block appears regardless of hasCameraDirection (unlike FRAMING, it is never swapped for a prompt-wins variant)", () => {
+  const directed = build("Wide establishing shot in deep focus, the crowd fills frame.");
+  const undirected = build("She laughs and looks away.");
+  assert.ok(directed.includes(`AVOID: ${VIDEO_NEGATIVE_CODA}`));
+  assert.ok(undirected.includes(`AVOID: ${VIDEO_NEGATIVE_CODA}`));
+});
+
+test("block ordering: AVOID lands after TEMPORAL STAGING and before LITERAL PROMPT", () => {
+  const out = build("She laughs and looks away.");
+  const stagingPos = out.indexOf("TEMPORAL STAGING");
+  const avoidPos = out.indexOf("AVOID:");
+  const literalPos = out.indexOf("LITERAL PROMPT:");
+  assert.ok(stagingPos > -1 && stagingPos < avoidPos && avoidPos < literalPos);
+});
+
+// ── per-reference role legend (2026-08-17, Phase 1.3) ───────────────────────
+//
+// Fix for the video-side half of the mixed-batch style-drift defect (see
+// prompt-assembler.test.js for the image-side fix). An identity reference
+// tagged alongside an untagged/differently-tagged style or location board
+// must not have both locks address "the references" as one undifferentiated
+// group — see video-directive.ts's "PER-REFERENCE ROLE LEGEND" header.
+
+test("refRoles present but all-one-role (e.g. two selfie angles): still falls back to generic wording, no legend", () => {
+  const refRoles = new Map([[1, "person"], [2, "person"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] and [image 2] laughing together",
+    refCount: 2,
+    tagSyntax: "bracket",
+    refRoles,
+  });
+  assert.match(out, /STYLE — FOLLOW THE REFERENCES \(unless/);
+  assert.match(out, /IDENTITY LOCK: the reference images define the exact, fixed appearance of the people and elements they show\./);
+  assert.doesNotMatch(out, /REFERENCES:\n/);
+});
+
+test("mixed batch (person + style, bracket syntax): emits a legend and scopes both locks to the tagged references", () => {
+  const refRoles = new Map([[1, "person"], [2, "style"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] dances under neon light in the mood of [image 2]",
+    refCount: 2,
+    tagSyntax: "bracket",
+    refRoles,
+  });
+
+  // Legend present, in order, before the locks.
+  assert.match(out, /REFERENCES:\n\[image 1\] = the exact face\/identity of the subject.*\n\[image 2\] = the exact visual style\/grade to match\./);
+
+  // Style scoped to [image 2] only, and explicitly excludes other references.
+  assert.match(out, /STYLE — FOLLOW THIS TAGGED REFERENCE ONLY/);
+  assert.match(out, /\[image 2\] defines the visual style of this shot/);
+  assert.match(out, /Do NOT take style cues from any other tagged reference/);
+  assert.doesNotMatch(out, /STYLE — FOLLOW THE REFERENCES \(unless/);
+
+  // Identity scoped to [image 1] only, and names the other reference's role.
+  assert.match(out, /IDENTITY LOCK: this tagged reference — \[image 1\] — defines the exact, fixed appearance of the people it shows\./);
+  assert.match(out, /\(\[image 2\] = style\) contributes only their own content — not an additional face or person\./);
+  assert.doesNotMatch(out, /IDENTITY LOCK: the reference images define the exact, fixed appearance of the people and elements they show\./);
+
+  // Legend ordering: DOMAIN_LOCK, then legend, then style/identity — legend
+  // must appear before both locks.
+  const legendPos = out.indexOf("REFERENCES:\n");
+  const stylePos = out.indexOf("STYLE —");
+  const identityPos = out.indexOf("IDENTITY LOCK:");
+  assert.ok(legendPos > -1 && legendPos < stylePos && stylePos < identityPos);
+});
+
+test("mixed batch, angle syntax (Higgsfield): tokens rendered as <<<image_N>>>", () => {
+  const refRoles = new Map([[1, "person"], [2, "location"]]);
+  const out = buildVideoDirective({
+    prompt: "<<<image_1>>> walks through <<<image_2>>>",
+    refCount: 2,
+    tagSyntax: "angle",
+    refRoles,
+  });
+  assert.match(out, /REFERENCES:\n<<<image_1>>> = the exact face\/identity of the subject.*\n<<<image_2>>> = the exact location\/setting of the scene\./);
+  assert.match(out, /IDENTITY LOCK: this tagged reference — <<<image_1>>> — defines the exact, fixed appearance/);
+  assert.match(out, /\(<<<image_2>>> = location\) contributes only their own content/);
+});
+
+test("mixed batch with a non-contiguous/out-of-order refRoles map: legend still renders in ascending index order", () => {
+  const refRoles = new Map([[3, "style"], [1, "person"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] in the style of [image 3]",
+    refCount: 2, // only 2 images were actually attached (a tagged subset)
+    tagSyntax: "bracket",
+    refRoles,
+  });
+  const legendBlock = out.match(/REFERENCES:\n([^]*?)\n\n/)[1];
+  assert.equal(legendBlock, "[image 1] = the exact face/identity of the subject — must be reproduced with exact fidelity to the reference and in its medium, never a lookalike.\n[image 3] = the exact visual style/grade to match.");
+});
+
+test("mixed batch with multiple person-tagged references: plural grammar (define/they/their)", () => {
+  const refRoles = new Map([[1, "person"], [2, "person"], [3, "outfit"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] and [image 2] wearing [image 3]",
+    refCount: 3,
+    tagSyntax: "bracket",
+    refRoles,
+  });
+  assert.match(out, /IDENTITY LOCK: these tagged references — \[image 1\], \[image 2\] — define the exact, fixed appearance of the people they show\./);
+});
+
+test("promptNamesStyle still wins over refRoles-based style scoping (prompt is always authoritative)", () => {
+  const refRoles = new Map([[1, "person"], [2, "style"]]);
+  const out = buildVideoDirective({
+    prompt: "[image 1] rendered as anime, inspired by [image 2]",
+    refCount: 2,
+    tagSyntax: "bracket",
+    refRoles,
+  });
+  assert.match(out, /STYLE — THE PROMPT WINS/);
+  assert.doesNotMatch(out, /STYLE — FOLLOW THIS TAGGED REFERENCE ONLY/);
 });

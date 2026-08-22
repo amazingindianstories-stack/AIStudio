@@ -1,0 +1,59 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "id: b30591a7-b974-429b-bfc8-d0f85de042f8\nstatus: completed\njob_set_type: seedance_unlimited\npoll_after_seconds: null"
+    }
+  ],
+  "structuredContent": {
+    "raw_data": {
+      "id": "b30591a7-b974-429b-bfc8-d0f85de042f8",
+      "status": "completed",
+      "job_set_type": "seedance_unlimited",
+      "display_name": "Enhanced Seedance 2.0 Fast Unlimited",
+      "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_065623_b30591a7-b974-429b-bfc8-d0f85de042f8.mp4",
+      "min_result_url": null,
+      "h264_url": null,
+      "thumbnail_url": "https://cdn.higgsfield.ai/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260702_065623_b30591a7-b974-429b-bfc8-d0f85de042f8_thumbnail.webp",
+      "result_json": null,
+      "text": null,
+      "meta": null,
+      "created_at": 1782975383.14199,
+      "params": {
+        "width": 1344,
+        "height": 576,
+        "prompt": "<<<video_1>>>: Base Video — a man in a dark broadcast control room sits facing a wall-mounted TV monitor currently showing blue static/no-signal noise, warm desk-lamp key light on his face and shoulder from screen-left, cool blue static-glow spilling across his face, jacket, and the surrounding gear racks. Preserve his identity, wardrobe, pose, framing, lens character, and the camera's exact movement; preserve every other monitor on the wall and desk exactly as-is; change only the image displayed on his single wall-mounted TV.\n\n<<<video_2>>>: Video On Screen — a woman in a black sleeveless top seated in an orange chair, warm amber-lit interior behind her, mid-sentence talking-head delivery to camera. Use as the video feed now playing on the man's TV; crop and center to fill the screen's native aspect, keep her performance and lip movement exactly as recorded, do not alter her appearance.\n\nPhotoreal. 16:9. 5s. Moody broadcast-control-room grade, warm practical key against cool screen spill. SFX only.\n\nContinuous shot, same framing and camera movement as the source. The man sits as recorded, unaware, still facing forward toward the TV. His single wall monitor switches from blue static to a clean broadcast feed of the woman speaking, her image filling the screen edge to edge with a faint bezel reflection; the screen's light output shifts from flat cool-blue static flicker to the warmer, steadier glow of her lit interior, and that new glow color and intensity update in real time on the man's face, jacket, and the desk surface in front of him, matching screen-left falloff exactly as the static did before. All other monitors, the mixing console, the lamp, and the room stay pixel-identical to the source. Face and identity of the man unchanged; framing, lens, and camera motion identical to the source; only the single TV's image and its light contribution are altered.\n\nSFX only: a soft electronic chirp as the signal locks, faint room tone, the low hum of monitor fans, ambient console clicks.",
+        "genre": "auto",
+        "medias": [
+          {
+            "data": {
+              "id": "ada88db7-cac5-4c30-b052-bf0adf4b4be6",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/ada88db7-cac5-4c30-b052-bf0adf4b4be6.mp4",
+              "type": "video_input"
+            },
+            "role": "video"
+          },
+          {
+            "data": {
+              "id": "13721960-427b-4a45-8e87-7ddb9867570b",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/13721960-427b-4a45-8e87-7ddb9867570b.mp4",
+              "type": "video_input"
+            },
+            "role": "video"
+          }
+        ],
+        "duration": 6,
+        "resolution": "720p",
+        "aspect_ratio": "21:9",
+        "generate_audio": true,
+        "multi_shots": false,
+        "multi_shot_mode": "custom",
+        "multi_prompt": [],
+        "speedramp": "auto",
+        "reference_elements": [],
+        "prompt_language": "en"
+      },
+      "debug": null
+    }
+  }
+}

@@ -1,6 +1,7 @@
 
 
 import { buildVideoDirective } from "../video-directive";
+import { parseRefRoles } from "../shot-spec";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
  *  hand-written directives on BOTH Seedance paths, without a deploy. The new
@@ -82,6 +83,28 @@ function pickModel(modelDisplay) {
   if (modelDisplay && /2\.5/.test(modelDisplay)) return MODEL_25;
   if (modelDisplay && /\b(mini|fast|lite)\b/i.test(modelDisplay)) return FAST_MODEL;
   return STANDARD_MODEL;
+}
+
+/** Per-reference role hint for buildVideoDirective's legend (2026-08-17,
+ *  video-directive.ts "PER-REFERENCE ROLE LEGEND"). `refs` is whatever was
+ *  actually resolved onto this request (resolveReferences' tagged subset, or
+ *  everything when the prompt tags nothing) — each entry already carries its
+ *  own `@imgN` tag and 1-based original `index`, so this only has to look up
+ *  each attached ref's role and key the map by that same original index,
+ *  which is exactly the number `tagsToImageRefs` prints as "[image N]". No
+ *  vision call: parseRefRoles is the same free keyword scan the image path
+ *  already runs. Returns undefined (not an empty Map) when nothing is
+ *  resolvable, so buildVideoDirective's own `refRoles` default takes over. */
+function buildRefRoles(refs, rawPrompt) {
+  if (!refs.length) return undefined;
+  const roleByTag = parseRefRoles(rawPrompt);
+  if (!roleByTag.size) return undefined;
+  const map = new Map();
+  for (const ref of refs) {
+    const role = roleByTag.get(ref.tag);
+    if (role) map.set(ref.index, role);
+  }
+  return map.size ? map : undefined;
 }
 
 /** Seedance reads "[image N]" references in the prompt. Translate the UI's
@@ -176,6 +199,7 @@ export async function createVideoTask(
           prompt: tagsToImageRefs(input.prompt.trim()),
           refCount: refs.length,
           tagSyntax: "bracket",
+          refRoles: buildRefRoles(refs, input.prompt),
         });
   }
 
@@ -187,6 +211,38 @@ export async function createVideoTask(
       role: refRole,
     });
   });
+  // Multi-shot chaining (Phase 3.3): "continue this shot" extracts the last
+  // frame of a finished video (client-side, via lib/video-frame.js — the
+  // browser <video>+<canvas> path, not video-frame-server.js's ffmpeg one;
+  // this doesn't need server-side decode because the frame comes from a
+  // video the USER is already looking at) and resubmits it here as the
+  // starting frame of a new generation.
+  //
+  // NOT BACKED BY OFFICIAL DOCS THE WAY EVERY OTHER PAYLOAD SHAPE IN THIS
+  // FILE IS — docs.byteplus.com's Video Generation API pages are a
+  // client-rendered SPA that answers plain fetchers (and this session's
+  // WebFetch) with a nav-only shell, and Claude-in-Chrome was unavailable
+  // to read the JS-rendered content directly. The `role: "first_frame"` /
+  // `role: "last_frame"` content-item pattern below comes from a detailed,
+  // code-and-results third-party tutorial (DataCamp's Seedance 2 API guide,
+  // read 2026-08-18) that ran real requests and showed real generated
+  // output — evidence, not a guess, but a materially weaker grade of
+  // evidence than this file's other fields (seed, generate_audio, the
+  // Edit/Extend ratio:"adaptive" behavior), which were confirmed either
+  // against BytePlus's own docs or a live probe against this app's own key.
+  // `scripts/probe-seedance-first-frame.js` is the live check to run before
+  // trusting this in production — it is NOT free (unlike the Kling seed/
+  // resolution probes), since nothing about first_frame validates
+  // synchronously the way an out-of-range n or an unsupported resolution
+  // does; confirming it actually constrains the output needs a real,
+  // billed generation.
+  if (input.firstFrame) {
+    content.push({
+      type: "image_url",
+      image_url: { url: input.firstFrame.dataUrl },
+      role: "first_frame",
+    });
+  }
   // `role` is required here, unlike on image items — see the header. Capped at
   // the documented 3 rather than letting the provider reject the whole request.
   for (const url of (input.referenceVideoUrls ?? []).slice(0, 3)) {
@@ -219,6 +275,10 @@ export async function createVideoTask(
     if (input.duration) body.duration = input.duration;
   }
   if (input.resolution) body.resolution = input.resolution;
+  // Real, documented ModelArk field (Phase 3.1, live docs check this session).
+  // Omitted entirely — not sent as null/undefined — when the caller has no
+  // seed, matching gemini.js's identical convention for the same field.
+  if (typeof input.seed === "number") body.seed = input.seed;
 
   const res = await fetch(`${arkBase()}/contents/generations/tasks`, {
     method: "POST",

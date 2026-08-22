@@ -1,0 +1,70 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "id: 0501fc8b-22ad-4679-86cb-0ccd1ac8f81e\nstatus: completed\njob_set_type: seedance_2_0\npoll_after_seconds: null"
+    }
+  ],
+  "structuredContent": {
+    "raw_data": {
+      "id": "0501fc8b-22ad-4679-86cb-0ccd1ac8f81e",
+      "status": "completed",
+      "job_set_type": "seedance_2_0",
+      "display_name": "Seedance 2.0",
+      "result_url": "https://d8j0ntlcm91z4.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260709_124232_0501fc8b-22ad-4679-86cb-0ccd1ac8f81e.mp4",
+      "min_result_url": null,
+      "h264_url": null,
+      "thumbnail_url": "https://cdn.higgsfield.ai/user_2vwVVTl6nnUjz265snR0xAjY7rA/hf_20260709_124232_0501fc8b-22ad-4679-86cb-0ccd1ac8f81e_thumbnail.webp",
+      "result_json": null,
+      "text": null,
+      "meta": null,
+      "created_at": 1783600952.155216,
+      "params": {
+        "width": 2016,
+        "height": 864,
+        "prompt": "4 shots, 15 seconds, 21:9, multi-shot with hard cuts.\n\nStyle: hand-painted 2D gouache-and-oil animation in the exact painterly technique of Image 1 — stop-motion cadence, 12fps animated on twos, figures snapping between held poses, constant subtle brushstroke boil. All characters are flat hand-painted 2D figures in the same brushwork and paint layer as the background: flat color planes, cel-flat shading in two or three tone steps, painted outlines with a hand-drawn wobble. No 3D render, no CGI, no photorealism, no motion blur, no smooth interpolation.\n\nReferences: Image 1 = painting style and the night lane location. Image 2 = ULLUMAN, the owl-masked man — identity, mask and wardrobe exactly as shown. Image 3 = CHORA CHORA — identity and wardrobe exactly as shown.\n\nThe scene: a quiet corner of the wet night lane beside a closed tea stall, one sodium lamp overhead throwing a warm pool on the wet asphalt, thin mist, no rain. ULLUMAN and CHORA CHORA stand facing each other inside the lamp pool — Ulluman on frame-left facing right, Chora Chora on frame-right facing left. They hold these positions for the whole scene.\n\nSHOT 1 (0:00–0:04) — Static two-shot, eye level, both men in profile inside the lamp pool, mist drifting slowly behind them. Chora Chora looks Ulluman up and down once, head tilting, and speaks, lips animating on twos: \"Naam kya rakha hai... Ulluman? Khud rakha?\" Ulluman's mask stays perfectly still through it. Hard cut.\n\nSHOT 2 (0:04–0:07) — Over Chora Chora's shoulder, close on ULLUMAN's masked face, the acid-yellow mask eyes catching the lamp. A beat of stillness, then the small dignity-gathering lift of his chin, and the flat reply, lips visible below the mask edge moving on twos: \"Branding bolte hai isko.\" Hard cut.\n\nSHOT 3 (0:07–0:11) — Reverse: over Ulluman's shoulder, close on CHORA CHORA. His grin fades to something quieter; he leans in half a step, voice dropping, lips on twos: \"Gaanja dhoondh raha hai teri branding ko.\" He holds the look. Hard cut.\n\nSHOT 4 (0:11–0:15) — Static close on ULLUMAN's mask, centered, the fixed round eyes staring at nothing. Total stillness except the painterly boil and the drifting mist — then, on the sound of a distant motorcycle engine rising somewhere off-screen, he takes one slow careful step backward out of the lamp pool, the mask sinking into the blue-black dark until only the two acid-yellow eyes remain, then nothing. The empty lamp pool holds.\n\nLighting: one sodium-amber lamp pool on blue-black night, hard-edged on the wet ground, halo softened by mist, faces lit warm inside the pool in two or three flat tone steps, everything outside falling to deep blue-black; correct neutral white balance. The only saturated color is the acid-yellow of the mask's eyes.\n\nAudio: no music — the lane's night quiet, a dripping gutter, mist-wind, the two spoken Hindi lines and the flat reply, a distant dog bark, and under the final shot a far motorcycle engine rising slowly, one careful wet footstep backward. Hindi pronounced as written. No subtitles.\n\nConstraints: mist and lamp-halo move smoothly; both figures, cloth and lips step on twos between held poses. Characters exactly as in their reference images, no identity drift. Positions locked: Ulluman frame-left facing right, Chora Chora frame-right facing left, in every shot. Full-bleed frame, no borders, no captions.",
+        "genre": "auto",
+        "medias": [
+          {
+            "data": {
+              "id": "ee16fa84-23e2-449f-ba85-dc9ee542bbee",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/ee16fa84-23e2-449f-ba85-dc9ee542bbee_resize.jpg",
+              "type": "media_input"
+            },
+            "role": "image"
+          },
+          {
+            "data": {
+              "id": "ad433876-f1ee-489d-b5a0-3c2d96e9f982",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/ad433876-f1ee-489d-b5a0-3c2d96e9f982_resize.jpg",
+              "type": "media_input"
+            },
+            "role": "image"
+          },
+          {
+            "data": {
+              "id": "31159d71-323d-41a2-b801-46cbc18136b8",
+              "url": "https://d2ol7oe51mr4n9.cloudfront.net/user_2vwVVTl6nnUjz265snR0xAjY7rA/31159d71-323d-41a2-b801-46cbc18136b8_resize.jpg",
+              "type": "media_input"
+            },
+            "role": "image"
+          }
+        ],
+        "duration": 15,
+        "resolution": "1080p",
+        "aspect_ratio": "21:9",
+        "generate_audio": true,
+        "multi_shots": false,
+        "multi_shot_mode": "custom",
+        "multi_prompt": [],
+        "speedramp": "auto",
+        "reference_elements": [],
+        "prompt_language": "en",
+        "mode": "std",
+        "model": "seedance_2_0",
+        "bitrate_mode": "high"
+      },
+      "debug": null
+    }
+  }
+}

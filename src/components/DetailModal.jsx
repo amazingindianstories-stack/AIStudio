@@ -17,11 +17,14 @@ import {
   ChevronUp,
   Clapperboard,
   Layers,
+  RefreshCw,
+  SkipForward,
+  Flag,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
-import { supportsVideoReference } from "@/lib/config";
+import { supportsFirstFrameContinuation, supportsVideoReference } from "@/lib/config";
 
 /** Prompt in the details sidebar: minimized by default, hover reveals an
  *  expand cue in the top-right corner (same pattern as the feed). Keyed by
@@ -120,14 +123,12 @@ function CopyPromptButton({ text }) {
 }
 
 function ReferenceCollage({ images }) {
-  const visible = images.slice(0, 4);
-  const extra = images.length - visible.length;
-  const layoutClass =
-    visible.length === 1
-      ? "grid-cols-1"
-      : visible.length === 2
-      ? "grid-cols-2"
-      : "grid-cols-2";
+  // Every reference is shown — this panel scrolls (its parent carries
+  // overflow-y-auto), so there's no layout reason to truncate. This used to
+  // slice(0, 4) and print a "+N more" count for the rest with no way to
+  // actually open them, so a job with more than 4 references had references
+  // the user could never see or click through to.
+  const layoutClass = images.length === 1 ? "grid-cols-1" : "grid-cols-2";
 
   return (
     <div className="mb-5">
@@ -135,7 +136,7 @@ function ReferenceCollage({ images }) {
         Reference images
       </p>
       <div className={cn("grid gap-2", layoutClass)}>
-        {visible.map((src, i) => (
+        {images.map((src, i) => (
           <a
             key={i}
             href={src}
@@ -143,8 +144,7 @@ function ReferenceCollage({ images }) {
             rel="noreferrer"
             className={cn(
               "group relative overflow-hidden rounded-xl border border-line bg-ink-700 ring-1 ring-white/5 transition hover:border-brand/40 hover:ring-brand/20",
-              i === 0 && visible.length > 2 && "row-span-2 min-h-32",
-              visible.length === 2 && "min-h-24"
+              images.length === 2 && "min-h-24"
             )}
             title="Open reference image"
           >
@@ -154,9 +154,6 @@ function ReferenceCollage({ images }) {
           </a>
         ))}
       </div>
-      {extra > 0 && (
-        <p className="mt-2 text-[11px] text-white/45">+{extra} more reference image{extra === 1 ? "" : "s"}</p>
-      )}
     </div>
   );
 }
@@ -164,11 +161,14 @@ function ReferenceCollage({ images }) {
 export function DetailModal() {
   const activeId = useStore((s) => s.activeId);
   const items = useStore((s) => s.items);
+  const gridColumns = useStore((s) => s.gridColumns);
   // rightTab/search/filterKind are no longer read here: the feed arrives
   // already filtered and ordered by those, so re-deriving them would only
   // create a second, drifting definition of the same list.
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
+  const regenerateWithSameSeed = useStore((s) => s.regenerateWithSameSeed);
+  const continueShot = useStore((s) => s.continueShot);
   const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
   const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
   const addReferenceVideo = useStore((s) => s.addReferenceVideo);
@@ -176,13 +176,15 @@ export function DetailModal() {
   const setMode = useStore((s) => s.setMode);
   const removeItem = useStore((s) => s.removeItem);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
+  const toggleFlag = useStore((s) => s.toggleFlag);
 
   // `items` is already the scope the user is looking at — server-filtered and
-  // in the same order the grid renders — so arrow-key navigation just walks it.
-  // The old per-tab re-filter and re-sort here duplicated the panel's rules and
-  // had already drifted from them (it sorted favourites by favoritedAt but the
-  // grid did not), which showed up as the arrow keys jumping to a different
-  // image than the one visually next to the current card.
+  // in the same order the grid renders — so Left/Right (reading order) just
+  // walks it. The old per-tab re-filter and re-sort here duplicated the
+  // panel's rules and had already drifted from them (it sorted favourites by
+  // favoritedAt but the grid did not), which showed up as arrow-key
+  // navigation jumping to a different image than the one visually next to
+  // the current card.
   const item = items.find((i) => i.id === activeId) || null;
   const navigableItems = useMemo(
     () =>
@@ -191,6 +193,27 @@ export function DetailModal() {
           candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
       ),
     [items]
+  );
+
+  // Up/Down can't reuse flat `items` order the way Left/Right does: the grid
+  // is a packed masonry (AssetGrid's packColumns), so the item immediately
+  // before/after the current one in list order usually lands in a *different*
+  // column at a similar row, not the card visually above/below it — pressing
+  // Up would as often show something below as above. `gridColumns` is the
+  // actual column assignment AssetGrid just rendered, published live via the
+  // store; each column is filtered down to navigable ids (preserving order)
+  // so the placeholder/failed cards the grid also renders don't break the
+  // walk. Falls back to flat order (same as Left/Right) when the active item
+  // isn't in any column — DetailModal can be opened from views with no grid
+  // mounted at all, e.g. a chat thread.
+  const navigableColumns = useMemo(
+    () => {
+      const navigableIds = new Set(navigableItems.map((i) => i.id));
+      return gridColumns
+        .map((col) => col.filter((id) => navigableIds.has(id)))
+        .filter((col) => col.length > 0);
+    },
+    [gridColumns, navigableItems]
   );
 
   // Closing the modal while a <video>'s native fullscreen is still active
@@ -221,14 +244,26 @@ export function DetailModal() {
         return;
       }
 
-      const delta =
-        event.key === "ArrowLeft" || event.key === "ArrowUp"
-          ? -1
-          : event.key === "ArrowRight" || event.key === "ArrowDown"
-          ? 1
-          : 0;
-      if (delta === 0 || navigableItems.length < 2) return;
+      const isVertical = event.key === "ArrowUp" || event.key === "ArrowDown";
+      const isHorizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
+      if (!isVertical && !isHorizontal) return;
+      const delta = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1;
 
+      if (isVertical) {
+        const column = navigableColumns.find((col) => col.includes(item.id));
+        if (column && column.length > 1) {
+          event.preventDefault();
+          const currentIndex = column.indexOf(item.id);
+          const nextIndex = (currentIndex + delta + column.length) % column.length;
+          setActiveId(column[nextIndex]);
+          return;
+        }
+        // No column info (or a lone item in its column) — fall through to
+        // the same flat-order walk Left/Right uses, rather than doing
+        // nothing.
+      }
+
+      if (navigableItems.length < 2) return;
       event.preventDefault();
       const currentIndex = navigableItems.findIndex(
         (candidate) => candidate.id === item.id
@@ -239,7 +274,7 @@ export function DetailModal() {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [item, navigableItems, setActiveId]);
+  }, [item, navigableItems, navigableColumns, setActiveId]);
 
   return (
     <AnimatePresence>
@@ -322,9 +357,32 @@ export function DetailModal() {
                   <p className="text-xs capitalize text-white/45">{item.kind} generation</p>
                 </div>
                 <button
-                  onClick={() => toggleFavorite(item.id)}
+                  onClick={() => toggleFlag(item.id)}
                   className={cn(
                     "ml-auto grid h-8 w-8 place-items-center rounded-lg border transition",
+                    item.flagged
+                      ? "border-red-400/35 bg-red-500/15 text-red-300"
+                      : "border-line bg-ink-700 text-white/55 hover:text-white"
+                  )}
+                  aria-label={
+                    item.flagged
+                      ? "Unflag this generation"
+                      : "Flag this generation for quality review"
+                  }
+                  title={
+                    item.flagged
+                      ? item.flagReason
+                        ? `Flagged: ${item.flagReason}`
+                        : "Flagged — click to unflag"
+                      : "Flag this generation for quality review"
+                  }
+                >
+                  <Flag className={cn("h-4 w-4", item.flagged && "fill-current")} />
+                </button>
+                <button
+                  onClick={() => toggleFavorite(item.id)}
+                  className={cn(
+                    "grid h-8 w-8 place-items-center rounded-lg border transition",
                     item.isFavorite
                       ? "border-amber-300/35 bg-amber-400/15 text-amber-300"
                       : "border-line bg-ink-700 text-white/55 hover:text-white"
@@ -339,6 +397,16 @@ export function DetailModal() {
                   />
                 </button>
               </div>
+              {item.flagged && (
+                <div className="mb-5 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-2">
+                  <p className="flex items-center gap-1.5 text-xs font-medium text-red-300">
+                    <Flag className="h-3 w-3 fill-current" /> Flagged for review
+                  </p>
+                  {item.flagReason && (
+                    <p className="mt-1 text-xs text-red-200/80">{item.flagReason}</p>
+                  )}
+                </div>
+              )}
 
               <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
                 Parameters
@@ -362,6 +430,7 @@ export function DetailModal() {
                 )}
                 {item.duration && <Param label="Duration" value={`${item.duration}s`} />}
                 <Param label="Model" value={item.model} icon={<Box className="h-3.5 w-3.5" />} />
+                {item.seed != null && <Param label="Seed" value={item.seed} />}
               </div>
 
               {item.referenceImages && item.referenceImages.length > 0 && (
@@ -414,6 +483,28 @@ export function DetailModal() {
                     <ImagePlus className="h-4 w-4" /> Use this frame as reference
                   </button>
                 )}
+                {/* Multi-shot chaining (Phase 3.3) — extracts the LAST frame
+                    (not "the frame you're paused on", unlike the button
+                    above) and submits it as the next generation's starting
+                    frame, so a sequence of shots can flow continuously.
+                    Gated on the ITEM's own model, not the composer's current
+                    one — continueShot switches the composer to item.model
+                    itself, so the button's availability should track what
+                    the source clip can actually continue from. */}
+                {item.kind === "video" &&
+                  item.url &&
+                  supportsFirstFrameContinuation(item.model) && (
+                    <button
+                      onClick={() => {
+                        continueShot(item.id);
+                        setActiveId(null);
+                      }}
+                      className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
+                      title="Start a new video from this clip's last frame — write what happens next"
+                    >
+                      <SkipForward className="h-4 w-4" /> Continue this shot
+                    </button>
+                  )}
                 {/* True video-to-video, BytePlus only. Gated on the model the
                     composer is set to, because it is the only one with a
                     reference_video field — offering it otherwise would attach a
@@ -440,6 +531,24 @@ export function DetailModal() {
                 >
                   <Copy className="h-4 w-4" /> Clone &amp; try
                 </button>
+                {/* Only offered when this row actually carries a seed —
+                    config.supportsSeed models only (Nano Banana Pro, native
+                    BytePlus Seedance), and only rows generated after Phase
+                    3.1 shipped. Distinct from Clone & try: this pins the
+                    ORIGINAL seed rather than starting a fresh render, so the
+                    two buttons produce deliberately different results. */}
+                {item.seed != null && (
+                  <button
+                    onClick={() => {
+                      regenerateWithSameSeed(item.id);
+                      setActiveId(null);
+                    }}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-line bg-white/[0.06] py-2.5 text-sm font-semibold text-white/85 hover:bg-white/[0.1]"
+                    title={`Regenerate using the same seed (${item.seed}) for a reproducible result`}
+                  >
+                    <RefreshCw className="h-4 w-4" /> Regenerate (same seed)
+                  </button>
+                )}
                 <div className="flex gap-2">
                   {item.url && (
                     <a

@@ -1,0 +1,10 @@
+{
+  "name": "example",
+  "prompt": "@img1 standing on a rain-slicked city street at night, neon signs reflected in puddles, cinematic 35mm lighting, medium shot.",
+  "referenceImages": ["./example-face.jpg"],
+  "aspectRatio": "1:1",
+  "resolution": "2K",
+  "model": "Nano Banana Pro",
+  "samples": 3,
+  "identityFloor": null
+}

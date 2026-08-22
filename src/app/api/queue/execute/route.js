@@ -15,6 +15,7 @@ import {
   prepKlingReference,
 } from "@/lib/providers/kling";
 import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
+import { supportsSeed, supportsVideoBestOf } from "@/lib/config";
 import { buildKlingInput } from "@/lib/kling-input";
 import { resolveReferences, resolveVideoReferences } from "@/lib/mentions";
 import {
@@ -160,7 +161,7 @@ async function toProviderDataUrls(refs) {
 /** Create the provider task for a locked video job. Returns the item with
  *  taskId + status "running" (does not persist). */
 async function submitVideo(base) {
-  const { id, prompt, aspectRatio, resolution, duration, model } = base;
+  const { id, prompt, aspectRatio, resolution, duration, model, seed, videoBestOf } = base;
 
   if (isMock()) {
     return {
@@ -232,20 +233,34 @@ async function submitVideo(base) {
     // Native BytePlus ModelArk Seedance 2.0. resolveReferences maps @imgN to
     // uploads by position, so the inlined list must keep referenceImages' order.
     const inlined = await toProviderDataUrls(base.referenceImages ?? []);
-    console.log(`[video] BytePlus seedance with ${inlined.length} reference image(s)`);
-    taskId = await createVideoTask({
+    const signedRefVideos = await signVideoRefs(
+      resolveVideoReferences(prompt, base.referenceVideos ?? [])
+    );
+    const resolvedRefs = resolveReferences(prompt, inlined);
+    // Multi-shot chaining (Phase 3.3) — reuses the same stored-ref → inline
+    // data-URL materialisation referenceImages already goes through; a
+    // continuation frame is stored exactly like a reference image (see
+    // generate/video/route.js), just kept in its own column instead of the
+    // referenceImages array so it can't be mistaken for one of the tagged
+    // @imgN references or counted against MAX_REFERENCE_VIDEOS-style limits.
+    const [firstFrameDataUrl] = base.continuationFrameUrl
+      ? await toProviderDataUrls([base.continuationFrameUrl])
+      : [];
+    console.log(
+      `[video] BytePlus seedance with ${inlined.length} reference image(s), ` +
+        `bestOf=${videoBestOf ?? 1}, continuation=${!!firstFrameDataUrl}`
+    );
+    const taskInput = (candidateSeed) => ({
       prompt,
       modelDisplay: model,
       ratio: aspectRatio,
       resolution,
       duration,
-      references: resolveReferences(prompt, inlined),
+      references: resolvedRefs,
       // Signed here, at the last possible moment, and never persisted or sent
       // to the browser. BytePlus fetches the clip itself and /api/media/… is
       // session-gated, so a signed URL is the only thing it can actually read.
-      referenceVideoUrls: await signVideoRefs(
-        resolveVideoReferences(prompt, base.referenceVideos ?? [])
-      ),
+      referenceVideoUrls: signedRefVideos,
       // Read off the row, not off this request: /api/generate/video only
       // enqueues, so the user's choice reaches the provider through the
       // persisted column and nothing else.
@@ -253,7 +268,40 @@ async function submitVideo(base) {
       // Seedance 2.5 only — Edit/Extend an attached clip. Same "off the row,
       // not off this request" reasoning as generateAudio above.
       taskMode: base.videoTaskMode,
+      // Reproducibility seed (Phase 3.1) — native BytePlus only; supportsSeed()
+      // never generates one for Omni/Higgsfield, so this is null on those paths
+      // and createVideoTask's own typeof guard omits it from the request body.
+      seed: candidateSeed,
+      // Multi-shot chaining (Phase 3.3) — see createVideoTask's own header
+      // for the evidence caveat (third-party tutorial, not official docs).
+      firstFrame: firstFrameDataUrl ? { dataUrl: firstFrameDataUrl } : undefined,
     });
+
+    if ((videoBestOf ?? 1) > 1) {
+      // Video best-of-N (Phase 3.2), native BytePlus only — supportsVideoBestOf
+      // scopes this. Submit N tasks in parallel, same per-candidate seed-offset
+      // reasoning as image best-of-N (queue/execute's image branch): an
+      // identical seed across candidates would collapse them to N renders of
+      // the same result instead of N genuinely different ones for the judge
+      // to pick from.
+      // Promise.all, not allSettled: if any candidate submission itself
+      // fails, the whole job fails rather than silently proceeding with
+      // fewer candidates than billed for. Known gap — a failure AFTER some
+      // candidates were already accepted by BytePlus leaves those tasks
+      // running unreferenced (ModelArk has no cancel endpoint to call here),
+      // so a partial-submission failure can still incur real provider cost
+      // for a job this app reports as failed. Acceptable for a first cut of
+      // an off-by-default feature; revisit if VIDEO_BEST_OF sees real usage.
+      const taskIds = await Promise.all(
+        Array.from({ length: videoBestOf }, (_, i) =>
+          createVideoTask(taskInput(seed != null ? seed + i : undefined))
+        )
+      );
+      taskId = taskIds[0];
+      refUpdates.candidateTaskIds = taskIds.slice(1);
+    } else {
+      taskId = await createVideoTask(taskInput(seed));
+    }
   }
   return { ...base, ...refUpdates, taskId, status: "running", updatedAt: Date.now() };
 }
@@ -316,10 +364,47 @@ export async function POST(req) {
 
   const { prompt, aspectRatio, resolution, model, referenceImages } = base;
   let costCents = base.costCents || 0;
+  // Reproducibility seed (Phase 3.1). Only filled in for models supportsSeed
+  // actually confirms support for (today: Gemini/NBP here, native BytePlus
+  // Seedance in the video branch below) — every other model keeps whatever
+  // was already on the row (normally null) untouched. A fresh int32 is
+  // generated here, not left to the provider's own default, so every
+  // supported generation ends up with a concrete seed to regenerate from —
+  // "regenerate with same seed" has nothing to reuse against a null.
+  let seed = base.seed ?? null;
+  if (supportsSeed(model) && seed == null) {
+    seed = Math.floor(Math.random() * 2147483647);
+  }
   // Normally the stored ratio is whatever was requested. Kling is the exception:
   // it ignores aspect_ratio in image-to-image, so the returned image is measured
   // and this is corrected to match (see the kling branch below).
   let aspectRatioOut = aspectRatio;
+
+  // Video best-of-N (Phase 3.2). Gated on three independent things, all of
+  // which must hold: the model (native BytePlus only, supportsVideoBestOf),
+  // the operator flag (VIDEO_BEST_OF unset = off by default — see
+  // video-frame-server.js for why), and a reference image actually being
+  // attached (the judge scores candidates against referenceImages[0]; with
+  // no reference there is nothing to judge identity against, and
+  // best-of-N without a judge would just be N-times the cost for a
+  // coin-flip pick).
+  const videoBestOf =
+    base.kind === "video" &&
+    supportsVideoBestOf(model) &&
+    process.env.VIDEO_BEST_OF &&
+    (base.referenceImages ?? []).length > 0
+      ? Math.min(3, Math.max(2, Number(process.env.VIDEO_BEST_OF) || 2))
+      : 1;
+  if (videoBestOf > 1) {
+    // Bill for what's actually being submitted — every candidate is a real,
+    // separately billed provider task, unlike the image best-of-N path
+    // (where costCents is corrected AFTER resolution against however many
+    // candidates actually settled). Video's status-poll route can't cheaply
+    // "undo" a submitted-but-unjudged task the way a rejected Promise.allSettled
+    // entry is simply excluded on the image side, so this bills for the
+    // full requested N up front.
+    costCents = costCents * videoBestOf;
+  }
 
   // Video: submit the provider task (remote render) and return the running
   // item — the client's pollVideo then drives /api/generate/video/status.
@@ -327,7 +412,7 @@ export async function POST(req) {
   // the queue's per-kind cap.
   if (base.kind === "video") {
     try {
-      const running = await submitVideo(base);
+      const running = await submitVideo({ ...base, seed, videoBestOf, costCents });
       await upsertItem(running);
       return NextResponse.json(running);
     } catch (e) {
@@ -345,6 +430,13 @@ export async function POST(req) {
 
   try {
     let url;
+    // Winning candidate's judge score (Phase 3.5), persisted onto the row
+    // below so a later "flag this generation" carries real evidence, not
+    // just a prompt/model snapshot — see schema.js's `judgeScore` comment.
+    // Declared up here (not inside the Gemini branch below) so it's in scope
+    // for every branch's `done` object; stays null except when Gemini
+    // best-of-N judging actually ran.
+    let judgeScore = null;
     if (isMock()) {
       await new Promise((r) => setTimeout(r, 700));
       url = await mockPlaceholder(id, prompt, aspectRatio, model);
@@ -476,6 +568,7 @@ export async function POST(req) {
         aspectRatio,
         imageSize: renderSize,
         modelDisplay: model,
+        seed,
       };
       // Best-of-N: generation is stochastic (identity swings 5–65 on the same
       // config), so when a face is locked we generate N candidates in parallel,
@@ -493,8 +586,20 @@ export async function POST(req) {
       let base64;
       let mimeType;
       if (bestOf > 1) {
+        // Per-candidate seed offset, not the same seed repeated N times — an
+        // identical seed across parallel candidates would (to the extent NBP's
+        // seed determinism holds at all — see gemini.ts's own doc comment on
+        // the field) collapse best-of-N's diversity to a single image N times
+        // over, defeating the whole point of the judge picking among distinct
+        // renders. Offsetting by candidate index keeps every candidate
+        // individually reproducible while still varying between candidates.
         const settled = await Promise.allSettled(
-          Array.from({ length: bestOf }, () => generateImageGemini(input))
+          Array.from({ length: bestOf }, (_, i) =>
+            generateImageGemini({
+              ...input,
+              seed: seed != null ? seed + i : undefined,
+            })
+          )
         );
         const candidates = settled.filter(
           (s) =>
@@ -526,6 +631,7 @@ export async function POST(req) {
                 .map((s) => (s ? `id${s.identity}/pr${s.prominence}/sh${s.sharpness}` : "n/a"))
                 .join(", ")} → picked #${best + 1}`
           );
+          judgeScore = scores[best] ?? null;
           ({ base64, mimeType } = candidates[best].value);
         } else {
           const scores = await Promise.all(
@@ -544,6 +650,7 @@ export async function POST(req) {
             `[image] best-of-${candidates.length} identity scores: ` +
               `${scores.map((s) => s ?? "n/a").join(", ")} → picked #${best + 1}`
           );
+          judgeScore = scores[best] != null ? { identity: scores[best] } : null;
           ({ base64, mimeType } = candidates[best].value);
         }
       } else {
@@ -566,6 +673,8 @@ export async function POST(req) {
       url,
       aspectRatio: aspectRatioOut,
       costCents, // includes the NB2 face-refine pass when it ran
+      seed, // the freshly generated/reused value, not base's stale one
+      judgeScore, // null unless best-of-N judging ran (see above)
       updatedAt: Date.now(),
     };
     await upsertItem(done);

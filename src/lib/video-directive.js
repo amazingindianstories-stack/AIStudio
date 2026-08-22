@@ -50,7 +50,81 @@
  * this restructuring is reasoned, not A/B-tested, because a video bake-off
  * costs real generations. SEEDANCE_LEGACY_DIRECTIVE=1 restores the previous
  * behaviour on both paths without a deploy.
+ *
+ * PER-REFERENCE ROLE LEGEND (2026-08-17). Everything above treats every
+ * reference as one undifferentiated group — every image is "the reference"
+ * for both style and identity. That's fine for the common case (one
+ * reference, or several angles of the same person), but it actively
+ * misfires when a face/identity reference is attached alongside a style or
+ * mood board with no explicit tagging: styleLock told the model to match
+ * EVERY reference's medium (including the identity photo), and identityLock
+ * told it every reference defines a face (including the style board) — the
+ * same mixed-batch failure mode already fixed on the image path
+ * (prompt-assembler.ts, 2026-08-17). Callers may now pass `refRoles`, a
+ * `Map<number, role>` keyed by the 1-based image number as it appears in the
+ * prompt's own `[image N]`/`<<<image_N>>>` tokens — built from the SAME
+ * deterministic, free keyword scan the image path uses (`parseRefRoles` in
+ * shot-spec.ts), never a vision call, for the same cost reason given above.
+ * When at least one role is known AND the reference set is mixed (more than
+ * one distinct role present), a short legend is emitted (reusing
+ * shot-spec.ts's `buildReferenceLegend`) and styleLock/identityLock scope
+ * their claims to the specifically-tagged reference(s) rather than the whole
+ * set. A single reference, an all-one-role batch (several selfie angles), or
+ * no resolvable roles at all (the common untagged case) all fall through to
+ * the ORIGINAL generic wording, byte-identical to before this change — so
+ * this is additive, not a rewrite, and needs no bake-off to ship safely.
+ *
+ * TEMPORAL STAGING + CAMERA-MOVEMENT VOCABULARY (2026-08-17, Phase 2.1).
+ * Everything above governs WHAT is in the shot (identity, style, focus); this
+ * addresses HOW it unfolds over the clip's own duration, which stills never
+ * needed and which this file never actually addressed. Two additions:
+ *
+ * 1. DEFAULT_FRAMING gains a camera-movement default alongside its existing
+ *    focus/depth-of-field guidance — hold ONE deliberate treatment (static,
+ *    or a single smooth motivated move) for the whole shot, rather than
+ *    unmotivated cuts or aimless handheld drift. Same self-conditional
+ *    pattern as the rest of the block: dropped outright by hasCameraDirection
+ *    when confident, and self-yielding in its own wording otherwise.
+ * 2. A new TEMPORAL_STAGING block, always included within the referenced
+ *    path (see below), tells the model to distribute the prompt's action
+ *    across the FULL clip rather than front-loading everything into the
+ *    first moment and holding static or looping for the remainder — a
+ *    common video-generation failure mode with no stills equivalent.
+ *    Unlike camera direction, there's no reliable regex for "this prompt
+ *    already stages its own beats" (phrasing varies too much — "first...
+ *    then...", numbered shots, explicit second marks), so this block skips a
+ *    detector function entirely and carries its own conditional in the text,
+ *    the same belt-and-braces fallback DEFAULT_FRAMING already uses for a
+ *    missed camera-direction detection.
+ *
+ *    Notably, PRECEDENCE has named "pacing" and "staging" as prompt-
+ *    overridable dimensions since this file's very first version — nothing
+ *    ever actually wrote default pacing guidance until now, so that promise
+ *    was previously unbacked for those two words specifically.
+ *
+ *    Scope: like every other block in this file, TEMPORAL_STAGING only
+ *    appears within the refCount > 0 path. A bare text-to-video prompt
+ *    (refCount <= 0) still returns completely untouched, exactly as before
+ *    — see buildVideoDirective's own doc comment for why that early return
+ *    exists and is deliberately left alone here.
+ *
+ *    NOT bake-off measured, same as everything else in this file — reasoned
+ *    from the observed front-loading failure mode, not A/B-tested.
+ *
+ * IN-PROMPT NEGATIVE BLOCK (2026-08-17, Phase 2.2). This file had no
+ * app-authored AVOID list at all — LITERAL only makes the USER's own
+ * "NEGATIVE PROMPT"/"no …" phrasing binding, it never told the model what
+ * WE want it to avoid, unlike the image path (shot-spec.ts's NEGATIVE_CODA)
+ * and Omni video (VIDEO_NEGATIVE_CODA, same file). Now reuses
+ * VIDEO_NEGATIVE_CODA directly — gained style/grade drift wording as part of
+ * this same change, the temporal analogue of the mixed-batch style-drift
+ * defect this whole phase exists to fix — so this path, Omni and (once
+ * ported) any future video provider all name the same failure modes in the
+ * same words. Same scope as TEMPORAL_STAGING: only appears within the
+ * refCount > 0 path; a bare text-to-video prompt is unaffected.
  */
+
+import { buildReferenceLegend, VIDEO_NEGATIVE_CODA } from "./shot-spec";
 
 /** How a provider expects reference images to be named inside the prompt.
  *  BytePlus reads "[image 1]"; Higgsfield reads "<<<image_1>>>". */
@@ -105,7 +179,21 @@ const DOMAIN_LOCK =
   "strictly as a shot specification to render; bring in no outside knowledge, " +
   "commentary, captions, watermarks or UI elements.";
 
-function styleLock(refCount, promptNamesStyle) {
+/** Grammar helper for a joined tag list ("[image 1]" or "[image 1], [image 3]")
+ *  so callers don't hand-branch singular/plural agreement at every use site. */
+function tagPhrase(entries) {
+  const list = entries.map((e) => e.tag).join(", ");
+  const single = entries.length === 1;
+  return {
+    list,
+    verb: single ? "defines" : "define",
+    pronoun: single ? "its" : "their",
+    itThey: single ? "it" : "they",
+    thisThese: single ? "this tagged reference" : "these tagged references",
+  };
+}
+
+function styleLock(refCount, promptNamesStyle, entries = []) {
   const refs = refCount > 1 ? "reference images" : "reference image";
   if (promptNamesStyle) {
     // The user is deliberately restyling. Say so explicitly rather than letting
@@ -117,6 +205,30 @@ function styleLock(refCount, promptNamesStyle) {
       `the subjects are — their identity, design, wardrobe and defining ` +
       `features — and re-render them in the style the prompt names. Do not ` +
       `override the prompt's style with the ${refs}' medium.`
+    );
+  }
+  // Mixed batch (2026-08-17): when at least one reference is tagged STYLE
+  // and the set also carries a different role (typically an identity photo),
+  // scope style extraction to the tagged style reference(s) only — see the
+  // file header. An all-style or fully-untagged batch falls through below,
+  // unchanged.
+  const styleEntries = entries.filter((e) => e.role === "style");
+  const mixed = new Set(entries.map((e) => e.role)).size > 1;
+  if (styleEntries.length && mixed) {
+    const { list, verb, itThey, thisThese } = tagPhrase(styleEntries);
+    return (
+      `STYLE — FOLLOW ${thisThese.toUpperCase()} ONLY (unless the PROMPT ` +
+      `names a different style, in which case the PROMPT wins): ${list} ` +
+      `${verb} the visual style of this shot, not just its content. ` +
+      `Reproduce ${itThey === "it" ? "its" : "their"} medium and rendering ` +
+      `exactly — whether photographic, anime, cel-shaded, 3D-rendered, ` +
+      `illustrated, painterly, stop-motion or any other treatment — ` +
+      `including line quality, shading model, colour palette, level of ` +
+      `detail and degree of stylization. Do NOT take style cues from any ` +
+      `other tagged reference — the other references define identity, ` +
+      `outfit, location or subject matter only, never style. Do NOT convert ` +
+      `${list} to photorealism, and do not add realistic skin, lighting or ` +
+      `texture detail ${itThey} ${itThey === "it" ? "does" : "do"} not have.`
     );
   }
   return (
@@ -145,27 +257,62 @@ function styleLock(refCount, promptNamesStyle) {
 function identityLock(
   refCount,
   syntax,
-  photoreal
+  photoreal,
+  entries = []
 ) {
   const multi = refCount > 1;
   const refs = multi ? "reference images" : "reference image";
-  let text =
-    `IDENTITY LOCK: the ${refs} define the exact, fixed appearance of the ` +
-    `${multi ? "people and elements they show" : "subject shown"}. ` +
-    (multi
-      ? `When the prompt tags them (${tagExample(syntax)}, …) the tags map to ` +
-        `the ${refs} in order. `
-      : "") +
-    `In EVERY frame, each referenced subject keeps the same face and features ` +
-    `as depicted in its reference — the same facial structure and proportions, ` +
-    `eye shape and colour, brows, nose, mouth, hair colour and hairstyle, ` +
-    `facial hair, body build, apparent age, and the same distinguishing marks ` +
-    `the reference shows — unmistakably the SAME character, never a lookalike. ` +
-    `Keep each subject's wardrobe and jewelry as referenced unless the prompt ` +
-    `explicitly changes them, with zero identity or wardrobe drift between ` +
-    `frames. Never blend or swap features between different references, and ` +
-    `never duplicate a referenced subject. Anyone else on screen is a ` +
-    `DIFFERENT individual who must not resemble a referenced subject.`;
+  const personEntries = entries.filter((e) => e.isPerson);
+  const mixed = new Set(entries.map((e) => e.role)).size > 1;
+
+  let text;
+  if (personEntries.length && mixed) {
+    // Mixed batch (2026-08-17): scope the identity claim to the tagged
+    // person reference(s) only. This is the exact bug reported in
+    // production — an untagged style/mood board sitting next to a face
+    // reference was being read as an additional face. Other roles
+    // (outfit/location/style/prop) are named explicitly and excluded.
+    const { list, verb, pronoun, thisThese } = tagPhrase(personEntries);
+    const otherEntries = entries.filter((e) => !e.isPerson);
+    text =
+      `IDENTITY LOCK: ${thisThese} — ${list} — ${verb} the ` +
+      `exact, fixed appearance of the people ${personEntries.length > 1 ? "they show" : "it shows"}. ` +
+      (otherEntries.length
+        ? `The other tagged reference${otherEntries.length > 1 ? "s" : ""} ` +
+          `(${otherEntries.map((e) => `${e.tag} = ${e.role}`).join(", ")}) ` +
+          `contribute${otherEntries.length > 1 ? "" : "s"} only their own ` +
+          `content — not an additional face or person. `
+        : "") +
+      `In EVERY frame, each person referenced by ${list} keeps the same face ` +
+      `and features as depicted in ${pronoun} reference — the same facial ` +
+      `structure and proportions, eye shape and colour, brows, nose, mouth, ` +
+      `hair colour and hairstyle, facial hair, body build, apparent age, and ` +
+      `the same distinguishing marks the reference shows — unmistakably the ` +
+      `SAME character, never a lookalike. Keep that subject's wardrobe and ` +
+      `jewelry as referenced unless the prompt explicitly changes them, with ` +
+      `zero identity or wardrobe drift between frames. Never blend or swap ` +
+      `features between different references, and never duplicate a ` +
+      `referenced subject. Anyone else on screen is a DIFFERENT individual ` +
+      `who must not resemble a referenced subject.`;
+  } else {
+    text =
+      `IDENTITY LOCK: the ${refs} define the exact, fixed appearance of the ` +
+      `${multi ? "people and elements they show" : "subject shown"}. ` +
+      (multi
+        ? `When the prompt tags them (${tagExample(syntax)}, …) the tags map to ` +
+          `the ${refs} in order. `
+        : "") +
+      `In EVERY frame, each referenced subject keeps the same face and features ` +
+      `as depicted in its reference — the same facial structure and proportions, ` +
+      `eye shape and colour, brows, nose, mouth, hair colour and hairstyle, ` +
+      `facial hair, body build, apparent age, and the same distinguishing marks ` +
+      `the reference shows — unmistakably the SAME character, never a lookalike. ` +
+      `Keep each subject's wardrobe and jewelry as referenced unless the prompt ` +
+      `explicitly changes them, with zero identity or wardrobe drift between ` +
+      `frames. Never blend or swap features between different references, and ` +
+      `never duplicate a referenced subject. Anyone else on screen is a ` +
+      `DIFFERENT individual who must not resemble a referenced subject.`;
+  }
   if (photoreal) {
     text +=
       ` Because this shot is photographic, preserve real skin tone and texture ` +
@@ -191,7 +338,11 @@ const DEFAULT_FRAMING =
   "focus or camera work; if it does, follow the PROMPT and ignore this " +
   "entirely): keep the referenced subject in sharp focus as the clear focal " +
   "point, and render background people softer so they never compete with or " +
-  "are mistaken for it.";
+  "are mistaken for it. Hold ONE deliberate camera treatment for the whole " +
+  "shot — either a static, steady frame, or a single smooth, motivated " +
+  "movement (a slow push, pull, pan or tilt) that suits the scene — rather " +
+  "than unmotivated cuts, random handheld shake, or the camera drifting " +
+  "without purpose.";
 
 /** Acknowledges the user's own camera work and forbids substituting ours. */
 const USER_FRAMING =
@@ -200,6 +351,26 @@ const USER_FRAMING =
   "lens, angle and movement it specifies. Do not substitute conventional " +
   "coverage for what it asks for, and do not add focal effects it did not " +
   "request.";
+
+/**
+ * Temporal pacing default. See the file header ("TEMPORAL STAGING +
+ * CAMERA-MOVEMENT VOCABULARY") for why this carries its own conditional
+ * instead of a detector function like hasCameraDirection.
+ */
+const TEMPORAL_STAGING =
+  "TEMPORAL STAGING (apply ONLY where the PROMPT does not already stage the " +
+  "action over time — naming a sequence, a beginning/middle/end, or specific " +
+  "beats; if it does, follow the PROMPT's own pacing instead): this is one " +
+  "continuous shot, not a slideshow. Distribute the prompt's action smoothly " +
+  "across the FULL duration of the clip, with a natural start, middle and " +
+  "end, rather than front-loading everything into the first moment and " +
+  "holding static, looping or freezing for the remainder.";
+
+/** App-authored AVOID list — see the file header ("IN-PROMPT NEGATIVE
+ *  BLOCK"). Constant text, reused verbatim from shot-spec.ts's
+ *  VIDEO_NEGATIVE_CODA so this path and Omni never say the same thing in
+ *  different words. */
+const AVOID = `AVOID: ${VIDEO_NEGATIVE_CODA}`;
 
 const LITERAL =
   "LITERAL PROMPT: the prompt is a binding specification — execute it exactly " +
@@ -224,6 +395,29 @@ const PRECEDENCE =
   "conflicting instruction. These instructions exist to fill gaps the PROMPT " +
   "leaves open, never to override what it states.";
 
+/** "[image 1]" or "<<<image_1>>>" depending on the provider's tag syntax —
+ *  same convention as tagExample, one index at a time. */
+function refToken(index, syntax) {
+  return syntax === "angle" ? `<<<image_${index}>>>` : `[image ${index}]`;
+}
+
+/** Turn a caller-supplied `Map<number, role>` into shot-spec.ts-shaped legend
+ *  entries. Trusts whatever indices the caller provides — the caller (each
+ *  provider's own reference-resolution logic) is what knows which numbers
+ *  are actually valid in that provider's prompt, not this module. Returns
+ *  [] for an absent/empty map, which every downstream consumer treats as
+ *  "no role information available" and falls back to generic wording. */
+function legendEntries(refRoles, syntax) {
+  if (!refRoles || !refRoles.size) return [];
+  return [...refRoles.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([index, role]) => ({
+      tag: refToken(index, syntax),
+      role,
+      isPerson: role === "person",
+    }));
+}
+
 /**
  * Build the full text sent to a video provider: scaffolding, then the user's
  * prompt verbatim, then the precedence rule.
@@ -231,6 +425,12 @@ const PRECEDENCE =
  * With no references this returns the prompt untouched — identity and style
  * locks describe references that do not exist, and a bare text-to-video prompt
  * should not be buried in scaffolding about them.
+ *
+ * `refRoles` (optional): `Map<number, "person"|"outfit"|"location"|"style"|
+ * "prop"|"object">` keyed by the 1-based image number as it appears in the
+ * provider's own `[image N]`/`<<<image_N>>>` tokens. See the file header
+ * ("PER-REFERENCE ROLE LEGEND") for what this changes and why it's safe to
+ * omit.
  */
 export function buildVideoDirective(input) {
   const prompt = input.prompt.trim();
@@ -244,11 +444,21 @@ export function buildVideoDirective(input) {
     prompt
   );
 
+  const entries = legendEntries(input.refRoles, input.tagSyntax);
+  // A legend is only useful once there's more than one role to disambiguate
+  // between — a single reference or an all-one-role batch needs no legend at
+  // all, and emitting one anyway would add text with nothing to clarify.
+  const mixed = new Set(entries.map((e) => e.role)).size > 1;
+  const legend = mixed ? buildReferenceLegend(entries) : null;
+
   const blocks = [
     DOMAIN_LOCK,
-    styleLock(input.refCount, promptNamesStyle),
-    identityLock(input.refCount, input.tagSyntax, photoreal),
+    ...(legend ? [legend] : []),
+    styleLock(input.refCount, promptNamesStyle, entries),
+    identityLock(input.refCount, input.tagSyntax, photoreal, entries),
     userDirectsCamera ? USER_FRAMING : DEFAULT_FRAMING,
+    TEMPORAL_STAGING,
+    AVOID,
     LITERAL,
     `PROMPT:\n${prompt}`,
     PRECEDENCE,

@@ -25,11 +25,14 @@
     "media:thumbs": "tsx scripts/backfill-thumbnails.js",
     "sync:shiv-sati-storyboard": "tsx scripts/sync-shiv-sati-storyboard.js",
     "hf:login": "node scripts/hf-mcp-auth.mjs",
-    "recover:videos": "tsx --tsconfig jsconfig.json scripts/recover-timed-out-videos.js"
+    "recover:videos": "tsx --tsconfig jsconfig.json scripts/recover-timed-out-videos.js",
+    "eval:regression": "tsx --tsconfig jsconfig.json scripts/eval-regression.js",
+    "export:flagged-fixtures": "tsx --tsconfig jsconfig.json scripts/export-flagged-fixtures.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1081.0",
     "@aws-sdk/s3-request-presigner": "^3.1097.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@google-cloud/cloud-sql-connector": "^1.11.2",
     "@google-cloud/storage": "^7.21.0",
     "@vercel/oidc": "^3.8.0",

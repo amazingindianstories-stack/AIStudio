@@ -28,8 +28,10 @@ import {
   Layers,
   Sparkles,
   Volume2,
+  SkipForward,
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
+import { parseMentionIndices } from "@/lib/mentions";
 import { limitDefinition } from "@/lib/limits";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { VideoRefPicker } from "./VideoRefPicker";
@@ -465,6 +467,26 @@ export function PromptComposer() {
         </div>
       )}
 
+      {/* Untagged mixed references risk being silently misread — e.g. a
+          style/mood board folded into "another photo of the same face"
+          because nothing marks it as a style reference (2026-08-17 fix,
+          see prompt-assembler.js). Skipped when the more specific Higgsfield
+          banner below already covers the same advice for that model. */}
+      {s.referenceImages.length > 1 &&
+        parseMentionIndices(s.prompt).length === 0 &&
+        !(s.mode === "video" && /higgsfield/i.test(s.model)) && (
+          <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-snug text-amber-200/90">
+            <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              {s.referenceImages.length} references attached, none tagged — mixed
+              references (a face plus a style or location board) can get
+              misread as more photos of the same person. Tag each one for the
+              right treatment: <b>@img1</b> for identity,{" "}
+              <b>@img2 in this exact style</b> for a look/mood reference.
+            </span>
+          </div>
+        )}
+
       {/* Higgsfield Seedance (via MCP) natively accepts multiple reference
           images, so several characters/locations can drive one shot. */}
       {s.mode === "video" &&
@@ -479,6 +501,34 @@ export function PromptComposer() {
             </span>
           </div>
         )}
+
+      {/* Multi-shot chaining (Phase 3.3) — set by continueShot (DetailModal's
+          "Continue this shot" button), not a standing preference. Shown so
+          the user isn't puzzled why an otherwise-ordinary video request is
+          actually starting from a specific frame; dismissible without
+          discarding the rest of the composer's state. */}
+      {s.continuationFrame && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/10 px-2.5 py-1.5 text-[11px] leading-snug text-brand/90">
+          <img
+            src={s.continuationFrame}
+            alt="Continuation starting frame"
+            className="h-8 w-8 shrink-0 rounded object-cover"
+          />
+          <SkipForward className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1">
+            Continuing from this frame — write what happens next.
+          </span>
+          <button
+            type="button"
+            onClick={() => s.setContinuationFrame(null)}
+            className="shrink-0 rounded p-0.5 text-brand/70 hover:bg-brand/20 hover:text-brand"
+            aria-label="Remove continuation frame"
+            title="Remove continuation frame"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* input row */}
       <div className="flex items-start gap-2">
@@ -560,6 +610,7 @@ export function PromptComposer() {
           ref={mentionRef}
           value={s.prompt}
           onChange={s.setPrompt}
+          submitOnEnter={false}
           onSubmit={() => {
             // Purely a UX no-op here — the real gate is server-side in
             // generate/image and generate/video, which returns a readable

@@ -1,4 +1,4 @@
-# Lumina Studio — Comprehensive Backend Architecture & Code Review Audit
+# Veevee — Comprehensive Backend Architecture & Code Review Audit
 
 > **Audit Date:** August 2026  
 > **Scope:** Backend Architecture, API Routes, Database Layer, Auth & Session Model, Media Storage & Proxy, AI Providers, Middleware, Queue Execution Pipeline, and Utility Subsystems.
@@ -66,7 +66,7 @@
 
 ## 1. Executive Summary
 
-This document presents a rigorous, full-scope backend code review and architectural audit of **Lumina Studio (VeeVee Studio)**. The backend is implemented as a serverless Next.js 15 (Node.js runtime) architecture utilizing PostgreSQL (via Drizzle ORM on Cloud SQL / Railway), cloud object storage (GCS / S3 with signed URL offloading and thumbnail derivation), and multi-provider AI generation integrations (Gemini Nano Banana Pro, BytePlus Seedance, Kling AI, Higgsfield MCP, and Vertex AI / Gemini Omni Flash).
+This document presents a rigorous, full-scope backend code review and architectural audit of **Veevee (VeeVee Studio)**. The backend is implemented as a serverless Next.js 15 (Node.js runtime) architecture utilizing PostgreSQL (via Drizzle ORM on Cloud SQL / Railway), cloud object storage (GCS / S3 with signed URL offloading and thumbnail derivation), and multi-provider AI generation integrations (Gemini Nano Banana Pro, BytePlus Seedance, Kling AI, Higgsfield MCP, and Vertex AI / Gemini Omni Flash).
 
 ### Key Audit Metrics
 - **Total Backend Endpoints Audited:** 18 API routes

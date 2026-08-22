@@ -33,15 +33,22 @@ def delete_asset_image(url: str) -> None:
     storage.delete_by_urls([url])
 
 
-def save_canvas_asset(data_url: str) -> str:
+def save_canvas_asset(data_url: str, board_id: str | None = None) -> str:
     """Persist a canvas board image upload/paste (data URL); returns its
-    public URL."""
+    public URL.
+
+    `board_id` namespaces the stored key, mirroring save-media.js's
+    `saveCanvasAsset`. Optional only for signature compatibility; every real
+    caller passes one. Callers are responsible for having verified the board
+    exists — this function does not check.
+    """
     import base64
 
     ext, data = storage.split_data_url(data_url)
     if len(base64.b64decode(data, validate=False)) > MAX_CANVAS_UPLOAD_BYTES:
         raise ValueError("Images must be 8 MB or smaller.")
-    return storage.upload_base64(data, f"canvas/{uuid.uuid4()}.{ext}", ext)
+    prefix = f"canvas/{board_id}" if board_id else "canvas"
+    return storage.upload_base64(data, f"{prefix}/{uuid.uuid4()}.{ext}", ext)
 
 
 def save_avatar_image(data: bytes) -> str:

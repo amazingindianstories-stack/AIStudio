@@ -1,5 +1,6 @@
 """Port of src/lib/canvas-db.js — canvas board persistence."""
 
+import re
 import time
 import uuid
 
@@ -16,6 +17,25 @@ def _row_to_meta(board: CanvasBoard) -> dict:
         "createdAt": board.created_at,
         "updatedAt": board.updated_at,
     }
+
+
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
+)
+
+
+def board_exists(board_id: str) -> bool:
+    """Does this board exist? Mirrors canvas-db.js's `boardExists`.
+
+    Checks the uuid shape first: Postgres casts the operand when comparing a
+    `uuid` column, so a malformed id raises rather than returning no rows, and
+    every caller takes its id straight off a URL path. Uses .exists() so the
+    2 MB `data` blob never leaves Postgres for what is only ever an existence
+    question.
+    """
+    if not isinstance(board_id, str) or not _UUID_RE.match(board_id):
+        return False
+    return CanvasBoard.objects.filter(id=board_id).exists()
 
 
 def list_boards(project_id: str) -> list[dict]:

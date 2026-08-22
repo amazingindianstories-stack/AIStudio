@@ -37,7 +37,7 @@ SDXL_MODEL = os.environ.get("SDXL_MODEL", "SG161222/RealVisXL_V4.0")
 # allow CPU fallback for any op MPS doesn't implement
 os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
 
-app = FastAPI(title="Lumina Local InstantID")
+app = FastAPI(title="Veevee Local InstantID")
 
 _state = {"pipe": None, "face": None, "error": None}
 _lock = threading.Lock()

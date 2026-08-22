@@ -39,6 +39,10 @@ def history(request):
             return Response({"error": "Missing id."}, status=400)
         if isinstance(body.get("isFavorite"), bool):
             updated = gs.set_item_favorite(item_id, body["isFavorite"])
+        elif isinstance(body.get("flagged"), bool):
+            # Phase 3.5 — mirrors route.js's PATCH handler exactly (mutually
+            # exclusive with the two branches above/below).
+            updated = gs.set_item_flagged(item_id, body["flagged"], body.get("flagReason"))
         else:
             updated = gs.set_item_folder(item_id, body.get("projectId"), body.get("folderId"))
         if not updated:

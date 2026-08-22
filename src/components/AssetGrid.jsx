@@ -57,6 +57,7 @@ export function AssetGrid({
   const pendingCount = useStore((s) => s.pendingItems.length);
   const flushPendingItems = useStore((s) => s.flushPendingItems);
   const setFeedPinned = useStore((s) => s.setFeedPinned);
+  const setGridColumns = useStore((s) => s.setGridColumns);
 
   const scrollRef = useRef(null);
   const sentinelRef = useRef(null);
@@ -81,6 +82,16 @@ export function AssetGrid({
     () => packColumns(items, width, cardWidth),
     [items, width, cardWidth]
   );
+
+  // Published so DetailModal's Up/Down arrow-key handling can walk visual
+  // (same-column) neighbors instead of flat `items` order — those diverge as
+  // soon as packColumns spreads items across more than one column, which is
+  // the common case. Cleared on unmount so switching to a view with no grid
+  // (e.g. a chat thread) doesn't leave the previous panel's layout active.
+  useEffect(() => {
+    setGridColumns(columns);
+    return () => setGridColumns([]);
+  }, [columns, setGridColumns]);
 
   // Tell the store whether an insert at the head would be visible or would
   // shove the viewport. `pinned` is deliberately a small band rather than

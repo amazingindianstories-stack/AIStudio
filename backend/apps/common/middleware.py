@@ -27,10 +27,10 @@ class SessionRenewalMiddleware:
         # have this middleware re-add a live session cookie right after
         # logout cleared it — effectively undoing the logout. Caught by
         # test_logout_clears_cookie.
-        if settings.LUMINA_SESSION_COOKIE in response.cookies:
+        if settings.VEEVEE_SESSION_COOKIE in response.cookies:
             return response
 
-        token = request.COOKIES.get(settings.LUMINA_SESSION_COOKIE)
+        token = request.COOKIES.get(settings.VEEVEE_SESSION_COOKIE)
         if not token:
             return response
 
@@ -44,6 +44,6 @@ class SessionRenewalMiddleware:
             return response
 
         response.set_cookie(
-            settings.LUMINA_SESSION_COOKIE, sign_session(str(user.id), user.auth_version), **session_cookie_kwargs()
+            settings.VEEVEE_SESSION_COOKIE, sign_session(str(user.id), user.auth_version), **session_cookie_kwargs()
         )
         return response

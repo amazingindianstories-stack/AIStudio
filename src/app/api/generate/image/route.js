@@ -6,6 +6,7 @@ import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents } from "@/lib/pricing";
 import { readEffectiveLimit } from "@/lib/limits-db";
 import { logActivity } from "@/lib/activity";
+import { supportsSeed } from "@/lib/config";
 
 export const runtime = "nodejs";
 export const maxDuration = 60; // Nano Banana Pro high-res can take ~30–60s
@@ -29,6 +30,13 @@ export async function POST(req) {
   const referenceImages = body.referenceImages;
   const projectId = body.projectId || undefined;
   const folderId = body.folderId || undefined;
+  // "Regenerate with same seed" (Phase 3.1): only honoured for models
+  // supportsSeed actually confirms support for — silently dropped elsewhere
+  // rather than stored and never acted on, same convention generateAudio uses
+  // on the video route. queue/execute still backfills a fresh seed when this
+  // is undefined and the model supports it, so leaving it off here (the
+  // ordinary "new generation" case) is not a regression.
+  const seed = supportsSeed(model) && Number.isInteger(body.seed) ? body.seed : undefined;
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
@@ -91,6 +99,7 @@ export async function POST(req) {
     folderId,
     userId: user.id,
     costCents,
+    seed,
     createdAt: now,
     updatedAt: now,
   };
