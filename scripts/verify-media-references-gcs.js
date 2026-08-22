@@ -47,12 +47,17 @@ async function run() {
     collectMediaKeys(users, keys);
 
     const allKeys = [...keys].sort();
-    const { stdout } = await execFileAsync("gcloud", [
-      "storage",
-      "ls",
-      "--recursive",
-      `gs://${bucketName}`,
-    ]);
+    const { stdout } = await execFileAsync(
+      "gcloud",
+      ["storage", "ls", "--recursive", `gs://${bucketName}`],
+      // Node's execFile defaults to a 1MB stdout buffer, which a bucket with
+      // a few thousand objects blows straight through — the failure mode is
+      // not a clean error, it's the entire partial listing dumped into the
+      // thrown error's own message/stdout, which read like a stack trace
+      // rather than "buffer exceeded". 256MB comfortably covers any bucket
+      // size this app's media library will reach.
+      { maxBuffer: 256 * 1024 * 1024 }
+    );
     const prefix = `gs://${bucketName}/`;
     const storedKeys = new Set(
       stdout
