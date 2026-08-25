@@ -13,7 +13,7 @@ States: `open`, `in_progress`, `blocked`, `monitoring`, `resolved`, `deferred`.
 |---|---|---|---|---|---|
 | SEC-01 | blocked | AWS administrator + Codex | 2026-08-25 | AWS credentials still exist in Vercel Production and Preview, but the locally available key returns `InvalidClientTokenId`; no usable AWS-admin session is available. | Sign in with an AWS administrator, create a dedicated exact-bucket credential, update and validate both Vercel environments, then deactivate and delete the exposed key. |
 | SEC-02 | resolved | Codex | 2026-08-25 | `.env.production` was deleted without reading or printing its values. | Future `vercel env pull` output is restricted to a mode-0600 file under `/tmp` and removed immediately. |
-| SEC-03 | in_progress | Google Cloud administrator + Codex | 2026-08-25 | Google authentication is restored and the production database is reachable; `finish_setup.sh` and `scratch.js` were removed in deployed commit `5c591a8`. | Replace the built-in `postgres` password with a random unretained value, then verify old-password failure and IAM access. |
+| SEC-03 | resolved | Codex | 2026-08-25 | The built-in `postgres` password was replaced with a 48-byte random unretained value; the exposed literal is rejected, the runtime IAM principal passed read and rolled-back write checks, and the temporary impersonation grant was removed. | Keep administrative access on IAM or perform another controlled password reset; never store the built-in password in application configuration. |
 | COST-01 | blocked | Operator + Codex | 2026-08-25 | S3 remains configured as the GCS read fallback. Google authentication and bucket metadata access succeed, but the full verifier did not finish because database connection and recursive bucket inventory latency are measured in minutes. | Make the verifier bounded and resumable, obtain a zero-gap result, observe seven stable days, perform a restore drill, then disable fallback and decommission the exact S3 bucket. |
 
 ## Full issue register
@@ -27,7 +27,7 @@ current verification.
 | MERGE-01 | Finished style-drift work was unmerged | P1 | resolved | 2026-08-25 | Codex | Merged in `2b6446b` and deployed before the Seedance limit release. |
 | SEC-01 | Exposed AWS access key is unrotated | P0 | blocked | 2026-08-25 | AWS administrator + Codex | See active P0 queue. |
 | SEC-02 | Plaintext `.env.production` secret dump | P0 | resolved | 2026-08-25 | Codex | Local export deleted; temporary-file-only policy recorded above. |
-| SEC-03 | Cloud SQL superuser password committed by setup script | P0 | in_progress | 2026-08-25 | Google Cloud administrator + Codex | Authentication restored and database reachable; password rotation remains. |
+| SEC-03 | Cloud SQL superuser password committed by setup script | P0 | resolved | 2026-08-25 | Codex | Random unretained password set; old literal rejected; IAM read/write access verified; temporary grant removed. |
 | SEC-04 | Route auth relies on every handler checking the session | P1 | resolved | 2026-08-25 | Codex | Route-auth guard shipped in `6fa858a`. |
 | SEC-05 | Higgsfield refresh has no distributed lock | P1 | open | 2026-08-18 | Unassigned | Re-audit before Higgsfield retirement decision. |
 | SEC-06 | Canvas upload ignored board ID | P2 | resolved | 2026-08-25 | Codex | Board validation shipped in `2929509`. |
@@ -114,3 +114,7 @@ current verification.
   access and production database connectivity succeeded. `SEC-03` moved to
   `in_progress`. `COST-01` and `COST-02` remain blocked because the current
   recursive verifier did not complete within a controlled execution window.
+- 2026-08-25: `SEC-03` resolved. Rotated the built-in Cloud SQL `postgres`
+  password to a random unretained value, confirmed the old literal is rejected,
+  verified the runtime IAM principal can read and perform a rolled-back write,
+  and removed the temporary service-account impersonation grant.
