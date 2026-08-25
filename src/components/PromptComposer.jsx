@@ -45,6 +45,7 @@ import {
   aspectRatiosForModel,
   durationsForModel,
   durationRangeForModel,
+  maxReferenceImagesForVideoModel,
   resolutionsForModel,
   supportsAudio,
   supportsVideoReference,
@@ -182,12 +183,28 @@ export function PromptComposer() {
   // cropped from — while the last step (1024px/q0.8, today's behavior) is a
   // guaranteed-to-fit floor.
   const addImageFiles = async (files) => {
+    const referenceFiles = files.filter(
+      (file) => isVideoFile(file) || file.type.startsWith("image/")
+    );
+    const maxReferences =
+      s.mode === "video" ? maxReferenceImagesForVideoModel(s.model) : null;
+    const available =
+      maxReferences === null
+        ? referenceFiles.length
+        : Math.max(0, maxReferences - s.referenceImages.length);
+    const acceptedReferenceFiles = referenceFiles.slice(0, available);
+    if (acceptedReferenceFiles.length < referenceFiles.length) {
+      alert(
+        `${s.model} accepts at most ${maxReferences} reference images. ` +
+          `Only the first ${acceptedReferenceFiles.length} new reference${acceptedReferenceFiles.length === 1 ? " was" : "s were"} added.`
+      );
+    }
     // Videos are accepted by pulling a still frame out of them in the browser.
     // No provider here takes an uploaded video (and a video could not survive
     // Vercel's 4.5MB body limit anyway), but every one of them takes an image —
     // so a frame turns "video → image" and "video → video" into paths that
     // already work. See lib/video-frame.ts.
-    const videos = files.filter(isVideoFile);
+    const videos = acceptedReferenceFiles.filter(isVideoFile);
     if (videos.length) {
       setExtractingFrames(videos.length);
       for (const file of videos) {
@@ -213,7 +230,7 @@ export function PromptComposer() {
       s.addAudioNote(file.name);
     }
 
-    const valid = files.filter((f) => f.type.startsWith("image/"));
+    const valid = acceptedReferenceFiles.filter((f) => f.type.startsWith("image/"));
     if (!valid.length) return;
 
     let dataUrls = [];

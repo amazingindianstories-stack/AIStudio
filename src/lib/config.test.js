@@ -5,6 +5,8 @@ import {
   DEPTH_ENCODERS,
   DEPTH_MODEL_NAME,
   MAX_REFERENCE_VIDEOS,
+  SEEDANCE_20_MAX_REFERENCE_IMAGES,
+  SEEDANCE_25_MAX_REFERENCE_IMAGES,
   MODELS,
   MODES,
   VIDEO_TASK_MODES,
@@ -12,6 +14,7 @@ import {
   durationsForModel,
   durationRangeForModel,
   isKlingImageModel,
+  maxReferenceImagesForVideoModel,
   resolutionsForModel,
   supportsAudio,
   supportsFirstFrameContinuation,
@@ -221,6 +224,16 @@ test("audio and video-reference support agree on which models are native", () =>
 
 test("the reference-clip cap matches ModelArk's documented limit", () => {
   assert.equal(MAX_REFERENCE_VIDEOS, 3);
+});
+
+test("Seedance reference-image caps match the ModelArk API", () => {
+  assert.equal(SEEDANCE_20_MAX_REFERENCE_IMAGES, 9);
+  assert.equal(SEEDANCE_25_MAX_REFERENCE_IMAGES, 30);
+  assert.equal(maxReferenceImagesForVideoModel("Seedance 2.0"), 9);
+  assert.equal(maxReferenceImagesForVideoModel("Seedance 2.0 Mini"), 9);
+  assert.equal(maxReferenceImagesForVideoModel("Higgsfield Seedance 2.0"), 9);
+  assert.equal(maxReferenceImagesForVideoModel("Seedance 2.5"), 30);
+  assert.equal(maxReferenceImagesForVideoModel("Gemini Omni Flash"), null);
 });
 
 // ── Kling image models ──────────────────────────────────────────────────────

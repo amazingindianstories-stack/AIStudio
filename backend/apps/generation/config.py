@@ -150,6 +150,23 @@ def is_kling_2k_model(model: str) -> bool:
 
 KLING_MAX_REFERENCE_IMAGES = 1
 
+# Official BytePlus ModelArk multimodal-reference limits. Dreamina's consumer
+# UI is not the public API contract: Seedance 2.0 series takes 1–9 images and
+# Seedance 2.5 series takes 1–30.
+# https://docs.byteplus.com/en/docs/byteplus_las/video_gen_enhanced
+SEEDANCE_20_MAX_REFERENCE_IMAGES = 9
+SEEDANCE_25_MAX_REFERENCE_IMAGES = 30
+
+
+def max_reference_images_for_video_model(model: str) -> int | None:
+    if not model or not re.search(r"seedance", model, re.IGNORECASE):
+        return None
+    if re.search(r"2\.5", model, re.IGNORECASE):
+        return SEEDANCE_25_MAX_REFERENCE_IMAGES
+    if re.search(r"2\.0", model, re.IGNORECASE):
+        return SEEDANCE_20_MAX_REFERENCE_IMAGES
+    return None
+
 
 def supports_video_reference(model: str) -> bool:
     """Probe-verified against BytePlus ModelArk on 2026-07-29. The

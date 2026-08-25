@@ -16,6 +16,7 @@ import {
   Wand2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { maxReferenceImagesForVideoModel } from "@/lib/config";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { REF_BATCH_BUDGET_BYTES, REF_BUDGET_STEPS, dataUrlBytes, downscaleBlob } from "@/lib/client-image-budget";
 import { ReferenceStrip, SettingsToolbar } from "./ComposerControls";
@@ -45,6 +46,7 @@ const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
  */
 export function StudioChat({ conversationId }) {
   const mode = useStore((s) => s.mode);
+  const model = useStore((s) => s.model);
   const setPrompt = useStore((s) => s.setPrompt);
   const generate = useStore((s) => s.generate);
   const referenceImages = useStore((s) => s.referenceImages);
@@ -170,7 +172,23 @@ export function StudioChat({ conversationId }) {
 
   // Reference upload — same budget ladder PromptComposer used.
   const addImageFiles = async (files) => {
-    const videos = files.filter(isVideoFile);
+    const referenceFiles = files.filter(
+      (file) => isVideoFile(file) || file.type.startsWith("image/")
+    );
+    const maxReferences =
+      mode === "video" ? maxReferenceImagesForVideoModel(model) : null;
+    const available =
+      maxReferences === null
+        ? referenceFiles.length
+        : Math.max(0, maxReferences - referenceImages.length);
+    const acceptedReferenceFiles = referenceFiles.slice(0, available);
+    if (acceptedReferenceFiles.length < referenceFiles.length) {
+      alert(
+        `${model} accepts at most ${maxReferences} reference images. ` +
+          `Only the first ${acceptedReferenceFiles.length} new reference${acceptedReferenceFiles.length === 1 ? " was" : "s were"} added.`
+      );
+    }
+    const videos = acceptedReferenceFiles.filter(isVideoFile);
     if (videos.length) {
       setExtractingFrames(videos.length);
       for (const file of videos) {
@@ -184,7 +202,7 @@ export function StudioChat({ conversationId }) {
       }
       setExtractingFrames(0);
     }
-    const valid = files.filter((f) => f.type.startsWith("image/"));
+    const valid = acceptedReferenceFiles.filter((f) => f.type.startsWith("image/"));
     if (!valid.length) return;
     let dataUrls = [];
     for (let i = 0; i < REF_BUDGET_STEPS.length; i++) {

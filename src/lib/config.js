@@ -70,7 +70,7 @@ export const MODELS = [
     // advice the moment Higgsfield left the picker on 2026-07-30. The limitation
     // is real and worth stating; pointing at an option the user can no longer
     // select is not.
-    hint: "BytePlus ModelArk direct — its content filter rejects photorealistic faces",
+    hint: "BytePlus ModelArk direct — up to 9 reference images; its content filter rejects photorealistic faces",
   },
   // Native BytePlus ModelArk Seedance 2.5 — same async task API as 2.0
   // (providers/seedance.ts createVideoTask/getVideoTask), a different model
@@ -237,6 +237,25 @@ export function isKling2KModel(model) {
 /** Most references Kling's /v1/images/generations will take. Its `image` field
  *  is a scalar; multi-reference is a different endpoint and model entirely. */
 export const KLING_MAX_REFERENCE_IMAGES = 1;
+
+/**
+ * BytePlus ModelArk multimodal-reference limits. These are API limits, not
+ * limits inferred from the Dreamina consumer UI: the official enhanced video
+ * generation reference documents 1–9 images for Seedance 2.0 series and
+ * 1–30 for Seedance 2.5 series.
+ * https://docs.byteplus.com/en/docs/byteplus_las/video_gen_enhanced
+ */
+export const SEEDANCE_20_MAX_REFERENCE_IMAGES = 9;
+export const SEEDANCE_25_MAX_REFERENCE_IMAGES = 30;
+
+/** Maximum reference images accepted by a Seedance video model, or null when
+ * this capability is governed by another provider-specific adapter. */
+export function maxReferenceImagesForVideoModel(model) {
+  if (!model || !/seedance/i.test(model)) return null;
+  if (/2\.5/i.test(model)) return SEEDANCE_25_MAX_REFERENCE_IMAGES;
+  if (/2\.0/i.test(model)) return SEEDANCE_20_MAX_REFERENCE_IMAGES;
+  return null;
+}
 
 /**
  * Can this model take an existing CLIP as a reference (video-to-video)?

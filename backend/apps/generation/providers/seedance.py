@@ -10,6 +10,7 @@ import re
 
 import requests
 
+from .. import config
 from ..video_directive import build_video_directive
 
 
@@ -136,6 +137,13 @@ def create_video_task(
     against this app's own key. Returns the created task id."""
     model = _pick_model(model_display)
     refs = references or []
+    max_reference_images = config.max_reference_images_for_video_model(model_display or "")
+    if max_reference_images is not None and len(refs) > max_reference_images:
+        raise SeedanceError(
+            f"{model_display or 'Seedance'} accepts at most {max_reference_images} reference images (got {len(refs)}).",
+            "too_many_reference_images",
+            400,
+        )
     ref_role = os.environ.get("SEEDANCE_IMAGE_ROLE", "reference_image")
 
     if task_mode == "edit":

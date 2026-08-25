@@ -14,7 +14,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createVideoTask, isModerationMessage } from "./seedance";
+import { createVideoTask, isModerationMessage, SeedanceError } from "./seedance";
 
 test("isModerationMessage: detects moderation keywords", () => {
   assert.equal(isModerationMessage("SensitiveContent detected"), true);
@@ -212,4 +212,25 @@ test("createVideoTask: missing ARK_API_KEY throws a clear, actionable error befo
   } finally {
     if (originalKey !== undefined) process.env.ARK_API_KEY = originalKey;
   }
+});
+
+test("createVideoTask: Seedance 2.0 rejects a tenth reference before network", async () => {
+  await assert.rejects(
+    createVideoTask({
+      modelDisplay: "Seedance 2.0",
+      prompt: "A shot",
+      references: Array.from({ length: 10 }, (_, index) => ({
+        tag: `@img${index + 1}`,
+        index: index + 1,
+        dataUrl: "data:image/jpeg;base64,AA==",
+      })),
+    }),
+    (error) => {
+      assert.ok(error instanceof SeedanceError);
+      assert.equal(error.code, "too_many_reference_images");
+      assert.equal(error.status, 400);
+      assert.match(error.message, /at most 9 reference images \(got 10\)/);
+      return true;
+    }
+  );
 });

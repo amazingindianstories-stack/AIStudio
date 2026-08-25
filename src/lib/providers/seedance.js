@@ -2,6 +2,7 @@
 
 import { buildVideoDirective } from "../video-directive";
 import { parseRefRoles } from "../shot-spec";
+import { maxReferenceImagesForVideoModel } from "../config";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
  *  hand-written directives on BOTH Seedance paths, without a deploy. The new
@@ -177,6 +178,14 @@ export async function createVideoTask(
 ) {
   const model = pickModel(input.modelDisplay);
   const refs = input.references ?? [];
+  const maxReferenceImages = maxReferenceImagesForVideoModel(input.modelDisplay);
+  if (maxReferenceImages !== null && refs.length > maxReferenceImages) {
+    throw new SeedanceError(
+      `${input.modelDisplay || "Seedance"} accepts at most ${maxReferenceImages} reference images (got ${refs.length}).`,
+      "too_many_reference_images",
+      400
+    );
+  }
   const refRole = process.env.SEEDANCE_IMAGE_ROLE || "reference_image";
   const taskMode = input.taskMode ?? "generate";
 

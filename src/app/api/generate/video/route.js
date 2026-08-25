@@ -18,6 +18,7 @@ import {
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
   MAX_REFERENCE_VIDEOS,
+  maxReferenceImagesForVideoModel,
 
 } from "@/lib/config";
 import { isOmniModel } from "@/lib/providers/omni";
@@ -86,6 +87,19 @@ export async function POST(req) {
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
+  }
+  const maxReferenceImages = maxReferenceImagesForVideoModel(model);
+  if (
+    maxReferenceImages !== null &&
+    Array.isArray(referenceImages) &&
+    referenceImages.length > maxReferenceImages
+  ) {
+    return NextResponse.json(
+      {
+        error: `${model} accepts at most ${maxReferenceImages} reference images (got ${referenceImages.length}).`,
+      },
+      { status: 400 }
+    );
   }
   const maxPromptLength = await readEffectiveLimit("maxPromptLength", user?.id);
   if (prompt.length > maxPromptLength) {

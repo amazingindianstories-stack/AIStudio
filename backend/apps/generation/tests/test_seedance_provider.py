@@ -3,7 +3,27 @@ seedance.test.js exists on the TS side to port, unlike kling/gemini."""
 
 from django.test import SimpleTestCase
 
+from .. import config
 from ..providers import seedance as sd
+
+
+class ReferenceImageLimitTests(SimpleTestCase):
+    def test_caps_match_modelark_api(self):
+        self.assertEqual(config.max_reference_images_for_video_model("Seedance 2.0"), 9)
+        self.assertEqual(config.max_reference_images_for_video_model("Seedance 2.0 Mini"), 9)
+        self.assertEqual(config.max_reference_images_for_video_model("Higgsfield Seedance 2.0"), 9)
+        self.assertEqual(config.max_reference_images_for_video_model("Seedance 2.5"), 30)
+        self.assertIsNone(config.max_reference_images_for_video_model("Gemini Omni Flash"))
+
+    def test_tenth_seedance_20_reference_is_rejected_before_network(self):
+        with self.assertRaises(sd.SeedanceError) as caught:
+            sd.create_video_task(
+                "A shot",
+                model_display="Seedance 2.0",
+                references=[{"dataUrl": "data:image/jpeg;base64,AA=="}] * 10,
+            )
+        self.assertEqual(caught.exception.code, "too_many_reference_images")
+        self.assertEqual(caught.exception.status, 400)
 
 
 class PickModelTests(SimpleTestCase):

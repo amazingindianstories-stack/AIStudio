@@ -257,6 +257,17 @@ def generate_video(request):
     if not prompt:
         return Response({"error": "Prompt is required."}, status=400)
 
+    max_reference_images = config.max_reference_images_for_video_model(model)
+    if (
+        max_reference_images is not None
+        and isinstance(reference_images, list)
+        and len(reference_images) > max_reference_images
+    ):
+        return Response(
+            {"error": f"{model} accepts at most {max_reference_images} reference images (got {len(reference_images)})."},
+            status=400,
+        )
+
     raw_ref_videos = body.get("referenceVideos")
     if isinstance(raw_ref_videos, list) and len(raw_ref_videos) > config.MAX_REFERENCE_VIDEOS and config.supports_video_reference(model):
         return Response(
