@@ -13,8 +13,8 @@ States: `open`, `in_progress`, `blocked`, `monitoring`, `resolved`, `deferred`.
 |---|---|---|---|---|---|
 | SEC-01 | blocked | AWS administrator + Codex | 2026-08-25 | AWS credentials still exist in Vercel Production and Preview, but the locally available key returns `InvalidClientTokenId`; no usable AWS-admin session is available. | Sign in with an AWS administrator, create a dedicated exact-bucket credential, update and validate both Vercel environments, then deactivate and delete the exposed key. |
 | SEC-02 | resolved | Codex | 2026-08-25 | `.env.production` was deleted without reading or printing its values. | Future `vercel env pull` output is restricted to a mode-0600 file under `/tmp` and removed immediately. |
-| SEC-03 | blocked | Google Cloud administrator + Codex | 2026-08-25 | `finish_setup.sh` and `scratch.js` were removed in deployed commit `5c591a8`; the active gcloud account requires interactive password reauthentication. | Reauthenticate locally, replace the built-in `postgres` password with a random unretained value, then verify old-password failure and IAM access. |
-| COST-01 | blocked | Operator + Codex | 2026-08-25 | S3 remains configured as the GCS read fallback. The repaired verifier is blocked by expired Google CLI authentication. | Reauthenticate, migrate until GCS verification is zero, observe seven stable days, perform a restore drill, then disable fallback and decommission the exact S3 bucket. |
+| SEC-03 | in_progress | Google Cloud administrator + Codex | 2026-08-25 | Google authentication is restored and the production database is reachable; `finish_setup.sh` and `scratch.js` were removed in deployed commit `5c591a8`. | Replace the built-in `postgres` password with a random unretained value, then verify old-password failure and IAM access. |
+| COST-01 | blocked | Operator + Codex | 2026-08-25 | S3 remains configured as the GCS read fallback. Google authentication and bucket metadata access succeed, but the full verifier did not finish because database connection and recursive bucket inventory latency are measured in minutes. | Make the verifier bounded and resumable, obtain a zero-gap result, observe seven stable days, perform a restore drill, then disable fallback and decommission the exact S3 bucket. |
 
 ## Full issue register
 
@@ -27,14 +27,14 @@ current verification.
 | MERGE-01 | Finished style-drift work was unmerged | P1 | resolved | 2026-08-25 | Codex | Merged in `2b6446b` and deployed before the Seedance limit release. |
 | SEC-01 | Exposed AWS access key is unrotated | P0 | blocked | 2026-08-25 | AWS administrator + Codex | See active P0 queue. |
 | SEC-02 | Plaintext `.env.production` secret dump | P0 | resolved | 2026-08-25 | Codex | Local export deleted; temporary-file-only policy recorded above. |
-| SEC-03 | Cloud SQL superuser password committed by setup script | P0 | blocked | 2026-08-25 | Google Cloud administrator + Codex | Files removed; password rotation is blocked by interactive gcloud reauthentication. |
+| SEC-03 | Cloud SQL superuser password committed by setup script | P0 | in_progress | 2026-08-25 | Google Cloud administrator + Codex | Authentication restored and database reachable; password rotation remains. |
 | SEC-04 | Route auth relies on every handler checking the session | P1 | resolved | 2026-08-25 | Codex | Route-auth guard shipped in `6fa858a`. |
 | SEC-05 | Higgsfield refresh has no distributed lock | P1 | open | 2026-08-18 | Unassigned | Re-audit before Higgsfield retirement decision. |
 | SEC-06 | Canvas upload ignored board ID | P2 | resolved | 2026-08-25 | Codex | Board validation shipped in `2929509`. |
 | SEC-07 | No Content-Security-Policy | P2 | open | 2026-08-18 | Unassigned | Schedule after final CDN domain is known. |
 | SEC-08 | Dead Vercel credentials remain | P2 | open | 2026-08-25 | Operator + Codex | Vercel still lists `BLOB_*` and retired Higgsfield dev-API variables. |
 | COST-01 | Duplicate S3 history remains billed | P0 | blocked | 2026-08-25 | Operator + Codex | See active P0 queue. |
-| COST-02 | DB-referenced objects are missing from GCS | P1 | blocked | 2026-08-25 | Operator + Codex | Current count blocked by expired Google CLI authentication. |
+| COST-02 | DB-referenced objects are missing from GCS | P1 | blocked | 2026-08-25 | Operator + Codex | Authentication is restored, but the current all-bucket verifier did not finish within a controlled execution window. |
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
 | COST-04 | Media delivery can silently proxy bytes | P1 | open | 2026-08-18 | Unassigned | Verify current production mode, then add monitoring. |
 | COST-05 | Video best-of-N can bill after partial failure | P2 | open | 2026-08-18 | Unassigned | Revisit before enabling video best-of-N. |
@@ -109,6 +109,8 @@ current verification.
 
 - 2026-08-25: tracker created; P0 findings re-verified; deployed remediation
   commits recorded; `SEC-02` closed by deleting the local production export.
-  `SEC-01` is blocked because the available AWS key is invalid. `SEC-03`,
-  `COST-01`, and `COST-02` are blocked on interactive gcloud reauthentication.
-  All other findings remain open pending a current audit.
+  `SEC-01` is blocked because the available AWS key is invalid.
+- 2026-08-25: gcloud reauthentication confirmed; Cloud Storage bucket metadata
+  access and production database connectivity succeeded. `SEC-03` moved to
+  `in_progress`. `COST-01` and `COST-02` remain blocked because the current
+  recursive verifier did not complete within a controlled execution window.
