@@ -59,7 +59,7 @@ current verification.
 | MIG-08 | Higgsfield UI is gone but backend remains | P3 | open | 2026-08-18 | Unassigned | Decide retirement and preserve historical pricing. |
 | MIG-09 | Unreachable legacy agent routes remain in Django | P3 | open | 2026-08-18 | Unassigned | Remove only after current route audit. |
 | MIG-10 | Pre-Postgres JSON snapshots remain | P3 | open | 2026-08-18 | Unassigned | Archive after recovery requirements are confirmed. |
-| DRIFT-01 | Python video directive lacks reference legends | P1 | open | 2026-08-18 | Unassigned | Re-audit JS/Python parity. |
+| DRIFT-01 | Python video directive lacks reference legends | P1 | in_progress | 2026-08-26 | Codex | Python now matches JS reference legends, scoped locks, temporal/camera guidance, and the shared negative coda; exact cross-language fixtures and provider-role tests pass locally. Exit: deploy and verify both provider paths in the target runtime. |
 | DRIFT-02 | Django lacks video best-of-N pipeline | P2 | open | 2026-08-18 | Unassigned | Keep feature off until parity or cutover decision. |
 | DRIFT-03 | Django lacks server-side frame extraction | P2 | open | 2026-08-18 | Unassigned | Decide with video best-of-N/cutover. |
 | DRIFT-04 | Python `crispen` is non-exact | P3 | open | 2026-08-18 | Unassigned | Match or explicitly disable. |

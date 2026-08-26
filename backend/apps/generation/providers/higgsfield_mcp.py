@@ -17,6 +17,7 @@ import requests
 
 from apps.media import storage
 
+from ..shot_spec import parse_ref_roles
 from ..video_directive import build_video_directive
 from .seedance import legacy_directive
 
@@ -40,6 +41,18 @@ def mcp_model_id(display_name: str) -> str | None:
 
 def is_higgsfield_model(name: str | None) -> bool:
     return bool(re.search(r"higgsfield", name or "", re.IGNORECASE))
+
+
+def build_ref_roles(raw_prompt: str, media_count: int) -> dict[int, str] | None:
+    roles: dict[int, str] = {}
+    for tag, role in parse_ref_roles(raw_prompt).items():
+        match = re.fullmatch(r"@img(\d+)", tag)
+        if not match:
+            continue
+        index = int(match.group(1))
+        if 1 <= index <= media_count:
+            roles[index] = role
+    return roles or None
 
 
 # ── token management (module-level cache, mirrors the TS `let token`) ──────
@@ -376,7 +389,9 @@ def mcp_generate_video(
         if legacy_directive():
             params["prompt"] = (VIDEO_IDENTITY_DIRECTIVE + tagged) if media_ids else tagged
         else:
-            params["prompt"] = build_video_directive(tagged, len(media_ids), "angle")
+            params["prompt"] = build_video_directive(
+                tagged, len(media_ids), "angle", build_ref_roles(prompt, len(media_ids))
+            )
     if aspect_ratio:
         params["aspect_ratio"] = aspect_ratio
     if duration:

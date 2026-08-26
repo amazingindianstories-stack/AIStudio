@@ -85,6 +85,24 @@ class IdentityLockTests(SimpleTestCase):
     def test_single_reference_omits_tag_mapping_clause(self):
         self.assertNotRegex(build("She waves.", 1), r"the tags map to")
 
+    def test_mixed_roles_scope_style_and_identity(self):
+        out = vd.build_video_directive(
+            "[image 1] is her face; [image 2] is the style.",
+            2,
+            "bracket",
+            {1: "person", 2: "style"},
+        )
+        self.assertIn("REFERENCES:", out)
+        self.assertIn("STYLE — FOLLOW THIS TAGGED REFERENCE ONLY", out)
+        self.assertIn("IDENTITY LOCK: this tagged reference — [image 1]", out)
+        self.assertIn("[image 2] = style", out)
+
+    def test_temporal_camera_and_negative_blocks_are_present(self):
+        out = build("She waves.")
+        self.assertIn("Hold ONE deliberate camera treatment", out)
+        self.assertIn("TEMPORAL STAGING", out)
+        self.assertIn("style or grade drift across the shot", out)
+
 
 class DetectorTests(SimpleTestCase):
     def test_has_camera_direction_fires_on_real_vocabulary(self):

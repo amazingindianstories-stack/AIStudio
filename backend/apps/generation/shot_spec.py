@@ -299,9 +299,11 @@ ENVIRONMENT_NEGATIVE_CODA = (
 )
 
 VIDEO_NEGATIVE_CODA = (
-    "identity or wardrobe drift between frames, face morphing, flicker, "
-    "duplicated or extra limbs, warped anatomy, a small or distant subject, "
-    "smeared or plasticky skin."
+    "identity or wardrobe drift between frames, style or grade drift across "
+    "the shot — colour palette, lighting, grain, line quality or rendering "
+    "treatment sliding away from the reference partway through — face "
+    "morphing, flicker, duplicated or extra limbs, warped anatomy, a small or "
+    "distant subject, smeared or plasticky skin."
 )
 
 

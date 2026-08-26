@@ -50,6 +50,23 @@ class TagsToImageRefsTests(SimpleTestCase):
         self.assertEqual(sd._tags_to_image_refs("@IMG3"), "[image 3]")
 
 
+class ReferenceRoleTests(SimpleTestCase):
+    def test_maps_only_attached_tagged_references(self):
+        refs = [
+            {"tag": "@img1", "index": 1},
+            {"tag": "@img3", "index": 3},
+        ]
+        roles = sd.build_ref_roles(
+            refs,
+            "Use the exact face and identity from @img1. She crosses the bright hall slowly. "
+            "Match the style and palette from @img2. The scene unfolds at the exact location from @img3.",
+        )
+        self.assertEqual(roles, {1: "person", 3: "location"})
+
+    def test_returns_none_without_resolvable_roles(self):
+        self.assertIsNone(sd.build_ref_roles([{"tag": "@img1", "index": 1}], "She waves."))
+
+
 class IsModerationMessageTests(SimpleTestCase):
     def test_detects_moderation_keywords(self):
         self.assertTrue(sd.is_moderation_message("SensitiveContent detected"))
