@@ -457,6 +457,7 @@ async function reapStaleRunningImages() {
 async function queueSnapshot(
   kind,
   createdAt,
+  itemId,
   bestOf,
   windowStart
 )
@@ -470,12 +471,43 @@ async function queueSnapshot(
   // at 7 min, videos time out at 30 — so a 6-hour skirt cannot exclude a row
   // that genuinely belongs in a 10-minute window.
   const res = await db.execute(sql`
+    with global_user_limit as (
+      select coalesce(
+        max(case when value ~ '^[0-9]{1,9}$' and value::int >= 1 then value::int end),
+        1
+      ) as value
+      from settings where key = 'maxConcurrentJobs'
+    ), running_by_user as (
+      select user_id, count(*)::int as n
+      from ${generations}
+      where status = 'running' and kind = ${kind} and user_id is not null
+      group by user_id
+    ), ranked_queue as (
+      select q.id, q.created_at,
+        row_number() over (
+          partition by coalesce(q.user_id::text, q.id::text)
+          order by q.created_at asc, q.id asc
+        ) as user_rank,
+        coalesce(r.n, 0) as user_running,
+        coalesce(
+          case when ul.value ~ '^[0-9]{1,9}$' and ul.value::int >= 1 then ul.value::int end,
+          gl.value
+        ) as user_cap
+      from ${generations} q
+      cross join global_user_limit gl
+      left join running_by_user r on r.user_id = q.user_id
+      left join user_limits ul on ul.user_id = q.user_id and ul.key = 'maxConcurrentJobs'
+      where q.status = 'queued' and q.kind = ${kind}
+    ), eligible_queue as (
+      select * from ranked_queue
+      where user_rank <= greatest(user_cap - user_running, 0)
+    )
     select
       (select count(*) from ${generations}
         where status = 'running' and kind = ${kind}) as running,
-      (select count(*) from ${generations}
-        where status = 'queued' and kind = ${kind}
-          and created_at < ${createdAt}) as older,
+      (select count(*) from eligible_queue
+        where (created_at, id) < (${createdAt}, ${itemId}::uuid)) as older,
+      exists(select 1 from eligible_queue where id = ${itemId}::uuid) as user_eligible,
       (select coalesce(sum(
           case when status = 'running' then cost_cents * ${bestOf} else cost_cents end
         ), 0) from ${generations}
@@ -504,6 +536,7 @@ async function queueSnapshot(
   return {
     running: Number(row.running ?? 0),
     older: Number(row.older ?? 0),
+    userEligible: row.user_eligible === true || row.user_eligible === "t",
     windowCents: Number(row.window_cents ?? 0),
     windowRows: Number(row.window_rows ?? 0),
     oldestUpdatedAt:
@@ -528,9 +561,14 @@ export async function getQueuePosition(id) {
   const snap = await queueSnapshot(
     item.kind,
     item.createdAt,
+    item.id,
     bestOf,
     now - SPEND_WINDOW_MS
   );
+
+  if (!snap.userEligible) {
+    return { position: 1, status: item.status, heldForConcurrency: true };
+  }
 
   const totalAhead = snap.running + snap.older;
   const position = Math.max(0, totalAhead - (cap - 1));

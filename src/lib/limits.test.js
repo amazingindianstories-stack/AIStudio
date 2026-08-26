@@ -16,6 +16,12 @@ test("LIMIT_DEFINITIONS: every entry has a positive default at or above its own 
   }
 });
 
+test("maxConcurrentJobs defaults to one shared slot per user and kind", () => {
+  const def = limitDefinition("maxConcurrentJobs");
+  assert.equal(def.defaultValue, 1);
+  assert.equal(def.min, 1);
+});
+
 const maxPromptLength = limitDefinition("maxPromptLength");
 
 test("parseLimitValue: valid values at or above the minimum pass through", () => {

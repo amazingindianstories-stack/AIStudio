@@ -81,7 +81,7 @@ current verification.
 | VER-12 | Audio surcharge pricing lacks invoice verification | P3 | open | 2026-08-18 | Unassigned | Reconcile an invoice. |
 | ARCH-01 | API responses use multiple envelopes | P2 | open | 2026-08-18 | Unassigned | Address only with migration decision. |
 | ARCH-02 | Storage module contains dual provider branches | P2 | deferred | 2026-08-25 | Unassigned | Delete the S3 branch after COST-01 rather than abstracting it. |
-| ARCH-03 | Concurrency cap is global, not per user | P1 | open | 2026-08-18 | Unassigned | Add per-user admission control. |
+| ARCH-03 | Concurrency cap is global, not per user | P1 | resolved | 2026-08-26 | Codex | Added `maxConcurrentJobs` (default 1 per kind) and fair eligible-job ranking in both queue implementations. PostgreSQL tests prove an older blocked second job cannot hide a free slot from another user, overrides work, kinds remain independent, and UUIDs break timestamp ties. |
 | ARCH-04 | Capabilities and prices key on display-name regexes | P2 | open | 2026-08-18 | Unassigned | Add explicit provider/capability metadata. |
 | ARCH-05 | Generation failures return HTTP 200 | P2 | deferred | 2026-08-25 | Unassigned | Preserve response contract; add observability instead. |
 | ARCH-06 | Zustand store is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
@@ -122,3 +122,5 @@ current verification.
   paginated GCS API scan and mode-0600 resumable checkpoint. Live verification
   completed in 14 pages: 6,478 referenced, 6,400 present, 78 missing. COST-01
   and COST-02 remain blocked on valid exact-bucket AWS source access.
+- 2026-08-26: resolved ARCH-03 with an admin-configurable per-user/per-kind
+  cap and fair queue ranking that skips jobs whose owner is already at cap.

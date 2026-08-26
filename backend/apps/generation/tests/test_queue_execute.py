@@ -22,7 +22,9 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from apps.common.test_utils import SECRET, _cookie_for, _make_user
+from apps.common.models import UserLimit
 
+from .. import queue_service
 from ..models import Generation
 
 
@@ -71,14 +73,17 @@ class QueueExecuteAdmissionTests(TestCase):
         # actually run the (mocked, no real provider call) generation.
         queued = _make_generation(status="queued", kind="image", user_id=self.owner.id)
 
-        with patch.dict(os.environ, {"MOCK_GENERATION": "1"}):
+        with patch.dict(os.environ, {"MOCK_GENERATION": "1"}), patch(
+            "apps.generation.generation_views.mock.mock_placeholder",
+            return_value="/api/media/generations/mock.svg",
+        ):
             resp = self.client.post(
                 "/api/queue/execute", {"id": str(queued.id)}, format="json"
             )
 
         body = resp.json() if resp.content else {}
         self.assertNotIn("notAdmitted", body)
-        self.assertEqual(body.get("status"), "succeeded")
+        self.assertEqual(body.get("status"), "succeeded", body)
         queued.refresh_from_db()
         self.assertEqual(queued.status, "succeeded")
 
@@ -106,3 +111,41 @@ class QueueExecuteAdmissionTests(TestCase):
             "/api/queue/execute", {"id": str(uuid.uuid4())}, format="json"
         )
         self.assertEqual(resp.status_code, 404)
+
+
+class PerUserQueueFairnessTests(TestCase):
+    def test_blocked_second_job_does_not_hide_free_slot_from_teammate(self):
+        owner_a = _make_user(email="a@example.com")
+        owner_b = _make_user(email="b@example.com")
+        now = int(time.time() * 1000)
+        _make_generation(status="running", user_id=owner_a.id, created_at=now - 3)
+        blocked_a = _make_generation(user_id=owner_a.id, created_at=now - 2)
+        ready_b = _make_generation(user_id=owner_b.id, created_at=now - 1)
+
+        self.assertTrue(queue_service.get_queue_position(str(blocked_a.id))["heldForConcurrency"])
+        self.assertEqual(queue_service.get_queue_position(str(ready_b.id))["position"], 0)
+
+    def test_limit_is_independent_per_job_kind(self):
+        owner = _make_user(email="mixed@example.com")
+        _make_generation(status="running", kind="image", user_id=owner.id)
+        video = _make_generation(kind="video", model="Seedance 2.0", user_id=owner.id)
+        self.assertEqual(queue_service.get_queue_position(str(video.id))["position"], 0)
+
+    def test_per_user_override_can_use_both_global_slots(self):
+        owner = _make_user(email="override@example.com")
+        UserLimit.objects.create(
+            user_id=owner.id, key="maxConcurrentJobs", value="2",
+            updated_at=int(time.time() * 1000),
+        )
+        _make_generation(status="running", user_id=owner.id)
+        second = _make_generation(user_id=owner.id)
+        self.assertEqual(queue_service.get_queue_position(str(second.id))["position"], 0)
+
+    def test_created_at_ties_use_uuid_as_stable_global_order(self):
+        now = int(time.time() * 1000)
+        rows = []
+        for i in range(3):
+            owner = _make_user(email=f"tie-{i}@example.com")
+            rows.append(_make_generation(id=uuid.UUID(int=i + 1), user_id=owner.id, created_at=now))
+        positions = [queue_service.get_queue_position(str(row.id))["position"] for row in rows]
+        self.assertEqual(positions, [0, 0, 1])
