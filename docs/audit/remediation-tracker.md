@@ -89,15 +89,15 @@ current verification.
 | ARCH-08 | Mutable module state sits outside stores | P3 | open | 2026-08-18 | Unassigned | Inventory before changing semantics. |
 | DX-01 | Git history is bloated by research binaries | P2 | open | 2026-08-18 | Unassigned | Choose history rewrite or shallow-clone policy. |
 | DX-02 | ESLint configuration is missing | P2 | open | 2026-08-18 | Unassigned | Add flat config after P0. |
-| DX-03 | No CI gate | P1 | open | 2026-08-18 | Unassigned | Add build, JS, Django, and migration checks. |
+| DX-03 | No CI gate | P1 | resolved | 2026-08-26 | Codex | Added pull-request/main CI with Node 22 tests/build and Python 3.12 Django checks, migration drift detection, and the full suite against PostgreSQL 16. No billed probes run in CI. |
 | DX-04 | Dead root `scratch.js` | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-05 | Setup script referenced the wrong bucket/deployment | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-06 | Documentation contains `.ts`/`.tsx` path drift | P3 | open | 2026-08-18 | Unassigned | Sweep after architecture stabilizes. |
 | DX-07 | Django history paths in `CLAUDE.md` are stale | P3 | open | 2026-08-18 | Unassigned | Sweep after migration decision. |
 | DX-08 | Backend audit body presents resolved work as open | P3 | open | 2026-08-18 | Unassigned | Add per-finding resolution markers. |
 | DX-09 | Main auto-deploys with no preview gate | P2 | open | 2026-08-25 | Unassigned | Use audit branch previews now; add protected CI later. |
-| DX-10 | Script-test naming convention is unenforced | P3 | open | 2026-08-18 | Unassigned | Add a repository guard. |
-| DX-11 | Test discovery uses non-portable shell `find` | P3 | open | 2026-08-18 | Unassigned | Replace with a portable test manifest/discovery script. |
+| DX-10 | Script-test naming convention is unenforced | P3 | resolved | 2026-08-26 | Codex | The portable test runner fails if `scripts/**/*.test.js` exists, keeping live probe scripts outside unit-test discovery. |
+| DX-11 | Test discovery uses non-portable shell `find` | P3 | resolved | 2026-08-26 | Codex | `npm test` now uses a cross-platform Node walker to discover sorted `src/**/*.test.js` files and invoke `tsx` explicitly. |
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | P2 | open | 2026-08-18 | Unassigned | Build fixtures before changing directives. |
 | QUAL-02 | Eval harness has no fixtures or CI gate | P2 | open | 2026-08-18 | Unassigned | Commit at least ten representative fixtures. |
 | QUAL-03 | Flagged-generation signal has no consumer | P3 | open | 2026-08-18 | Unassigned | Add admin review and fixture export. |
@@ -126,3 +126,5 @@ current verification.
   cap and fair queue ranking that skips jobs whose owner is already at cap.
 - 2026-08-26: resolved REL-02 by serially spooling and judging best-of-N
   candidates, with lower candidate ceilings for larger render sizes.
+- 2026-08-26: resolved DX-03, DX-10, and DX-11 with portable unit-test
+  discovery and PostgreSQL-backed GitHub Actions gates for both runtimes.

@@ -15,7 +15,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "test": "tsx --tsconfig jsconfig.json --test $(find src -name '*.test.js' | sort)",
+    "test": "node scripts/run-unit-tests.mjs",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.js",
     "db:optimize": "tsx scripts/optimize-history-indexes.js",
