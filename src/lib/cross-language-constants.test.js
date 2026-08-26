@@ -110,6 +110,16 @@ const PAIRS = [
     js: () => num(grab(read("src/lib/depth-jobs-db.js"), /WORKER_STALE_MS\s*=\s*([^;]+);/, "JS WORKER_STALE_MS")),
     py: () => num(grab(read("backend/apps/generation/depth_jobs_service.py"), /^WORKER_STALE_MS\s*=\s*(.+)$/m, "PY WORKER_STALE_MS")),
   },
+  ...[
+    "STUCK_IMAGE_MS",
+    "STUCK_VIDEO_MS",
+    "STUCK_DEPTH_GRACE_MS",
+    "DEPTH_WORKER_STALE_MS",
+  ].map((name) => ({
+    what: name,
+    js: () => num(grab(read("src/lib/generation-health.js"), new RegExp(`export const ${name}\\s*=\\s*([^;]+);`), `JS ${name}`)),
+    py: () => num(grab(read("backend/apps/admin_dashboard/status_checks.py"), new RegExp(`^${name}\\s*=\\s*(.+)$`, "m"), `PY ${name}`)),
+  })),
   {
     what: "session cookie name",
     js: () => grab(read("src/lib/auth.js"), /SESSION_COOKIE\s*=\s*"([^"]+)"/, "JS session cookie"),
@@ -133,6 +143,13 @@ test("backend/ still exists, or this guard should be deleted", () => {
     "backend/ is gone. If the Django port was deleted deliberately, delete " +
       "this test too — it exists only to keep two implementations in step."
   );
+});
+
+test("expected generation index names match between JS and Python", { skip: !BACKEND_PRESENT }, () => {
+  const names = (source) => [...source.matchAll(/"(generations_[a-z_]+_idx)"/g)].map((match) => match[1]);
+  const js = names(read("src/lib/generation-indexes.js")).slice(0, 10);
+  const py = names(read("backend/apps/admin_dashboard/status_checks.py"));
+  assert.deepEqual(py, js);
 });
 
 for (const { what, js, py } of PAIRS) {

@@ -22,6 +22,7 @@ config({ path: ".env.local" });
 
 import { getDb } from "../src/lib/db";
 import { sql } from "drizzle-orm";
+import { GENERATION_INDEX_STATEMENTS } from "../src/lib/generation-indexes";
 
 const STATEMENTS = [
   {
@@ -34,27 +35,6 @@ const STATEMENTS = [
            where is_favorite and favorited_at is null`,
   },
   {
-    label: "generations_created_keyset_idx (All assets feed)",
-    sql: `create index concurrently if not exists generations_created_keyset_idx
-            on generations (created_at desc, id desc)`,
-  },
-  {
-    label: "generations_project_keyset_idx (project feed)",
-    sql: `create index concurrently if not exists generations_project_keyset_idx
-            on generations (project_id, created_at desc, id desc)`,
-  },
-  {
-    label: "generations_folder_keyset_idx (folder feed)",
-    sql: `create index concurrently if not exists generations_folder_keyset_idx
-            on generations (folder_id, created_at desc, id desc)`,
-  },
-  {
-    label: "generations_favorite_keyset_idx (Favourites feed)",
-    sql: `create index concurrently if not exists generations_favorite_keyset_idx
-            on generations (favorited_at desc, id desc)
-          where is_favorite`,
-  },
-  {
     // Same reasoning as the favorited_at backfill above, for the same reason
     // (Phase 3.5): a flagged row with a NULL flagged_at would sit outside the
     // (flagged_at, id) row comparison the partial index below is built on.
@@ -65,12 +45,10 @@ const STATEMENTS = [
              set flagged_at = created_at
            where flagged and flagged_at is null`,
   },
-  {
-    label: "generations_flagged_keyset_idx (flagged rows / eval-fixture export)",
-    sql: `create index concurrently if not exists generations_flagged_keyset_idx
-            on generations (flagged_at desc, id desc)
-          where flagged`,
-  },
+  ...GENERATION_INDEX_STATEMENTS.map((statement) => ({
+    label: statement.match(/exists\s+(\S+)/i)?.[1] ?? "generation index",
+    sql: statement,
+  })),
 ];
 
 async function main() {

@@ -1,7 +1,8 @@
 /**
  * Admin "Status" tab — live health checks for every external dependency the
  * app relies on: 5 generation providers (Gemini/NBP, Higgsfield, Seedance,
- * Kling, Omni) + Postgres + media storage + media delivery mode, 8 checks
+ * Kling, Omni) + Postgres + generation indexes + stuck jobs + media storage
+ * + media delivery mode, 10 checks
  * total (see CHECKS below — this count drifted out of sync with the actual
  * array once before; if you add or remove a check, update this number too).
  * See `.council/admin-status-page/design.md` for the full contract this
@@ -24,6 +25,10 @@ import { sql } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { checkStorageConnectivity } from "@/lib/storage";
 import { loadToken, isFresh } from "@/lib/providers/higgsfield-mcp";
+import {
+  checkGenerationIndexes as inspectGenerationIndexes,
+  checkStuckGenerations as inspectStuckGenerations,
+} from "@/lib/generation-health";
 
  
 
@@ -112,6 +117,14 @@ async function checkPostgres() {
   return { status: "ok", detail: "select 1 ok" };
 }
 
+async function checkGenerationIndexes() {
+  return inspectGenerationIndexes();
+}
+
+async function checkStuckGenerations() {
+  return inspectStuckGenerations();
+}
+
 // ── 6.6 storage — active media backend (S3 or GCS, per MEDIA_BACKEND) ──────
 async function checkStorage() {
   const detail = await checkStorageConnectivity();
@@ -148,7 +161,7 @@ async function checkMediaDelivery() {
   };
 }
 
-/** The eight checks, in the fixed display order. Exported for test injection. */
+/** The ten checks, in the fixed display order. Exported for test injection. */
 export const CHECKS = [
   { id: "gemini", name: "Gemini / Nano Banana Pro", fn: checkGemini },
   { id: "higgsfield", name: "Higgsfield MCP", fn: checkHiggsfield },
@@ -156,6 +169,8 @@ export const CHECKS = [
   { id: "kling", name: "KlingAI Image", fn: checkKling },
   { id: "omni", name: "Gemini Omni Flash", fn: checkOmni },
   { id: "postgres", name: "Postgres", fn: checkPostgres },
+  { id: "generation-indexes", name: "Generation Indexes", fn: checkGenerationIndexes },
+  { id: "stuck-generations", name: "Stuck Generations", fn: checkStuckGenerations },
   { id: "storage", name: "Media Storage", fn: checkStorage },
   { id: "media-delivery", name: "Media Delivery", fn: checkMediaDelivery },
 ];
