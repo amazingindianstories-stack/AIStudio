@@ -44,7 +44,7 @@ current verification.
 | REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | in_progress | 2026-08-26 | Codex | Local `0c15e63` serially spools/judges candidates and caps N at 4/3/2 for 1K/2K/4K; helper tests pass. Exit: deploy and observe production memory/latency. |
 | REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | open | 2026-08-18 | Unassigned | Add a provider abort before the platform limit. |
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
-| REL-05 | Client scope and SQL scope can drift | P2 | open | 2026-08-18 | Unassigned | Add property/parity tests. |
+| REL-05 | Client scope and SQL scope can drift | P2 | in_progress | 2026-08-26 | Codex | A disposable-PostgreSQL integration test now compares client membership/order with SQL across projects, folders, unsorted, kind, favourites, literal search metacharacters, timestamp ties, and every keyset page; CI runs it after migrations. Exit: merge and observe CI on the production migration chain. |
 | REL-06 | `db:push` does not create indexes | P2 | open | 2026-08-18 | Unassigned | Add declared-vs-live index verification. |
 | REL-07 | Repeated poll errors can leave a row running forever | P2 | open | 2026-08-18 | Unassigned | Add stuck-row monitoring without changing terminal semantics. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | open | 2026-08-18 | Unassigned | Measure provider outputs where practical. |

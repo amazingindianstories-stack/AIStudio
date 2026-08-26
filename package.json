@@ -16,6 +16,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "node scripts/run-unit-tests.mjs",
+    "test:db": "tsx --tsconfig jsconfig.json --test src/lib/feed-scope-db.integration.js",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.js",
     "db:optimize": "tsx scripts/optimize-history-indexes.js",
