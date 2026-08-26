@@ -11,6 +11,7 @@ import re
 import requests
 
 from .. import config
+from ..shot_spec import parse_ref_roles
 from ..video_directive import build_video_directive
 
 
@@ -43,6 +44,17 @@ def _legacy_hero_directive(ref_count: int) -> str:
         'nothing. Anything under "NEGATIVE PROMPT" or phrased as "no …" is '
         "strictly forbidden in every frame. "
     )
+
+
+def build_ref_roles(refs: list[dict], raw_prompt: str) -> dict[int, str] | None:
+    """Map only references actually attached to this request to prompt roles."""
+    role_by_tag = parse_ref_roles(raw_prompt)
+    roles = {
+        ref["index"]: role_by_tag[ref["tag"]]
+        for ref in refs
+        if ref.get("tag") in role_by_tag and isinstance(ref.get("index"), int)
+    }
+    return roles or None
 
 
 class SeedanceError(Exception):
@@ -155,7 +167,9 @@ def create_video_task(
         text = (
             _legacy_hero_directive(len(refs)) + tagged_prompt
             if legacy_directive()
-            else build_video_directive(tagged_prompt, len(refs), "bracket")
+            else build_video_directive(
+                tagged_prompt, len(refs), "bracket", build_ref_roles(refs, prompt)
+            )
         )
 
     content: list[dict] = [{"type": "text", "text": text}]
