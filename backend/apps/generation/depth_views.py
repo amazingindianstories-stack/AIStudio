@@ -103,6 +103,7 @@ def worker_heartbeat(request):
         "device": (body.get("device") or None) and str(body.get("device"))[:50],
         "status": "busy" if body.get("status") == "busy" else "idle",
         "currentJobId": body.get("currentJobId") or None,
+        "currentClaimId": body.get("currentClaimId") or None,
         "ramLimitMb": round(body["ramLimitMb"]) if isinstance(body.get("ramLimitMb"), (int, float)) else None,
         "ramUsedMb": round(body["ramUsedMb"]) if isinstance(body.get("ramUsedMb"), (int, float)) else None,
     })
@@ -126,20 +127,21 @@ def worker_claim(request):
     ref_videos = job.get("referenceVideos")
     input_ref = ref_videos[0] if isinstance(ref_videos, list) and ref_videos else None
     if not input_ref:
-        depth_jobs_service.complete_depth_job(job["id"], ok=False, error="No input video was attached to this job.")
+        depth_jobs_service.complete_depth_job(job["id"], job["claimId"], ok=False, error="No input video was attached to this job.")
         return Response({"job": None})
 
     try:
         input_video_url = storage.sign_stored_ref(input_ref, 30 * 60)
     except Exception as e:  # noqa: BLE001
         depth_jobs_service.complete_depth_job(
-            job["id"], ok=False, error=f"Could not produce a download URL for the input video: {e}"
+            job["id"], job["claimId"], ok=False, error=f"Could not produce a download URL for the input video: {e}"
         )
         return Response({"job": None})
 
     return Response({
         "job": {
             "id": job["id"],
+            "claimId": job["claimId"],
             "inputVideoUrl": input_video_url,
             "encoder": job.get("encoder") or "vitb",
             "trackCharacters": job.get("trackCharacters") is True,
@@ -154,11 +156,13 @@ def worker_progress(request):
         return _unauthorized()
     body = request.data or {}
     job_id = (body.get("jobId") or "").strip()
+    claim_id = (body.get("claimId") or "").strip()
     percent = body.get("percent")
-    if not job_id or not isinstance(percent, (int, float)):
-        return Response({"error": "jobId and a numeric percent are required."}, status=400)
+    if not job_id or not claim_id or not isinstance(percent, (int, float)):
+        return Response({"error": "jobId, claimId, and a numeric percent are required."}, status=400)
     message = body.get("message")
-    depth_jobs_service.report_depth_progress(job_id, percent, str(message)[:300] if isinstance(message, str) else None)
+    if not depth_jobs_service.report_depth_progress(job_id, claim_id, percent, str(message)[:300] if isinstance(message, str) else None):
+        return Response({"error": "STALE_CLAIM"}, status=409)
     return Response({"ok": True})
 
 
@@ -169,9 +173,12 @@ def worker_upload_url(request):
         return _unauthorized()
     body = request.data or {}
     job_id = (body.get("jobId") or "").strip()
-    if not job_id:
-        return Response({"error": "jobId is required."}, status=400)
-    key = f"depth-output/{job_id}.mp4"
+    claim_id = (body.get("claimId") or "").strip()
+    if not job_id or not claim_id:
+        return Response({"error": "jobId and claimId are required."}, status=400)
+    if not depth_jobs_service.is_active_depth_claim(job_id, claim_id):
+        return Response({"error": "STALE_CLAIM"}, status=409)
+    key = f"depth-output/{job_id}/{claim_id}.mp4"
     try:
         upload_url = storage.get_signed_upload_url(key, "video/mp4")
         return Response({"key": key, "uploadUrl": upload_url})
@@ -186,21 +193,24 @@ def worker_complete(request):
         return _unauthorized()
     body = request.data or {}
     job_id = (body.get("jobId") or "").strip()
-    if not job_id:
-        return Response({"error": "jobId is required."}, status=400)
+    claim_id = (body.get("claimId") or "").strip()
+    if not job_id or not claim_id:
+        return Response({"error": "jobId and claimId are required."}, status=400)
 
     if body.get("ok") is True:
-        key = (body.get("key") or "").strip()
-        if not key:
-            return Response({"error": "key is required when ok=true."}, status=400)
+        key = f"depth-output/{job_id}/{claim_id}.mp4"
         aspect_ratio = body.get("aspectRatio") if isinstance(body.get("aspectRatio"), str) else None
-        depth_jobs_service.complete_depth_job(job_id, ok=True, url=f"/api/media/{key}", aspect_ratio=aspect_ratio)
+        completed = depth_jobs_service.complete_depth_job(job_id, claim_id, ok=True, url=f"/api/media/{key}", aspect_ratio=aspect_ratio)
+        if not completed:
+            return Response({"error": "STALE_CLAIM"}, status=409)
         log_activity(None, "depth_complete", {"id": job_id})
     else:
         error = body.get("error")
-        depth_jobs_service.complete_depth_job(
-            job_id, ok=False, error=str(error)[:2000] if isinstance(error, str) else "Depth worker reported failure."
+        completed = depth_jobs_service.complete_depth_job(
+            job_id, claim_id, ok=False, error=str(error)[:2000] if isinstance(error, str) else "Depth worker reported failure."
         )
+        if not completed:
+            return Response({"error": "STALE_CLAIM"}, status=409)
         log_activity(None, "depth_failed", {"id": job_id, "error": error})
 
     return Response({"ok": True})

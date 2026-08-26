@@ -18,26 +18,26 @@ export async function POST(req) {
   }
   const body = await req.json().catch(() => ({}));
   const jobId = (body.jobId || "").trim();
-  if (!jobId) {
-    return NextResponse.json({ error: "jobId is required." }, { status: 400 });
+  const claimId = (body.claimId || "").trim();
+  if (!jobId || !claimId) {
+    return NextResponse.json({ error: "jobId and claimId are required." }, { status: 400 });
   }
 
   if (body.ok === true) {
-    const key = (body.key || "").trim();
-    if (!key) {
-      return NextResponse.json({ error: "key is required when ok=true." }, { status: 400 });
-    }
-    await completeDepthJob(jobId, {
+    const key = `depth-output/${jobId}/${claimId}.mp4`;
+    const completed = await completeDepthJob(jobId, claimId, {
       ok: true,
       url: `/api/media/${key}`,
       aspectRatio: typeof body.aspectRatio === "string" ? body.aspectRatio : undefined,
     });
+    if (!completed) return NextResponse.json({ error: "STALE_CLAIM" }, { status: 409 });
     await logActivity(null, "depth_complete", { id: jobId });
   } else {
-    await completeDepthJob(jobId, {
+    const completed = await completeDepthJob(jobId, claimId, {
       ok: false,
       error: typeof body.error === "string" ? body.error.slice(0, 2000) : "Depth worker reported failure.",
     });
+    if (!completed) return NextResponse.json({ error: "STALE_CLAIM" }, { status: 409 });
     await logActivity(null, "depth_failed", { id: jobId, error: body.error });
   }
 

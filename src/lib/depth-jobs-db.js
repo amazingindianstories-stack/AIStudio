@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations, depthWorkers } from "./schema";
@@ -28,9 +29,12 @@ export const WORKER_STALE_MS = 45_000;
 export async function claimNextDepthJob(workerId) {
   const db = await getDb();
   const now = Date.now();
+  const claimId = randomUUID();
   const res = await db.execute(sql`
     update ${generations}
-    set status = 'running', updated_at = ${now}, progress_percent = 0, progress_message = 'Claimed by worker'
+    set status = 'running', updated_at = ${now}, progress_percent = 0,
+        progress_message = 'Claimed by worker', depth_claim_id = ${claimId},
+        depth_claim_worker_id = ${workerId}
     where id = (
       select id from ${generations}
       where kind = 'depth' and status = 'queued'
@@ -45,6 +49,7 @@ export async function claimNextDepthJob(workerId) {
   const r = rows[0];
   return {
     id: r.id,
+    claimId: r.depth_claim_id,
     prompt: r.prompt,
     model: r.model,
     // The encoder choice (vits/vitb/vitl) rides in `resolution` — see the
@@ -63,27 +68,33 @@ export async function claimNextDepthJob(workerId) {
  * has already completed (or, in a multi-worker future, been reassigned)
  * can't resurrect stale data on a finished row.
  */
-export async function reportDepthProgress(jobId, percent, message) {
+export async function reportDepthProgress(jobId, claimId, percent, message) {
   const db = await getDb();
-  await db
+  const rows = await db
     .update(generations)
     .set({
       progressPercent: Math.max(0, Math.min(100, Math.round(percent))),
       progressMessage: message ?? null,
       updatedAt: Date.now(),
     })
-    .where(and(eq(generations.id, jobId), eq(generations.status, "running")));
+    .where(and(
+      eq(generations.id, jobId),
+      eq(generations.status, "running"),
+      eq(generations.depthClaimId, claimId)
+    ))
+    .returning({ id: generations.id });
+  return rows.length > 0;
 }
 
 /** Mark a depth job finished — success with the stored output key/aspect
  *  ratio, or failure with a message. progress is cleared either way: once a
  *  row leaves "running", 0-100 no longer means anything for it, and leaving
  *  a stale 87% on a failed row would read as "almost done". */
-export async function completeDepthJob(jobId, result) {
+export async function completeDepthJob(jobId, claimId, result) {
   const db = await getDb();
   const now = Date.now();
   if (result.ok) {
-    await db
+    const rows = await db
       .update(generations)
       .set({
         status: "succeeded",
@@ -91,21 +102,43 @@ export async function completeDepthJob(jobId, result) {
         aspectRatio: result.aspectRatio ?? sql`aspect_ratio`,
         progressPercent: null,
         progressMessage: null,
+        depthClaimId: null,
+        depthClaimWorkerId: null,
         updatedAt: now,
       })
-      .where(eq(generations.id, jobId));
+      .where(and(eq(generations.id, jobId), eq(generations.status, "running"), eq(generations.depthClaimId, claimId)))
+      .returning({ id: generations.id });
+    return rows.length > 0;
   } else {
-    await db
+    const rows = await db
       .update(generations)
       .set({
         status: "failed",
         error: result.error || "Depth worker reported failure.",
         progressPercent: null,
         progressMessage: null,
+        depthClaimId: null,
+        depthClaimWorkerId: null,
         updatedAt: now,
       })
-      .where(eq(generations.id, jobId));
+      .where(and(eq(generations.id, jobId), eq(generations.status, "running"), eq(generations.depthClaimId, claimId)))
+      .returning({ id: generations.id });
+    return rows.length > 0;
   }
+}
+
+export async function isActiveDepthClaim(jobId, claimId) {
+  const db = await getDb();
+  const rows = await db
+    .select({ id: generations.id })
+    .from(generations)
+    .where(and(
+      eq(generations.id, jobId),
+      eq(generations.status, "running"),
+      eq(generations.depthClaimId, claimId)
+    ))
+    .limit(1);
+  return rows.length > 0;
 }
 
 /** Upsert a worker's heartbeat row. `workerId` (not the row's own uuid) is
@@ -119,6 +152,7 @@ export async function upsertDepthWorkerHeartbeat(w) {
     device: w.device ?? null,
     status: w.status ?? "idle",
     currentJobId: w.currentJobId ?? null,
+    currentClaimId: w.currentClaimId ?? null,
     ramLimitMb: w.ramLimitMb ?? null,
     ramUsedMb: w.ramUsedMb ?? null,
     lastSeenAt: now,
@@ -134,11 +168,49 @@ export async function upsertDepthWorkerHeartbeat(w) {
         device: values.device,
         status: values.status,
         currentJobId: values.currentJobId,
+        currentClaimId: values.currentClaimId,
         ramLimitMb: values.ramLimitMb,
         ramUsedMb: values.ramUsedMb,
         lastSeenAt: values.lastSeenAt,
       },
     });
+}
+
+export const MAX_DEPTH_REAP_ATTEMPTS = 3;
+const CLAIM_GRACE_MS = 60_000;
+const REAP_INTERVAL_MS = 30_000;
+let lastDepthReapAt = 0;
+
+/** Reassign dead-worker work using the claim id as a fencing token. */
+export async function reapStaleDepthJobs({ force = false, now = Date.now() } = {}) {
+  if (!force && now - lastDepthReapAt < REAP_INTERVAL_MS) return 0;
+  lastDepthReapAt = now;
+  const db = await getDb();
+  const res = await db.execute(sql`
+    update ${generations}
+    set
+      depth_reap_attempts = depth_reap_attempts + 1,
+      status = case when depth_reap_attempts + 1 >= ${MAX_DEPTH_REAP_ATTEMPTS} then 'failed' else 'queued' end,
+      error = case when depth_reap_attempts + 1 >= ${MAX_DEPTH_REAP_ATTEMPTS}
+        then 'Depth worker went offline while processing this job, and it could not be recovered after multiple attempts.'
+        else null end,
+      progress_percent = null,
+      progress_message = null,
+      depth_claim_id = null,
+      depth_claim_worker_id = null,
+      updated_at = ${now}
+    where kind = 'depth' and status = 'running'
+      and updated_at < ${now - CLAIM_GRACE_MS}
+      and not exists (
+        select 1 from ${depthWorkers} w
+        where w.worker_id = ${generations}.depth_claim_worker_id
+          and w.current_job_id = ${generations}.id
+          and w.current_claim_id = ${generations}.depth_claim_id
+          and w.last_seen_at >= ${now - WORKER_STALE_MS}
+      )
+    returning id
+  `);
+  return (res.rows ?? res).length;
 }
 
 /**
@@ -149,6 +221,7 @@ export async function upsertDepthWorkerHeartbeat(w) {
  * this is polled from the browser every few seconds.
  */
 export async function readDepthWorkerStatus() {
+  await reapStaleDepthJobs();
   const db = await getDb();
   const now = Date.now();
   const workers = await db.select().from(depthWorkers);

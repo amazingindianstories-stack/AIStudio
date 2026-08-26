@@ -40,7 +40,7 @@ current verification.
 | COST-05 | Video best-of-N can bill after partial failure | P2 | open | 2026-08-18 | Unassigned | Revisit before enabling video best-of-N. |
 | COST-06 | Provider costs mix exact and estimated values | P2 | open | 2026-08-18 | Unassigned | Mark estimates and reconcile provider usage. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
-| REL-01 | Dead depth worker strands a running job | P1 | open | 2026-08-25 | Codex | Local commit `fb7046b` is excluded pending ownership-safe completion and kill tests. |
+| REL-01 | Dead depth worker strands a running job | P1 | resolved | 2026-08-26 | Codex | Claim-fenced bounded recovery implemented in Next.js/Django/worker; PostgreSQL tests prove stale claims cannot progress or complete reassigned work, matching heartbeats prevent reaping, and the third loss fails permanently. The unsafe `fb7046b` implementation was not reused. |
 | REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | open | 2026-08-18 | Unassigned | Spool candidates and judge one at a time. |
 | REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | open | 2026-08-18 | Unassigned | Add a provider abort before the platform limit. |
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
@@ -122,3 +122,6 @@ current verification.
   paginated GCS API scan and mode-0600 resumable checkpoint. Live verification
   completed in 14 pages: 6,478 referenced, 6,400 present, 78 missing. COST-01
   and COST-02 remain blocked on valid exact-bucket AWS source access.
+- 2026-08-26: resolved REL-01 with per-claim fencing, claim-scoped output
+  keys, matching worker/job/claim heartbeats, and a three-attempt recovery
+  bound. VER-04 remains open for the real GPU/all-encoder kill exercise.

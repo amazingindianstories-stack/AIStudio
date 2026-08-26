@@ -40,6 +40,11 @@ class Generation(models.Model):
     # See schema.js's trackCharacters comment — YOLOv8-seg person tracking
     # composited onto the depth map, worker-side toggle.
     track_characters = models.BooleanField(null=True)
+    # Depth-worker fencing lease. A fresh value is assigned on every claim;
+    # stale workers cannot update a row after it has been reassigned.
+    depth_claim_id = models.UUIDField(null=True)
+    depth_claim_worker_id = models.TextField(null=True)
+    depth_reap_attempts = models.IntegerField(default=0)
     # Reproducibility seed (Phase 3.1) — mirrors schema.js's `seed` column
     # verbatim, see that file's comment for the full semantics (only filled
     # in for models config.supports_seed confirms; null means "not asked" or
@@ -100,6 +105,7 @@ class DepthWorker(models.Model):
     device = models.TextField(null=True)
     status = models.TextField(default="idle")
     current_job_id = models.UUIDField(null=True)
+    current_claim_id = models.UUIDField(null=True)
     ram_limit_mb = models.IntegerField(null=True)
     ram_used_mb = models.IntegerField(null=True)
     last_seen_at = models.BigIntegerField()

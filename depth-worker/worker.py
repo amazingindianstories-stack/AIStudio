@@ -142,6 +142,7 @@ def _watchdog_loop():
 # ── heartbeat ───────────────────────────────────────────────────────────
 
 _current_job_id = None
+_current_claim_id = None
 _worker_status = "idle"
 
 
@@ -157,6 +158,7 @@ def _heartbeat_loop():
                     "device": _device_cached[0],
                     "status": _worker_status,
                     "currentJobId": _current_job_id,
+                    "currentClaimId": _current_claim_id,
                     "ramLimitMb": RAM_LIMIT_MB,
                     "ramUsedMb": round(proc.memory_info().rss / (1024 * 1024)),
                 },
@@ -204,20 +206,20 @@ def _load_model(encoder: str):
 # ── one job ─────────────────────────────────────────────────────────────
 
 
-def _report_progress(job_id: str, percent: int, message: str):
+def _report_progress(job_id: str, claim_id: str, percent: int, message: str):
     try:
-        _post("/api/worker/depth/progress", {"jobId": job_id, "percent": percent, "message": message}, timeout=10)
+        _post("/api/worker/depth/progress", {"jobId": job_id, "claimId": claim_id, "percent": percent, "message": message}, timeout=10)
     except Exception as e:  # noqa: BLE001 — a dropped progress ping isn't worth failing the job over
         print(f"[worker] progress report failed (continuing): {e}")
 
 
-def _complete_ok(job_id: str, key: str, aspect_ratio: str | None):
-    _post("/api/worker/depth/complete", {"jobId": job_id, "ok": True, "key": key, "aspectRatio": aspect_ratio})
+def _complete_ok(job_id: str, claim_id: str, aspect_ratio: str | None):
+    _post("/api/worker/depth/complete", {"jobId": job_id, "claimId": claim_id, "ok": True, "aspectRatio": aspect_ratio})
 
 
-def _complete_failed(job_id: str, error: str):
+def _complete_failed(job_id: str, claim_id: str, error: str):
     try:
-        _post("/api/worker/depth/complete", {"jobId": job_id, "ok": False, "error": error[:2000]})
+        _post("/api/worker/depth/complete", {"jobId": job_id, "claimId": claim_id, "ok": False, "error": error[:2000]})
     except Exception as e:  # noqa: BLE001 — best-effort; the row is left "running" and reap logic elsewhere is out of scope for v1
         print(f"[worker] could not report failure for {job_id}: {e}")
 
@@ -237,18 +239,18 @@ def _nearest_aspect_ratio(w: int, h: int) -> str:
     return best[0]
 
 
-def _run_depth(input_path: str, output_path: str, encoder: str, track_characters: bool, job_id: str):
+def _run_depth(input_path: str, output_path: str, encoder: str, track_characters: bool, job_id: str, claim_id: str):
     sys.path.insert(0, str(VDA_REPO))
     from utils.dc_utils import read_video_frames, save_video  # noqa: E402
 
-    _report_progress(job_id, 5, "Loading model")
+    _report_progress(job_id, claim_id, 5, "Loading model")
     model = _load_model(encoder)
     device = _device_cached[0]
 
-    _report_progress(job_id, 15, "Reading input video")
+    _report_progress(job_id, claim_id, 15, "Reading input video")
     frames, fps = read_video_frames(input_path, -1, -1, 1280)
 
-    _report_progress(job_id, 30, "Running depth estimation")
+    _report_progress(job_id, claim_id, 30, "Running depth estimation")
     # infer_video_depth has no per-frame progress callback in the stock API
     # (confirmed reading run.py) — the 30%/70% milestones below bracket this
     # call rather than tracking real per-frame progress through it. Patching
@@ -269,10 +271,10 @@ def _run_depth(input_path: str, output_path: str, encoder: str, track_characters
     depths, out_fps = model.infer_video_depth(frames, fps, input_size=518, device=device, fp32=fp32)
 
     if track_characters:
-        _report_progress(job_id, 70, "Compositing character tracking")
+        _report_progress(job_id, claim_id, 70, "Compositing character tracking")
         _write_tracked_composite(frames, depths, output_path, out_fps)
     else:
-        _report_progress(job_id, 85, "Encoding output video")
+        _report_progress(job_id, claim_id, 85, "Encoding output video")
         # Plain grayscale, not the inferno colormap dc_utils.save_video
         # defaults to — matches vda_video_test.ipynb's GRAYSCALE=True (the
         # reference quality bar: see output/fal test_vis.mp4 in the sibling
@@ -342,16 +344,18 @@ def _write_tracked_composite(frames, depths, output_path: str, fps: float):
 
 
 def _process_job(job: dict):
-    global _current_job_id, _worker_status
+    global _current_job_id, _current_claim_id, _worker_status
     job_id = job["id"]
+    claim_id = job["claimId"]
     _current_job_id = job_id
+    _current_claim_id = claim_id
     _worker_status = "busy"
 
     with tempfile.TemporaryDirectory(prefix="depth-job-") as tmp:
         input_path = os.path.join(tmp, "input.mp4")
         output_path = os.path.join(tmp, "output.mp4")
         try:
-            _report_progress(job_id, 0, "Downloading input video")
+            _report_progress(job_id, claim_id, 0, "Downloading input video")
             with requests.get(job["inputVideoUrl"], stream=True, timeout=120) as r:
                 r.raise_for_status()
                 with open(input_path, "wb") as f:
@@ -359,24 +363,25 @@ def _process_job(job: dict):
                         f.write(chunk)
 
             aspect_ratio = _run_depth(
-                input_path, output_path, job.get("encoder") or "vitb", job.get("trackCharacters") is True, job_id
+                input_path, output_path, job.get("encoder") or "vitb", job.get("trackCharacters") is True, job_id, claim_id
             )
 
-            _report_progress(job_id, 92, "Requesting an upload slot")
-            upload = _post("/api/worker/depth/upload-url", {"jobId": job_id})
+            _report_progress(job_id, claim_id, 92, "Requesting an upload slot")
+            upload = _post("/api/worker/depth/upload-url", {"jobId": job_id, "claimId": claim_id})
 
-            _report_progress(job_id, 95, "Uploading result")
+            _report_progress(job_id, claim_id, 95, "Uploading result")
             with open(output_path, "rb") as f:
                 put = requests.put(upload["uploadUrl"], data=f, headers={"Content-Type": "video/mp4"}, timeout=300)
                 put.raise_for_status()
 
-            _complete_ok(job_id, upload["key"], aspect_ratio)
+            _complete_ok(job_id, claim_id, aspect_ratio)
             print(f"[worker] job {job_id} done")
         except Exception as e:  # noqa: BLE001 — any failure here must still report back, not just crash the loop
             print(f"[worker] job {job_id} failed: {e}")
-            _complete_failed(job_id, str(e))
+            _complete_failed(job_id, claim_id, str(e))
         finally:
             _current_job_id = None
+            _current_claim_id = None
             _worker_status = "idle"
 
 

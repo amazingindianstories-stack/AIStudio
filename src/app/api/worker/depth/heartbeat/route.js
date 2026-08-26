@@ -25,6 +25,7 @@ export async function POST(req) {
     device: typeof body.device === "string" ? body.device.slice(0, 50) : undefined,
     status: body.status === "busy" ? "busy" : "idle",
     currentJobId: typeof body.currentJobId === "string" ? body.currentJobId : undefined,
+    currentClaimId: typeof body.currentClaimId === "string" ? body.currentClaimId : undefined,
     ramLimitMb: Number.isFinite(body.ramLimitMb) ? Math.round(body.ramLimitMb) : undefined,
     ramUsedMb: Number.isFinite(body.ramUsedMb) ? Math.round(body.ramUsedMb) : undefined,
   });

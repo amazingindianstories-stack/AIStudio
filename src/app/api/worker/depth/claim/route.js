@@ -51,7 +51,7 @@ export async function POST(req) {
     // Shouldn't happen (the enqueue route requires an input video), but a
     // job with nothing to process can't be handed to the worker as if it
     // could — fail it now rather than silently wedging.
-    await completeDepthJob(job.id, { ok: false, error: "No input video was attached to this job." });
+    await completeDepthJob(job.id, job.claimId, { ok: false, error: "No input video was attached to this job." });
     return NextResponse.json({ job: null });
   }
 
@@ -59,7 +59,7 @@ export async function POST(req) {
   try {
     inputVideoUrl = await getSignedReadUrl(inputRef, 30 * 60);
   } catch (e) {
-    await completeDepthJob(job.id, {
+    await completeDepthJob(job.id, job.claimId, {
       ok: false,
       error: `Could not produce a download URL for the input video: ${e?.message ?? e}`,
     });
@@ -69,6 +69,7 @@ export async function POST(req) {
   return NextResponse.json({
     job: {
       id: job.id,
+      claimId: job.claimId,
       inputVideoUrl,
       encoder: job.encoder ?? "vitb",
       // YOLOv8-seg person tracking composited onto the depth map — see

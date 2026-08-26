@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyWorkerToken } from "@/lib/depth-worker-auth";
 import { getSignedUploadUrl } from "@/lib/storage";
+import { isActiveDepthClaim } from "@/lib/depth-jobs-db";
 
 export const runtime = "nodejs";
 
@@ -17,10 +18,14 @@ export async function POST(req) {
   }
   const body = await req.json().catch(() => ({}));
   const jobId = (body.jobId || "").trim();
-  if (!jobId) {
-    return NextResponse.json({ error: "jobId is required." }, { status: 400 });
+  const claimId = (body.claimId || "").trim();
+  if (!jobId || !claimId) {
+    return NextResponse.json({ error: "jobId and claimId are required." }, { status: 400 });
   }
-  const key = `depth-output/${jobId}.mp4`;
+  if (!(await isActiveDepthClaim(jobId, claimId))) {
+    return NextResponse.json({ error: "STALE_CLAIM" }, { status: 409 });
+  }
+  const key = `depth-output/${jobId}/${claimId}.mp4`;
   try {
     const uploadUrl = await getSignedUploadUrl(key, "video/mp4");
     return NextResponse.json({ key, uploadUrl });
