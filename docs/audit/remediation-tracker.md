@@ -41,7 +41,7 @@ current verification.
 | COST-06 | Provider costs mix exact and estimated values | P2 | open | 2026-08-18 | Unassigned | Mark estimates and reconcile provider usage. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-27 | Codex | Claim-fenced implementation `4301601` remains isolated on `fix/audit-p0` and is intentionally held out of this release until the Vercel/Django/GPU worker rollout and VER-04 kill exercise can be coordinated. The unsafe `fb7046b` implementation was not reused. |
-| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | resolved | 2026-08-26 | Codex | Next.js and Django now generate candidates serially, immediately spool bytes to request-scoped temporary storage, judge one at a time, and reload only the winner. Actual render size caps N at 4/3/2 for 1K/2K/4K; helper tests cover caps, serial execution, and partial success. |
+| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | in_progress | 2026-08-26 | Codex | Local `0c15e63` serially spools/judges candidates and caps N at 4/3/2 for 1K/2K/4K; helper tests pass. Exit: deploy and observe production memory/latency. |
 | REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | open | 2026-08-18 | Unassigned | Add a provider abort before the platform limit. |
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
 | REL-05 | Client scope and SQL scope can drift | P2 | open | 2026-08-18 | Unassigned | Add property/parity tests. |
@@ -81,7 +81,7 @@ current verification.
 | VER-12 | Audio surcharge pricing lacks invoice verification | P3 | open | 2026-08-18 | Unassigned | Reconcile an invoice. |
 | ARCH-01 | API responses use multiple envelopes | P2 | open | 2026-08-18 | Unassigned | Address only with migration decision. |
 | ARCH-02 | Storage module contains dual provider branches | P2 | deferred | 2026-08-25 | Unassigned | Delete the S3 branch after COST-01 rather than abstracting it. |
-| ARCH-03 | Concurrency cap is global, not per user | P1 | resolved | 2026-08-26 | Codex | Added `maxConcurrentJobs` (default 1 per kind) and fair eligible-job ranking in both queue implementations. PostgreSQL tests prove an older blocked second job cannot hide a free slot from another user, overrides work, kinds remain independent, and UUIDs break timestamp ties. |
+| ARCH-03 | Concurrency cap is global, not per user | P1 | in_progress | 2026-08-26 | Codex | Local `83b80d6` adds `maxConcurrentJobs` and fair eligible-job ranking; PostgreSQL fairness/override/tie tests pass. Exit: deploy and smoke-test with two users. |
 | ARCH-04 | Capabilities and prices key on display-name regexes | P2 | open | 2026-08-18 | Unassigned | Add explicit provider/capability metadata. |
 | ARCH-05 | Generation failures return HTTP 200 | P2 | deferred | 2026-08-25 | Unassigned | Preserve response contract; add observability instead. |
 | ARCH-06 | Zustand store is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
@@ -89,15 +89,15 @@ current verification.
 | ARCH-08 | Mutable module state sits outside stores | P3 | open | 2026-08-18 | Unassigned | Inventory before changing semantics. |
 | DX-01 | Git history is bloated by research binaries | P2 | open | 2026-08-18 | Unassigned | Choose history rewrite or shallow-clone policy. |
 | DX-02 | ESLint configuration is missing | P2 | open | 2026-08-18 | Unassigned | Add flat config after P0. |
-| DX-03 | No CI gate | P1 | resolved | 2026-08-26 | Codex | Added pull-request/main CI with Node 22 tests/build and Python 3.12 Django checks, migration drift detection, and the full suite against PostgreSQL 16. No billed probes run in CI. |
+| DX-03 | No CI gate | P1 | in_progress | 2026-08-26 | Codex | Local `11528f5` adds Node/build and PostgreSQL-backed Django CI without billed probes. Exit: push a PR and record the first green run. |
 | DX-04 | Dead root `scratch.js` | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-05 | Setup script referenced the wrong bucket/deployment | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-06 | Documentation contains `.ts`/`.tsx` path drift | P3 | open | 2026-08-18 | Unassigned | Sweep after architecture stabilizes. |
 | DX-07 | Django history paths in `CLAUDE.md` are stale | P3 | open | 2026-08-18 | Unassigned | Sweep after migration decision. |
 | DX-08 | Backend audit body presents resolved work as open | P3 | open | 2026-08-18 | Unassigned | Add per-finding resolution markers. |
 | DX-09 | Main auto-deploys with no preview gate | P2 | open | 2026-08-25 | Unassigned | Use audit branch previews now; add protected CI later. |
-| DX-10 | Script-test naming convention is unenforced | P3 | resolved | 2026-08-26 | Codex | The portable test runner fails if `scripts/**/*.test.js` exists, keeping live probe scripts outside unit-test discovery. |
-| DX-11 | Test discovery uses non-portable shell `find` | P3 | resolved | 2026-08-26 | Codex | `npm test` now uses a cross-platform Node walker to discover sorted `src/**/*.test.js` files and invoke `tsx` explicitly. |
+| DX-10 | Script-test naming convention is unenforced | P3 | in_progress | 2026-08-26 | Codex | Local `11528f5` makes the runner reject `scripts/**/*.test.js`; exit with the first green CI run. |
+| DX-11 | Test discovery uses non-portable shell `find` | P3 | in_progress | 2026-08-26 | Codex | Local `11528f5` replaces shell `find` with a portable Node walker; exit with the first green CI run. |
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | P2 | open | 2026-08-18 | Unassigned | Build fixtures before changing directives. |
 | QUAL-02 | Eval harness has no fixtures or CI gate | P2 | open | 2026-08-18 | Unassigned | Commit at least ten representative fixtures. |
 | QUAL-03 | Flagged-generation signal has no consumer | P3 | open | 2026-08-18 | Unassigned | Add admin review and fixture export. |
@@ -122,9 +122,9 @@ current verification.
   paginated GCS API scan and mode-0600 resumable checkpoint. Live verification
   completed in 14 pages: 6,478 referenced, 6,400 present, 78 missing. COST-01
   and COST-02 remain blocked on valid exact-bucket AWS source access.
-- 2026-08-26: resolved ARCH-03 with an admin-configurable per-user/per-kind
+- 2026-08-26: implemented ARCH-03 locally with an admin-configurable per-user/per-kind
   cap and fair queue ranking that skips jobs whose owner is already at cap.
-- 2026-08-26: resolved REL-02 by serially spooling and judging best-of-N
+- 2026-08-26: implemented REL-02 locally by serially spooling and judging best-of-N
   candidates, with lower candidate ceilings for larger render sizes.
-- 2026-08-26: resolved DX-03, DX-10, and DX-11 with portable unit-test
+- 2026-08-26: implemented DX-03, DX-10, and DX-11 locally with portable unit-test
   discovery and PostgreSQL-backed GitHub Actions gates for both runtimes.
