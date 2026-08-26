@@ -40,8 +40,8 @@ current verification.
 | COST-05 | Video best-of-N can bill after partial failure | P2 | open | 2026-08-18 | Unassigned | Revisit before enabling video best-of-N. |
 | COST-06 | Provider costs mix exact and estimated values | P2 | open | 2026-08-18 | Unassigned | Mark estimates and reconcile provider usage. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
-| REL-01 | Dead depth worker strands a running job | P1 | open | 2026-08-25 | Codex | Local commit `fb7046b` is excluded pending ownership-safe completion and kill tests. |
-| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | open | 2026-08-18 | Unassigned | Spool candidates and judge one at a time. |
+| REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-27 | Codex | Claim-fenced implementation `4301601` remains isolated on `fix/audit-p0` and is intentionally held out of this release until the Vercel/Django/GPU worker rollout and VER-04 kill exercise can be coordinated. The unsafe `fb7046b` implementation was not reused. |
+| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | resolved | 2026-08-26 | Codex | Next.js and Django now generate candidates serially, immediately spool bytes to request-scoped temporary storage, judge one at a time, and reload only the winner. Actual render size caps N at 4/3/2 for 1K/2K/4K; helper tests cover caps, serial execution, and partial success. |
 | REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | open | 2026-08-18 | Unassigned | Add a provider abort before the platform limit. |
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
 | REL-05 | Client scope and SQL scope can drift | P2 | open | 2026-08-18 | Unassigned | Add property/parity tests. |
@@ -124,3 +124,5 @@ current verification.
   and COST-02 remain blocked on valid exact-bucket AWS source access.
 - 2026-08-26: resolved ARCH-03 with an admin-configurable per-user/per-kind
   cap and fair queue ranking that skips jobs whose owner is already at cap.
+- 2026-08-26: resolved REL-02 by serially spooling and judging best-of-N
+  candidates, with lower candidate ceilings for larger render sizes.

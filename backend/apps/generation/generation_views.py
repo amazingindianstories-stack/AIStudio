@@ -19,6 +19,7 @@ import os
 import random
 import re
 import time
+import tempfile
 import uuid
 
 import requests
@@ -31,6 +32,7 @@ from apps.common.activity import log_activity
 from apps.media import save_media, storage
 
 from . import config, mock, pricing as pricing_lib, pricing_db, queue_service
+from .best_of_spool import bounded_best_of, generate_and_spool_candidates, read_spooled_base64
 from .face_judge import judge_candidate, judge_identity, select_best_candidate
 from .generations_service import get_item as get_generation, row_to_item
 from .image_prep import crispen, prep_reference
@@ -641,45 +643,43 @@ def queue_execute(request):
             if supersample_on and render_size != requested_size:
                 cost_cents = pricing_lib.compute_cost_cents({"kind": "image", "model": model, "resolution": render_size}, pricing_db.read_pricing())
 
-            best_of = min(4, max(1, int(os.environ.get("FACE_BEST_OF") or 2))) if assembled.get("judgeFace") else 1
+            best_of = bounded_best_of(os.environ.get("FACE_BEST_OF"), render_size) if assembled.get("judgeFace") else 1
 
             if best_of > 1:
-                import concurrent.futures
-
                 # Per-candidate seed offset, not the same seed repeated N
-                # times — mirrors queue/execute/route.js's identical reasoning:
-                # an identical seed across parallel candidates would collapse
+                # times. Candidates run serially and are immediately spooled
+                # so a request never retains N full-resolution base64 strings.
+                # an identical seed across candidates would collapse
                 # best-of-N's diversity to one image N times over.
-                with concurrent.futures.ThreadPoolExecutor(max_workers=best_of) as executor:
-                    futures = [
-                        executor.submit(
-                            gemini_provider.generate_image_gemini, assembled, aspect_ratio, render_size,
-                            seed + i if seed is not None else None,
-                        )
-                        for i in range(best_of)
-                    ]
-                    results = []
-                    errors = []
-                    for f in futures:
-                        try:
-                            results.append(f.result())
-                        except Exception as e:
-                            errors.append(e)
-                if not results:
-                    raise errors[0] if errors else RuntimeError("Image generation failed.")
-                cost_cents = cost_cents * len(results)
-                if os.environ.get("JUDGE_COMPOSITE") == "1":
-                    scores = [judge_candidate(assembled["judgeFace"], {"mimeType": c["mimeType"], "data": c["base64"]}) for c in results]
-                    best = select_best_candidate(scores, 8)
-                    judge_score = scores[best] if scores[best] is not None else None
-                else:
-                    scores = [judge_identity(assembled["judgeFace"], {"mimeType": c["mimeType"], "data": c["base64"]}) for c in results]
-                    best = 0
-                    for i in range(1, len(scores)):
-                        if (scores[i] if scores[i] is not None else -1) > (scores[best] if scores[best] is not None else -1):
-                            best = i
-                    judge_score = {"identity": scores[best]} if scores[best] is not None else None
-                base64_out, mime_type = results[best]["base64"], results[best]["mimeType"]
+                with tempfile.TemporaryDirectory(prefix="veevee-best-of-") as directory:
+                    candidates, errors = generate_and_spool_candidates(
+                        best_of,
+                        directory,
+                        lambda i: gemini_provider.generate_image_gemini(
+                            assembled, aspect_ratio, render_size, seed + i if seed is not None else None
+                        ),
+                    )
+                    if not candidates:
+                        raise errors[0] if errors else RuntimeError("Image generation failed.")
+                    cost_cents = cost_cents * len(candidates)
+                    scores = []
+                    for candidate in candidates:
+                        data = read_spooled_base64(candidate)
+                        if os.environ.get("JUDGE_COMPOSITE") == "1":
+                            scores.append(judge_candidate(assembled["judgeFace"], {"mimeType": candidate["mimeType"], "data": data}))
+                        else:
+                            scores.append(judge_identity(assembled["judgeFace"], {"mimeType": candidate["mimeType"], "data": data}))
+                    if os.environ.get("JUDGE_COMPOSITE") == "1":
+                        best = select_best_candidate(scores, 8)
+                        judge_score = scores[best] if scores[best] is not None else None
+                    else:
+                        best = 0
+                        for i in range(1, len(scores)):
+                            if (scores[i] if scores[i] is not None else -1) > (scores[best] if scores[best] is not None else -1):
+                                best = i
+                        judge_score = {"identity": scores[best]} if scores[best] is not None else None
+                    base64_out = read_spooled_base64(candidates[best])
+                    mime_type = candidates[best]["mimeType"]
             else:
                 result = gemini_provider.generate_image_gemini(assembled, aspect_ratio, render_size, seed)
                 base64_out, mime_type = result["base64"], result["mimeType"]
