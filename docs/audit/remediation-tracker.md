@@ -14,7 +14,7 @@ States: `open`, `in_progress`, `blocked`, `monitoring`, `resolved`, `deferred`.
 | SEC-01 | blocked | AWS administrator + Codex | 2026-08-25 | AWS credentials still exist in Vercel Production and Preview, but the locally available key returns `InvalidClientTokenId`; no usable AWS-admin session is available. | Sign in with an AWS administrator, create a dedicated exact-bucket credential, update and validate both Vercel environments, then deactivate and delete the exposed key. |
 | SEC-02 | resolved | Codex | 2026-08-25 | `.env.production` was deleted without reading or printing its values. | Future `vercel env pull` output is restricted to a mode-0600 file under `/tmp` and removed immediately. |
 | SEC-03 | resolved | Codex | 2026-08-25 | The built-in `postgres` password was replaced with a 48-byte random unretained value; the exposed literal is rejected, the runtime IAM principal passed read and rolled-back write checks, and the temporary impersonation grant was removed. | Keep administrative access on IAM or perform another controlled password reset; never store the built-in password in application configuration. |
-| COST-01 | blocked | Operator + Codex | 2026-08-25 | S3 remains configured as the GCS read fallback. Google authentication and bucket metadata access succeed, but the full verifier did not finish because database connection and recursive bucket inventory latency are measured in minutes. | Make the verifier bounded and resumable, obtain a zero-gap result, observe seven stable days, perform a restore drill, then disable fallback and decommission the exact S3 bucket. |
+| COST-01 | blocked | AWS administrator + Codex | 2026-08-26 | The new bounded verifier completed in 14 resumable pages: 6,478 DB-referenced objects checked, 6,400 present, and 78 missing. The available AWS key is invalid, so the gaps cannot yet be copied from S3. | Obtain a valid exact-bucket AWS credential, migrate the 78 gaps, verify zero, observe seven stable days, perform a restore drill, then disable fallback and decommission the exact S3 bucket. |
 
 ## Full issue register
 
@@ -33,8 +33,8 @@ current verification.
 | SEC-06 | Canvas upload ignored board ID | P2 | resolved | 2026-08-25 | Codex | Board validation shipped in `2929509`. |
 | SEC-07 | No Content-Security-Policy | P2 | open | 2026-08-18 | Unassigned | Schedule after final CDN domain is known. |
 | SEC-08 | Dead Vercel credentials remain | P2 | open | 2026-08-25 | Operator + Codex | Vercel still lists `BLOB_*` and retired Higgsfield dev-API variables. |
-| COST-01 | Duplicate S3 history remains billed | P0 | blocked | 2026-08-25 | Operator + Codex | See active P0 queue. |
-| COST-02 | DB-referenced objects are missing from GCS | P1 | blocked | 2026-08-25 | Operator + Codex | Authentication is restored, but the current all-bucket verifier did not finish within a controlled execution window. |
+| COST-01 | Duplicate S3 history remains billed | P0 | blocked | 2026-08-26 | AWS administrator + Codex | See active P0 queue. |
+| COST-02 | DB-referenced objects are missing from GCS | P1 | blocked | 2026-08-26 | AWS administrator + Codex | Bounded live verification completed: 78 of 6,478 referenced objects are missing from GCS; copying is blocked by the invalid AWS source credential. |
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
 | COST-04 | Media delivery can silently proxy bytes | P1 | open | 2026-08-18 | Unassigned | Verify current production mode, then add monitoring. |
 | COST-05 | Video best-of-N can bill after partial failure | P2 | open | 2026-08-18 | Unassigned | Revisit before enabling video best-of-N. |
@@ -118,3 +118,7 @@ current verification.
   password to a random unretained value, confirmed the old literal is rejected,
   verified the runtime IAM principal can read and perform a rolled-back write,
   and removed the temporary service-account impersonation grant.
+- 2026-08-26: replaced the unbounded recursive media verifier with a bounded,
+  paginated GCS API scan and mode-0600 resumable checkpoint. Live verification
+  completed in 14 pages: 6,478 referenced, 6,400 present, 78 missing. COST-01
+  and COST-02 remain blocked on valid exact-bucket AWS source access.
