@@ -423,9 +423,12 @@ test("CHECKS registry: the header comments' check count stays honest", () => {
   // fails this test instead of silently drifting the comment out of date
   // again. If this fails because you intentionally changed CHECKS, update
   // both the array and the two doc comments in status-checks.js together.
-  assert.equal(CHECKS.length, 8);
+  assert.equal(CHECKS.length, 10);
   assert.deepEqual(
     CHECKS.map((c) => c.id),
-    ["gemini", "higgsfield", "seedance", "kling", "omni", "postgres", "storage", "media-delivery"]
+    [
+      "gemini", "higgsfield", "seedance", "kling", "omni", "postgres",
+      "generation-indexes", "stuck-generations", "storage", "media-delivery",
+    ]
   );
 });

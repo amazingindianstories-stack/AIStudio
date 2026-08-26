@@ -67,6 +67,8 @@ jobs:
         working-directory: ${{ github.workspace }}
       - run: pip install -r requirements.txt
       - run: DJANGO_TEST_MANAGED=1 python manage.py migrate
+      - run: npm run db:optimize
+        working-directory: ${{ github.workspace }}
       - run: npm run test:db
         working-directory: ${{ github.workspace }}
       - run: python manage.py check

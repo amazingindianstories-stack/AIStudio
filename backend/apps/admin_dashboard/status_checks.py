@@ -17,6 +17,24 @@ from apps.media import storage
 
 CHECK_TIMEOUT_MS = 5000
 
+EXPECTED_GENERATION_INDEX_NAMES = (
+    "generations_created_at_idx",
+    "generations_queue_idx",
+    "generations_project_id_idx",
+    "generations_folder_id_idx",
+    "generations_user_created_idx",
+    "generations_created_keyset_idx",
+    "generations_project_keyset_idx",
+    "generations_folder_keyset_idx",
+    "generations_favorite_keyset_idx",
+    "generations_flagged_keyset_idx",
+)
+
+STUCK_IMAGE_MS = 10 * 60 * 1000
+STUCK_VIDEO_MS = 45 * 60 * 1000
+STUCK_DEPTH_GRACE_MS = 2 * 60 * 1000
+DEPTH_WORKER_STALE_MS = 45_000
+
 GEMINI_API_ROOT = "https://generativelanguage.googleapis.com/v1beta"
 GEMINI_MODEL = "gemini-3-pro-image"
 
@@ -73,6 +91,78 @@ def _check_postgres(_timeout_s: float) -> dict:
     return {"status": "ok", "detail": "select 1 ok"}
 
 
+def evaluate_generation_indexes(rows: list[tuple[str, bool]]) -> dict:
+    actual = dict(rows)
+    missing = [name for name in EXPECTED_GENERATION_INDEX_NAMES if name not in actual]
+    invalid = [name for name in EXPECTED_GENERATION_INDEX_NAMES if actual.get(name) is False]
+    if missing or invalid:
+        parts = []
+        if missing:
+            parts.append(f"missing: {', '.join(missing)}")
+        if invalid:
+            parts.append(f"invalid: {', '.join(invalid)}")
+        return {"status": "error", "detail": "; ".join(parts)}
+    total = len(EXPECTED_GENERATION_INDEX_NAMES)
+    return {"status": "ok", "detail": f"{total}/{total} expected indexes valid"}
+
+
+def check_generation_indexes(_timeout_s: float = 0) -> dict:
+    with connection.cursor() as c:
+        c.execute("""
+            SELECT i.relname, x.indisvalid
+              FROM pg_index x
+              JOIN pg_class i ON i.oid = x.indexrelid
+              JOIN pg_class t ON t.oid = x.indrelid
+              JOIN pg_namespace n ON n.oid = t.relnamespace
+             WHERE n.nspname = current_schema()
+               AND t.relname = 'generations'
+        """)
+        rows = c.fetchall()
+    return evaluate_generation_indexes(rows)
+
+
+def check_stuck_generations(_timeout_s: float = 0, now_ms: int | None = None) -> dict:
+    now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
+    with connection.cursor() as c:
+        c.execute("""
+            WITH stuck AS (
+              SELECT g.kind, g.updated_at
+                FROM generations g
+               WHERE g.status = 'running'
+                 AND (
+                   (g.kind = 'image' AND g.updated_at < %s)
+                   OR (g.kind = 'video' AND g.updated_at < %s)
+                   OR (
+                     g.kind = 'depth' AND g.updated_at < %s
+                     AND NOT EXISTS (
+                       SELECT 1 FROM depth_workers w
+                        WHERE w.worker_id = g.depth_claim_worker_id
+                          AND w.current_job_id = g.id
+                          AND w.current_claim_id = g.depth_claim_id
+                          AND w.last_seen_at >= %s
+                     )
+                   )
+                 )
+            )
+            SELECT kind, count(*)::int, min(updated_at)::bigint
+              FROM stuck GROUP BY kind ORDER BY kind
+        """, [
+            now_ms - STUCK_IMAGE_MS,
+            now_ms - STUCK_VIDEO_MS,
+            now_ms - STUCK_DEPTH_GRACE_MS,
+            now_ms - DEPTH_WORKER_STALE_MS,
+        ])
+        rows = c.fetchall()
+    if not rows:
+        return {"status": "ok", "detail": "No stuck running generations"}
+    total = sum(count for _kind, count, _oldest in rows)
+    summary = "; ".join(
+        f"{kind}: {count} (oldest {max(0, (now_ms - oldest) // 60_000)}m)"
+        for kind, count, oldest in rows
+    )
+    return {"status": "error", "detail": f"{total} stuck — {summary}"}
+
+
 def _check_storage(_timeout_s: float) -> dict:
     detail = storage.check_storage_connectivity()
     return {"status": "ok", "detail": f"{detail} reachable"}
@@ -108,6 +198,8 @@ CHECKS = [
     {"id": "kling", "name": "KlingAI Image", "fn": check_kling},
     {"id": "omni", "name": "Gemini Omni Flash", "fn": check_omni},
     {"id": "postgres", "name": "Postgres", "fn": _check_postgres},
+    {"id": "generation-indexes", "name": "Generation Indexes", "fn": check_generation_indexes},
+    {"id": "stuck-generations", "name": "Stuck Generations", "fn": check_stuck_generations},
     {"id": "storage", "name": "Media Storage", "fn": _check_storage},
     {"id": "media-delivery", "name": "Media Delivery", "fn": _check_media_delivery},
 ]
