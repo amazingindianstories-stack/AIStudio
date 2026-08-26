@@ -71,4 +71,3 @@ class DepthClaimFencingTests(TestCase):
         self.assertEqual(row.status, "failed")
         self.assertEqual(row.depth_reap_attempts, 3)
         self.assertIsNone(row.depth_claim_id)
-
