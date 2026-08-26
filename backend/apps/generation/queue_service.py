@@ -93,7 +93,7 @@ def reap_stale_running_images() -> None:
         )
 
 
-def _queue_snapshot(kind: str, created_at: int, best_of: int, window_start: int) -> dict:
+def _queue_snapshot(kind: str, created_at: int, item_id: str, best_of: int, window_start: int) -> dict:
     """Single round trip: concurrency counts plus the rolling spend window.
     See store-db.js's queueSnapshot docstring for the full reasoning
     (6h skirt on created_at is a redundant but index-backed superset of the
@@ -104,12 +104,43 @@ def _queue_snapshot(kind: str, created_at: int, best_of: int, window_start: int)
     with connection.cursor() as c:
         c.execute(
             """
+            WITH global_user_limit AS (
+              SELECT coalesce(
+                max(CASE WHEN value ~ '^[0-9]{1,9}$' AND value::int >= 1 THEN value::int END),
+                1
+              ) AS value
+              FROM settings WHERE key = 'maxConcurrentJobs'
+            ), running_by_user AS (
+              SELECT user_id, count(*)::int AS n
+              FROM generations
+              WHERE status = 'running' AND kind = %(kind)s AND user_id IS NOT NULL
+              GROUP BY user_id
+            ), ranked_queue AS (
+              SELECT q.id, q.created_at,
+                row_number() OVER (
+                  PARTITION BY coalesce(q.user_id::text, q.id::text)
+                  ORDER BY q.created_at ASC, q.id ASC
+                ) AS user_rank,
+                coalesce(r.n, 0) AS user_running,
+                coalesce(
+                  CASE WHEN ul.value ~ '^[0-9]{1,9}$' AND ul.value::int >= 1 THEN ul.value::int END,
+                  gl.value
+                ) AS user_cap
+              FROM generations q
+              CROSS JOIN global_user_limit gl
+              LEFT JOIN running_by_user r ON r.user_id = q.user_id
+              LEFT JOIN user_limits ul ON ul.user_id = q.user_id AND ul.key = 'maxConcurrentJobs'
+              WHERE q.status = 'queued' AND q.kind = %(kind)s
+            ), eligible_queue AS (
+              SELECT * FROM ranked_queue
+              WHERE user_rank <= greatest(user_cap - user_running, 0)
+            )
             SELECT
               (SELECT count(*) FROM generations
                 WHERE status = 'running' AND kind = %(kind)s) AS running,
-              (SELECT count(*) FROM generations
-                WHERE status = 'queued' AND kind = %(kind)s
-                  AND created_at < %(created_at)s) AS older,
+              (SELECT count(*) FROM eligible_queue
+                WHERE (created_at, id) < (%(created_at)s, %(item_id)s::uuid)) AS older,
+              EXISTS(SELECT 1 FROM eligible_queue WHERE id = %(item_id)s::uuid) AS user_eligible,
               (SELECT coalesce(sum(
                   CASE WHEN status = 'running' THEN cost_cents * %(best_of)s ELSE cost_cents END
                 ), 0) FROM generations
@@ -134,13 +165,14 @@ def _queue_snapshot(kind: str, created_at: int, best_of: int, window_start: int)
                   AND NOT (status = 'failed' AND coalesce(error, '') LIKE '%%429%%')
               ) AS oldest_updated_at
             """,
-            {"kind": kind, "created_at": created_at, "best_of": best_of, "skirt_start": skirt_start, "window_start": window_start},
+            {"kind": kind, "created_at": created_at, "item_id": item_id, "best_of": best_of, "skirt_start": skirt_start, "window_start": window_start},
         )
         columns = [col[0] for col in c.description]
         row = dict(zip(columns, c.fetchone()))
     return {
         "running": int(row["running"] or 0),
         "older": int(row["older"] or 0),
+        "userEligible": bool(row["user_eligible"]),
         "windowCents": int(row["window_cents"] or 0),
         "windowRows": int(row["window_rows"] or 0),
         "oldestUpdatedAt": int(row["oldest_updated_at"]) if row["oldest_updated_at"] is not None else None,
@@ -159,7 +191,10 @@ def get_queue_position(item_id: str) -> dict | None:
     cap = MAX_CONCURRENT.get(item["kind"], 2)
     now = int(time.time() * 1000)
     best_of = sw.best_of_multiplier()
-    snap = _queue_snapshot(item["kind"], item["createdAt"], best_of, now - sw.SPEND_WINDOW_MS)
+    snap = _queue_snapshot(item["kind"], item["createdAt"], item["id"], best_of, now - sw.SPEND_WINDOW_MS)
+
+    if not snap["userEligible"]:
+        return {"position": 1, "status": item["status"], "heldForConcurrency": True}
 
     total_ahead = snap["running"] + snap["older"]
     position = max(0, total_ahead - (cap - 1))
