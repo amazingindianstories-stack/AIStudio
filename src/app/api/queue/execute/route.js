@@ -34,8 +34,12 @@ import { readAssets } from "@/lib/assets-db";
 import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents, klingUnitsToCents } from "@/lib/pricing";
+import { boundedBestOf, generateAndSpoolCandidates, readSpooledBase64 } from "@/lib/best-of-spool";
 
 import sharp from "sharp";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 export const runtime = "nodejs";
 // A single NBP high-res render is ~30–60s, but this route can run several of
@@ -571,12 +575,12 @@ export async function POST(req) {
         seed,
       };
       // Best-of-N: generation is stochastic (identity swings 5–65 on the same
-      // config), so when a face is locked we generate N candidates in parallel,
+      // config), so when a face is locked we generate N candidates serially,
       // auto-judge each against the reference face and keep the best. This is
       // the measured lever — single-pass tricks and face-fix second passes
       // both failed the bake-off.
       const bestOf = assembled.judgeFace
-        ? Math.min(4, Math.max(1, Number(process.env.FACE_BEST_OF) || 2))
+        ? boundedBestOf(process.env.FACE_BEST_OF, renderSize)
         : 1;
       console.log(
         `[image] model=${model} uploads=${referenceImages?.length ?? 0} ` +
@@ -593,65 +597,55 @@ export async function POST(req) {
         // over, defeating the whole point of the judge picking among distinct
         // renders. Offsetting by candidate index keeps every candidate
         // individually reproducible while still varying between candidates.
-        const settled = await Promise.allSettled(
-          Array.from({ length: bestOf }, (_, i) =>
-            generateImageGemini({
+        const spoolDir = await mkdtemp(path.join(os.tmpdir(), "veevee-best-of-"));
+        try {
+          const { candidates, errors } = await generateAndSpoolCandidates({
+            count: bestOf,
+            directory: spoolDir,
+            generate: (i) => generateImageGemini({
               ...input,
               seed: seed != null ? seed + i : undefined,
-            })
-          )
-        );
-        const candidates = settled.filter(
-          (s) =>
-            s.status === "fulfilled"
-        );
-        if (!candidates.length) {
-          throw settled[0].status === "rejected"
-            ? settled[0].reason
-            : new Error("Image generation failed.");
-        }
-        // Bill what actually ran.
-        costCents = costCents * candidates.length;
-        if (process.env.JUDGE_COMPOSITE === "1") {
-          // Widened judge: identity + subject prominence + face sharpness in
-          // one call each, picked subject to an identity floor so identity
-          // never regresses vs the identity-only picker below.
-          const scores = await Promise.all(
-            candidates.map((c) =>
-              judgeCandidate(assembled.judgeFace, {
-                mimeType: c.value.mimeType,
-                data: c.value.base64,
-              })
-            )
-          );
-          const best = selectBestCandidate(scores, 8);
-          console.log(
-            `[image] best-of-${candidates.length} composite scores: ` +
-              `${scores
-                .map((s) => (s ? `id${s.identity}/pr${s.prominence}/sh${s.sharpness}` : "n/a"))
-                .join(", ")} → picked #${best + 1}`
-          );
-          judgeScore = scores[best] ?? null;
-          ({ base64, mimeType } = candidates[best].value);
-        } else {
-          const scores = await Promise.all(
-            candidates.map((c) =>
-              judgeIdentity(assembled.judgeFace, {
-                mimeType: c.value.mimeType,
-                data: c.value.base64,
-              })
-            )
-          );
-          let best = 0;
-          for (let i = 1; i < scores.length; i++) {
-            if ((scores[i] ?? -1) > (scores[best] ?? -1)) best = i;
+            }),
+          });
+          if (!candidates.length) throw errors[0] ?? new Error("Image generation failed.");
+          // Bill what actually completed, including candidates not selected.
+          costCents = costCents * candidates.length;
+          const scores = [];
+          for (const candidate of candidates) {
+            const data = await readSpooledBase64(candidate);
+            scores.push(process.env.JUDGE_COMPOSITE === "1"
+              ? await judgeCandidate(assembled.judgeFace, { mimeType: candidate.mimeType, data })
+              : await judgeIdentity(assembled.judgeFace, { mimeType: candidate.mimeType, data }));
           }
-          console.log(
-            `[image] best-of-${candidates.length} identity scores: ` +
-              `${scores.map((s) => s ?? "n/a").join(", ")} → picked #${best + 1}`
-          );
-          judgeScore = scores[best] != null ? { identity: scores[best] } : null;
-          ({ base64, mimeType } = candidates[best].value);
+          let best;
+          if (process.env.JUDGE_COMPOSITE === "1") {
+            // Widened judge: identity + subject prominence + face sharpness in
+            // one call each, picked subject to an identity floor so identity
+            // never regresses vs the identity-only picker below.
+            best = selectBestCandidate(scores, 8);
+            console.log(
+              `[image] best-of-${candidates.length} composite scores: ` +
+                `${scores
+                  .map((s) => (s ? `id${s.identity}/pr${s.prominence}/sh${s.sharpness}` : "n/a"))
+                  .join(", ")} → picked #${best + 1}`
+            );
+          } else {
+            best = 0;
+            for (let i = 1; i < scores.length; i++) {
+              if ((scores[i] ?? -1) > (scores[best] ?? -1)) best = i;
+            }
+            console.log(
+              `[image] best-of-${candidates.length} identity scores: ` +
+                `${scores.map((s) => s ?? "n/a").join(", ")} → picked #${best + 1}`
+            );
+          }
+          judgeScore = process.env.JUDGE_COMPOSITE === "1"
+            ? scores[best] ?? null
+            : scores[best] != null ? { identity: scores[best] } : null;
+          mimeType = candidates[best].mimeType;
+          base64 = await readSpooledBase64(candidates[best]);
+        } finally {
+          await rm(spoolDir, { recursive: true, force: true });
         }
       } else {
         ({ base64, mimeType } = await generateImageGemini(input));

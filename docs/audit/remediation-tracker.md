@@ -41,7 +41,7 @@ current verification.
 | COST-06 | Provider costs mix exact and estimated values | P2 | open | 2026-08-18 | Unassigned | Mark estimates and reconcile provider usage. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | resolved | 2026-08-26 | Codex | Claim-fenced bounded recovery implemented in Next.js/Django/worker; PostgreSQL tests prove stale claims cannot progress or complete reassigned work, matching heartbeats prevent reaping, and the third loss fails permanently. The unsafe `fb7046b` implementation was not reused. |
-| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | open | 2026-08-18 | Unassigned | Spool candidates and judge one at a time. |
+| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | resolved | 2026-08-26 | Codex | Next.js and Django now generate candidates serially, immediately spool bytes to request-scoped temporary storage, judge one at a time, and reload only the winner. Actual render size caps N at 4/3/2 for 1K/2K/4K; helper tests cover caps, serial execution, and partial success. |
 | REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | open | 2026-08-18 | Unassigned | Add a provider abort before the platform limit. |
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
 | REL-05 | Client scope and SQL scope can drift | P2 | open | 2026-08-18 | Unassigned | Add property/parity tests. |
@@ -127,3 +127,5 @@ current verification.
   bound. VER-04 remains open for the real GPU/all-encoder kill exercise.
 - 2026-08-26: resolved ARCH-03 with an admin-configurable per-user/per-kind
   cap and fair queue ranking that skips jobs whose owner is already at cap.
+- 2026-08-26: resolved REL-02 by serially spooling and judging best-of-N
+  candidates, with lower candidate ceilings for larger render sizes.
