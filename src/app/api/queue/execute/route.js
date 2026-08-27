@@ -35,6 +35,11 @@ import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents, klingUnitsToCents } from "@/lib/pricing";
 import { boundedBestOf, generateAndSpoolCandidates, readSpooledBase64 } from "@/lib/best-of-spool";
+import { submitVideoCandidates } from "@/lib/video-submissions";
+import {
+  emitGenerationEvent,
+  persistGenerationFailure,
+} from "@/lib/generation-telemetry";
 import {
   abortableDelay,
   settleQueueExecution,
@@ -302,21 +307,31 @@ async function submitVideo(base, signal) {
       // identical seed across candidates would collapse them to N renders of
       // the same result instead of N genuinely different ones for the judge
       // to pick from.
-      // Promise.all, not allSettled: if any candidate submission itself
-      // fails, the whole job fails rather than silently proceeding with
-      // fewer candidates than billed for. Known gap — a failure AFTER some
-      // candidates were already accepted by BytePlus leaves those tasks
-      // running unreferenced (ModelArk has no cancel endpoint to call here),
-      // so a partial-submission failure can still incur real provider cost
-      // for a job this app reports as failed. Acceptable for a first cut of
-      // an off-by-default feature; revisit if VIDEO_BEST_OF sees real usage.
-      const taskIds = await Promise.all(
-        Array.from({ length: videoBestOf }, (_, i) =>
-          createVideoTask(taskInput(seed != null ? seed + i : undefined))
-        )
-      );
-      taskId = taskIds[0];
-      refUpdates.candidateTaskIds = taskIds.slice(1);
+      // Keep every task the provider accepted. ModelArk has no cancellation
+      // endpoint, so failing the row after a partial submission would orphan
+      // billed renders. A partial set remains a valid running job and its
+      // estimate is reduced to the number actually accepted.
+      const submissions = await submitVideoCandidates({
+        count: videoBestOf,
+        totalCostCents: base.costCents,
+        seed,
+        submit: (candidateSeed) => createVideoTask(taskInput(candidateSeed)),
+      });
+      taskId = submissions.acceptedTaskIds[0];
+      refUpdates.candidateTaskIds = submissions.acceptedTaskIds.slice(1);
+      refUpdates.costCents = submissions.costCents;
+      if (submissions.rejectedCount) {
+        emitGenerationEvent({
+          event: "generation_partial_submission",
+          route: "queue_execute",
+          phase: "provider_submission",
+          item: base,
+          errorCode: "partial_submission",
+          requestedCount: videoBestOf,
+          acceptedCount: submissions.acceptedTaskIds.length,
+          rejectedCount: submissions.rejectedCount,
+        }, console.warn);
+      }
     } else {
       taskId = await createVideoTask(taskInput(seed));
     }
@@ -443,7 +458,11 @@ export async function POST(req) {
           moderationBlocked: e?.code === "moderation",
           updatedAt: Date.now(),
         };
-        await upsertItem(failed);
+        await persistGenerationFailure(failed, {
+          route: "queue_execute",
+          phase: "video_submission",
+          errorCode: e?.code,
+        });
         return NextResponse.json(failed);
       },
     });
@@ -710,7 +729,11 @@ export async function POST(req) {
         error: e?.message || "Image generation failed.",
         updatedAt: Date.now(),
       };
-      await upsertItem(failed);
+      await persistGenerationFailure(failed, {
+        route: "queue_execute",
+        phase: "image_execution",
+        errorCode: e?.code,
+      });
       return NextResponse.json(failed);
     },
   });

@@ -13,6 +13,7 @@ import { readPricing } from "@/lib/pricing-db";
 import { computeSeedanceTokenCostCents } from "@/lib/pricing";
 import { extractLastFrameServer } from "@/lib/video-frame-server";
 import { judgeCandidate, judgeIdentity, selectBestCandidate } from "@/lib/middleware/face-judge";
+import { persistGenerationFailure } from "@/lib/generation-telemetry";
 
 export const runtime = "nodejs";
 // Frame extraction downloads a full candidate video then shells out to
@@ -209,7 +210,11 @@ export async function GET(req) {
         error: "Generation timed out — the provider never returned a result.",
         updatedAt: Date.now(),
       };
-      await upsertItem(failed);
+      await persistGenerationFailure(failed, {
+        route: "video_status",
+        phase: "missing_task_timeout",
+        errorCode: "timeout",
+      });
       return NextResponse.json(failed);
     }
     return NextResponse.json(item);
@@ -223,7 +228,14 @@ export async function GET(req) {
     if (!isMock() && item.candidateTaskIds && item.candidateTaskIds.length > 0) {
       const resolved = await resolveVideoBestOf(item, agedOut);
       if (resolved) {
-        await upsertItem(resolved);
+        if (resolved.status === "failed") {
+          await persistGenerationFailure(resolved, {
+            route: "video_status",
+            phase: "best_of_resolution",
+          });
+        } else {
+          await upsertItem(resolved);
+        }
         return NextResponse.json(resolved);
       }
       return NextResponse.json(item); // still waiting on one or more candidates
@@ -276,7 +288,11 @@ export async function GET(req) {
           error: `Video generated but failed to save: ${saveError?.message || String(saveError)}`,
           updatedAt: Date.now(),
         };
-        await upsertItem(failed);
+        await persistGenerationFailure(failed, {
+          route: "video_status",
+          phase: "omni_storage",
+          errorCode: "storage_failed",
+        });
         return NextResponse.json(failed);
       }
       if (result.status === "failed") {
@@ -287,7 +303,10 @@ export async function GET(req) {
           moderationBlocked: result.moderationBlocked,
           updatedAt: Date.now(),
         };
-        await upsertItem(failed);
+        await persistGenerationFailure(failed, {
+          route: "video_status",
+          phase: "omni_provider_status",
+        });
         return NextResponse.json(failed);
       }
       if (result.status === "succeeded") {
@@ -302,7 +321,11 @@ export async function GET(req) {
           error: "Omni reported success but returned no video.",
           updatedAt: Date.now(),
         };
-        await upsertItem(failed);
+        await persistGenerationFailure(failed, {
+          route: "video_status",
+          phase: "omni_missing_video",
+          errorCode: "missing_output",
+        });
         return NextResponse.json(failed);
       }
       const updated = { ...item, status: result.status, updatedAt: Date.now() };
@@ -367,7 +390,10 @@ export async function GET(req) {
         moderationBlocked: blocked,
         updatedAt: Date.now(),
       };
-      await upsertItem(failed);
+      await persistGenerationFailure(failed, {
+        route: "video_status",
+        phase: "provider_status",
+      });
       return NextResponse.json(failed);
     }
     // Still running/queued. This is the one place the age check is safe: the
@@ -380,7 +406,11 @@ export async function GET(req) {
         error: "Generation timed out — the provider never returned a result.",
         updatedAt: Date.now(),
       };
-      await upsertItem(failed);
+      await persistGenerationFailure(failed, {
+        route: "video_status",
+        phase: "provider_timeout",
+        errorCode: "timeout",
+      });
       return NextResponse.json(failed);
     }
     const updated = { ...item, status: result.status, updatedAt: Date.now() };
