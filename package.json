@@ -16,7 +16,7 @@
     "start": "next start",
     "lint": "next lint",
     "test": "node scripts/run-unit-tests.mjs",
-    "test:db": "tsx --tsconfig jsconfig.json --test src/lib/feed-scope-db.integration.js src/lib/generation-health-db.integration.js",
+    "test:db": "tsx --tsconfig jsconfig.json --test src/lib/feed-scope-db.integration.js src/lib/generation-health-db.integration.js src/lib/stuck-omni-db.integration.js",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx scripts/seed.js",
     "db:optimize": "tsx scripts/optimize-history-indexes.js",
@@ -27,6 +27,7 @@
     "sync:shiv-sati-storyboard": "tsx scripts/sync-shiv-sati-storyboard.js",
     "hf:login": "node scripts/hf-mcp-auth.mjs",
     "recover:videos": "tsx --tsconfig jsconfig.json scripts/recover-timed-out-videos.js",
+    "reconcile:omni": "tsx --tsconfig jsconfig.json scripts/reconcile-stuck-omni.js",
     "eval:regression": "tsx --tsconfig jsconfig.json scripts/eval-regression.js",
     "export:flagged-fixtures": "tsx --tsconfig jsconfig.json scripts/export-flagged-fixtures.js"
   },

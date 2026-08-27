@@ -100,6 +100,14 @@ test("Omni task 400 input-blocked response is terminal, not a retrying poll erro
   });
 });
 
+test("Omni task 400 with an empty body is still terminal", () => {
+  assert.deepEqual(terminalOmniStatusHttpError(400, ""), {
+    status: "failed",
+    error: "Omni status error (400).",
+    moderationBlocked: false,
+  });
+});
+
 test("Omni auth, retryable, and 5xx status errors remain transient", () => {
   for (const status of [401, 403, 408, 425, 429, 500, 502, 503]) {
     assert.equal(terminalOmniStatusHttpError(status, "temporary"), null, String(status));

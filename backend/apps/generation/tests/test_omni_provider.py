@@ -89,6 +89,13 @@ class MapOmniStatusTests(SimpleTestCase):
         for status_code in (401, 403, 408, 425, 429, 500, 502, 503):
             self.assertIsNone(o.terminal_omni_status_http_error(status_code, "temporary"), status_code)
 
+    def test_empty_400_is_still_terminal(self):
+        self.assertEqual(o.terminal_omni_status_http_error(400, ""), {
+            "status": "failed",
+            "error": "Omni status error (400).",
+            "moderationBlocked": False,
+        })
+
 
 class ExtractOmniVideoTests(SimpleTestCase):
     def test_reads_inline_base64_from_steps_content(self):
