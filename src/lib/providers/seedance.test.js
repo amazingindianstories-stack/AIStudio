@@ -34,9 +34,11 @@ async function withFakeArkResponse(taskId, run) {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.ARK_API_KEY;
   let capturedBody;
+  let capturedSignal;
   process.env.ARK_API_KEY = "test-key";
   globalThis.fetch = async (_url, init) => {
     capturedBody = JSON.parse(init.body);
+    capturedSignal = init.signal;
     return {
       ok: true,
       status: 200,
@@ -46,7 +48,7 @@ async function withFakeArkResponse(taskId, run) {
   };
   try {
     const result = await run();
-    return { result, body: capturedBody };
+    return { result, body: capturedBody, signal: capturedSignal };
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.ARK_API_KEY;
@@ -85,6 +87,14 @@ test("createVideoTask: generate_audio is only true when explicitly requested", a
     createVideoTask({ prompt: "a scene", generateAudio: true })
   );
   assert.equal(body.generate_audio, true);
+});
+
+test("createVideoTask: forwards the queue abort signal to fetch", async () => {
+  const controller = new AbortController();
+  const { signal } = await withFakeArkResponse("task-signal", () =>
+    createVideoTask({ prompt: "a scene", signal: controller.signal })
+  );
+  assert.equal(signal, controller.signal);
 });
 
 // ── reproducibility seed (Phase 3.1) ────────────────────────────────────────

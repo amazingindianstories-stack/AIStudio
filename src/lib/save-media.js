@@ -38,9 +38,10 @@ export async function saveBase64(
 export async function saveFromUrl(
   url,
   ext,
-  id
+  id,
+  signal
 ) {
-  return storageUploadFromUrl(url, `generations/${id}.${ext}`, ext);
+  return storageUploadFromUrl(url, `generations/${id}.${ext}`, ext, signal);
 }
 
 /** Persist an asset reference image (data URL); returns its public URL. */
@@ -105,9 +106,10 @@ export async function deleteAvatarImage(url) {
 
 /** Read a stored image (public URL or data URL) back as base64 + mime. */
 export async function readImageAsBase64(
-  ref
+  ref,
+  signal
 ) {
-  return readAsBase64(ref);
+  return readAsBase64(ref, signal);
 }
 
 /**

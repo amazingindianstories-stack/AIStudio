@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { throwIfAborted } from "@/lib/queue-execution-deadline";
 
 export const BEST_OF_MAX_BY_SIZE = { "1K": 4, "2K": 3, "4K": 2 };
 
@@ -9,16 +10,18 @@ export function boundedBestOf(configured, imageSize) {
 }
 
 /** Generate serially and immediately release each base64 response to disk. */
-export async function generateAndSpoolCandidates({ count, directory, generate }) {
+export async function generateAndSpoolCandidates({ count, directory, generate, signal }) {
   const candidates = [];
   const errors = [];
   for (let i = 0; i < count; i++) {
+    throwIfAborted(signal);
     try {
       const result = await generate(i);
       const file = path.join(directory, `candidate-${i}.bin`);
       await writeFile(file, result.base64, "base64");
       candidates.push({ file, mimeType: result.mimeType });
     } catch (error) {
+      throwIfAborted(signal);
       errors.push(error);
     }
   }

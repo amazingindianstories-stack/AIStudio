@@ -27,11 +27,13 @@ import { readFileSync } from "node:fs";
 
 const EXECUTE_ROUTE = "src/app/api/queue/execute/route.js";
 const STORE_DB = "src/lib/store-db.js";
+const EXECUTION_DEADLINE = "src/lib/queue-execution-deadline.js";
 
 /** Slack between the invocation budget and the reap threshold. The current
  *  values are 300 s and 7 min, i.e. 120 s of slack; require at least 60 s so
  *  a narrowing change has to be deliberate. */
 const MIN_SLACK_MS = 60_000;
+const MIN_PLATFORM_HEADROOM_MS = 20_000;
 
 function readMaxDurationSeconds() {
   const src = readFileSync(EXECUTE_ROUTE, "utf8");
@@ -63,6 +65,17 @@ function readStaleRunningMs() {
   return value;
 }
 
+function readExecutionDeadlineMs() {
+  const src = readFileSync(EXECUTION_DEADLINE, "utf8");
+  const m = /^export const QUEUE_EXECUTION_DEADLINE_MS\s*=\s*([\d_]+)\s*;/m.exec(src);
+  assert.ok(
+    m,
+    `could not find a literal QUEUE_EXECUTION_DEADLINE_MS in ${EXECUTION_DEADLINE}. ` +
+      `Fix the guard if the declaration changes rather than deleting the test.`
+  );
+  return Number(m[1].replace(/_/g, ""));
+}
+
 test("STALE_RUNNING_MS stays above /api/queue/execute's maxDuration", () => {
   const maxDurationMs = readMaxDurationSeconds() * 1000;
   const staleMs = readStaleRunningMs();
@@ -76,5 +89,17 @@ test("STALE_RUNNING_MS stays above /api/queue/execute's maxDuration", () => {
       `until the job finishes, so a healthy long job looks exactly like a ` +
       `dead one. Raise STALE_RUNNING_MS in ${STORE_DB}, or lower maxDuration ` +
       `in ${EXECUTE_ROUTE}.`
+  );
+});
+
+test("the internal queue deadline leaves headroom before the platform timeout", () => {
+  const maxDurationMs = readMaxDurationSeconds() * 1000;
+  const deadlineMs = readExecutionDeadlineMs();
+
+  assert.ok(
+    deadlineMs <= maxDurationMs - MIN_PLATFORM_HEADROOM_MS,
+    `QUEUE_EXECUTION_DEADLINE_MS (${deadlineMs} ms) must leave at least ` +
+      `${MIN_PLATFORM_HEADROOM_MS} ms before maxDuration (${maxDurationMs} ms), ` +
+      `so the failure state can be persisted before the platform terminates the invocation.`
   );
 });

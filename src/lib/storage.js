@@ -549,9 +549,10 @@ export function splitDataUrl(input) {
 export async function uploadFromUrl(
   url,
   key,
-  ext
+  ext,
+  signal
 ) {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`Failed to download media (${res.status})`);
   return uploadBuffer(Buffer.from(await res.arrayBuffer()), key, ext);
 }
@@ -585,7 +586,8 @@ export async function readStoredBuffer(key) {
 }
 
 export async function readAsBase64(
-  ref
+  ref,
+  signal
 ) {
   if (ref.startsWith("data:")) {
     const m = ref.match(/^data:([^;]+);base64,(.*)$/s);
@@ -625,7 +627,7 @@ export async function readAsBase64(
   }
 
   if (ref.startsWith("http")) {
-    const res = await fetch(ref);
+    const res = await fetch(ref, { signal });
     if (!res.ok) throw new Error(`Failed to read media (${res.status})`);
     return {
       mimeType: res.headers.get("content-type") || "image/png",

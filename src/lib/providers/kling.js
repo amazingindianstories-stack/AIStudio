@@ -1,4 +1,5 @@
 import sharp from "sharp";
+import { abortableDelay } from "../queue-execution-deadline";
 
 /**
  * Kling image generation (Kuaishou / KlingAI Open Platform).
@@ -353,10 +354,12 @@ export async function prepKlingReference(
 
 async function klingFetch(
   path,
-  init
+  init,
+  signal
 ) {
   const res = await fetch(`${host()}${path}`, {
     ...init,
+    signal,
     headers: {
       Authorization: `Bearer ${apiKey()}`,
       "Content-Type": "application/json",
@@ -385,20 +388,22 @@ async function klingFetch(
   return json;
 }
 
-export async function createKlingImageTask(input) {
+export async function createKlingImageTask(input, opts = {}) {
   const payload = buildKlingPayload(input);
   const json = await klingFetch("/v1/images/generations", {
     method: "POST",
     body: JSON.stringify(payload),
-  });
+  }, opts.signal);
   const taskId = json.data?.task_id;
   if (!taskId) throw new Error("Kling accepted the request but returned no task_id.");
   return taskId;
 }
 
-export async function getKlingImageTask(taskId) {
+export async function getKlingImageTask(taskId, opts = {}) {
   const json = await klingFetch(
-    `/v1/images/generations/${encodeURIComponent(taskId)}`
+    `/v1/images/generations/${encodeURIComponent(taskId)}`,
+    undefined,
+    opts.signal
   );
   return json.data;
 }
@@ -417,12 +422,12 @@ export async function generateImageKling(
   const timeoutMs = opts.timeoutMs ?? 240_000;
   const pollMs = opts.pollMs ?? 3_000;
 
-  const taskId = await createKlingImageTask(input);
+  const taskId = await createKlingImageTask(input, opts);
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, pollMs));
-    const task = await getKlingImageTask(taskId);
+    await abortableDelay(pollMs, opts.signal);
+    const task = await getKlingImageTask(taskId, opts);
     if (task.task_status === "succeed") {
       const url = task.task_result?.images?.[0]?.url;
       if (!url) {

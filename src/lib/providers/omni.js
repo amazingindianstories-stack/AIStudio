@@ -156,6 +156,37 @@ export function mapOmniStatus(raw) {
   return "running";
 }
 
+function omniErrorMessage(status, body) {
+  try {
+    const parsed = JSON.parse(body);
+    return parsed?.error?.message || parsed?.message || `Omni status error (${status}).`;
+  } catch {
+    return body?.trim()
+      ? `Omni status error (${status}): ${body.slice(0, 400)}`
+      : `Omni status error (${status}).`;
+  }
+}
+
+/**
+ * A task-scoped 4xx is a terminal provider answer, not a transient poll
+ * failure. Returning `failed` lets the status route persist the row and stop
+ * polling instead of emitting an endless stream of 502s. 408/425/429 and 5xx
+ * remain retryable and therefore return null for the caller to throw.
+ */
+export function terminalOmniStatusHttpError(status, body) {
+  // Authentication/authorization failures are deployment-wide faults and must
+  // remain visible as poll errors. These codes are task-scoped and terminal.
+  if (![400, 404, 409, 410, 422].includes(status)) {
+    return null;
+  }
+  const message = omniErrorMessage(status, body);
+  return {
+    status: "failed",
+    error: message,
+    moderationBlocked: /input blocked|polic|safety|moderat|block/i.test(message),
+  };
+}
+
 /** Extracts the finished video from a completed interaction. Real responses
  *  observed so far always inline the video as base64 inside the
  *  model_output step's content array; the output_video.uri branch below is
@@ -236,6 +267,7 @@ export async function createOmniVideoTask(input) {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
+    signal: input.signal,
   });
   if (!res.ok) {
     const errText = await res.text();
@@ -268,6 +300,8 @@ export async function getOmniVideoStatus(taskId) {
   const res = await fetch(`${base}/${taskId}`, { headers });
   if (!res.ok) {
     const errText = await res.text();
+    const terminal = terminalOmniStatusHttpError(res.status, errText);
+    if (terminal) return terminal;
     throw new Error(`Omni status error (${res.status}): ${errText.slice(0, 400)}`);
   }
   const json = await res.json();

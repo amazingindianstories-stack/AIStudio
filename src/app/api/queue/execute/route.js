@@ -35,6 +35,11 @@ import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents, klingUnitsToCents } from "@/lib/pricing";
 import { boundedBestOf, generateAndSpoolCandidates, readSpooledBase64 } from "@/lib/best-of-spool";
+import {
+  abortableDelay,
+  settleQueueExecution,
+  throwIfAborted,
+} from "@/lib/queue-execution-deadline";
 
 import sharp from "sharp";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -105,9 +110,10 @@ async function halveForDelivery(base64) {
 
 /** Turn stored clip refs into short-lived URLs the provider can fetch.
  *  A ref that is already an absolute URL is passed through untouched. */
-async function signVideoRefs(refs) {
+async function signVideoRefs(refs, signal) {
   const out = [];
   for (const ref of refs) {
+    throwIfAborted(signal);
     try {
       const signed = await signStoredRef(ref);
       out.push(signed ?? ref);
@@ -139,10 +145,11 @@ async function signVideoRefs(refs) {
  * allowed by `splitDataUrl` on upload) is re-encoded to JPEG rather than sent
  * as a format the provider will reject.
  */
-async function toProviderDataUrls(refs) {
+async function toProviderDataUrls(refs, signal) {
   const out = [];
   for (const ref of refs) {
-    const raw = await readImageAsBase64(ref);
+    throwIfAborted(signal);
+    const raw = await readImageAsBase64(ref, signal);
     let { mimeType, data } = await prepReference(raw.mimeType, raw.data);
     if (!/^image\/(jpeg|png)$/i.test(mimeType)) {
       try {
@@ -164,10 +171,11 @@ async function toProviderDataUrls(refs) {
 
 /** Create the provider task for a locked video job. Returns the item with
  *  taskId + status "running" (does not persist). */
-async function submitVideo(base) {
+async function submitVideo(base, signal) {
   const { id, prompt, aspectRatio, resolution, duration, model, seed, videoBestOf } = base;
 
   if (isMock()) {
+    throwIfAborted(signal);
     return {
       ...base,
       taskId: `mock-${id}`,
@@ -196,6 +204,7 @@ async function submitVideo(base) {
       assembled,
       aspectRatio,
       duration: duration || 4,
+      signal,
     });
   } else if (isHiggsfieldModel(model)) {
     // Higgsfield (Seedance 2.0/Mini) via the official MCP — supports MULTIPLE
@@ -211,17 +220,19 @@ async function submitVideo(base) {
       const genRes = await generateImageGemini({
         assembled: { instruction: prompt, groups: [] },
         aspectRatio,
+        signal,
       });
       // Save the generated frame so the user can see it in their history.
       const ext = genRes.mimeType.split("/")[1] || "png";
+      throwIfAborted(signal);
       const autoRefUrl = await uploadBase64(genRes.base64, `references/${id}-auto.${ext}`, ext);
       refUpdates.referenceImages = [autoRefUrl];
-      mediaIds.push(await mcpUploadImage(genRes.base64, genRes.mimeType));
+      mediaIds.push(await mcpUploadImage(genRes.base64, genRes.mimeType, { signal }));
     } else {
       for (const ref of refs) {
-        const raw = await readImageAsBase64(ref);
+        const raw = await readImageAsBase64(ref, signal);
         const { mimeType, data } = await prepReference(raw.mimeType, raw.data);
-        mediaIds.push(await mcpUploadImage(data, mimeType));
+        mediaIds.push(await mcpUploadImage(data, mimeType, { signal }));
       }
     }
     console.log(`[video] MCP seedance with ${mediaIds.length} reference image(s)`);
@@ -232,13 +243,15 @@ async function submitVideo(base) {
       duration,
       resolution,
       mediaIds,
+      signal,
     });
   } else {
     // Native BytePlus ModelArk Seedance 2.0. resolveReferences maps @imgN to
     // uploads by position, so the inlined list must keep referenceImages' order.
-    const inlined = await toProviderDataUrls(base.referenceImages ?? []);
+    const inlined = await toProviderDataUrls(base.referenceImages ?? [], signal);
     const signedRefVideos = await signVideoRefs(
-      resolveVideoReferences(prompt, base.referenceVideos ?? [])
+      resolveVideoReferences(prompt, base.referenceVideos ?? []),
+      signal
     );
     const resolvedRefs = resolveReferences(prompt, inlined);
     // Multi-shot chaining (Phase 3.3) — reuses the same stored-ref → inline
@@ -248,7 +261,7 @@ async function submitVideo(base) {
     // referenceImages array so it can't be mistaken for one of the tagged
     // @imgN references or counted against MAX_REFERENCE_VIDEOS-style limits.
     const [firstFrameDataUrl] = base.continuationFrameUrl
-      ? await toProviderDataUrls([base.continuationFrameUrl])
+      ? await toProviderDataUrls([base.continuationFrameUrl], signal)
       : [];
     console.log(
       `[video] BytePlus seedance with ${inlined.length} reference image(s), ` +
@@ -279,6 +292,7 @@ async function submitVideo(base) {
       // Multi-shot chaining (Phase 3.3) — see createVideoTask's own header
       // for the evidence caveat (third-party tutorial, not official docs).
       firstFrame: firstFrameDataUrl ? { dataUrl: firstFrameDataUrl } : undefined,
+      signal,
     });
 
     if ((videoBestOf ?? 1) > 1) {
@@ -415,24 +429,28 @@ export async function POST(req) {
   // Living here (not in the enqueue route) keeps concurrent renders inside
   // the queue's per-kind cap.
   if (base.kind === "video") {
-    try {
-      const running = await submitVideo({ ...base, seed, videoBestOf, costCents });
-      await upsertItem(running);
-      return NextResponse.json(running);
-    } catch (e) {
-      const failed = {
-        ...base,
-        status: "failed",
-        error: e?.message || "Video task creation failed.",
-        moderationBlocked: e?.code === "moderation",
-        updatedAt: Date.now(),
-      };
-      await upsertItem(failed);
-      return NextResponse.json(failed);
-    }
+    return settleQueueExecution({
+      work: (signal) => submitVideo({ ...base, seed, videoBestOf, costCents }, signal),
+      onSuccess: async (running) => {
+        await upsertItem(running);
+        return NextResponse.json(running);
+      },
+      onFailure: async (e) => {
+        const failed = {
+          ...base,
+          status: "failed",
+          error: e?.message || "Video task creation failed.",
+          moderationBlocked: e?.code === "moderation",
+          updatedAt: Date.now(),
+        };
+        await upsertItem(failed);
+        return NextResponse.json(failed);
+      },
+    });
   }
 
-  try {
+  return settleQueueExecution({
+    work: async (signal) => {
     let url;
     // Winning candidate's judge score (Phase 3.5), persisted onto the row
     // below so a later "flag this generation" carries real evidence, not
@@ -442,7 +460,7 @@ export async function POST(req) {
     // best-of-N judging actually ran.
     let judgeScore = null;
     if (isMock()) {
-      await new Promise((r) => setTimeout(r, 700));
+      await abortableDelay(700, signal);
       url = await mockPlaceholder(id, prompt, aspectRatio, model);
     } else if (isHiggsfieldModel(model)) {
       // Higgsfield image via the MCP — Soul (photoreal, one ref, `quality`)
@@ -457,9 +475,9 @@ export async function POST(req) {
       if (refs.length) {
         mediaIds = [];
         for (const ref of refs) {
-          const raw = await readImageAsBase64(ref);
+          const raw = await readImageAsBase64(ref, signal);
           const { mimeType, data } = await prepReference(raw.mimeType, raw.data);
-          mediaIds.push(await mcpUploadImage(data, mimeType));
+          mediaIds.push(await mcpUploadImage(data, mimeType, { signal }));
         }
       }
       const quality = resolution === "1K" ? "1.5k" : "2k";
@@ -473,13 +491,14 @@ export async function POST(req) {
         aspectRatio,
         ...(isNanoBanana ? { resolution: nbResolution } : { quality }),
         mediaIds,
+        signal,
       });
-      const done = await mcpAwaitJob(jobId);
+      const done = await mcpAwaitJob(jobId, { signal });
       if (done.status !== "succeeded" || !done.url) {
         throw new Error(done.error || "Higgsfield image generation failed.");
       }
       // Persist Higgsfield's hosted result locally so it survives URL expiry.
-      url = await saveFromUrl(done.url, "png", id);
+      url = await saveFromUrl(done.url, "png", id, signal);
     } else if (isKlingModel(model)) {
       // Kling takes ONE reference image and ONE prompt string on this endpoint
       // (see providers/kling.ts). buildKlingInput adapts the assembled payload
@@ -510,7 +529,7 @@ export async function POST(req) {
         aspectRatio,
         resolution,
         references: refs,
-      });
+      }, { signal });
       // Kling reports what it actually charged, so replace the enqueue-time
       // estimate with the real figure. Kling is the only provider here that does
       // this; everywhere else costCents stays an estimate from the pricing table.
@@ -524,7 +543,7 @@ export async function POST(req) {
       }
       // Download once so the bytes can be both measured and stored. Kling clears
       // hosted results after 30 days, so re-storing is mandatory either way.
-      const fetched = await fetch(result.url);
+      const fetched = await fetch(result.url, { signal });
       if (!fetched.ok) {
         throw new Error(
           `Kling produced an image but it could not be downloaded (http ${fetched.status}).`
@@ -546,6 +565,7 @@ export async function POST(req) {
         );
         aspectRatioOut = measured;
       }
+      throwIfAborted(signal);
       url = await saveBase64(bytes.toString("base64"), "png", id);
     } else {
       // Context engineering: resolve @slug assets + @imgN uploads into a
@@ -573,6 +593,7 @@ export async function POST(req) {
         imageSize: renderSize,
         modelDisplay: model,
         seed,
+        signal,
       };
       // Best-of-N: generation is stochastic (identity swings 5–65 on the same
       // config), so when a face is locked we generate N candidates serially,
@@ -602,6 +623,7 @@ export async function POST(req) {
           const { candidates, errors } = await generateAndSpoolCandidates({
             count: bestOf,
             directory: spoolDir,
+            signal,
             generate: (i) => generateImageGemini({
               ...input,
               seed: seed != null ? seed + i : undefined,
@@ -614,8 +636,8 @@ export async function POST(req) {
           for (const candidate of candidates) {
             const data = await readSpooledBase64(candidate);
             scores.push(process.env.JUDGE_COMPOSITE === "1"
-              ? await judgeCandidate(assembled.judgeFace, { mimeType: candidate.mimeType, data })
-              : await judgeIdentity(assembled.judgeFace, { mimeType: candidate.mimeType, data }));
+              ? await judgeCandidate(assembled.judgeFace, { mimeType: candidate.mimeType, data }, signal)
+              : await judgeIdentity(assembled.judgeFace, { mimeType: candidate.mimeType, data }, signal));
           }
           let best;
           if (process.env.JUDGE_COMPOSITE === "1") {
@@ -652,13 +674,16 @@ export async function POST(req) {
       }
 
       if (process.env.POST_CRISPEN === "1") {
+        throwIfAborted(signal);
         ({ data: base64, mimeType } = await crispen(mimeType, base64));
       }
       if (supersampleOn && renderSize !== requestedSize) {
+        throwIfAborted(signal);
         base64 = await halveForDelivery(base64);
       }
 
       const ext = mimeType.includes("jpeg") ? "jpg" : "png";
+      throwIfAborted(signal);
       url = await saveBase64(base64, ext, id);
     }
     const done = {
@@ -671,16 +696,22 @@ export async function POST(req) {
       judgeScore, // null unless best-of-N judging ran (see above)
       updatedAt: Date.now(),
     };
-    await upsertItem(done);
-    return NextResponse.json(done);
-  } catch (e) {
-    const failed = {
-      ...base,
-      status: "failed",
-      error: e?.message || "Image generation failed.",
-      updatedAt: Date.now(),
-    };
-    await upsertItem(failed);
-    return NextResponse.json(failed);
-  }
+    throwIfAborted(signal);
+    return done;
+    },
+    onSuccess: async (done) => {
+      await upsertItem(done);
+      return NextResponse.json(done);
+    },
+    onFailure: async (e) => {
+      const failed = {
+        ...base,
+        status: "failed",
+        error: e?.message || "Image generation failed.",
+        updatedAt: Date.now(),
+      };
+      await upsertItem(failed);
+      return NextResponse.json(failed);
+    },
+  });
 }

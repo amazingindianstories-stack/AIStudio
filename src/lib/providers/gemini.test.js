@@ -74,9 +74,11 @@ async function withFakeGeminiResponse(run) {
   const originalFetch = globalThis.fetch;
   const originalKey = process.env.GOOGLE_API_KEY;
   let capturedBody;
+  let capturedSignal;
   process.env.GOOGLE_API_KEY = "test-key";
   globalThis.fetch = async (_url, init) => {
     capturedBody = JSON.parse(init.body);
+    capturedSignal = init.signal;
     return {
       ok: true,
       status: 200,
@@ -94,7 +96,7 @@ async function withFakeGeminiResponse(run) {
   };
   try {
     const result = await run();
-    return { result, body: capturedBody };
+    return { result, body: capturedBody, signal: capturedSignal };
   } finally {
     globalThis.fetch = originalFetch;
     if (originalKey === undefined) delete process.env.GOOGLE_API_KEY;
@@ -123,4 +125,12 @@ test("generateImageGemini: a non-number seed is not sent, same as absent", async
     generateImageGemini({ assembled: MINIMAL_ASSEMBLED, seed: "42" })
   );
   assert.equal("seed" in body.generationConfig, false);
+});
+
+test("generateImageGemini: forwards the queue abort signal to fetch", async () => {
+  const controller = new AbortController();
+  const { signal } = await withFakeGeminiResponse(() =>
+    generateImageGemini({ assembled: MINIMAL_ASSEMBLED, signal: controller.signal })
+  );
+  assert.equal(signal, controller.signal);
 });

@@ -42,11 +42,11 @@ current verification.
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-27 | Codex | Claim-fenced implementation `4301601` remains isolated on `fix/audit-p0` and is intentionally held out of this release until the Vercel/Django/GPU worker rollout and VER-04 kill exercise can be coordinated. The unsafe `fb7046b` implementation was not reused. |
 | REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | in_progress | 2026-08-26 | Codex | Local `0c15e63` serially spools/judges candidates and caps N at 4/3/2 for 1K/2K/4K; helper tests pass. Exit: deploy and observe production memory/latency. |
-| REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | open | 2026-08-18 | Unassigned | Add a provider abort before the platform limit. |
+| REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | in_progress | 2026-08-27 | Codex | Local implementation adds a 270-second abort deadline inside the 300-second route budget, propagates cancellation through provider/network/poll paths, and keeps terminal persistence outside the deadline. Unit and literal-headroom guards are included. Exit: deploy and verify timeout failures persist before Vercel termination. |
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
 | REL-05 | Client scope and SQL scope can drift | P2 | in_progress | 2026-08-26 | Codex | A disposable-PostgreSQL integration test now compares client membership/order with SQL across projects, folders, unsorted, kind, favourites, literal search metacharacters, timestamp ties, and every keyset page; CI runs it after migrations. Exit: merge and observe CI on the production migration chain. |
 | REL-06 | `db:push` does not create indexes | P2 | in_progress | 2026-08-26 | Codex | A ten-index registry now drives the online-safe optimizer and read-only Admin Status check; source guards compare it to Drizzle declarations, and CI reconciles then verifies the live catalog. Exit: run the optimizer in production and confirm `generation-indexes` is green. |
-| REL-07 | Repeated poll errors can leave a row running forever | P2 | in_progress | 2026-08-26 | Codex | Admin Status now reports stale running image (>10m), video (>45m), and depth (>2m without an exact fresh lease heartbeat) counts/oldest age without exposing IDs or mutating rows; JS/Python tests cover thresholds. Exit: deploy and tune thresholds from observed provider latency if needed. |
+| REL-07 | Repeated poll errors can leave a row running forever | P2 | in_progress | 2026-08-27 | Codex | Admin Status reports stale running jobs; additionally, Omni non-retryable 4xx status responses (including moderation/input blocks) now become terminal failed results instead of route-level 502s that clients poll indefinitely. JS/Python classification and status integration tests are included. Exit: deploy, confirm the Vercel `/api/generate/video/status` anomaly stays clear, and tune stale thresholds if needed. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | open | 2026-08-18 | Unassigned | Measure provider outputs where practical. |
 | REL-09 | Login-attempt cleanup is opportunistic | P3 | open | 2026-08-18 | Unassigned | Add scheduled retention cleanup. |
 | MIG-01 | Django port is not cut over | P1 | open | 2026-08-18 | Unassigned | Re-audit against current backend before choosing ship/delete. |
@@ -128,3 +128,7 @@ current verification.
   candidates, with lower candidate ceilings for larger render sizes.
 - 2026-08-26: implemented DX-03, DX-10, and DX-11 locally with portable unit-test
   discovery and PostgreSQL-backed GitHub Actions gates for both runtimes.
+- 2026-08-27: implemented REL-03 locally with an internal abort deadline and
+  provider cancellation propagation. Extended REL-07 so terminal Omni 4xx
+  status responses persist a failed result instead of surfacing as retryable
+  502 responses and triggering an unbounded client poll loop.

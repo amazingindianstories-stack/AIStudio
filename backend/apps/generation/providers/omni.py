@@ -9,6 +9,7 @@ before trusting memory here.
 """
 
 import base64
+import json
 import os
 import re
 from urllib.parse import urlparse
@@ -69,6 +70,28 @@ def map_omni_status(raw: str | None) -> str:
     if raw in ("failed", "cancelled", "incomplete", "budget_exceeded", "requires_action"):
         return "failed"
     return "running"
+
+
+def _omni_error_message(status: int, body: str) -> str:
+    try:
+        parsed = json.loads(body)
+        return (parsed.get("error") or {}).get("message") or parsed.get("message") or f"Omni status error ({status})."
+    except (ValueError, TypeError, AttributeError):
+        return f"Omni status error ({status}): {body[:400]}" if body.strip() else f"Omni status error ({status})."
+
+
+def terminal_omni_status_http_error(status: int, body: str) -> dict | None:
+    """Task-scoped non-retryable 4xx responses are terminal provider answers."""
+    # Authentication/authorization failures are deployment-wide faults and
+    # must remain visible as poll errors instead of failing one task at a time.
+    if status not in (400, 404, 409, 410, 422):
+        return None
+    message = _omni_error_message(status, body)
+    return {
+        "status": "failed",
+        "error": message,
+        "moderationBlocked": bool(re.search(r"input blocked|polic|safety|moderat|block", message, re.IGNORECASE)),
+    }
 
 
 def extract_omni_video(data: dict, omni_auth: dict | None = None) -> dict:
@@ -165,6 +188,9 @@ def get_omni_video_status(task_id: str) -> dict:
 
     res = requests.get(f"{base}/{task_id}", headers=headers, timeout=30)
     if not res.ok:
+        terminal = terminal_omni_status_http_error(res.status_code, res.text)
+        if terminal:
+            return terminal
         raise RuntimeError(f"Omni status error ({res.status_code}): {res.text[:400]}")
     data = res.json()
     status = map_omni_status(data.get("status"))
