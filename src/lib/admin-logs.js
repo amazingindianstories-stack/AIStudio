@@ -2,6 +2,7 @@ import { and, desc, eq, sql, } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations } from "./schema";
 import { decodeCursor, encodeCursor, likePattern, } from "./store-db";
+import { costBasisForGeneration } from "./cost-basis";
 
 /**
  * The admin generation log: filtered and paginated in Postgres.
@@ -97,6 +98,7 @@ const previewColumns = {
   model: generations.model,
   status: generations.status,
   costCents: generations.costCents,
+  costBasis: generations.costBasis,
   userId: generations.userId,
   prompt: sql`left(${generations.prompt}, ${PROMPT_PREVIEW_CHARS})`,
   promptTruncated: sql`length(${generations.prompt}) > ${PROMPT_PREVIEW_CHARS}`,
@@ -139,6 +141,8 @@ export async function queryAdminLogs(
         // so a filtered view (e.g. status=failed) honestly totals $0 rather
         // than disagreeing with Overview about what "spend" means.
         cost: sql`coalesce(sum(case when ${generations.status} = 'succeeded' then ${generations.costCents} else 0 end), 0)::int`,
+        reconciledCost: sql`coalesce(sum(case when ${generations.status} = 'succeeded' and ${generations.costBasis} = 'reconciled' then ${generations.costCents} else 0 end), 0)::int`,
+        estimatedCost: sql`coalesce(sum(case when ${generations.status} = 'succeeded' and ${generations.costBasis} <> 'reconciled' then ${generations.costCents} else 0 end), 0)::int`,
       })
       .from(generations)
       .where(conds.length ? and(...conds) : undefined),
@@ -155,6 +159,7 @@ export async function queryAdminLogs(
       model: r.model,
       status: r.status,
       costCents: r.costCents ?? 0,
+      costBasis: costBasisForGeneration(r),
       userId: r.userId ?? null,
       prompt: r.prompt,
       promptTruncated: r.promptTruncated,
@@ -162,6 +167,8 @@ export async function queryAdminLogs(
     })),
     total: totals?.count ?? 0,
     totalCostCents: totals?.cost ?? 0,
+    reconciledCostCents: totals?.reconciledCost ?? 0,
+    estimatedCostCents: totals?.estimatedCost ?? 0,
     nextCursor: hasMore && last ? encodeCursor({ sort: last.createdAt, id: last.id }) : null,
   };
 }
@@ -180,6 +187,7 @@ export async function readAdminLogsForExport(
       model: generations.model,
       status: generations.status,
       costCents: generations.costCents,
+      costBasis: generations.costBasis,
       userId: generations.userId,
       prompt: generations.prompt,
       createdAt: generations.createdAt,
@@ -188,7 +196,12 @@ export async function readAdminLogsForExport(
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(generations.createdAt), desc(generations.id))
     .limit(MAX_CSV_ROWS);
-  return rows.map((r) => ({ ...r, costCents: r.costCents ?? 0, userId: r.userId ?? null }));
+  return rows.map((r) => ({
+    ...r,
+    costCents: r.costCents ?? 0,
+    costBasis: costBasisForGeneration(r),
+    userId: r.userId ?? null,
+  }));
 }
 
 export { decodeCursor };

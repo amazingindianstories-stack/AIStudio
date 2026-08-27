@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/login-attempts",
+      "schedule": "17 3 * * *"
+    }
+  ]
+}

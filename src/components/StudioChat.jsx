@@ -299,7 +299,7 @@ export function StudioChat({ conversationId }) {
               <Sparkles className="h-4 w-4 text-brand" /> New chat
             </p>
             Talk through what you want to {mode === "image" ? "make" : "shoot"}. Attach reference
-            images if you have them, and say "generate that" when you're ready — or design a
+            images if you have them, and say &quot;generate that&quot; when you are ready — or design a
             prompt first and generate it from here.
           </div>
         ) : (

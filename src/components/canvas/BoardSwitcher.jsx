@@ -304,7 +304,7 @@ function DeleteBoardDialog({
           Delete this board?
         </h2>
         <p className="mt-2 text-sm text-white/60">
-          “{board.name}” will be deleted. This can't be undone.
+          “{board.name}” will be deleted. This cannot be undone.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <button

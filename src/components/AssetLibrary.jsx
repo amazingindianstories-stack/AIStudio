@@ -19,6 +19,8 @@ import {
 import { useStore, } from "@/lib/store";
 import { ASSET_KINDS, } from "@/lib/types";
 import { cn, thumbUrl } from "@/lib/utils";
+import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { useConfirmedAction } from "./useConfirmedAction";
 
 const KIND_ICON = {
   character: UserRound,
@@ -125,6 +127,7 @@ function AssetList({ assets, loading }) {
   const setOpen = useStore((s) => s.setAssetLibraryOpen);
   const prompt = useStore((s) => s.prompt);
   const setPrompt = useStore((s) => s.setPrompt);
+  const confirmation = useConfirmedAction();
 
   const insert = (slug) => {
     const tag = `@${slug}`;
@@ -134,6 +137,7 @@ function AssetList({ assets, loading }) {
   };
 
   return (
+    <>
     <div className="space-y-4">
       <button
         onClick={() => setEditing("new")}
@@ -224,7 +228,10 @@ function AssetList({ assets, loading }) {
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     <button
-                      onClick={() => deleteAsset(a.id)}
+                      onClick={() =>
+                        confirmation.ask("deleteAsset", () => deleteAsset(a.id))
+                      }
+                      aria-label={`Delete ${a.name}`}
                       className="grid h-6 w-6 place-items-center rounded text-white/60 hover:bg-red-500/15 hover:text-red-300"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -237,6 +244,8 @@ function AssetList({ assets, loading }) {
         </div>
       )}
     </div>
+      <ConfirmActionDialog {...confirmation.dialogProps} />
+    </>
   );
 }
 

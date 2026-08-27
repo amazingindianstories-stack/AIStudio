@@ -28,11 +28,15 @@ export function middleware(req) {
   // depth-map worker Python process (see depth-worker-auth.js), which has no
   // browser and no session cookie. It is NOT unauthenticated: every request
   // carries its own DEPTH_WORKER_TOKEN bearer auth, verified by the route.
+  // /api/cron/* is invoked by Vercel without a browser session. Each cron
+  // route fails closed on its own CRON_SECRET bearer token before touching
+  // data, so the edge cookie-presence gate must let that token reach it.
   if (
     pathname.startsWith("/api/auth") ||
     pathname === "/api/admin/set-token" ||
     pathname === "/api/media-grant" ||
     pathname.startsWith("/api/worker/depth/") ||
+    pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   ) {

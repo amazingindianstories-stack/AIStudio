@@ -1,8 +1,8 @@
 import "dotenv/config";
-import { config } from "dotenv";
+import { config as loadEnv } from "dotenv";
 
 // Load .env.local (Next.js convention) for migrations/seed.
-config({ path: ".env.local" });
+loadEnv({ path: ".env.local" });
 
 // Django's own migrations (manage.py migrate) create auth_*/django_*/etc.
 // tables in this same Postgres database — see CLAUDE.md's backend/ section.
@@ -40,7 +40,7 @@ const DRIZZLE_OWNED_TABLES = [
   "login_attempts",
 ];
 
-export default {
+const config = {
   schema: "./src/lib/schema.js",
   out: "./drizzle",
   dialect: "postgresql",
@@ -49,3 +49,5 @@ export default {
   },
   tablesFilter: DRIZZLE_OWNED_TABLES,
 };
+
+export default config;

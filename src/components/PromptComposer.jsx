@@ -405,7 +405,6 @@ export function PromptComposer() {
                   the race varies by OS/input device, which is exactly the
                   "sometimes it just doesn't grab" symptom. Suppressing the
                   native drag leaves the pointer event free for Framer. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={src}
                 alt=""

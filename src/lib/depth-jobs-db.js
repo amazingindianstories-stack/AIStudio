@@ -25,7 +25,7 @@ export const WORKER_STALE_MS = 45_000;
  * app's own operator described as needing "a load balancer" should not need
  * a rewrite the day a second machine joins.
  */
-export async function claimNextDepthJob(workerId) {
+export async function claimNextDepthJob(_workerId) {
   const db = await getDb();
   const now = Date.now();
   const res = await db.execute(sql`

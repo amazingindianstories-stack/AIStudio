@@ -100,13 +100,12 @@ export function CanvasAssetPanel({
       } else if (raw != null) {
         setScope(projectId ?? "all");
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     } catch {
       /* ignore */
     }
     // Only re-run once projects have actually loaded, so the validation
     // above has real data to check against.
-  }, [projects.length]);
+  }, [projectId, projects]);
 
   useEffect(() => {
     try {

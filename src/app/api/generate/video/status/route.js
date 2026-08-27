@@ -348,6 +348,7 @@ export async function GET(req) {
         // fall back to the remote url if download fails
       }
       let costCents = item.costCents;
+      let costBasis = item.costBasis === "reconciled" ? "reconciled" : "estimated";
       // Seedance 2.5 only — BytePlus bills by tokens, and the finished task
       // reports the real count (usage.total_tokens, see providers/seedance.ts
       // getVideoTask). Same "provider reports its own billing" pattern as
@@ -369,6 +370,7 @@ export async function GET(req) {
               `for ${item.id} (estimate was ${costCents}¢)`
           );
           costCents = actual;
+          costBasis = "reconciled";
         }
       }
       const done = {
@@ -376,6 +378,7 @@ export async function GET(req) {
         status: "succeeded" ,
         url: localUrl,
         costCents,
+        costBasis,
         updatedAt: Date.now(),
       };
       await upsertItem(done);

@@ -88,7 +88,7 @@ export async function loadToken() {
     const raw = JSON.parse(await fs.readFile(TOKEN_FILE, "utf8"));
     token = { ...raw, obtained_at: raw.obtained_at ?? Date.now() };
     return token;
-  } catch (e) {
+  } catch {
     throw new Error("No Higgsfield MCP token found in GCS, env vars, or local file.");
   }
 }

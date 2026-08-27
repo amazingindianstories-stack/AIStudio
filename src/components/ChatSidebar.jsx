@@ -93,9 +93,8 @@ export function ChatSidebar({
       if (!conversationId || !list.some((c) => c.id === conversationId)) {
         if (list[0]) onConversationIdChange(list[0].id);
       }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     })();
-  }, [activeProjectId, agentKind]);
+  }, [activeProjectId, agentKind, conversationId, onConversationIdChange]);
 
   const createConversation = async () => {
     if (!activeProjectId) return;
@@ -337,7 +336,7 @@ function DeleteThreadDialog({
           Delete this chat?
         </h2>
         <p className="mt-2 text-sm text-white/60">
-          “{conversation.name}” will be deleted. This can't be undone.
+          “{conversation.name}” will be deleted. This cannot be undone.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <button

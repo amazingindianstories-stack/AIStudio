@@ -124,7 +124,6 @@ test("runCheck: fn that throws synchronously (before returning a promise) is sti
 
 test("runCheck: fn rejecting with a non-Error value falls back to a string detail, never throws", async () => {
   const d = def("synthetic-reject-nonerror", "Synthetic Reject Non-Error Check", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-throw-literal
     throw "plain string failure";
   });
   let result;

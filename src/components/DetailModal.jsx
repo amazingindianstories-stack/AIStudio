@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   X,
@@ -25,6 +25,12 @@ import { useStore } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
 import { supportsFirstFrameContinuation, supportsVideoReference } from "@/lib/config";
+import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { useConfirmedAction } from "./useConfirmedAction";
+import {
+  hasFullscreenMedia,
+  settleFullscreenBeforeMediaMutation,
+} from "@/lib/fullscreen-guard";
 
 /** Prompt in the details sidebar: minimized by default, hover reveals an
  *  expand cue in the top-right corner (same pattern as the feed). Keyed by
@@ -177,6 +183,9 @@ export function DetailModal() {
   const removeItem = useStore((s) => s.removeItem);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const toggleFlag = useStore((s) => s.toggleFlag);
+  const confirmation = useConfirmedAction();
+  const [closing, setClosing] = useState(false);
+  const closingRef = useRef(false);
 
   // `items` is already the scope the user is looking at — server-filtered and
   // in the same order the grid renders — so Left/Right (reading order) just
@@ -216,24 +225,37 @@ export function DetailModal() {
     [gridColumns, navigableItems]
   );
 
-  // Closing the modal while a <video>'s native fullscreen is still active
-  // (or mid-exit-transition) unmounts the fullscreen element out from under
-  // the browser's own fullscreen-exit handling — in Chrome this can leave
-  // the page's hit-testing wedged until a reload. Exit fullscreen first and
-  // let the (now-unmounted-safe) close happen on the next call.
-  const closeModal = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {});
-      return;
+  useEffect(() => {
+    if (!activeId) return;
+    closingRef.current = false;
+    setClosing(false);
+  }, [activeId]);
+
+  // Never unmount a native-fullscreen video until the browser has completed
+  // its exit paints. The old workaround returned after exitFullscreen(), so
+  // one Escape merely exited fullscreen and a close during that transition
+  // could still leave Chrome's page hit-testing wedged until reload.
+  const closeModal = useCallback(async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setClosing(true);
+    try {
+      await settleFullscreenBeforeMediaMutation();
+      setActiveId(null);
+    } catch {
+      // Keep the viewer mounted when the browser refuses to leave fullscreen;
+      // removing the active media in this state is what wedges page input.
+      closingRef.current = false;
+      setClosing(false);
     }
-    setActiveId(null);
-  };
+  }, [setActiveId]);
 
   useEffect(() => {
     if (!item) return;
     const onKeyDown = (event) => {
+      if (confirmation.dialogProps.open) return;
       if (event.key === "Escape") {
-        closeModal();
+        void closeModal();
         return;
       }
       if (
@@ -247,6 +269,9 @@ export function DetailModal() {
       const isVertical = event.key === "ArrowUp" || event.key === "ArrowDown";
       const isHorizontal = event.key === "ArrowLeft" || event.key === "ArrowRight";
       if (!isVertical && !isHorizontal) return;
+      // While a video is fullscreen, arrow keys belong to its native controls.
+      // Swapping the active item here would unmount the fullscreen element.
+      if (hasFullscreenMedia()) return;
       const delta = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1;
 
       if (isVertical) {
@@ -274,9 +299,10 @@ export function DetailModal() {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [item, navigableItems, navigableColumns, setActiveId]);
+  }, [closeModal, confirmation.dialogProps.open, item, navigableItems, navigableColumns, setActiveId]);
 
   return (
+    <>
     <AnimatePresence>
       {item && (
         <motion.div
@@ -284,8 +310,11 @@ export function DetailModal() {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-[60] flex items-stretch justify-center bg-black/80 backdrop-blur-md"
-          onClick={closeModal}
+          className={cn(
+            "fixed inset-0 z-[60] flex items-stretch justify-center bg-black/80 backdrop-blur-md",
+            closing && "pointer-events-none"
+          )}
+          onClick={() => void closeModal()}
         >
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
@@ -298,7 +327,7 @@ export function DetailModal() {
             {/* media stage */}
             <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center p-4 sm:p-8">
               <button
-                onClick={closeModal}
+                onClick={() => void closeModal()}
                 className="absolute left-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white/90 backdrop-blur hover:bg-white/20"
               >
                 <X className="h-5 w-5" />
@@ -496,8 +525,12 @@ export function DetailModal() {
                   supportsFirstFrameContinuation(item.model) && (
                     <button
                       onClick={() => {
-                        continueShot(item.id);
-                        setActiveId(null);
+                        confirmation.ask("continueShot", async () => {
+                          const result = await continueShot(item.id);
+                          if (result === false || result?.ok === false) return result;
+                          setActiveId(null);
+                          return true;
+                        });
                       }}
                       className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
                       title="Start a new video from this clip's last frame — write what happens next"
@@ -524,8 +557,12 @@ export function DetailModal() {
                 )}
                 <button
                   onClick={() => {
-                    cloneToComposer(item.id);
-                    setActiveId(null);
+                    confirmation.ask("cloneToComposer", async () => {
+                      const result = await cloneToComposer(item.id);
+                      if (result === false || result?.ok === false) return result;
+                      setActiveId(null);
+                      return true;
+                    });
                   }}
                   className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-accent py-2.5 text-sm font-semibold text-ink-900 shadow-glow hover:brightness-110"
                 >
@@ -540,8 +577,12 @@ export function DetailModal() {
                 {item.seed != null && (
                   <button
                     onClick={() => {
-                      regenerateWithSameSeed(item.id);
-                      setActiveId(null);
+                      confirmation.ask("regenerateWithSameSeed", async () => {
+                        const result = await regenerateWithSameSeed(item.id);
+                        if (result === false || result?.ok === false) return result;
+                        setActiveId(null);
+                        return true;
+                      });
                     }}
                     className="flex items-center justify-center gap-2 rounded-xl border border-line bg-white/[0.06] py-2.5 text-sm font-semibold text-white/85 hover:bg-white/[0.1]"
                     title={`Regenerate using the same seed (${item.seed}) for a reproducible result`}
@@ -561,8 +602,12 @@ export function DetailModal() {
                   )}
                   <button
                     onClick={() => {
-                      removeItem(item.id);
-                      setActiveId(null);
+                      confirmation.ask("deleteGeneration", async () => {
+                        const result = await removeItem(item.id);
+                        if (result === false || result?.ok === false) return result;
+                        setActiveId(null);
+                        return true;
+                      });
                     }}
                     className="flex items-center justify-center gap-2 rounded-xl border border-line bg-ink-700 px-4 py-2.5 text-sm text-red-300/80 hover:bg-red-500/10 hover:text-red-300"
                   >
@@ -575,6 +620,8 @@ export function DetailModal() {
         </motion.div>
       )}
     </AnimatePresence>
+      <ConfirmActionDialog {...confirmation.dialogProps} />
+    </>
   );
 }
 

@@ -16,17 +16,22 @@ import {
   Star,
   Copy,
   Download,
+  MoreHorizontal,
 } from "lucide-react";
 
 import { useStore } from "@/lib/store";
 import { aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 import { useNearViewport } from "@/lib/use-near-viewport";
+import { Dropdown, MenuItem } from "./Dropdown";
+import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { useConfirmedAction } from "./useConfirmedAction";
 
 // Grid cards render at ~160–320 CSS px; request a modest fixed width
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
 // full-resolution original.
 const CARD_THUMB_WIDTH = 480;
 import { formatCost } from "@/lib/pricing";
+import { costBasisForGeneration } from "@/lib/cost-basis";
 
 /** Fixed milestone sequence worker.py's _report_progress calls send, in
  *  order — see depth-worker/worker.py's _process_job/_run_depth. Matched by
@@ -83,10 +88,12 @@ export function MediaCard({
   const creator = useStore((s) =>
     item.userId ? s.usersById[item.userId] : undefined
   );
+  const confirmation = useConfirmedAction();
 
   const pending = item.status === "running" || item.status === "queued";
   const failed = item.status === "failed";
   const done = item.status === "succeeded";
+  const costBasis = costBasisForGeneration(item);
   const depthStepIndex =
     item.kind === "depth" && item.progressMessage
       ? depthStepList(item.trackCharacters).indexOf(item.progressMessage) + 1 || null
@@ -103,17 +110,11 @@ export function MediaCard({
   const nearViewport = useNearViewport(cardRef);
 
   return (
-    // No `layout` prop, deliberately. It made every card FLIP-animate to any
-    // new position, so each appended page of an infinite scroll set the entire
-    // grid sliding around under the pointer — the "it keeps rearranging while
-    // I scroll" problem. Enter/exit still animate (they are about one card
-    // appearing or leaving), but a card that is merely somewhere else in the
-    // grid now just *is* somewhere else.
-    //
-    // Hover lift moved to a CSS transform for the same reason: `whileHover`
-    // animated `y`, which framer applies as an inline style that a layout pass
-    // has to account for. A transform is composited and cannot move a
-    // neighbour.
+    <>
+    {/* No `layout` prop, deliberately. It made every card FLIP-animate to any
+        new position, so each appended page of an infinite scroll set the entire
+        grid sliding around under the pointer. Hover lift is CSS-composited for
+        the same reason: it cannot move a neighbouring card. */}
     <motion.div
       ref={cardRef}
       initial={{ opacity: 0, scale: 0.96 }}
@@ -324,16 +325,16 @@ export function MediaCard({
               {item.error || "Failed"}
             </span>
 
-            <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5">
+            <div className="mt-1 flex max-w-full items-center justify-center gap-1.5">
               {item.moderationBlocked && item.kind === "video" && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    retryTextToVideo(item.id);
+                    confirmation.ask("retryTextToVideo", () => retryTextToVideo(item.id));
                   }}
-                  className="flex items-center gap-1 rounded-md bg-brand/20 px-2 py-1 text-[11px] font-semibold text-brand transition hover:bg-brand/30"
+                  className="flex h-7 min-w-0 items-center gap-1 rounded-md bg-brand/20 px-2 text-[11px] font-semibold text-brand transition hover:bg-brand/30"
                 >
-                  <Wand2 className="h-3 w-3" /> Retry as text-to-video
+                  <Wand2 className="h-3 w-3 shrink-0" /> Retry
                 </button>
               )}
               {/* cloneToComposer/editInComposer restore prompt/references
@@ -343,35 +344,73 @@ export function MediaCard({
                   both would silently just switch to an empty DepthComposer
                   rather than actually cloning anything. Suppressed for depth
                   rather than shipping a dead-end button. */}
-              {item.kind !== "depth" && (
+              {!item.moderationBlocked && item.kind !== "depth" && (
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    cloneToComposer(item.id);
+                    confirmation.ask("editPrompt", () => editInComposer(item.id));
                   }}
-                  className="flex items-center gap-1 rounded-md bg-brand/20 px-2 py-1 text-[11px] font-semibold text-brand transition hover:bg-brand/30"
-                  title="Restore this prompt, settings and references into the composer"
+                  className="flex h-7 min-w-0 items-center gap-1 rounded-md bg-brand/20 px-2 text-[11px] font-semibold text-brand transition hover:bg-brand/30"
                 >
-                  <Copy className="h-3 w-3" /> Clone &amp; try
+                  <Pencil className="h-3 w-3 shrink-0" /> Edit
                 </button>
               )}
-              {item.kind !== "depth" && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    editInComposer(item.id);
-                  }}
-                  className="flex items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[11px] font-medium text-white/80 transition hover:bg-white/20"
-                >
-                  <Pencil className="h-3 w-3" /> Edit prompt
-                </button>
-              )}
+              <Dropdown
+                align="right"
+                side="bottom"
+                label="Generation actions"
+                panelClassName="w-56"
+                trigger={(open) => (
+                  <span
+                    className={cn(
+                      "grid h-7 w-7 place-items-center rounded-md bg-black/45 text-white/70 transition hover:bg-white/15 hover:text-white",
+                      open && "bg-white/15 text-white"
+                    )}
+                  >
+                    <MoreHorizontal className="h-4 w-4" />
+                  </span>
+                )}
+              >
+                {(close) => (
+                  <>
+                    {item.kind !== "depth" && (
+                      <MenuItem
+                        onClick={() => {
+                          close();
+                          confirmation.ask("cloneToComposer", () => cloneToComposer(item.id));
+                        }}
+                      >
+                        <Copy className="h-4 w-4" /> Clone &amp; try
+                      </MenuItem>
+                    )}
+                    {item.moderationBlocked && item.kind !== "depth" && (
+                      <MenuItem
+                        onClick={() => {
+                          close();
+                          confirmation.ask("editPrompt", () => editInComposer(item.id));
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" /> Edit prompt
+                      </MenuItem>
+                    )}
+                    <MenuItem
+                      onClick={() => {
+                        close();
+                        confirmation.ask("deleteGeneration", () => removeItem(item.id));
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4 text-red-300" />
+                      <span className="text-red-200">Delete</span>
+                    </MenuItem>
+                  </>
+                )}
+              </Dropdown>
             </div>
           </div>
         )}
 
         {/* favourite toggle */}
-        <button
+        {!failed && <button
           onClick={(e) => {
             e.stopPropagation();
             toggleFavorite(item.id);
@@ -388,7 +427,7 @@ export function MediaCard({
           <Star
             className={cn("h-3.5 w-3.5", item.isFavorite && "fill-current")}
           />
-        </button>
+        </button>}
 
         {done && item.url && (
           <a
@@ -425,7 +464,16 @@ export function MediaCard({
               <p className="truncate font-medium">{creator.name || creator.email}</p>
               <p className="truncate text-white/45">{creator.email}</p>
               <p className="mt-1 flex min-w-0 items-center gap-1.5 text-white/55">
-                <span className="shrink-0">{formatCost(item.costCents ?? 0)}</span>
+                <span
+                  className="shrink-0"
+                  title={
+                    costBasis === "reconciled"
+                      ? "Reconciled from provider-reported usage"
+                      : "Estimated from the configured pricing table"
+                  }
+                >
+                  {costBasis === "estimated" ? "≈" : ""}{formatCost(item.costCents ?? 0)}
+                </span>
                 <span aria-hidden className="text-white/25">
                   ·
                 </span>
@@ -441,7 +489,7 @@ export function MediaCard({
         )}
 
         {/* kind chip */}
-        <div className="pointer-events-none absolute right-2 top-10 z-10 flex items-center gap-1 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/80 backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100">
+        {!failed && <div className="pointer-events-none absolute right-2 top-10 z-10 flex items-center gap-1 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/80 backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100">
           {item.kind === "image" ? (
             <ImageIcon className="h-3 w-3" />
           ) : item.kind === "depth" ? (
@@ -450,25 +498,27 @@ export function MediaCard({
             <Play className="h-3 w-3" />
           )}
           {item.kind}
-        </div>
+        </div>}
 
         {/* hover prompt + delete */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 translate-y-2 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-2.5 pt-10 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
+        {!failed && <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 translate-y-2 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-2.5 pt-10 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
           <p className="line-clamp-2 pl-7 pr-9 text-[11px] leading-snug text-white/90">
             {item.prompt}
           </p>
-        </div>
-        <button
+        </div>}
+        {!failed && <button
           onClick={(e) => {
             e.stopPropagation();
-            removeItem(item.id);
+            confirmation.ask("deleteGeneration", () => removeItem(item.id));
           }}
           className="absolute bottom-2 right-2 z-20 grid h-7 w-7 place-items-center rounded-md bg-black/55 text-white/70 opacity-0 backdrop-blur-sm transition hover:bg-red-500/80 hover:text-white group-hover:opacity-100"
           aria-label="Delete"
         >
           <Trash2 className="h-3.5 w-3.5" />
-        </button>
+        </button>}
       </div>
     </motion.div>
+      <ConfirmActionDialog {...confirmation.dialogProps} />
+    </>
   );
 }

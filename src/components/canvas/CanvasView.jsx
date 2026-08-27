@@ -387,7 +387,7 @@ export function CanvasView() {
         <div className="absolute inset-0 z-40 grid place-items-center bg-ink-900/90">
           <div className="flex flex-col items-center gap-3 text-center">
             <AlertCircle className="h-7 w-7 text-red-400/90" />
-            <p className="text-sm text-white/70">Couldn't load this board.</p>
+            <p className="text-sm text-white/70">Could not load this board.</p>
             <button
               type="button"
               onClick={() => boardId && loadBoard(boardId).then(() => setLoadError(false)).catch(() => setLoadError(true))}
@@ -424,7 +424,7 @@ function SaveStatusChip({
     return (
       <div className="absolute right-4 top-4 z-30 flex items-center gap-2 rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
         <AlertTriangle className="h-3.5 w-3.5" />
-        Couldn't save — retrying
+        Could not save — retrying
         <button
           type="button"
           onClick={onRetry}

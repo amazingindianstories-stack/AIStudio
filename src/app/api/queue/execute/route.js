@@ -397,6 +397,7 @@ export async function POST(req) {
 
   const { prompt, aspectRatio, resolution, model, referenceImages } = base;
   let costCents = base.costCents || 0;
+  let costBasis = base.costBasis === "reconciled" ? "reconciled" : "estimated";
   // Reproducibility seed (Phase 3.1). Only filled in for models supportsSeed
   // actually confirms support for (today: Gemini/NBP here, native BytePlus
   // Seedance in the video branch below) — every other model keeps whatever
@@ -559,6 +560,7 @@ export async function POST(req) {
             `for ${id} (estimate was ${costCents}¢)`
         );
         costCents = actual;
+        costBasis = "reconciled";
       }
       // Download once so the bytes can be both measured and stored. Kling clears
       // hosted results after 30 days, so re-storing is mandatory either way.
@@ -711,6 +713,7 @@ export async function POST(req) {
       url,
       aspectRatio: aspectRatioOut,
       costCents, // includes the NB2 face-refine pass when it ran
+      costBasis,
       seed, // the freshly generated/reused value, not base's stale one
       judgeScore, // null unless best-of-N judging ran (see above)
       updatedAt: Date.now(),

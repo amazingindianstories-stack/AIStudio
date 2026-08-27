@@ -34,6 +34,17 @@ to resume after the deployable work is stable.
 | ARCH-05 | Alert creation changes Vercel project configuration. | Configure the stable event-marker alert after log shape is observed. |
 | DRIFT-01 | Target-runtime provider verification may make live provider calls. | Verify only when the Django runtime is scheduled for cutover testing. |
 
+## Local product bugs outside the PDF register
+
+These IDs track user-reported product defects without changing the PDF's fixed
+80-ID register. `ready_for_deploy` means locally implemented and verified, not
+production-confirmed.
+
+| ID | Bug | State | Last verified | Evidence / next action |
+|---|---|---|---|---|
+| UI-LOCAL-01 | Media-card actions overlap and execute without confirmation | ready_for_deploy | 2026-08-27 | Failed cards now expose one contextual action plus an overflow menu; retry, regenerate, clone/edit, continue, and all delete paths use a shared accessible confirmation dialog. Unit tests and lint pass. Exit: preview smoke-test compact cards and each confirmation path. |
+| UI-LOCAL-02 | Asset viewer can leave all mouse/keyboard input wedged after arrow navigation and Escape/close | ready_for_deploy | 2026-08-27 | Viewer teardown now waits for standard or Safari fullscreen exit plus two paint frames, blocks duplicate close/navigation during teardown, and refuses to unmount media if fullscreen exit fails. Fullscreen regression tests pass. Exit: reproduce the original arrow/Escape sequence in preview on Chrome and Safari. |
+
 ## Full issue register
 
 Rows not individually re-audited since the source review remain `open`; this is
@@ -56,7 +67,7 @@ current verification.
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
 | COST-04 | Media delivery can silently proxy bytes | P1 | open | 2026-08-18 | Unassigned | Verify current production mode, then add monitoring. |
 | COST-05 | Video best-of-N can bill after partial failure | P2 | in_progress | 2026-08-27 | Codex | Local settlement logic retains every provider-accepted task ID, continues with a partial candidate set, emits accepted/rejected counts, and reduces estimated cost to accepted candidates. Exit: deploy and verify a controlled partial-submission fixture. |
-| COST-06 | Provider costs mix exact and estimated values | P2 | open | 2026-08-18 | Unassigned | Mark estimates and reconcile provider usage. |
+| COST-06 | Provider costs mix exact and estimated values | P2 | in_progress | 2026-08-27 | Codex | Local persistence records whether each amount was actually overwritten from provider usage; missing usage and legacy rows conservatively remain estimated. Admin totals, user summaries, logs, and CSV exports expose the split. Exit: apply the additive column migration, deploy, and verify both classes against representative production rows. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-27 | Codex | Claim-fenced implementation `4301601` remains isolated on `fix/audit-p0` and is intentionally held out of this release until the Vercel/Django/GPU worker rollout and VER-04 kill exercise can be coordinated. The unsafe `fb7046b` implementation was not reused. |
 | REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | monitoring | 2026-08-27 | Codex | Serial spooling/judging and size-bounded candidate caps deployed in production `8f216d9`; main CI and local suites pass. Monitor production memory and latency before closing. |
@@ -66,7 +77,7 @@ current verification.
 | REL-06 | `db:push` does not create indexes | P2 | resolved | 2026-08-27 | Codex | Production read-only catalog verification reports all 10 expected indexes present; the registry, optimizer, Admin Status check, and live-catalog CI test shipped in `8f216d9`. |
 | REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-08-27 | Codex | Production `8f216d9` converted stuck Omni row `…672f64e3` to terminal moderated failure through HTTP 200, emitted a persisted structured event, and the DB-only reconciler now finds zero stale Omni rows. No `--apply` action was used; monitor the Vercel 5xx anomaly before closing. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | open | 2026-08-18 | Unassigned | Measure provider outputs where practical. |
-| REL-09 | Login-attempt cleanup is opportunistic | P3 | open | 2026-08-18 | Unassigned | Add scheduled retention cleanup. |
+| REL-09 | Login-attempt cleanup is opportunistic | P3 | in_progress | 2026-08-27 | Codex | Local authenticated daily cron globally deletes expired login-attempt rows using the shared retention cutoff; middleware exemption remains protected by timing-safe bearer auth. Unit and PostgreSQL integration tests pass. Exit: set `CRON_SECRET`, deploy, and observe one successful bounded run. |
 | MIG-01 | Django port is not cut over | P1 | open | 2026-08-18 | Unassigned | Re-audit against current backend before choosing ship/delete. |
 | MIG-02 | Live routes are missing from Django | P1 | open | 2026-08-18 | Unassigned | Re-audit current route parity. |
 | MIG-03 | Live tables are missing Django models | P1 | open | 2026-08-18 | Unassigned | Re-audit current model parity. |
@@ -106,7 +117,7 @@ current verification.
 | ARCH-07 | Admin dashboard component is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-08 | Mutable module state sits outside stores | P3 | open | 2026-08-18 | Unassigned | Inventory before changing semantics. |
 | DX-01 | Git history is bloated by research binaries | P2 | open | 2026-08-18 | Unassigned | Choose history rewrite or shallow-clone policy. |
-| DX-02 | ESLint configuration is missing | P2 | open | 2026-08-18 | Unassigned | Add flat config after P0. |
+| DX-02 | ESLint configuration is missing | P2 | in_progress | 2026-08-27 | Codex | Local ESLint 9 flat config enables Next core-web-vitals, hook dependency, and zero-warning gates; CI runs lint before tests/build and the current tree passes. Exit: merge and confirm the protected CI run. |
 | DX-03 | No CI gate | P1 | resolved | 2026-08-27 | Codex | PR #11 and main run `33055388366` passed web and PostgreSQL-backed Django jobs without billed probes. |
 | DX-04 | Dead root `scratch.js` | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-05 | Setup script referenced the wrong bucket/deployment | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
@@ -167,3 +178,9 @@ current verification.
   and a 10/10 production index catalog check. The formerly stuck Omni row
   `…672f64e3` settled as a persisted moderated failure through HTTP 200; the
   DB-only dry run then found zero stale Omni rows. No held action was applied.
+- 2026-08-27: prepared the next safe local batch: compact confirmed media
+  actions (`UI-LOCAL-01`), fullscreen-safe viewer teardown (`UI-LOCAL-02`),
+  reconciled-versus-estimated admin cost reporting (`COST-06`), authenticated
+  scheduled login-attempt retention (`REL-09`), and a zero-warning ESLint/CI
+  gate (`DX-02`). Deployment-dependent findings remain `in_progress` or
+  `ready_for_deploy`; blocked and operator-attention work remains held.

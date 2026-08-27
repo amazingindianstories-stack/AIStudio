@@ -55,6 +55,8 @@ export async function readAdminStats() {
         // rows where we already know the truth — it only stops treating an
         // estimate on a row that never became real as if it had.
         cost: sql`coalesce(sum(case when ${generations.status} = 'succeeded' then ${generations.costCents} else 0 end), 0)::int`,
+        reconciledCost: sql`coalesce(sum(case when ${generations.status} = 'succeeded' and ${generations.costBasis} = 'reconciled' then ${generations.costCents} else 0 end), 0)::int`,
+        estimatedCost: sql`coalesce(sum(case when ${generations.status} = 'succeeded' and ${generations.costBasis} <> 'reconciled' then ${generations.costCents} else 0 end), 0)::int`,
       })
       .from(generations),
     db
@@ -80,12 +82,14 @@ export async function readAdminStats() {
       .orderBy(sql`1 asc`),
   ]);
 
-  const total = totalRows[0] ?? { count: 0, cost: 0 };
+  const total = totalRows[0] ?? { count: 0, cost: 0, reconciledCost: 0, estimatedCost: 0 };
   const byKindMap = new Map(kindRows.map((r) => [r.name, r.value]));
 
   return {
     totalGenerations: total.count,
     totalCostCents: total.cost,
+    reconciledCostCents: total.reconciledCost,
+    estimatedCostCents: total.estimatedCost,
     // Fixed order with explicit zeros, so the pie chart doesn't reorder its
     // slices (and recolour them) as the mix shifts.
     byKind: (["image", "video"] ).map((name) => ({
