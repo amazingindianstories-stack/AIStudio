@@ -4,6 +4,7 @@ import {
   KLING_MODELS,
   KLING_PROMPT_MAX,
   buildKlingPayload,
+  createKlingImageTask,
   isKlingModel,
   klingSpec,
   nearestKlingAspectRatio,
@@ -43,6 +44,33 @@ test("isKlingModel matches only Kling", () => {
   assert.equal(isKlingModel("Seedance 2.0"), false);
   // Guard against a substring accident the way config.ts does for "seedance".
   assert.equal(isKlingModel("Sparkling Image"), false);
+});
+
+test("createKlingImageTask forwards the queue abort signal to fetch", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalKey = process.env.KLING_API;
+  const controller = new AbortController();
+  let capturedSignal;
+  process.env.KLING_API = "test-key";
+  globalThis.fetch = async (_url, init) => {
+    capturedSignal = init.signal;
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ code: 0, data: { task_id: "task-signal" } }),
+    };
+  };
+  try {
+    assert.equal(
+      await createKlingImageTask(base, { signal: controller.signal }),
+      "task-signal"
+    );
+    assert.equal(capturedSignal, controller.signal);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.KLING_API;
+    else process.env.KLING_API = originalKey;
+  }
 });
 
 test("text-to-image body carries exactly the documented fields", () => {

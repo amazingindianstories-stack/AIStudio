@@ -1,6 +1,7 @@
 
 
 import { buildCastPolicy } from "../shot-spec";
+import { abortableDelay } from "../queue-execution-deadline";
 
 const API_ROOT = "https://generativelanguage.googleapis.com/v1beta";
 const MODEL = "gemini-3-pro-image";
@@ -138,6 +139,7 @@ export async function generateImageGemini(
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify(body),
+        signal: input.signal,
       }
     );
     if (!res.ok) {
@@ -154,7 +156,7 @@ export async function generateImageGemini(
         );
         if (wait > 0) {
           sleptMs += wait;
-          await new Promise((r) => setTimeout(r, wait));
+          await abortableDelay(wait, input.signal);
           continue;
         }
       }

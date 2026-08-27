@@ -70,3 +70,21 @@ class VideoStatusTransientErrorTests(TestCase):
 
         gen.refresh_from_db()
         self.assertEqual(gen.status, "running")
+
+    def test_omni_input_block_is_persisted_once_and_returns_200(self):
+        gen = _make_running_video(model="Gemini Omni Flash")
+        with patch(
+            "apps.generation.generation_views.omni_provider.get_omni_video_status",
+            return_value={
+                "status": "failed",
+                "error": "Input blocked: The prompt could not be processed.",
+                "moderationBlocked": True,
+            },
+        ):
+            resp = self.client.get(f"/api/generate/video/status?id={gen.id}")
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["status"], "failed")
+        gen.refresh_from_db()
+        self.assertEqual(gen.status, "failed")
+        self.assertTrue(gen.moderation_blocked)

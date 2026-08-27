@@ -296,6 +296,7 @@ export async function createVideoTask(
       Authorization: `Bearer ${arkKey()}`,
     },
     body: JSON.stringify(body),
+    signal: input.signal,
   });
 
   if (!res.ok) {

@@ -19,6 +19,7 @@ import { readStoredBuffer, writePrivateBuffer } from "@/lib/storage";
 import { buildVideoDirective } from "@/lib/video-directive";
 import { legacyDirective } from "@/lib/providers/seedance";
 import { parseRefRoles } from "@/lib/shot-spec";
+import { abortableDelay } from "@/lib/queue-execution-deadline";
 
 const MCP_URL = "https://mcp.higgsfield.ai/mcp";
 const TOKEN_URL = "https://mcp.higgsfield.ai/oauth2/token";
@@ -191,7 +192,8 @@ let session = null;
 async function rpc(
   method,
   params,
-  isNotification = false
+  isNotification = false,
+  signal
 ) {
   const headers = {
     "Content-Type": "application/json",
@@ -207,6 +209,7 @@ async function rpc(
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal,
   });
   const sid = res.headers.get("mcp-session-id");
   if (sid) session = sid;
@@ -263,14 +266,14 @@ function parseJsonRpcMessages(text, contentType) {
 
 class AuthError extends Error {}
 
-async function ensureSession() {
+async function ensureSession(signal) {
   if (session) return;
   await rpc("initialize", {
     protocolVersion: "2025-06-18",
     capabilities: {},
     clientInfo: { name: "veevee", version: "0.1" },
-  });
-  await rpc("notifications/initialized", {}, true);
+  }, false, signal);
+  await rpc("notifications/initialized", {}, true, signal);
 }
 
 function toolErrorText(result) {
@@ -288,8 +291,8 @@ async function callTool(
 ) {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      await ensureSession();
-      const r = await rpc("tools/call", { name, arguments: args });
+      await ensureSession(opts.signal);
+      const r = await rpc("tools/call", { name, arguments: args }, false, opts.signal);
       if (r.error) throw new Error(`${name}: ${JSON.stringify(r.error).slice(0, 300)}`);
       // Tool-level failures come back as result.isError with the message in
       // content[], not as a JSON-RPC error — surface them instead of letting
@@ -321,14 +324,15 @@ function extFor(contentType) {
 /** Upload one image to Higgsfield and return its media_id. */
 export async function mcpUploadImage(
   base64,
-  contentType = "image/png"
+  contentType = "image/png",
+  opts = {}
 ) {
   const ext = extFor(contentType);
   const res = await callTool("media_upload", {
     method: "upload_url",
     filename: `ref.${ext}`,
     content_type: contentType,
-  });
+  }, opts);
   const item = res.structuredContent?.uploads?.[0];
   if (!item?.upload_url || !item?.media_id) {
     throw new Error(
@@ -340,9 +344,10 @@ export async function mcpUploadImage(
     method: "PUT",
     headers: { "Content-Type": contentType },
     body: Buffer.from(base64, "base64"),
+    signal: opts.signal,
   });
   if (!put.ok) throw new Error(`Higgsfield CDN upload failed (${put.status}).`);
-  await callTool("media_confirm", { type: "image", media_id: item.media_id });
+  await callTool("media_confirm", { type: "image", media_id: item.media_id }, opts);
   return item.media_id;
 }
 
@@ -446,7 +451,7 @@ export async function mcpGenerateVideo(input) {
   if (input.duration) params.duration = input.duration;
   if (input.resolution) params.resolution = input.resolution.toLowerCase();
 
-  const res = await callGenerate("generate_video", params);
+  const res = await callGenerate("generate_video", params, { signal: input.signal });
   console.log("[higgsfield] generate_video →", JSON.stringify(res).slice(0, 400));
   const id = jobIdFrom(res);
   if (!id) {
@@ -475,13 +480,14 @@ function presetNoticeId(res) {
 /** Call generate_video/generate_image, auto-declining a preset suggestion. */
 async function callGenerate(
   tool,
-  params
+  params,
+  opts = {}
 ) {
-  let res = await callTool(tool, { params });
+  let res = await callTool(tool, { params }, opts);
   const preset = presetNoticeId(res);
   if (preset && !res?.structuredContent?.results?.length) {
     console.log(`[higgsfield] ${tool}: declining preset ${preset}, retrying literal`);
-    res = await callTool(tool, { params: { ...params, declined_preset_id: preset } });
+    res = await callTool(tool, { params: { ...params, declined_preset_id: preset } }, opts);
   }
   return res;
 }
@@ -513,7 +519,7 @@ export async function mcpGenerateImage(input) {
   if (input.mediaIds?.length) {
     params.medias = input.mediaIds.map((id) => ({ value: id, role: "image" }));
   }
-  const res = await callGenerate("generate_image", params);
+  const res = await callGenerate("generate_image", params, { signal: input.signal });
   console.log("[higgsfield] generate_image →", JSON.stringify(res).slice(0, 400));
   const id = jobIdFrom(res);
   if (!id) {
@@ -531,8 +537,8 @@ const MODERATION =
   "Higgsfield moderation flagged this generation (nsfw). Realistic-face moderation is probabilistic — try again or adjust the reference.";
 
 /** Single-shot job status check (for the app's async poll architecture). */
-export async function mcpJobStatus(jobId) {
-  const res = await callTool("job_status", { jobId, sync: false }, { tolerateError: true });
+export async function mcpJobStatus(jobId, opts = {}) {
+  const res = await callTool("job_status", { jobId, sync: false }, { ...opts, tolerateError: true });
   if (res?.isError) {
     const msg = `Higgsfield job_status: ${toolErrorText(res).slice(0, 200) || "error"}`;
     // Non-retryable = the job is gone/unknown — fail the generation so the
@@ -565,13 +571,15 @@ export async function mcpJobStatus(jobId) {
 /** Block until a job reaches a terminal state (used for synchronous image gen). */
 export async function mcpAwaitJob(
   jobId,
-  timeoutMs = 4 * 60 * 1000
+  options = {}
 ) {
+  const opts = typeof options === "number" ? { timeoutMs: options } : options;
+  const timeoutMs = opts.timeoutMs ?? 4 * 60 * 1000;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const s = await mcpJobStatus(jobId);
+    const s = await mcpJobStatus(jobId, opts);
     if (s.status === "succeeded" || s.status === "failed") return s;
-    await new Promise((r) => setTimeout(r, 4000));
+    await abortableDelay(4000, opts.signal);
   }
   return { status: "failed", error: "Higgsfield generation timed out." };
 }

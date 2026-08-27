@@ -14,6 +14,7 @@ import {
   buildOmniEndpoint,
   buildOmniPayload,
   mapOmniStatus,
+  terminalOmniStatusHttpError,
   extractOmniVideo,
 } from "./omni";
 
@@ -85,6 +86,24 @@ for (const s of ["failed", "cancelled", "incomplete", "budget_exceeded", "requir
 test("mapOmniStatus: an unrecognized status falls back to running (route timeout is the backstop)", () => {
   assert.equal(mapOmniStatus("some_future_status"), "running");
   assert.equal(mapOmniStatus(undefined), "running");
+});
+
+test("Omni task 400 input-blocked response is terminal, not a retrying poll error", () => {
+  const result = terminalOmniStatusHttpError(
+    400,
+    JSON.stringify({ error: { message: "Input blocked: The prompt could not be processed.", code: "invalid_request" } })
+  );
+  assert.deepEqual(result, {
+    status: "failed",
+    error: "Input blocked: The prompt could not be processed.",
+    moderationBlocked: true,
+  });
+});
+
+test("Omni auth, retryable, and 5xx status errors remain transient", () => {
+  for (const status of [401, 403, 408, 425, 429, 500, 502, 503]) {
+    assert.equal(terminalOmniStatusHttpError(status, "temporary"), null, String(status));
+  }
 });
 
 test("extractOmniVideo: reads inline base64 from steps[].content (live-measured shape — steps carry `content` directly, not under a model_output wrapper)", async () => {

@@ -1,3 +1,5 @@
+import { throwIfAborted } from "@/lib/queue-execution-deadline";
+
 /**
  * Gemini-as-judge for face identity (server-only). Scores how well the main
  * character's face in a generated frame matches the identity reference.
@@ -11,7 +13,8 @@ const API_ROOT = "https://generativelanguage.googleapis.com/v1beta";
 /** 0–100 identity score, or null when judging is unavailable (fail-open). */
 export async function judgeIdentity(
   refFace,
-  candidate
+  candidate,
+  signal
 ) {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) return null;
@@ -51,6 +54,7 @@ export async function judgeIdentity(
             temperature: 0,
           },
         }),
+        signal,
       }
     );
     if (!res.ok) return null;
@@ -61,6 +65,7 @@ export async function judgeIdentity(
     const score = Number(JSON.parse(text)?.identity);
     return Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null;
   } catch {
+    throwIfAborted(signal);
     return null;
   }
 }
@@ -70,7 +75,8 @@ export async function judgeIdentity(
  *  cost). Returns null on any failure (fail-open, same as judgeIdentity). */
 export async function judgeCandidate(
   refFace,
-  candidate
+  candidate,
+  signal
 ) {
   const apiKey = process.env.GOOGLE_API_KEY;
   if (!apiKey) return null;
@@ -116,6 +122,7 @@ export async function judgeCandidate(
             temperature: 0,
           },
         }),
+        signal,
       }
     );
     if (!res.ok) return null;
@@ -134,6 +141,7 @@ export async function judgeCandidate(
     if (identity === null || prominence === null || sharpness === null) return null;
     return { identity, prominence, sharpness };
   } catch {
+    throwIfAborted(signal);
     return null;
   }
 }

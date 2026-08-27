@@ -74,6 +74,21 @@ class MapOmniStatusTests(SimpleTestCase):
         self.assertEqual(o.map_omni_status("some_future_status"), "running")
         self.assertEqual(o.map_omni_status(None), "running")
 
+    def test_input_blocked_400_is_terminal(self):
+        result = o.terminal_omni_status_http_error(
+            400,
+            '{"error":{"message":"Input blocked: The prompt could not be processed.","code":"invalid_request"}}',
+        )
+        self.assertEqual(result, {
+            "status": "failed",
+            "error": "Input blocked: The prompt could not be processed.",
+            "moderationBlocked": True,
+        })
+
+    def test_retryable_http_errors_remain_transient(self):
+        for status_code in (401, 403, 408, 425, 429, 500, 502, 503):
+            self.assertIsNone(o.terminal_omni_status_http_error(status_code, "temporary"), status_code)
+
 
 class ExtractOmniVideoTests(SimpleTestCase):
     def test_reads_inline_base64_from_steps_content(self):
