@@ -59,12 +59,12 @@ current verification.
 | COST-06 | Provider costs mix exact and estimated values | P2 | open | 2026-08-18 | Unassigned | Mark estimates and reconcile provider usage. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-27 | Codex | Claim-fenced implementation `4301601` remains isolated on `fix/audit-p0` and is intentionally held out of this release until the Vercel/Django/GPU worker rollout and VER-04 kill exercise can be coordinated. The unsafe `fb7046b` implementation was not reused. |
-| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | in_progress | 2026-08-26 | Codex | Local `0c15e63` serially spools/judges candidates and caps N at 4/3/2 for 1K/2K/4K; helper tests pass. Exit: deploy and observe production memory/latency. |
-| REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | in_progress | 2026-08-27 | Codex | Local implementation adds a 270-second abort deadline inside the 300-second route budget, propagates cancellation through provider/network/poll paths, and keeps terminal persistence outside the deadline. Unit and literal-headroom guards are included. Exit: deploy and verify timeout failures persist before Vercel termination. |
+| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | monitoring | 2026-08-27 | Codex | Serial spooling/judging and size-bounded candidate caps deployed in production `8f216d9`; main CI and local suites pass. Monitor production memory and latency before closing. |
+| REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | monitoring | 2026-08-27 | Codex | The 270-second internal abort deadline and provider cancellation propagation deployed in production `8f216d9`; main CI passes. Monitor a real timeout to confirm terminal persistence precedes Vercel termination. |
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
-| REL-05 | Client scope and SQL scope can drift | P2 | in_progress | 2026-08-26 | Codex | A disposable-PostgreSQL integration test now compares client membership/order with SQL across projects, folders, unsorted, kind, favourites, literal search metacharacters, timestamp ties, and every keyset page; CI runs it after migrations. Exit: merge and observe CI on the production migration chain. |
-| REL-06 | `db:push` does not create indexes | P2 | in_progress | 2026-08-26 | Codex | A ten-index registry now drives the online-safe optimizer and read-only Admin Status check; source guards compare it to Drizzle declarations, and CI reconciles then verifies the live catalog. Exit: run the optimizer in production and confirm `generation-indexes` is green. |
-| REL-07 | Repeated poll errors can leave a row running forever | P2 | in_progress | 2026-08-27 | Codex | Admin Status reports stale jobs; terminal Omni 4xx responses no longer retry indefinitely, and a bounded DB-only-by-default reconciler can repair already-stuck Omni rows with compare-and-set updates. Exit: deploy, run reconciliation dry-run then separately approve apply, and confirm the Vercel status anomaly stays clear. |
+| REL-05 | Client scope and SQL scope can drift | P2 | resolved | 2026-08-27 | Codex | PostgreSQL scope/order/keyset parity passed on PR #11 and main CI run `33055388366` after the production migration chain. |
+| REL-06 | `db:push` does not create indexes | P2 | resolved | 2026-08-27 | Codex | Production read-only catalog verification reports all 10 expected indexes present; the registry, optimizer, Admin Status check, and live-catalog CI test shipped in `8f216d9`. |
+| REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-08-27 | Codex | Production `8f216d9` converted stuck Omni row `…672f64e3` to terminal moderated failure through HTTP 200, emitted a persisted structured event, and the DB-only reconciler now finds zero stale Omni rows. No `--apply` action was used; monitor the Vercel 5xx anomaly before closing. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | open | 2026-08-18 | Unassigned | Measure provider outputs where practical. |
 | REL-09 | Login-attempt cleanup is opportunistic | P3 | open | 2026-08-18 | Unassigned | Add scheduled retention cleanup. |
 | MIG-01 | Django port is not cut over | P1 | open | 2026-08-18 | Unassigned | Re-audit against current backend before choosing ship/delete. |
@@ -101,21 +101,21 @@ current verification.
 | ARCH-02 | Storage module contains dual provider branches | P2 | deferred | 2026-08-25 | Unassigned | Delete the S3 branch after COST-01 rather than abstracting it. |
 | ARCH-03 | Concurrency cap is global, not per user | P1 | in_progress | 2026-08-26 | Codex | Local `83b80d6` adds `maxConcurrentJobs` and fair eligible-job ranking; PostgreSQL fairness/override/tie tests pass. Exit: deploy and smoke-test with two users. |
 | ARCH-04 | Capabilities and prices key on display-name regexes | P2 | open | 2026-08-18 | Unassigned | Add explicit provider/capability metadata. |
-| ARCH-05 | Generation failures return HTTP 200 | P2 | in_progress | 2026-08-27 | Codex | The HTTP 200 contract remains unchanged; local code emits versioned, privacy-bounded JSON events after terminal failure persistence and a distinct event when persistence itself fails. Exit: deploy and configure/verify a Vercel alert on the stable event marker. |
+| ARCH-05 | Generation failures return HTTP 200 | P2 | monitoring | 2026-08-27 | Codex | Production observed the versioned privacy-bounded `generation_failure` event for `video_status`/`omni_provider_status` with `persisted:true` while preserving HTTP 200. Alert configuration remains in the operator-attention queue. |
 | ARCH-06 | Zustand store is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-07 | Admin dashboard component is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-08 | Mutable module state sits outside stores | P3 | open | 2026-08-18 | Unassigned | Inventory before changing semantics. |
 | DX-01 | Git history is bloated by research binaries | P2 | open | 2026-08-18 | Unassigned | Choose history rewrite or shallow-clone policy. |
 | DX-02 | ESLint configuration is missing | P2 | open | 2026-08-18 | Unassigned | Add flat config after P0. |
-| DX-03 | No CI gate | P1 | in_progress | 2026-08-26 | Codex | Local `11528f5` adds Node/build and PostgreSQL-backed Django CI without billed probes. Exit: push a PR and record the first green run. |
+| DX-03 | No CI gate | P1 | resolved | 2026-08-27 | Codex | PR #11 and main run `33055388366` passed web and PostgreSQL-backed Django jobs without billed probes. |
 | DX-04 | Dead root `scratch.js` | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-05 | Setup script referenced the wrong bucket/deployment | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-06 | Documentation contains `.ts`/`.tsx` path drift | P3 | open | 2026-08-18 | Unassigned | Sweep after architecture stabilizes. |
 | DX-07 | Django history paths in `CLAUDE.md` are stale | P3 | open | 2026-08-18 | Unassigned | Sweep after migration decision. |
 | DX-08 | Backend audit body presents resolved work as open | P3 | open | 2026-08-18 | Unassigned | Add per-finding resolution markers. |
 | DX-09 | Main auto-deploys with no preview gate | P2 | open | 2026-08-25 | Unassigned | Use audit branch previews now; add protected CI later. |
-| DX-10 | Script-test naming convention is unenforced | P3 | in_progress | 2026-08-26 | Codex | Local `11528f5` makes the runner reject `scripts/**/*.test.js`; exit with the first green CI run. |
-| DX-11 | Test discovery uses non-portable shell `find` | P3 | in_progress | 2026-08-26 | Codex | Local `11528f5` replaces shell `find` with a portable Node walker; exit with the first green CI run. |
+| DX-10 | Script-test naming convention is unenforced | P3 | resolved | 2026-08-27 | Codex | The runner's `scripts/**/*.test.js` rejection guard passed on PR #11 and main CI run `33055388366`. |
+| DX-11 | Test discovery uses non-portable shell `find` | P3 | resolved | 2026-08-27 | Codex | Portable Node test discovery passed on PR #11 and main CI run `33055388366`. |
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | P2 | open | 2026-08-18 | Unassigned | Build fixtures before changing directives. |
 | QUAL-02 | Eval harness has no fixtures or CI gate | P2 | open | 2026-08-18 | Unassigned | Commit at least ten representative fixtures. |
 | QUAL-03 | Flagged-generation signal has no consumer | P3 | open | 2026-08-18 | Unassigned | Add admin review and fixture export. |
@@ -162,3 +162,8 @@ current verification.
   held depth-claim columns. The release version correlates fresh depth workers
   through the currently deployed `current_job_id`; fresh-schema PostgreSQL and
   Django tests cover that compatibility path.
+- 2026-08-27: production release `8f216d9` (`dpl_HVssfHS7CB6JL8cUwUWD47w1BHU2`)
+  reached Ready after PR #11 preview, web/Django CI, public-route smoke checks,
+  and a 10/10 production index catalog check. The formerly stuck Omni row
+  `…672f64e3` settled as a persisted moderated failure through HTTP 200; the
+  DB-only dry run then found zero stale Omni rows. No held action was applied.
