@@ -16,6 +16,24 @@ States: `open`, `in_progress`, `blocked`, `monitoring`, `resolved`, `deferred`.
 | SEC-03 | resolved | Codex | 2026-08-25 | The built-in `postgres` password was replaced with a 48-byte random unretained value; the exposed literal is rejected, the runtime IAM principal passed read and rolled-back write checks, and the temporary impersonation grant was removed. | Keep administrative access on IAM or perform another controlled password reset; never store the built-in password in application configuration. |
 | COST-01 | blocked | AWS administrator + Codex | 2026-08-26 | The new bounded verifier completed in 14 resumable pages: 6,478 DB-referenced objects checked, 6,400 present, and 78 missing. The available AWS key is invalid, so the gaps cannot yet be copied from S3. | Obtain a valid exact-bucket AWS credential, migrate the 78 gaps, verify zero, observe seven stable days, perform a restore drill, then disable fallback and decommission the exact S3 bucket. |
 
+## Held / operator-attention queue
+
+These items are deliberately outside the 2026-08-27 safe release. Their state
+in the full register remains authoritative; this view only makes the holds easy
+to resume after the deployable work is stable.
+
+| ID | Why held | Resume gate |
+|---|---|---|
+| SEC-01, COST-01, COST-02 | Valid exact-bucket AWS administrator access is unavailable. | Sign in with the correct AWS administrator and rotate/migrate with bounded verification. |
+| MIG-06 | Depends on zero media gaps and the observation window. | Complete COST-01/COST-02 and the restore drill first. |
+| REL-01, VER-04 | Requires one coordinated Vercel, Django, and GPU-worker protocol rollout. | Schedule the worker update and deliberate-kill/all-encoder exercise together. |
+| SEC-08 | Removing production environment variables is an operator action. | Confirm the retired integrations, then remove only the verified dead variables. |
+| COST-05 | The remaining exit test intentionally creates billed provider work. | Approve a controlled partial-submission fixture after this release stabilizes. |
+| REL-07 | Applying reconciliation would mutate the reported stuck production row. | Review the DB-only dry run, then separately approve `--apply`. |
+| ARCH-03 | The exit smoke test needs two authenticated user sessions. | Run the two-user fairness check after deployment. |
+| ARCH-05 | Alert creation changes Vercel project configuration. | Configure the stable event-marker alert after log shape is observed. |
+| DRIFT-01 | Target-runtime provider verification may make live provider calls. | Verify only when the Django runtime is scheduled for cutover testing. |
+
 ## Full issue register
 
 Rows not individually re-audited since the source review remain `open`; this is
@@ -136,3 +154,7 @@ current verification.
   billed only accepted video best-of candidates after partial submission, and
   added structured terminal-failure telemetry without changing HTTP responses.
   Re-audited QUAL-05 and recorded its existing implementation as resolved.
+- 2026-08-27: assembled the safe production release without depth claim commit
+  `4301601` or its dependent fixture `300a20c`. Added the held/operator queue;
+  rollout-dependent findings stay `in_progress` until deployment evidence is
+  recorded, and no blocked or operator-dependent action is authorized here.
