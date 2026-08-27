@@ -158,3 +158,7 @@ current verification.
   `4301601` or its dependent fixture `300a20c`. Added the held/operator queue;
   rollout-dependent findings stay `in_progress` until deployment evidence is
   recorded, and no blocked or operator-dependent action is authorized here.
+- 2026-08-27: removed the generation-health monitor's accidental dependency on
+  held depth-claim columns. The release version correlates fresh depth workers
+  through the currently deployed `current_job_id`; fresh-schema PostgreSQL and
+  Django tests cover that compatibility path.

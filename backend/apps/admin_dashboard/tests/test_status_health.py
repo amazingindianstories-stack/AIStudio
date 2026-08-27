@@ -1,5 +1,3 @@
-import uuid
-
 from django.test import SimpleTestCase, TestCase
 
 from apps.generation.models import DepthWorker, Generation
@@ -41,24 +39,20 @@ class StuckGenerationHealthTests(TestCase):
         values.update(overrides)
         return Generation.objects.create(**values)
 
-    def test_thresholds_and_fresh_exact_depth_lease(self):
+    def test_thresholds_and_fresh_depth_worker(self):
         stale_image = self.make_generation("image", self.now - status.STUCK_IMAGE_MS - 1)
         self.make_generation("image", self.now - status.STUCK_IMAGE_MS + 1)
         stale_video = self.make_generation("video", self.now - status.STUCK_VIDEO_MS - 1)
         self.make_generation("video", self.now - status.STUCK_VIDEO_MS + 1)
         stale_depth = self.make_generation("depth", self.now - status.STUCK_DEPTH_GRACE_MS - 1)
-        claim_id = uuid.uuid4()
         healthy_depth = self.make_generation(
             "depth",
             self.now - status.STUCK_DEPTH_GRACE_MS - 1,
-            depth_claim_id=claim_id,
-            depth_claim_worker_id="healthy-worker",
         )
         DepthWorker.objects.create(
             worker_id="healthy-worker",
             status="busy",
             current_job_id=healthy_depth.id,
-            current_claim_id=claim_id,
             last_seen_at=self.now - status.DEPTH_WORKER_STALE_MS + 1,
             created_at=self.now,
         )

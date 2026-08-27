@@ -57,9 +57,7 @@ export async function checkStuckGenerations(dbProvider = getDb, now = Date.now()
              and not exists (
                select 1
                  from depth_workers w
-                where w.worker_id = g.depth_claim_worker_id
-                  and w.current_job_id = g.id
-                  and w.current_claim_id = g.depth_claim_id
+                where w.current_job_id = g.id
                   and w.last_seen_at >= ${now - DEPTH_WORKER_STALE_MS}
              )
            )

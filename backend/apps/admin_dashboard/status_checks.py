@@ -136,9 +136,7 @@ def check_stuck_generations(_timeout_s: float = 0, now_ms: int | None = None) ->
                      g.kind = 'depth' AND g.updated_at < %s
                      AND NOT EXISTS (
                        SELECT 1 FROM depth_workers w
-                        WHERE w.worker_id = g.depth_claim_worker_id
-                          AND w.current_job_id = g.id
-                          AND w.current_claim_id = g.depth_claim_id
+                        WHERE w.current_job_id = g.id
                           AND w.last_seen_at >= %s
                      )
                    )
