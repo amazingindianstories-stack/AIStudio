@@ -67,7 +67,7 @@ current verification.
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
 | COST-04 | Media delivery can silently proxy bytes | P1 | open | 2026-08-18 | Unassigned | Verify current production mode, then add monitoring. |
 | COST-05 | Video best-of-N can bill after partial failure | P2 | in_progress | 2026-08-27 | Codex | Local settlement logic retains every provider-accepted task ID, continues with a partial candidate set, emits accepted/rejected counts, and reduces estimated cost to accepted candidates. Exit: deploy and verify a controlled partial-submission fixture. |
-| COST-06 | Provider costs mix exact and estimated values | P2 | in_progress | 2026-08-27 | Codex | Local persistence records whether each amount was actually overwritten from provider usage; missing usage and legacy rows conservatively remain estimated. Admin totals, user summaries, logs, and CSV exports expose the split. Exit: apply the additive column migration, deploy, and verify both classes against representative production rows. |
+| COST-06 | Provider costs mix exact and estimated values | P2 | in_progress | 2026-08-27 | Codex | Persistence records whether each amount was actually overwritten from provider usage; missing usage and legacy rows conservatively remain estimated. The idempotent `cost_basis` migration completed successfully against the configured database. Admin totals, user summaries, logs, and CSV exports expose the split. Exit: deploy and verify both classes against representative production rows. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-27 | Codex | Claim-fenced implementation `4301601` remains isolated on `fix/audit-p0` and is intentionally held out of this release until the Vercel/Django/GPU worker rollout and VER-04 kill exercise can be coordinated. The unsafe `fb7046b` implementation was not reused. |
 | REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | monitoring | 2026-08-27 | Codex | Serial spooling/judging and size-bounded candidate caps deployed in production `8f216d9`; main CI and local suites pass. Monitor production memory and latency before closing. |
@@ -184,3 +184,6 @@ current verification.
   scheduled login-attempt retention (`REL-09`), and a zero-warning ESLint/CI
   gate (`DX-02`). Deployment-dependent findings remain `in_progress` or
   `ready_for_deploy`; blocked and operator-attention work remains held.
+- 2026-08-27: the additive, idempotent `generations.cost_basis` migration
+  completed successfully against the configured database before application
+  deployment. No legacy row was guessed or backfilled as reconciled.
