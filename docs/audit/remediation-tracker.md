@@ -37,7 +37,7 @@ current verification.
 | COST-02 | DB-referenced objects are missing from GCS | P1 | blocked | 2026-08-26 | AWS administrator + Codex | Bounded live verification completed: 78 of 6,478 referenced objects are missing from GCS; copying is blocked by the invalid AWS source credential. |
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
 | COST-04 | Media delivery can silently proxy bytes | P1 | open | 2026-08-18 | Unassigned | Verify current production mode, then add monitoring. |
-| COST-05 | Video best-of-N can bill after partial failure | P2 | open | 2026-08-18 | Unassigned | Revisit before enabling video best-of-N. |
+| COST-05 | Video best-of-N can bill after partial failure | P2 | in_progress | 2026-08-27 | Codex | Local settlement logic retains every provider-accepted task ID, continues with a partial candidate set, emits accepted/rejected counts, and reduces estimated cost to accepted candidates. Exit: deploy and verify a controlled partial-submission fixture. |
 | COST-06 | Provider costs mix exact and estimated values | P2 | open | 2026-08-18 | Unassigned | Mark estimates and reconcile provider usage. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-27 | Codex | Claim-fenced implementation `4301601` remains isolated on `fix/audit-p0` and is intentionally held out of this release until the Vercel/Django/GPU worker rollout and VER-04 kill exercise can be coordinated. The unsafe `fb7046b` implementation was not reused. |
@@ -46,7 +46,7 @@ current verification.
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
 | REL-05 | Client scope and SQL scope can drift | P2 | in_progress | 2026-08-26 | Codex | A disposable-PostgreSQL integration test now compares client membership/order with SQL across projects, folders, unsorted, kind, favourites, literal search metacharacters, timestamp ties, and every keyset page; CI runs it after migrations. Exit: merge and observe CI on the production migration chain. |
 | REL-06 | `db:push` does not create indexes | P2 | in_progress | 2026-08-26 | Codex | A ten-index registry now drives the online-safe optimizer and read-only Admin Status check; source guards compare it to Drizzle declarations, and CI reconciles then verifies the live catalog. Exit: run the optimizer in production and confirm `generation-indexes` is green. |
-| REL-07 | Repeated poll errors can leave a row running forever | P2 | in_progress | 2026-08-27 | Codex | Admin Status reports stale running jobs; additionally, Omni non-retryable 4xx status responses (including moderation/input blocks) now become terminal failed results instead of route-level 502s that clients poll indefinitely. JS/Python classification and status integration tests are included. Exit: deploy, confirm the Vercel `/api/generate/video/status` anomaly stays clear, and tune stale thresholds if needed. |
+| REL-07 | Repeated poll errors can leave a row running forever | P2 | in_progress | 2026-08-27 | Codex | Admin Status reports stale jobs; terminal Omni 4xx responses no longer retry indefinitely, and a bounded DB-only-by-default reconciler can repair already-stuck Omni rows with compare-and-set updates. Exit: deploy, run reconciliation dry-run then separately approve apply, and confirm the Vercel status anomaly stays clear. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | open | 2026-08-18 | Unassigned | Measure provider outputs where practical. |
 | REL-09 | Login-attempt cleanup is opportunistic | P3 | open | 2026-08-18 | Unassigned | Add scheduled retention cleanup. |
 | MIG-01 | Django port is not cut over | P1 | open | 2026-08-18 | Unassigned | Re-audit against current backend before choosing ship/delete. |
@@ -83,7 +83,7 @@ current verification.
 | ARCH-02 | Storage module contains dual provider branches | P2 | deferred | 2026-08-25 | Unassigned | Delete the S3 branch after COST-01 rather than abstracting it. |
 | ARCH-03 | Concurrency cap is global, not per user | P1 | in_progress | 2026-08-26 | Codex | Local `83b80d6` adds `maxConcurrentJobs` and fair eligible-job ranking; PostgreSQL fairness/override/tie tests pass. Exit: deploy and smoke-test with two users. |
 | ARCH-04 | Capabilities and prices key on display-name regexes | P2 | open | 2026-08-18 | Unassigned | Add explicit provider/capability metadata. |
-| ARCH-05 | Generation failures return HTTP 200 | P2 | deferred | 2026-08-25 | Unassigned | Preserve response contract; add observability instead. |
+| ARCH-05 | Generation failures return HTTP 200 | P2 | in_progress | 2026-08-27 | Codex | The HTTP 200 contract remains unchanged; local code emits versioned, privacy-bounded JSON events after terminal failure persistence and a distinct event when persistence itself fails. Exit: deploy and configure/verify a Vercel alert on the stable event marker. |
 | ARCH-06 | Zustand store is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-07 | Admin dashboard component is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-08 | Mutable module state sits outside stores | P3 | open | 2026-08-18 | Unassigned | Inventory before changing semantics. |
@@ -102,7 +102,7 @@ current verification.
 | QUAL-02 | Eval harness has no fixtures or CI gate | P2 | open | 2026-08-18 | Unassigned | Commit at least ten representative fixtures. |
 | QUAL-03 | Flagged-generation signal has no consumer | P3 | open | 2026-08-18 | Unassigned | Add admin review and fixture export. |
 | QUAL-04 | Depth progress uses coarse milestones | P3 | open | 2026-08-18 | Unassigned | Improve only alongside real worker verification. |
-| QUAL-05 | Canvas asset project does not own board context | P2 | open | 2026-08-18 | Unassigned | Make selection switch board context or relabel it. |
+| QUAL-05 | Canvas asset project does not own board context | P2 | resolved | 2026-08-27 | Codex | Re-audit found the fix already present in `0b2c02b`: Canvas has an explicit board-project selector, clears the old board before switching, fences stale list responses, and labels the independent control `Assets from:`. A source guard now pins those invariants. |
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | deferred | 2026-08-25 | Unassigned | Expose an explicit tradeoff or delete the flag. |
 
 ## Change log
@@ -132,3 +132,7 @@ current verification.
   provider cancellation propagation. Extended REL-07 so terminal Omni 4xx
   status responses persist a failed result instead of surfacing as retryable
   502 responses and triggering an unbounded client poll loop.
+- 2026-08-27: added bounded recovery for already-stuck Omni rows, retained and
+  billed only accepted video best-of candidates after partial submission, and
+  added structured terminal-failure telemetry without changing HTTP responses.
+  Re-audited QUAL-05 and recorded its existing implementation as resolved.
