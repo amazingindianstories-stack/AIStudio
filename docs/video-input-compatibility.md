@@ -12,11 +12,11 @@ here rather than in a provider header.
 | **video → image** | n/a — solved client-side | none | **shipped** |
 | **video → video, BytePlus Seedance 2.0** | yes (up to 3 clips, 2–15s, ≤50MB each; billing moves to a cheaper V2V token tier) | needs a provider-fetchable URL; ours are session-gated and we have no presigning | probe written, not wired |
 | **video → video, Higgsfield Seedance** | unknown | cannot be probed — see below | unverified |
-| **video → video, Gemini Omni** | unknown | `omni-input.ts` builds image parts only | unverified |
+| **video → video, Gemini Omni** | unknown | `omni-input.js` builds image parts only | unverified |
 
 ## video → image — shipped, no provider dependency
 
-`src/lib/video-frame.ts` decodes a frame with `<video>` + `<canvas>` in the
+`src/lib/video-frame.js` decodes a frame with `<video>` + `<canvas>` in the
 browser. This is not a stopgap for a missing API; it is the correct place for
 the work:
 
@@ -47,7 +47,7 @@ What stops us is that **`video_url` needs a URL BytePlus can fetch**, and:
 
 1. `GET /api/media/[...path]` requires a session (deliberately — it was a
    CRITICAL fix in 2026-07-15), so provider-side fetches get a 401.
-2. `src/lib/storage.ts` has no presigned-URL support for either S3 or GCS.
+2. `src/lib/storage.js` has no presigned-URL support for either S3 or GCS.
 
 So enabling this is mostly storage work, not provider work:
 
@@ -67,8 +67,8 @@ extending or restyling something just generated.
 The exact wire shape is **not** settled — first-party docs are incomplete and
 third-party write-ups disagree (`content[].video_url` vs a `references[]` array
 with `role: "motion"`, the latter probably an aggregator's own wrapper).
-`scripts/probe-seedance-video-input.ts` sends the candidate shapes and reports
-which the API accepts. `providers/seedance.ts` already records that several
+`scripts/probe-seedance-video-input.js` sends the candidate shapes and reports
+which the API accepts. `providers/seedance.js` already records that several
 fields here were deduced by testing because the docs were wrong, so guessing
 would repeat a known mistake.
 
@@ -93,7 +93,7 @@ Everything below the line supersedes the "not wired" status above.
 
 ## video → video: CONFIRMED and shipped
 
-`scripts/probe-seedance-video-input.ts` was run against the live API. Result:
+`scripts/probe-seedance-video-input.js` was run against the live API. Result:
 
 | shape | outcome |
 |---|---|
@@ -116,7 +116,7 @@ every shape with `404 ModelNotOpen` before the payload was even parsed. The
 standard model is active. `Seedance 2.0 Mini` is not in the model picker so
 nothing reaches it today, but `pickModel` routes any name matching
 mini/fast/lite to that SKU — activate it in the Ark console before exposing it.
-`scripts/probe-seedance-audio.ts` defaulted to that SKU and has been changed to
+`scripts/probe-seedance-audio.js` defaulted to that SKU and has been changed to
 default to standard for the same reason.
 
 End-to-end proof, through our own `createVideoTask` and a presigned URL for a

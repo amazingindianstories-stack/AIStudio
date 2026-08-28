@@ -219,7 +219,7 @@ function Divider() {
 }
 
 function ToolButton({
-  id,
+  id: _id,
   active,
   icon: Icon,
   label,

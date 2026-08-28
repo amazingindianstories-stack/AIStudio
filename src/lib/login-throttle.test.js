@@ -5,7 +5,12 @@ import {
   loginRetryAfterMs,
   maxLoginAttempts,
   LOGIN_ATTEMPT_WINDOW_MS,
+  expiredLoginAttemptCutoff,
 } from "./login-throttle.js";
+
+test("expiredLoginAttemptCutoff is exactly one throttle window behind now", () => {
+  assert.equal(expiredLoginAttemptCutoff(1_000_000), 1_000_000 - LOGIN_ATTEMPT_WINDOW_MS);
+});
 
 test("admitsLoginAttempt: allows attempts below the max", () => {
   assert.equal(admitsLoginAttempt({ recentFailureCount: 0, maxAttempts: 5 }), true);

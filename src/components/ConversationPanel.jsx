@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Play,
@@ -20,6 +20,8 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
+import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
@@ -42,21 +44,19 @@ export function ConversationPanel() {
   // new project starts a fresh, empty chat. Chronological, newest at the bottom.
   const feed = useMemo(() => [...threadItems].reverse(), [threadItems]);
 
-  const scrollToBottom = (smooth = true) => {
+  const scrollToBottom = useCallback((smooth = true) => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading]);
+  }, [loading, scrollToBottom]);
 
   useEffect(() => {
     scrollToBottom(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [feed.length, activeProjectId]);
+  }, [feed.length, activeProjectId, scrollToBottom]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -173,10 +173,12 @@ function FeedBlock({ item, index }) {
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const regenerate = useStore((s) => s.regenerate);
+  const confirmation = useConfirmedAction();
   const label = item.kind === "image" ? "Image" : "Video";
   const pending = item.status === "running" || item.status === "queued";
 
   return (
+    <>
     <motion.div
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
@@ -216,7 +218,6 @@ function FeedBlock({ item, index }) {
       >
         <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
           {item.status === "succeeded" && item.kind === "image" && item.url && (
-            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={thumbUrl(item.url, FEED_THUMB_WIDTH)}
               alt={item.prompt}
@@ -253,7 +254,7 @@ function FeedBlock({ item, index }) {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  cloneToComposer(item.id);
+                  confirmation.ask("cloneToComposer", () => cloneToComposer(item.id));
                 }}
                 className="mt-1 flex items-center gap-1.5 rounded-lg bg-brand/20 px-3 py-1.5 text-xs font-semibold text-brand transition hover:bg-brand/30"
                 title="Restore this prompt, settings and references into the composer"
@@ -291,7 +292,7 @@ function FeedBlock({ item, index }) {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  regenerate(item.id);
+                  confirmation.ask("regenerate", () => regenerate(item.id));
                 }}
                 className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
                 aria-label="Generate again"
@@ -302,7 +303,7 @@ function FeedBlock({ item, index }) {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  cloneToComposer(item.id);
+                  confirmation.ask("cloneToComposer", () => cloneToComposer(item.id));
                 }}
                 className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
                 aria-label="Edit in composer"
@@ -330,6 +331,8 @@ function FeedBlock({ item, index }) {
         </div>
       </div>
     </motion.div>
+      <ConfirmActionDialog {...confirmation.dialogProps} />
+    </>
   );
 }
 

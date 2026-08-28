@@ -18,7 +18,7 @@ import { resolutionsForModel } from "../config";
  * start dropping user input to make a request fit.
  *
  * Everything here is pure: no network, no spend. The live contract is verified
- * separately by scripts/probe-kling-image.ts.
+ * separately by scripts/probe-kling-image.js.
  */
 
 const base = { model: "Kling Image 3.0", prompt: "a red bicycle" };
@@ -42,7 +42,7 @@ test("isKlingModel matches only Kling", () => {
   assert.ok(isKlingModel("kling image 2.1"));
   assert.equal(isKlingModel("Nano Banana Pro"), false);
   assert.equal(isKlingModel("Seedance 2.0"), false);
-  // Guard against a substring accident the way config.ts does for "seedance".
+  // Guard against a substring accident the way config.js does for "seedance".
   assert.equal(isKlingModel("Sparkling Image"), false);
 });
 

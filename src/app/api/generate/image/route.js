@@ -11,12 +11,6 @@ import { supportsSeed } from "@/lib/config";
 export const runtime = "nodejs";
 export const maxDuration = 60; // Nano Banana Pro high-res can take ~30–60s
 
-function resolutionToImageSize(res) {
-  if (res === "4K") return "4K";
-  if (res === "2K" || res === "1080p") return "2K";
-  return "1K";
-}
-
 export async function POST(req) {
   const user = await getSession();
   if (!user) {

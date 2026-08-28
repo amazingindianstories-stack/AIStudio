@@ -211,7 +211,7 @@ Do not ask the model for an uncontrolled essay. Require JSON such as:
 
 Validate this server-side. Render only the useful fields in the chat. The final
 prompt must preserve `@imgN` and saved-asset tags because this codebase already
-uses them as the binding contract in `prompt-assembler.ts`.
+uses them as the binding contract in `prompt-assembler.js`.
 
 ### 2. Give the model project memory, not unlimited chat history
 

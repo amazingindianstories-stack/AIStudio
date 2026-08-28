@@ -2,6 +2,7 @@ import { and, desc, eq, sql, } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations } from "./schema";
 import { decodeCursor, encodeCursor, likePattern, } from "./store-db";
+import { costBasisForGeneration } from "./cost-basis";
 
 /**
  * The admin generation log: filtered and paginated in Postgres.
@@ -59,6 +60,8 @@ export function parseAdminLogFilter(params) {
   const status = params.get("status");
   if (status && STATUSES.has(status)) filter.status = status;
 
+  if (params.get("flagged") === "1") filter.flagged = true;
+
   const q = params.get("q")?.trim();
   if (q) filter.q = q.slice(0, MAX_LOG_QUERY_LENGTH);
 
@@ -74,6 +77,7 @@ export function adminLogFilterToParams(filter) {
   if (filter.kind) params.set("kind", filter.kind);
   if (filter.model) params.set("model", filter.model);
   if (filter.status) params.set("status", filter.status);
+  if (filter.flagged) params.set("flagged", "1");
   if (filter.q) params.set("q", filter.q);
   return params;
 }
@@ -84,6 +88,7 @@ function conditions(filter) {
   if (filter.kind) conds.push(eq(generations.kind, filter.kind));
   if (filter.model) conds.push(eq(generations.model, filter.model));
   if (filter.status) conds.push(eq(generations.status, filter.status));
+  if (filter.flagged) conds.push(eq(generations.flagged, true));
   const q = filter.q?.trim();
   if (q) conds.push(sql`${generations.prompt} ilike ${likePattern(q)}`);
   return conds;
@@ -97,9 +102,14 @@ const previewColumns = {
   model: generations.model,
   status: generations.status,
   costCents: generations.costCents,
+  costBasis: generations.costBasis,
   userId: generations.userId,
   prompt: sql`left(${generations.prompt}, ${PROMPT_PREVIEW_CHARS})`,
   promptTruncated: sql`length(${generations.prompt}) > ${PROMPT_PREVIEW_CHARS}`,
+  flagged: generations.flagged,
+  flaggedAt: generations.flaggedAt,
+  flagReason: generations.flagReason,
+  judgeScore: generations.judgeScore,
   createdAt: generations.createdAt,
 };
 
@@ -139,6 +149,8 @@ export async function queryAdminLogs(
         // so a filtered view (e.g. status=failed) honestly totals $0 rather
         // than disagreeing with Overview about what "spend" means.
         cost: sql`coalesce(sum(case when ${generations.status} = 'succeeded' then ${generations.costCents} else 0 end), 0)::int`,
+        reconciledCost: sql`coalesce(sum(case when ${generations.status} = 'succeeded' and ${generations.costBasis} = 'reconciled' then ${generations.costCents} else 0 end), 0)::int`,
+        estimatedCost: sql`coalesce(sum(case when ${generations.status} = 'succeeded' and ${generations.costBasis} <> 'reconciled' then ${generations.costCents} else 0 end), 0)::int`,
       })
       .from(generations)
       .where(conds.length ? and(...conds) : undefined),
@@ -155,13 +167,20 @@ export async function queryAdminLogs(
       model: r.model,
       status: r.status,
       costCents: r.costCents ?? 0,
+      costBasis: costBasisForGeneration(r),
       userId: r.userId ?? null,
       prompt: r.prompt,
       promptTruncated: r.promptTruncated,
+      flagged: r.flagged,
+      flaggedAt: r.flaggedAt ?? null,
+      flagReason: r.flagReason ?? null,
+      judgeScore: r.judgeScore ?? null,
       createdAt: r.createdAt,
     })),
     total: totals?.count ?? 0,
     totalCostCents: totals?.cost ?? 0,
+    reconciledCostCents: totals?.reconciledCost ?? 0,
+    estimatedCostCents: totals?.estimatedCost ?? 0,
     nextCursor: hasMore && last ? encodeCursor({ sort: last.createdAt, id: last.id }) : null,
   };
 }
@@ -180,15 +199,25 @@ export async function readAdminLogsForExport(
       model: generations.model,
       status: generations.status,
       costCents: generations.costCents,
+      costBasis: generations.costBasis,
       userId: generations.userId,
       prompt: generations.prompt,
+      flagged: generations.flagged,
+      flaggedAt: generations.flaggedAt,
+      flagReason: generations.flagReason,
+      judgeScore: generations.judgeScore,
       createdAt: generations.createdAt,
     })
     .from(generations)
     .where(conds.length ? and(...conds) : undefined)
     .orderBy(desc(generations.createdAt), desc(generations.id))
     .limit(MAX_CSV_ROWS);
-  return rows.map((r) => ({ ...r, costCents: r.costCents ?? 0, userId: r.userId ?? null }));
+  return rows.map((r) => ({
+    ...r,
+    costCents: r.costCents ?? 0,
+    costBasis: costBasisForGeneration(r),
+    userId: r.userId ?? null,
+  }));
 }
 
 export { decodeCursor };

@@ -34,6 +34,17 @@ to resume after the deployable work is stable.
 | ARCH-05 | Alert creation changes Vercel project configuration. | Configure the stable event-marker alert after log shape is observed. |
 | DRIFT-01 | Target-runtime provider verification may make live provider calls. | Verify only when the Django runtime is scheduled for cutover testing. |
 
+## Local product bugs outside the PDF register
+
+These IDs track user-reported product defects without changing the PDF's fixed
+80-ID register. `ready_for_deploy` means locally implemented and verified, not
+production-confirmed.
+
+| ID | Bug | State | Last verified | Evidence / next action |
+|---|---|---|---|---|
+| UI-LOCAL-01 | Media-card actions overlap and execute without confirmation | ready_for_deploy | 2026-08-27 | Failed cards now expose one contextual action plus an overflow menu; retry, regenerate, clone/edit, continue, and all delete paths use a shared accessible confirmation dialog. Unit tests and lint pass. Exit: preview smoke-test compact cards and each confirmation path. |
+| UI-LOCAL-02 | Asset viewer can leave all mouse/keyboard input wedged after arrow navigation and Escape/close | ready_for_deploy | 2026-08-27 | Viewer teardown now waits for standard or Safari fullscreen exit plus two paint frames, blocks duplicate close/navigation during teardown, and refuses to unmount media if fullscreen exit fails. Fullscreen regression tests pass. Exit: reproduce the original arrow/Escape sequence in preview on Chrome and Safari. |
+
 ## Full issue register
 
 Rows not individually re-audited since the source review remain `open`; this is
@@ -47,16 +58,16 @@ current verification.
 | SEC-02 | Plaintext `.env.production` secret dump | P0 | resolved | 2026-08-25 | Codex | Local export deleted; temporary-file-only policy recorded above. |
 | SEC-03 | Cloud SQL superuser password committed by setup script | P0 | resolved | 2026-08-25 | Codex | Random unretained password set; old literal rejected; IAM read/write access verified; temporary grant removed. |
 | SEC-04 | Route auth relies on every handler checking the session | P1 | resolved | 2026-08-25 | Codex | Route-auth guard shipped in `6fa858a`. |
-| SEC-05 | Higgsfield refresh has no distributed lock | P1 | open | 2026-08-18 | Unassigned | Re-audit before Higgsfield retirement decision. |
+| SEC-05 | Higgsfield refresh has no distributed lock | P1 | in_progress | 2026-08-28 | Codex | Local refresh coordination uses an atomic, expiring PostgreSQL lease plus in-process promise deduplication; losing instances adopt the centrally stored fresh token and stale owners cannot release a successor's lease. PostgreSQL concurrency/expiry/owner-safety test added. Exit: deploy and observe one controlled concurrent refresh without duplicate rotation. |
 | SEC-06 | Canvas upload ignored board ID | P2 | resolved | 2026-08-25 | Codex | Board validation shipped in `2929509`. |
 | SEC-07 | No Content-Security-Policy | P2 | open | 2026-08-18 | Unassigned | Schedule after final CDN domain is known. |
 | SEC-08 | Dead Vercel credentials remain | P2 | open | 2026-08-25 | Operator + Codex | Vercel still lists `BLOB_*` and retired Higgsfield dev-API variables. |
 | COST-01 | Duplicate S3 history remains billed | P0 | blocked | 2026-08-26 | AWS administrator + Codex | See active P0 queue. |
 | COST-02 | DB-referenced objects are missing from GCS | P1 | blocked | 2026-08-26 | AWS administrator + Codex | Bounded live verification completed: 78 of 6,478 referenced objects are missing from GCS; copying is blocked by the invalid AWS source credential. |
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
-| COST-04 | Media delivery can silently proxy bytes | P1 | open | 2026-08-18 | Unassigned | Verify current production mode, then add monitoring. |
+| COST-04 | Media delivery can silently proxy bytes | P1 | in_progress | 2026-08-28 | Codex | Admin Status now selects recent succeeded stored media, obtains the actual browser delivery URL, performs a one-byte range read, and reports proxy fallback/read failure without exposing object identity. Exit: deploy and record an `ok` direct-read result. |
 | COST-05 | Video best-of-N can bill after partial failure | P2 | in_progress | 2026-08-27 | Codex | Local settlement logic retains every provider-accepted task ID, continues with a partial candidate set, emits accepted/rejected counts, and reduces estimated cost to accepted candidates. Exit: deploy and verify a controlled partial-submission fixture. |
-| COST-06 | Provider costs mix exact and estimated values | P2 | open | 2026-08-18 | Unassigned | Mark estimates and reconcile provider usage. |
+| COST-06 | Provider costs mix exact and estimated values | P2 | in_progress | 2026-08-27 | Codex | Persistence records whether each amount was actually overwritten from provider usage; missing usage and legacy rows conservatively remain estimated. The idempotent `cost_basis` migration completed successfully against the configured database. Admin totals, user summaries, logs, and CSV exports expose the split. Exit: deploy and verify both classes against representative production rows. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-27 | Codex | Claim-fenced implementation `4301601` remains isolated on `fix/audit-p0` and is intentionally held out of this release until the Vercel/Django/GPU worker rollout and VER-04 kill exercise can be coordinated. The unsafe `fb7046b` implementation was not reused. |
 | REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | monitoring | 2026-08-27 | Codex | Serial spooling/judging and size-bounded candidate caps deployed in production `8f216d9`; main CI and local suites pass. Monitor production memory and latency before closing. |
@@ -66,7 +77,7 @@ current verification.
 | REL-06 | `db:push` does not create indexes | P2 | resolved | 2026-08-27 | Codex | Production read-only catalog verification reports all 10 expected indexes present; the registry, optimizer, Admin Status check, and live-catalog CI test shipped in `8f216d9`. |
 | REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-08-27 | Codex | Production `8f216d9` converted stuck Omni row `…672f64e3` to terminal moderated failure through HTTP 200, emitted a persisted structured event, and the DB-only reconciler now finds zero stale Omni rows. No `--apply` action was used; monitor the Vercel 5xx anomaly before closing. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | open | 2026-08-18 | Unassigned | Measure provider outputs where practical. |
-| REL-09 | Login-attempt cleanup is opportunistic | P3 | open | 2026-08-18 | Unassigned | Add scheduled retention cleanup. |
+| REL-09 | Login-attempt cleanup is opportunistic | P3 | in_progress | 2026-08-27 | Codex | Local authenticated daily cron globally deletes expired login-attempt rows using the shared retention cutoff; middleware exemption remains protected by timing-safe bearer auth. Unit and PostgreSQL integration tests pass. Exit: set `CRON_SECRET`, deploy, and observe one successful bounded run. |
 | MIG-01 | Django port is not cut over | P1 | open | 2026-08-18 | Unassigned | Re-audit against current backend before choosing ship/delete. |
 | MIG-02 | Live routes are missing from Django | P1 | open | 2026-08-18 | Unassigned | Re-audit current route parity. |
 | MIG-03 | Live tables are missing Django models | P1 | open | 2026-08-18 | Unassigned | Re-audit current model parity. |
@@ -89,8 +100,8 @@ current verification.
 | VER-02 | Django Higgsfield MCP path is unexercised | P2 | open | 2026-08-18 | Unassigned | Resolve with Higgsfield retirement decision. |
 | VER-03 | Django agent path lacks a live Gemini turn | P3 | open | 2026-08-18 | Unassigned | Verify only if Django ships. |
 | VER-04 | Depth worker lacks end-to-end production/GPU verification | P1 | open | 2026-08-18 | Unassigned | Run all encoders and a deliberate worker kill with REL-01. |
-| VER-05 | Bundled ffmpeg is unverified on Vercel | P2 | open | 2026-08-25 | Unassigned | Bundle exclusion shipped, but runtime verification remains. |
-| VER-06 | GCS signing under WIF is unconfirmed | P1 | open | 2026-08-18 | Unassigned | Inspect production media-delivery status and signed read. |
+| VER-05 | Bundled ffmpeg is unverified on Vercel | P2 | in_progress | 2026-08-28 | Codex | Admin Status executes the bundled binary with `-version`; the local runtime check and registry test pass. Exit: deploy and record the target-runtime status result. |
+| VER-06 | GCS signing under WIF is unconfirmed | P1 | in_progress | 2026-08-28 | Codex | The media-delivery health check now proves an actual recent object is directly readable rather than only proving that a synthetic URL can be signed; identifiers and URLs are redacted. Exit: record an `ok` result under Vercel WIF. |
 | VER-07 | Thumbnail warm-up was never run | P2 | open | 2026-08-18 | Unassigned | Dry-run then apply with recorded counts. |
 | VER-08 | Kling 2K reference rule lacks controlled probe | P2 | open | 2026-08-18 | Unassigned | Run the free validation probe. |
 | VER-09 | Seedance continuation relies on third-party evidence | P2 | open | 2026-08-18 | Unassigned | Run the bounded billed probe. |
@@ -100,30 +111,39 @@ current verification.
 | ARCH-01 | API responses use multiple envelopes | P2 | open | 2026-08-18 | Unassigned | Address only with migration decision. |
 | ARCH-02 | Storage module contains dual provider branches | P2 | deferred | 2026-08-25 | Unassigned | Delete the S3 branch after COST-01 rather than abstracting it. |
 | ARCH-03 | Concurrency cap is global, not per user | P1 | in_progress | 2026-08-26 | Codex | Local `83b80d6` adds `maxConcurrentJobs` and fair eligible-job ranking; PostgreSQL fairness/override/tie tests pass. Exit: deploy and smoke-test with two users. |
-| ARCH-04 | Capabilities and prices key on display-name regexes | P2 | open | 2026-08-18 | Unassigned | Add explicit provider/capability metadata. |
+| ARCH-04 | Capabilities and prices key on display-name regexes | P2 | in_progress | 2026-08-28 | Codex | Local explicit model registry owns provider wire IDs, picker visibility, pricing keys, and capability gates; provider routing and token/image/audio pricing no longer infer behavior from display-name regexes. Focused registry/config/provider/pricing tests pass. Exit: full gates, deploy, and smoke each free validation path. |
 | ARCH-05 | Generation failures return HTTP 200 | P2 | monitoring | 2026-08-27 | Codex | Production observed the versioned privacy-bounded `generation_failure` event for `video_status`/`omni_provider_status` with `persisted:true` while preserving HTTP 200. Alert configuration remains in the operator-attention queue. |
 | ARCH-06 | Zustand store is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-07 | Admin dashboard component is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-08 | Mutable module state sits outside stores | P3 | open | 2026-08-18 | Unassigned | Inventory before changing semantics. |
 | DX-01 | Git history is bloated by research binaries | P2 | open | 2026-08-18 | Unassigned | Choose history rewrite or shallow-clone policy. |
-| DX-02 | ESLint configuration is missing | P2 | open | 2026-08-18 | Unassigned | Add flat config after P0. |
+| DX-02 | ESLint configuration is missing | P2 | in_progress | 2026-08-27 | Codex | Local ESLint 9 flat config enables Next core-web-vitals, hook dependency, and zero-warning gates; CI runs lint before tests/build and the current tree passes. Exit: merge and confirm the protected CI run. |
 | DX-03 | No CI gate | P1 | resolved | 2026-08-27 | Codex | PR #11 and main run `33055388366` passed web and PostgreSQL-backed Django jobs without billed probes. |
 | DX-04 | Dead root `scratch.js` | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-05 | Setup script referenced the wrong bucket/deployment | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
-| DX-06 | Documentation contains `.ts`/`.tsx` path drift | P3 | open | 2026-08-18 | Unassigned | Sweep after architecture stabilizes. |
+| DX-06 | Documentation contains `.ts`/`.tsx` path drift | P3 | resolved | 2026-08-28 | Codex | Maintained documentation source references were converted to current `.js`/`.jsx` extensions and a unit-discovered guard now rejects retired `.ts`/`.tsx` source paths. |
 | DX-07 | Django history paths in `CLAUDE.md` are stale | P3 | open | 2026-08-18 | Unassigned | Sweep after migration decision. |
-| DX-08 | Backend audit body presents resolved work as open | P3 | open | 2026-08-18 | Unassigned | Add per-finding resolution markers. |
+| DX-08 | Backend audit body presents resolved work as open | P3 | resolved | 2026-08-28 | Codex | The historical audit now begins with an explicit current-status rule linking the stable-ID tracker and warning that original recommendations are not live state. |
 | DX-09 | Main auto-deploys with no preview gate | P2 | open | 2026-08-25 | Unassigned | Use audit branch previews now; add protected CI later. |
 | DX-10 | Script-test naming convention is unenforced | P3 | resolved | 2026-08-27 | Codex | The runner's `scripts/**/*.test.js` rejection guard passed on PR #11 and main CI run `33055388366`. |
 | DX-11 | Test discovery uses non-portable shell `find` | P3 | resolved | 2026-08-27 | Codex | Portable Node test discovery passed on PR #11 and main CI run `33055388366`. |
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | P2 | open | 2026-08-18 | Unassigned | Build fixtures before changing directives. |
 | QUAL-02 | Eval harness has no fixtures or CI gate | P2 | open | 2026-08-18 | Unassigned | Commit at least ten representative fixtures. |
-| QUAL-03 | Flagged-generation signal has no consumer | P3 | open | 2026-08-18 | Unassigned | Add admin review and fixture export. |
+| QUAL-03 | Flagged-generation signal has no consumer | P3 | in_progress | 2026-08-28 | Codex | Admin generation logs now support a server-side `flagged=1` review queue, show reason/judge evidence, and include flag metadata in RFC 4180 CSV; the existing bounded fixture exporter remains available. Exit: deploy and review/export representative flagged rows. |
 | QUAL-04 | Depth progress uses coarse milestones | P3 | open | 2026-08-18 | Unassigned | Improve only alongside real worker verification. |
 | QUAL-05 | Canvas asset project does not own board context | P2 | resolved | 2026-08-27 | Codex | Re-audit found the fix already present in `0b2c02b`: Canvas has an explicit board-project selector, clears the old board before switching, fences stale list responses, and labels the independent control `Assets from:`. A source guard now pins those invariants. |
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | deferred | 2026-08-25 | Unassigned | Expose an explicit tradeoff or delete the flag. |
 
 ## Change log
+
+- 2026-08-28: implemented the next multi-issue local batch: atomic Higgsfield
+  refresh leases (`SEC-05`), explicit model/provider/capability/pricing metadata
+  (`ARCH-04`), a flagged-generation admin review queue (`QUAL-03`), executable
+  ffmpeg health (`VER-05`), and an actual-object direct media read probe
+  (`COST-04`/`VER-06`). Swept retired TypeScript source links and made the
+  historical backend audit defer live state to this tracker (`DX-06`/`DX-08`).
+  Deployment-dependent items remain `in_progress`; blocked/operator-held work
+  was not changed.
 
 - 2026-08-25: tracker created; P0 findings re-verified; deployed remediation
   commits recorded; `SEC-02` closed by deleting the local production export.
@@ -167,3 +187,12 @@ current verification.
   and a 10/10 production index catalog check. The formerly stuck Omni row
   `…672f64e3` settled as a persisted moderated failure through HTTP 200; the
   DB-only dry run then found zero stale Omni rows. No held action was applied.
+- 2026-08-27: prepared the next safe local batch: compact confirmed media
+  actions (`UI-LOCAL-01`), fullscreen-safe viewer teardown (`UI-LOCAL-02`),
+  reconciled-versus-estimated admin cost reporting (`COST-06`), authenticated
+  scheduled login-attempt retention (`REL-09`), and a zero-warning ESLint/CI
+  gate (`DX-02`). Deployment-dependent findings remain `in_progress` or
+  `ready_for_deploy`; blocked and operator-attention work remains held.
+- 2026-08-27: the additive, idempotent `generations.cost_basis` migration
+  completed successfully against the configured database before application
+  deployment. No legacy row was guessed or backfilled as reconciled.

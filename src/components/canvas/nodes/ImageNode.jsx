@@ -154,7 +154,6 @@ export function ImageNode({ node }) {
           <ImageOff className="h-5 w-5" />
         </div>
       )}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
       {readyToLoad && (
         <img
           key={src}

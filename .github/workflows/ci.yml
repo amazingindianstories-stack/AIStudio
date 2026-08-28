@@ -26,6 +26,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - run: npm run lint
       - run: npm test
       - run: npm run build
 
@@ -67,6 +68,8 @@ jobs:
         working-directory: ${{ github.workspace }}
       - run: pip install -r requirements.txt
       - run: DJANGO_TEST_MANAGED=1 python manage.py migrate
+      - run: npm run db:migrate:cost-basis
+        working-directory: ${{ github.workspace }}
       - run: npm run db:optimize
         working-directory: ${{ github.workspace }}
       - run: npm run test:db

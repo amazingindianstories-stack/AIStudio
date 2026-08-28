@@ -1,10 +1,10 @@
 /**
- * Unit tests for the pure/network-stubbed helpers in src/lib/providers/omni.ts,
+ * Unit tests for the pure/network-stubbed helpers in src/lib/providers/omni.js,
  * derived from .council/omni-video/design.md Phase 2 and spec.md AC3/AC6/AC7,
  * independently of the implementation. createOmniVideoTask/getOmniVideoStatus
  * (the real network functions) are NOT exercised here — those are covered by
- * scripts/probe-omni.ts and the authorized live generation test. Run:
- *   npx tsx --test src/lib/providers/omni.test.ts
+ * scripts/probe-omni.js and the authorized live generation test. Run:
+ *   npx tsx --test src/lib/providers/omni.test.js
  */
 import test from "node:test";
 import assert from "node:assert/strict";

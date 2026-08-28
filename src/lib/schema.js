@@ -70,6 +70,11 @@ export const generations = pgTable("generations", {
   folderId: uuid("folder_id"),
   userId: uuid("user_id"),
   costCents: integer("cost_cents").notNull().default(0),
+  // Whether costCents still comes from the configured price estimate or was
+  // replaced by usage the provider reported for this exact completed job.
+  // Legacy rows default to estimated: claiming false precision is worse than
+  // conservatively retaining the approximation marker.
+  costBasis: text("cost_basis").notNull().default("estimated"),
   isFavorite: boolean("is_favorite").notNull().default(false),
   favoritedAt: bigint("favorited_at", { mode: "number" }),
   taskId: text("task_id"),
@@ -359,8 +364,9 @@ export const activityLogs = pgTable("activity_logs", {
 // own). Keyed by the lowercased email rather than userId so an attempt
 // against an email that doesn't even exist still throttles, without leaking
 // which emails are real accounts. src/lib/login-throttle.js opportunistically
-// deletes rows older than the window on every check, so this table never
-// needs its own cleanup job.
+// deletes rows older than the window for the current identifier on every
+// check. A daily authenticated cron also sweeps every identifier so a quiet
+// login surface cannot retain expired rows indefinitely.
 export const loginAttempts = pgTable("login_attempts", {
   id: uuid("id").primaryKey().defaultRandom(),
   identifier: text("identifier").notNull(),

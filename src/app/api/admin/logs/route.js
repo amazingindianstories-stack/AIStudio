@@ -53,7 +53,20 @@ async function csvResponse(filter) {
   ]);
   const emailById = new Map(userRows.map((u) => [u.id, u.email]));
 
-  const header = ["time", "user", "kind", "model", "status", "cost_cents", "prompt"];
+  const header = [
+    "time",
+    "user",
+    "kind",
+    "model",
+    "status",
+    "cost_cents",
+    "cost_basis",
+    "flagged",
+    "flagged_at",
+    "flag_reason",
+    "judge_score",
+    "prompt",
+  ];
   const lines = [
     header.join(","),
     ...rows.map((r) =>
@@ -64,6 +77,11 @@ async function csvResponse(filter) {
         r.model,
         r.status,
         r.costCents,
+        r.costBasis,
+        r.flagged,
+        r.flaggedAt ? new Date(r.flaggedAt).toISOString() : "",
+        r.flagReason,
+        r.judgeScore ? JSON.stringify(r.judgeScore) : "",
         r.prompt,
       ]
         .map(csvCell)

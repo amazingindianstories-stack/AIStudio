@@ -55,6 +55,8 @@ export async function GET() {
         // Only counts rows that actually reached the provider and finished —
         // see the comment in admin-stats.ts's identical fix for why.
         costCents: sql`coalesce(sum(case when ${generations.status} = 'succeeded' then ${generations.costCents} else 0 end), 0)::int`,
+        reconciledCostCents: sql`coalesce(sum(case when ${generations.status} = 'succeeded' and ${generations.costBasis} = 'reconciled' then ${generations.costCents} else 0 end), 0)::int`,
+        estimatedCostCents: sql`coalesce(sum(case when ${generations.status} = 'succeeded' and ${generations.costBasis} <> 'reconciled' then ${generations.costCents} else 0 end), 0)::int`,
       })
       .from(generations)
       .groupBy(generations.userId),
@@ -79,6 +81,8 @@ export async function GET() {
         limits: allUserLimits[u.id] ?? {},
         genCount: stat?.genCount ?? 0,
         costCents: stat?.costCents ?? 0,
+        reconciledCostCents: stat?.reconciledCostCents ?? 0,
+        estimatedCostCents: stat?.estimatedCostCents ?? 0,
       };
     })
     .sort((a, b) => b.costCents - a.costCents);

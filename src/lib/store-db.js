@@ -1,6 +1,7 @@
 import { eq, desc, lt, or, gt, inArray, isNull, and, sql, } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations } from "./schema";
+import { isProviderModel } from "./model-registry";
 
 /**
  * Generation persistence — Postgres `generations` table (was history.json).
@@ -36,6 +37,7 @@ function rowToItem(r) {
     folderId: r.folderId ?? undefined,
     userId: r.userId ?? undefined,
     costCents: r.costCents ?? undefined,
+    costBasis: r.costBasis === "reconciled" ? "reconciled" : "estimated",
     seed: r.seed ?? undefined,
     candidateTaskIds: r.candidateTaskIds ?? undefined,
     continuationFrameUrl: r.continuationFrameUrl ?? undefined,
@@ -70,6 +72,7 @@ function itemToValues(item) {
     folderId: item.folderId ?? null,
     userId: item.userId ?? null,
     costCents: item.costCents ?? 0,
+    costBasis: item.costBasis === "reconciled" ? "reconciled" : "estimated",
     seed: item.seed ?? null,
     candidateTaskIds: item.candidateTaskIds ?? null,
     continuationFrameUrl: item.continuationFrameUrl ?? null,
@@ -102,7 +105,7 @@ function itemToValues(item) {
 // year ago needed the client to page through every unrelated generation made
 // since before its first item appeared, and until then it rendered as empty
 // with zero counts. The filters below move that work to Postgres, where the
-// indexes declared in schema.ts turn it into a bounded index range scan — page
+// indexes declared in schema.js turn it into a bounded index range scan — page
 // one of an old project now costs the same as page one of today's.
 //
 // Pagination is a row-value keyset, NOT an offset. Offsets re-scan and skip
@@ -164,7 +167,7 @@ export async function queryHistory(
   const db = await getDb();
   // Favourites are ordered by when they were starred; everything else by when
   // it was made. `favorited_at` is backfilled non-null for favourited rows
-  // (scripts/optimize-history-indexes.ts) precisely so this column can carry
+  // (scripts/optimize-history-indexes.js) precisely so this column can carry
   // the keyset — a NULL here would fall outside the row comparison below and
   // strand those rows on a page boundary forever.
   const sortCol = filter.favorite ? generations.favoritedAt : generations.createdAt;
@@ -445,7 +448,7 @@ async function reapStaleRunningImages() {
  * SELECTs it replaces.
  *
  * The spend window counts image jobs AND Omni video jobs, because Omni runs on
- * generativelanguage with the same GOOGLE_API_KEY (providers/omni.ts) and so
+ * generativelanguage with the same GOOGLE_API_KEY (providers/omni.js) and so
  * draws on the same budget. Higgsfield and BytePlus do not — different vendors,
  * different limits — and must stay excluded or the gate throttles work that
  * costs Google nothing.
@@ -520,21 +523,21 @@ async function queueSnapshot(
         where created_at > ${windowStart - 6 * 60 * 60 * 1000}
           and updated_at >= ${windowStart}
           and status in ('running', 'succeeded', 'failed')
-          and (kind = 'image' or model ilike '%omni%')
+          and (kind = 'image' or model = 'Gemini Omni Flash')
           and not (status = 'failed' and coalesce(error, '') like '%429%')
       ) as window_cents,
       (select count(*) from ${generations}
         where created_at > ${windowStart - 6 * 60 * 60 * 1000}
           and updated_at >= ${windowStart}
           and status in ('running', 'succeeded', 'failed')
-          and (kind = 'image' or model ilike '%omni%')
+          and (kind = 'image' or model = 'Gemini Omni Flash')
           and not (status = 'failed' and coalesce(error, '') like '%429%')
       ) as window_rows,
       (select min(updated_at) from ${generations}
         where created_at > ${windowStart - 6 * 60 * 60 * 1000}
           and updated_at >= ${windowStart}
           and status in ('running', 'succeeded', 'failed')
-          and (kind = 'image' or model ilike '%omni%')
+          and (kind = 'image' or model = 'Gemini Omni Flash')
           and not (status = 'failed' and coalesce(error, '') like '%429%')
       ) as oldest_updated_at
   `);
@@ -581,11 +584,11 @@ export async function getQueuePosition(id) {
   if (position > 0) return { position, status: item.status };
 
   // Concurrency says go. Now ask whether Google's rolling spend window can
-  // afford it — see lib/spend-window.ts for why holding beats retrying.
+  // afford it — see lib/spend-window.js for why holding beats retrying.
   //
   // Only jobs that actually bill Gemini are gated. A Higgsfield or BytePlus
   // video must never be held behind a Google budget it does not consume.
-  const billsGemini = item.kind === "image" || /omni/i.test(item.model);
+  const billsGemini = item.kind === "image" || isProviderModel(item.model, "omni");
   if (!billsGemini) return { position, status: item.status };
 
   const limitCents = spendLimitCents();

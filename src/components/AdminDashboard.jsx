@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import Link from "next/link";
 import {
   ResponsiveContainer,
   BarChart,
@@ -86,12 +87,12 @@ export function AdminDashboard() {
   return (
     <div className="min-h-[100dvh] bg-ink-900 text-white">
       <header className="flex h-14 items-center gap-3 border-b border-line px-3 sm:px-4">
-        <a
+        <Link
           href="/"
           className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-white/70 hover:bg-white/5 hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" /> Back to app
-        </a>
+        </Link>
         <span className="text-sm font-semibold">Admin</span>
         {currentUser && (
           <button
@@ -176,11 +177,12 @@ export function AdminDashboard() {
   );
 }
 
-function Stat({ label, value }) {
+function Stat({ label, value, detail }) {
   return (
     <div className="rounded-xl border border-line bg-ink-800 p-4">
       <p className="text-xs uppercase tracking-wide text-white/40">{label}</p>
       <p className="mt-1 text-2xl font-semibold">{value}</p>
+      {detail && <p className="mt-1 text-[11px] leading-4 text-white/40">{detail}</p>}
     </div>
   );
 }
@@ -199,7 +201,15 @@ function Overview({ data }) {
   // deliberately not computed from a rows array: the previous version summed the
   // 500-row log window the route used to ship, so each of these silently meant
   // "over the newest 500".
-  const { totalCostCents, totalGenerations, byKind, byModel, overTime } = data.stats;
+  const {
+    totalCostCents,
+    reconciledCostCents,
+    estimatedCostCents,
+    totalGenerations,
+    byKind,
+    byModel,
+    overTime,
+  } = data.stats;
 
   const costPerUser = data.users
     .filter((u) => u.genCount > 0)
@@ -211,14 +221,19 @@ function Overview({ data }) {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Total spend" value={formatCost(totalCostCents)} />
+        <Stat
+          label="Recorded spend"
+          value={estimatedCostCents > 0 ? `≈${formatCost(totalCostCents)}` : formatCost(totalCostCents)}
+          detail={`${formatCost(reconciledCostCents)} reconciled · ${formatCost(estimatedCostCents)} estimated`}
+        />
         <Stat label="Generations" value={totalGenerations.toLocaleString()} />
         <Stat label="Users" value={String(data.users.length)} />
         <Stat
           label="Avg / generation"
-          value={formatCost(
+          value={`${estimatedCostCents > 0 ? "≈" : ""}${formatCost(
             totalGenerations ? Math.round(totalCostCents / totalGenerations) : 0
-          )}
+          )}`}
+          detail="Recorded cost; may include provider estimates"
         />
       </div>
 
@@ -595,7 +610,7 @@ function UsersTab({
                 <option value="admin">admin</option>
               </select>
               <span className="text-xs text-white/45">
-                {user.genCount} gens · {formatCost(user.costCents)}
+                {user.genCount} gens · {user.estimatedCostCents > 0 ? "≈" : ""}{formatCost(user.costCents)}
               </span>
               <UserActions
                 user={user}
@@ -653,7 +668,12 @@ function UsersTab({
                   </select>
                 </td>
                 <td className="px-3 py-2 tabular-nums">{user.genCount}</td>
-                <td className="px-3 py-2 tabular-nums">{formatCost(user.costCents)}</td>
+                <td className="px-3 py-2 tabular-nums">
+                  <span>{user.estimatedCostCents > 0 ? "≈" : ""}{formatCost(user.costCents)}</span>
+                  <span className="mt-0.5 block text-[10px] text-white/35">
+                    {formatCost(user.reconciledCostCents)} reconciled · {formatCost(user.estimatedCostCents)} estimated
+                  </span>
+                </td>
                 <td className="px-3 py-2">
                   <button
                     type="button"
@@ -1175,11 +1195,14 @@ function LogsTab({
   const [kind, setKind] = useState("");
   const [model, setModel] = useState("");
   const [status, setStatus] = useState("");
+  const [flagged, setFlagged] = useState(false);
   const [q, setQ] = useState("");
 
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [totalCostCents, setTotalCostCents] = useState(0);
+  const [reconciledCostCents, setReconciledCostCents] = useState(0);
+  const [estimatedCostCents, setEstimatedCostCents] = useState(0);
   const [nextCursor, setNextCursor] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -1194,9 +1217,10 @@ function LogsTab({
     if (kind) p.set("kind", kind);
     if (model) p.set("model", model);
     if (status) p.set("status", status);
+    if (flagged) p.set("flagged", "1");
     if (q.trim()) p.set("q", q.trim());
     return p.toString();
-  }, [user, kind, model, status, q]);
+  }, [user, kind, model, status, flagged, q]);
 
   // Filtering happens in Postgres, so a filter change is a refetch. Search is
   // debounced; the others fire immediately since they come from a select.
@@ -1220,6 +1244,8 @@ function LogsTab({
         setRows(page.rows);
         setTotal(page.total);
         setTotalCostCents(page.totalCostCents);
+        setReconciledCostCents(page.reconciledCostCents);
+        setEstimatedCostCents(page.estimatedCostCents);
         setNextCursor(page.nextCursor);
       } finally {
         if (mine === seq.current) setLoading(false);
@@ -1288,6 +1314,22 @@ function LogsTab({
           <option value="queued">queued</option>
           <option value="failed">failed</option>
         </select>
+        <label
+          className={cn(
+            "flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm",
+            flagged
+              ? "border-amber-400/35 bg-amber-400/10 text-amber-200"
+              : "border-line bg-ink-700 text-white/65"
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={flagged}
+            onChange={(e) => setFlagged(e.target.checked)}
+            className="accent-amber-400"
+          />
+          Flagged only
+        </label>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -1308,7 +1350,12 @@ function LogsTab({
         ) : (
           <>
             Showing {rows.length.toLocaleString()} of {total.toLocaleString()} entries
-            {total > 0 && <> · {formatCost(totalCostCents)} total</>}
+            {total > 0 && (
+              <>
+                {" "}· {estimatedCostCents > 0 ? "≈" : ""}{formatCost(totalCostCents)} recorded
+                {" "}({formatCost(reconciledCostCents)} reconciled · {formatCost(estimatedCostCents)} estimated)
+              </>
+            )}
           </>
         )}
       </p>
@@ -1322,6 +1369,7 @@ function LogsTab({
               <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Model</th>
               <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Review</th>
               <th className="px-3 py-2">Cost</th>
               <th className="px-3 py-2">Prompt</th>
             </tr>
@@ -1338,7 +1386,45 @@ function LogsTab({
                 <td className="px-3 py-2">{g.kind}</td>
                 <td className="px-3 py-2 text-xs">{g.model}</td>
                 <td className="px-3 py-2 text-xs">{g.status}</td>
-                <td className="px-3 py-2 tabular-nums">{formatCost(g.costCents)}</td>
+                <td className="px-3 py-2 text-xs">
+                  {g.flagged ? (
+                    <div className="max-w-[180px] space-y-1">
+                      <span className="inline-flex rounded bg-amber-400/12 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-amber-200">
+                        Flagged
+                      </span>
+                      {g.flagReason && (
+                        <p className="truncate text-[11px] text-white/55" title={g.flagReason}>
+                          {g.flagReason}
+                        </p>
+                      )}
+                      {g.judgeScore && (
+                        <p className="text-[10px] text-white/40" title={JSON.stringify(g.judgeScore)}>
+                          Judge evidence saved
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-white/25">—</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 tabular-nums">
+                  <span>{g.costBasis === "estimated" ? "≈" : ""}{formatCost(g.costCents)}</span>
+                  <span
+                    className={cn(
+                      "ml-1.5 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide",
+                      g.costBasis === "reconciled"
+                        ? "bg-emerald-500/12 text-emerald-300"
+                        : "bg-amber-400/12 text-amber-200"
+                    )}
+                    title={
+                      g.costBasis === "reconciled"
+                        ? "Reconciled from provider-reported usage"
+                        : "Estimated from the configured pricing table"
+                    }
+                  >
+                    {g.costBasis}
+                  </span>
+                </td>
                 <td
                   className="max-w-[280px] truncate px-3 py-2 text-xs text-white/60"
                   title={g.prompt}
@@ -1352,7 +1438,7 @@ function LogsTab({
             ))}
             {!loading && rows.length === 0 && (
               <tr className="border-t border-line">
-                <td colSpan={7} className="px-3 py-8 text-center text-xs text-white/40">
+                <td colSpan={8} className="px-3 py-8 text-center text-xs text-white/40">
                   No generations match these filters.
                 </td>
               </tr>

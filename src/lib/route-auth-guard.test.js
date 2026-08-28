@@ -40,6 +40,7 @@ const AUTH_MARKERS = [
   "verifySessionToken",
   "verifyWorkerToken",
   "verifyMediaGrant",
+  "verifyCronSecret",
 ];
 
 /**

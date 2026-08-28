@@ -2,7 +2,7 @@
  * Admin "Status" tab — live health checks for every external dependency the
  * app relies on: 5 generation providers (Gemini/NBP, Higgsfield, Seedance,
  * Kling, Omni) + Postgres + generation indexes + stuck jobs + media storage
- * + media delivery mode, 10 checks
+ * + media delivery mode + ffmpeg runtime, 11 checks
  * total (see CHECKS below — this count drifted out of sync with the actual
  * array once before; if you add or remove a check, update this number too).
  * See `.council/admin-status-page/design.md` for the full contract this
@@ -21,9 +21,16 @@
  * the Railway->Cloud SQL and S3->GCS migration without needing an update
  * when either `DATABASE_BACKEND`/`MEDIA_BACKEND` flag flips.
  */
-import { sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
+import { execFile } from "node:child_process";
+import ffmpegPath from "@ffmpeg-installer/ffmpeg";
 import { getDb } from "@/lib/db";
-import { checkStorageConnectivity } from "@/lib/storage";
+import {
+  browserMediaUrl,
+  checkStorageConnectivity,
+  mediaKeyFromRef,
+} from "@/lib/storage";
+import { generations } from "@/lib/schema";
 import { loadToken, isFresh } from "@/lib/providers/higgsfield-mcp";
 import {
   checkGenerationIndexes as inspectGenerationIndexes,
@@ -131,6 +138,29 @@ async function checkStorage() {
   return { status: "ok", detail: `${detail} reachable` };
 }
 
+function ffmpegVersion(signal) {
+  return new Promise((resolve, reject) => {
+    execFile(
+      ffmpegPath.path,
+      ["-version"],
+      { timeout: 3000, maxBuffer: 256 * 1024, signal },
+      (error, stdout) => {
+        if (error) return reject(error);
+        resolve(String(stdout));
+      }
+    );
+  });
+}
+
+export async function checkFfmpeg(signal) {
+  const output = await ffmpegVersion(signal);
+  const firstLine = output.split("\n", 1)[0];
+  if (!/^ffmpeg version\s+/i.test(firstLine)) {
+    return { status: "error", detail: "ffmpeg executable returned an unexpected response" };
+  }
+  return { status: "ok", detail: firstLine.slice(0, 160) };
+}
+
 /**
  * Whether media can be handed to the browser directly rather than proxied
  * through `/api/media`.
@@ -143,25 +173,48 @@ async function checkStorage() {
  * that produced the 2026-08-04 timeout alert — so it needs to be visible rather
  * than inferred from a latency graph.
  *
- * Signing is a local-ish operation against a key that is not user media, so
- * this costs nothing and generates nothing.
+ * The probe reads at most one byte of existing user media and never logs its
+ * object key or URL. It creates no generation and makes no provider call.
  */
-async function checkMediaDelivery() {
-  const { mediaDeliveryMode } = await import("@/lib/storage");
-  const mode = await mediaDeliveryMode();
-  if (mode.kind === "cdn") {
-    return { status: "ok", detail: `Public CDN — ${mode.detail}` };
+async function checkMediaDelivery(signal) {
+  const db = await getDb();
+  const candidates = await db
+    .select({ url: generations.url, poster: generations.poster })
+    .from(generations)
+    .where(eq(generations.status, "succeeded"))
+    .orderBy(desc(generations.updatedAt))
+    .limit(20);
+  const key = candidates
+    .flatMap((row) => [row.url, row.poster])
+    .filter(Boolean)
+    .map(mediaKeyFromRef)
+    .find(Boolean);
+  if (!key) {
+    return { status: "unknown", detail: "No recent stored media is available for a read probe" };
   }
-  if (mode.kind === "signed") {
-    return { status: "ok", detail: `Signed URLs — ${mode.detail}` };
+  const directUrl = await browserMediaUrl(key);
+  if (!directUrl) {
+    return {
+      status: "error",
+      detail: "Browser delivery fell back to proxying bytes through the function",
+    };
+  }
+  const response = await fetch(directUrl, {
+    method: "GET",
+    headers: { Range: "bytes=0-0" },
+    signal,
+  });
+  await response.body?.cancel().catch(() => {});
+  if (response.status !== 200 && response.status !== 206) {
+    return { status: "error", detail: `Direct browser media read returned HTTP ${response.status}` };
   }
   return {
-    status: "error",
-    detail: `Proxying bytes through the function — ${mode.detail}`,
+    status: "ok",
+    detail: `Direct browser media read succeeded (HTTP ${response.status}; object identity redacted)`,
   };
 }
 
-/** The ten checks, in the fixed display order. Exported for test injection. */
+/** The eleven checks, in the fixed display order. Exported for test injection. */
 export const CHECKS = [
   { id: "gemini", name: "Gemini / Nano Banana Pro", fn: checkGemini },
   { id: "higgsfield", name: "Higgsfield MCP", fn: checkHiggsfield },
@@ -172,6 +225,7 @@ export const CHECKS = [
   { id: "generation-indexes", name: "Generation Indexes", fn: checkGenerationIndexes },
   { id: "stuck-generations", name: "Stuck Generations", fn: checkStuckGenerations },
   { id: "storage", name: "Media Storage", fn: checkStorage },
+  { id: "ffmpeg-runtime", name: "ffmpeg Runtime", fn: checkFfmpeg },
   { id: "media-delivery", name: "Media Delivery", fn: checkMediaDelivery },
 ];
 

@@ -854,6 +854,7 @@ export const useStore = create((set, get) => ({
             : body.error || `Delete failed (${res.status}).`
         );
       }
+      return { ok: true };
     } catch (e) {
       // The optimistic removal above has to come back — this used to be a
       // silent no-op on failure, which meant a rejected delete (permission
@@ -866,7 +867,7 @@ export const useStore = create((set, get) => ({
       if (item) insertNewItem(set, item);
       void get().loadFeed({ force: true });
       void get().loadCounts();
-      alert(e.message || "Failed to delete.");
+      return { ok: false, error: e.message || "Failed to delete." };
     }
   },
 
@@ -953,13 +954,14 @@ export const useStore = create((set, get) => ({
 
   retryTextToVideo: async (id) => {
     const item = findItem(get(), id);
-    if (!item || get().generating) return;
+    if (!item) return { ok: false, error: "This generation is no longer available." };
+    if (get().generating) return { ok: false, error: "Another generation is already starting." };
     // Drop @tags so leftover references don't confuse a no-image generation.
     const cleanPrompt = item.prompt
       .replace(/@[\w-]+/g, "")
       .replace(/\s{2,}/g, " ")
       .trim();
-    if (!cleanPrompt) return;
+    if (!cleanPrompt) return { ok: false, error: "No prompt remains after removing references." };
 
     set({ generating: true });
     try {
@@ -977,7 +979,8 @@ export const useStore = create((set, get) => ({
           folderId: item.folderId,
         }),
       });
-      const newItem = await res.json();
+      const newItem = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(newItem.error || `Retry failed (${res.status}).`);
       if (newItem?.id) {
         insertNewItem(set, newItem);
         if (
@@ -986,9 +989,11 @@ export const useStore = create((set, get) => ({
         ) {
           pollVideo(newItem.id, set, get);
         }
+        return { ok: true };
       }
-    } catch {
-      /* ignore */
+      throw new Error("The retry did not create a generation.");
+    } catch (e) {
+      return { ok: false, error: e.message || "The retry could not be started." };
     } finally {
       set({ generating: false });
     }
@@ -996,8 +1001,9 @@ export const useStore = create((set, get) => ({
 
   editInComposer: (id) => {
     const item = findItem(get(), id);
-    if (!item) return;
+    if (!item) return { ok: false, error: "This generation is no longer available." };
     set({ mode: item.kind, prompt: item.prompt });
+    return { ok: true };
   },
 
   addReferenceFromUrl: async (url) => {
@@ -1024,10 +1030,12 @@ export const useStore = create((set, get) => ({
     // restores model/ratio/resolution/duration/audio AND re-fetches the stored
     // reference images as data URLs, which a fresh submit needs. Then just
     // submit what it loaded.
-    if (get().generating) return;
-    await get().cloneToComposer(id);
-    if (!get().prompt.trim()) return;
+    if (get().generating) return { ok: false, error: "Another generation is already starting." };
+    const cloned = await get().cloneToComposer(id);
+    if (cloned?.ok === false) return cloned;
+    if (!get().prompt.trim()) return { ok: false, error: "The saved prompt is empty." };
     await get().generate();
+    return { ok: true };
   },
 
   /** Same as regenerate, but pins the composer's seed to the ORIGINAL item's
@@ -1038,13 +1046,15 @@ export const useStore = create((set, get) => ({
    *  null); callers should gate the UI entry point on `item.seed != null`
    *  rather than relying on this to silently no-op. */
   regenerateWithSameSeed: async (id) => {
-    if (get().generating) return;
+    if (get().generating) return { ok: false, error: "Another generation is already starting." };
     const item = findItem(get(), id);
-    if (!item || item.seed == null) return;
-    await get().cloneToComposer(id);
+    if (!item || item.seed == null) return { ok: false, error: "The original seed is unavailable." };
+    const cloned = await get().cloneToComposer(id);
+    if (cloned?.ok === false) return cloned;
     set({ seed: item.seed });
-    if (!get().prompt.trim()) return;
+    if (!get().prompt.trim()) return { ok: false, error: "The saved prompt is empty." };
     await get().generate();
+    return { ok: true };
   },
 
   /**
@@ -1060,10 +1070,11 @@ export const useStore = create((set, get) => ({
    */
   continueShot: async (id) => {
     const item = findItem(get(), id);
-    if (!item || item.kind !== "video" || item.status !== "succeeded" || !item.url) return;
+    if (!item || item.kind !== "video" || item.status !== "succeeded" || !item.url) {
+      return { ok: false, error: "This video is not available for continuation." };
+    }
     if (!supportsFirstFrameContinuation(item.model)) {
-      alert(`${item.model} doesn't support continuing a shot yet.`);
-      return;
+      return { ok: false, error: `${item.model} doesn't support continuing a shot yet.` };
     }
     try {
       const { extractFrame } = await import("./video-frame");
@@ -1081,9 +1092,10 @@ export const useStore = create((set, get) => ({
         referenceImages: [],
         referenceKinds: [],
       });
+      return { ok: true };
     } catch (e) {
       console.error("Failed to extract the last frame for continuation:", e);
-      alert(e?.message || "Could not read the last frame from this video.");
+      return { ok: false, error: e?.message || "Could not read the last frame from this video." };
     }
   },
 
@@ -1103,7 +1115,7 @@ export const useStore = create((set, get) => ({
 
   cloneToComposer: async (id) => {
     const item = findItem(get(), id);
-    if (!item) return;
+    if (!item) return { ok: false, error: "This generation is no longer available." };
     set({
       mode: item.kind,
       model: item.model,
@@ -1148,6 +1160,7 @@ export const useStore = create((set, get) => ({
       // cosmetic-only consequence, same as the restoreComposerDraft case.
       set({ referenceImages: restored, referenceKinds: restored.map(() => "image") });
     }
+    return { ok: true };
   },
 
   loadAssets: async () => {
@@ -1185,13 +1198,25 @@ export const useStore = create((set, get) => ({
   },
 
   deleteAsset: async (id) => {
+    const asset = get().assets.find((candidate) => candidate.id === id);
+    if (!asset) return { ok: false, error: "This asset is no longer available." };
     set((s) => ({ assets: s.assets.filter((a) => a.id !== id) }));
     try {
-      await apiFetch(`/api/assets?id=${encodeURIComponent(id)}`, {
+      const res = await apiFetch(`/api/assets?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
       });
-    } catch {
-      /* ignore */
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Delete failed (${res.status}).`);
+      }
+      return { ok: true };
+    } catch (e) {
+      set((s) => ({
+        assets: s.assets.some((candidate) => candidate.id === id)
+          ? s.assets
+          : [asset, ...s.assets],
+      }));
+      return { ok: false, error: e.message || "Failed to delete the asset." };
     }
   },
 
@@ -1443,7 +1468,7 @@ export const useStore = create((set, get) => ({
 function pollVideo(
   id,
   set,
-  get
+  _get
 ) {
   if (polling.has(id)) return;
   polling.add(id);

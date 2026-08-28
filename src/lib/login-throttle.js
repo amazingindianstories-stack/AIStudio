@@ -1,4 +1,4 @@
-import { and, eq, gt, lt } from "drizzle-orm";
+import { and, eq, gt, lte } from "drizzle-orm";
 import { getDb } from "./db";
 import { loginAttempts } from "./schema";
 
@@ -14,6 +14,10 @@ import { loginAttempts } from "./schema";
 
 /** Rolling window a failure counts against. */
 export const LOGIN_ATTEMPT_WINDOW_MS = 15 * 60 * 1000;
+
+export function expiredLoginAttemptCutoff(now = Date.now()) {
+  return now - LOGIN_ATTEMPT_WINDOW_MS;
+}
 
 const DEFAULT_MAX_LOGIN_ATTEMPTS = 5;
 
@@ -62,12 +66,12 @@ export async function checkLoginThrottle(email, env = process.env) {
 
   const identifier = normalizeIdentifier(email);
   const now = Date.now();
-  const windowStart = now - LOGIN_ATTEMPT_WINDOW_MS;
+  const windowStart = expiredLoginAttemptCutoff(now);
   const db = await getDb();
 
   await db
     .delete(loginAttempts)
-    .where(and(eq(loginAttempts.identifier, identifier), lt(loginAttempts.createdAt, windowStart)));
+    .where(and(eq(loginAttempts.identifier, identifier), lte(loginAttempts.createdAt, windowStart)));
 
   const rows = await db
     .select({ createdAt: loginAttempts.createdAt })
@@ -82,6 +86,16 @@ export async function checkLoginThrottle(email, env = process.env) {
     allowed,
     retryAfterMs: allowed ? 0 : loginRetryAfterMs(oldestFailureAt, now),
   };
+}
+
+/** Delete expired attempts across every identifier for the daily retention job. */
+export async function cleanupExpiredLoginAttempts(now = Date.now()) {
+  const db = await getDb();
+  const removed = await db
+    .delete(loginAttempts)
+    .where(lte(loginAttempts.createdAt, expiredLoginAttemptCutoff(now)))
+    .returning({ id: loginAttempts.id });
+  return removed.length;
 }
 
 /** Records one failed attempt. Called only after credentials are confirmed

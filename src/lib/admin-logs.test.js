@@ -15,11 +15,12 @@ test("empty querystring is an empty filter", () => {
 });
 
 test("recognised filters are read", () => {
-  assert.deepEqual(parse(`userId=${UUID}&kind=video&model=Seedance%202.0&status=failed&q=cat`), {
+  assert.deepEqual(parse(`userId=${UUID}&kind=video&model=Seedance%202.0&status=failed&flagged=1&q=cat`), {
     userId: UUID,
     kind: "video",
     model: "Seedance 2.0",
     status: "failed",
+    flagged: true,
     q: "cat",
   });
 });
@@ -44,6 +45,12 @@ test("status is restricted to real statuses", () => {
   assert.equal(parse("status=deleted").status, undefined);
 });
 
+test("flagged is opt-in and only accepts the canonical value", () => {
+  assert.equal(parse("flagged=1").flagged, true);
+  assert.equal(parse("flagged=0").flagged, undefined);
+  assert.equal(parse("flagged=true").flagged, undefined);
+});
+
 test("search is trimmed and length-capped", () => {
   assert.equal(parse("q=%20%20hello%20%20").q, "hello");
   assert.equal(parse("q=" + "a".repeat(500)).q?.length, MAX_LOG_QUERY_LENGTH);
@@ -57,7 +64,7 @@ test("filter → params → filter round-trips", () => {
     { kind: "image" },
     { userId: UUID, status: "succeeded" },
     { model: "Nano Banana Pro", q: "a man walking" },
-    { userId: UUID, kind: "video", model: "Seedance 2.0", status: "failed", q: "x" },
+    { userId: UUID, kind: "video", model: "Seedance 2.0", status: "failed", flagged: true, q: "x" },
   ];
   for (const filter of filters) {
     assert.deepEqual(

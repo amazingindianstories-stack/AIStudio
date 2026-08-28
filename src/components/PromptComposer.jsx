@@ -53,6 +53,7 @@ import {
   VIDEO_TASK_MODES,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import { isProviderModel } from "@/lib/model-registry";
 
 import {
   REF_BATCH_BUDGET_BYTES,
@@ -405,7 +406,6 @@ export function PromptComposer() {
                   the race varies by OS/input device, which is exactly the
                   "sometimes it just doesn't grab" symptom. Suppressing the
                   native drag leaves the pointer event free for Framer. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={src}
                 alt=""
@@ -491,7 +491,7 @@ export function PromptComposer() {
           banner below already covers the same advice for that model. */}
       {s.referenceImages.length > 1 &&
         parseMentionIndices(s.prompt).length === 0 &&
-        !(s.mode === "video" && /higgsfield/i.test(s.model)) && (
+        !(s.mode === "video" && isProviderModel(s.model, "higgsfield")) && (
           <div className="mb-2 flex items-start gap-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-2.5 py-1.5 text-[11px] leading-snug text-amber-200/90">
             <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
@@ -507,7 +507,7 @@ export function PromptComposer() {
       {/* Higgsfield Seedance (via MCP) natively accepts multiple reference
           images, so several characters/locations can drive one shot. */}
       {s.mode === "video" &&
-        /higgsfield/i.test(s.model) &&
+        isProviderModel(s.model, "higgsfield") &&
         s.referenceImages.length > 1 && (
           <div className="mb-2 flex items-start gap-2 rounded-lg border border-brand/30 bg-brand/10 px-2.5 py-1.5 text-[11px] leading-snug text-brand/90">
             <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -795,7 +795,7 @@ export function PromptComposer() {
             <div className="space-y-3">
               {/* Edit/Extend only exist on Seedance 2.5 — BytePlus infers the
                   task type from this plus an attached reference clip, not a
-                  request field (see providers/seedance.ts). */}
+                  request field (see providers/seedance.js). */}
               {editExtendApplies && (
                 <div>
                   <Segment

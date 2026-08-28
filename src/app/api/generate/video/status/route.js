@@ -14,6 +14,7 @@ import { computeSeedanceTokenCostCents } from "@/lib/pricing";
 import { extractLastFrameServer } from "@/lib/video-frame-server";
 import { judgeCandidate, judgeIdentity, selectBestCandidate } from "@/lib/middleware/face-judge";
 import { persistGenerationFailure } from "@/lib/generation-telemetry";
+import { getModelDefinition } from "@/lib/model-registry";
 
 export const runtime = "nodejs";
 // Frame extraction downloads a full candidate video then shells out to
@@ -348,13 +349,14 @@ export async function GET(req) {
         // fall back to the remote url if download fails
       }
       let costCents = item.costCents;
+      let costBasis = item.costBasis === "reconciled" ? "reconciled" : "estimated";
       // Seedance 2.5 only — BytePlus bills by tokens, and the finished task
-      // reports the real count (usage.total_tokens, see providers/seedance.ts
+      // reports the real count (usage.total_tokens, see providers/seedance.js
       // getVideoTask). Same "provider reports its own billing" pattern as
-      // Kling's final_unit_deduction in queue/execute/route.ts: overwrite the
+      // Kling's final_unit_deduction in queue/execute/route.js: overwrite the
       // enqueue-time estimate with the exact figure, or keep the estimate if
       // the count is missing/unparseable.
-      if (/seedance 2\.5/i.test(item.model)) {
+      if (getModelDefinition(item.model)?.usageCost === "seedance-token") {
         const totalTokens = (result ).totalTokens;
         const hadVideoInput = (item.referenceVideos?.length ?? 0) > 0;
         const actual = computeSeedanceTokenCostCents(
@@ -369,6 +371,7 @@ export async function GET(req) {
               `for ${item.id} (estimate was ${costCents}¢)`
           );
           costCents = actual;
+          costBasis = "reconciled";
         }
       }
       const done = {
@@ -376,6 +379,7 @@ export async function GET(req) {
         status: "succeeded" ,
         url: localUrl,
         costCents,
+        costBasis,
         updatedAt: Date.now(),
       };
       await upsertItem(done);

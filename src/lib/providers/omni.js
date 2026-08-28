@@ -1,7 +1,7 @@
 /**
  * Gemini Omni Flash (gemini-omni-flash-preview) — video via Google's
  * Interactions API. Built to give video the same NBP-grade reference/prompt
- * scaffolding images already get (see ../omni-input.ts), not a hand-rolled
+ * scaffolding images already get (see ../omni-input.js), not a hand-rolled
  * flat prompt like the Higgsfield/Seedance video paths.
  *
  * PROBE VERDICTS (re-measured 2026-07-11 against this project's
@@ -69,8 +69,8 @@
 import { GoogleAuth } from "google-auth-library";
 
 import { buildOmniInput } from "../omni-input";
+import { isProviderModel, providerModelId } from "../model-registry";
 
-const MODEL_ID = process.env.OMNI_MODEL || "gemini-omni-flash-preview";
 const OMNI_ASPECT_RATIOS = ["16:9", "9:16"] ;
 
 const auth = new GoogleAuth({
@@ -78,7 +78,7 @@ const auth = new GoogleAuth({
 });
 
 export function isOmniModel(model) {
-  return /omni/i.test(model);
+  return isProviderModel(model, "omni");
 }
 
 /** Refuses to attach any credential to a host that isn't a Google API host —
@@ -126,7 +126,7 @@ export function buildOmniPayload(
     );
   }
   return {
-    model: MODEL_ID,
+    model: providerModelId("Gemini Omni Flash"),
     input,
     background: true,
     response_format: {
