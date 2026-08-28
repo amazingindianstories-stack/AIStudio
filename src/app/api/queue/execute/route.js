@@ -11,7 +11,6 @@ import { createVideoTask } from "@/lib/providers/seedance";
 import {
   generateImageKling,
   isKlingModel,
-  nearestKlingAspectRatio,
   prepKlingReference,
 } from "@/lib/providers/kling";
 import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
@@ -20,10 +19,12 @@ import { buildKlingInput } from "@/lib/kling-input";
 import { resolveReferences, resolveVideoReferences } from "@/lib/mentions";
 import {
   readImageAsBase64,
-  saveBase64,
-  saveFromUrl,
-
 } from "@/lib/save-media";
+import {
+  saveBase64WithMetadata,
+  saveBufferWithMetadata,
+  saveFromUrlWithMetadata,
+} from "@/lib/generated-media-persistence";
 import { signStoredRef } from "@/lib/storage";
 import { upsertItem, lockJob, getItem, getQueuePosition } from "@/lib/store-db";
 import { isMock, mockPlaceholder } from "@/lib/mock";
@@ -410,9 +411,8 @@ export async function POST(req) {
   if (supportsSeed(model) && seed == null) {
     seed = Math.floor(Math.random() * 2147483647);
   }
-  // Normally the stored ratio is whatever was requested. Kling is the exception:
-  // it ignores aspect_ratio in image-to-image, so the returned image is measured
-  // and this is corrected to match (see the kling branch below).
+  // Every provider result is measured from its persisted bytes. Inspection is
+  // fail-open, so this remains the requested ratio if metadata cannot be read.
   let aspectRatioOut = aspectRatio;
 
   // Video best-of-N (Phase 3.2). Gated on three independent things, all of
@@ -519,7 +519,13 @@ export async function POST(req) {
         throw new Error(done.error || "Higgsfield image generation failed.");
       }
       // Persist Higgsfield's hosted result locally so it survives URL expiry.
-      url = await saveFromUrl(done.url, "png", id, signal);
+      const saved = await saveFromUrlWithMetadata(done.url, "png", id, {
+        kind: "image",
+        model,
+        requestedAspectRatio: aspectRatio,
+      }, signal);
+      url = saved.url;
+      aspectRatioOut = saved.aspectRatio;
     } else if (isKlingModel(model)) {
       // Kling takes ONE reference image and ONE prompt string on this endpoint
       // (see providers/kling.js). buildKlingInput adapts the assembled payload
@@ -572,23 +578,14 @@ export async function POST(req) {
         );
       }
       const bytes = Buffer.from(await fetched.arrayBuffer());
-      // Kling IGNORES aspect_ratio in image-to-image and follows the reference
-      // instead (probe-measured — see providers/kling.js). It also rounds
-      // text-to-image output to convenient pixel multiples. Storing the
-      // requested ratio would mislabel the card AND give it the wrong shape in
-      // the library's masonry, which lays out from this field. So record what
-      // actually came back.
-      const meta = await sharp(bytes).metadata();
-      const measured = nearestKlingAspectRatio(meta.width ?? 0, meta.height ?? 0);
-      if (measured && measured !== aspectRatio) {
-        console.log(
-          `[image] kling returned ${meta.width}x${meta.height} (${measured}), ` +
-            `not the requested ${aspectRatio} — storing the measured ratio`
-        );
-        aspectRatioOut = measured;
-      }
       throwIfAborted(signal);
-      url = await saveBase64(bytes.toString("base64"), "png", id);
+      const saved = await saveBufferWithMetadata(bytes, "png", id, {
+        kind: "image",
+        model,
+        requestedAspectRatio: aspectRatio,
+      });
+      url = saved.url;
+      aspectRatioOut = saved.aspectRatio;
     } else {
       // Context engineering: resolve @slug assets + @imgN uploads into a
       // structured, role-labeled payload (literal SCENE + grouped references).
@@ -706,7 +703,13 @@ export async function POST(req) {
 
       const ext = mimeType.includes("jpeg") ? "jpg" : "png";
       throwIfAborted(signal);
-      url = await saveBase64(base64, ext, id);
+      const saved = await saveBase64WithMetadata(base64, ext, id, {
+        kind: "image",
+        model,
+        requestedAspectRatio: aspectRatio,
+      });
+      url = saved.url;
+      aspectRatioOut = saved.aspectRatio;
     }
     const done = {
       ...base,

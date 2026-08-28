@@ -65,8 +65,8 @@ function ElapsedTime({ since }) {
   const mm = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
   const ss = String(totalSeconds % 60).padStart(2, "0");
   return (
-    <span>
-      {mm}:{ss}
+    <span title="Elapsed time (not an estimated time remaining)">
+      Elapsed {mm}:{ss}
     </span>
   );
 }
@@ -291,6 +291,11 @@ export function MediaCard({
                 {item.progressMessage && (
                   <span className="mt-1 block truncate text-[10px] leading-snug text-white/40">
                     {item.progressMessage}
+                  </span>
+                )}
+                {item.progressMessage === "Running depth estimation" && (
+                  <span className="mt-1 block text-[9px] leading-snug text-white/35">
+                    Depth estimation is normally the longest stage.
                   </span>
                 )}
                 {/* Step count derived from the worker's own fixed milestone

@@ -413,12 +413,20 @@ const STALE_RUNNING_MS = 7 * 60 * 1000;
 // idempotent, so the worst case is that a stranded row is noticed one interval
 // late by a client whose instance happens to be cold.
 const REAP_INTERVAL_MS = 30_000;
-let lastReapAt = 0;
+// Process-scoped throttle, not database/application state: it only collapses
+// redundant sweeps served by one warm instance. Resetting it is safe because
+// the SQL update is idempotent and correctness never depends on the throttle.
+const storeDbRuntime = { lastReapAt: 0 };
+
+/** Explicit reset for isolated server tests or a controlled process teardown. */
+export function resetStoreDbRuntimeState() {
+  storeDbRuntime.lastReapAt = 0;
+}
 
 async function reapStaleRunningImages() {
   const now = Date.now();
-  if (now - lastReapAt < REAP_INTERVAL_MS) return;
-  lastReapAt = now;
+  if (now - storeDbRuntime.lastReapAt < REAP_INTERVAL_MS) return;
+  storeDbRuntime.lastReapAt = now;
   const db = await getDb();
   await db
     .update(generations)
