@@ -37,6 +37,14 @@ import {
   scopeToQuery,
 
 } from "./feed-scope";
+import {
+  clearStoreTimeout,
+  currentStoreRequestSequence,
+  disposeStoreRuntime,
+  nextStoreRequestSequence,
+  setStoreTimeout,
+  storeRuntime,
+} from "./store-runtime";
 
 const EMPTY_COUNTS = {
   project: { total: 0, unsorted: 0, byFolder: {} },
@@ -47,7 +55,7 @@ const EMPTY_COUNTS = {
 // Exported for store.test.js only, so adoptOrphanedJobs's "already being
 // driven by this tab" skip branch is directly testable (pre-populate an id,
 // assert startPolling is not re-triggered) without faking a real poll cycle.
-export const polling = new Set();
+export const polling = storeRuntime.polling;
 
 // ── scoped feed cache ───────────────────────────────────────────────────────
 // Each library view (a project, a folder, Favourites, All assets, each with its
@@ -66,9 +74,6 @@ const THREAD_PAGE_SIZE = 60;
 // Monotonic request ids. Every async read stamps one and refuses to write if it
 // is no longer the newest — the fix for a slow reply for folder A landing after
 // a fast reply for folder B and painting the wrong contents.
-let feedSeq = 0;
-let countsSeq = 0;
-let threadSeq = 0;
 
 /** The scope the right panel is currently showing. */
 function currentScope(s) {
@@ -197,15 +202,10 @@ const LIVE_MS_IDLE = 20000; // nothing running — just watch for teammates
 // as executing: pollQueue still respects queue position, so an adopted job that
 // is legitimately waiting its turn is merely observed, not jumped ahead.
 const ADOPT_QUEUED_AFTER_MS = 30_000;
-let liveTimer = null;
-let liveSince = 0;
-let liveRunning = false;
-let liveVisibilityHandler = null;
-
 async function apiFetch(input, init) {
   const response = await crossOriginFetch(input, init);
   if (response.status === 401) {
-    polling.clear();
+    disposeStoreRuntime();
     useStore.setState({ currentUser: null });
     if (typeof window !== "undefined" && window.location.pathname !== "/login") {
       window.location.replace("/login");
@@ -494,13 +494,13 @@ export const useStore = create((set, get) => ({
     // may write. Without this, clicking through folders faster than the network
     // answers lets an earlier reply land last and paint the wrong folder's
     // contents under the right folder's highlight.
-    const seq = ++feedSeq;
+    const seq = nextStoreRequestSequence("feed");
     try {
       const params = historyFilterToParams(scopeToQuery(scope));
       params.set("limit", String(HISTORY_PAGE_SIZE));
       const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
       const json = await res.json();
-      if (seq !== feedSeq) return; // superseded
+      if (seq !== currentStoreRequestSequence("feed")) return; // superseded
 
       const items = json.items ?? [];
       const nextCursor = json.nextCursor ?? null;
@@ -516,7 +516,7 @@ export const useStore = create((set, get) => ({
       // Resume driving anything still in flight that this page revealed.
       for (const it of items) startPolling(it, set, get);
     } catch {
-      if (seq !== feedSeq) return;
+      if (seq !== currentStoreRequestSequence("feed")) return;
       set({ loading: false, refreshing: false });
     }
   },
@@ -530,14 +530,14 @@ export const useStore = create((set, get) => ({
     const cursor = cached?.nextCursor;
     if (!cursor) return;
 
-    const seq = feedSeq; // appends belong to the scope that is current now
+    const seq = currentStoreRequestSequence("feed"); // appends belong to the scope that is current now
     try {
       const params = historyFilterToParams(scopeToQuery(scope));
       params.set("limit", String(HISTORY_PAGE_SIZE));
       params.set("cursor", cursor);
       const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
       const json = await res.json();
-      if (seq !== feedSeq) return; // scope changed while we were paging
+      if (seq !== currentStoreRequestSequence("feed")) return; // scope changed while we were paging
 
       const newItems = json.items ?? [];
       const nextCursor = json.nextCursor ?? null;
@@ -560,7 +560,7 @@ export const useStore = create((set, get) => ({
 
   loadCounts: async () => {
     const scope = currentScope(get());
-    const seq = ++countsSeq;
+    const seq = nextStoreRequestSequence("counts");
     try {
       const params = historyFilterToParams({
         projectId: scope.projectId ?? undefined,
@@ -571,7 +571,7 @@ export const useStore = create((set, get) => ({
         cache: "no-store",
       });
       const json = await res.json();
-      if (seq !== countsSeq) return;
+      if (seq !== currentStoreRequestSequence("counts")) return;
       set({
         counts: {
           project: json.project ?? EMPTY_COUNTS.project,
@@ -590,14 +590,14 @@ export const useStore = create((set, get) => ({
       set({ threadItems: [], threadLoading: false });
       return;
     }
-    const seq = ++threadSeq;
+    const seq = nextStoreRequestSequence("thread");
     set({ threadLoading: true });
     try {
       const params = historyFilterToParams({ projectId });
       params.set("limit", String(THREAD_PAGE_SIZE));
       const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
       const json = await res.json();
-      if (seq !== threadSeq) return;
+      if (seq !== currentStoreRequestSequence("thread")) return;
       // Depth rows are excluded from the thread (see insertNewItem's comment) —
       // filtered client-side rather than via the shared history-query `kind`
       // param, which only supports a single "image"|"video" inclusion filter
@@ -610,7 +610,7 @@ export const useStore = create((set, get) => ({
       set({ threadItems, threadLoading: false });
       for (const it of threadItems) startPolling(it, set, get);
     } catch {
-      if (seq !== threadSeq) return;
+      if (seq !== currentStoreRequestSequence("thread")) return;
       set({ threadLoading: false });
     }
   },
@@ -643,33 +643,32 @@ export const useStore = create((set, get) => ({
   },
 
   startLiveUpdates: () => {
-    if (liveRunning) return; // idempotent — strict mode mounts effects twice
-    liveRunning = true;
+    if (storeRuntime.liveRunning) return; // idempotent — strict mode mounts effects twice
+    storeRuntime.liveRunning = true;
     // Start the watermark slightly in the past so a job that finished during
     // the initial page load isn't missed in the gap before the first poll.
-    liveSince = Date.now() - 60_000;
-    if (typeof document !== "undefined" && !liveVisibilityHandler) {
+    storeRuntime.liveSince = Date.now() - 60_000;
+    if (typeof document !== "undefined" && !storeRuntime.liveVisibilityHandler) {
       // Returning to a backgrounded tab is exactly when the view is most
       // stale, so catch up immediately rather than waiting out the interval.
-      liveVisibilityHandler = () => {
-        if (!document.hidden && liveRunning) {
+      storeRuntime.liveVisibilityHandler = () => {
+        if (!document.hidden && storeRuntime.liveRunning) {
           scheduleLive(set, get, 0);
         }
       };
-      document.addEventListener("visibilitychange", liveVisibilityHandler);
+      document.addEventListener("visibilitychange", storeRuntime.liveVisibilityHandler);
     }
     scheduleLive(set, get, LIVE_MS_ACTIVE);
   },
 
   stopLiveUpdates: () => {
-    liveRunning = false;
-    if (liveTimer) {
-      clearTimeout(liveTimer);
-      liveTimer = null;
+    storeRuntime.liveRunning = false;
+    if (storeRuntime.liveTimer) {
+      storeRuntime.liveTimer = clearStoreTimeout(storeRuntime.liveTimer);
     }
-    if (typeof document !== "undefined" && liveVisibilityHandler) {
-      document.removeEventListener("visibilitychange", liveVisibilityHandler);
-      liveVisibilityHandler = null;
+    if (typeof document !== "undefined" && storeRuntime.liveVisibilityHandler) {
+      document.removeEventListener("visibilitychange", storeRuntime.liveVisibilityHandler);
+      storeRuntime.liveVisibilityHandler = null;
     }
   },
 
@@ -1461,6 +1460,7 @@ export const useStore = create((set, get) => ({
     } catch {
       /* ignore */
     }
+    disposeStoreRuntime();
     window.location.href = "/login";
   },
 }));
@@ -1480,6 +1480,7 @@ function pollVideo(
         { cache: "no-store" }
       );
       const item = await res.json();
+      if (!polling.has(id)) return; // disposed while the request was in flight
       if (item?.id) {
         patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
         if (item.status === "succeeded" || item.status === "failed") {
@@ -1490,10 +1491,10 @@ function pollVideo(
     } catch {
       /* keep trying */
     }
-    if (polling.has(id)) setTimeout(tick, 4000);
+    if (polling.has(id)) setStoreTimeout(tick, 4000);
   };
 
-  setTimeout(tick, 3000);
+  setStoreTimeout(tick, 3000);
 }
 
 /**
@@ -1617,7 +1618,7 @@ async function liveTick(
   set,
   get
 ) {
-  if (!liveRunning) return;
+  if (!storeRuntime.liveRunning) return;
   // A hidden tab is throttled by the browser to roughly one timer per minute
   // anyway, and nobody is looking. Skip the request and let the
   // visibilitychange handler fire an immediate catch-up poll on return.
@@ -1627,16 +1628,17 @@ async function liveTick(
   }
   try {
     const res = await apiFetch(
-      `/api/history/updates?since=${encodeURIComponent(String(liveSince))}`,
+      `/api/history/updates?since=${encodeURIComponent(String(storeRuntime.liveSince))}`,
       { cache: "no-store" }
     );
     const data = await res.json();
+    if (!storeRuntime.liveRunning) return; // disposed while the request was in flight
     if (Array.isArray(data.items)) {
       mergeLiveItems(data.items, set);
       adoptOrphanedJobs(data.items, data.now, set, get);
     }
     // Watermark comes from the server so client clock skew can't skip changes.
-    if (typeof data.now === "number") liveSince = data.now;
+    if (typeof data.now === "number") storeRuntime.liveSince = data.now;
   } catch {
     /* transient — the next tick retries, and 401 already redirects in apiFetch */
   }
@@ -1651,9 +1653,9 @@ function scheduleLive(
   get,
   ms
 ) {
-  if (!liveRunning) return;
-  if (liveTimer) clearTimeout(liveTimer);
-  liveTimer = setTimeout(() => liveTick(set, get), ms);
+  if (!storeRuntime.liveRunning) return;
+  if (storeRuntime.liveTimer) clearStoreTimeout(storeRuntime.liveTimer);
+  storeRuntime.liveTimer = setStoreTimeout(() => liveTick(set, get), ms);
 }
 
 /** Route a fresh/resumed item to the right poller: queued jobs of BOTH kinds
@@ -1710,6 +1712,7 @@ function pollDepthStatus(
         cache: "no-store",
       });
       const item = await res.json();
+      if (!polling.has(id)) return; // disposed while the request was in flight
       if (item?.id) {
         patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
         if (item.status === "succeeded" || item.status === "failed") {
@@ -1721,10 +1724,10 @@ function pollDepthStatus(
     } catch {
       /* keep trying */
     }
-    if (polling.has(id)) setTimeout(tick, 2500);
+    if (polling.has(id)) setStoreTimeout(tick, 2500);
   };
 
-  setTimeout(tick, 1500);
+  setStoreTimeout(tick, 1500);
 }
 
 function pollQueue(
@@ -1741,6 +1744,7 @@ function pollQueue(
         cache: "no-store",
       });
       const data = await res.json();
+      if (!polling.has(id)) return; // disposed while the request was in flight
 
       if (data.status === "queued" && data.position === 0) {
         // It's our turn!
@@ -1750,6 +1754,7 @@ function pollQueue(
           body: JSON.stringify({ id }),
         });
         const finalItem = await execRes.json();
+        if (!polling.has(id)) return; // disposed while execution was in flight
 
         if (finalItem?.notAdmitted) {
           // Lost a race with the server's own admission check — the
@@ -1760,13 +1765,13 @@ function pollQueue(
           if (finalItem.heldForBudget) {
             patchEverywhere(set, id, (i) => ({ ...i, queueNote: finalItem.heldReason }));
             if (polling.has(id)) {
-              setTimeout(
+              setStoreTimeout(
                 tick,
                 Math.min(Math.max(Number(finalItem.retryAfterMs) || 5000, 5000), 60_000)
               );
             }
           } else if (polling.has(id)) {
-            setTimeout(tick, 3000);
+            setStoreTimeout(tick, 3000);
           }
           return;
         }
@@ -1803,7 +1808,7 @@ function pollQueue(
         // would be pure noise (and each poll is a DB round trip).
         patchEverywhere(set, id, (i) => ({ ...i, queueNote: data.heldReason }));
         if (polling.has(id)) {
-          setTimeout(tick, Math.min(Math.max(Number(data.retryAfterMs) || 5000, 5000), 60_000));
+          setStoreTimeout(tick, Math.min(Math.max(Number(data.retryAfterMs) || 5000, 5000), 60_000));
         }
         return;
       } else if (data.status === "succeeded" || data.status === "failed") {
@@ -1825,10 +1830,10 @@ function pollQueue(
     } catch {
       /* keep trying */
     }
-    if (polling.has(id)) setTimeout(tick, 3000);
+    if (polling.has(id)) setStoreTimeout(tick, 3000);
   };
 
-  setTimeout(tick, 1000);
+  setStoreTimeout(tick, 1000);
 }
 
 // ── composer draft + UI-state persistence ────────────────────────────────────
@@ -1943,9 +1948,6 @@ export function restoreComposerDraft() {
 const SEARCH_DEBOUNCE_MS = 300;
 
 if (typeof window !== "undefined") {
-  let scopeTimer;
-  let lastScopeKey = null;
-
   useStore.subscribe((s, prev) => {
     const projectChanged = s.activeProjectId !== prev.activeProjectId;
     const searchChanged = s.search !== prev.search;
@@ -1961,10 +1963,10 @@ if (typeof window !== "undefined") {
     const key = scopeKey(currentScope(s));
     // Switching tabs between two scopes that resolve to the same query (a
     // project with no folder selected vs. the same, say) is not a refetch.
-    if (key === lastScopeKey && !projectChanged) return;
-    lastScopeKey = key;
+    if (key === storeRuntime.lastScopeKey && !projectChanged) return;
+    storeRuntime.lastScopeKey = key;
 
-    clearTimeout(scopeTimer);
+    storeRuntime.scopeTimer = clearStoreTimeout(storeRuntime.scopeTimer);
     const run = () => {
       const st = useStore.getState();
       void st.loadFeed();
@@ -1974,16 +1976,16 @@ if (typeof window !== "undefined") {
       if (projectChanged) void st.loadThread();
     };
     // Only typing waits; clicking a folder should feel instant.
-    if (searchChanged && !projectChanged) scopeTimer = setTimeout(run, SEARCH_DEBOUNCE_MS);
+    if (searchChanged && !projectChanged) {
+      storeRuntime.scopeTimer = setStoreTimeout(run, SEARCH_DEBOUNCE_MS);
+    }
     else run();
   });
 
-  let promptTimer;
-  let refsTimer;
   useStore.subscribe((s, prev) => {
     if (s.prompt !== prev.prompt) {
-      clearTimeout(promptTimer);
-      promptTimer = setTimeout(() => {
+      storeRuntime.promptTimer = clearStoreTimeout(storeRuntime.promptTimer);
+      storeRuntime.promptTimer = setStoreTimeout(() => {
         try {
           localStorage.setItem(DRAFT_PROMPT_KEY, s.prompt);
         } catch {}
@@ -1999,8 +2001,8 @@ if (typeof window !== "undefined") {
       // the whole origin, shared with the prompt and settings drafts): the
       // stringify is most of the cost, so checking first avoids doing the
       // expensive part only to throw it away.
-      clearTimeout(refsTimer);
-      refsTimer = setTimeout(() => {
+      storeRuntime.refsTimer = clearStoreTimeout(storeRuntime.refsTimer);
+      storeRuntime.refsTimer = setStoreTimeout(() => {
         const bytes = s.referenceImages.reduce((n, r) => n + r.length, 0);
         try {
           if (bytes > DRAFT_REFS_MAX_BYTES) localStorage.removeItem(DRAFT_REFS_KEY);

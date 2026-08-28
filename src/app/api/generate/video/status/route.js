@@ -6,7 +6,11 @@ import {
 } from "@/lib/providers/seedance";
 import { isHiggsfieldModel, mcpJobStatus } from "@/lib/providers/higgsfield-mcp";
 import { isOmniModel, getOmniVideoStatus } from "@/lib/providers/omni";
-import { saveBase64, saveFromUrl, readImageAsBase64 } from "@/lib/save-media";
+import { readImageAsBase64 } from "@/lib/save-media";
+import {
+  saveBase64WithMetadata,
+  saveFromUrlWithMetadata,
+} from "@/lib/generated-media-persistence";
 import { getItem, upsertItem } from "@/lib/store-db";
 import { isMock } from "@/lib/mock";
 import { readPricing } from "@/lib/pricing-db";
@@ -141,8 +145,15 @@ async function resolveVideoBestOf(item, agedOut) {
   }
 
   let localUrl = winner.videoUrl;
+  let aspectRatio = item.aspectRatio;
   try {
-    localUrl = await saveFromUrl(winner.videoUrl, "mp4", item.id);
+    const saved = await saveFromUrlWithMetadata(winner.videoUrl, "mp4", item.id, {
+      kind: "video",
+      model: item.model,
+      requestedAspectRatio: item.aspectRatio,
+    });
+    localUrl = saved.url;
+    aspectRatio = saved.aspectRatio;
   } catch {
     // fall back to the remote url if download fails
   }
@@ -158,6 +169,7 @@ async function resolveVideoBestOf(item, agedOut) {
     ...item,
     status: "succeeded",
     url: localUrl,
+    aspectRatio,
     candidateTaskIds: null,
     judgeScore,
     updatedAt: Date.now(),
@@ -272,14 +284,25 @@ export async function GET(req) {
         let saveError;
         for (let attempt = 1; attempt <= 2 && !url; attempt++) {
           try {
-            url = await saveBase64(result.videoBase64, ext, item.id);
+            const saved = await saveBase64WithMetadata(result.videoBase64, ext, item.id, {
+              kind: "video",
+              model: item.model,
+              requestedAspectRatio: item.aspectRatio,
+            });
+            url = saved;
           } catch (e) {
             saveError = e;
             if (attempt === 1) await new Promise((r) => setTimeout(r, 1000));
           }
         }
         if (url) {
-          const done = { ...item, status: "succeeded" , url, updatedAt: Date.now() };
+          const done = {
+            ...item,
+            status: "succeeded",
+            url: url.url,
+            aspectRatio: url.aspectRatio,
+            updatedAt: Date.now(),
+          };
           await upsertItem(done);
           return NextResponse.json(done);
         }
@@ -343,8 +366,15 @@ export async function GET(req) {
     if (result.status === "succeeded" && videoUrl) {
       // Download to local storage so it survives provider URL expiry.
       let localUrl = videoUrl;
+      let aspectRatio = item.aspectRatio;
       try {
-        localUrl = await saveFromUrl(videoUrl, "mp4", item.id);
+        const saved = await saveFromUrlWithMetadata(videoUrl, "mp4", item.id, {
+          kind: "video",
+          model: item.model,
+          requestedAspectRatio: item.aspectRatio,
+        });
+        localUrl = saved.url;
+        aspectRatio = saved.aspectRatio;
       } catch {
         // fall back to the remote url if download fails
       }
@@ -378,6 +408,7 @@ export async function GET(req) {
         ...item,
         status: "succeeded" ,
         url: localUrl,
+        aspectRatio,
         costCents,
         costBasis,
         updatedAt: Date.now(),

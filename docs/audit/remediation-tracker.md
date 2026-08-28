@@ -76,7 +76,7 @@ current verification.
 | REL-05 | Client scope and SQL scope can drift | P2 | resolved | 2026-08-27 | Codex | PostgreSQL scope/order/keyset parity passed on PR #11 and main CI run `33055388366` after the production migration chain. |
 | REL-06 | `db:push` does not create indexes | P2 | resolved | 2026-08-27 | Codex | Production read-only catalog verification reports all 10 expected indexes present; the registry, optimizer, Admin Status check, and live-catalog CI test shipped in `8f216d9`. |
 | REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-08-27 | Codex | Production `8f216d9` converted stuck Omni row `…672f64e3` to terminal moderated failure through HTTP 200, emitted a persisted structured event, and the DB-only reconciler now finds zero stale Omni rows. No `--apply` action was used; monitor the Vercel 5xx anomaly before closing. |
-| REL-08 | Most providers trust requested aspect ratio | P3 | open | 2026-08-18 | Unassigned | Measure provider outputs where practical. |
+| REL-08 | Most providers trust requested aspect ratio | P3 | resolved | 2026-08-28 | Codex | Image outputs (Gemini/Nano Banana, Higgsfield, Kling) and video outputs (Higgsfield, Omni, BytePlus, including best-of winners) are measured from the same bytes used for persistence. The nearest model-supported ratio is stored; structured mismatch/inspection warnings and requested-ratio fallback keep metadata failures non-fatal. Synthetic image and local ffmpeg video fixtures pass. |
 | REL-09 | Login-attempt cleanup is opportunistic | P3 | in_progress | 2026-08-27 | Codex | Local authenticated daily cron globally deletes expired login-attempt rows using the shared retention cutoff; middleware exemption remains protected by timing-safe bearer auth. Unit and PostgreSQL integration tests pass. Exit: set `CRON_SECRET`, deploy, and observe one successful bounded run. |
 | MIG-01 | Django port is not cut over | P1 | open | 2026-08-18 | Unassigned | Re-audit against current backend before choosing ship/delete. |
 | MIG-02 | Live routes are missing from Django | P1 | open | 2026-08-18 | Unassigned | Re-audit current route parity. |
@@ -87,7 +87,7 @@ current verification.
 | MIG-07 | Railway Django service does not exist | P2 | open | 2026-08-18 | Unassigned | Re-audit current deployment state. |
 | MIG-08 | Higgsfield UI is gone but backend remains | P3 | open | 2026-08-18 | Unassigned | Decide retirement and preserve historical pricing. |
 | MIG-09 | Unreachable legacy agent routes remain in Django | P3 | open | 2026-08-18 | Unassigned | Remove only after current route audit. |
-| MIG-10 | Pre-Postgres JSON snapshots remain | P3 | open | 2026-08-18 | Unassigned | Archive after recovery requirements are confirmed. |
+| MIG-10 | Pre-Postgres JSON snapshots remain | P3 | resolved | 2026-08-28 | Codex | Read-only `git ls-tree -d origin/main data` verification at production `97b0e9c` found no root `data/` snapshot tree. No unrelated local or untracked file was deleted. |
 | DRIFT-01 | Python video directive lacks reference legends | P1 | in_progress | 2026-08-26 | Codex | Python now matches JS reference legends, scoped locks, temporal/camera guidance, and the shared negative coda; exact cross-language fixtures and provider-role tests pass locally. Exit: deploy and verify both provider paths in the target runtime. |
 | DRIFT-02 | Django lacks video best-of-N pipeline | P2 | open | 2026-08-18 | Unassigned | Keep feature off until parity or cutover decision. |
 | DRIFT-03 | Django lacks server-side frame extraction | P2 | open | 2026-08-18 | Unassigned | Decide with video best-of-N/cutover. |
@@ -106,7 +106,7 @@ current verification.
 | VER-08 | Kling 2K reference rule lacks controlled probe | P2 | open | 2026-08-18 | Unassigned | Run the free validation probe. |
 | VER-09 | Seedance continuation relies on third-party evidence | P2 | open | 2026-08-18 | Unassigned | Run the bounded billed probe. |
 | VER-10 | Kling seed support is unconfirmed | P3 | open | 2026-08-18 | Unassigned | Run the free seed probe. |
-| VER-11 | Seedance 2.5 activation is unconfirmed | P2 | open | 2026-08-18 | Unassigned | Confirm activation or hide the picker entry. |
+| VER-11 | Seedance 2.5 activation is unconfirmed | P2 | resolved | 2026-08-28 | Codex | Read-only production generation evidence contains 11 Seedance 2.5 rows: 9 succeeded and 2 failed. Successful provider completions prove the production account/model is activated, so the picker entry remains offered; no billed probe was run. |
 | VER-12 | Audio surcharge pricing lacks invoice verification | P3 | open | 2026-08-18 | Unassigned | Reconcile an invoice. |
 | ARCH-01 | API responses use multiple envelopes | P2 | open | 2026-08-18 | Unassigned | Address only with migration decision. |
 | ARCH-02 | Storage module contains dual provider branches | P2 | deferred | 2026-08-25 | Unassigned | Delete the S3 branch after COST-01 rather than abstracting it. |
@@ -115,8 +115,8 @@ current verification.
 | ARCH-05 | Generation failures return HTTP 200 | P2 | monitoring | 2026-08-27 | Codex | Production observed the versioned privacy-bounded `generation_failure` event for `video_status`/`omni_provider_status` with `persisted:true` while preserving HTTP 200. Alert configuration remains in the operator-attention queue. |
 | ARCH-06 | Zustand store is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-07 | Admin dashboard component is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
-| ARCH-08 | Mutable module state sits outside stores | P3 | open | 2026-08-18 | Unassigned | Inventory before changing semantics. |
-| DX-01 | Git history is bloated by research binaries | P2 | open | 2026-08-18 | Unassigned | Choose history rewrite or shallow-clone policy. |
+| ARCH-08 | Mutable module state sits outside stores | P3 | resolved | 2026-08-28 | Codex | Process-only poll IDs, timers/debounces, live-feed coordination, and request counters remain outside rendered Zustand state but now share `disposeStoreRuntime()` for logout, teardown, and isolated tests. The idempotent server reaper throttle has its own reset hook; ownership and durability boundaries are documented in `docs/runtime-coordination.md`. |
+| DX-01 | Git history is bloated by research binaries | P2 | resolved | 2026-08-28 | Codex | Adopted the approved non-destructive shallow-clone policy: both GitHub Actions checkout steps explicitly use `fetch-depth: 1`. Historical rewriting remains intentionally out of scope. |
 | DX-02 | ESLint configuration is missing | P2 | in_progress | 2026-08-27 | Codex | Local ESLint 9 flat config enables Next core-web-vitals, hook dependency, and zero-warning gates; CI runs lint before tests/build and the current tree passes. Exit: merge and confirm the protected CI run. |
 | DX-03 | No CI gate | P1 | resolved | 2026-08-27 | Codex | PR #11 and main run `33055388366` passed web and PostgreSQL-backed Django jobs without billed probes. |
 | DX-04 | Dead root `scratch.js` | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
@@ -130,11 +130,22 @@ current verification.
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | P2 | open | 2026-08-18 | Unassigned | Build fixtures before changing directives. |
 | QUAL-02 | Eval harness has no fixtures or CI gate | P2 | open | 2026-08-18 | Unassigned | Commit at least ten representative fixtures. |
 | QUAL-03 | Flagged-generation signal has no consumer | P3 | in_progress | 2026-08-28 | Codex | Admin generation logs now support a server-side `flagged=1` review queue, show reason/judge evidence, and include flag metadata in RFC 4180 CSV; the existing bounded fixture exporter remains available. Exit: deploy and review/export representative flagged rows. |
-| QUAL-04 | Depth progress uses coarse milestones | P3 | open | 2026-08-18 | Unassigned | Improve only alongside real worker verification. |
+| QUAL-04 | Depth progress uses coarse milestones | P3 | resolved | 2026-08-28 | Codex | Retained worker percentage, milestone count, and live timer; the card now labels the timer as elapsed (not remaining) and explains that depth estimation is normally the longest stage. No fabricated ETA was added because the vendored inference API exposes no per-frame callback. |
 | QUAL-05 | Canvas asset project does not own board context | P2 | resolved | 2026-08-27 | Codex | Re-audit found the fix already present in `0b2c02b`: Canvas has an explicit board-project selector, clears the old board before switching, fences stale list responses, and labels the independent control `Assets from:`. A source guard now pins those invariants. |
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | deferred | 2026-08-25 | Unassigned | Expose an explicit tradeoff or delete the flag. |
 
 ## Change log
+
+- 2026-08-28: completed the next safe audit batch. Provider image/video results
+  now persist measured model-supported aspect ratios with non-fatal inspection
+  fallback (`REL-08`); depth progress explicitly distinguishes elapsed time and
+  explains the long estimation stage (`QUAL-04`); and client/server process
+  coordination has deterministic disposal/reset boundaries (`ARCH-08`).
+  Read-only production evidence resolved Seedance 2.5 activation (`VER-11`),
+  the production tree contains no historical JSON snapshot directory
+  (`MIG-10`), and both CI jobs now use the approved shallow checkout policy
+  (`DX-01`). No billed probe, credential action, history rewrite, or local-file
+  cleanup was performed.
 
 - 2026-08-28: implemented the next multi-issue local batch: atomic Higgsfield
   refresh leases (`SEC-05`), explicit model/provider/capability/pricing metadata
