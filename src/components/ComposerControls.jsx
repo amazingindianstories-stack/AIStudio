@@ -28,6 +28,7 @@ import {
   VIDEO_TASK_MODES,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import { isProviderModel } from "@/lib/model-registry";
 
 /**
  * Reference-image strip + settings toolbar, extracted verbatim (behavior
@@ -137,7 +138,7 @@ export function ReferenceStrip({ onInsertTag }) {
         </Reorder.Group>
       )}
 
-      {s.mode === "video" && /higgsfield/i.test(s.model) && s.referenceImages.length > 1 && (
+      {s.mode === "video" && isProviderModel(s.model, "higgsfield") && s.referenceImages.length > 1 && (
         <div className="flex items-start gap-2 rounded-lg border border-brand/30 bg-brand/10 px-2.5 py-1.5 text-[11px] leading-snug text-brand/90">
           <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>

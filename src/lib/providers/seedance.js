@@ -3,6 +3,7 @@
 import { buildVideoDirective } from "../video-directive";
 import { parseRefRoles } from "../shot-spec";
 import { maxReferenceImagesForVideoModel } from "../config";
+import { isProviderModel, providerModelId } from "../model-registry";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
  *  hand-written directives on BOTH Seedance paths, without a deploy. The new
@@ -14,7 +15,7 @@ export function legacyDirective() {
 
 /** The previous directive, kept verbatim for that revert path only. Note the
  *  photoreal-only assumptions ("skin tone and texture", "never beautified")
- *  and the unconditional focus directive — the three faults video-directive.ts
+ *  and the unconditional focus directive — the three faults video-directive.js
  *  documents and fixes. */
 function legacyHeroDirective(refCount) {
   if (!refCount) return "";
@@ -70,24 +71,18 @@ function arkKey() {
   return key;
 }
 
-const STANDARD_MODEL =
-  process.env.SEEDANCE_MODEL || "dreamina-seedance-2-0-260128";
-const FAST_MODEL =
-  process.env.SEEDANCE_MODEL_FAST || "dreamina-seedance-2-0-fast-260128";
-const MODEL_25 =
-  process.env.SEEDANCE_MODEL_25 || "dreamina-seedance-2-5-260628";
-
 function pickModel(modelDisplay) {
-  // Checked before mini/fast/lite: "Seedance 2.5" doesn't contain any of
-  // those words today, but a hypothetical "Seedance 2.5 Mini" shouldn't fall
-  // through to the 2.0 fast SKU if one ever ships.
-  if (modelDisplay && /2\.5/.test(modelDisplay)) return MODEL_25;
-  if (modelDisplay && /\b(mini|fast|lite)\b/i.test(modelDisplay)) return FAST_MODEL;
-  return STANDARD_MODEL;
+  const resolvedDisplay = modelDisplay || "Seedance 2.0";
+  if (!isProviderModel(resolvedDisplay, "byteplus")) {
+    throw new Error(`Unknown BytePlus model: ${modelDisplay || "(missing)"}`);
+  }
+  const id = providerModelId(resolvedDisplay);
+  if (!id) throw new Error(`Unknown BytePlus model: ${modelDisplay || "(missing)"}`);
+  return id;
 }
 
 /** Per-reference role hint for buildVideoDirective's legend (2026-08-17,
- *  video-directive.ts "PER-REFERENCE ROLE LEGEND"). `refs` is whatever was
+ *  video-directive.js "PER-REFERENCE ROLE LEGEND"). `refs` is whatever was
  *  actually resolved onto this request (resolveReferences' tagged subset, or
  *  everything when the prompt tags nothing) — each entry already carries its
  *  own `@imgN` tag and 1-based original `index`, so this only has to look up
@@ -161,9 +156,9 @@ function friendlyError(status, body) {
  * Minimal task-type trigger sentences for Seedance 2.5's Edit/Extend modes
  * (see the file header — BytePlus classifies by content role + these exact
  * kinds of phrases, not a request field). Deliberately NOT run through
- * video-directive.ts: that module's identity-lock/style-follow scaffolding is
+ * video-directive.js: that module's identity-lock/style-follow scaffolding is
  * built for GENERATING a new video from a reference, and this codebase
- * already learned once (video-directive.ts's own header) that stacking
+ * already learned once (video-directive.js's own header) that stacking
  * unrelated directives contradicts rather than adds — feeding "keep the
  * subject in sharp foreground focus" etc. at an Edit task would compete with
  * the user's actual edit instructions for no benefit. The user's raw prompt
@@ -189,7 +184,7 @@ export async function createVideoTask(
   const refRole = process.env.SEEDANCE_IMAGE_ROLE || "reference_image";
   const taskMode = input.taskMode ?? "generate";
 
-  // Identity/style scaffolding now lives in lib/video-directive.ts, shared with
+  // Identity/style scaffolding now lives in lib/video-directive.js, shared with
   // the Higgsfield path so the two cannot drift apart again. It also assembles
   // the whole text (scaffolding, prompt verbatim, then the precedence rule),
   // because the closing rule has to land AFTER the prompt — which the old
@@ -343,7 +338,7 @@ export async function getVideoTask(
       : undefined;
 
   // Seedance 2.5 only (2.0's response has no `usage` object) — see the file
-  // header and pricing.ts computeSeedanceTokenCostCents.
+  // header and pricing.js computeSeedanceTokenCostCents.
   const totalTokensRaw = json?.usage?.total_tokens;
   const totalTokens =
     typeof totalTokensRaw === "number" && Number.isFinite(totalTokensRaw)

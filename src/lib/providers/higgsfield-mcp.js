@@ -14,12 +14,18 @@
  * with a medias[] array → job_status poll → results.rawUrl.
  */
 import { promises as fs } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { readStoredBuffer, writePrivateBuffer } from "@/lib/storage";
 import { buildVideoDirective } from "@/lib/video-directive";
 import { legacyDirective } from "@/lib/providers/seedance";
 import { parseRefRoles } from "@/lib/shot-spec";
 import { abortableDelay } from "@/lib/queue-execution-deadline";
+import {
+  claimDistributedLease,
+  releaseDistributedLease,
+} from "@/lib/distributed-lease";
+import { isProviderModel, providerModelId } from "@/lib/model-registry";
 
 const MCP_URL = "https://mcp.higgsfield.ai/mcp";
 const TOKEN_URL = "https://mcp.higgsfield.ai/oauth2/token";
@@ -28,22 +34,22 @@ const TOKEN_FILE = path.join(process.cwd(), ".higgsfield-mcp-token.json");
 const TOKEN_OBJECT_KEY = "settings/higgsfield-mcp-token.json";
 
 // ── model id mapping (UI name → MCP model id) ───────────────────────────────
-const MODEL_IDS = {
-  "Higgsfield Soul": "soul_2",
-  "Higgsfield Nano Banana Pro": "nano_banana_pro",
-  "Higgsfield Seedance 2.0": "seedance_2_0",
-  "Higgsfield Seedance 2.0 Mini": "seedance_2_0_mini",
-};
 export function mcpModelId(displayName) {
-  return MODEL_IDS[displayName];
+  return isProviderModel(displayName, "higgsfield")
+    ? providerModelId(displayName)
+    : undefined;
 }
 export function isHiggsfieldModel(name) {
-  return /higgsfield/i.test(name || "");
+  return isProviderModel(name, "higgsfield");
 }
 
 // ── token management ────────────────────────────────────────────────────────
 
 let token = null;
+let refreshPromise = null;
+const REFRESH_LEASE_KEY = "lease:higgsfield-oauth-refresh";
+const REFRESH_LEASE_MS = 30_000;
+const REFRESH_WAIT_MS = 35_000;
 
 async function readStoredToken() {
   try {
@@ -111,7 +117,7 @@ export function isFresh(t) {
   );
 }
 
-async function refreshToken() {
+async function refreshTokenUnderLease() {
   const t = await loadToken();
   let j = await refreshOnce(t.refresh_token, t.client_id);
   if (!j.access_token) {
@@ -163,6 +169,53 @@ async function refreshToken() {
     /* ignore */
   }
   session = null; // force MCP re-init under the new token
+}
+
+async function coordinateTokenRefresh() {
+  const owner = randomUUID();
+  const deadline = Date.now() + REFRESH_WAIT_MS;
+  const starting = await loadToken();
+  while (Date.now() < deadline) {
+    const claimed = await claimDistributedLease(REFRESH_LEASE_KEY, owner, {
+      ttlMs: REFRESH_LEASE_MS,
+    });
+    if (claimed) {
+      try {
+        // A previous owner may have finished immediately before our claim.
+        // Re-read centralized state and avoid rotating an already-fresh token.
+        const stored = await readStoredToken();
+        if (stored && isFresh(stored)) {
+          token = stored;
+          session = null;
+          return;
+        }
+        await refreshTokenUnderLease();
+        return;
+      } finally {
+        await releaseDistributedLease(REFRESH_LEASE_KEY, owner).catch(() => {});
+      }
+    }
+
+    await abortableDelay(250);
+    const stored = await readStoredToken();
+    if (
+      stored &&
+      isFresh(stored) &&
+      (stored.refresh_token !== starting.refresh_token || stored.obtained_at !== starting.obtained_at)
+    ) {
+      token = stored;
+      session = null;
+      return;
+    }
+  }
+  throw new Error("Timed out waiting for the coordinated Higgsfield token refresh.");
+}
+
+async function refreshToken() {
+  refreshPromise ??= coordinateTokenRefresh().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
 }
 
 async function accessToken() {
@@ -361,9 +414,9 @@ function toHiggsfieldTags(prompt) {
 }
 
 /** Per-reference role hint for buildVideoDirective's legend (2026-08-17,
- *  video-directive.ts "PER-REFERENCE ROLE LEGEND"). Unlike Seedance native,
+ *  video-directive.js "PER-REFERENCE ROLE LEGEND"). Unlike Seedance native,
  *  this path always attaches EVERY entry of `base.referenceImages` in order
- *  (see queue/execute/route.ts — no tag-based filtering happens before
+ *  (see queue/execute/route.js — no tag-based filtering happens before
  *  mcpGenerateVideo), so @imgN reliably maps to mediaIds[N-1] and the only
  *  thing to guard is an out-of-range tag (e.g. @img9 with 3 uploads), which
  *  parseRefRoles can't itself know about. No vision call: same free keyword
@@ -433,7 +486,7 @@ export async function mcpGenerateVideo(input) {
   };
   if (input.prompt) {
     // Native <<<image_N>>> tag binding. The identity/style/precedence contract
-    // is shared with the native BytePlus path via lib/video-directive.ts — the
+    // is shared with the native BytePlus path via lib/video-directive.js — the
     // two used to carry separate hand-written copies that had already drifted.
     const prompt = toHiggsfieldTags(input.prompt);
     params.prompt = legacyDirective()

@@ -16,7 +16,7 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "test": "node scripts/run-unit-tests.mjs",
-    "test:db": "tsx --tsconfig jsconfig.json --test src/lib/cost-basis-db.integration.js src/lib/feed-scope-db.integration.js src/lib/generation-health-db.integration.js src/lib/login-throttle-db.integration.js src/lib/stuck-omni-db.integration.js",
+    "test:db": "tsx --tsconfig jsconfig.json --test src/lib/cost-basis-db.integration.js src/lib/distributed-lease-db.integration.js src/lib/feed-scope-db.integration.js src/lib/generation-health-db.integration.js src/lib/login-throttle-db.integration.js src/lib/stuck-omni-db.integration.js",
     "db:push": "drizzle-kit push",
     "db:migrate:cost-basis": "tsx scripts/migrate-cost-basis.js",
     "db:seed": "tsx scripts/seed.js",

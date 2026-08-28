@@ -34,6 +34,7 @@ import { readAssets } from "@/lib/assets-db";
 import { getSession } from "@/lib/auth";
 import { readPricing } from "@/lib/pricing-db";
 import { computeCostCents, klingUnitsToCents } from "@/lib/pricing";
+import { getModelDefinition } from "@/lib/model-registry";
 import { boundedBestOf, generateAndSpoolCandidates, readSpooledBase64 } from "@/lib/best-of-spool";
 import { submitVideoCandidates } from "@/lib/video-submissions";
 import {
@@ -66,7 +67,7 @@ export const runtime = "nodejs";
 // kills the invocation at the cap, the catch block below never runs and the row
 // is left stranded in "running" until reapStaleRunningImages picks it up.
 //
-// Keep in sync with STALE_RUNNING_MS in src/lib/store-db.ts, which MUST stay
+// Keep in sync with STALE_RUNNING_MS in src/lib/store-db.js, which MUST stay
 // comfortably above this value or the reaper will fail jobs that are still
 // legitimately running. (Next requires a statically analysable literal here, so
 // the two constants can't share an import.)
@@ -80,7 +81,7 @@ function resolutionToImageSize(res) {
 
 // SUPERSAMPLE=1: render one step up (1K→2K, 2K→4K; 4K has no step up). Each
 // NBP size step measured as an exact 2× linear scale at a fixed aspect ratio
-// (21:9/2K = 3168×1344, 21:9/4K = 6336×2688 — see gemini.ts header), so the
+// (21:9/2K = 3168×1344, 21:9/4K = 6336×2688 — see gemini.js header), so the
 // delivered image is downsampled to exactly half the rendered pixel
 // dimensions to land back on the originally requested size.
 const NEXT_IMAGE_SIZE = {
@@ -195,7 +196,7 @@ async function submitVideo(base, signal) {
   if (isOmniModel(model)) {
     // Same context-engineering path Nano Banana Pro uses for images — role-
     // labeled reference groups + identity tiles + shot-spec framing/negative
-    // codas — instead of a flat hand-rolled prompt (see omni-input.ts).
+    // codas — instead of a flat hand-rolled prompt (see omni-input.js).
     const assembled = await assemblePrompt(prompt, await readAssets(), base.referenceImages ?? [], {
       aspectRatio,
       medium: "video",
@@ -487,7 +488,7 @@ export async function POST(req) {
       // or Nano Banana Pro (all refs, `resolution` 1k/2k/4k). Upload refs,
       // submit, then poll the job to completion.
       const assembled = await assemblePrompt(prompt, await readAssets(), referenceImages ?? []);
-      const isNanoBanana = /nano banana/i.test(model);
+      const isNanoBanana = getModelDefinition(model)?.higgsfieldTool === "nano-banana";
       const refs = isNanoBanana
         ? referenceImages ?? []
         : (referenceImages ?? []).slice(0, 1);
@@ -521,7 +522,7 @@ export async function POST(req) {
       url = await saveFromUrl(done.url, "png", id, signal);
     } else if (isKlingModel(model)) {
       // Kling takes ONE reference image and ONE prompt string on this endpoint
-      // (see providers/kling.ts). buildKlingInput adapts the assembled payload
+      // (see providers/kling.js). buildKlingInput adapts the assembled payload
       // to that shape: it counts references from the resolved GROUPS — so a
       // saved @slug asset actually reaches Kling instead of being dropped the
       // way iterating the raw uploads did — and rewrites the @tags that Kling
@@ -572,7 +573,7 @@ export async function POST(req) {
       }
       const bytes = Buffer.from(await fetched.arrayBuffer());
       // Kling IGNORES aspect_ratio in image-to-image and follows the reference
-      // instead (probe-measured — see providers/kling.ts). It also rounds
+      // instead (probe-measured — see providers/kling.js). It also rounds
       // text-to-image output to convenient pixel multiples. Storing the
       // requested ratio would mislabel the card AND give it the wrong shape in
       // the library's masonry, which lays out from this field. So record what
@@ -634,7 +635,7 @@ export async function POST(req) {
       if (bestOf > 1) {
         // Per-candidate seed offset, not the same seed repeated N times — an
         // identical seed across parallel candidates would (to the extent NBP's
-        // seed determinism holds at all — see gemini.ts's own doc comment on
+        // seed determinism holds at all — see gemini.js's own doc comment on
         // the field) collapse best-of-N's diversity to a single image N times
         // over, defeating the whole point of the judge picking among distinct
         // renders. Offsetting by candidate index keeps every candidate

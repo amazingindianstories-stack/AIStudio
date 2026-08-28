@@ -11,7 +11,7 @@
  * changes future generations only — historical attribution is never rewritten
  * underneath the admin dashboard's totals.
  */
- 
+import { getModelDefinition } from "./model-registry";
 
 export const DEFAULT_PRICING = [
   {
@@ -181,13 +181,11 @@ const RESOLUTION_FACTOR = {
  *
  * Kling publishes one price covering both 1K and 2K, so applying
  * RESOLUTION_FACTOR to them would invent a 50% premium that Kling never
- * charges. Matched by prefix because it is a property of the vendor's price
- * list, not of any one model id.
+ * charges. Declared per model in the registry so future models do not inherit
+ * a billing rule from a similar-looking display name.
  */
-const IMAGE_RESOLUTION_FLAT = [/^kling /i];
-
 function imagePriceScalesWithResolution(model) {
-  return !IMAGE_RESOLUTION_FLAT.some((re) => re.test(model.trim()));
+  return getModelDefinition(model)?.capabilities?.imagePriceScalesWithResolution !== false;
 }
 
 /**
@@ -224,7 +222,10 @@ export function klingUnitsToCents(units) {
  *  than a constant, for the same admin-editable reason as every other rate
  *  here. */
 function seedanceTokenRowModel(model, hadVideoInput) {
-  return `${model} · per-token${hadVideoInput ? " (video input)" : ""}`;
+  const definition = getModelDefinition(model);
+  return hadVideoInput
+    ? definition?.videoInputTokenPricingKey ?? `${model} · per-token (video input)`
+    : definition?.tokenPricingKey ?? `${model} · per-token`;
 }
 
 /**
@@ -257,7 +258,7 @@ export function computeSeedanceTokenCostCents(
  * price list gives image-to-image as a total per image, not a surcharge.
  */
 export function imageToImageRowModel(model) {
-  return `${model} · image-to-image`;
+  return getModelDefinition(model)?.imageToImagePricingKey ?? `${model} · image-to-image`;
 }
 
 /** Compute the cost in cents for a generation from the pricing rows. */
@@ -287,14 +288,15 @@ export const VIDEO_RESOLUTION_FACTOR = {
  *  A row rather than a column so it is admin-editable through the existing
  *  Pricing tab with no schema change. */
 export function audioRowModel(model) {
-  return `${model} · audio`;
+  return getModelDefinition(model)?.audioPricingKey ?? `${model} · audio`;
 }
 
 export function computeCostCents(
   input,
   pricing
 ) {
-  const row = pricing.find((p) => p.model === input.model);
+  const pricingKey = getModelDefinition(input.model)?.pricingKey ?? input.model;
+  const row = pricing.find((p) => p.model === pricingKey);
   if (!row) return 0;
   if (row.unit === "per_second") {
     const seconds = input.duration ?? 0;

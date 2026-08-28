@@ -65,7 +65,7 @@ export async function POST(req) {
     ? body.videoTaskMode
     : "generate";
   // Edit forces duration to "match the source" at the provider layer
-  // regardless of what's requested (providers/seedance.ts), so defaulting a
+  // regardless of what's requested (providers/seedance.js), so defaulting a
   // missing value to 5 here — right, for every other mode — would store a
   // number that was never actually asked for. undefined stays undefined.
   const duration =
@@ -124,11 +124,12 @@ export async function POST(req) {
       { status: 400 }
     );
   }
-  // Seedance 2.0 Mini has no 1080p/4k SKU (per its MCP schema) — reject
-  // loudly rather than letting the provider silently downgrade.
-  if (/seedance.*mini/i.test(model) && !["480p", "720p"].includes(resolution || "")) {
+  // Reject unsupported resolutions from explicit model capabilities rather
+  // than inferring them from a display-name substring.
+  const supportedResolutions = resolutionsForModel(model, "video");
+  if (supportedResolutions?.length && !supportedResolutions.includes(resolution || "")) {
     return NextResponse.json(
-      { error: `Seedance 2.0 Mini supports 480p/720p only (got ${resolution}).` },
+      { error: `${model} supports ${supportedResolutions.join("/")} only (got ${resolution}).` },
       { status: 400 }
     );
   }
@@ -172,7 +173,7 @@ export async function POST(req) {
       );
     }
   }
-  // Omni's request contract is probe-measured (see providers/omni.ts header):
+  // Omni's request contract is probe-measured (see providers/omni.js header):
   // 16:9/9:16 only, no controllable resolution, and duration IS a real
   // enforced request field (response_format.duration) — reject anything
   // outside the offered set up front instead of letting the provider layer

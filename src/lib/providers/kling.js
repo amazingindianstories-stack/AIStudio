@@ -1,5 +1,6 @@
 import sharp from "sharp";
 import { abortableDelay } from "../queue-execution-deadline";
+import { isProviderModel, modelsForProvider } from "../model-registry";
 
 /**
  * Kling image generation (Kuaishou / KlingAI Open Platform).
@@ -7,7 +8,7 @@ import { abortableDelay } from "../queue-execution-deadline";
  * Contract below was read from the official docs on 2026-07-30 and the auth
  * scheme verified live against the account key. The docs are a JS-rendered SPA
  * that returns HTTP 446 to plain fetchers, so re-reading them needs a real
- * browser — `scripts/probe-kling-image.ts` is the cheaper way to re-verify.
+ * browser — `scripts/probe-kling-image.js` is the cheaper way to re-verify.
  *
  * AUTH — a single API Key sent as `Authorization: Bearer <key>`.
  *   Kling's older docs (and most third-party write-ups) describe an
@@ -31,7 +32,7 @@ import { abortableDelay } from "../queue-execution-deadline";
  *   refers to that endpoint, not this one; the same map's "Multi-image to Image"
  *   row is "—" for kling-v3, which is what actually governs.
  *   So: >1 resolved reference is a loud error, never a silent drop of the extras
- *   (see the image-cap precedent in gemini.ts).
+ *   (see the image-cap precedent in gemini.js).
  *
  * PER-MODEL CAPABILITIES (Image Capability Map, re-read live 2026-08-17):
  *   kling-v3   (Kling Image 3.0) — text→image, image→image, 1K/2K, 8 ratios
@@ -140,26 +141,16 @@ const REF_MAX_ASPECT = 2.5;
  * The two models exposed in the UI. Keyed by display name because that is what
  * `GenerationItem.model` carries and what the pricing table is keyed on.
  */
-export const KLING_MODELS = [
-  {
-    modelName: "kling-v3",
-    display: "Kling Image 3.0",
-    resolutions: ["1K", "2K"],
-    aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9"],
-  },
-  {
-    modelName: "kling-v2-1",
-    display: "Kling Image 2.1",
-    resolutions: ["1K", "2K"],
-    // …but 2K only WITHOUT a reference image. See the RESOLUTION note in the
-    // header; this is measured from our own history, not assumed.
-    twoKNeedsNoReference: true,
-    aspectRatios: ["16:9", "9:16", "1:1", "4:3", "3:4", "3:2", "2:3", "21:9"],
-  },
-];
+export const KLING_MODELS = modelsForProvider("kling").map((model) => ({
+  modelName: model.providerModelId,
+  display: model.name,
+  resolutions: model.capabilities.resolutions,
+  twoKNeedsNoReference: !model.capabilities.referenceResolutions.includes("2K"),
+  aspectRatios: model.capabilities.aspectRatios,
+}));
 
 export function isKlingModel(model) {
-  return /^kling\b/i.test(model.trim());
+  return isProviderModel(model, "kling");
 }
 
 export function klingSpec(model) {
