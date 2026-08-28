@@ -40,3 +40,41 @@ test("PostgreSQL admin totals preserve explicit estimated and reconciled cost", 
     await Promise.all(rows.map((row) => deleteItem(row.id)));
   }
 });
+
+test("PostgreSQL admin flagged review filter returns reason and judge evidence", async () => {
+  assert.ok(process.env.DATABASE_URL, "test:db requires a disposable PostgreSQL database");
+  const model = `flagged-review-${randomUUID()}`;
+  const now = Date.now();
+  const rows = [
+    {
+      id: randomUUID(),
+      flagged: true,
+      flaggedAt: now,
+      flagReason: "identity drift",
+      judgeScore: { identity: 42 },
+    },
+    { id: randomUUID(), flagged: false },
+  ].map((row, index) => ({
+    kind: "image",
+    status: "succeeded",
+    prompt: "flagged review integration fixture",
+    model,
+    aspectRatio: "1:1",
+    isFavorite: false,
+    costCents: 1,
+    createdAt: now + index,
+    updatedAt: now + index,
+    ...row,
+  }));
+
+  try {
+    for (const row of rows) await upsertItem(row);
+    const result = await queryAdminLogs({ model, flagged: true }, undefined, 10);
+    assert.equal(result.total, 1);
+    assert.equal(result.rows[0].id, rows[0].id);
+    assert.equal(result.rows[0].flagReason, "identity drift");
+    assert.deepEqual(result.rows[0].judgeScore, { identity: 42 });
+  } finally {
+    await Promise.all(rows.map((row) => deleteItem(row.id)));
+  }
+});

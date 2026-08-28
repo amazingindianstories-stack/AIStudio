@@ -44,6 +44,7 @@ import {
   runAllChecks,
   checkSeedance,
   checkOmni,
+  checkFfmpeg,
   CHECKS,
 
 } from "./status-checks";
@@ -415,6 +416,12 @@ test("checkOmni: OMNI_USE_VERTEX unset, GOOGLE_API_KEY set/unset -> ok/unknown",
   }
 });
 
+test("bundled ffmpeg runtime is executable", async () => {
+  const result = await checkFfmpeg(new AbortController().signal);
+  assert.equal(result.status, "ok");
+  assert.match(result.detail, /^ffmpeg version/i);
+});
+
 test("CHECKS registry: the header comments' check count stays honest", () => {
   // Regression test: a doc comment above CHECKS once said "the six checks"
   // while the array actually held 8 — caught in a later audit, not by any
@@ -422,12 +429,13 @@ test("CHECKS registry: the header comments' check count stays honest", () => {
   // fails this test instead of silently drifting the comment out of date
   // again. If this fails because you intentionally changed CHECKS, update
   // both the array and the two doc comments in status-checks.js together.
-  assert.equal(CHECKS.length, 10);
+  assert.equal(CHECKS.length, 11);
   assert.deepEqual(
     CHECKS.map((c) => c.id),
     [
       "gemini", "higgsfield", "seedance", "kling", "omni", "postgres",
-      "generation-indexes", "stuck-generations", "storage", "media-delivery",
+      "generation-indexes", "stuck-generations", "storage", "ffmpeg-runtime",
+      "media-delivery",
     ]
   );
 });

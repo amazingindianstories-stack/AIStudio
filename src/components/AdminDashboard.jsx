@@ -1195,6 +1195,7 @@ function LogsTab({
   const [kind, setKind] = useState("");
   const [model, setModel] = useState("");
   const [status, setStatus] = useState("");
+  const [flagged, setFlagged] = useState(false);
   const [q, setQ] = useState("");
 
   const [rows, setRows] = useState([]);
@@ -1216,9 +1217,10 @@ function LogsTab({
     if (kind) p.set("kind", kind);
     if (model) p.set("model", model);
     if (status) p.set("status", status);
+    if (flagged) p.set("flagged", "1");
     if (q.trim()) p.set("q", q.trim());
     return p.toString();
-  }, [user, kind, model, status, q]);
+  }, [user, kind, model, status, flagged, q]);
 
   // Filtering happens in Postgres, so a filter change is a refetch. Search is
   // debounced; the others fire immediately since they come from a select.
@@ -1312,6 +1314,22 @@ function LogsTab({
           <option value="queued">queued</option>
           <option value="failed">failed</option>
         </select>
+        <label
+          className={cn(
+            "flex cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-1.5 text-sm",
+            flagged
+              ? "border-amber-400/35 bg-amber-400/10 text-amber-200"
+              : "border-line bg-ink-700 text-white/65"
+          )}
+        >
+          <input
+            type="checkbox"
+            checked={flagged}
+            onChange={(e) => setFlagged(e.target.checked)}
+            className="accent-amber-400"
+          />
+          Flagged only
+        </label>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
@@ -1351,6 +1369,7 @@ function LogsTab({
               <th className="px-3 py-2">Type</th>
               <th className="px-3 py-2">Model</th>
               <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Review</th>
               <th className="px-3 py-2">Cost</th>
               <th className="px-3 py-2">Prompt</th>
             </tr>
@@ -1367,6 +1386,27 @@ function LogsTab({
                 <td className="px-3 py-2">{g.kind}</td>
                 <td className="px-3 py-2 text-xs">{g.model}</td>
                 <td className="px-3 py-2 text-xs">{g.status}</td>
+                <td className="px-3 py-2 text-xs">
+                  {g.flagged ? (
+                    <div className="max-w-[180px] space-y-1">
+                      <span className="inline-flex rounded bg-amber-400/12 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-amber-200">
+                        Flagged
+                      </span>
+                      {g.flagReason && (
+                        <p className="truncate text-[11px] text-white/55" title={g.flagReason}>
+                          {g.flagReason}
+                        </p>
+                      )}
+                      {g.judgeScore && (
+                        <p className="text-[10px] text-white/40" title={JSON.stringify(g.judgeScore)}>
+                          Judge evidence saved
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-white/25">—</span>
+                  )}
+                </td>
                 <td className="px-3 py-2 tabular-nums">
                   <span>{g.costBasis === "estimated" ? "≈" : ""}{formatCost(g.costCents)}</span>
                   <span
@@ -1398,7 +1438,7 @@ function LogsTab({
             ))}
             {!loading && rows.length === 0 && (
               <tr className="border-t border-line">
-                <td colSpan={7} className="px-3 py-8 text-center text-xs text-white/40">
+                <td colSpan={8} className="px-3 py-8 text-center text-xs text-white/40">
                   No generations match these filters.
                 </td>
               </tr>

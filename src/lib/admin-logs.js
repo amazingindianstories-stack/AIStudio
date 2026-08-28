@@ -60,6 +60,8 @@ export function parseAdminLogFilter(params) {
   const status = params.get("status");
   if (status && STATUSES.has(status)) filter.status = status;
 
+  if (params.get("flagged") === "1") filter.flagged = true;
+
   const q = params.get("q")?.trim();
   if (q) filter.q = q.slice(0, MAX_LOG_QUERY_LENGTH);
 
@@ -75,6 +77,7 @@ export function adminLogFilterToParams(filter) {
   if (filter.kind) params.set("kind", filter.kind);
   if (filter.model) params.set("model", filter.model);
   if (filter.status) params.set("status", filter.status);
+  if (filter.flagged) params.set("flagged", "1");
   if (filter.q) params.set("q", filter.q);
   return params;
 }
@@ -85,6 +88,7 @@ function conditions(filter) {
   if (filter.kind) conds.push(eq(generations.kind, filter.kind));
   if (filter.model) conds.push(eq(generations.model, filter.model));
   if (filter.status) conds.push(eq(generations.status, filter.status));
+  if (filter.flagged) conds.push(eq(generations.flagged, true));
   const q = filter.q?.trim();
   if (q) conds.push(sql`${generations.prompt} ilike ${likePattern(q)}`);
   return conds;
@@ -102,6 +106,10 @@ const previewColumns = {
   userId: generations.userId,
   prompt: sql`left(${generations.prompt}, ${PROMPT_PREVIEW_CHARS})`,
   promptTruncated: sql`length(${generations.prompt}) > ${PROMPT_PREVIEW_CHARS}`,
+  flagged: generations.flagged,
+  flaggedAt: generations.flaggedAt,
+  flagReason: generations.flagReason,
+  judgeScore: generations.judgeScore,
   createdAt: generations.createdAt,
 };
 
@@ -163,6 +171,10 @@ export async function queryAdminLogs(
       userId: r.userId ?? null,
       prompt: r.prompt,
       promptTruncated: r.promptTruncated,
+      flagged: r.flagged,
+      flaggedAt: r.flaggedAt ?? null,
+      flagReason: r.flagReason ?? null,
+      judgeScore: r.judgeScore ?? null,
       createdAt: r.createdAt,
     })),
     total: totals?.count ?? 0,
@@ -190,6 +202,10 @@ export async function readAdminLogsForExport(
       costBasis: generations.costBasis,
       userId: generations.userId,
       prompt: generations.prompt,
+      flagged: generations.flagged,
+      flaggedAt: generations.flaggedAt,
+      flagReason: generations.flagReason,
+      judgeScore: generations.judgeScore,
       createdAt: generations.createdAt,
     })
     .from(generations)

@@ -11,7 +11,7 @@ function, and nothing bounded it. `GCP_MEDIA_CDN_URL` is not set in production
 been run, so the 307-redirect shortcut was dead code; signing was believed
 impossible under WIF, so there was no other way out. The route had no
 `maxDuration` (inheriting 300), no client-abort propagation, and no upstream
-timeout. A `<video>` — `MediaCard.tsx` renders one per card, `DetailModal` one
+timeout. A `<video>` — `MediaCard.jsx` renders one per card, `DetailModal` one
 with `autoPlay loop` — opens the connection, reads the moov atom and abandons
 the rest; nothing tore the GCS read down, so each orphan held an invocation for
 the full five minutes. A video-heavy view produces a burst of exactly the shape
@@ -31,15 +31,15 @@ the pool principal's binding does not cover).
 - `/api/media/[...path]` now redirects to a CDN or signed URL and only proxies as
   a fallback; `maxDuration = 120`; `request.signal` reaches the read stream and
   the sharp pipeline; disconnects return 499.
-- `storage.ts` — `signReadUrl` (pinned `accessibleAt` so signatures are stable
+- `storage.js` — `signReadUrl` (pinned `accessibleAt` so signatures are stable
   and browser-cacheable), `browserMediaUrl` (bucketed + memoised),
   `objectExists` (bounded positive cache), `mediaDeliveryMode`, `listMediaKeys`,
   `withOpenTimeout` (`MEDIA_OPEN_TIMEOUT_MS`, default 15s), `isProtectedMediaKey`.
-- `src/lib/media-derivatives.ts` + tests — write-time thumbnail ladder (512/1280);
+- `src/lib/media-derivatives.js` + tests — write-time thumbnail ladder (512/1280);
   `uploadBuffer` renders it, the route maps `?w=` onto it and self-heals misses.
 - Admin → Status → **Media Delivery** reports cdn/signed/proxy. The route's
   fallback is silent by design, so this row is the only way to see which is live.
-- `scripts/backfill-thumbnails.ts` (`npm run media:thumbs [-- --apply]`).
+- `scripts/backfill-thumbnails.js` (`npm run media:thumbs [-- --apply]`).
 - **`?inline=1` + `inlineMediaUrl`** — redirecting makes media cross-origin,
   which silently breaks three same-origin assumptions that were easy to miss
   and would each have shipped as a separate bug report: `fetch(...).blob()`
@@ -108,9 +108,9 @@ the signed URLs shipped here expire (`MEDIA_SIGNED_URL_BUCKET_HOURS`, default 6)
 **Shipped via `/council` (two full pipelines, both complete)**:
 1. **Admin API status page** — see new "Admin API status page" section above. `.council/admin-status-page/`.
 2. **Canvas Board v2** (project asset picker, keyboard shortcuts, mouse interactions, connector endpoint editing) — see the "v2 additions" note in the Canvas Board section above. `.council/canvas-board-v2/`.
-3. **Small follow-up (triaged, no full pipeline — additive on already-reviewed v2 infra)**: extended the v2 binary This-project/All-projects asset toggle into a picker over every real project. `src/components/canvas/CanvasAssetPanel.tsx`, commit `a010c1f`.
+3. **Small follow-up (triaged, no full pipeline — additive on already-reviewed v2 infra)**: extended the v2 binary This-project/All-projects asset toggle into a picker over every real project. `src/components/canvas/CanvasAssetPanel.jsx`, commit `a010c1f`.
 
-**Bundled in the same push, not originally part of either council session**: Codex's GCP Cloud SQL / GCS migration scaffolding (`DATABASE_BACKEND`/`MEDIA_BACKEND` switches, `src/lib/gcp-auth.ts`, `getDb()`/`checkStorageConnectivity()`) — left uncommitted in the working tree by Codex with a handoff note in this file (now superseded, see the 2026-07-14 entry below) asking to combine into one reviewed push. Confirmed with the user this was their own legitimately-commissioned work before bundling. Both council features were rewritten during review to consume the new `getDb()`/`checkStorageConnectivity()` abstractions instead of a plain `db` client / raw S3Client, since those are now the correct long-term backend-agnostic pattern.
+**Bundled in the same push, not originally part of either council session**: Codex's GCP Cloud SQL / GCS migration scaffolding (`DATABASE_BACKEND`/`MEDIA_BACKEND` switches, `src/lib/gcp-auth.js`, `getDb()`/`checkStorageConnectivity()`) — left uncommitted in the working tree by Codex with a handoff note in this file (now superseded, see the 2026-07-14 entry below) asking to combine into one reviewed push. Confirmed with the user this was their own legitimately-commissioned work before bundling. Both council features were rewritten during review to consume the new `getDb()`/`checkStorageConnectivity()` abstractions instead of a plain `db` client / raw S3Client, since those are now the correct long-term backend-agnostic pattern.
 
 **Security work done before push** (see 2026-07-15 entry below for the CRITICAL fix; also fixed as part of this same review pass):
 - `infra/gcp/bootstrap-media-cdn.sh` bucket IAM grant scoped with a CEL condition excluding `settings/`/`migrations/` prefixes — defense-in-depth alongside the route-level fix, so a future CDN rollout can't bypass the auth check by serving straight from GCS.
@@ -124,8 +124,8 @@ the signed URLs shipped here expire (`MEDIA_SIGNED_URL_BUCKET_HOURS`, default 6)
 ## 2026-07-15 - CRITICAL security fix: /api/media had no real auth check (fixed)
 
 Security review of the GCP migration surfaced a pre-existing production
-vulnerability, independent of the migration itself: `src/app/api/media/[...path]/route.ts`
-never called `getSession()` — the only gate was `middleware.ts`'s cheap
+vulnerability, independent of the migration itself: `src/app/api/media/[...path]/route.js`
+never called `getSession()` — the only gate was `middleware.js`'s cheap
 cookie-*presence* check (by design just a UX redirect, not real
 enforcement; see that file's own docstring), so any request with a
 non-empty but invalid `veevee_session` cookie could read **any** object in
@@ -135,7 +135,7 @@ Postgres `pg_dump` snapshots the migration script writes to `migrations/*`
 in the same bucket.
 
 Fixed:
-- `src/app/api/media/[...path]/route.ts` now calls `getSession()` and
+- `src/app/api/media/[...path]/route.js` now calls `getSession()` and
   401s if absent, matching every other authenticated route in this app.
 - Added a `settings/`/`migrations/` key-prefix denylist in the same route
   (defense-in-depth: even a signed-in ordinary user shouldn't be able to
@@ -159,10 +159,10 @@ finish and review your paused Figma/canvas work, then include these GCP changes
 in the same reviewed push.
 
 Main code changes:
-- GCS is primary storage in `src/lib/storage.ts`; S3 is temporary read fallback.
+- GCS is primary storage in `src/lib/storage.js`; S3 is temporary read fallback.
 - `/api/media/*` supports GCS ranges and redirects to `GCP_MEDIA_CDN_URL`.
-- `src/lib/gcp-auth.ts` uses Vercel OIDC/WIF without service-account keys.
-- `src/lib/db.ts` uses the Cloud SQL Node connector + IAM auth, with Railway
+- `src/lib/gcp-auth.js` uses Vercel OIDC/WIF without service-account keys.
+- `src/lib/db.js` uses the Cloud SQL Node connector + IAM auth, with Railway
   `DATABASE_URL` retained as rollback.
 - All DB call sites now await `getDb()`; schema indexes were added.
 - Migration commands: `npm run migrate:postgres:gcp` and
@@ -213,19 +213,19 @@ because it needs the final media hostname and DNS access.
 **Scope**: Add a full-screen infinite-canvas whiteboard (Canvas Board / Board tab) for spatial storyboarding, scoped per-project, with asset library drag-to-place and full persistence. V1 single-user (no multiplayer).
 
 **Shipped**:
-- `src/lib/canvas/` — pure geometry/z-order/history/serialization logic (types.ts, geometry.ts, zorder.ts, history.ts, serialization.ts); all unit-testable via `node:test` (82 passing).
-- `src/lib/canvas-store.ts` — scoped Zustand store (active board graph, selection, tool, viewport, undo/redo, autosave lifecycle).
-- `src/lib/canvas-db.ts` — Drizzle access for `canvas_boards` table (list, get, create, rename, delete, save data).
+- `src/lib/canvas/` — pure geometry/z-order/history/serialization logic (types.js, geometry.js, zorder.js, history.js, serialization.js); all unit-testable via `node:test` (82 passing).
+- `src/lib/canvas-store.js` — scoped Zustand store (active board graph, selection, tool, viewport, undo/redo, autosave lifecycle).
+- `src/lib/canvas-db.js` — Drizzle access for `canvas_boards` table (list, get, create, rename, delete, save data).
 - `src/app/api/canvas-boards/` — REST routes (op-switched metadata POST, `[id]` blob GET/PUT, image upload helper).
 - `src/components/canvas/` — CanvasView, CanvasSurface (pan/zoom/selection/marquee), CanvasToolbar, StyleInspector, BoardSwitcher, ConnectorLayer, CanvasAssetPanel, per-node renders.
-- Schema: `src/lib/schema.ts` new `canvasBoards` pgTable (jsonb data, app-supplied UUID, bigint ms timestamps).
-- Modified: `src/lib/store.ts` (+view field), `src/components/Sidebar.tsx` (Board rail icon), `src/app/page.tsx` (conditional view), `src/lib/save-media.ts` (saveCanvasAsset wrapper).
-- **Security fixes** (pre-existing paths): `src/lib/storage.ts` MIME allowlist (JPEG/PNG/WebP/GIF only, rejects SVG/stored-XSS), `src/app/api/media/[...path]/route.ts` (nosniff header).
+- Schema: `src/lib/schema.js` new `canvasBoards` pgTable (jsonb data, app-supplied UUID, bigint ms timestamps).
+- Modified: `src/lib/store.js` (+view field), `src/components/Sidebar.jsx` (Board rail icon), `src/app/page.jsx` (conditional view), `src/lib/save-media.js` (saveCanvasAsset wrapper).
+- **Security fixes** (pre-existing paths): `src/lib/storage.js` MIME allowlist (JPEG/PNG/WebP/GIF only, rejects SVG/stored-XSS), `src/app/api/media/[...path]/route.js` (nosniff header).
 
 **Architecture decisions** (design.md D-Render through D-Entry):
 - Custom DOM/SVG scene graph (not tldraw/canvas raster) — full control over jsonb model + native-DnD asset drop + no commercial watermark.
 - Postgres jsonb data (not S3 pointer) — small structured JSON, reuses established pattern.
-- Separate `canvas-store.ts` (not global store) — confines high-frequency updates to canvas subscribers.
+- Separate `canvas-store.js` (not global store) — confines high-frequency updates to canvas subscribers.
 - REST `[id]` blob route + op-switch metadata — single large document pattern.
 - 1500 ms autosave debounce + force-flush on lifecycle edges (switch/unmount/beforeunload).
 - Top-level full-screen view (not 4th right-panel tab) — via new Sidebar rail icon.
@@ -261,21 +261,21 @@ because it needs the final media hostname and DNS access.
 
 **Scope**: Add Google's Gemini Omni Flash (`gemini-omni-flash-preview`, Interactions API) as a selectable video model, giving it the same NBP-grade reference/prompt scaffolding (`assemblePrompt` + shot-spec) images already get, instead of the flat prompts the Higgsfield/Seedance video paths use. Billing lands on the GCP project (Gemini API key's project by default; Vertex SKU flag-gated).
 
-**Note on this entry**: the council session that built this feature crashed mid-Stage-4 ("cantigravity") before anything was committed; this is the redo, working from the pre-compaction conversation record. Mid-rebuild, the recreated provider contract (from memory of the lost session) was checked against the live API via `scripts/probe-omni.ts` and found to be wrong in several places — see below.
+**Note on this entry**: the council session that built this feature crashed mid-Stage-4 ("cantigravity") before anything was committed; this is the redo, working from the pre-compaction conversation record. Mid-rebuild, the recreated provider contract (from memory of the lost session) was checked against the live API via `scripts/probe-omni.js` and found to be wrong in several places — see below.
 
 **Shipped**:
-- `src/lib/omni-input.ts` — pure builder, mirrors `providers/gemini.ts`'s `buildParts`: role-labeled group headers → images → identity tiles (14-image cap, tiles yield first, loud error if user images alone exceed the cap) → SCENE/shotInstruction → video-worded FINAL CHECK when identity is locked.
-- `src/lib/providers/omni.ts` — the provider. Dual wire path: default `generativelanguage.googleapis.com` with `GOOGLE_API_KEY`; `OMNI_USE_VERTEX=1` for the Vertex SKU (flag-gated — allowlist-gated per Google, and this machine's Vertex creds are dead).
-- `src/lib/shot-spec.ts` / `prompt-assembler.ts` — `medium?: "image"|"video"` option (default `"image"`, byte-identical) for video-worded framing/negative codas.
-- `src/lib/config.ts`, `store.ts`, `PromptComposer.tsx` — new model entry + `aspectRatiosForModel` (16:9/9:16 only for Omni) wired through the picker and the store's per-model clamping.
-- Three route files updated: enqueue guard (`generate/video/route.ts`), task creation (`queue/execute/route.ts`), status polling + inline-base64 video save (`generate/video/status/route.ts`).
-- `scripts/probe-omni.ts` — zero-cost validation-error probe matrix (always sends `input: []`, which the API rejects before doing anything) + Vertex readiness check + a `--live` flag for one real generation.
+- `src/lib/omni-input.js` — pure builder, mirrors `providers/gemini.js`'s `buildParts`: role-labeled group headers → images → identity tiles (14-image cap, tiles yield first, loud error if user images alone exceed the cap) → SCENE/shotInstruction → video-worded FINAL CHECK when identity is locked.
+- `src/lib/providers/omni.js` — the provider. Dual wire path: default `generativelanguage.googleapis.com` with `GOOGLE_API_KEY`; `OMNI_USE_VERTEX=1` for the Vertex SKU (flag-gated — allowlist-gated per Google, and this machine's Vertex creds are dead).
+- `src/lib/shot-spec.js` / `prompt-assembler.js` — `medium?: "image"|"video"` option (default `"image"`, byte-identical) for video-worded framing/negative codas.
+- `src/lib/config.js`, `store.js`, `PromptComposer.jsx` — new model entry + `aspectRatiosForModel` (16:9/9:16 only for Omni) wired through the picker and the store's per-model clamping.
+- Three route files updated: enqueue guard (`generate/video/route.js`), task creation (`queue/execute/route.js`), status polling + inline-base64 video save (`generate/video/status/route.js`).
+- `scripts/probe-omni.js` — zero-cost validation-error probe matrix (always sends `input: []`, which the API rejects before doing anything) + Vertex readiness check + a `--live` flag for one real generation.
 
 **Contract correction (important for anyone touching this later)**: the API does NOT have a `task` field or a `delivery` field — sending either 400s as an unrecognized parameter. Duration IS a real, enforced request field (`response_format.duration`, a protobuf-Duration string like `"4s"`), not prompt-driven text. The video payload lives at `steps[].content` where `step.type === "model_output"`, not nested under `steps[].model_output.content`. Full detail + how this was discovered: `.council/omni-video/design.md` PROBE VERDICTS section and `decisions.md` D11.
 
 **Cost disclosure**: re-discovering the real contract by hand (outside the shipped probe script) accidentally triggered two additional real, billed ~4s generations before the risk was understood (a non-empty/malformed `input` is accepted and run to completion, not rejected). Combined with the one deliberate live test, this session billed 3 real generations total, not 1. `.council/omni-video/live-test.mp4` is the deliberate one.
 
-**Unit tests**: `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts src/lib/omni-input.test.ts src/lib/providers/omni.test.ts` — 78/78 passing.
+**Unit tests**: `npx tsx --test src/lib/shot-spec.test.js src/lib/select-candidate.test.js src/lib/omni-input.test.js src/lib/providers/omni.test.js` — 78/78 passing.
 
 **Evidence**: `.council/omni-video/spec.md` (AC1-AC8), `design.md` (file plan + PROBE VERDICTS), `decisions.md` (D0-D11 decision log), `review-findings.md` (Stage 3 adjudications), `live-test.mp4` (real generated clip).
 
@@ -288,16 +288,16 @@ because it needs the final media hostname and DNS access.
 **Research conclusion**: No hidden magic. Higgsfield's edge is deterministic scaffolding (role-aware reference legends + subject-framing language) + reference fidelity (2–4× larger client uploads) + a widened best-of-N judge (composite: identity + prominence + sharpness with floor selection). All measured, captured, and unit-testable.
 
 **Shipped**: Six env-flag features (all default to previous behavior, no automatic changes):
-- `PROMPT_SHOT_SPEC=1`: structured instruction assembly (`src/lib/shot-spec.ts`; A/B: 2.4× subject prominence, no identity regression)
+- `PROMPT_SHOT_SPEC=1`: structured instruction assembly (`src/lib/shot-spec.js`; A/B: 2.4× subject prominence, no identity regression)
 - `PROMPT_ROLE_DETECT=1`: fallback role detection for `@imgN` with cross-check WARN
-- `JUDGE_COMPOSITE=1`: extended Gemini judge for identity + prominence + sharpness (`src/lib/middleware/face-judge.ts`)
+- `JUDGE_COMPOSITE=1`: extended Gemini judge for identity + prominence + sharpness (`src/lib/middleware/face-judge.js`)
 - `POST_CRISPEN=1`: classical sharpen-only delivery pass (~110ms, artifact-free)
 - `SUPERSAMPLE=1`: 1-step upsample + lanczos3 downsample (highest prominence, scene risk; flag off by default)
 - `NEXT_PUBLIC_REF_MAX_DIM` (default 2048): client ref cap with Vercel budget ladder in PromptComposer
 
-**Unit tests** (first in the repo): `npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts` (Node built-in `node:test`).
+**Unit tests** (first in the repo): `npx tsx --test src/lib/shot-spec.test.js src/lib/select-candidate.test.js` (Node built-in `node:test`).
 
-**Evidence**: See `.council/higgsfield-nbp-parity/design.md` (contract), `results-ab.md` (16 images: NEW 2.4× prominence, identity ≥ OLD), `decisions.md` (adjudications + design.md fix: commit 849ef9d moved execute logic; design retargeted to queue/execute/route.ts).
+**Evidence**: See `.council/higgsfield-nbp-parity/design.md` (contract), `results-ab.md` (16 images: NEW 2.4× prominence, identity ≥ OLD), `decisions.md` (adjudications + design.md fix: commit 849ef9d moved execute logic; design retargeted to queue/execute/route.js).
 
 ---
 
@@ -316,7 +316,7 @@ The goal was to allow the user to tag uploaded images (`@img1`, `@img2`) and hav
 
 2. **Payload Schema Hell**
    - **Bug**: Initial attempts to use inline `fileData` (multimodal prompting) failed because `imagen-3.0-capability-001` strictly requires the `referenceImages` array in the JSON payload, unlike the standard flash models.
-   - **Fix**: Restructured `gemini.ts` to build the `referenceImages` array.
+   - **Fix**: Restructured `gemini.js` to build the `referenceImages` array.
    - **Bug**: Hit repeated 400 INVALID_ARGUMENT errors due to undocumented schema requirements. For example, `subjectType` must be nested inside `subjectImageConfig`, and `bytesBase64Encoded` must be nested properly.
    - **Fix**: Tested the payload directly via standalone `fetch` scripts to deduce the exact schema Google expects.
 
@@ -333,7 +333,7 @@ The goal was to allow the user to tag uploaded images (`@img1`, `@img2`) and hav
 
 5. **Prompt Bloat & Hallucinations (The Movie Camera)**
    - **Bug**: The generated image featured the character standing next to a massive, literal movie camera on a film set.
-   - **Root Cause**: The `prompt-assembler.ts` (originally designed for Higgsfield Nano Banana Pro) was silently wrapping the user's prompt in massive "DOMAIN LOCK" blocks yelling about "filmmaking, lensing, and camera equipment." Vertex AI took this literally and drew film equipment instead of the requested Kolkata street.
+   - **Root Cause**: The `prompt-assembler.js` (originally designed for Higgsfield Nano Banana Pro) was silently wrapping the user's prompt in massive "DOMAIN LOCK" blocks yelling about "filmmaking, lensing, and camera equipment." Vertex AI took this literally and drew film equipment instead of the requested Kolkata street.
    - **Fix**: Completely stripped the prompt bloat. The system now sends the pure, raw user prompt.
 
 6. **Removing Auto-Selection (The Redesign)**

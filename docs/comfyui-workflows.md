@@ -102,7 +102,7 @@ regardless of model quality.
 | ComfyUI has no authentication of its own | Never expose the port. Auth happens at the tunnel and is re-checked by our adapter. |
 | Community node packs are executable third-party code | Pin by commit, audit before install (§3.4). |
 | A workstation is not an SLA | `LLM_BACKEND` must support a hosted fallback and a `mock` mode from day one (§7.4). |
-| `@tag` syntax is a binding contract in `prompt-assembler.ts` | Every workflow that emits a generation prompt must preserve `@imgN` / `@slug` tokens verbatim. Enforced by schema validation (§5.5), not by hope. |
+| `@tag` syntax is a binding contract in `prompt-assembler.js` | Every workflow that emits a generation prompt must preserve `@imgN` / `@slug` tokens verbatim. Enforced by schema validation (§5.5), not by hope. |
 
 ---
 
@@ -188,7 +188,7 @@ wrong string. So every injectable input node carries a `_meta.title` of the form
 `VEEVEE_IN::<key>`, and the adapter walks the JSON:
 
 ```ts
-// comfy/bind.ts — sketch
+// comfy/bind.js — sketch
 function bind(graph: ComfyGraph, values: Record<string, unknown>) {
   const found = new Set<string>();
   for (const node of Object.values(graph)) {
@@ -226,7 +226,7 @@ Images enter as **HTTPS URLs**, not base64 and not ComfyUI uploads:
   enforces session auth and blocks the `settings/`/`migrations/` prefixes — see
   `CLAUDE.md` § Media storage).
 - `VeeveeFetchImage` (§5.6) fetches with a 10 s timeout, a 20 MB cap, and a
-  JPEG/PNG/WebP/GIF MIME allowlist that mirrors `splitDataUrl` in `src/lib/storage.ts`.
+  JPEG/PNG/WebP/GIF MIME allowlist that mirrors `splitDataUrl` in `src/lib/storage.js`.
 - Base64 in the request JSON is forbidden: a 4-reference turn would push the `/prompt`
   body past 20 MB and it would be logged in ComfyUI's history verbatim.
 
@@ -311,7 +311,7 @@ months of real usage produce no training data, which is the expensive kind of mi
   money.
 - **Health checks must be side-effect-free.** W9 exists precisely so the admin Status
   tab never has to run a real chat workflow to prove liveness — the same discipline as
-  the Higgsfield token check in `status-checks.ts`.
+  the Higgsfield token check in `status-checks.js`.
 - **Knowledge and asset text are untrusted input.** They are wrapped in delimiters and
   labelled as data in the system prompt (§5.3); they never get concatenated as
   instructions.
@@ -535,7 +535,7 @@ contract (W2's request is W1's plus `images[]`).
   is where tag/role mis-binding comes from.
 - `max_images` default 6, matching the maximum reference count actually observed in the
   ledger (research doc §"What was measured"). Exceeding it is a validation error, not a
-  silent drop — same principle as the 14-image hard limit in `gemini.ts`.
+  silent drop — same principle as the 14-image hard limit in `gemini.js`.
 - Reference analyses are cacheable: `VeeveeFetchImage` keys on the media path + content
   hash, so revising a prompt over the same references does not re-pay visual tokens.
   This is the research doc's "store reference analyses" recommendation, at graph level.
@@ -679,7 +679,7 @@ structure is genuinely the product rather than an implementation detail.
 
 **Design note — this workflow is intentionally thin.** ComfyUI's only job is embedding
 the query; the ANN search is a pgvector `ORDER BY embedding <=> $1 LIMIT k` in
-`src/lib/knowledge-db.ts`. Two reasons: the app can then filter by `project_id` inside
+`src/lib/knowledge-db.js`. Two reasons: the app can then filter by `project_id` inside
 the same query (a retrieval that can cross project boundaries is a data leak, and it must
 be enforced in SQL, not in a graph), and a round trip to the workstation for a search we
 could do in 5 ms locally is latency we spend on every single turn.
@@ -745,7 +745,7 @@ re-summarising rather than silently mixing two summary styles in one thread.
 **Why it earns its place.** Three existing needs collapse into one workflow: asset
 descriptions are currently hand-written or empty; `PROMPT_ROLE_DETECT=1` currently spends
 paid Gemini calls on role classification (and those calls compete for the very budget
-`spend-window.ts` exists to protect); and W3 needs `available_tags` descriptions to bind
+`spend-window.js` exists to protect); and W3 needs `available_tags` descriptions to bind
 tags correctly. A local VLM does all three for free.
 
 **Contract.**
@@ -785,14 +785,14 @@ telemetry carrying the model id and load state.
 
 **Design notes.**
 
-- Registered in `src/lib/status-checks.ts` as two checks: `comfyui` (can we reach
+- Registered in `src/lib/status-checks.js` as two checks: `comfyui` (can we reach
   `/prompt` and does the graph execute?) and `llm-model` (did the model server answer?).
   They fail independently — "ComfyUI is up but the model server is down" is a different
   page for whoever is on call.
 - Must stay **side-effect free and idempotent**: no writes, no index mutation, no token
   exchange. Same discipline as the Higgsfield check (`CLAUDE.md` § Admin API status
   page), which may not be "improved" into something that mutates state.
-- 5 s timeout to match the existing per-check race in `status-checks.ts`.
+- 5 s timeout to match the existing per-check race in `status-checks.js`.
 
 ---
 
@@ -802,7 +802,7 @@ The workflows are useless without the chat data model the vision requires. Summa
 here so the two are designed together; full design goes in `.council/project-chat/` when
 that work starts.
 
-### 7.1 Schema additions (`src/lib/schema.ts` conventions: uuid ids, bigint ms)
+### 7.1 Schema additions (`src/lib/schema.js` conventions: uuid ids, bigint ms)
 
 ```ts
 chat_threads          (id, projectId, title, createdBy, createdAt, updatedAt,
@@ -837,7 +837,7 @@ POST   /api/projects/[id]/knowledge          upload + extract + ingest          
 PUT    /api/projects/[id]/instructions       system instructions + style card
 ```
 
-Every one calls `getSession()` / `requireUser()` explicitly — `middleware.ts` is only an
+Every one calls `getSession()` / `requireUser()` explicitly — `middleware.js` is only an
 edge presence check (`CLAUDE.md` § Auth & data). The media-proxy incident of 2026-07-15
 is the precedent: do not assume a new route is covered.
 
@@ -910,7 +910,7 @@ Append here as they are proposed; promote to §6 with a full entry when they are
 |---|---|---|---|
 | B1 | `knowledge-rerank` | cross-encoder rerank of top-30 → top-6 | proposed; only if plain top-k measurably underperforms |
 | B2 | `role-detect-local` | replace the paid Gemini role classifier with W8's VLM | proposed; gated on agreement measurement |
-| B3 | `video-shotlist` | chat → structured shot list feeding `video-directive.ts` | proposed |
+| B3 | `video-shotlist` | chat → structured shot list feeding `video-directive.js` | proposed |
 | B4 | `graph-rag-index` | entity/relation graph over a project bible (`comfyui_LLM_party` GraphRAG) | research |
 | B5 | `prompt-critique` | explain the diff between the assistant's draft and the human's edit — the supervision signal for the shared LoRA | proposed; high value for Phase 4 data |
 | B6 | `moderation-precheck` | flag prompts that will trip BytePlus's photoreal-face filter before spending | proposed |

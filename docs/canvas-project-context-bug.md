@@ -35,10 +35,10 @@ The problem is primarily an information-architecture and control-labeling bug, n
 
 Relevant files:
 
-- `src/components/canvas/CanvasView.tsx`
-- `src/components/canvas/CanvasAssetPanel.tsx`
-- `src/components/canvas/BoardSwitcher.tsx`
-- `src/lib/store.ts`
+- `src/components/canvas/CanvasView.jsx`
+- `src/components/canvas/CanvasAssetPanel.jsx`
+- `src/components/canvas/BoardSwitcher.jsx`
+- `src/lib/store.js`
 
 ## Proposed Fix
 
