@@ -1,8 +1,7 @@
-// Frontend/backend origin split (Vercel frontend, Railway Django backend).
-// Defaults to same-origin (empty base) so nothing changes until
-// NEXT_PUBLIC_API_URL is actually set for a deployment. credentials:
-// "include" is required once the API moves cross-origin (a same-origin
-// request sends cookies regardless, so this is a no-op today).
+// Optional API origin override. Production currently uses the authoritative
+// same-origin Next.js API, so the default remains empty. credentials:
+// "include" also keeps cookie behavior correct for an explicitly configured
+// compatible origin.
 export const API_BASE = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
 export function apiUrl(path) {

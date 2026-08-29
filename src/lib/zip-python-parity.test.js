@@ -3,21 +3,13 @@
  * `zipfile`, byte-for-byte in content.
  *
  * WHY THIS EXISTS
- * `/api/history/download-zip` uses the hand-rolled writer in `zip.js`. Its
- * Django port does not — it uses Python's stdlib `zipfile` instead, which
- * CLAUDE.md calls "an implementation-detail substitution, not a behavior
- * change." That is very likely true and it was never tested.
- *
- * It matters in one specific direction. During the strangler-fig migration
- * either app may serve the download, so both writers have to produce
- * archives that ordinary tools open. The hand-rolled one is the side that
- * could plausibly be wrong: it emits its own local headers, central
+ * `/api/history/download-zip` uses the hand-rolled writer in `zip.js`. It
+ * emits its own local headers, central
  * directory and end-of-central-directory record, and a subtly malformed
  * field is the kind of thing every tool tolerates until one does not.
  *
  * Python's `zipfile` is a strict, independent reader. If it can open our
- * archive and read every entry back unchanged, the format is sound — which
- * also establishes the property the Django substitution assumed.
+ * archive and read every entry back unchanged, the format is sound.
  *
  * Skips cleanly when python3 is unavailable, so this never becomes the
  * reason a developer's suite fails on a machine without it.

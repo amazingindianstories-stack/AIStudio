@@ -32,7 +32,6 @@ to resume after the deployable work is stable.
 | REL-07 | Applying reconciliation would mutate the reported stuck production row. | Review the DB-only dry run, then separately approve `--apply`. |
 | ARCH-03 | The exit smoke test needs two authenticated user sessions. | Run the two-user fairness check after deployment. |
 | ARCH-05 | Alert creation changes Vercel project configuration. | Configure the stable event-marker alert after log shape is observed. |
-| DRIFT-01 | Target-runtime provider verification may make live provider calls. | Verify only when the Django runtime is scheduled for cutover testing. |
 
 ## Local product bugs outside the PDF register
 
@@ -67,7 +66,7 @@ current verification.
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
 | COST-04 | Media delivery can silently proxy bytes | P1 | in_progress | 2026-08-28 | Codex | Admin Status now selects recent succeeded stored media, obtains the actual browser delivery URL, performs a one-byte range read, and reports proxy fallback/read failure without exposing object identity. Exit: deploy and record an `ok` direct-read result. |
 | COST-05 | Video best-of-N can bill after partial failure | P2 | in_progress | 2026-08-27 | Codex | Local settlement logic retains every provider-accepted task ID, continues with a partial candidate set, emits accepted/rejected counts, and reduces estimated cost to accepted candidates. Exit: deploy and verify a controlled partial-submission fixture. |
-| COST-06 | Provider costs mix exact and estimated values | P2 | in_progress | 2026-08-27 | Codex | Persistence records whether each amount was actually overwritten from provider usage; missing usage and legacy rows conservatively remain estimated. The idempotent `cost_basis` migration completed successfully against the configured database. Admin totals, user summaries, logs, and CSV exports expose the split. Exit: deploy and verify both classes against representative production rows. |
+| COST-06 | Provider costs mix exact and estimated values | P2 | resolved | 2026-08-29 | Codex | Aggregate-only production verification found 1,955 succeeded estimated rows and 6 succeeded reconciled rows after deployment, proving both classes are persisted. Admin totals, user summaries, logs, and CSV exports expose the split. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-27 | Codex | Claim-fenced implementation `4301601` remains isolated on `fix/audit-p0` and is intentionally held out of this release until the Vercel/Django/GPU worker rollout and VER-04 kill exercise can be coordinated. The unsafe `fb7046b` implementation was not reused. |
 | REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | monitoring | 2026-08-27 | Codex | Serial spooling/judging and size-bounded candidate caps deployed in production `8f216d9`; main CI and local suites pass. Monitor production memory and latency before closing. |
@@ -78,27 +77,27 @@ current verification.
 | REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-08-27 | Codex | Production `8f216d9` converted stuck Omni row `…672f64e3` to terminal moderated failure through HTTP 200, emitted a persisted structured event, and the DB-only reconciler now finds zero stale Omni rows. No `--apply` action was used; monitor the Vercel 5xx anomaly before closing. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | resolved | 2026-08-28 | Codex | Image outputs (Gemini/Nano Banana, Higgsfield, Kling) and video outputs (Higgsfield, Omni, BytePlus, including best-of winners) are measured from the same bytes used for persistence. The nearest model-supported ratio is stored; structured mismatch/inspection warnings and requested-ratio fallback keep metadata failures non-fatal. Synthetic image and local ffmpeg video fixtures pass. |
 | REL-09 | Login-attempt cleanup is opportunistic | P3 | in_progress | 2026-08-27 | Codex | Local authenticated daily cron globally deletes expired login-attempt rows using the shared retention cutoff; middleware exemption remains protected by timing-safe bearer auth. Unit and PostgreSQL integration tests pass. Exit: set `CRON_SECRET`, deploy, and observe one successful bounded run. |
-| MIG-01 | Django port is not cut over | P1 | open | 2026-08-18 | Unassigned | Re-audit against current backend before choosing ship/delete. |
-| MIG-02 | Live routes are missing from Django | P1 | open | 2026-08-18 | Unassigned | Re-audit current route parity. |
-| MIG-03 | Live tables are missing Django models | P1 | open | 2026-08-18 | Unassigned | Re-audit current model parity. |
+| MIG-01 | Django port is not cut over | P1 | resolved | 2026-08-29 | Codex | The never-cut-over Django port was retired in favor of the production Next.js API; its complete tracked source remains recoverable in Git history. |
+| MIG-02 | Live routes are missing from Django | P1 | resolved | 2026-08-29 | Codex | Eliminated with the retired secondary runtime; `src/app/api/` is the sole route implementation. |
+| MIG-03 | Live tables are missing Django models | P1 | resolved | 2026-08-29 | Codex | Eliminated with the retired secondary runtime. Drizzle remains schema authority; no production table was dropped. |
 | MIG-04 | Cloud SQL is staged but not live | P2 | open | 2026-08-18 | Unassigned | Rotate superuser password before any cutover. |
 | MIG-05 | Cloud CDN is not provisioned | P1 | open | 2026-08-18 | Unassigned | Choose hostname and execute the CDN runbook. |
 | MIG-06 | Rollback credentials were never removed | P1 | blocked | 2026-08-25 | Operator + Codex | Blocked by zero-gap media verification and observation window. |
-| MIG-07 | Railway Django service does not exist | P2 | open | 2026-08-18 | Unassigned | Re-audit current deployment state. |
+| MIG-07 | Railway Django service does not exist | P2 | resolved | 2026-08-29 | Codex | The uncut-over Django deployment target was intentionally retired; the production Railway PostgreSQL database is unchanged. |
 | MIG-08 | Higgsfield UI is gone but backend remains | P3 | open | 2026-08-18 | Unassigned | Decide retirement and preserve historical pricing. |
-| MIG-09 | Unreachable legacy agent routes remain in Django | P3 | open | 2026-08-18 | Unassigned | Remove only after current route audit. |
+| MIG-09 | Unreachable legacy agent routes remain in Django | P3 | resolved | 2026-08-29 | Codex | Removed with the retired Django source tree; the active Next.js agent surface is unchanged. |
 | MIG-10 | Pre-Postgres JSON snapshots remain | P3 | resolved | 2026-08-28 | Codex | Read-only `git ls-tree -d origin/main data` verification at production `97b0e9c` found no root `data/` snapshot tree. No unrelated local or untracked file was deleted. |
-| DRIFT-01 | Python video directive lacks reference legends | P1 | in_progress | 2026-08-26 | Codex | Python now matches JS reference legends, scoped locks, temporal/camera guidance, and the shared negative coda; exact cross-language fixtures and provider-role tests pass locally. Exit: deploy and verify both provider paths in the target runtime. |
-| DRIFT-02 | Django lacks video best-of-N pipeline | P2 | open | 2026-08-18 | Unassigned | Keep feature off until parity or cutover decision. |
-| DRIFT-03 | Django lacks server-side frame extraction | P2 | open | 2026-08-18 | Unassigned | Decide with video best-of-N/cutover. |
-| DRIFT-04 | Python `crispen` is non-exact | P3 | open | 2026-08-18 | Unassigned | Match or explicitly disable. |
-| DRIFT-05 | Django GCS authentication differs and is unverified | P2 | open | 2026-08-18 | Unassigned | Live-verify in the target runtime. |
-| DRIFT-06 | Django media reads lack abort propagation | P2 | open | 2026-08-18 | Unassigned | Decide based on final media serving location. |
+| DRIFT-01 | Python video directive lacks reference legends | P1 | resolved | 2026-08-29 | Codex | The non-authoritative Python implementation and its cross-language parity guard were removed; the tested JavaScript directive remains authoritative. |
+| DRIFT-02 | Django lacks video best-of-N pipeline | P2 | resolved | 2026-08-29 | Codex | Eliminated by retiring the uncut-over Django runtime. |
+| DRIFT-03 | Django lacks server-side frame extraction | P2 | resolved | 2026-08-29 | Codex | Eliminated by retiring the uncut-over Django runtime. |
+| DRIFT-04 | Python `crispen` is non-exact | P3 | resolved | 2026-08-29 | Codex | The dormant flag and non-exact Python implementation were removed with the Django runtime. |
+| DRIFT-05 | Django GCS authentication differs and is unverified | P2 | resolved | 2026-08-29 | Codex | Eliminated by retiring Django; the deployed Next.js WIF/GCS path remains authoritative. |
+| DRIFT-06 | Django media reads lack abort propagation | P2 | resolved | 2026-08-29 | Codex | Eliminated by retiring Django; the active Next.js media path retains abort propagation. |
 | DRIFT-07 | Cross-language constants were hand-synced | P1 | resolved | 2026-08-25 | Codex | Constant parity guard shipped in `6fa858a`. |
 | DRIFT-08 | JS and Python ZIP outputs lacked equivalence coverage | P3 | resolved | 2026-08-25 | Codex | ZIP parity guard shipped in `6fa858a`. |
-| VER-01 | Django generation providers lack live calls | P1 | open | 2026-08-18 | Unassigned | Budget and run only before a Django cutover. |
-| VER-02 | Django Higgsfield MCP path is unexercised | P2 | open | 2026-08-18 | Unassigned | Resolve with Higgsfield retirement decision. |
-| VER-03 | Django agent path lacks a live Gemini turn | P3 | open | 2026-08-18 | Unassigned | Verify only if Django ships. |
+| VER-01 | Django generation providers lack live calls | P1 | resolved | 2026-08-29 | Codex | Django will not ship, so billed verification of its removed provider copies is no longer required. |
+| VER-02 | Django Higgsfield MCP path is unexercised | P2 | resolved | 2026-08-29 | Codex | The Django copy was removed without a paid call. The hidden Next.js Higgsfield compatibility path remains supported and unchanged. |
+| VER-03 | Django agent path lacks a live Gemini turn | P3 | resolved | 2026-08-29 | Codex | Django will not ship; its legacy agent path was removed without a billed probe. |
 | VER-04 | Depth worker lacks end-to-end production/GPU verification | P1 | open | 2026-08-18 | Unassigned | Run all encoders and a deliberate worker kill with REL-01. |
 | VER-05 | Bundled ffmpeg is unverified on Vercel | P2 | in_progress | 2026-08-28 | Codex | Admin Status executes the bundled binary with `-version`; the local runtime check and registry test pass. Exit: deploy and record the target-runtime status result. |
 | VER-06 | GCS signing under WIF is unconfirmed | P1 | in_progress | 2026-08-28 | Codex | The media-delivery health check now proves an actual recent object is directly readable rather than only proving that a synthetic URL can be signed; identifiers and URLs are redacted. Exit: record an `ok` result under Vercel WIF. |
@@ -117,12 +116,12 @@ current verification.
 | ARCH-07 | Admin dashboard component is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-08 | Mutable module state sits outside stores | P3 | resolved | 2026-08-28 | Codex | Process-only poll IDs, timers/debounces, live-feed coordination, and request counters remain outside rendered Zustand state but now share `disposeStoreRuntime()` for logout, teardown, and isolated tests. The idempotent server reaper throttle has its own reset hook; ownership and durability boundaries are documented in `docs/runtime-coordination.md`. |
 | DX-01 | Git history is bloated by research binaries | P2 | resolved | 2026-08-28 | Codex | Adopted the approved non-destructive shallow-clone policy: both GitHub Actions checkout steps explicitly use `fetch-depth: 1`. Historical rewriting remains intentionally out of scope. |
-| DX-02 | ESLint configuration is missing | P2 | in_progress | 2026-08-27 | Codex | Local ESLint 9 flat config enables Next core-web-vitals, hook dependency, and zero-warning gates; CI runs lint before tests/build and the current tree passes. Exit: merge and confirm the protected CI run. |
+| DX-02 | ESLint configuration is missing | P2 | resolved | 2026-08-29 | Codex | ESLint 9's zero-warning gate passed the protected main CI run `33169539104` at production merge `a0114ce`; the Vercel deployment also completed successfully. |
 | DX-03 | No CI gate | P1 | resolved | 2026-08-27 | Codex | PR #11 and main run `33055388366` passed web and PostgreSQL-backed Django jobs without billed probes. |
 | DX-04 | Dead root `scratch.js` | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-05 | Setup script referenced the wrong bucket/deployment | P3 | resolved | 2026-08-25 | Codex | Deleted in `5c591a8`. |
 | DX-06 | Documentation contains `.ts`/`.tsx` path drift | P3 | resolved | 2026-08-28 | Codex | Maintained documentation source references were converted to current `.js`/`.jsx` extensions and a unit-discovered guard now rejects retired `.ts`/`.tsx` source paths. |
-| DX-07 | Django history paths in `CLAUDE.md` are stale | P3 | open | 2026-08-18 | Unassigned | Sweep after migration decision. |
+| DX-07 | Django history paths in `CLAUDE.md` are stale | P3 | resolved | 2026-08-29 | Codex | Current guidance names the same-origin Next.js API as authoritative and labels the retained Django narrative as historical Git evidence. |
 | DX-08 | Backend audit body presents resolved work as open | P3 | resolved | 2026-08-28 | Codex | The historical audit now begins with an explicit current-status rule linking the stable-ID tracker and warning that original recommendations are not live state. |
 | DX-09 | Main auto-deploys with no preview gate | P2 | open | 2026-08-25 | Unassigned | Use audit branch previews now; add protected CI later. |
 | DX-10 | Script-test naming convention is unenforced | P3 | resolved | 2026-08-27 | Codex | The runner's `scripts/**/*.test.js` rejection guard passed on PR #11 and main CI run `33055388366`. |
@@ -135,6 +134,19 @@ current verification.
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | deferred | 2026-08-25 | Unassigned | Expose an explicit tradeoff or delete the flag. |
 
 ## Change log
+
+- 2026-08-29: retired the never-cut-over Django port in favor of the production
+  Next.js API, resolving `MIG-01`/`02`/`03`/`07`/`09`, `DRIFT-01`–`06`,
+  `VER-01`–`03`, and `DX-07`. Django-only parity guards and CI setup were
+  removed; PostgreSQL integration coverage now provisions the Drizzle schema
+  in a disposable CI database. The hidden Next.js Higgsfield compatibility
+  path, historical pricing, production database, and historical Django tables
+  were not removed. Pre-retirement PR #13 passed both web and Django suites;
+  no provider generation or billed probe was run. The same main run and Ready
+  Vercel deployment also close `DX-02`. Aggregate-only production evidence
+  closes `COST-06` with 1,955 estimated and 6 reconciled succeeded rows;
+  `QUAL-03` remains `in_progress` because production currently has zero
+  flagged rows to review or export.
 
 - 2026-08-28: completed the next safe audit batch. Provider image/video results
   now persist measured model-supported aspect ratios with non-fatal inspection
