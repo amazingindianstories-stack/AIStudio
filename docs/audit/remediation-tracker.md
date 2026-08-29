@@ -140,8 +140,9 @@ current verification.
   it separates Kling request safety, task-list stability, wire routing,
   resolution, and seed signals while keeping the runtime response sanitized.
   Zero-warning lint, 773 unit tests, a production build, and 12 disposable-
-  PostgreSQL integration tests pass. The register remains 51 resolved and 29
-  pending.
+  PostgreSQL integration tests pass. Both draft PRs passed their GitHub `web`,
+  `database`, and Vercel preview checks. The register remains 51 resolved and
+  29 pending.
 
 - 2026-08-29: ran the authenticated production runtime audit once. `ARCH-03`
   and `QUAL-03` passed their real-route checks with zero fixture residue and are
