@@ -77,7 +77,7 @@ current verification.
 | MIG-01 | Django port is not cut over | P1 | resolved | 2026-08-29 | Codex | The never-cut-over Django port was retired in favor of the production Next.js API; its complete tracked source remains recoverable in Git history. |
 | MIG-02 | Live routes are missing from Django | P1 | resolved | 2026-08-29 | Codex | Eliminated with the retired secondary runtime; `src/app/api/` is the sole route implementation. |
 | MIG-03 | Live tables are missing Django models | P1 | resolved | 2026-08-29 | Codex | Eliminated with the retired secondary runtime. Drizzle remains schema authority; no production table was dropped. |
-| MIG-04 | Cloud SQL is staged but not live | P2 | in_progress | 2026-08-29 | Codex | The authenticated production diagnostic returned an error because the active database backend flag was not Cloud SQL. The rollout stopped; reconcile the production backend configuration before rerunning. |
+| MIG-04 | Cloud SQL is staged but not live | P2 | in_progress | 2026-08-29 | Codex | The authenticated production diagnostic returned an error because the active backend was direct PostgreSQL rather than Cloud SQL. A name-only Vercel inventory confirms the backend flag and required Cloud SQL companion variables exist in Production; their values were not read. Draft PR #20 remains blocked pending separate action-time confirmation to correct configuration and redeploy. |
 | MIG-05 | Cloud CDN is not provisioned | P1 | open | 2026-08-18 | Unassigned | Choose hostname and execute the CDN runbook. |
 | MIG-06 | Rollback credentials were never removed | P1 | blocked | 2026-08-25 | Operator + Codex | Blocked by zero-gap media verification and observation window. |
 | MIG-07 | Railway Django service does not exist | P2 | resolved | 2026-08-29 | Codex | The uncut-over Django deployment target was intentionally retired; the production Railway PostgreSQL database is unchanged. |
@@ -99,15 +99,15 @@ current verification.
 | VER-05 | Bundled ffmpeg is unverified on Vercel | P2 | resolved | 2026-08-29 | Operator + Codex | An authenticated production Admin Status run executed the bundled target-runtime binary and returned `OK` with its ffmpeg version line. |
 | VER-06 | GCS signing under WIF is unconfirmed | P1 | resolved | 2026-08-29 | Operator + Codex | An authenticated production Admin Status run reached `aistudio-media-bucket` and returned `OK` after direct signed delivery of one byte from a real recent media object (HTTP 206), with no proxy fallback. |
 | VER-07 | Thumbnail warm-up was never run | P2 | open | 2026-08-29 | Codex | After operator reauthentication, a read-only gcloud inventory found 15,051 objects, 7,158 thumbnailable originals, 3,305 originals with a complete ladder, and 6,916 missing derivatives. Direct DB access could not be obtained without expanding production privileges, so the required DB-reference/original gate could not run; the apply phase was correctly stopped with zero GCS writes. |
-| VER-08 | Kling 2K reference rule lacks controlled probe | P2 | in_progress | 2026-08-29 | Codex | The authenticated validation-only production diagnostic reported that the live resolution matrix differed from configured capabilities. Its combined no-task invariant was not proven, so no closure or no-charge claim is recorded. |
+| VER-08 | Kling 2K reference rule lacks controlled probe | P2 | in_progress | 2026-08-29 | Codex | The authenticated validation-only production diagnostic reported that the live resolution matrix differed from configured capabilities. The stacked audit-blocker batch separates its 8-case aggregate from routing and no-task safety; deploy and pass that diagnostic before closure. |
 | VER-09 | Seedance continuation relies on third-party evidence | P2 | open | 2026-08-18 | Unassigned | Run the bounded billed probe. |
-| VER-10 | Kling seed support is unconfirmed | P3 | in_progress | 2026-08-29 | Codex | The authenticated validation-only production diagnostic found the valid- and invalid-seed responses inconclusive. Support remains disabled and this finding remains open. |
+| VER-10 | Kling seed support is unconfirmed | P3 | in_progress | 2026-08-29 | Codex | The authenticated validation-only production diagnostic found the valid- and invalid-seed responses inconclusive. Support remains disabled; the stacked diagnostic suppresses any seed verdict unless the independent no-task invariant passes. |
 | VER-11 | Seedance 2.5 activation is unconfirmed | P2 | resolved | 2026-08-28 | Codex | Read-only production generation evidence contains 11 Seedance 2.5 rows: 9 succeeded and 2 failed. Successful provider completions prove the production account/model is activated, so the picker entry remains offered; no billed probe was run. |
 | VER-12 | Audio surcharge pricing lacks invoice verification | P3 | open | 2026-08-18 | Unassigned | Reconcile an invoice. |
 | ARCH-01 | API responses use multiple envelopes | P2 | open | 2026-08-18 | Unassigned | Address only with migration decision. |
 | ARCH-02 | Storage module contains dual provider branches | P2 | deferred | 2026-08-25 | Unassigned | Delete the S3 branch after COST-01 rather than abstracting it. |
 | ARCH-03 | Concurrency cap is global, not per user | P1 | resolved | 2026-08-29 | Codex | The authenticated production diagnostic exercised two isolated temporary sessions through the real queue route and passed per-user fairness, isolation, limit-override precedence, and zero-fixture cleanup. |
-| ARCH-04 | Capabilities and prices key on display-name regexes | P2 | in_progress | 2026-08-29 | Codex | The authenticated validation-only production diagnostic reported that live wire-model routing or its combined no-task invariant failed. The finding remains open and the rollout stopped without a repeat probe. |
+| ARCH-04 | Capabilities and prices key on display-name regexes | P2 | in_progress | 2026-08-29 | Codex | The authenticated validation-only production diagnostic reported an ambiguous routing/matrix or no-task failure. The stacked audit-blocker batch now reports registered wire-model routing independently and fails closed on request-safety or task-list drift; deploy and pass it before closure. |
 | ARCH-05 | Generation failures return HTTP 200 | P2 | monitoring | 2026-08-29 | Codex | Production logs still show a privacy-bounded `generation_failure` marker with `persisted:true` under HTTP 200. Vercel's native anomaly alert covers 5xx, not keyword-matched HTTP 200 markers; no authenticated dashboard/third-party keyword-alert installation path was available, so the alert exit gate remains open. |
 | ARCH-06 | Zustand store is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-07 | Admin dashboard component is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
@@ -132,13 +132,23 @@ current verification.
 
 ## Change log
 
+- 2026-08-29: published reliability commit `88a43bc` as blocked draft PR #20
+  after zero-warning lint, 766 unit tests, a production build, two idempotent
+  video poll-health migration runs, and 12 fresh-PostgreSQL integration tests.
+  No production configuration, migration, provider probe, merge, or deployment
+  occurred. Started the stacked audit-blocker batch to separate Kling request
+  safety, task-list stability, wire routing, resolution, and seed signals while
+  keeping the runtime response sanitized. The register remains 51 resolved and
+  29 pending.
+
 - 2026-08-29: ran the authenticated production runtime audit once. `ARCH-03`
   and `QUAL-03` passed their real-route checks with zero fixture residue and are
   resolved. `MIG-04` failed the active Cloud SQL backend flag, `ARCH-04` and
   `VER-08` failed their combined routing/matrix or no-task invariant, and
   `VER-10` was inconclusive. No no-task or no-charge claim is made for the Kling
-  diagnostic; the rollout stopped before branch publication, migration, or
-  deployment. The 80-finding register is 51 resolved and 29 pending.
+  diagnostic; the production rollout stopped before migration or deployment.
+  The code was later published only as blocked draft PR #20. The 80-finding
+  register is 51 resolved and 29 pending.
 
 - 2026-08-29: prepared the reliability closure batch for `REL-02`, `REL-03`,
   and `REL-07`. Added additive poll-health columns and an online partial index,

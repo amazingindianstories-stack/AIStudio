@@ -6,7 +6,12 @@ import { count, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { signSession, SESSION_COOKIE } from "./auth";
 import { generations, userLimits, users } from "./schema";
-import { expectedKlingMatrixPass, runKlingValidation } from "./kling-validation";
+import {
+  expectedKlingResolutionPass,
+  expectedKlingRoutingPass,
+  runKlingValidation,
+  summarizeKlingMatrix,
+} from "./kling-validation";
 import { generateAndSpoolCandidates, readSpooledBase64 } from "./best-of-spool";
 import { abortableDelay, settleQueueExecution } from "./queue-execution-deadline";
 
@@ -40,8 +45,40 @@ export function sanitizeAuditDetail(value) {
     .replace(/((?:api[_-]?key|secret|password|token))\s*[=:]\s*\S+/gi, "$1=[redacted]");
 }
 
+export function activeDatabaseBackend(value = process.env.DATABASE_BACKEND) {
+  return value === "cloud-sql" ? "cloud-sql" : "direct-postgres";
+}
+
 function result(id, status, detail) {
   return { id, status, detail: sanitizeAuditDetail(detail) };
+}
+
+export function klingAuditResults(kling) {
+  if (!kling.noTaskCreated) {
+    const safety = kling.requestSafetyPass
+      ? "task-list stability could not be proven"
+      : "one or more requests did not reject safely";
+    return [
+      result("ARCH-04", "error", `no-task invariant failed: ${safety}`),
+      result("VER-08", "error", `no-task invariant failed: ${safety}`),
+      result("VER-10", "unknown", "seed verdict suppressed because the no-task invariant failed"),
+    ];
+  }
+  const summary = summarizeKlingMatrix(kling.matrix);
+  const routingPass = expectedKlingRoutingPass(kling.matrix);
+  const resolutionPass = expectedKlingResolutionPass(kling.matrix);
+  return [
+    result("ARCH-04", routingPass ? "ok" : "error",
+      `${summary.routingPassed}/${summary.routingTotal} registered wire models reached safe validation; no task was created`),
+    result("VER-08", !routingPass ? "unknown" : resolutionPass ? "ok" : "error",
+      !routingPass
+        ? "resolution verdict suppressed because registered wire-model routing failed; no task was created"
+        : `${summary.resolutionPassed}/${summary.resolutionTotal} live 1K/2K text/reference cases matched configured capabilities; no task was created`),
+    result("VER-10", kling.seedVerdict === "inconclusive" ? "unknown" : "ok",
+      kling.seedVerdict === "inconclusive"
+        ? "valid and invalid seed probes were inconclusive; support remains disabled; no task was created"
+        : `validator conclusively classified seed as ${kling.seedVerdict}; no task was created`),
+  ];
 }
 
 async function cleanupCount(db, generationIds, userIds) {
@@ -240,8 +277,10 @@ export async function runRuntimeAudit({ origin, adminCookie, adminId, fetchImpl 
   const klingPromise = runKlingValidation({ fetchImpl, signal: controller.signal }).catch((error) => ({ error }));
   const [migration, queue, flagged, rel02, rel03, kling] = await Promise.all([
     safeCheck("MIG-04", async () => {
-      if (process.env.DATABASE_BACKEND !== "cloud-sql") throw new Error("active database backend is not Cloud SQL");
       await db.execute(sql`select 1`);
+      if (activeDatabaseBackend() !== "cloud-sql") {
+        throw new Error("active backend is direct PostgreSQL, not Cloud SQL");
+      }
       return "active Cloud SQL backend answered a production query";
     }),
     safeCheck("ARCH-03", () => queueCheck({ db, origin, fetchImpl })),
@@ -263,16 +302,7 @@ export async function runRuntimeAudit({ origin, adminCookie, adminId, fetchImpl 
     ver08 = result("VER-08", "unknown", detail);
     ver10 = result("VER-10", "unknown", detail);
   } else {
-    const matrixPass = kling.noTaskCreated && expectedKlingMatrixPass(kling.matrix);
-    arch04 = result("ARCH-04", matrixPass ? "ok" : "error", matrixPass
-      ? "live wire-model routing matched the explicit registry; all requests were validation-only"
-      : "live wire-model routing or no-task invariant failed");
-    ver08 = result("VER-08", matrixPass ? "ok" : "error", matrixPass
-      ? "live 1K/2K text/reference matrix matched configured capabilities; no task was created"
-      : "live resolution matrix differed from configured capabilities");
-    ver10 = result("VER-10", kling.seedVerdict === "inconclusive" ? "unknown" : "ok",
-      kling.seedVerdict === "inconclusive" ? "valid and invalid seed probes were inconclusive; support remains disabled" :
-        `validator conclusively classified seed as ${kling.seedVerdict}; no task was created`);
+    [arch04, ver08, ver10] = klingAuditResults(kling);
   }
   const checks = [migration, queue, flagged, arch04, ver08, ver10, rel02, rel03];
   if (checks.map((check) => check.id).join() !== CHECK_IDS.join()) throw new Error("audit response shape drifted");
