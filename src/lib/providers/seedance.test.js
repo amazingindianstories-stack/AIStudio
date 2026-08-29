@@ -1,15 +1,12 @@
 /**
  * Tests for the pure/black-box-testable parts of providers/seedance.js.
  *
- * No seedance.test.js existed on the JS side before this — the Django port
- * (test_seedance_provider.py) already covered this ground and says so in its
- * own docstring ("no seedance.test.js exists on the TS side to port, unlike
- * kling/gemini"). This mirrors that file's cases so the two don't drift
- * apart, adapted to this codebase's own convention (kling.test.js) of
+ * These cases cover the provider's pure and black-box-testable behavior,
+ * following this codebase's own convention (kling.test.js) of
  * asserting on the assembled request body rather than mocking a driver
  * object: `pickModel`/`tagsToImageRefs` are module-private here (unlike
- * Python, where leading-underscore names are still directly importable), so
- * their effects are exercised indirectly through createVideoTask's output,
+ * module-private, so their effects are exercised indirectly through
+ * createVideoTask's output,
  * the same way kling.test.js exercises buildKlingPayload's callers.
  */
 import assert from "node:assert/strict";

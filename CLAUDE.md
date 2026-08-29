@@ -4,18 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-**Veevee** — an internal AI image/video generation app (Next.js 15 App Router, React 19, plain JavaScript, Tailwind, Zustand). Users type prompts with `@tag` references (uploads `@img1` or saved assets `@priya`), pick a model, and get images (Nano Banana Pro / Higgsfield) or videos (Seedance 2.0 via Higgsfield MCP or BytePlus Ark). The API backend is being migrated from Next.js API routes to Django — see the `backend/` section below.
+**Veevee** — an internal AI image/video generation app (Next.js 15 App Router, React 19, plain JavaScript, Tailwind, Zustand). Users type prompts with `@tag` references (uploads `@img1` or saved assets `@priya`), pick a model, and get images (Nano Banana Pro / Higgsfield) or videos (Seedance 2.0 via Higgsfield MCP or BytePlus Ark). The same-origin Next.js route handlers under `src/app/api/` are the authoritative API backend.
 
 ## Commands
 
 ```bash
 npm run dev            # local dev server
 npm run build          # production build
-npm run lint           # next lint (no ESLint config committed — was never set up in this repo, pre-dates the JS conversion)
+npm run lint           # ESLint 9, zero warnings allowed
+npm test               # discovered Node unit tests
+npm run test:db        # PostgreSQL integration tests (requires a disposable/test DB)
 npm run db:push        # push src/lib/schema.js to Postgres (drizzle-kit)
 npm run db:seed        # idempotent seed: bucket, admin user, pricing rows
 npm run hf:login       # one-time Higgsfield MCP OAuth (writes .higgsfield-mcp-token.json)
-npx tsx --tsconfig jsconfig.json scripts/<x>.js   # ad-hoc/debug scripts (no test framework exists)
+npx tsx --tsconfig jsconfig.json scripts/<x>.js   # ad-hoc/debug scripts
 npm run recover:videos # re-check videos failed by the old age-based timeout (dry run; -- --apply to repair)
 ```
 
@@ -252,7 +254,7 @@ A fourth generation kind — `kind='depth'` — that runs on a machine this app 
 **Why a worker that dials out, not a server this app calls into.** The obvious shape — an HTTP endpoint on the operator's Mac that this app POSTs a job to — doesn't work: that Mac sits behind an ordinary home router with no public IP, and `pyserver/`'s existing local-InstantID service is exactly that shape and only works because in that case the Next.js app and the Python service run on the *same* machine (`LOCAL_AI_URL` defaults to `127.0.0.1:8765`) — it has no path from a Vercel-hosted deployment to a home machine. The depth worker instead polls **out**: `depth-worker/worker.py` makes outbound HTTPS calls to `/api/worker/depth/claim` every few seconds, the same direction a browser tab's own requests go, so nothing needs a port forwarded, a static IP, or a tunnel service. The tradeoff is latency (a job waits up to the poll interval before being picked up, typically a few seconds) for zero exposed surface and zero network configuration — judged the right trade for a single-operator local-compute setup, revisit if this becomes multi-tenant.
 
 **Reuses the `generations` table rather than a new one** (`kind='depth'` alongside `'image'`/`'video'`) — this is what "generations stay on veevee" (the actual product requirement) gets for free: history/feed, favourites, project/folder membership, admin dashboard totals, download-zip, all work on a depth row with zero kind-specific code beyond what's noted below, because they already operate on `kind` generically. Two fields are **reused for a different meaning** rather than adding single-purpose columns:
-- `resolution` carries the encoder choice (`vits`/`vitb`/`vitl`) — it plays the same "which quality tier" role for a depth job that it plays for image/video, so this is a reuse, not a repurposing. See the comment on `/api/worker/depth/claim` (and its Django twin in `depth_views.py`) where it's read back out.
+- `resolution` carries the encoder choice (`vits`/`vitb`/`vitl`) — it plays the same "which quality tier" role for a depth job that it plays for image/video, so this is a reuse, not a repurposing. See the comment on `/api/worker/depth/claim` where it's read back out.
 - `aspectRatio` is a placeholder (`"16:9"`) at enqueue time, corrected to the *measured* output dimensions on completion — the same pattern `providers/kling.js`'s `nearestKlingAspectRatio` already uses for Kling image-to-image, for the same reason (storing the requested value would mislabel the library card).
 
 Two fields are genuinely new, because nothing existing fits: `progressPercent`/`progressMessage` (nullable, cleared back to null on completion so "absent" always means "not currently reporting progress") and `trackCharacters` (a dedicated boolean rather than reusing `generateAudio` — also a per-job worker-consumed boolean, but for a wholly different kind, which would read as a depth row somehow having an audio setting). A separate `depth_workers` table (one row per worker process, upserted by `workerId` on every heartbeat) backs the status pill — "online" is derived from heartbeat recency at read time (`WORKER_STALE_MS`, 45s) and is never itself a stored flag, so a worker that's killed or loses network self-heals to offline without a clean-shutdown path.
@@ -279,7 +281,9 @@ Vercel is the primary target (hence per-route `maxDuration`, payload limits, env
 
 Optional local Python service (SDXL + InstantID on Apple MPS) for fully-local face-locked generation. Separate from the Node app; see `pyserver/README.md`.
 
-### backend/ — Django/DRF, replacing the Next.js API (in progress, strangler-fig)
+### Historical Django/DRF port (retired 2026-08-29)
+
+The uncut-over `backend/` port was retired after the remediation audit chose one authoritative runtime. It never served production traffic, and maintaining two implementations was creating migration and behavior-drift risk. The port remains available in Git history; the detailed notes below are historical evidence only and must not be used as current operating instructions. Do not recreate a second API runtime without a new architecture decision.
 
 **2026-08-10: migration started.** The entire `src/app/api/*` surface is being ported to Django + Django REST Framework in `backend/`, deployed separately (Railway) from the frontend (Vercel), so the two apps live at different origins. This is **incremental** — Next.js API routes keep serving traffic domain-by-domain until each one has a working Django equivalent the frontend has been switched to; `src/app/api` is only deleted at the very end. The frontend is also being converted from TypeScript to plain JavaScript (`.jsx/.js` → `.jsx/.js`), independent of the backend migration.
 

@@ -32,7 +32,7 @@ jobs:
       - run: npm test
       - run: npm run build
 
-  django:
+  database:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -49,9 +49,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    defaults:
-      run:
-        working-directory: backend
     env:
       AUTH_SECRET: ci-only-secret
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/veevee_ci
@@ -59,25 +56,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
-        working-directory: ${{ github.workspace }}
-      - run: pip install -r requirements.txt
-      - run: DJANGO_TEST_MANAGED=1 python manage.py migrate
+      - run: npm run test:db:setup
       - run: npm run db:migrate:cost-basis
-        working-directory: ${{ github.workspace }}
       - run: npm run db:optimize
-        working-directory: ${{ github.workspace }}
       - run: npm run test:db
-        working-directory: ${{ github.workspace }}
-      - run: python manage.py check
-      - run: DJANGO_TEST_MANAGED=1 python manage.py makemigrations --check
-      - run: DJANGO_TEST_MANAGED=1 python manage.py test

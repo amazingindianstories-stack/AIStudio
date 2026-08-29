@@ -57,13 +57,13 @@ const EXEMPT = new Map([
   [
     "generate/video",
     "Enqueue-only. Reads getSession() but deliberately never 401s on its " +
-      "absence — matched exactly by the Django port's permission_classes([]). " +
-      "Documented in CLAUDE.md; changing it is a product decision, not a fix.",
+      "absence. Documented in CLAUDE.md; changing it is a product decision, " +
+      "not a fix.",
   ],
   [
     "generate/video/status",
     "Polled by the client for a row it already knows the id of; has no auth " +
-      "check by design, same as its Django twin.",
+      "check by design.",
   ],
 ]);
 

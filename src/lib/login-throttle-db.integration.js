@@ -14,10 +14,9 @@ test("global retention removes expired attempts and preserves recent attempts", 
   const identifier = `retention-${crypto.randomUUID()}@example.test`;
   const now = Date.now();
 
-  // Fresh CI databases are created by Django migrations, and MIG-03 tracks
-  // that Django still has no model/migration for this JS-owned live table.
-  // Provision only the table this integration fixture owns; do not smuggle a
-  // Django cutover decision into an unrelated retention fix.
+  // Keep this fixture self-contained even though CI normally provisions the
+  // complete Drizzle schema first. This also permits running the file alone
+  // against an otherwise empty disposable database.
   await db.execute(sql`
     create table if not exists login_attempts (
       id uuid primary key,

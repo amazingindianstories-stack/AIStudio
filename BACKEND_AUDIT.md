@@ -10,11 +10,16 @@
 > resolved there must not be interpreted as open merely because its original
 > recommendation remains in this historical report.
 
+> **Runtime decision (2026-08-29):** The uncut-over Django port was deleted.
+> `src/app/api/` is the sole authoritative API implementation. References to
+> `backend/`, paired fixes, and Django below describe historical evidence that
+> remains available in Git history; those paths are not expected to exist in
+> the current tree.
+
 > **2026-08-13 status update (links refreshed 2026-08-28):** This document
 > predates the TS→JS conversion. Source links below now use the current
-> `.js`/`.jsx` paths (and, for most of the API
-> surface, also has a Django port under `backend/apps/`; both were fixed
-> together where applicable). Resolved in this session:
+> `.js`/`.jsx` paths. Some historical entries also describe the retired
+> Django port. Resolved in this session:
 > - **SEC-01 / SEC-03** (IDOR on history delete, canvas board rename/delete):
 >   addressed deliberately, not by requiring strict per-user ownership. This
 >   is a shared team workspace by design — any signed-in user can still
