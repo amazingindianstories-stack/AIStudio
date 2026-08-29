@@ -27,7 +27,6 @@ to resume after the deployable work is stable.
 | SEC-01, COST-01, COST-02 | Valid exact-bucket AWS administrator access is unavailable. | Sign in with the correct AWS administrator and rotate/migrate with bounded verification. |
 | MIG-06 | Depends on zero media gaps and the observation window. | Complete COST-01/COST-02 and the restore drill first. |
 | REL-01, VER-04 | Requires one coordinated Vercel, Django, and GPU-worker protocol rollout. | Schedule the worker update and deliberate-kill/all-encoder exercise together. |
-| SEC-08 | Removing production environment variables is an operator action. | Confirm the retired integrations, then remove only the verified dead variables. |
 | COST-05 | The remaining exit test intentionally creates billed provider work. | Approve a controlled partial-submission fixture after this release stabilizes. |
 | REL-07 | Applying reconciliation would mutate the reported stuck production row. | Review the DB-only dry run, then separately approve `--apply`. |
 | ARCH-03 | The exit smoke test needs two authenticated user sessions. | Run the two-user fairness check after deployment. |
@@ -60,7 +59,7 @@ current verification.
 | SEC-05 | Higgsfield refresh has no distributed lock | P1 | in_progress | 2026-08-28 | Codex | Local refresh coordination uses an atomic, expiring PostgreSQL lease plus in-process promise deduplication; losing instances adopt the centrally stored fresh token and stale owners cannot release a successor's lease. PostgreSQL concurrency/expiry/owner-safety test added. Exit: deploy and observe one controlled concurrent refresh without duplicate rotation. |
 | SEC-06 | Canvas upload ignored board ID | P2 | resolved | 2026-08-25 | Codex | Board validation shipped in `2929509`. |
 | SEC-07 | No Content-Security-Policy | P2 | open | 2026-08-18 | Unassigned | Schedule after final CDN domain is known. |
-| SEC-08 | Dead Vercel credentials remain | P2 | open | 2026-08-25 | Operator + Codex | Vercel still lists `BLOB_*` and retired Higgsfield dev-API variables. |
+| SEC-08 | Dead Vercel credentials remain | P2 | resolved | 2026-08-29 | Operator + Codex | Removed only the eight verified-unused Blob and Higgsfield dev-API variable names from Vercel Production/Preview; a post-change name-only inventory confirms they are absent while the separate Production MCP compatibility credentials remain. |
 | COST-01 | Duplicate S3 history remains billed | P0 | blocked | 2026-08-26 | AWS administrator + Codex | See active P0 queue. |
 | COST-02 | DB-referenced objects are missing from GCS | P1 | blocked | 2026-08-26 | AWS administrator + Codex | Bounded live verification completed: 78 of 6,478 referenced objects are missing from GCS; copying is blocked by the invalid AWS source credential. |
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
@@ -84,7 +83,7 @@ current verification.
 | MIG-05 | Cloud CDN is not provisioned | P1 | open | 2026-08-18 | Unassigned | Choose hostname and execute the CDN runbook. |
 | MIG-06 | Rollback credentials were never removed | P1 | blocked | 2026-08-25 | Operator + Codex | Blocked by zero-gap media verification and observation window. |
 | MIG-07 | Railway Django service does not exist | P2 | resolved | 2026-08-29 | Codex | The uncut-over Django deployment target was intentionally retired; the production Railway PostgreSQL database is unchanged. |
-| MIG-08 | Higgsfield UI is gone but backend remains | P3 | open | 2026-08-18 | Unassigned | Decide retirement and preserve historical pricing. |
+| MIG-08 | Higgsfield UI is gone but backend remains | P3 | resolved | 2026-08-29 | Codex | Decision recorded: the hidden Next.js MCP compatibility path remains supported for historical retry/readability, historical pricing remains, and the obsolete dev-API credentials are retired. |
 | MIG-09 | Unreachable legacy agent routes remain in Django | P3 | resolved | 2026-08-29 | Codex | Removed with the retired Django source tree; the active Next.js agent surface is unchanged. |
 | MIG-10 | Pre-Postgres JSON snapshots remain | P3 | resolved | 2026-08-28 | Codex | Read-only `git ls-tree -d origin/main data` verification at production `97b0e9c` found no root `data/` snapshot tree. No unrelated local or untracked file was deleted. |
 | DRIFT-01 | Python video directive lacks reference legends | P1 | resolved | 2026-08-29 | Codex | The non-authoritative Python implementation and its cross-language parity guard were removed; the tested JavaScript directive remains authoritative. |
@@ -123,7 +122,7 @@ current verification.
 | DX-06 | Documentation contains `.ts`/`.tsx` path drift | P3 | resolved | 2026-08-28 | Codex | Maintained documentation source references were converted to current `.js`/`.jsx` extensions and a unit-discovered guard now rejects retired `.ts`/`.tsx` source paths. |
 | DX-07 | Django history paths in `CLAUDE.md` are stale | P3 | resolved | 2026-08-29 | Codex | Current guidance names the same-origin Next.js API as authoritative and labels the retained Django narrative as historical Git evidence. |
 | DX-08 | Backend audit body presents resolved work as open | P3 | resolved | 2026-08-28 | Codex | The historical audit now begins with an explicit current-status rule linking the stable-ID tracker and warning that original recommendations are not live state. |
-| DX-09 | Main auto-deploys with no preview gate | P2 | open | 2026-08-25 | Unassigned | Use audit branch previews now; add protected CI later. |
+| DX-09 | Main auto-deploys with no preview gate | P2 | resolved | 2026-08-29 | Codex | Active GitHub ruleset `21794494` targets `main`: pull requests are required with zero approvals and resolved review threads, strict `web`, `database`, and `Vercel` checks are required, and deletion/non-fast-forward pushes are blocked. PR #15 exercises the gate. |
 | DX-10 | Script-test naming convention is unenforced | P3 | resolved | 2026-08-27 | Codex | The runner's `scripts/**/*.test.js` rejection guard passed on PR #11 and main CI run `33055388366`. |
 | DX-11 | Test discovery uses non-portable shell `find` | P3 | resolved | 2026-08-27 | Codex | Portable Node test discovery passed on PR #11 and main CI run `33055388366`. |
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | P2 | open | 2026-08-18 | Unassigned | Build fixtures before changing directives. |
@@ -131,9 +130,22 @@ current verification.
 | QUAL-03 | Flagged-generation signal has no consumer | P3 | in_progress | 2026-08-28 | Codex | Admin generation logs now support a server-side `flagged=1` review queue, show reason/judge evidence, and include flag metadata in RFC 4180 CSV; the existing bounded fixture exporter remains available. Exit: deploy and review/export representative flagged rows. |
 | QUAL-04 | Depth progress uses coarse milestones | P3 | resolved | 2026-08-28 | Codex | Retained worker percentage, milestone count, and live timer; the card now labels the timer as elapsed (not remaining) and explains that depth estimation is normally the longest stage. No fabricated ETA was added because the vendored inference API exposes no per-frame callback. |
 | QUAL-05 | Canvas asset project does not own board context | P2 | resolved | 2026-08-27 | Codex | Re-audit found the fix already present in `0b2c02b`: Canvas has an explicit board-project selector, clears the old board before switching, fences stale list responses, and labels the independent control `Assets from:`. A source guard now pins those invariants. |
-| QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | deferred | 2026-08-25 | Unassigned | Expose an explicit tradeoff or delete the flag. |
+| QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-08-29: completed the credential-retirement and no-bill code portion of
+  the accelerated batch. Removed only the eight verified-unused Blob and
+  Higgsfield dev-API variables from Vercel Production/Preview while preserving
+  the supported MCP compatibility credentials (`SEC-08`); recorded the
+  historical retry/readability and pricing decision (`MIG-08`); and deleted the
+  measured-risk supersampling path so normal requested-resolution rendering is
+  the only behavior (`QUAL-06`). No provider generation or billed probe ran.
+
+- 2026-08-29: activated GitHub ruleset `21794494` for `main`, requiring pull
+  requests, resolved review threads, and strict `web`, `database`, and `Vercel`
+  checks while blocking branch deletion and non-fast-forward updates (`DX-09`).
+  PR #15 is the first accelerated-batch change governed by the new rule.
 
 - 2026-08-29: retired the never-cut-over Django port in favor of the production
   Next.js API, resolving `MIG-01`/`02`/`03`/`07`/`09`, `DRIFT-01`–`06`,

@@ -53,3 +53,10 @@ test("remote video URLs remain the fallback when local persistence fails", () =>
   assert.match(videoStatusRoute, /let localUrl = winner\.videoUrl;[\s\S]*?catch \{\s*\/\/ fall back to the remote url/);
   assert.match(videoStatusRoute, /let localUrl = videoUrl;[\s\S]*?catch \{\s*\/\/ fall back to the remote url/);
 });
+
+test("Gemini renders and persists the requested resolution without supersampling", () => {
+  assert.doesNotMatch(queueRoute, /SUPERSAMPLE|NEXT_IMAGE_SIZE|halveForDelivery/);
+  const gemini = between(queueRoute, "// Context engineering:", "const done = {");
+  assert.match(gemini, /imageSize: requestedSize/);
+  assert.match(gemini, /boundedBestOf\(process\.env\.FACE_BEST_OF, requestedSize\)/);
+});
