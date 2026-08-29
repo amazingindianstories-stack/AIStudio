@@ -122,7 +122,7 @@ current verification.
 | DX-06 | Documentation contains `.ts`/`.tsx` path drift | P3 | resolved | 2026-08-28 | Codex | Maintained documentation source references were converted to current `.js`/`.jsx` extensions and a unit-discovered guard now rejects retired `.ts`/`.tsx` source paths. |
 | DX-07 | Django history paths in `CLAUDE.md` are stale | P3 | resolved | 2026-08-29 | Codex | Current guidance names the same-origin Next.js API as authoritative and labels the retained Django narrative as historical Git evidence. |
 | DX-08 | Backend audit body presents resolved work as open | P3 | resolved | 2026-08-28 | Codex | The historical audit now begins with an explicit current-status rule linking the stable-ID tracker and warning that original recommendations are not live state. |
-| DX-09 | Main auto-deploys with no preview gate | P2 | open | 2026-08-25 | Unassigned | Use audit branch previews now; add protected CI later. |
+| DX-09 | Main auto-deploys with no preview gate | P2 | resolved | 2026-08-29 | Codex | Active GitHub ruleset `21794494` targets `main`: pull requests are required with zero approvals and resolved review threads, strict `web`, `database`, and `Vercel` checks are required, and deletion/non-fast-forward pushes are blocked. PR #15 exercises the gate. |
 | DX-10 | Script-test naming convention is unenforced | P3 | resolved | 2026-08-27 | Codex | The runner's `scripts/**/*.test.js` rejection guard passed on PR #11 and main CI run `33055388366`. |
 | DX-11 | Test discovery uses non-portable shell `find` | P3 | resolved | 2026-08-27 | Codex | Portable Node test discovery passed on PR #11 and main CI run `33055388366`. |
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | P2 | open | 2026-08-18 | Unassigned | Build fixtures before changing directives. |
@@ -141,6 +141,11 @@ current verification.
   historical retry/readability and pricing decision (`MIG-08`); and deleted the
   measured-risk supersampling path so normal requested-resolution rendering is
   the only behavior (`QUAL-06`). No provider generation or billed probe ran.
+
+- 2026-08-29: activated GitHub ruleset `21794494` for `main`, requiring pull
+  requests, resolved review threads, and strict `web`, `database`, and `Vercel`
+  checks while blocking branch deletion and non-fast-forward updates (`DX-09`).
+  PR #15 is the first accelerated-batch change governed by the new rule.
 
 - 2026-08-29: retired the never-cut-over Django port in favor of the production
   Next.js API, resolving `MIG-01`/`02`/`03`/`07`/`09`, `DRIFT-01`–`06`,
