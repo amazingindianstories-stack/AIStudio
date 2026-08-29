@@ -136,10 +136,12 @@ current verification.
   after zero-warning lint, 766 unit tests, a production build, two idempotent
   video poll-health migration runs, and 12 fresh-PostgreSQL integration tests.
   No production configuration, migration, provider probe, merge, or deployment
-  occurred. Started the stacked audit-blocker batch to separate Kling request
-  safety, task-list stability, wire routing, resolution, and seed signals while
-  keeping the runtime response sanitized. The register remains 51 resolved and
-  29 pending.
+  occurred. Published stacked audit-blocker commit `c78e77e` as draft PR #21;
+  it separates Kling request safety, task-list stability, wire routing,
+  resolution, and seed signals while keeping the runtime response sanitized.
+  Zero-warning lint, 773 unit tests, a production build, and 12 disposable-
+  PostgreSQL integration tests pass. The register remains 51 resolved and 29
+  pending.
 
 - 2026-08-29: ran the authenticated production runtime audit once. `ARCH-03`
   and `QUAL-03` passed their real-route checks with zero fixture residue and are
