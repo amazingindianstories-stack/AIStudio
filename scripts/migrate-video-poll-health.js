@@ -23,18 +23,31 @@ async function main() {
   const verification = await db.execute(sql`
     select
       count(*) filter (where column_name in ('poll_error_count', 'last_poll_error_at'))::int as columns,
-      (select count(*)::int from pg_indexes
-        where schemaname = current_schema()
-          and tablename = 'generations'
-          and indexname = 'generations_stale_video_poll_idx') as indexes
+      (select count(*)::int
+         from pg_class index_class
+         join pg_index index_state on index_state.indexrelid = index_class.oid
+         join pg_class table_class on table_class.oid = index_state.indrelid
+         join pg_namespace namespace on namespace.oid = table_class.relnamespace
+        where namespace.nspname = current_schema()
+          and table_class.relname = 'generations'
+          and index_class.relname = 'generations_stale_video_poll_idx') as indexes,
+      (select count(*)::int
+         from pg_class index_class
+         join pg_index index_state on index_state.indexrelid = index_class.oid
+         join pg_class table_class on table_class.oid = index_state.indrelid
+         join pg_namespace namespace on namespace.oid = table_class.relnamespace
+        where namespace.nspname = current_schema()
+          and table_class.relname = 'generations'
+          and index_class.relname = 'generations_stale_video_poll_idx'
+          and index_state.indisvalid) as valid_indexes
     from information_schema.columns
     where table_schema = current_schema() and table_name = 'generations'
   `);
   const row = (verification.rows ?? verification)[0];
-  if (Number(row?.columns) !== 2 || Number(row?.indexes) !== 1) {
+  if (Number(row?.columns) !== 2 || Number(row?.indexes) !== 1 || Number(row?.valid_indexes) !== 1) {
     throw new Error("Video poll-health migration verification failed.");
   }
-  console.log("Video poll-health columns and reconciliation index verified.");
+  console.log("Video poll-health columns and valid reconciliation index verified.");
 }
 
 main().then(() => process.exit(0), (error) => {
