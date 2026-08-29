@@ -9,6 +9,7 @@ const config = [
   {
     ignores: [
       ".next/**",
+      "**/.venv/**",
       "backend/**",
       "coverage/**",
       "depth-worker/**",
