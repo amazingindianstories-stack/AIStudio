@@ -1847,6 +1847,9 @@ function StatusTab() {
   const [checkedAt, setCheckedAt] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [audit, setAudit] = useState(null);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -1869,6 +1872,25 @@ function StatusTab() {
   useEffect(() => {
     load();
   }, []);
+
+  const runAudit = async () => {
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const response = await apiFetch("/api/admin/audit/runtime", { method: "POST" });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(response.status === 429
+          ? `Diagnostics are cooling down. Try again in ${body.retryAfterSeconds ?? 60} seconds.`
+          : `Diagnostics returned HTTP ${response.status}.`);
+      }
+      setAudit(await response.json());
+    } catch (err) {
+      setAuditError(err instanceof Error ? err.message : "Diagnostics failed.");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
 
   const rows = results
     ? results.map((r) => ({
@@ -2022,6 +2044,45 @@ function StatusTab() {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="rounded-xl border border-line bg-ink-800 p-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Audit diagnostics</p>
+            <p className="mt-1 text-xs text-white/45">
+              Validation-only provider checks plus temporary database fixtures that are always removed.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={runAudit}
+            disabled={auditLoading}
+            className="flex items-center gap-1.5 rounded-lg border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/80 transition hover:text-white disabled:opacity-40"
+          >
+            {auditLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
+            {auditLoading ? "Running…" : "Run audit diagnostics"}
+          </button>
+        </div>
+        {auditError && <p role="alert" className="mt-3 text-xs text-red-300">{auditError}</p>}
+        {audit && (
+          <div className="mt-4 overflow-x-auto rounded-lg border border-line">
+            <table className="w-full min-w-[520px] text-sm">
+              <thead className="bg-ink-700 text-left text-xs uppercase tracking-wide text-white/40">
+                <tr><th className="px-3 py-2">Audit ID</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Sanitized detail</th></tr>
+              </thead>
+              <tbody>
+                {audit.checks.map((check) => (
+                  <tr key={check.id} className="border-t border-line align-top">
+                    <td className="px-3 py-2 font-medium">{check.id}</td>
+                    <td className="px-3 py-2"><StatusBadge status={check.status} /></td>
+                    <td className="px-3 py-2 text-xs text-white/60">{check.detail}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );
