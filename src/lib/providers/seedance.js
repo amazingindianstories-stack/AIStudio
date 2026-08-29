@@ -305,13 +305,15 @@ export async function createVideoTask(
 }
 
 export async function getVideoTask(
-  taskId
+  taskId,
+  options = {}
 ) {
   const res = await fetch(
     `${arkBase()}/contents/generations/tasks/${encodeURIComponent(taskId)}`,
     {
       method: "GET",
       headers: { Authorization: `Bearer ${arkKey()}` },
+      signal: options.signal,
     }
   );
   if (!res.ok) {

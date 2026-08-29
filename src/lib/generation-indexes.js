@@ -10,6 +10,7 @@ export const EXPECTED_GENERATION_INDEX_NAMES = Object.freeze([
   "generations_folder_keyset_idx",
   "generations_favorite_keyset_idx",
   "generations_flagged_keyset_idx",
+  "generations_stale_video_poll_idx",
 ]);
 
 /** Online-safe definitions used to reconcile a migrated database. */
@@ -34,4 +35,7 @@ export const GENERATION_INDEX_STATEMENTS = Object.freeze([
      on generations (favorited_at desc, id desc) where is_favorite`,
   `create index concurrently if not exists generations_flagged_keyset_idx
      on generations (flagged_at desc, id desc) where flagged`,
+  `create index concurrently if not exists generations_stale_video_poll_idx
+     on generations (updated_at asc, created_at asc, id asc)
+     where kind = 'video' and status in ('queued', 'running') and task_id is not null`,
 ]);

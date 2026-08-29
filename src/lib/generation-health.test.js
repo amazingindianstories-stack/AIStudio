@@ -42,7 +42,7 @@ test("generation index health is ok only when every expected index is valid", as
   const rows = EXPECTED_GENERATION_INDEX_NAMES.map((name) => ({ name, valid: true }));
   assert.deepEqual(await checkGenerationIndexes(provider(rows)), {
     status: "ok",
-    detail: "10/10 expected indexes valid",
+    detail: "11/11 expected indexes valid",
   });
 });
 

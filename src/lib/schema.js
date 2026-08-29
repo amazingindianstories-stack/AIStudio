@@ -78,6 +78,11 @@ export const generations = pgTable("generations", {
   isFavorite: boolean("is_favorite").notNull().default(false),
   favoritedAt: bigint("favorited_at", { mode: "number" }),
   taskId: text("task_id"),
+  // Provider polling health is deliberately separate from updatedAt. A
+  // transient status-read failure must be observable without making a stale
+  // generation look recently advanced to the reconciliation selector.
+  pollErrorCount: integer("poll_error_count").notNull().default(0),
+  lastPollErrorAt: bigint("last_poll_error_at", { mode: "number" }),
   // Whether the video was requested with a synchronised audio track (BytePlus
   // ModelArk only — see config.ts supportsAudio). It has to be persisted, not
   // just passed through: /api/generate/video merely enqueues, and it is
@@ -228,6 +233,9 @@ export const generations = pgTable("generations", {
   index("generations_flagged_keyset_idx")
     .on(table.flaggedAt.desc(), table.id.desc())
     .where(sql`${table.flagged}`),
+  index("generations_stale_video_poll_idx")
+    .on(table.updatedAt, table.createdAt, table.id)
+    .where(sql`${table.kind} = 'video' and ${table.status} in ('queued', 'running') and ${table.taskId} is not null`),
 ]);
 
 /**

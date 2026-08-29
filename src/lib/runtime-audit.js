@@ -1,11 +1,19 @@
 import { randomUUID } from "node:crypto";
+import { access, mkdtemp, readdir, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { count, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { signSession, SESSION_COOKIE } from "./auth";
 import { generations, userLimits, users } from "./schema";
 import { expectedKlingMatrixPass, runKlingValidation } from "./kling-validation";
+import { generateAndSpoolCandidates, readSpooledBase64 } from "./best-of-spool";
+import { abortableDelay, settleQueueExecution } from "./queue-execution-deadline";
 
-const CHECK_IDS = ["MIG-04", "ARCH-03", "QUAL-03", "ARCH-04", "VER-08", "VER-10"];
+const CHECK_IDS = [
+  "MIG-04", "ARCH-03", "QUAL-03", "ARCH-04", "VER-08", "VER-10",
+  "REL-02", "REL-03",
+];
 
 export function parseCsv(text) {
   const rows = [];
@@ -137,6 +145,87 @@ async function flaggedCheck({ db, origin, adminCookie, adminId, fetchImpl }) {
   return "real flagged JSON and CSV routes passed evidence, RFC 4180, and zero-fixture cleanup";
 }
 
+async function spoolCase({ forceFailure = false } = {}) {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "veevee-runtime-spool-"));
+  let forced = false;
+  try {
+    const payloads = ["synthetic-a", "synthetic-b", "synthetic-c"];
+    const { candidates, errors } = await generateAndSpoolCandidates({
+      count: payloads.length,
+      directory,
+      generate: async (index) => ({
+        base64: Buffer.from(payloads[index]).toString("base64"),
+        mimeType: "image/png",
+      }),
+    });
+    if (errors.length || candidates.length !== payloads.length) {
+      throw new Error("synthetic spool did not preserve every candidate");
+    }
+    if (candidates.some((candidate) =>
+      Object.keys(candidate).sort().join(",") !== "file,mimeType" || "base64" in candidate
+    )) {
+      throw new Error("candidate memory retained payload data");
+    }
+    const files = await readdir(directory);
+    if (files.length !== payloads.length) throw new Error("spool file count differed");
+    const decoded = Buffer.from(await readSpooledBase64(candidates[1]), "base64").toString();
+    if (decoded !== payloads[1]) throw new Error("spooled bytes differed");
+    if (forceFailure) {
+      forced = true;
+      throw new Error("forced spool diagnostic failure");
+    }
+  } catch (error) {
+    if (!forced) throw error;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+  try {
+    await access(directory);
+    throw new Error("spool temporary directory remained after cleanup");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
+export async function spoolCheck() {
+  await spoolCase();
+  await spoolCase({ forceFailure: true });
+  return "real spool library retained metadata only and removed both success and forced-failure directories";
+}
+
+export async function deadlineCheck({ db, forceAfterInsert = false, fixtureId = randomUUID() } = {}) {
+  const id = fixtureId;
+  let persistedBeforeReturn = false;
+  try {
+    const now = Date.now();
+    await db.insert(generations).values({
+      id, kind: "audit", status: "running", prompt: "audit", model: "audit",
+      aspectRatio: "1:1", costCents: 0, createdAt: now, updatedAt: now,
+    });
+    if (forceAfterInsert) throw new Error("forced deadline fixture failure");
+    const settled = await settleQueueExecution({
+      timeoutMs: 15,
+      work: (signal) => abortableDelay(1_000, signal),
+      onSuccess: async () => { throw new Error("deadline diagnostic unexpectedly succeeded"); },
+      onFailure: async (error) => {
+        await db.update(generations).set({
+          status: "failed", error: error.message, updatedAt: Date.now(),
+        }).where(eq(generations.id, id));
+        return "failed";
+      },
+    });
+    const [row] = await db.select({ status: generations.status }).from(generations)
+      .where(eq(generations.id, id));
+    persistedBeforeReturn = settled === "failed" && row?.status === "failed";
+  } finally {
+    await db.delete(generations).where(eq(generations.id, id));
+  }
+  const [left] = await db.select({ n: count() }).from(generations).where(eq(generations.id, id));
+  if (Number(left.n) !== 0) throw new Error("deadline fixture cleanup count was nonzero");
+  if (!persistedBeforeReturn) throw new Error("terminal deadline state was not persisted before return");
+  return "short internal deadline persisted terminal state before return and left zero fixtures";
+}
+
 async function safeCheck(id, fn) {
   try { return result(id, "ok", await fn()); }
   catch (error) { return result(id, "error", error instanceof Error ? error.message : error); }
@@ -149,7 +238,7 @@ export async function runRuntimeAudit({ origin, adminCookie, adminId, fetchImpl 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25_000);
   const klingPromise = runKlingValidation({ fetchImpl, signal: controller.signal }).catch((error) => ({ error }));
-  const [migration, queue, flagged, kling] = await Promise.all([
+  const [migration, queue, flagged, rel02, rel03, kling] = await Promise.all([
     safeCheck("MIG-04", async () => {
       if (process.env.DATABASE_BACKEND !== "cloud-sql") throw new Error("active database backend is not Cloud SQL");
       await db.execute(sql`select 1`);
@@ -157,6 +246,8 @@ export async function runRuntimeAudit({ origin, adminCookie, adminId, fetchImpl 
     }),
     safeCheck("ARCH-03", () => queueCheck({ db, origin, fetchImpl })),
     safeCheck("QUAL-03", () => flaggedCheck({ db, origin, adminCookie, adminId, fetchImpl })),
+    safeCheck("REL-02", () => spoolCheck()),
+    safeCheck("REL-03", () => deadlineCheck({ db })),
     klingPromise,
   ]);
   clearTimeout(timer);
@@ -183,7 +274,7 @@ export async function runRuntimeAudit({ origin, adminCookie, adminId, fetchImpl 
       kling.seedVerdict === "inconclusive" ? "valid and invalid seed probes were inconclusive; support remains disabled" :
         `validator conclusively classified seed as ${kling.seedVerdict}; no task was created`);
   }
-  const checks = [migration, queue, flagged, arch04, ver08, ver10];
+  const checks = [migration, queue, flagged, arch04, ver08, ver10, rel02, rel03];
   if (checks.map((check) => check.id).join() !== CHECK_IDS.join()) throw new Error("audit response shape drifted");
   return { checkedAt, auditId, checks };
 }

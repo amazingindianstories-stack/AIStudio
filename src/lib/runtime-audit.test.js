@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseCsv, sanitizeAuditDetail } from "./runtime-audit";
+import { parseCsv, sanitizeAuditDetail, spoolCheck } from "./runtime-audit";
 
 test("runtime audit CSV parser follows RFC 4180 quotes, commas, and newlines", () => {
   const rows = parseCsv('a,b,c\r\n1,"two, \"\"quoted\"\"","line one\nline two"');
@@ -15,4 +15,8 @@ test("runtime audit detail redacts UUIDs, credentials, and line breaks", () => {
   assert.equal(detail.includes("abc"), false);
   assert.equal(detail.includes("6a0b7185"), false);
   assert.equal(detail.includes("\n"), false);
+});
+
+test("runtime audit spool diagnostic cleans success and forced-failure directories", async () => {
+  assert.match(await spoolCheck(), /metadata only/);
 });

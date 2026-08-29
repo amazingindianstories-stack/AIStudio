@@ -45,6 +45,7 @@ import {
   setStoreTimeout,
   storeRuntime,
 } from "./store-runtime";
+import { videoPollClientDecision } from "./video-poll-backoff";
 
 const EMPTY_COUNTS = {
   project: { total: 0, unsorted: 0, byFolder: {} },
@@ -1474,14 +1475,24 @@ function pollVideo(
   polling.add(id);
 
   const tick = async () => {
+    let retryAfterMs = 4000;
     try {
       const res = await apiFetch(
         `/api/generate/video/status?id=${encodeURIComponent(id)}`,
         { cache: "no-store" }
       );
-      const item = await res.json();
+      const payload = await res.json();
       if (!polling.has(id)) return; // disposed while the request was in flight
-      if (item?.id) {
+      const decision = videoPollClientDecision(payload);
+      retryAfterMs = decision.retryAfterMs;
+      if (decision.transient) {
+        patchEverywhere(set, id, (item) => ({
+          ...item,
+          pollErrorCount: decision.pollErrorCount,
+          pollWarning: decision.warning,
+        }));
+      } else if (decision.item?.id) {
+        const item = decision.item;
         patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
         if (item.status === "succeeded" || item.status === "failed") {
           polling.delete(id);
@@ -1491,7 +1502,7 @@ function pollVideo(
     } catch {
       /* keep trying */
     }
-    if (polling.has(id)) setStoreTimeout(tick, 4000);
+    if (polling.has(id)) setStoreTimeout(tick, retryAfterMs);
   };
 
   setStoreTimeout(tick, 3000);
