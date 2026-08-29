@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const queueRoute = readFileSync("src/app/api/queue/execute/route.js", "utf8");
-const videoStatusRoute = readFileSync("src/app/api/generate/video/status/route.js", "utf8");
+const videoStatusService = readFileSync("src/lib/video-status-advancement.js", "utf8");
 
 function between(source, start, end) {
   const from = source.indexOf(start);
@@ -38,20 +38,20 @@ test("Gemini, Higgsfield, and Kling image successes use measured persistence", (
 });
 
 test("Omni, provider URL, and best-of video successes use measured persistence", () => {
-  const bestOf = between(videoStatusRoute, "async function resolveVideoBestOf", "export async function GET");
-  const omni = between(videoStatusRoute, "if (isOmniModel(item.model)) {", "// Higgsfield → MCP");
-  const provider = between(videoStatusRoute, "// Higgsfield → MCP", "if (result.status === \"failed\")");
-  assert.match(bestOf, /saveFromUrlWithMetadata\(winner\.videoUrl/);
+  const bestOf = between(videoStatusService, "async function resolveVideoBestOf", "async function advanceOmni");
+  const omni = between(videoStatusService, "async function advanceOmni", "async function advanceStandard");
+  const provider = between(videoStatusService, "async function advanceStandard", "/**\n * Shared browser\/cron");
+  assert.match(bestOf, /saveFromUrlWithMetadata\(url/);
   assert.match(bestOf, /aspectRatio,/);
   assert.match(omni, /saveBase64WithMetadata\(result\.videoBase64/);
-  assert.match(omni, /aspectRatio: url\.aspectRatio/);
+  assert.match(omni, /aspectRatio: saved\.aspectRatio/);
   assert.match(provider, /saveFromUrlWithMetadata\(videoUrl/);
-  assert.match(provider, /aspectRatio,/);
+  assert.match(provider, /aspectRatio/);
 });
 
 test("remote video URLs remain the fallback when local persistence fails", () => {
-  assert.match(videoStatusRoute, /let localUrl = winner\.videoUrl;[\s\S]*?catch \{\s*\/\/ fall back to the remote url/);
-  assert.match(videoStatusRoute, /let localUrl = videoUrl;[\s\S]*?catch \{\s*\/\/ fall back to the remote url/);
+  assert.match(videoStatusService, /let url = winner\.videoUrl;[\s\S]*?catch \{[\s\S]*?provider URL remains usable/);
+  assert.match(videoStatusService, /let url = videoUrl;[\s\S]*?catch \{[\s\S]*?Keep the provider URL/);
 });
 
 test("Gemini renders and persists the requested resolution without supersampling", () => {

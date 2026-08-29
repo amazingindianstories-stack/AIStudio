@@ -42,7 +42,7 @@ const rows = [
 test("live generation index check sees all reconciled indexes as valid", async () => {
   assert.deepEqual(await checkGenerationIndexes(), {
     status: "ok",
-    detail: "10/10 expected indexes valid",
+    detail: "11/11 expected indexes valid",
   });
 });
 

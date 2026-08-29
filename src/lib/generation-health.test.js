@@ -29,6 +29,14 @@ test("generation index registry exactly matches schema declarations and optimize
   }
 });
 
+test("video poll migration requires exactly one valid reconciliation index", () => {
+  const migration = readFileSync("scripts/migrate-video-poll-health.js", "utf8");
+  assert.match(migration, /index_state\.indisvalid/);
+  assert.match(migration, /Number\(row\?\.columns\) !== 2/);
+  assert.match(migration, /Number\(row\?\.indexes\) !== 1/);
+  assert.match(migration, /Number\(row\?\.valid_indexes\) !== 1/);
+});
+
 test("generation index health reports missing and invalid indexes", async () => {
   const rows = EXPECTED_GENERATION_INDEX_NAMES.slice(1).map((name) => ({ name, valid: true }));
   rows.find((row) => row.name === "generations_queue_idx").valid = false;
@@ -42,7 +50,7 @@ test("generation index health is ok only when every expected index is valid", as
   const rows = EXPECTED_GENERATION_INDEX_NAMES.map((name) => ({ name, valid: true }));
   assert.deepEqual(await checkGenerationIndexes(provider(rows)), {
     status: "ok",
-    detail: "10/10 expected indexes valid",
+    detail: "11/11 expected indexes valid",
   });
 });
 

@@ -8,7 +8,7 @@ import { isProviderModel } from "./model-registry";
  * This table doubles as the generation log for the admin dashboard.
  */
 
-function rowToItem(r) {
+export function rowToItem(r) {
   return {
     id: r.id,
     kind: r.kind ,
@@ -25,6 +25,8 @@ function rowToItem(r) {
     error: r.error ?? undefined,
     moderationBlocked: r.moderationBlocked ?? undefined,
     taskId: r.taskId ?? undefined,
+    pollErrorCount: r.pollErrorCount ?? 0,
+    lastPollErrorAt: r.lastPollErrorAt ?? undefined,
     generateAudio: r.generateAudio ?? undefined,
     videoTaskMode: (r.videoTaskMode ) ?? undefined,
     progressPercent: r.progressPercent ?? undefined,
@@ -83,6 +85,8 @@ function itemToValues(item) {
     flagReason: item.flagReason ?? null,
     judgeScore: item.judgeScore ?? null,
     taskId: item.taskId ?? null,
+    pollErrorCount: item.pollErrorCount ?? 0,
+    lastPollErrorAt: item.lastPollErrorAt ?? null,
     generateAudio: item.generateAudio ?? null,
     videoTaskMode: item.videoTaskMode ?? null,
     progressPercent: item.progressPercent ?? null,

@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/login-attempts",
       "schedule": "17 3 * * *"
+    },
+    {
+      "path": "/api/cron/video-reconciliation",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

@@ -274,6 +274,11 @@ export function MediaCard({
                 {item.queueNote}
               </span>
             )}
+            {item.kind === "video" && item.pollWarning && (
+              <span className="text-[10px] leading-snug text-amber-300/80">
+                {item.pollWarning}
+              </span>
+            )}
             {/* Depth jobs are the one kind with real progress to show — the
                 worker POSTs progressPercent/progressMessage periodically (see
                 CLAUDE.md's depth-map-worker section) and pollDepthStatus in

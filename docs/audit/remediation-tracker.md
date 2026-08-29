@@ -28,8 +28,6 @@ to resume after the deployable work is stable.
 | MIG-06 | Depends on zero media gaps and the observation window. | Complete COST-01/COST-02 and the restore drill first. |
 | REL-01, VER-04 | Requires one coordinated Vercel, Django, and GPU-worker protocol rollout. | Schedule the worker update and deliberate-kill/all-encoder exercise together. |
 | COST-05 | The remaining exit test intentionally creates billed provider work. | Approve a controlled partial-submission fixture after this release stabilizes. |
-| REL-07 | Applying reconciliation would mutate the reported stuck production row. | Review the DB-only dry run, then separately approve `--apply`. |
-| ARCH-03 | The exit smoke test needs two authenticated user sessions. | Run the two-user fairness check after deployment. |
 | ARCH-05 | Alert creation changes Vercel project configuration. | Configure the stable event-marker alert after log shape is observed. |
 
 ## Local product bugs outside the PDF register
@@ -68,18 +66,18 @@ current verification.
 | COST-06 | Provider costs mix exact and estimated values | P2 | resolved | 2026-08-29 | Codex | Aggregate-only production verification found 1,955 succeeded estimated rows and 6 succeeded reconciled rows after deployment, proving both classes are persisted. Admin totals, user summaries, logs, and CSV exports expose the split. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-29 | Codex | The conditional depth batch was not started: an aggregate one-hour production-log check found zero worker heartbeat requests, and no operator worker terminal was available. Claim-fenced implementation `4301601` remains isolated; the deleted Django source will not be restored. |
-| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | monitoring | 2026-08-29 | Codex | A bounded 24-hour log aggregate found 13 best-of requests, all completed with HTTP 200. Logs do not expose peak memory or prove spool cleanup, so bounded-memory closure evidence is still missing. |
-| REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | monitoring | 2026-08-29 | Codex | A bounded seven-day production-log query found no persisted timeout marker. The deployed 270-second abort remains in monitoring until a natural timeout proves terminal persistence before platform termination. |
+| REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | monitoring | 2026-08-29 | Codex | The authenticated runtime audit now exercises the real serial spool library with synthetic candidates, proves in-memory candidates contain metadata only, and verifies temporary-directory cleanup after success and a forced failure. Exit: pass the expanded diagnostic once on the deployed runtime with zero fixture residue. |
+| REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | monitoring | 2026-08-29 | Codex | The authenticated runtime audit now applies a short real internal deadline to a temporary generation, verifies terminal persistence before return, and count-checks cleanup. Exit: pass the expanded diagnostic once on the deployed runtime with zero fixture residue. |
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
 | REL-05 | Client scope and SQL scope can drift | P2 | resolved | 2026-08-27 | Codex | PostgreSQL scope/order/keyset parity passed on PR #11 and main CI run `33055388366` after the production migration chain. |
 | REL-06 | `db:push` does not create indexes | P2 | resolved | 2026-08-27 | Codex | Production read-only catalog verification reports all 10 expected indexes present; the registry, optimizer, Admin Status check, and live-catalog CI test shipped in `8f216d9`. |
-| REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-08-29 | Codex | The persisted terminal Omni marker remains visible, but a fresh bounded seven-day `/api/generate/video/status` query hit its raised 1,000-result cap with HTTP 502 responses. The recurring 5xx exit gate therefore still fails and this row remains monitoring. |
+| REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-08-29 | Codex | A shared browser/cron advancement service now records transient poll health without refreshing staleness, compare-and-sets conclusive outcomes, returns sanitized HTTP 200 retry metadata with bounded client backoff, and reconciles five oldest 45-minute-stale task-backed rows every 15 minutes. Exit: migrate and deploy, observe a bounded cron run and persisted outcome, then verify 24 hours with no recurring status-route 5xx or reconciliation errors. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | resolved | 2026-08-28 | Codex | Image outputs (Gemini/Nano Banana, Higgsfield, Kling) and video outputs (Higgsfield, Omni, BytePlus, including best-of winners) are measured from the same bytes used for persistence. The nearest model-supported ratio is stored; structured mismatch/inspection warnings and requested-ratio fallback keep metadata failures non-fatal. Synthetic image and local ffmpeg video fixtures pass. |
 | REL-09 | Login-attempt cleanup is opportunistic | P3 | resolved | 2026-08-29 | Codex | A fresh unlogged 32-byte `CRON_SECRET` is set in Production. Deployment `dpl_89MM53UNUbuXpHS8ztsdCZjygsp5` returned HTTP 200 for one authenticated manual run, deleted 12 expired rows, and emitted the bounded structured `maintenance_cleanup` event; the temporary secret file was removed immediately afterward. |
 | MIG-01 | Django port is not cut over | P1 | resolved | 2026-08-29 | Codex | The never-cut-over Django port was retired in favor of the production Next.js API; its complete tracked source remains recoverable in Git history. |
 | MIG-02 | Live routes are missing from Django | P1 | resolved | 2026-08-29 | Codex | Eliminated with the retired secondary runtime; `src/app/api/` is the sole route implementation. |
 | MIG-03 | Live tables are missing Django models | P1 | resolved | 2026-08-29 | Codex | Eliminated with the retired secondary runtime. Drizzle remains schema authority; no production table was dropped. |
-| MIG-04 | Cloud SQL is staged but not live | P2 | in_progress | 2026-08-29 | Codex | The admin runtime diagnostic now requires the active backend flag to be Cloud SQL and executes a real query. Ready for one authenticated production run. |
+| MIG-04 | Cloud SQL is staged but not live | P2 | in_progress | 2026-08-29 | Codex | The authenticated production diagnostic returned an error because the active backend was direct PostgreSQL rather than Cloud SQL. A name-only Vercel inventory confirms the backend flag and required Cloud SQL companion variables exist in Production; their values were not read. Draft PR #20 remains blocked pending separate action-time confirmation to correct configuration and redeploy. |
 | MIG-05 | Cloud CDN is not provisioned | P1 | open | 2026-08-18 | Unassigned | Choose hostname and execute the CDN runbook. |
 | MIG-06 | Rollback credentials were never removed | P1 | blocked | 2026-08-25 | Operator + Codex | Blocked by zero-gap media verification and observation window. |
 | MIG-07 | Railway Django service does not exist | P2 | resolved | 2026-08-29 | Codex | The uncut-over Django deployment target was intentionally retired; the production Railway PostgreSQL database is unchanged. |
@@ -101,15 +99,15 @@ current verification.
 | VER-05 | Bundled ffmpeg is unverified on Vercel | P2 | resolved | 2026-08-29 | Operator + Codex | An authenticated production Admin Status run executed the bundled target-runtime binary and returned `OK` with its ffmpeg version line. |
 | VER-06 | GCS signing under WIF is unconfirmed | P1 | resolved | 2026-08-29 | Operator + Codex | An authenticated production Admin Status run reached `aistudio-media-bucket` and returned `OK` after direct signed delivery of one byte from a real recent media object (HTTP 206), with no proxy fallback. |
 | VER-07 | Thumbnail warm-up was never run | P2 | open | 2026-08-29 | Codex | After operator reauthentication, a read-only gcloud inventory found 15,051 objects, 7,158 thumbnailable originals, 3,305 originals with a complete ladder, and 6,916 missing derivatives. Direct DB access could not be obtained without expanding production privileges, so the required DB-reference/original gate could not run; the apply phase was correctly stopped with zero GCS writes. |
-| VER-08 | Kling 2K reference rule lacks controlled probe | P2 | in_progress | 2026-08-29 | Codex | The admin runtime diagnostic uses task-list reads and invalid `n=99` requests to verify the complete 1K/2K text/reference matrix without creating a task. Ready for one authenticated production run. |
+| VER-08 | Kling 2K reference rule lacks controlled probe | P2 | in_progress | 2026-08-29 | Codex | The authenticated validation-only production diagnostic reported that the live resolution matrix differed from configured capabilities. The stacked audit-blocker batch separates its 8-case aggregate from routing and no-task safety; deploy and pass that diagnostic before closure. |
 | VER-09 | Seedance continuation relies on third-party evidence | P2 | open | 2026-08-18 | Unassigned | Run the bounded billed probe. |
-| VER-10 | Kling seed support is unconfirmed | P3 | in_progress | 2026-08-29 | Codex | The shared validation-only runner compares baseline, valid-seed, and invalid-seed responses and leaves this finding open on mixed or inconclusive evidence. Ready for one authenticated production run. |
+| VER-10 | Kling seed support is unconfirmed | P3 | in_progress | 2026-08-29 | Codex | The authenticated validation-only production diagnostic found the valid- and invalid-seed responses inconclusive. Support remains disabled; the stacked diagnostic suppresses any seed verdict unless the independent no-task invariant passes. |
 | VER-11 | Seedance 2.5 activation is unconfirmed | P2 | resolved | 2026-08-28 | Codex | Read-only production generation evidence contains 11 Seedance 2.5 rows: 9 succeeded and 2 failed. Successful provider completions prove the production account/model is activated, so the picker entry remains offered; no billed probe was run. |
 | VER-12 | Audio surcharge pricing lacks invoice verification | P3 | open | 2026-08-18 | Unassigned | Reconcile an invoice. |
 | ARCH-01 | API responses use multiple envelopes | P2 | open | 2026-08-18 | Unassigned | Address only with migration decision. |
 | ARCH-02 | Storage module contains dual provider branches | P2 | deferred | 2026-08-25 | Unassigned | Delete the S3 branch after COST-01 rather than abstracting it. |
-| ARCH-03 | Concurrency cap is global, not per user | P1 | in_progress | 2026-08-29 | Codex | The admin runtime diagnostic creates two isolated temporary sessions and exercises the real queue-status route for fairness and override precedence, then count-checks cleanup. Ready for one authenticated production run. |
-| ARCH-04 | Capabilities and prices key on display-name regexes | P2 | in_progress | 2026-08-29 | Codex | The shared Kling diagnostic validates live wire-model routing against the explicit registry using no-task requests. Ready for one authenticated production run. |
+| ARCH-03 | Concurrency cap is global, not per user | P1 | resolved | 2026-08-29 | Codex | The authenticated production diagnostic exercised two isolated temporary sessions through the real queue route and passed per-user fairness, isolation, limit-override precedence, and zero-fixture cleanup. |
+| ARCH-04 | Capabilities and prices key on display-name regexes | P2 | in_progress | 2026-08-29 | Codex | The authenticated validation-only production diagnostic reported an ambiguous routing/matrix or no-task failure. The stacked audit-blocker batch now reports registered wire-model routing independently and fails closed on request-safety or task-list drift; deploy and pass it before closure. |
 | ARCH-05 | Generation failures return HTTP 200 | P2 | monitoring | 2026-08-29 | Codex | Production logs still show a privacy-bounded `generation_failure` marker with `persisted:true` under HTTP 200. Vercel's native anomaly alert covers 5xx, not keyword-matched HTTP 200 markers; no authenticated dashboard/third-party keyword-alert installation path was available, so the alert exit gate remains open. |
 | ARCH-06 | Zustand store is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
 | ARCH-07 | Admin dashboard component is oversized | P3 | deferred | 2026-08-25 | Unassigned | Split only when touched for functional work. |
@@ -127,12 +125,42 @@ current verification.
 | DX-11 | Test discovery uses non-portable shell `find` | P3 | resolved | 2026-08-27 | Codex | Portable Node test discovery passed on PR #11 and main CI run `33055388366`. |
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | P2 | open | 2026-08-18 | Unassigned | Build fixtures before changing directives. |
 | QUAL-02 | Eval harness has no fixtures or CI gate | P2 | open | 2026-08-18 | Unassigned | Commit at least ten representative fixtures. |
-| QUAL-03 | Flagged-generation signal has no consumer | P3 | in_progress | 2026-08-29 | Codex | The admin runtime diagnostic exercises the real flagged JSON and CSV routes with comma/quote/newline evidence, parses RFC 4180 output, and count-checks cleanup. Ready for one authenticated production run. |
+| QUAL-03 | Flagged-generation signal has no consumer | P3 | resolved | 2026-08-29 | Codex | The authenticated production diagnostic exercised the real flagged JSON and CSV review routes, passed RFC 4180 comma/quote/newline evidence, and verified zero fixture residue. |
 | QUAL-04 | Depth progress uses coarse milestones | P3 | resolved | 2026-08-28 | Codex | Retained worker percentage, milestone count, and live timer; the card now labels the timer as elapsed (not remaining) and explains that depth estimation is normally the longest stage. No fabricated ETA was added because the vendored inference API exposes no per-frame callback. |
 | QUAL-05 | Canvas asset project does not own board context | P2 | resolved | 2026-08-27 | Codex | Re-audit found the fix already present in `0b2c02b`: Canvas has an explicit board-project selector, clears the old board before switching, fences stale list responses, and labels the independent control `Assets from:`. A source guard now pins those invariants. |
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-08-29: published reliability commit `88a43bc` as blocked draft PR #20
+  after zero-warning lint, 766 unit tests, a production build, two idempotent
+  video poll-health migration runs, and 12 fresh-PostgreSQL integration tests.
+  No production configuration, migration, provider probe, merge, or deployment
+  occurred. Published stacked audit-blocker commit `c78e77e` as draft PR #21;
+  it separates Kling request safety, task-list stability, wire routing,
+  resolution, and seed signals while keeping the runtime response sanitized.
+  Zero-warning lint, 773 unit tests, a production build, and 12 disposable-
+  PostgreSQL integration tests pass. Both draft PRs passed their GitHub `web`,
+  `database`, and Vercel preview checks. The register remains 51 resolved and
+  29 pending.
+
+- 2026-08-29: ran the authenticated production runtime audit once. `ARCH-03`
+  and `QUAL-03` passed their real-route checks with zero fixture residue and are
+  resolved. `MIG-04` failed the active Cloud SQL backend flag, `ARCH-04` and
+  `VER-08` failed their combined routing/matrix or no-task invariant, and
+  `VER-10` was inconclusive. No no-task or no-charge claim is made for the Kling
+  diagnostic; the production rollout stopped before migration or deployment.
+  The code was later published only as blocked draft PR #20. The 80-finding
+  register is 51 resolved and 29 pending.
+
+- 2026-08-29: prepared the reliability closure batch for `REL-02`, `REL-03`,
+  and `REL-07`. Added additive poll-health columns and an online partial index,
+  one compare-and-set video advancement service shared by browser and cron,
+  sanitized HTTP-200 transient results with bounded client backoff, a five-row
+  sequential reconciliation cron, and self-cleaning runtime diagnostics for
+  the real spool and queue-deadline libraries. All three findings remain
+  `monitoring` until the production migration, deployment, diagnostic, cron,
+  and 24-hour observation gates are evidenced.
 
 - 2026-08-29: completed the credential-retirement and no-bill code portion of
   the accelerated batch. Removed only the eight verified-unused Blob and

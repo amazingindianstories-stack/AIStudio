@@ -5,6 +5,7 @@ import { count, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations, userLimits, users } from "./schema";
 import { getQueuePosition } from "./store-db";
+import { deadlineCheck } from "./runtime-audit";
 
 async function cleanup(db, generationIds, userIds) {
   if (generationIds.length) await db.delete(generations).where(inArray(generations.id, generationIds));
@@ -73,5 +74,19 @@ test("fixture cleanup still removes every row after a forced failure", async () 
     await cleanup(db, [], [userId]);
   }
   const [left] = await db.select({ n: count() }).from(users).where(eq(users.id, userId));
+  assert.equal(Number(left.n), 0);
+});
+
+test("runtime deadline diagnostic persists before return and cleans forced failures", async () => {
+  const db = await getDb();
+  assert.match(await deadlineCheck({ db }), /persisted terminal state before return/);
+
+  const fixtureId = randomUUID();
+  await assert.rejects(
+    deadlineCheck({ db, forceAfterInsert: true, fixtureId }),
+    /forced deadline fixture failure/
+  );
+  const [left] = await db.select({ n: count() }).from(generations)
+    .where(eq(generations.id, fixtureId));
   assert.equal(Number(left.n), 0);
 });

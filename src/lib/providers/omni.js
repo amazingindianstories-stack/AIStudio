@@ -279,7 +279,7 @@ export async function createOmniVideoTask(input) {
   return id;
 }
 
-export async function getOmniVideoStatus(taskId) {
+export async function getOmniVideoStatus(taskId, options = {}) {
   const vertex = process.env.OMNI_USE_VERTEX === "1";
   const headers = {};
   let base;
@@ -297,7 +297,7 @@ export async function getOmniVideoStatus(taskId) {
     omniAuth = { apiKey };
   }
 
-  const res = await fetch(`${base}/${taskId}`, { headers });
+  const res = await fetch(`${base}/${taskId}`, { headers, signal: options.signal });
   if (!res.ok) {
     const errText = await res.text();
     const terminal = terminalOmniStatusHttpError(res.status, errText);
