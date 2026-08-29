@@ -33,8 +33,7 @@ import { judgeCandidate, judgeIdentity, selectBestCandidate } from "@/lib/middle
 import { assemblePrompt } from "@/lib/prompt-assembler";
 import { readAssets } from "@/lib/assets-db";
 import { getSession } from "@/lib/auth";
-import { readPricing } from "@/lib/pricing-db";
-import { computeCostCents, klingUnitsToCents } from "@/lib/pricing";
+import { klingUnitsToCents } from "@/lib/pricing";
 import { getModelDefinition } from "@/lib/model-registry";
 import { boundedBestOf, generateAndSpoolCandidates, readSpooledBase64 } from "@/lib/best-of-spool";
 import { submitVideoCandidates } from "@/lib/video-submissions";
@@ -78,41 +77,6 @@ function resolutionToImageSize(res) {
   if (res === "4K") return "4K";
   if (res === "2K" || res === "1080p") return "2K";
   return "1K";
-}
-
-// SUPERSAMPLE=1: render one step up (1K→2K, 2K→4K; 4K has no step up). Each
-// NBP size step measured as an exact 2× linear scale at a fixed aspect ratio
-// (21:9/2K = 3168×1344, 21:9/4K = 6336×2688 — see gemini.js header), so the
-// delivered image is downsampled to exactly half the rendered pixel
-// dimensions to land back on the originally requested size.
-const NEXT_IMAGE_SIZE = {
-  "1K": "2K",
-  "2K": "4K",
-  "4K": "4K",
-};
-
-/** SUPERSAMPLE delivery step: NEXT_IMAGE_SIZE is always exactly one step up,
- *  so halving the rendered image's actual pixel dimensions lands back on the
- *  originally requested size, without a hardcoded per-aspect-ratio pixel
- *  table. Only called when a step-up actually happened. Fail-open: returns
- *  the rendered bytes unchanged on any error. */
-async function halveForDelivery(base64) {
-  try {
-    const buf = Buffer.from(base64, "base64");
-    const meta = await sharp(buf).metadata();
-    if (!meta.width || !meta.height) return base64;
-    const out = await sharp(buf)
-      .resize({
-        width: Math.round(meta.width / 2),
-        height: Math.round(meta.height / 2),
-        fit: "inside",
-        kernel: "lanczos3",
-      })
-      .toBuffer();
-    return out.toString("base64");
-  } catch {
-    return base64;
-  }
 }
 
 /** Turn stored clip refs into short-lived URLs the provider can fetch.
@@ -598,18 +562,10 @@ export async function POST(req) {
         0
       );
       const requestedSize = resolutionToImageSize(resolution);
-      const supersampleOn = process.env.SUPERSAMPLE === "1";
-      const renderSize = supersampleOn ? NEXT_IMAGE_SIZE[requestedSize] : requestedSize;
-      if (supersampleOn && renderSize !== requestedSize) {
-        // Bill what actually ran: the rendered (higher) size, not the
-        // originally requested one.
-        const pricingRows = await readPricing();
-        costCents = computeCostCents({ kind: "image", model, resolution: renderSize }, pricingRows);
-      }
       const input = {
         assembled,
         aspectRatio,
-        imageSize: renderSize,
+        imageSize: requestedSize,
         modelDisplay: model,
         seed,
         signal,
@@ -620,12 +576,12 @@ export async function POST(req) {
       // the measured lever — single-pass tricks and face-fix second passes
       // both failed the bake-off.
       const bestOf = assembled.judgeFace
-        ? boundedBestOf(process.env.FACE_BEST_OF, renderSize)
+        ? boundedBestOf(process.env.FACE_BEST_OF, requestedSize)
         : 1;
       console.log(
         `[image] model=${model} uploads=${referenceImages?.length ?? 0} ` +
           `groups=${assembled.groups.length} refImages=${refImageCount} bestOf=${bestOf} ` +
-          `imageSize=${renderSize}`
+          `imageSize=${requestedSize}`
       );
       let base64;
       let mimeType;
@@ -696,11 +652,6 @@ export async function POST(req) {
         throwIfAborted(signal);
         ({ data: base64, mimeType } = await crispen(mimeType, base64));
       }
-      if (supersampleOn && renderSize !== requestedSize) {
-        throwIfAborted(signal);
-        base64 = await halveForDelivery(base64);
-      }
-
       const ext = mimeType.includes("jpeg") ? "jpg" : "png";
       throwIfAborted(signal);
       const saved = await saveBase64WithMetadata(base64, ext, id, {

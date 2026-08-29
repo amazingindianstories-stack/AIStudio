@@ -10,13 +10,12 @@ export { DEPTH_MODEL_NAME } from "./model-registry";
 /**
  * Models offered in the picker.
  *
- * The two Higgsfield Seedance entries were removed from this list on 2026-07-30
- * — Higgsfield is being retired. Only the *picker* entries are gone: the MCP
- * provider (`providers/higgsfield-mcp.js`), its pricing rows, its admin token
- * card and its status check all remain, so historical generations still render
- * with their model name and nothing 404s. Removing this list entry is what makes
- * the path unreachable from the UI; deleting the backend is a separate step.
- * `isHiggsfieldModel` is still consulted by the routes and must stay.
+ * The two Higgsfield Seedance entries were removed from this list on 2026-07-30.
+ * The hidden MCP compatibility path remains supported for historical retries
+ * and readable history rows. Its pricing rows also remain historical evidence.
+ * New dev-API credentials are not required for this compatibility path and are
+ * intentionally retired. `isHiggsfieldModel` is still consulted by the routes
+ * and must stay.
  */
 
 /** Stamped on every depth-map generation row (generate/depth/route.js) and
