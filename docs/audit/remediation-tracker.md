@@ -71,7 +71,7 @@ current verification.
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
 | REL-05 | Client scope and SQL scope can drift | P2 | resolved | 2026-08-27 | Codex | PostgreSQL scope/order/keyset parity passed on PR #11 and main CI run `33055388366` after the production migration chain. |
 | REL-06 | `db:push` does not create indexes | P2 | resolved | 2026-08-27 | Codex | Production read-only catalog verification reports all 10 expected indexes present; the registry, optimizer, Admin Status check, and live-catalog CI test shipped in `8f216d9`. |
-| REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-08-29 | Codex | The additive migration ran twice and verified exactly two columns plus one valid reconciliation index; PR #20 deployed successfully. The first authenticated cron emitted aggregate-only `ok=true` telemetry with zero stale candidates and no errors. Production has 441 persisted terminal task-backed video rows, including one updated after deployment, but no real transient poll-error row yet exists. Exit: obtain conclusive real transient/non-terminal evidence and complete the 24-hour no-recurring-status-5xx/no-reconciliation-error log gate. |
+| REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-08-31 | Codex | The additive schema remains exactly two poll-health columns plus one valid reconciliation index. A complete retained 24-hour window contained all 96 scheduled aggregate-only cron events, zero reconciliation errors, and zero `/api/generate/video/status` 5xx responses; three conclusive terminal outcomes persisted during the window and all audit fixture counts remain zero. No production row recorded a real transient poll error, so the transient/non-terminal behavior is not yet naturally evidenced. Exit: observe a real task-backed row retain `queued`/`running` after a transient poll error and later persist a conclusive provider outcome; do not create a billed probe merely to force this gate. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | resolved | 2026-08-28 | Codex | Image outputs (Gemini/Nano Banana, Higgsfield, Kling) and video outputs (Higgsfield, Omni, BytePlus, including best-of winners) are measured from the same bytes used for persistence. The nearest model-supported ratio is stored; structured mismatch/inspection warnings and requested-ratio fallback keep metadata failures non-fatal. Synthetic image and local ffmpeg video fixtures pass. |
 | REL-09 | Login-attempt cleanup is opportunistic | P3 | resolved | 2026-08-29 | Codex | A fresh unlogged 32-byte `CRON_SECRET` is set in Production. Deployment `dpl_89MM53UNUbuXpHS8ztsdCZjygsp5` returned HTTP 200 for one authenticated manual run, deleted 12 expired rows, and emitted the bounded structured `maintenance_cleanup` event; the temporary secret file was removed immediately afterward. |
 | MIG-01 | Django port is not cut over | P1 | resolved | 2026-08-29 | Codex | The never-cut-over Django port was retired in favor of the production Next.js API; its complete tracked source remains recoverable in Git history. |
@@ -131,6 +131,18 @@ current verification.
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-08-31: completed the post-deployment 24-hour reliability observation
+  gate using four six-hour log segments to stay below Vercel's result cap. All
+  96 scheduled `video_reconciliation` events were present with `ok=true`, zero
+  reconciliation errors, zero poll errors, and zero stale candidates checked;
+  the same exact window contained zero `/api/generate/video/status` 5xx
+  responses. A read-only production aggregate found three terminal task-backed
+  video outcomes persisted during the window, exactly two poll-health columns,
+  one valid reconciliation index, and zero audit fixture residue. `REL-07`
+  remains monitoring because no real transient poll-error row occurred; no
+  provider task or billed probe was created to manufacture one. The register
+  remains 54 resolved and 26 pending.
 
 - 2026-08-29: completed the safe production portion of the reliability rollout.
   The Railway additive migration ran twice and verified exactly two poll-health
