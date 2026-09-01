@@ -54,6 +54,7 @@ test("runtime audit keeps routing and resolution results independent", () => {
   assert.deepEqual([routing.status, resolution.status, seed.status], ["ok", "error", "unknown"]);
   assert.match(routing.detail, /2\/2/);
   assert.match(resolution.detail, /7\/8/);
+  assert.match(resolution.detail, /kling-v3\[2k:i2i\]/);
   assert.match(seed.detail, /support remains disabled/);
 });
 
@@ -70,6 +71,8 @@ test("runtime audit suppresses resolution when wire routing fails safely", () =>
   assert.equal(routing.status, "error");
   assert.equal(resolution.status, "unknown");
   assert.match(resolution.detail, /suppressed/);
+  assert.match(routing.detail, /kling-v2-1\[1k:t2i\]/);
+  assert.match(resolution.detail, /kling-v2-1\[1k:t2i\]/);
 });
 
 test("runtime audit names the active database mode without exposing connection data", () => {

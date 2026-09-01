@@ -5,6 +5,9 @@ import {
   expectedKlingMatrixPass,
   expectedKlingResolutionPass,
   expectedKlingRoutingPass,
+  failedKlingResolutionCases,
+  failedKlingRoutingCases,
+  formatKlingCaseLabels,
   runKlingValidation,
   summarizeKlingMatrix,
 } from "./kling-validation";
@@ -36,6 +39,9 @@ test("expected Kling matrix pins the 1K/2K text/reference contract", () => {
   });
   matrix["kling-v3:2k:i2i"].resolutionRejected = true;
   assert.equal(expectedKlingMatrixPass(matrix), false);
+  assert.deepEqual(failedKlingRoutingCases(matrix), []);
+  assert.deepEqual(failedKlingResolutionCases(matrix), ["kling-v3:2k:i2i"]);
+  assert.equal(formatKlingCaseLabels(failedKlingResolutionCases(matrix)), "kling-v3[2k:i2i]");
   assert.deepEqual(summarizeKlingMatrix(matrix), {
     routingPassed: 2, routingTotal: 2, resolutionPassed: 7, resolutionTotal: 8,
   });
