@@ -144,6 +144,47 @@ export function expectedKlingRoutingPass(matrix = {}) {
   }));
 }
 
+function expectedResolutionCasePass(modelName, resolution, mode, entry) {
+  const shouldRejectResolution = modelName === "kling-v2-1" && resolution === "2k" && mode === "i2i";
+  return shouldRejectResolution
+    ? entry?.resolutionRejected === true && entry?.rejectedWithoutTask === true
+    : Boolean(entry && !entry.resolutionRejected && !entry.modelRejected &&
+      entry.validationReachedN && entry.rejectedWithoutTask);
+}
+
+export function failedKlingRoutingCases(matrix = {}) {
+  const failed = [];
+  for (const { modelName } of KLING_MODELS) for (const mode of ["t2i", "i2i"]) {
+    const entry = matrix[`${modelName}:1k:${mode}`];
+    if (!entry || entry.modelRejected || entry.resolutionRejected ||
+      !entry.validationReachedN || !entry.rejectedWithoutTask) {
+      failed.push(`${modelName}:1k:${mode}`);
+    }
+  }
+  return failed;
+}
+
+export function failedKlingResolutionCases(matrix = {}) {
+  const failed = [];
+  for (const { modelName } of KLING_MODELS) for (const resolution of ["1k", "2k"])
+    for (const mode of ["t2i", "i2i"]) {
+      const key = `${modelName}:${resolution}:${mode}`;
+      if (!expectedResolutionCasePass(modelName, resolution, mode, matrix[key])) failed.push(key);
+    }
+  return failed;
+}
+
+export function formatKlingCaseLabels(keys = []) {
+  const grouped = new Map();
+  for (const key of keys) {
+    const [model, resolution, mode] = String(key).split(":");
+    if (!model || !resolution || !mode) continue;
+    if (!grouped.has(model)) grouped.set(model, []);
+    grouped.get(model).push(`${resolution}:${mode}`);
+  }
+  return [...grouped].map(([model, cases]) => `${model}[${cases.join(",")}]`).join(";");
+}
+
 export function summarizeKlingMatrix(matrix = {}) {
   let routingPassed = 0;
   let routingTotal = 0;
@@ -159,11 +200,7 @@ export function summarizeKlingMatrix(matrix = {}) {
     for (const resolution of ["1k", "2k"]) for (const mode of ["t2i", "i2i"]) {
       resolutionTotal++;
       const entry = matrix[`${modelName}:${resolution}:${mode}`];
-      const shouldRejectResolution = modelName === "kling-v2-1" && resolution === "2k" && mode === "i2i";
-      const passed = shouldRejectResolution
-        ? entry?.resolutionRejected === true && entry?.rejectedWithoutTask === true
-        : entry && !entry.resolutionRejected && !entry.modelRejected &&
-          entry.validationReachedN && entry.rejectedWithoutTask;
+      const passed = expectedResolutionCasePass(modelName, resolution, mode, entry);
       if (passed) resolutionPassed++;
     }
   }
@@ -171,14 +208,7 @@ export function summarizeKlingMatrix(matrix = {}) {
 }
 
 export function expectedKlingResolutionPass(matrix = {}) {
-  const accepted = [
-    "kling-v3:1k:t2i", "kling-v3:1k:i2i", "kling-v3:2k:t2i", "kling-v3:2k:i2i",
-    "kling-v2-1:1k:t2i", "kling-v2-1:1k:i2i", "kling-v2-1:2k:t2i",
-  ];
-  return accepted.every((key) => matrix[key] && !matrix[key].resolutionRejected &&
-    !matrix[key].modelRejected && matrix[key].validationReachedN && matrix[key].rejectedWithoutTask) &&
-    matrix["kling-v2-1:2k:i2i"]?.resolutionRejected === true &&
-    matrix["kling-v2-1:2k:i2i"]?.rejectedWithoutTask === true;
+  return failedKlingResolutionCases(matrix).length === 0;
 }
 
 export function expectedKlingMatrixPass(matrix = {}) {

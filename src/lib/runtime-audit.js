@@ -9,6 +9,9 @@ import { generations, userLimits, users } from "./schema";
 import {
   expectedKlingResolutionPass,
   expectedKlingRoutingPass,
+  failedKlingResolutionCases,
+  failedKlingRoutingCases,
+  formatKlingCaseLabels,
   runKlingValidation,
   summarizeKlingMatrix,
 } from "./kling-validation";
@@ -67,13 +70,19 @@ export function klingAuditResults(kling) {
   const summary = summarizeKlingMatrix(kling.matrix);
   const routingPass = expectedKlingRoutingPass(kling.matrix);
   const resolutionPass = expectedKlingResolutionPass(kling.matrix);
+  const routingFailures = formatKlingCaseLabels(failedKlingRoutingCases(kling.matrix));
+  const resolutionFailures = formatKlingCaseLabels(failedKlingResolutionCases(kling.matrix));
   return [
     result("ARCH-04", routingPass ? "ok" : "error",
-      `${summary.routingPassed}/${summary.routingTotal} registered wire models reached safe validation; no task was created`),
+      routingPass
+        ? `${summary.routingPassed}/${summary.routingTotal} registered wire models reached safe validation; no task was created`
+        : `${summary.routingPassed}/${summary.routingTotal} wire models matched; mismatches: ${routingFailures}; no task was created`),
     result("VER-08", !routingPass ? "unknown" : resolutionPass ? "ok" : "error",
       !routingPass
-        ? "resolution verdict suppressed because registered wire-model routing failed; no task was created"
-        : `${summary.resolutionPassed}/${summary.resolutionTotal} live 1K/2K text/reference cases matched configured capabilities; no task was created`),
+        ? `resolution verdict suppressed; routing mismatches: ${routingFailures}; no task was created`
+        : resolutionPass
+          ? `${summary.resolutionPassed}/${summary.resolutionTotal} live 1K/2K text/reference cases matched configured capabilities; no task was created`
+          : `${summary.resolutionPassed}/${summary.resolutionTotal} capability cases matched; mismatches: ${resolutionFailures}; no task was created`),
     result("VER-10", kling.seedVerdict === "inconclusive" ? "unknown" : "ok",
       kling.seedVerdict === "inconclusive"
         ? "valid and invalid seed probes were inconclusive; support remains disabled; no task was created"
