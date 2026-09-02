@@ -24,10 +24,14 @@ test("standard fullscreen exits before two stabilizing paint frames", async (t) 
     globalThis.requestAnimationFrame = original;
   });
 
-  const changed = await settleFullscreenBeforeMediaMutation({
+  const doc = {
     fullscreenElement: {},
-    exitFullscreen: async () => events.push("exit"),
-  });
+    exitFullscreen: async () => {
+      events.push("exit");
+      doc.fullscreenElement = null;
+    },
+  };
+  const changed = await settleFullscreenBeforeMediaMutation(doc);
   assert.equal(changed, true);
   assert.deepEqual(events, ["exit", "frame", "frame"]);
 });
@@ -44,7 +48,10 @@ test("Safari native video fullscreen uses its compatible exit path", async (t) =
   });
   const video = {
     webkitDisplayingFullscreen: true,
-    webkitExitFullscreen: () => events.push("exit"),
+    webkitExitFullscreen: () => {
+      events.push("exit");
+      video.webkitDisplayingFullscreen = false;
+    },
   };
   const changed = await settleFullscreenBeforeMediaMutation({
     fullscreenElement: null,
@@ -80,5 +87,50 @@ test("a failed exit never permits an active fullscreen element to be unmounted",
       },
     }),
     exitError
+  );
+});
+
+test("Safari teardown cannot hang when native fullscreen pauses animation frames", async () => {
+  const events = [];
+  const video = {
+    webkitDisplayingFullscreen: true,
+    webkitExitFullscreen: () => {
+      events.push("exit");
+      video.webkitDisplayingFullscreen = false;
+    },
+  };
+  const changed = await settleFullscreenBeforeMediaMutation({
+    fullscreenElement: null,
+    querySelector: () => video,
+    defaultView: {
+      requestAnimationFrame: () => {},
+      setTimeout: (callback) => {
+        events.push("timeout");
+        callback();
+        return 1;
+      },
+      clearTimeout: () => {},
+    },
+  });
+  assert.equal(changed, true);
+  assert.deepEqual(events, ["exit", "timeout"]);
+});
+
+test("Safari teardown still refuses to unmount video when native exit fails", async (t) => {
+  const original = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = (callback) => callback();
+  t.after(() => {
+    globalThis.requestAnimationFrame = original;
+  });
+  const video = {
+    webkitDisplayingFullscreen: true,
+    webkitExitFullscreen: () => {},
+  };
+  await assert.rejects(
+    settleFullscreenBeforeMediaMutation({
+      fullscreenElement: null,
+      querySelector: () => video,
+    }),
+    /remained active/
   );
 });

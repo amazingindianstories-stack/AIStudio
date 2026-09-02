@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { flushSync } from "react-dom";
+import { motion } from "framer-motion";
 import {
   X,
   Download,
@@ -186,6 +187,8 @@ export function DetailModal() {
   const confirmation = useConfirmedAction();
   const [closing, setClosing] = useState(false);
   const closingRef = useRef(false);
+  const suppressNextNativeFullscreenEscapeRef = useRef(false);
+  const escapeCloseTimerRef = useRef(null);
 
   // `items` is already the scope the user is looking at — server-filtered and
   // in the same order the grid renders — so Left/Right (reading order) just
@@ -227,9 +230,41 @@ export function DetailModal() {
 
   useEffect(() => {
     if (!activeId) return;
+    if (escapeCloseTimerRef.current) {
+      window.clearTimeout(escapeCloseTimerRef.current);
+      escapeCloseTimerRef.current = null;
+    }
     closingRef.current = false;
     setClosing(false);
+    return () => {
+      if (escapeCloseTimerRef.current) {
+        window.clearTimeout(escapeCloseTimerRef.current);
+        escapeCloseTimerRef.current = null;
+      }
+    };
   }, [activeId]);
+
+  useEffect(() => {
+    const video = document.querySelector("[data-detail-video]");
+    if (!video) return undefined;
+    const onBeginFullscreen = () => {
+      suppressNextNativeFullscreenEscapeRef.current = true;
+    };
+    const onEndFullscreen = () => {
+      // Safari can deliver the Escape key to the page after it has already
+      // flipped webkitDisplayingFullscreen to false but before the native
+      // transition has handed control back. The next page-level Escape is the
+      // replay of that native action and is consumed exactly once below.
+      suppressNextNativeFullscreenEscapeRef.current = true;
+    };
+    video.addEventListener("webkitbeginfullscreen", onBeginFullscreen);
+    video.addEventListener("webkitendfullscreen", onEndFullscreen);
+    return () => {
+      suppressNextNativeFullscreenEscapeRef.current = false;
+      video.removeEventListener("webkitbeginfullscreen", onBeginFullscreen);
+      video.removeEventListener("webkitendfullscreen", onEndFullscreen);
+    };
+  }, [item?.id]);
 
   // Never unmount a native-fullscreen video until the browser has completed
   // its exit paints. The old workaround returned after exitFullscreen(), so
@@ -241,7 +276,11 @@ export function DetailModal() {
     setClosing(true);
     try {
       await settleFullscreenBeforeMediaMutation();
-      setActiveId(null);
+      // Safari may pause React's queued work after returning from native video
+      // fullscreen. The media is now conclusively out of fullscreen, so commit
+      // this single teardown synchronously instead of leaving a dead viewer
+      // mounted until some unrelated interaction wakes the scheduler.
+      flushSync(() => setActiveId(null));
     } catch {
       // Keep the viewer mounted when the browser refuses to leave fullscreen;
       // removing the active media in this state is what wedges page input.
@@ -255,6 +294,29 @@ export function DetailModal() {
     const onKeyDown = (event) => {
       if (confirmation.dialogProps.open) return;
       if (event.key === "Escape") {
+        // Native fullscreen owns the first Escape. Starting closeModal while
+        // Safari is still handing the video back to the page can freeze its
+        // scheduled paint/timer work forever, leaving the viewer mounted with
+        // pointer-events disabled. Once fullscreen has exited, a second Escape
+        // (or the visible close button) performs the normal guarded teardown.
+        if (hasFullscreenMedia()) return;
+        if (suppressNextNativeFullscreenEscapeRef.current) {
+          suppressNextNativeFullscreenEscapeRef.current = false;
+          return;
+        }
+        if (item.kind === "video" || item.kind === "depth") {
+          if (escapeCloseTimerRef.current) return;
+          // Safari may already report native fullscreen as false while the
+          // same Escape is still transferring control back to the page. Defer
+          // video teardown until that handoff has finished, then recheck.
+          escapeCloseTimerRef.current = window.setTimeout(() => {
+            escapeCloseTimerRef.current = null;
+            if (!hasFullscreenMedia()) {
+              void closeModal();
+            }
+          }, 400);
+          return;
+        }
         void closeModal();
         return;
       }
@@ -303,12 +365,10 @@ export function DetailModal() {
 
   return (
     <>
-    <AnimatePresence>
       {item && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
           className={cn(
             "fixed inset-0 z-[60] flex items-stretch justify-center bg-black/80 backdrop-blur-md",
@@ -319,7 +379,6 @@ export function DetailModal() {
           <motion.div
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.97, y: 12 }}
             transition={{ type: "spring", stiffness: 280, damping: 30 }}
             onClick={(e) => e.stopPropagation()}
             className="relative flex h-full w-full flex-col lg:flex-row"
@@ -328,6 +387,7 @@ export function DetailModal() {
             <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center p-4 sm:p-8">
               <button
                 onClick={() => void closeModal()}
+                aria-label="Close viewer"
                 className="absolute left-4 top-4 z-10 grid h-10 w-10 place-items-center rounded-full bg-white/10 text-white/90 backdrop-blur hover:bg-white/20"
               >
                 <X className="h-5 w-5" />
@@ -619,7 +679,6 @@ export function DetailModal() {
           </motion.div>
         </motion.div>
       )}
-    </AnimatePresence>
       <ConfirmActionDialog {...confirmation.dialogProps} />
     </>
   );
