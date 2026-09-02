@@ -1,5 +1,25 @@
-function nextFrame() {
-  return new Promise((resolve) => requestAnimationFrame(resolve));
+const PAINT_SETTLE_TIMEOUT_MS = 250;
+
+function waitForTwoFramesOrTimeout(doc) {
+  const view = doc?.defaultView || globalThis;
+  const requestFrame = view.requestAnimationFrame?.bind(view);
+  const setTimer = view.setTimeout?.bind(view) || setTimeout;
+  const clearTimer = view.clearTimeout?.bind(view) || clearTimeout;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timeoutId;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== undefined) clearTimer(timeoutId);
+      resolve();
+    };
+    timeoutId = setTimer(finish, PAINT_SETTLE_TIMEOUT_MS);
+    if (typeof requestFrame === "function") {
+      requestFrame(() => requestFrame(finish));
+    }
+  });
 }
 
 export function hasFullscreenMedia(doc = document) {
@@ -20,13 +40,14 @@ export async function settleFullscreenBeforeMediaMutation(doc = document) {
     } catch (error) {
       // The browser may already be processing the same Escape key. Waiting for
       // paint is safe only if that competing exit actually removed fullscreen.
-      await nextFrame();
-      await nextFrame();
+      await waitForTwoFramesOrTimeout(doc);
       if (doc.fullscreenElement) throw error;
       return true;
     }
-    await nextFrame();
-    await nextFrame();
+    await waitForTwoFramesOrTimeout(doc);
+    if (doc.fullscreenElement) {
+      throw new Error("Fullscreen remained active after the browser exit request.");
+    }
     return true;
   }
 
@@ -34,8 +55,10 @@ export async function settleFullscreenBeforeMediaMutation(doc = document) {
   const video = doc.querySelector?.("[data-detail-video]");
   if (video?.webkitDisplayingFullscreen && typeof video.webkitExitFullscreen === "function") {
     video.webkitExitFullscreen();
-    await nextFrame();
-    await nextFrame();
+    await waitForTwoFramesOrTimeout(doc);
+    if (video.webkitDisplayingFullscreen) {
+      throw new Error("Native video fullscreen remained active after the browser exit request.");
+    }
     return true;
   }
   return false;
