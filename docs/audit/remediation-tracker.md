@@ -38,8 +38,8 @@ production-confirmed.
 
 | ID | Bug | State | Last verified | Evidence / next action |
 |---|---|---|---|---|
-| UI-LOCAL-01 | Media-card actions overlap and execute without confirmation | ready_for_deploy | 2026-09-01 | A disposable PostgreSQL + `MOCK_GENERATION=1` Chrome smoke test verified compact failed-card layout and all eight confirmation categories, including saved-asset deletion; every dialog opened with Cancel focused and no action was confirmed. Safari WebDriver is installed but Safari rejected the session because Allow remote automation is disabled. Exit: repeat the same smoke in Safari after the operator enables that setting. |
-| UI-LOCAL-02 | Asset viewer can leave all mouse/keyboard input wedged after arrow navigation and Escape/close | ready_for_deploy | 2026-09-01 | In the disposable Chrome fixture, viewer navigation, close teardown, and subsequent page input remained responsive. Chrome automation could not activate the native fullscreen control, and Safari rejected WebDriver because Allow remote automation is disabled, so the browser-fullscreen exit gate is not claimed. Exit: run the real fullscreen arrow/Escape/close sequence in Chrome and Safari with controllable native fullscreen. |
+| UI-LOCAL-01 | Media-card actions overlap and execute without confirmation | resolved | 2026-09-02 | Disposable Chrome and Safari runs covered all eight confirmation categories, including saved-asset deletion. Every dialog opened with Cancel focused, only Cancel was used, aggregate fixture counts remained unchanged, and no provider task or billed operation was created. PR #26 passed protected checks and its exact merge reached a Ready production deployment before closure. |
+| UI-LOCAL-02 | Asset viewer can leave all mouse/keyboard input wedged after arrow navigation and Escape/close | resolved | 2026-09-02 | Real Chrome and Safari native-fullscreen runs kept arrow navigation on the active video, exited fullscreen safely, unmounted the viewer, and accepted subsequent composer input. PR #26 bounded Safari paint settling, consumed its replayed Escape, removed the teardown's exit-animation dependency, passed protected checks, and reached a Ready production deployment before closure. |
 
 ## Full issue register
 
@@ -131,6 +131,15 @@ current verification.
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-09-02: resolved `UI-LOCAL-01` and `UI-LOCAL-02` only after PR #26 passed
+  strict `web`, `database`, and Vercel preview checks and its exact merge reached
+  a Ready production deployment. Disposable Chrome and Safari automation
+  covered all eight cancel-only confirmation categories and real native-video
+  fullscreen navigation, exit, viewer teardown, and post-close input. Aggregate
+  fixture counts stayed unchanged; no provider task or billed probe ran. These
+  local IDs remain outside the fixed 80-finding register, whose totals are
+  unchanged.
 
 - 2026-09-01: merged diagnostic PR #24 after strict `web`, `database`, and
   Vercel checks passed; its production deployment is Ready. The authenticated
