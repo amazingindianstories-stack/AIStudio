@@ -40,6 +40,8 @@ production-confirmed.
 |---|---|---|---|---|
 | UI-LOCAL-01 | Media-card actions overlap and execute without confirmation | resolved | 2026-09-02 | Disposable Chrome and Safari runs covered all eight confirmation categories, including saved-asset deletion. Every dialog opened with Cancel focused, only Cancel was used, aggregate fixture counts remained unchanged, and no provider task or billed operation was created. PR #26 passed protected checks and its exact merge reached a Ready production deployment before closure. |
 | UI-LOCAL-02 | Asset viewer can leave all mouse/keyboard input wedged after arrow navigation and Escape/close | resolved | 2026-09-02 | Real Chrome and Safari native-fullscreen runs kept arrow navigation on the active video, exited fullscreen safely, unmounted the viewer, and accepted subsequent composer input. PR #26 bounded Safari paint settling, consumed its replayed Escape, removed the teardown's exit-animation dependency, passed protected checks, and reached a Ready production deployment before closure. |
+| UI-LOCAL-03 | Generation settings remain open with stale controls after switching Image/Video mode | resolved | 2026-09-02 | Disposable Chrome reproduced the stale cross-mode menu, then verified that both composer variants reset only the settings dropdown when mode changes. PR #28 passed strict `web`, `database`, and Vercel preview checks; merge `95a9ca5` reached a Ready production deployment before closure. |
+| UI-LOCAL-04 | Narrow mobile header overlaps Agents and Open assets controls | resolved | 2026-09-02 | Disposable Chrome measured overlapping hit rectangles at 390px, then verified separated controls and the correct assets drawer action at 390px and 320px. Icon-only navigation now has accessible names. PR #28 passed protected checks and merge `95a9ca5` reached a Ready production deployment before closure. |
 
 ## Full issue register
 
@@ -131,6 +133,17 @@ current verification.
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-09-02: resolved `UI-LOCAL-03` and `UI-LOCAL-04` only after PR #28
+  passed strict `web`, `database`, and Vercel preview checks and exact merge
+  `95a9ca5` reached a Ready production deployment. A disposable authenticated
+  Chrome session reproduced and verified the mode-switch dropdown reset and
+  mobile header hit-target separation at 390px and 320px. The broader local
+  smoke covered projects, server-backed search, favourites, image/video
+  viewers, material insertion, and both generation modes. Lint, 776 unit tests,
+  12 fresh-PostgreSQL integration tests, and the production build passed. No
+  migration, provider call, billed probe, or production-data mutation ran;
+  these local IDs remain outside the fixed 80-finding register.
 
 - 2026-09-02: resolved `UI-LOCAL-01` and `UI-LOCAL-02` only after PR #26 passed
   strict `web`, `database`, and Vercel preview checks and its exact merge reached
