@@ -742,6 +742,7 @@ export function PromptComposer() {
 
         {/* settings (aspect / resolution / duration / batch) */}
         <Dropdown
+          key={`generation-settings-${s.mode}`}
           className="composer-settings shrink-0"
           label="Generation settings"
           align="right"

@@ -206,6 +206,7 @@ export function SettingsToolbar() {
 
         {/* settings (aspect / resolution / duration / batch / audio) */}
         <Dropdown
+          key={`generation-settings-${s.mode}`}
           className="composer-settings shrink-0"
           label="Generation settings"
           align="right"

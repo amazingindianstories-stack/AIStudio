@@ -82,7 +82,7 @@ export function TopBar() {
 
   return (
     <>
-      <header className="relative z-40 flex h-14 shrink-0 items-center gap-4 border-b border-line bg-ink-900 px-3 sm:px-5">
+      <header className="relative z-40 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-ink-900 px-2 sm:gap-4 sm:px-5">
         <div className="flex shrink-0 items-center gap-2.5">
           <img src="/logo.png" alt="Veevee.ai" className="h-8 w-8 rounded-lg shadow-sm" />
           <span className="hidden text-[17px] font-semibold tracking-tight text-white sm:inline">
@@ -92,16 +92,17 @@ export function TopBar() {
 
         <span className="hidden h-6 w-px shrink-0 bg-line sm:block" aria-hidden />
 
-        <nav aria-label="Sections" className="flex min-w-0 items-center gap-1">
+        <nav aria-label="Sections" className="flex min-w-0 items-center gap-0.5 sm:gap-1">
           {DESTINATIONS.map((d) => {
             const active = d.id === activeDestination;
             return (
               <button
                 key={d.id}
                 onClick={() => goTo(d.id)}
+                aria-label={d.label}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                  "relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors sm:px-3",
                   active ? "text-white" : "text-white/50 hover:bg-white/5 hover:text-white/90"
                 )}
               >
@@ -139,14 +140,15 @@ export function TopBar() {
             );
           })}
 
-          <span className="mx-0.5 h-5 w-px shrink-0 bg-line" aria-hidden />
+          <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-line sm:block" aria-hidden />
 
           {isAdmin ? (
             <button
               onClick={() => setView("agents")}
+              aria-label="Agents"
               aria-current={activeDestination === "agents" ? "page" : undefined}
               className={cn(
-                "relative flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
+                "relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors sm:px-3",
                 activeDestination === "agents"
                   ? "text-white"
                   : "text-white/50 hover:bg-white/5 hover:text-white/90"
@@ -213,7 +215,7 @@ export function TopBar() {
                   {user.name || user.email}
                 </span>
                 <ChevronDown
-                  className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
+                  className={cn("hidden h-3.5 w-3.5 transition-transform sm:block", open && "rotate-180")}
                 />
               </span>
             )}
