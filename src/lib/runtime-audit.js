@@ -17,10 +17,19 @@ import {
 } from "./kling-validation";
 import { generateAndSpoolCandidates, readSpooledBase64 } from "./best-of-spool";
 import { abortableDelay, settleQueueExecution } from "./queue-execution-deadline";
+import { submitVideoCandidates } from "./video-submissions";
+import { advanceVideoStatus } from "./video-status-advancement";
+import { runVideoReconciliation } from "./video-reconciliation";
+import {
+  clearVideoPollErrors,
+  compareAndSetVideoOutcome,
+  recordVideoPollError,
+} from "./video-poll-db";
+import { rowToItem } from "./store-db";
 
 const CHECK_IDS = [
   "MIG-04", "ARCH-03", "QUAL-03", "ARCH-04", "VER-08", "VER-10",
-  "REL-02", "REL-03",
+  "REL-02", "REL-03", "COST-05", "REL-07",
 ];
 
 export function parseCsv(text) {
@@ -272,6 +281,116 @@ export async function deadlineCheck({ db, forceAfterInsert = false, fixtureId = 
   return "short internal deadline persisted terminal state before return and left zero fixtures";
 }
 
+export async function partialSubmissionCheck() {
+  const seeds = [];
+  const submissions = await submitVideoCandidates({
+    count: 3,
+    totalCostCents: 300,
+    seed: 700,
+    submit: async (candidateSeed, index) => {
+      seeds.push(candidateSeed);
+      if (index === 1) throw new Error("controlled candidate rejection");
+      return `audit-task-${index}`;
+    },
+  });
+  const passed = submissions.acceptedTaskIds.join() === "audit-task-0,audit-task-2" &&
+    submissions.rejectedCount === 1 && submissions.costCents === 200 &&
+    seeds.sort((a, b) => a - b).join() === "700,701,702";
+  if (!passed) throw new Error("partial submission did not retain accepted tasks or prorate cost");
+  return "controlled 2/3 partial submission retained both accepted tasks, prorated cost, and created no provider request";
+}
+
+export async function videoPollRecoveryCheck({
+  db,
+  fixtureId = randomUUID(),
+  forceAfterFirstPoll = false,
+} = {}) {
+  const id = fixtureId;
+  let failure;
+  let passed = false;
+  try {
+    const now = Date.now();
+    await db.insert(generations).values({
+      id,
+      kind: "video",
+      status: "running",
+      prompt: "runtime audit",
+      model: "audit",
+      aspectRatio: "1:1",
+      taskId: "audit-task",
+      costCents: 0,
+      createdAt: now - 60 * 60_000,
+      updatedAt: now - 60 * 60_000,
+    });
+
+    // Select only the diagnostic row. The production selector is covered by
+    // PostgreSQL integration tests; an admin diagnostic must never poll or
+    // mutate an unrelated live generation.
+    const select = async () => {
+      const rows = await db.select().from(generations).where(eq(generations.id, id));
+      return rows.map(rowToItem);
+    };
+    const databaseDependencies = {
+      isMock: () => false,
+      isOmniModel: () => false,
+      isHiggsfieldModel: () => false,
+      recordVideoPollError: (expected, at) => recordVideoPollError(expected, at, db),
+      clearVideoPollErrors: (expected) => clearVideoPollErrors(expected, db),
+      compareAndSetVideoOutcome: (expected, updates) =>
+        compareAndSetVideoOutcome(expected, updates, db),
+    };
+    const first = await runVideoReconciliation({
+      now,
+      deadlineMs: 2_000,
+      select,
+      advance: (item, options) => advanceVideoStatus(item, {
+        ...options,
+        dependencies: {
+          ...databaseDependencies,
+          getVideoTask: async () => { throw new Error("controlled transient poll failure"); },
+        },
+      }),
+    });
+    const [errored] = await db.select({
+      status: generations.status,
+      pollErrorCount: generations.pollErrorCount,
+      lastPollErrorAt: generations.lastPollErrorAt,
+    }).from(generations).where(eq(generations.id, id));
+    if (forceAfterFirstPoll) throw new Error("forced poll recovery fixture failure");
+
+    const second = await runVideoReconciliation({
+      now,
+      deadlineMs: 2_000,
+      select,
+      advance: (item, options) => advanceVideoStatus(item, {
+        ...options,
+        dependencies: {
+          ...databaseDependencies,
+          getVideoTask: async () => ({ status: "processing" }),
+        },
+      }),
+    });
+    const [recovered] = await db.select({
+      status: generations.status,
+      pollErrorCount: generations.pollErrorCount,
+      lastPollErrorAt: generations.lastPollErrorAt,
+    }).from(generations).where(eq(generations.id, id));
+    passed = first.checked === 1 && first.pollErrors === 1 &&
+      errored?.status === "running" && errored.pollErrorCount === 1 && errored.lastPollErrorAt != null &&
+      second.checked === 1 && second.pending === 1 && recovered?.status === "running" &&
+      recovered.pollErrorCount === 0 && recovered.lastPollErrorAt == null;
+  } catch (error) {
+    failure = error;
+  } finally {
+    await db.delete(generations).where(eq(generations.id, id));
+  }
+  const [left] = await db.select({ n: count() }).from(generations).where(eq(generations.id, id));
+  if (Number(left.n) !== 0) throw new Error("poll recovery fixture cleanup count was nonzero");
+  if (failure) throw failure;
+  if (!passed) throw new Error("transient poll failure did not remain non-terminal and recover");
+  return "controlled reconciliation recorded one transient poll error, recovered to pending, and left zero fixture residue";
+}
+
 async function safeCheck(id, fn) {
   try { return result(id, "ok", await fn()); }
   catch (error) { return result(id, "error", error instanceof Error ? error.message : error); }
@@ -284,7 +403,7 @@ export async function runRuntimeAudit({ origin, adminCookie, adminId, fetchImpl 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25_000);
   const klingPromise = runKlingValidation({ fetchImpl, signal: controller.signal }).catch((error) => ({ error }));
-  const [migration, queue, flagged, rel02, rel03, kling] = await Promise.all([
+  const [migration, queue, flagged, rel02, rel03, cost05, rel07, kling] = await Promise.all([
     safeCheck("MIG-04", async () => {
       await db.execute(sql`select 1`);
       if (activeDatabaseBackend() !== "cloud-sql") {
@@ -296,6 +415,8 @@ export async function runRuntimeAudit({ origin, adminCookie, adminId, fetchImpl 
     safeCheck("QUAL-03", () => flaggedCheck({ db, origin, adminCookie, adminId, fetchImpl })),
     safeCheck("REL-02", () => spoolCheck()),
     safeCheck("REL-03", () => deadlineCheck({ db })),
+    safeCheck("COST-05", () => partialSubmissionCheck()),
+    safeCheck("REL-07", () => videoPollRecoveryCheck({ db })),
     klingPromise,
   ]);
   clearTimeout(timer);
@@ -313,7 +434,7 @@ export async function runRuntimeAudit({ origin, adminCookie, adminId, fetchImpl 
   } else {
     [arch04, ver08, ver10] = klingAuditResults(kling);
   }
-  const checks = [migration, queue, flagged, arch04, ver08, ver10, rel02, rel03];
+  const checks = [migration, queue, flagged, arch04, ver08, ver10, rel02, rel03, cost05, rel07];
   if (checks.map((check) => check.id).join() !== CHECK_IDS.join()) throw new Error("audit response shape drifted");
   return { checkedAt, auditId, checks };
 }

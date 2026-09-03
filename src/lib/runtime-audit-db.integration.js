@@ -5,7 +5,7 @@ import { count, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations, userLimits, users } from "./schema";
 import { getQueuePosition } from "./store-db";
-import { deadlineCheck } from "./runtime-audit";
+import { deadlineCheck, videoPollRecoveryCheck } from "./runtime-audit";
 
 async function cleanup(db, generationIds, userIds) {
   if (generationIds.length) await db.delete(generations).where(inArray(generations.id, generationIds));
@@ -85,6 +85,20 @@ test("runtime deadline diagnostic persists before return and cleans forced failu
   await assert.rejects(
     deadlineCheck({ db, forceAfterInsert: true, fixtureId }),
     /forced deadline fixture failure/
+  );
+  const [left] = await db.select({ n: count() }).from(generations)
+    .where(eq(generations.id, fixtureId));
+  assert.equal(Number(left.n), 0);
+});
+
+test("runtime poll diagnostic recovers a transient failure and always removes its row", async () => {
+  const db = await getDb();
+  assert.match(await videoPollRecoveryCheck({ db }), /recovered to pending/);
+
+  const fixtureId = randomUUID();
+  await assert.rejects(
+    videoPollRecoveryCheck({ db, fixtureId, forceAfterFirstPoll: true }),
+    /forced poll recovery fixture failure/
   );
   const [left] = await db.select({ n: count() }).from(generations)
     .where(eq(generations.id, fixtureId));
