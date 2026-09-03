@@ -27,7 +27,6 @@ to resume after the deployable work is stable.
 | SEC-01, COST-01, COST-02 | Valid exact-bucket AWS administrator access is unavailable. | Sign in with the correct AWS administrator and rotate/migrate with bounded verification. |
 | MIG-06 | Depends on zero media gaps and the observation window. | Complete COST-01/COST-02 and the restore drill first. |
 | REL-01, VER-04 | Requires one coordinated Vercel, Django, and GPU-worker protocol rollout. | Schedule the worker update and deliberate-kill/all-encoder exercise together. |
-| COST-05 | The remaining exit test intentionally creates billed provider work. | Approve a controlled partial-submission fixture after this release stabilizes. |
 | ARCH-05 | Alert creation changes Vercel project configuration. | Configure the stable event-marker alert after log shape is observed. |
 
 ## Local product bugs outside the PDF register
@@ -66,7 +65,7 @@ current verification.
 | COST-02 | DB-referenced objects are missing from GCS | P1 | blocked | 2026-08-26 | AWS administrator + Codex | Bounded live verification completed: 78 of 6,478 referenced objects are missing from GCS; copying is blocked by the invalid AWS source credential. |
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
 | COST-04 | Media delivery can silently proxy bytes | P1 | resolved | 2026-08-29 | Operator + Codex | An authenticated production Admin Status run returned `OK` for Media Delivery after a real recent media object completed a direct one-byte read with HTTP 206; the object identity stayed redacted and no proxy fallback occurred. |
-| COST-05 | Video best-of-N can bill after partial failure | P2 | in_progress | 2026-08-27 | Codex | Local settlement logic retains every provider-accepted task ID, continues with a partial candidate set, emits accepted/rejected counts, and reduces estimated cost to accepted candidates. Exit: deploy and verify a controlled partial-submission fixture. |
+| COST-05 | Video best-of-N can bill after partial failure | P2 | resolved | 2026-09-03 | Codex | Production runtime audit on Ready deployment `dpl_BRrqiE8qqrh2HqCTCLmEz9FuarLG` exercised the deployed submission library with a controlled 2-of-3 acceptance: both accepted task IDs survived, estimated cost was prorated to 2/3, and the injected submitter made no provider request. PR #32 passed strict `web`, `database`, and Vercel checks before merge `ef9dbbe`. |
 | COST-06 | Provider costs mix exact and estimated values | P2 | resolved | 2026-08-29 | Codex | Aggregate-only production verification found 1,955 succeeded estimated rows and 6 succeeded reconciled rows after deployment, proving both classes are persisted. Admin totals, user summaries, logs, and CSV exports expose the split. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
 | REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-29 | Codex | The conditional depth batch was not started: an aggregate one-hour production-log check found zero worker heartbeat requests, and no operator worker terminal was available. Claim-fenced implementation `4301601` remains isolated; the deleted Django source will not be restored. |
@@ -75,7 +74,7 @@ current verification.
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
 | REL-05 | Client scope and SQL scope can drift | P2 | resolved | 2026-08-27 | Codex | PostgreSQL scope/order/keyset parity passed on PR #11 and main CI run `33055388366` after the production migration chain. |
 | REL-06 | `db:push` does not create indexes | P2 | resolved | 2026-08-27 | Codex | Production read-only catalog verification reports all 10 expected indexes present; the registry, optimizer, Admin Status check, and live-catalog CI test shipped in `8f216d9`. |
-| REL-07 | Repeated poll errors can leave a row running forever | P2 | monitoring | 2026-09-01 | Codex | The additive schema remains exactly two poll-health columns plus one valid reconciliation index. The latest complete 24-hour query found 100 aggregate-only reconciliation events, all `ok=true`, with zero checked candidates, reconciliation errors, poll errors, or `/api/generate/video/status` 5xx responses; the production audit again reported zero fixture residue. The earlier retained window still proves three conclusive terminal outcomes. No real transient poll-error row occurred, so the final non-terminal recovery gate remains unproven and no billed probe was created. |
+| REL-07 | Repeated poll errors can leave a row running forever | P2 | resolved | 2026-09-03 | Codex | Production runtime audit on Ready deployment `dpl_BRrqiE8qqrh2HqCTCLmEz9FuarLG` created one isolated task-backed video fixture, recorded a controlled transient poll failure through the shared reconciliation state machine, kept the row non-terminal, cleared poll health on the next pending provider response, and reported zero fixture residue. The diagnostic selector was restricted to its random fixture ID and no provider request was made. PR #32 passed protected checks before merge `ef9dbbe`. |
 | REL-08 | Most providers trust requested aspect ratio | P3 | resolved | 2026-08-28 | Codex | Image outputs (Gemini/Nano Banana, Higgsfield, Kling) and video outputs (Higgsfield, Omni, BytePlus, including best-of winners) are measured from the same bytes used for persistence. The nearest model-supported ratio is stored; structured mismatch/inspection warnings and requested-ratio fallback keep metadata failures non-fatal. Synthetic image and local ffmpeg video fixtures pass. |
 | REL-09 | Login-attempt cleanup is opportunistic | P3 | resolved | 2026-08-29 | Codex | A fresh unlogged 32-byte `CRON_SECRET` is set in Production. Deployment `dpl_89MM53UNUbuXpHS8ztsdCZjygsp5` returned HTTP 200 for one authenticated manual run, deleted 12 expired rows, and emitted the bounded structured `maintenance_cleanup` event; the temporary secret file was removed immediately afterward. |
 | MIG-01 | Django port is not cut over | P1 | resolved | 2026-08-29 | Codex | The never-cut-over Django port was retired in favor of the production Next.js API; its complete tracked source remains recoverable in Git history. |
@@ -135,6 +134,17 @@ current verification.
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-09-03: resolved `COST-05` and `REL-07` only after PR #32 passed strict
+  `web`, `database`, and Vercel preview checks, exact merge `ef9dbbe` reached
+  Ready production deployment `dpl_BRrqiE8qqrh2HqCTCLmEz9FuarLG` on the public
+  aliases, and the authenticated runtime audit returned `OK` for both checks.
+  The partial-submission fixture retained both accepted tasks from a controlled
+  2-of-3 result and prorated estimated cost without a provider request. The
+  poll-recovery fixture recorded one transient error on its isolated production
+  PostgreSQL row, remained non-terminal, recovered to pending, reset health,
+  and reported zero residue. The same run left `SEC-05` in progress, `VER-08`
+  at 7/8, and `VER-10` inconclusive. The register is 56 resolved and 24 pending.
 
 - 2026-09-03: resolved `UI-LOCAL-05` and `UI-LOCAL-06` only after PR #30
   passed strict `web`, `database`, and Vercel preview checks and exact merge
