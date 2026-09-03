@@ -62,19 +62,24 @@ async function listSourceObjects() {
   return objects.filter((object) => !!object.Key);
 }
 
-async function inspect(object) {
-  const file = gcs.bucket(targetBucket).file(object.Key);
-  const [exists] = await file.exists();
-  if (!exists) return "missing";
-  const [metadata] = await file.getMetadata();
-  return Number(metadata.size) === Number(object.Size) ? "same" : "different";
+async function listTargetObjects() {
+  const [files] = await gcs.bucket(targetBucket).getFiles({ prefix });
+  return new Map(
+    files.map((file) => [file.name, Number(file.metadata.size)])
+  );
+}
+
+function inspect(object, targetObjects) {
+  const targetSize = targetObjects.get(object.Key);
+  if (targetSize === undefined) return "missing";
+  return targetSize === Number(object.Size) ? "same" : "different";
 }
 
 async function copy(object) {
   const source = await s3.send(
     new GetObjectCommand({ Bucket: sourceBucket, Key: object.Key })
   );
-  if (!source.Body) throw new Error(`S3 object ${object.Key} has no body`);
+  if (!source.Body) throw new Error("S3 object has no body");
   const target = gcs.bucket(targetBucket).file(object.Key);
   const output = target.createWriteStream({
     resumable: Number(object.Size) >= 8 * 1024 * 1024,
@@ -89,35 +94,58 @@ async function copy(object) {
 }
 
 async function run() {
-  const objects = await listSourceObjects();
+  const [objects, targetObjects] = await Promise.all([
+    listSourceObjects(),
+    listTargetObjects(),
+  ]);
   const totals = { same: 0, missing: 0, different: 0, copied: 0, failed: 0 };
   console.log(
     `${apply ? "Applying" : "Checking"} ${objects.length} objects: ` +
       `s3://${sourceBucket} -> gs://${targetBucket}`
   );
 
+  const missingObjects = [];
   for (const object of objects) {
-    const state = await inspect(object);
+    const state = inspect(object, targetObjects);
     totals[state]++;
-    if (state === "same" || verifyOnly || !apply) continue;
-    try {
-      await copy(object);
-      const after = await inspect(object);
-      if (after !== "same") throw new Error(`post-copy size mismatch (${after})`);
-      totals.copied++;
-      console.log(`copied ${object.Key}`);
-    } catch (error) {
-      totals.failed++;
-      console.error(`failed ${object.Key}:`, error);
+    if (state === "missing") missingObjects.push(object);
+  }
+
+  if (totals.different) {
+    throw new Error(
+      `Aborting: ${totals.different} size-different object(s) require manual review`
+    );
+  }
+
+  if (apply && !verifyOnly) {
+    for (const object of missingObjects) {
+      try {
+        await copy(object);
+        const [metadata] = await gcs
+          .bucket(targetBucket)
+          .file(object.Key)
+          .getMetadata();
+        if (Number(metadata.size) !== Number(object.Size)) {
+          throw new Error("post-copy size mismatch");
+        }
+        totals.copied++;
+      } catch (error) {
+        totals.failed++;
+        console.error(
+          "Copy failed; aborting without attempting later objects:",
+          error
+        );
+        break;
+      }
     }
   }
 
   console.log(JSON.stringify(totals, null, 2));
-  if (totals.failed || (verifyOnly && (totals.missing || totals.different))) {
+  if (totals.failed || (verifyOnly && totals.missing)) {
     process.exitCode = 1;
   }
   if (!apply && !verifyOnly) {
-    console.log("Dry run only. Re-run with --apply to copy missing/different objects.");
+    console.log("Dry run only. Re-run with --apply to copy missing objects.");
   }
 }
 
