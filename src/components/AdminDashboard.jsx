@@ -1360,8 +1360,8 @@ function LogsTab({
         )}
       </p>
 
-      <div className="overflow-hidden rounded-xl border border-line">
-        <table className="w-full text-sm">
+      <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[900px] text-sm">
           <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
             <tr>
               <th className="px-3 py-2">Time</th>
@@ -1596,8 +1596,8 @@ function ActivityLog({
             : `Showing ${rows.length.toLocaleString()} of ${total.toLocaleString()} events`}
         </p>
       </div>
-      <div className="overflow-hidden rounded-xl border border-line">
-        <table className="w-full text-sm">
+      <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
             <tr>
               <th className="px-3 py-2">Time</th>
@@ -1685,8 +1685,8 @@ function PricingTab({ data, reload }) {
           against a real provider invoice.
         </p>
       </div>
-      <div className="overflow-hidden rounded-xl border border-line">
-        <table className="w-full text-sm">
+      <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
+        <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
             <tr>
               <th className="px-3 py-2">Model</th>

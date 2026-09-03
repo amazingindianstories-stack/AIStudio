@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal } from "lucide-react";
+import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
@@ -29,7 +29,9 @@ export function BoardSwitcher({
   const [renamingTrigger, setRenamingTrigger] = useState(false);
   const [renamingRowId, setRenamingRowId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
-  const initializedForProject = useRef(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [boardsError, setBoardsError] = useState(false);
+  const initializedRequest = useRef(null);
   // Guards against an in-flight fetch for a project the user has since
   // switched away from landing its (stale) result into state — the same
   // class of race `loadGeneration` guards against in canvas-store.ts, just
@@ -37,37 +39,53 @@ export function BoardSwitcher({
   const requestIdRef = useRef(0);
 
   useEffect(() => {
-    if (!projectId || initializedForProject.current === projectId) return;
-    initializedForProject.current = projectId;
+    if (!projectId) return;
+    const requestKey = `${projectId}:${loadAttempt}`;
+    if (initializedRequest.current === requestKey) return;
+    initializedRequest.current = requestKey;
     const requestId = ++requestIdRef.current;
+    setBoardsError(false);
     setBoardsLoading(true);
     onLoadingChange?.(true);
     (async () => {
-      const res = await apiFetch(`/api/canvas-boards?projectId=${encodeURIComponent(projectId)}`, {
-        cache: "no-store",
-      });
-      const json = await res.json().catch(() => ({}));
-      if (requestIdRef.current !== requestId) return; // superseded — a newer project switch happened
-      let list = json.boards ?? [];
-      if (list.length === 0) {
-        const created = await apiFetch("/api/canvas-boards", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ op: "createBoard", projectId, name: "Untitled board" }),
+      try {
+        const res = await apiFetch(`/api/canvas-boards?projectId=${encodeURIComponent(projectId)}`, {
+          cache: "no-store",
         });
-        const createdJson = await created.json().catch(() => ({}));
-        if (requestIdRef.current !== requestId) return; // superseded mid-auto-create
-        list = createdJson.boards ?? [];
-      }
-      setBoards(list);
-      setBoardsLoading(false);
-      onLoadingChange?.(false);
-      if (!boardId || !list.some((b) => b.id === boardId)) {
-        if (list[0]) onBoardIdChange(list[0].id);
+        if (!res.ok) throw new Error("Could not load boards");
+        const json = await res.json().catch(() => ({}));
+        if (requestIdRef.current !== requestId) return; // superseded — a newer project switch happened
+        let list = json.boards ?? [];
+        if (list.length === 0) {
+          const created = await apiFetch("/api/canvas-boards", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ op: "createBoard", projectId, name: "Untitled board" }),
+          });
+          if (!created.ok) throw new Error("Could not create a board");
+          const createdJson = await created.json().catch(() => ({}));
+          if (requestIdRef.current !== requestId) return; // superseded mid-auto-create
+          list = createdJson.boards ?? [];
+        }
+        if (list.length === 0) throw new Error("No board was returned");
+        setBoards(list);
+        if (!boardId || !list.some((b) => b.id === boardId)) {
+          onBoardIdChange(list[0].id);
+        }
+      } catch {
+        if (requestIdRef.current !== requestId) return;
+        setBoards([]);
+        setBoardsError(true);
+        onBoardIdChange(null);
+      } finally {
+        if (requestIdRef.current === requestId) {
+          setBoardsLoading(false);
+          onLoadingChange?.(false);
+        }
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, loadAttempt]);
 
   const current = boards.find((b) => b.id === boardId) ?? null;
 
@@ -129,7 +147,16 @@ export function BoardSwitcher({
 
   return (
     <>
-      {renamingTrigger ? (
+      {boardsError ? (
+        <button
+          type="button"
+          onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+          className="flex items-center gap-1.5 rounded-full border border-red-400/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-200 transition hover:bg-red-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300/60"
+        >
+          <AlertCircle className="h-3.5 w-3.5" />
+          Could not load boards — Retry
+        </button>
+      ) : renamingTrigger ? (
         <input
           autoFocus
           defaultValue={current?.name ?? "Untitled board"}
