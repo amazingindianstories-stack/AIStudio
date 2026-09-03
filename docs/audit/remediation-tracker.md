@@ -42,6 +42,8 @@ production-confirmed.
 | UI-LOCAL-02 | Asset viewer can leave all mouse/keyboard input wedged after arrow navigation and Escape/close | resolved | 2026-09-02 | Real Chrome and Safari native-fullscreen runs kept arrow navigation on the active video, exited fullscreen safely, unmounted the viewer, and accepted subsequent composer input. PR #26 bounded Safari paint settling, consumed its replayed Escape, removed the teardown's exit-animation dependency, passed protected checks, and reached a Ready production deployment before closure. |
 | UI-LOCAL-03 | Generation settings remain open with stale controls after switching Image/Video mode | resolved | 2026-09-02 | Disposable Chrome reproduced the stale cross-mode menu, then verified that both composer variants reset only the settings dropdown when mode changes. PR #28 passed strict `web`, `database`, and Vercel preview checks; merge `95a9ca5` reached a Ready production deployment before closure. |
 | UI-LOCAL-04 | Narrow mobile header overlaps Agents and Open assets controls | resolved | 2026-09-02 | Disposable Chrome measured overlapping hit rectangles at 390px, then verified separated controls and the correct assets drawer action at 390px and 320px. Icon-only navigation now has accessible names. PR #28 passed protected checks and merge `95a9ca5` reached a Ready production deployment before closure. |
+| UI-LOCAL-05 | Board metadata failure leaves the canvas permanently loading with no recovery action | resolved | 2026-09-03 | Disposable Chrome reproduced the failure by stopping only the isolated PostgreSQL fixture database during a project switch. The Board now exposes a keyboard-focusable retry, keeps stale responses fenced, and recovers to the correct project and board after PostgreSQL returns. PR #30 passed protected checks; exact merge `b182f32` reached Ready production deployment `dpl_1281HZxF3aTNwCrAwytQ7ZA2cXYA` on the public aliases before closure. |
+| UI-LOCAL-06 | Admin Logs, Activity, and Pricing columns are clipped and unreachable on narrow screens | resolved | 2026-09-03 | At 390px, disposable Chrome measured 947px and 768px Logs/Activity tables inside 356px containers with hidden horizontal overflow; Pricing was clipped too. All three now expose horizontal scrolling with stable table widths, while filters, pagination, dialogs, and local-only edits still pass. PR #30 passed protected checks and exact merge `b182f32` reached the Ready public production deployment before closure. |
 
 ## Full issue register
 
@@ -133,6 +135,21 @@ current verification.
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-09-03: resolved `UI-LOCAL-05` and `UI-LOCAL-06` only after PR #30
+  passed strict `web`, `database`, and Vercel preview checks and exact merge
+  `b182f32` reached Ready production deployment
+  `dpl_1281HZxF3aTNwCrAwytQ7ZA2cXYA` on the public aliases. Disposable Chrome
+  verified Board project/board switching, creation, selection, zoom, asset
+  placement, save/reload, empty and mobile gates, plus the injected database-
+  outage retry path. Admin verification covered all tabs, responsive users and
+  status cards, filters, pagination, dialogs, status rendering, and rolled-back
+  local-only user-limit, global-limit, and pricing edits; the 390px table
+  containers changed from clipped to horizontally reachable. Lint, 778 unit
+  tests, 12 fresh-PostgreSQL integration tests, the production build, and diff
+  checks passed. No migration, provider task, billed probe, credential change,
+  or production-data mutation ran. `SEC-05` remains `in_progress`, and these
+  local IDs remain outside the fixed 80-finding register.
 
 - 2026-09-02: resolved `UI-LOCAL-03` and `UI-LOCAL-04` only after PR #28
   passed strict `web`, `database`, and Vercel preview checks and exact merge
