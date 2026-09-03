@@ -29,3 +29,12 @@ test("BoardSwitcher rejects stale project-list responses", () => {
   );
   assert.match(switcher, /encodeURIComponent\(projectId\)/);
 });
+
+test("BoardSwitcher surfaces list failures and offers an accessible retry", () => {
+  assert.match(switcher, /if \(!res\.ok\) throw new Error\("Could not load boards"\)/);
+  assert.match(switcher, /if \(!created\.ok\) throw new Error\("Could not create a board"\)/);
+  assert.match(switcher, /setBoardsError\(true\)/);
+  assert.match(switcher, /Could not load boards — Retry/);
+  assert.match(switcher, /setLoadAttempt\(\(attempt\) => attempt \+ 1\)/);
+  assert.match(switcher, /requestIdRef\.current === requestId/);
+});
