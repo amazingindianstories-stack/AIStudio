@@ -4,6 +4,7 @@ import {
   activeDatabaseBackend,
   klingAuditResults,
   parseCsv,
+  partialSubmissionCheck,
   sanitizeAuditDetail,
   spoolCheck,
 } from "./runtime-audit";
@@ -25,6 +26,10 @@ test("runtime audit detail redacts UUIDs, credentials, and line breaks", () => {
 
 test("runtime audit spool diagnostic cleans success and forced-failure directories", async () => {
   assert.match(await spoolCheck(), /metadata only/);
+});
+
+test("runtime audit partial submission diagnostic is controlled and provider-free", async () => {
+  assert.match(await partialSubmissionCheck(), /2\/3 partial submission/);
 });
 
 test("runtime audit reports only the sanitized no-task failure cause", () => {
