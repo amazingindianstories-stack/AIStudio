@@ -3,7 +3,7 @@
 import { useState, } from "react";
 import { motion } from "framer-motion";
 import { Loader2, LogIn } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, parseApiResponse } from "@/lib/api";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -22,9 +22,9 @@ export default function LoginPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: email.trim(), password }),
       });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(json.error || "Login failed.");
+      const result = await parseApiResponse(res);
+      if (!result.ok) {
+        setError(result.error.message || "Login failed.");
         setLoading(false);
         return;
       }

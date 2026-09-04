@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { eq } from "drizzle-orm";
+import { errorResponse, successResponse } from "@/lib/api-response";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/schema";
 import {
@@ -17,8 +17,9 @@ export async function POST(req) {
   const db = await getDb();
   const { email, password } = await req.json().catch(() => ({}));
   if (!email || !password) {
-    return NextResponse.json(
-      { error: "Email and password are required." },
+    return errorResponse(
+      "VALIDATION_ERROR",
+      "Email and password are required.",
       { status: 400 }
     );
   }
@@ -27,8 +28,9 @@ export async function POST(req) {
   // identifier gets the 429 without ever touching the password hash.
   const throttle = await checkLoginThrottle(email);
   if (!throttle.allowed) {
-    return NextResponse.json(
-      { error: "Too many failed attempts. Try again later." },
+    return errorResponse(
+      "RATE_LIMITED",
+      "Too many failed attempts. Try again later.",
       { status: 429, headers: { "Retry-After": String(Math.ceil(throttle.retryAfterMs / 1000)) } }
     );
   }
@@ -59,13 +61,14 @@ export async function POST(req) {
     // identifier is the submitted string either way, so a nonexistent email
     // still throttles rather than being a free, unlimited guessing surface.
     await recordLoginFailure(email);
-    return NextResponse.json(
-      { error: "Invalid email or password." },
+    return errorResponse(
+      "INVALID_CREDENTIALS",
+      "Invalid email or password.",
       { status: 401 }
     );
   }
 
-  const res = NextResponse.json({
+  const res = successResponse({
     user: {
       id: u.id,
       email: u.email,

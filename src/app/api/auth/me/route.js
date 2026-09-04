@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
+import { errorResponse, successResponse } from "@/lib/api-response";
 import {
   getSession,
   SESSION_COOKIE,
@@ -140,15 +140,15 @@ async function readProfileRequest(req) {
 
 export async function GET() {
   const user = await getSession();
-  if (!user) return clearSession(NextResponse.json({ user: null }));
-  return NextResponse.json({ user: publicUser(user) });
+  if (!user) return clearSession(successResponse({ user: null }));
+  return successResponse({ user: publicUser(user) });
 }
 
 export async function PATCH(req) {
   const session = await getSession();
   if (!session) {
     return clearSession(
-      NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 })
+      errorResponse("UNAUTHENTICATED", "UNAUTHENTICATED", { status: 401 })
     );
   }
   const db = await getDb();
@@ -159,7 +159,7 @@ export async function PATCH(req) {
   } catch (error) {
     const message =
       error instanceof InvalidAvatarError ? error.message : "Invalid profile update.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    return errorResponse("VALIDATION_ERROR", message, { status: 400 });
   }
 
   const changedFields = [];
@@ -181,7 +181,7 @@ export async function PATCH(req) {
     }
 
     if (!changedFields.length) {
-      return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
+      return errorResponse("VALIDATION_ERROR", "Nothing to update.", { status: 400 });
     }
 
     const [updated] = await db
@@ -206,7 +206,7 @@ export async function PATCH(req) {
     if (!updated) {
       await deleteAvatarImage(uploadedAvatarUrl);
       return clearSession(
-        NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 })
+        errorResponse("UNAUTHENTICATED", "UNAUTHENTICATED", { status: 401 })
       );
     }
 
@@ -214,15 +214,16 @@ export async function PATCH(req) {
       await deleteAvatarImage(session.avatarUrl);
     }
     await logActivity(session.id, "profile_updated", { changedFields });
-    return NextResponse.json({ user: updated });
+    return successResponse({ user: updated });
   } catch (error) {
     await deleteAvatarImage(uploadedAvatarUrl);
     if (error instanceof InvalidAvatarError) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return errorResponse("VALIDATION_ERROR", error.message, { status: 400 });
     }
     console.error("Failed to update profile", error);
-    return NextResponse.json(
-      { error: "Could not update the profile." },
+    return errorResponse(
+      "INTERNAL_ERROR",
+      "Could not update the profile.",
       { status: 500 }
     );
   }

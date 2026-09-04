@@ -42,7 +42,7 @@ import {
 import { formatCost } from "@/lib/pricing";
 import { LIMIT_DEFINITIONS, } from "@/lib/limits";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, parseApiResponse } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
@@ -66,9 +66,9 @@ export function AdminDashboard() {
   const loadCurrentUser = async () => {
     try {
       const response = await apiFetch("/api/auth/me", { cache: "no-store" });
-      if (!response.ok) return;
-      const json = await response.json();
-      setCurrentUser(json.user ?? null);
+      const result = await parseApiResponse(response);
+      if (!result.ok) return;
+      setCurrentUser(result.data.user ?? null);
     } catch {
       setCurrentUser(null);
     }

@@ -1,5 +1,5 @@
-import { NextResponse } from "next/server";
 import { and, eq, sql } from "drizzle-orm";
+import { errorResponse, successResponse } from "@/lib/api-response";
 import {
   getSession,
   SESSION_COOKIE,
@@ -28,7 +28,7 @@ export async function PATCH(req) {
   const session = await getSession();
   if (!session) {
     return clearSession(
-      NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 })
+      errorResponse("UNAUTHENTICATED", "UNAUTHENTICATED", { status: 401 })
     );
   }
   const db = await getDb();
@@ -37,14 +37,15 @@ export async function PATCH(req) {
   const currentPassword = body.currentPassword;
   const newPassword = body.newPassword;
   if (typeof currentPassword !== "string" || !currentPassword || currentPassword.length > 1024) {
-    return NextResponse.json(
-      { error: "Current password is required." },
+    return errorResponse(
+      "VALIDATION_ERROR",
+      "Current password is required.",
       { status: 400 }
     );
   }
   const passwordError = validatePassword(newPassword);
   if (passwordError) {
-    return NextResponse.json({ error: passwordError }, { status: 400 });
+    return errorResponse("VALIDATION_ERROR", passwordError, { status: 400 });
   }
 
   const [account] = await db
@@ -65,12 +66,13 @@ export async function PATCH(req) {
     account.authVersion !== session.authVersion
   ) {
     return clearSession(
-      NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 })
+      errorResponse("UNAUTHENTICATED", "UNAUTHENTICATED", { status: 401 })
     );
   }
   if (!verifyPassword(currentPassword, account.passwordHash, account.passwordSalt)) {
-    return NextResponse.json(
-      { error: "Current password is incorrect." },
+    return errorResponse(
+      "INVALID_CURRENT_PASSWORD",
+      "Current password is incorrect.",
       { status: 401 }
     );
   }
@@ -94,14 +96,15 @@ export async function PATCH(req) {
 
   if (!updated) {
     return clearSession(
-      NextResponse.json(
-        { error: "Your session changed. Sign in and try again." },
+      errorResponse(
+        "SESSION_CONFLICT",
+        "Your session changed. Sign in and try again.",
         { status: 409 }
       )
     );
   }
 
-  const response = NextResponse.json({ ok: true });
+  const response = successResponse(null);
   response.cookies.set(
     SESSION_COOKIE,
     signSession(session.id, updated.authVersion),
