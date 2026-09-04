@@ -23,13 +23,50 @@ const nextConfig = {
   // genuinely installed. Excluding it from the server bundle lets it resolve
   // normally against the real node_modules at runtime instead.
   serverExternalPackages: ["@ffmpeg-installer/ffmpeg"],
-  // Baseline security headers. Deliberately NOT including Content-Security-Policy
-  // here — this app serves media from S3/GCS signed URLs and a CDN whose exact
-  // domains vary by environment, and getting a CSP wrong (missing a domain,
-  // blocking an inline style framer-motion needs) breaks real functionality
-  // rather than failing loudly. Needs its own pass with live browser
-  // verification before it's added.
+  // Keep this policy report-only until a full browser pass and a clean
+  // observation window prove that it covers the final CDN topology. Inline
+  // styles are currently required by React/framer-motion. Browser-side media
+  // and URL-reference fetches may use arbitrary HTTPS origins, while known
+  // deployment origins are named explicitly to make the intended topology
+  // reviewable before the broad HTTPS compatibility source is tightened.
   async headers() {
+    const configuredOrigins = [
+      process.env.NEXT_PUBLIC_API_URL,
+      process.env.GCP_MEDIA_CDN_URL,
+    ].flatMap((value) => {
+      if (!value) return [];
+      try {
+        const url = new URL(value);
+        return url.protocol === "https:" || url.protocol === "http:" ? [url.origin] : [];
+      } catch {
+        return [];
+      }
+    });
+    const browserNetworkSources = [
+      "'self'",
+      "https://storage.googleapis.com",
+      "https://*.storage.googleapis.com",
+      "https://*.s3.amazonaws.com",
+      ...configuredOrigins,
+      "https:",
+    ];
+    const cspReportOnly = [
+      "default-src 'self'",
+      "base-uri 'self'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "frame-src 'none'",
+      "form-action 'self'",
+      "script-src 'self'",
+      "style-src 'self' 'unsafe-inline'",
+      "font-src 'self' data:",
+      `img-src ${browserNetworkSources.join(" ")} data: blob:`,
+      `media-src ${browserNetworkSources.join(" ")} blob:`,
+      `connect-src ${browserNetworkSources.join(" ")} blob:`,
+      "worker-src 'self' blob:",
+      "manifest-src 'self'",
+      "report-uri /api/security/csp-report",
+    ].join("; ");
     return [
       {
         source: "/:path*",
@@ -40,6 +77,7 @@ const nextConfig = {
           // No camera/mic/geolocation use anywhere in this app.
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+          { key: "Content-Security-Policy-Report-Only", value: cspReportOnly },
         ],
       },
     ];

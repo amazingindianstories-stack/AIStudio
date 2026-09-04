@@ -31,10 +31,14 @@ export function middleware(req) {
   // /api/cron/* is invoked by Vercel without a browser session. Each cron
   // route fails closed on its own CRON_SECRET bearer token before touching
   // data, so the edge cookie-presence gate must let that token reach it.
+  // /api/security/csp-report is emitted by browsers, including from /login
+  // before a session exists. It accepts only bounded CSP payloads and logs a
+  // sanitized subset; it never reads or writes application data.
   if (
     pathname.startsWith("/api/auth") ||
     pathname === "/api/admin/set-token" ||
     pathname === "/api/media-grant" ||
+    pathname === "/api/security/csp-report" ||
     pathname.startsWith("/api/worker/depth/") ||
     pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/_next") ||

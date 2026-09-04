@@ -58,7 +58,7 @@ current verification.
 | SEC-04 | Route auth relies on every handler checking the session | P1 | resolved | 2026-08-25 | Codex | Route-auth guard shipped in `6fa858a`. |
 | SEC-05 | Higgsfield refresh has no distributed lock | P1 | in_progress | 2026-09-01 | Codex | Refresh coordination is deployed and its PostgreSQL lease test passes. The latest authenticated Admin Status check still reports that the stored access token is not fresh and refresh was not triggered, so the one-natural-rotation exit gate remains unproven; no refresh was forced. |
 | SEC-06 | Canvas upload ignored board ID | P2 | resolved | 2026-08-25 | Codex | Board validation shipped in `2929509`. |
-| SEC-07 | No Content-Security-Policy | P2 | open | 2026-08-18 | Unassigned | Schedule after final CDN domain is known. |
+| SEC-07 | No Content-Security-Policy | P2 | in_progress | 2026-09-04 | Codex | A local-only report-policy implementation on `fix/csp-report-only` defines the baseline directives and a bounded public collector that logs only sanitized violation metadata. Node 22 unit (786), focused security (11), lint, production build, and local HTTP header/report smoke checks pass. Keep it isolated during the AWS observation window; after the final CDN topology is known, deploy report-only, complete Chrome/Safari coverage, observe seven clean days, then enforce. |
 | SEC-08 | Dead Vercel credentials remain | P2 | resolved | 2026-08-29 | Operator + Codex | Removed only the eight verified-unused Blob and Higgsfield dev-API variable names from Vercel Production/Preview; a post-change name-only inventory confirms they are absent while the separate Production MCP compatibility credentials remain. |
 | COST-01 | Duplicate S3 history remains billed | P0 | monitoring | 2026-09-03 | AWS administrator + Codex | See active P0 queue; deletion remains gated on seven stable days and final evidence. |
 | COST-02 | DB-referenced objects are missing from GCS | P1 | resolved | 2026-09-03 | AWS administrator + Codex | A fresh production scan checked all 7,983 referenced objects against 17,603 stored GCS objects and reported zero missing after the 122-object inventory migration. |
@@ -133,6 +133,18 @@ current verification.
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-09-04: implemented the local `SEC-07` report-only CSP slice on
+  `fix/csp-report-only` without changing production. The policy cannot block
+  application behavior, covers the current GCS/S3 migration topology and
+  environment-derived API/CDN origins, and reports to a bounded endpoint that
+  strips signed queries, object paths, samples, and full URLs before emitting
+  structured telemetry. Node 22 unit (786), focused security (11), lint,
+  production build, and local HTTP header/report smoke checks pass. No branch
+  was pushed or merged and no Vercel deployment ran. `SEC-07` remains
+  `in_progress` until the final CDN hostname is known, a Preview/browser pass
+  succeeds, and Production records seven clean report-only days before
+  enforcement.
 
 - 2026-09-04: deactivated both legacy `vercel-s3-access` keys after the
   consumer audit found zero CloudTrail management events, IAM reported each

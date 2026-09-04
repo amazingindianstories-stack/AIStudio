@@ -65,6 +65,12 @@ const EXEMPT = new Map([
     "Polled by the client for a row it already knows the id of; has no auth " +
       "check by design.",
   ],
+  [
+    "security/csp-report",
+    "Browsers send CSP reports without a guaranteed session, including from " +
+      "the login page. The route accepts only bounded report payloads and " +
+      "logs a sanitized subset without reading or writing application data.",
+  ],
 ]);
 
 /** Walk `src/app/api` and yield every route file with its route path. */
