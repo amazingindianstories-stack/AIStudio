@@ -67,7 +67,7 @@ current verification.
 | COST-05 | Video best-of-N can bill after partial failure | P2 | resolved | 2026-09-03 | Codex | Production runtime audit on Ready deployment `dpl_BRrqiE8qqrh2HqCTCLmEz9FuarLG` exercised the deployed submission library with a controlled 2-of-3 acceptance: both accepted task IDs survived, estimated cost was prorated to 2/3, and the injected submitter made no provider request. PR #32 passed strict `web`, `database`, and Vercel checks before merge `ef9dbbe`. |
 | COST-06 | Provider costs mix exact and estimated values | P2 | resolved | 2026-08-29 | Codex | Aggregate-only production verification found 1,955 succeeded estimated rows and 6 succeeded reconciled rows after deployment, proving both classes are persisted. Admin totals, user summaries, logs, and CSV exports expose the split. |
 | COST-07 | Pricing rows contain unverified placeholders | P2 | open | 2026-08-18 | Unassigned | Reconcile one invoice month. |
-| REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-08-29 | Codex | The conditional depth batch was not started: an aggregate one-hour production-log check found zero worker heartbeat requests, and no operator worker terminal was available. Claim-fenced implementation `4301601` remains isolated; the deleted Django source will not be restored. |
+| REL-01 | Dead depth worker strands a running job | P1 | in_progress | 2026-09-04 | Codex | A local-only claim-fencing implementation on `fix/depth-claim-fencing` gives protocol-v2 workers UUID claims, rejects stale progress/upload/completion writes, preserves matching healthy heartbeats, and requeues abandoned jobs with a three-attempt terminal bound. Node 22 unit (781), PostgreSQL integration (14), lint, production build, and Python protocol (4) checks pass. No migration, deployment, or GPU job ran; keep this in progress until the coordinated server-first rollout and deliberate worker-kill/all-encoder exercise completes `VER-04`. |
 | REL-02 | Best-of-N holds all full-resolution candidates in memory | P1 | resolved | 2026-09-01 | Codex | The post-PR #24 authenticated production audit again exercised the real serial spool library, retained metadata only, and removed both the success and forced-failure directories; the diagnostic reported zero fixture residue. |
 | REL-03 | Queue execution lacks an internal pre-timeout abort | P2 | resolved | 2026-09-01 | Codex | The post-PR #24 authenticated production audit again proved a short internal deadline persisted terminal failure before returning and left zero generation residue. |
 | REL-04 | Stale reaper threshold can drift below route timeout | P2 | resolved | 2026-08-25 | Codex | Literal comparison guard shipped in `6fa858a`. |
@@ -133,6 +133,18 @@ current verification.
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-09-04: implemented the local `REL-01` depth-worker reliability slice on
+  `fix/depth-claim-fencing` without changing production. The additive schema
+  and versioned protocol fence every new claim across progress, upload, and
+  completion; claim-scoped output keys prevent a stale upload from replacing a
+  newer attempt; and the authenticated reconciliation route preserves a
+  matching healthy heartbeat while bounding abandoned work at three attempts.
+  Node 22 unit (781), disposable PostgreSQL integration (14), lint, production
+  build, and Python protocol (4) checks pass. The migration was not executed,
+  no branch was pushed or merged, and no Vercel or GPU deployment ran. `REL-01`
+  remains `in_progress` and `VER-04` remains `open` pending a coordinated
+  server-first rollout and deliberate worker-kill/all-encoder verification.
 
 - 2026-09-04: deactivated both legacy `vercel-s3-access` keys after the
   consumer audit found zero CloudTrail management events, IAM reported each

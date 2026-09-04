@@ -116,6 +116,12 @@ export const generations = pgTable("generations", {
   // wholly different kind, which would read as a depth row somehow having an
   // audio setting).
   trackCharacters: boolean("track_characters"),
+  // Fencing lease for depth workers. Version-2 workers receive a fresh UUID
+  // for every claim and must echo it on every write. Null is reserved for a
+  // legacy worker claimed during the server-first rollout.
+  depthClaimId: uuid("depth_claim_id"),
+  depthClaimWorkerId: text("depth_claim_worker_id"),
+  depthReapAttempts: integer("depth_reap_attempts").notNull().default(0),
   // Reproducibility seed (Phase 3.1, 2026-08-18). Only Gemini/NBP (image) and
   // native BytePlus Seedance (video) have a probe/docs-confirmed `seed`
   // request field — see config.ts's supportsSeed. For those, /api/queue/execute
@@ -257,6 +263,10 @@ export const depthWorkers = pgTable("depth_workers", {
   device: text("device"), // 'mps' | 'cuda' | 'cpu', reported by the worker
   status: text("status").notNull().default("idle"), // 'idle' | 'busy' — never 'offline': that's derived from lastSeenAt
   currentJobId: uuid("current_job_id"),
+  // A heartbeat is proof of ownership only when both the job and claim match.
+  // Protocol 1 is the temporary legacy-worker compatibility path.
+  currentClaimId: uuid("current_claim_id"),
+  protocolVersion: integer("protocol_version").notNull().default(1),
   ramLimitMb: integer("ram_limit_mb"),
   ramUsedMb: integer("ram_used_mb"),
   lastSeenAt: bigint("last_seen_at", { mode: "number" }).notNull(),
