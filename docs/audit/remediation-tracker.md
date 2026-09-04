@@ -11,7 +11,7 @@ States: `open`, `in_progress`, `blocked`, `monitoring`, `resolved`, `deferred`.
 
 | ID | State | Owner | Last verified | Evidence | Next action / exit gate |
 |---|---|---|---|---|---|
-| SEC-01 | in_progress | AWS administrator + Codex | 2026-09-03 | Vercel Production and Preview now use the verified exact-bucket read-only identity; immutable redeploys are Ready and production media checks pass. The two old `vercel-s3-access` keys remain active pending the final consumer check and deactivation. | Confirm CloudTrail shows no other consumer, deactivate both old keys, then delete them after the observation window. |
+| SEC-01 | monitoring | AWS administrator + Codex | 2026-09-04 | Vercel Production and Preview use the verified exact-bucket read-only identity. Both old `vercel-s3-access` keys are inactive after IAM showed only historical S3 use; post-deactivation production storage and direct media checks pass. | Keep both keys recoverable through the observation window, then delete the legacy keys and temporary migration identity after the final gates pass. |
 | SEC-02 | resolved | Codex | 2026-08-25 | `.env.production` was deleted without reading or printing its values. | Future `vercel env pull` output is restricted to a mode-0600 file under `/tmp` and removed immediately. |
 | SEC-03 | resolved | Codex | 2026-08-25 | The built-in `postgres` password was replaced with a 48-byte random unretained value; the exposed literal is rejected, the runtime IAM principal passed read and rolled-back write checks, and the temporary impersonation grant was removed. | Keep administrative access on IAM or perform another controlled password reset; never store the built-in password in application configuration. |
 | COST-01 | monitoring | AWS administrator + Codex | 2026-09-03 | All 122 inventory gaps copied; the full comparison reports 2,943 same and zero missing/different/failed. The restore drill passed with zero temporary residue. | Observe through 2026-09-10, capture final inventory evidence, then empty and delete only `ais-film-platform-media`. |
@@ -24,7 +24,6 @@ to resume after the deployable work is stable.
 
 | ID | Why held | Resume gate |
 |---|---|---|
-| SEC-01 | Two legacy full-access keys remain active while their CloudTrail consumer check awaits operator confirmation. | Confirm no other consumer, then deactivate both old keys; delete them after the observation window. |
 | COST-01, MIG-06 | Zero-gap and restore gates pass; the seven-day observation window started 2026-09-03. | Verify media delivery, fallback activity, and referenced-object coverage through 2026-09-10 before removing rollback resources. |
 | REL-01, VER-04 | Requires one coordinated Vercel, Django, and GPU-worker protocol rollout. | Schedule the worker update and deliberate-kill/all-encoder exercise together. |
 | ARCH-05 | Alert creation changes Vercel project configuration. | Configure the stable event-marker alert after log shape is observed. |
@@ -53,7 +52,7 @@ current verification.
 | ID | Title | Sev | State | Last verified | Owner | Evidence / next action |
 |---|---|---|---|---|---|---|
 | MERGE-01 | Finished style-drift work was unmerged | P1 | resolved | 2026-08-25 | Codex | Merged in `2b6446b` and deployed before the Seedance limit release. |
-| SEC-01 | Exposed AWS access key is unrotated | P0 | in_progress | 2026-09-03 | Read-only replacement is live in Vercel Production and Preview; deactivate the two inventoried legacy full-access keys after the consumer check, then delete them after observation. |
+| SEC-01 | Exposed AWS access key is unrotated | P0 | monitoring | 2026-09-04 | AWS administrator + Codex | Read-only replacement is live in Vercel Production and Preview; both legacy full-access keys are inactive and retained only for reversible rollback through the seven-day observation window. |
 | SEC-02 | Plaintext `.env.production` secret dump | P0 | resolved | 2026-08-25 | Codex | Local export deleted; temporary-file-only policy recorded above. |
 | SEC-03 | Cloud SQL superuser password committed by setup script | P0 | resolved | 2026-08-25 | Codex | Random unretained password set; old literal rejected; IAM read/write access verified; temporary grant removed. |
 | SEC-04 | Route auth relies on every handler checking the session | P1 | resolved | 2026-08-25 | Codex | Route-auth guard shipped in `6fa858a`. |
@@ -61,8 +60,8 @@ current verification.
 | SEC-06 | Canvas upload ignored board ID | P2 | resolved | 2026-08-25 | Codex | Board validation shipped in `2929509`. |
 | SEC-07 | No Content-Security-Policy | P2 | open | 2026-08-18 | Unassigned | Schedule after final CDN domain is known. |
 | SEC-08 | Dead Vercel credentials remain | P2 | resolved | 2026-08-29 | Operator + Codex | Removed only the eight verified-unused Blob and Higgsfield dev-API variable names from Vercel Production/Preview; a post-change name-only inventory confirms they are absent while the separate Production MCP compatibility credentials remain. |
-| COST-01 | Duplicate S3 history remains billed | P0 | monitoring | 2026-09-03 | See active P0 queue; deletion remains gated on seven stable days and final evidence. |
-| COST-02 | DB-referenced objects are missing from GCS | P1 | resolved | 2026-09-03 | A fresh production scan checked all 7,983 referenced objects against 17,603 stored GCS objects and reported zero missing after the 122-object inventory migration. |
+| COST-01 | Duplicate S3 history remains billed | P0 | monitoring | 2026-09-03 | AWS administrator + Codex | See active P0 queue; deletion remains gated on seven stable days and final evidence. |
+| COST-02 | DB-referenced objects are missing from GCS | P1 | resolved | 2026-09-03 | AWS administrator + Codex | A fresh production scan checked all 7,983 referenced objects against 17,603 stored GCS objects and reported zero missing after the 122-object inventory migration. |
 | COST-03 | No CDN in front of GCS | P1 | open | 2026-08-18 | Unassigned | Provision CDN before removing the S3 fallback. |
 | COST-04 | Media delivery can silently proxy bytes | P1 | resolved | 2026-08-29 | Operator + Codex | An authenticated production Admin Status run returned `OK` for Media Delivery after a real recent media object completed a direct one-byte read with HTTP 206; the object identity stayed redacted and no proxy fallback occurred. |
 | COST-05 | Video best-of-N can bill after partial failure | P2 | resolved | 2026-09-03 | Codex | Production runtime audit on Ready deployment `dpl_BRrqiE8qqrh2HqCTCLmEz9FuarLG` exercised the deployed submission library with a controlled 2-of-3 acceptance: both accepted task IDs survived, estimated cost was prorated to 2/3, and the injected submitter made no provider request. PR #32 passed strict `web`, `database`, and Vercel checks before merge `ef9dbbe`. |
@@ -82,7 +81,7 @@ current verification.
 | MIG-03 | Live tables are missing Django models | P1 | resolved | 2026-08-29 | Codex | Eliminated with the retired secondary runtime. Drizzle remains schema authority; no production table was dropped. |
 | MIG-04 | Cloud SQL is staged but not live | P2 | in_progress | 2026-09-01 | Codex | The post-PR #24 authenticated diagnostic again confirms production uses direct PostgreSQL. The separate Cloud SQL cutover remains deliberately held because its prior connector-certificate failure requires an extended preview soak before another production attempt. |
 | MIG-05 | Cloud CDN is not provisioned | P1 | open | 2026-08-18 | Unassigned | Choose hostname and execute the CDN runbook. |
-| MIG-06 | Rollback credentials were never removed | P1 | monitoring | 2026-09-03 | Zero-gap, restore, rotated-credential, Production/Preview deploy, and direct-media gates pass. Keep fallback and AWS variables through the seven-day window ending 2026-09-10. |
+| MIG-06 | Rollback credentials were never removed | P1 | monitoring | 2026-09-03 | Operator + Codex | Zero-gap, restore, rotated-credential, Production/Preview deploy, and direct-media gates pass. Keep fallback and AWS variables through the seven-day window ending 2026-09-10. |
 | MIG-07 | Railway Django service does not exist | P2 | resolved | 2026-08-29 | Codex | The uncut-over Django deployment target was intentionally retired; the production Railway PostgreSQL database is unchanged. |
 | MIG-08 | Higgsfield UI is gone but backend remains | P3 | resolved | 2026-08-29 | Codex | Decision recorded: the hidden Next.js MCP compatibility path remains supported for historical retry/readability, historical pricing remains, and the obsolete dev-API credentials are retired. |
 | MIG-09 | Unreachable legacy agent routes remain in Django | P3 | resolved | 2026-08-29 | Codex | Removed with the retired Django source tree; the active Next.js agent surface is unchanged. |
@@ -134,6 +133,22 @@ current verification.
 | QUAL-06 | Supersampling has measured scene-accuracy risk | P3 | resolved | 2026-08-29 | Codex | Deleted the unused supersampling branch, downsampling helper, environment documentation, pricing override, and related comments. Gemini now always renders and persists the requested resolution; a source guard prevents the risky flag from returning. |
 
 ## Change log
+
+- 2026-09-04: deactivated both legacy `vercel-s3-access` keys after the
+  consumer audit found zero CloudTrail management events, IAM reported each
+  key's historical use only against S3 in `us-east-1`, the local runtime key
+  matched neither legacy key, and no tracked file contained an AWS key
+  literal. CloudTrail data-event coverage is not enabled, so this is recorded
+  as the strongest available no-other-consumer evidence rather than a claim
+  of exhaustive object-read telemetry. Both keys remain present and
+  reversible until the observation window ends. Immediately afterward,
+  authenticated production checks reported GCS reachable and direct media
+  delivery HTTP 206, with zero production 5xxs in the surrounding 15-minute
+  window. A fresh local reference scan could not start because GCP ADC now
+  requires interactive reauthentication; the complete 7,983 checked / zero
+  missing scan from 2026-09-03 remains the latest coverage evidence. `SEC-01`
+  moves to monitoring; no fallback variable, AWS variable, key, user, or
+  bucket was deleted. The register remains 57 resolved and 23 pending.
 
 - 2026-09-03: resolved `COST-02` and started the seven-day `COST-01`/`MIG-06`
   observation window. A Node 22 missing-only migration copied all 122 gaps;
