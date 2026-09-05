@@ -59,12 +59,17 @@ exist. All later schema changes must be normal Django migrations.
 
 ## Services and schedules
 
-Create three Railway services rooted at `backend/`:
+Create three Railway services from the `backend/` source bundle and manage their runtime
+settings through `.railway/railway.ts`. Railway no longer permits newly created services
+to opt into the deprecated per-service `railway.json` format:
 
-- API: set the config-file path to `/backend/railway.json`; health is `/api/health`.
-- Login cleanup: set the config-file path to `/backend/railway.login-cleanup.json`, daily at `17 3 * * *` UTC.
-- Video reconciliation: set the config-file path to `/backend/railway.video-reconciliation.json`, every 15
-  minutes.
+- API: start with `./run-service.sh api`; health is `/api/health`.
+- Login cleanup: start with `./run-service.sh login-cleanup`, daily at `17 3 * * *` UTC.
+- Video reconciliation: start with `./run-service.sh video-reconciliation`, every 15 minutes.
+
+The IaC definition refuses to evaluate outside `cutover-preview`. Production activation
+requires a separately reviewed production environment definition after the observation
+gate; do not remove the guard during preview preparation.
 
 Both cron commands are bounded, terminate, and close Django connections.
 Railway skips a run while the preceding invocation is active. Enable these and
