@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
@@ -290,7 +288,6 @@ function AssetThumb({
     >
       <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
         {src && (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={thumbUrl(src, PANEL_THUMB_WIDTH)}
             alt={item.prompt}

@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { Reorder } from "framer-motion";
 import {
@@ -111,7 +109,6 @@ export function ReferenceStrip({ onInsertTag }) {
               className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing"
               onClick={() => onInsertTag(`@img${i + 1}`)}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={src}
                 alt=""

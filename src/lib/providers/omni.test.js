@@ -6,7 +6,7 @@
  * scripts/probe-omni.js and the authorized live generation test. Run:
  *   npx tsx --test src/lib/providers/omni.test.js
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import {
   isOmniModel,

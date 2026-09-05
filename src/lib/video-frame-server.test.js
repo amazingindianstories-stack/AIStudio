@@ -9,7 +9,7 @@
  * download → temp-file → ffmpeg → base64 path resolveVideoBestOf uses in
  * the video status route.
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createServer } from "node:http";

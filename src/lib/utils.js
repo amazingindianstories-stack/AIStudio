@@ -1,5 +1,6 @@
 import { clsx, } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { apiUrl } from "./api";
 
 export function cn(...inputs) {
   return twMerge(clsx(inputs));
@@ -48,7 +49,7 @@ const MEDIA_MAX_VH = 62;
 export function thumbUrl(url, width) {
   if (!url) return undefined;
   if (!url.startsWith("/api/media/")) return url;
-  return `${url}${url.includes("?") ? "&" : "?"}w=${width}`;
+  return apiUrl(`${url}${url.includes("?") ? "&" : "?"}w=${width}`);
 }
 
 /**
@@ -75,7 +76,7 @@ export function thumbUrl(url, width) {
 export function inlineMediaUrl(url) {
   if (!url) return undefined;
   if (!url.startsWith("/api/media/")) return url;
-  return `${url}${url.includes("?") ? "&" : "?"}inline=1`;
+  return apiUrl(`${url}${url.includes("?") ? "&" : "?"}inline=1`);
 }
 
 export function timeAgo(ts) {

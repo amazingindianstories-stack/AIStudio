@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import test from "node:test";
+import { test } from "vitest";
 
 const ROOT_DOCS = ["CLAUDE.md", "BACKEND_AUDIT.md", "progress.md"];
 

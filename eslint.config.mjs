@@ -1,14 +1,13 @@
-import { FlatCompat } from "@eslint/eslintrc";
-import { fileURLToPath } from "node:url";
-import path from "node:path";
+import js from "@eslint/js";
+import globals from "globals";
+import react from "eslint-plugin-react";
+import reactHooks from "eslint-plugin-react-hooks";
 
-const baseDirectory = path.dirname(fileURLToPath(import.meta.url));
-const compat = new FlatCompat({ baseDirectory });
-
-const config = [
+export default [
   {
     ignores: [
       ".next/**",
+      "dist/**",
       "**/.venv/**",
       "backend/**",
       "coverage/**",
@@ -18,10 +17,22 @@ const config = [
       "public/**",
     ],
   },
-  ...compat.extends("next/core-web-vitals"),
   {
-    files: ["src/**/*.{js,jsx}", "scripts/**/*.{js,mjs}"],
+    files: ["src/**/*.{js,jsx}", "scripts/**/*.{js,mjs}", "vite.config.mjs"],
+    ...js.configs.recommended,
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: { ...globals.browser, ...globals.node },
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+    plugins: {
+      react,
+      "react-hooks": reactHooks,
+    },
+    settings: { react: { version: "detect" } },
     rules: {
+      ...js.configs.recommended.rules,
       "no-unused-vars": [
         "error",
         {
@@ -30,23 +41,14 @@ const config = [
           varsIgnorePattern: "^_",
         },
       ],
+      "no-control-regex": "off",
+      "no-empty": ["error", { allowEmptyCatch: true }],
+      "no-unexpected-multiline": "off",
+      "no-useless-escape": "off",
+      "react/jsx-uses-react": "error",
+      "react/jsx-uses-vars": "error",
+      "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "error",
     },
   },
-  {
-    // These views intentionally render authenticated media-route/object URLs,
-    // which next/image cannot optimize. Keep the exception narrow and named.
-    files: [
-      "src/app/login/page.jsx",
-      "src/components/AccountSettings.jsx",
-      "src/components/AdminDashboard.jsx",
-      "src/components/ConversationPanel.jsx",
-      "src/components/PromptComposer.jsx",
-      "src/components/TopBar.jsx",
-      "src/components/canvas/nodes/ImageNode.jsx",
-    ],
-    rules: { "@next/next/no-img-element": "off" },
-  },
 ];
-
-export default config;

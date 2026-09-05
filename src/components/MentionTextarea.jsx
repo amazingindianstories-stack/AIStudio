@@ -1,5 +1,3 @@
-"use client";
-
 import {
   useEffect,
   useImperativeHandle,
@@ -344,7 +342,6 @@ export const MentionTextarea = forwardRef(
                   )}
                 >
                   {sug.thumb ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={sug.thumb}
                       alt=""

@@ -35,7 +35,7 @@
  *
  * Run: npx tsx --test src/lib/canvas/selection-actions-regression.test.ts
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { selectionActions } from "./selection-actions";
 

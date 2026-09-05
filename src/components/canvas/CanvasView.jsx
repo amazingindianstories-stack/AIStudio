@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Check, Loader2, AlertTriangle, AlertCircle, Monitor } from "lucide-react";
 import { cn } from "@/lib/utils";

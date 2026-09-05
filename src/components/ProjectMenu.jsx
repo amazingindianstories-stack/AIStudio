@@ -1,5 +1,3 @@
-"use client";
-
 import { Check, Layers, Pencil, Plus, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MenuItem } from "./Dropdown";

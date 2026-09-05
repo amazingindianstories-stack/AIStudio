@@ -13,7 +13,7 @@
  * under response_format (a request param), not prompt text — see
  * providers/omni.ts's header and .council/omni-video/decisions.md D11.
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { buildOmniInput, OMNI_MAX_IMAGES, } from "./omni-input";
 

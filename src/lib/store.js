@@ -1,5 +1,3 @@
-"use client";
-
 import { create } from "zustand";
 
 import {
@@ -21,7 +19,7 @@ import { encodeBlobWithBudget } from "./client-image-budget";
 import { renumberImgMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
-import { apiFetch as crossOriginFetch } from "./api";
+import { apiFetch as crossOriginFetch, parseApiResponse } from "./api";
 import {
   clearFeedCache,
   dropCached,
@@ -1420,11 +1418,16 @@ export const useStore = create((set, get) => ({
   loadMe: async () => {
     try {
       const res = await apiFetch("/api/auth/me", { cache: "no-store" });
-      const json = await res.json();
-      if (json.user) set({ currentUser: json.user });
-      else window.location.href = "/login";
+      const result = await parseApiResponse(res);
+      if (result.ok && result.data.user) {
+        set({ currentUser: result.data.user });
+        return result.data.user;
+      }
+      window.location.href = "/login";
+      return null;
     } catch {
-      /* ignore */
+      window.location.href = "/login";
+      return null;
     }
   },
 
@@ -1457,7 +1460,8 @@ export const useStore = create((set, get) => ({
 
   logout: async () => {
     try {
-      await apiFetch("/api/auth/logout", { method: "POST" });
+      const response = await apiFetch("/api/auth/logout", { method: "POST" });
+      await parseApiResponse(response);
     } catch {
       /* ignore */
     }

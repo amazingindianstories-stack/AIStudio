@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState, } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -188,7 +186,6 @@ function AssetList({ assets, loading }) {
               >
                 <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-ink-700 ring-1 ring-line">
                   {a.images[0] ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={thumbUrl(a.images[0], 128)}
                       alt=""
@@ -341,7 +338,6 @@ function AssetEditor({ asset }) {
               key={i}
               className="group relative h-20 w-20 overflow-hidden rounded-lg ring-1 ring-line"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={thumbUrl(src, 160)}
                 alt=""

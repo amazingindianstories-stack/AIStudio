@@ -10,7 +10,7 @@
  * the same way kling.test.js exercises buildKlingPayload's callers.
  */
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { createVideoTask, isModerationMessage, SeedanceError } from "./seedance";
 
 test("isModerationMessage: detects moderation keywords", () => {
