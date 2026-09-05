@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import test from "node:test";
+import { test } from "vitest";
 
 const queueRoute = readFileSync("src/app/api/queue/execute/route.js", "utf8");
 const videoStatusService = readFileSync("src/lib/video-status-advancement.js", "utf8");

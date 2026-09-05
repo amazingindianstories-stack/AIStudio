@@ -11,11 +11,12 @@
     "sharp": "$sharp"
   },
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "vite",
+    "build": "vite build",
+    "start": "vite preview",
     "lint": "eslint . --max-warnings=0",
-    "test": "node scripts/run-unit-tests.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:db": "tsx --tsconfig jsconfig.json --test src/lib/cost-basis-db.integration.js src/lib/distributed-lease-db.integration.js src/lib/feed-scope-db.integration.js src/lib/generation-health-db.integration.js src/lib/login-throttle-db.integration.js src/lib/runtime-audit-db.integration.js src/lib/stuck-omni-db.integration.js src/lib/video-poll-db.integration.js",
     "test:db:setup": "drizzle-kit push",
     "db:push": "drizzle-kit push",
@@ -38,6 +39,7 @@
     "@aws-sdk/client-s3": "^3.1081.0",
     "@aws-sdk/s3-request-presigner": "^3.1097.0",
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@fontsource/inter": "^5.3.0",
     "@google-cloud/cloud-sql-connector": "^1.11.2",
     "@google-cloud/storage": "^7.21.0",
     "@vercel/oidc": "^3.8.0",
@@ -51,19 +53,28 @@
     "postgres": "^3.4.9",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "react-router-dom": "^7.18.3",
     "recharts": "^3.9.0",
     "sharp": "^0.35.3",
     "tailwind-merge": "^2.6.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@vitejs/plugin-react": "^6.1.1",
     "autoprefixer": "^10.4.20",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.20",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
     "postcss": "^8.5.19",
+    "railway": "^3.11.0",
     "tailwindcss": "^3.4.17",
-    "tsx": "^4.22.4"
+    "tsx": "^4.22.4",
+    "vite": "^8.2.2",
+    "vitest": "^5.0.0"
   }
 }

@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { historyFilterToParams } from "./history-query";
 import { HISTORY_PAGE_SIZE } from "./config";

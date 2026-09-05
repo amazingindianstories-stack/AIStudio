@@ -21,7 +21,7 @@
  * Reading both files as text is ugly. It is also the only mechanism this
  * constraint can have, given the framework constraint above.
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 

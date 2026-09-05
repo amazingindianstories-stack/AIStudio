@@ -1,8 +1,6 @@
-"use client";
-
 import { useEffect, useId, useMemo, useRef, useState, } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import {
   ResponsiveContainer,
   BarChart,
@@ -42,7 +40,7 @@ import {
 import { formatCost } from "@/lib/pricing";
 import { LIMIT_DEFINITIONS, } from "@/lib/limits";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUrl, parseApiResponse } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
@@ -66,9 +64,9 @@ export function AdminDashboard() {
   const loadCurrentUser = async () => {
     try {
       const response = await apiFetch("/api/auth/me", { cache: "no-store" });
-      if (!response.ok) return;
-      const json = await response.json();
-      setCurrentUser(json.user ?? null);
+      const result = await parseApiResponse(response);
+      if (!result.ok) return;
+      setCurrentUser(result.data.user ?? null);
     } catch {
       setCurrentUser(null);
     }
@@ -88,7 +86,7 @@ export function AdminDashboard() {
     <div className="min-h-[100dvh] bg-ink-900 text-white">
       <header className="flex h-14 items-center gap-3 border-b border-line px-3 sm:px-4">
         <Link
-          href="/"
+          to="/"
           className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-white/70 hover:bg-white/5 hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" /> Back to app
@@ -1278,7 +1276,7 @@ function LogsTab({
 
   // The export is a server download: it covers every row matching the filter
   // with full prompts, not just the rows currently on screen.
-  const exportHref = `/api/admin/logs?${params}${params ? "&" : ""}format=csv`;
+  const exportHref = apiUrl(`/api/admin/logs?${params}${params ? "&" : ""}format=csv`);
 
   const sel =
     "rounded-lg border border-line bg-ink-700 px-2.5 py-1.5 text-sm outline-none focus:border-brand/40";

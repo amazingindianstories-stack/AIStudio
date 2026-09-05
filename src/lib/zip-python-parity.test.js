@@ -14,7 +14,7 @@
  * Skips cleanly when python3 is unavailable, so this never becomes the
  * reason a developer's suite fails on a machine without it.
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync } from "node:fs";

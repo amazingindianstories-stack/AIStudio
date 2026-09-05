@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -23,6 +21,7 @@ import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
+import { apiUrl } from "@/lib/api";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
 // under typical multi-megapixel originals while staying sharp at ~2x DPR.
@@ -228,7 +227,7 @@ function FeedBlock({ item, index }) {
           )}
           {item.status === "succeeded" && item.kind === "video" && (
             <video
-              src={item.url}
+              src={apiUrl(item.url)}
               poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
               controls
               playsInline

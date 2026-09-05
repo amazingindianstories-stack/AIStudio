@@ -2,6 +2,7 @@ node_modules
 .next
 out
 build
+dist
 .DS_Store
 *.log
 .env
@@ -24,9 +25,16 @@ depth-worker/.venv
 depth-worker/.worker-id
 .vercel
 .env*
+!.env.example
+!backend/.env.example
 vercel-gcp-cred.json
 test.json
 tsconfig.tsbuildinfo
+backend/venv
+backend/__pycache__
+backend/**/__pycache__
+backend/staticfiles
+backend/db.sqlite3
 *.pyc
 
 # Local-only GCP tooling/scratch — these were committed by accident in the
@@ -57,3 +65,10 @@ scripts/eval-fixtures/*
 !scripts/eval-fixtures/README.md
 !scripts/eval-fixtures/example.fixture.json
 scripts/eval-results/
+
+# Historical handover/review artifacts are intentionally outside the cutover
+# release. Their maintained replacements live under docs/.
+/Lumina-Studio-Issues-and-Remediation-Plan.pdf
+/ISSUES.md
+/NEXT-STEPS.md
+/blueprint.md

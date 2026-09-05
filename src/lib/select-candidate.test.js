@@ -10,7 +10,7 @@
  * network-touching exports, and they are not exercised here). Run:
  *   npx tsx --test src/lib/shot-spec.test.ts src/lib/select-candidate.test.ts
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { selectBestCandidate, } from "./middleware/face-judge";
 

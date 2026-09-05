@@ -14,7 +14,7 @@
  * optional hardening, not a firm contract — so no test here asserts that
  * specific behavior as required. See final report.
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { emptyCanvasState, validateCanvasState } from "./serialization";
 import { CANVAS_STATE_VERSION } from "./types";
