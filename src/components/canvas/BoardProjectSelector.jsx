@@ -1,5 +1,3 @@
-"use client";
-
 import { ChevronDown, Check, Folder } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "@/components/Dropdown";

@@ -1,5 +1,3 @@
-"use client";
-
 import { ChevronDown, Layers, LayoutGrid, PanelRightOpen, Star } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { Dropdown } from "./Dropdown";

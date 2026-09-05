@@ -1,0 +1,3 @@
+web: ./run-service.sh api
+login_cleanup: ./run-service.sh login-cleanup
+video_reconciliation: ./run-service.sh video-reconciliation

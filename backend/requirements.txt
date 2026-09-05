@@ -1,0 +1,14 @@
+Django==5.2.17
+djangorestframework==3.18.0
+django-cors-headers==4.9.0
+django-environ==0.14.0
+psycopg==3.3.4
+psycopg-binary==3.3.4
+gunicorn==26.0.0
+whitenoise==6.12.0
+Pillow==12.3.0
+imageio-ffmpeg==0.6.0
+boto3==1.43.67
+google-cloud-storage==3.13.1
+google-auth==2.56.3
+requests==2.34.2

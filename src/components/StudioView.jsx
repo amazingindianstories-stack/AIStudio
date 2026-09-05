@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { Image as ImageIcon, Clapperboard } from "lucide-react";
 import { useStore } from "@/lib/store";

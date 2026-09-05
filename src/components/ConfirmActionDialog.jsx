@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";

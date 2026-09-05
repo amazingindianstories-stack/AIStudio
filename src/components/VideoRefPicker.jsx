@@ -1,5 +1,3 @@
-"use client";
-
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Clapperboard, Loader2, X } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -104,7 +102,6 @@ export function VideoRefPicker({ onClose }) {
                       )}
                     >
                       {item.poster ? (
-                        // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={thumbUrl(item.poster, 480)}
                           alt=""

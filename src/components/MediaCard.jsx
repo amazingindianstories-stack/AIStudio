@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
@@ -21,6 +19,7 @@ import {
 
 import { useStore } from "@/lib/store";
 import { aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
+import { apiUrl } from "@/lib/api";
 import { useNearViewport } from "@/lib/use-near-viewport";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
@@ -165,7 +164,6 @@ export function MediaCard({
       <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
         {/* media */}
         {done && item.kind === "image" && item.url && (
-          // eslint-disable-next-line @next/next/no-img-element
           <img
             src={thumbUrl(item.url, CARD_THUMB_WIDTH)}
             alt={item.prompt}
@@ -178,7 +176,7 @@ export function MediaCard({
           <>
             {item.url && nearViewport ? (
               <video
-                src={item.url}
+                src={apiUrl(item.url)}
                 poster={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
                 muted
                 loop
@@ -204,7 +202,6 @@ export function MediaCard({
               // request per row. content-visibility does NOT defer this: it
               // skips layout and paint, not resource loading.
               item.poster && (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
                   alt={item.prompt}
@@ -235,7 +232,7 @@ export function MediaCard({
                 rendering anyway under content-visibility. */}
             {nearViewport ? (
               <video
-                src={item.url}
+                src={apiUrl(item.url)}
                 muted
                 loop
                 playsInline
@@ -460,7 +457,6 @@ export function MediaCard({
               style={{ background: creator.color || "#34d399" }}
             >
               {creator.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={creator.avatarUrl}
                   alt=""

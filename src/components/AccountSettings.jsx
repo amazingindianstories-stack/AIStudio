@@ -1,5 +1,3 @@
-"use client";
-
 import {
   useEffect,
   useId,
@@ -18,14 +16,10 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, parseApiResponse } from "@/lib/api";
 
 const inputClass =
   "w-full rounded-lg border border-line bg-ink-700 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-white/25 focus:ring-2 focus:ring-white/10 disabled:cursor-not-allowed disabled:opacity-55";
-
-async function responseJson(response) {
-  return response.json().catch(() => ({}));
-}
 
 export function AccountSettings({
   open,
@@ -201,10 +195,10 @@ export function AccountSettings({
       }
 
       const response = await apiFetch("/api/auth/me", { method: "PATCH", headers, body });
-      const json = await responseJson(response);
-      if (!response.ok) throw new Error(json.error || "Could not update your profile.");
+      const result = await parseApiResponse(response);
+      if (!result.ok) throw new Error(result.error.message || "Could not update your profile.");
 
-      const updated = json.user ;
+      const updated = result.data.user;
       setName(updated.name);
       setAvatarPreview(updated.avatarUrl ?? null);
       setAvatarFile(null);
@@ -250,8 +244,8 @@ export function AccountSettings({
           newPassword: passwords.next,
         }),
       });
-      const json = await responseJson(response);
-      if (!response.ok) throw new Error(json.error || "Could not change your password.");
+      const result = await parseApiResponse(response);
+      if (!result.ok) throw new Error(result.error.message || "Could not change your password.");
 
       setPasswords({ current: "", next: "", confirm: "" });
       setPasswordNotice({ kind: "success", text: "Password changed." });

@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal, AlertCircle } from "lucide-react";

@@ -1,5 +1,3 @@
-"use client";
-
 /**
  * rect / ellipse / triangle / diamond — all rendered as a single inline SVG
  * sized to the node's box so fill/stroke/corner-radius restyle live without

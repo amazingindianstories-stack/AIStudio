@@ -1,5 +1,3 @@
-"use client";
-
 // Shared client-side reference-image encoding budget. Any path that turns an
 // image into a data URL reference (file upload, paste/drop, or "use as
 // reference" from an existing generation) must go through this ladder —
@@ -9,7 +7,7 @@
 
 /** Client reference longest-side cap. Identity tiles are cropped from these
  * refs server-side, so higher fidelity here carries real facial detail. */
-export const REF_MAX_DIM = Number(process.env.NEXT_PUBLIC_REF_MAX_DIM) || 2048;
+export const REF_MAX_DIM = Number(import.meta.env.VITE_REF_MAX_DIM) || 2048;
 
 // Vercel body limit 4.5MB; base64 inflates ~1.33×, so the raw-bytes budget
 // across all refs in a batch is ~3.38MB. Target 3.0MB to leave headroom for

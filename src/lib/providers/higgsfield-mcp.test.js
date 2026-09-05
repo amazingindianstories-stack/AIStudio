@@ -16,7 +16,7 @@
  * that the map gets built correctly in the first place). Pure, synchronous,
  * no network/file access.
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { buildRefRoles } from "./higgsfield-mcp";
 

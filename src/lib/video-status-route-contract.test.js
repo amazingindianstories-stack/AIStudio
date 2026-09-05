@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import test from "node:test";
+import { test } from "vitest";
 
 const route = readFileSync("src/app/api/generate/video/status/route.js", "utf8");
 const cron = readFileSync("src/app/api/cron/video-reconciliation/route.js", "utf8");

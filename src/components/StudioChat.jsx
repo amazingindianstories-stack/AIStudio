@@ -1,4 +1,3 @@
-"use client";
 import { uploadOriginalReference } from "@/lib/client-reference-upload";
 import { isProviderModel } from "@/lib/model-registry";
 
@@ -26,6 +25,7 @@ import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, } from "./MentionTextarea";
 import { MediaCard } from "./MediaCard";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 
 const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
 
@@ -91,7 +91,7 @@ export function StudioChat({ conversationId }) {
     const requestId = ++requestIdRef.current;
     setLoadingThread(true);
     (async () => {
-      const res = await fetch(`/api/agent-conversations/${conversationId}`, { cache: "no-store" });
+      const res = await apiFetch(`/api/agent-conversations/${conversationId}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (requestIdRef.current !== requestId) return;
       const loaded = json.messages ?? [];
@@ -126,7 +126,7 @@ export function StudioChat({ conversationId }) {
         // the loader effect above). A failure here just means a refresh
         // would show "Generated — check your library" instead of the inline
         // card for this one message — not worth blocking or retrying over.
-        fetch(`/api/agent-conversations/${conversationId}/messages/${messageId}`, {
+        apiFetch(`/api/agent-conversations/${conversationId}/messages/${messageId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ generatedItemId: created[0].id }),
@@ -151,7 +151,7 @@ export function StudioChat({ conversationId }) {
     setError(null);
     setSending(true);
     try {
-      const res = await fetch(`/api/agent-conversations/${conversationId}/messages`, {
+      const res = await apiFetch(`/api/agent-conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, images: referenceImages }),

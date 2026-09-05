@@ -1,4 +1,3 @@
-"use client";
 import { uploadOriginalReference } from "@/lib/client-reference-upload";
 
 import {

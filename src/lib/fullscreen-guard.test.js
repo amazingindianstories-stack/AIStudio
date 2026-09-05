@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { onTestFinished, test } from "vitest";
 import {
   hasFullscreenMedia,
   settleFullscreenBeforeMediaMutation,
@@ -13,14 +13,14 @@ test("no fullscreen media requires no browser mutation", async () => {
   assert.equal(changed, false);
 });
 
-test("standard fullscreen exits before two stabilizing paint frames", async (t) => {
+test("standard fullscreen exits before two stabilizing paint frames", async () => {
   const events = [];
   const original = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = (callback) => {
     events.push("frame");
     callback();
   };
-  t.after(() => {
+  onTestFinished(() => {
     globalThis.requestAnimationFrame = original;
   });
 
@@ -36,14 +36,14 @@ test("standard fullscreen exits before two stabilizing paint frames", async (t) 
   assert.deepEqual(events, ["exit", "frame", "frame"]);
 });
 
-test("Safari native video fullscreen uses its compatible exit path", async (t) => {
+test("Safari native video fullscreen uses its compatible exit path", async () => {
   const events = [];
   const original = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = (callback) => {
     events.push("frame");
     callback();
   };
-  t.after(() => {
+  onTestFinished(() => {
     globalThis.requestAnimationFrame = original;
   });
   const video = {
@@ -72,10 +72,10 @@ test("fullscreen detection covers standard and Safari native video modes", () =>
   );
 });
 
-test("a failed exit never permits an active fullscreen element to be unmounted", async (t) => {
+test("a failed exit never permits an active fullscreen element to be unmounted", async () => {
   const original = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = (callback) => callback();
-  t.after(() => {
+  onTestFinished(() => {
     globalThis.requestAnimationFrame = original;
   });
   const exitError = new Error("exit failed");
@@ -116,10 +116,10 @@ test("Safari teardown cannot hang when native fullscreen pauses animation frames
   assert.deepEqual(events, ["exit", "timeout"]);
 });
 
-test("Safari teardown still refuses to unmount video when native exit fails", async (t) => {
+test("Safari teardown still refuses to unmount video when native exit fails", async () => {
   const original = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = (callback) => callback();
-  t.after(() => {
+  onTestFinished(() => {
     globalThis.requestAnimationFrame = original;
   });
   const video = {

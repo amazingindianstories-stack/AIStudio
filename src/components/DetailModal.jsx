@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { motion } from "framer-motion";
@@ -24,6 +22,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
+import { apiUrl } from "@/lib/api";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
 import { supportsFirstFrameContinuation, supportsVideoReference } from "@/lib/config";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
@@ -155,7 +154,6 @@ function ReferenceCollage({ images }) {
             )}
             title="Open reference image"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={thumbUrl(src, 320)} alt="" className="h-full w-full object-cover" />
             <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
           </a>
@@ -395,9 +393,8 @@ export function DetailModal() {
 
               <div className="h-full min-h-0 w-full max-w-5xl overflow-hidden rounded-2xl bg-black ring-1 ring-white/10">
                 {item.kind === "image" && item.url && (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={item.url}
+                    src={apiUrl(item.url)}
                     alt={item.prompt}
                     className="h-full w-full object-contain"
                   />
@@ -405,8 +402,8 @@ export function DetailModal() {
                 {item.kind === "video" && (
                   <video
                     data-detail-video
-                    src={item.url}
-                    poster={item.poster}
+                    src={apiUrl(item.url)}
+                    poster={apiUrl(item.poster)}
                     controls
                     autoPlay
                     loop
@@ -417,7 +414,7 @@ export function DetailModal() {
                 {item.kind === "depth" && item.url && (
                   <video
                     data-detail-video
-                    src={item.url}
+                    src={apiUrl(item.url)}
                     controls
                     autoPlay
                     loop
