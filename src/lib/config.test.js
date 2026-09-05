@@ -347,8 +347,8 @@ test("Seedance 2.5 is in the picker as a video model", () => {
   assert.equal(entry.kind, "video");
 });
 
-test("Seedance 2.5 caps at 480p/720p — no 1080p/4K SKU", () => {
-  assert.deepEqual(resolutionsForModel("Seedance 2.5", "video"), ["480p", "720p"]);
+test("Seedance 2.5 supports 480p/720p/1080p but not 4K", () => {
+  assert.deepEqual(resolutionsForModel("Seedance 2.5", "video"), ["480p", "720p", "1080p"]);
 });
 
 test("Seedance 2.0 keeps its own resolution set unaffected by the 2.5 branch", () => {
