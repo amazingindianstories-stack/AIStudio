@@ -63,12 +63,15 @@ test("Vercel is configured as a static SPA with no cron ownership", async () => 
   assert.doesNotMatch(source, /(?:connect|img|media)-src[^`\n]*https:/);
 });
 
-test("Vitest owns unit execution and no TypeScript source files remain", async () => {
+test("Vitest owns unit execution and Railway IaC is the only TypeScript source", async () => {
   const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
   assert.equal(packageJson.scripts.test, "vitest run");
   assert.equal(packageJson.scripts.build, "vite build");
   const files = await walk(root);
-  assert.deepEqual(files.filter((file) => /\.(ts|tsx)$/.test(file)), []);
+  assert.deepEqual(
+    files.filter((file) => /\.(ts|tsx)$/.test(file)).map((file) => path.relative(root, file)),
+    [path.join(".railway", "railway.ts")],
+  );
   const retiredRunner = new RegExp(["node", "test"].join(":"));
   for (const file of files.filter((candidate) => candidate.endsWith(".test.js"))) {
     assert.doesNotMatch(await readFile(file, "utf8"), retiredRunner, path.relative(root, file));

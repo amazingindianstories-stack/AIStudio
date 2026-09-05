@@ -156,13 +156,14 @@ job, stale recovery resumes it, and terminal cleanup succeeds. Any failure block
 
 ## Railway services
 
-Three independent services use the definitions under `backend/`:
+Three independent services are managed by the preview-guarded Railway IaC definition in
+`.railway/railway.ts`:
 
 | Service | Definition | Activation |
 |---|---|---|
-| API | `railway.json` | deploy to preview; production remains paused until launch |
-| login cleanup | `railway.login-cleanup.json` | daily `17 3 * * *` UTC; production paused |
-| video reconciliation | `railway.video-reconciliation.json` | every 15 minutes; production paused |
+| API | `./run-service.sh api` | deploy to preview; production remains paused until launch |
+| login cleanup | `./run-service.sh login-cleanup` | daily `17 3 * * *` UTC; production paused |
+| video reconciliation | `./run-service.sh video-reconciliation` | every 15 minutes; production paused |
 
 The two cron services share Django configuration but have bounded commands and terminate
 after each run. They must not overlap with Vercel cron ownership.
@@ -174,7 +175,8 @@ The local/CI release gate is:
 - 419 Django tests on PostgreSQL, `manage.py check`, migration consistency, and route
   inventory parity.
 - 787 Vitest cases, ESLint with zero warnings, guarded Vite production build, zero
-  TypeScript source files, and `git diff --check`.
+  application TypeScript source files (the Railway IaC definition is the sole `.ts`
+  exception), and `git diff --check`.
 - Browser output whose module graph contains no server, database, provider, worker, cron,
   storage-credential, or secret-handling dependency.
 
