@@ -34,6 +34,10 @@ keys, `DEPTH_WORKER_TOKEN`, `CRON_SECRET`, `SET_TOKEN_SECRET`, `MEDIA_BACKEND=gc
 `GCP_PROJECT_ID`, `GCP_MEDIA_BUCKET`, optional `GCP_MEDIA_CDN_URL`, and the
 sealed JSON above. `AUTH_SECRET` must match the rollback Next API.
 
+`DJANGO_ALLOWED_HOSTS` must contain both the exact public API hostname and
+Railway's documented `healthcheck.railway.app` hostname. The latter is used only
+for deployment health probes and is not a CORS or CSRF origin.
+
 ## Database adoption
 
 Before any migration record is written, use a read-only database credential:
