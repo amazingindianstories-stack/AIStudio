@@ -28,6 +28,7 @@ export function CanvasView() {
   const setActiveProject = useStore((s) => s.setActiveProject);
 
   const [boardId, setBoardId] = useState(null);
+  const [boardsError, setBoardsError] = useState(false);
   const [boardsLoading, setBoardsLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [toolLocked, setToolLocked] = useState(false);
@@ -161,6 +162,7 @@ export function CanvasView() {
   // ── document-level keyboard shortcuts (ui-spec §11) ─────────────────
   useEffect(() => {
     const onKeyDown = (e) => {
+      if (!boardId) return;
       const target = e.target ;
       const editing =
         target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
@@ -297,6 +299,7 @@ export function CanvasView() {
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [
+    boardId,
     undo,
     redo,
     duplicateSelected,
@@ -323,27 +326,30 @@ export function CanvasView() {
 
   return (
     <div className="relative min-w-0 flex-1 overflow-hidden bg-ink-900">
-      <CanvasSurface
+      {boardId && <CanvasSurface
         ref={surfaceRef}
         toolLocked={toolLocked}
         onAfterSingleShotPlace={() => setTool("select")}
         boardId={boardId}
         onTransientChange={setTransientActive}
-      />
+      />}
 
-      <CanvasAssetPanel
+      {boardId && <CanvasAssetPanel
         projectId={activeProjectId}
         onPlaceAtCenter={placeAsset}
         onCollapsedChange={setAssetPanelCollapsed}
-      />
+      />}
 
+      {!boardId && !boardsLoading && !boardsError && <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
+        <div><h2 className="text-xl font-semibold">Organize a scene on a board</h2><p className="mt-2 max-w-md text-sm text-white/70">Choose a project above, then create a board to arrange references, frames and notes. Nothing is created until you choose Create board.</p></div>
+      </div>}
       {/* while board JSON is loading (or a board-project switch is in
           flight), the switcher/dock/zoom render but stay disabled/dimmed
           (ui-spec §9); the asset panel loads independently */}
       <div className={cn((boardsLoading || (!loaded && boardId)) && "pointer-events-none opacity-50")}>
         <div
           className="absolute top-4 z-30 flex items-center gap-2 transition-[left] duration-200"
-          style={{ left: assetPanelWidth + 16 }}
+          style={{ left: boardId ? assetPanelWidth + 16 : 16 }}
         >
           <BoardProjectSelector
             activeProjectId={activeProjectId}
@@ -355,13 +361,14 @@ export function CanvasView() {
             boardId={boardId}
             onBoardIdChange={setBoardId}
             onLoadingChange={setBoardsLoading}
+          onErrorChange={setBoardsError}
           />
         </div>
-        <CanvasToolbar
+        {boardId && <CanvasToolbar
           toolLocked={toolLocked}
           onToggleLock={() => setToolLocked((v) => !v)}
           onAddImageClick={openImagePicker}
-        />
+        />}
       </div>
 
       <input
@@ -377,9 +384,9 @@ export function CanvasView() {
         }}
       />
 
-      <SaveStatusChip status={saveStatus} onRetry={() => flushSave()} />
+      {boardId && <SaveStatusChip status={saveStatus} onRetry={() => flushSave()} />}
 
-      <StyleInspector hidden={transientActive} />
+      {boardId && <StyleInspector hidden={transientActive} />}
 
       {loadError && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-ink-900/90">

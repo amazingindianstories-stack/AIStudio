@@ -40,6 +40,14 @@ export function parseHistoryFilter(params) {
   const q = params.get("q")?.trim();
   if (q) filter.q = q.slice(0, MAX_QUERY_LENGTH);
 
+  for (const key of ["model", "from", "to", "reviewStatus", "sort"]) {
+    const value = params.get(key);
+    if (!value) continue;
+    if (["from", "to"].includes(key) && !/^\d{4}-\d{2}-\d{2}$/.test(value)) continue;
+    if (key === "sort" && value !== "oldest") continue;
+    if (key === "reviewStatus" && !["candidate", "needs_changes", "approved"].includes(value)) continue;
+    filter[key] = value.slice(0, 100);
+  }
   return filter;
 }
 
@@ -56,5 +64,6 @@ export function historyFilterToParams(filter
   if (filter.favorite) params.set("favorite", "1");
   const q = filter.q?.trim();
   if (q) params.set("q", q.slice(0, MAX_QUERY_LENGTH));
+  for (const key of ["model", "from", "to", "reviewStatus", "sort"]) if (filter[key]) params.set(key, filter[key]);
   return params;
 }

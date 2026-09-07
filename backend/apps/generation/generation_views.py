@@ -20,7 +20,10 @@ import random
 import re
 import time
 import tempfile
+from django.db import transaction
+from .models import Generation
 import uuid
+from .production_views import production_context
 
 import requests
 from PIL import Image
@@ -208,6 +211,10 @@ def generate_image(request):
     if not prompt:
         return Response({"error": "Prompt is required."}, status=400)
 
+    try:
+        context = production_context(body.get("productionContext"), project_id)
+    except ValueError as error:
+        return Response({"error": str(error)}, status=400)
     item_id = str(uuid.uuid4())
     now = int(time.time() * 1000)
 
@@ -228,7 +235,10 @@ def generate_image(request):
         "costCents": cost_cents, "seed": seed, "createdAt": now, "updatedAt": now,
     }
     try:
-        queue_service.upsert_item(base)
+        with transaction.atomic():
+            queue_service.upsert_item(base)
+            Generation.objects.filter(id=item_id).update(production_metadata=context)
+        base["productionMetadata"] = context
         log_activity(str(request.user.id), "generate", {"id": item_id, "kind": "image", "model": model, "costCents": cost_cents})
         return Response(base)
     except Exception as e:
@@ -334,6 +344,10 @@ def generate_video(request):
                 status=400,
             )
 
+    try:
+        context = production_context(body.get("productionContext"), project_id)
+    except ValueError as error:
+        return Response({"error": str(error)}, status=400)
     item_id = str(uuid.uuid4())
     now = int(time.time() * 1000)
 
@@ -364,7 +378,10 @@ def generate_video(request):
         "costCents": cost_cents, "seed": seed, "createdAt": now, "updatedAt": now,
     }
     try:
-        queue_service.upsert_item(base)
+        with transaction.atomic():
+            queue_service.upsert_item(base)
+            Generation.objects.filter(id=item_id).update(production_metadata=context)
+        base["productionMetadata"] = context
         log_activity(str(request.user.id) if request.user else None, "generate", {"id": item_id, "kind": "video", "model": model, "costCents": cost_cents})
         return Response(base)
     except Exception as e:

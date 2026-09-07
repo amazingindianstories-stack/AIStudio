@@ -51,3 +51,10 @@ export async function parseApiResponse(response) {
   if (response.ok) return { ok: true, data: body, error: null };
   return { ok: false, data: null, error: legacyError(body) };
 }
+
+/** A resolved fetch is not a successful write. Keep drafts until this returns. */
+export async function requestJson(path, options = {}) {
+  const result = await parseApiResponse(await apiFetch(path, options));
+  if (!result.ok) throw new Error(result.error.message);
+  return result.data;
+}

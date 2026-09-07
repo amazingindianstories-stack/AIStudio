@@ -10,6 +10,7 @@ class Generation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)
     kind = models.TextField()  # 'image' | 'video' | 'depth'
     status = models.TextField()
+    production_metadata = models.JSONField(default=dict, db_default={})
     prompt = models.TextField()
     model = models.TextField()
     aspect_ratio = models.TextField()

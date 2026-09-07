@@ -1,3 +1,4 @@
+import { composerSnapshot, modeTransition, modelTransition, COMPOSER_FIELDS, restoreComposerSnapshot } from "./composer-state";
 import { create } from "zustand";
 
 import {
@@ -10,13 +11,12 @@ import {
   resolutionsForModel,
   supportsAudio,
   supportsFirstFrameContinuation,
-  supportsVideoReference,
   supportsVideoEditExtend,
   MAX_REFERENCE_VIDEOS,
 
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
-import { renumberImgMentions } from "./mentions";
+import { renumberImgMentions, renumberVideoMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch, parseApiResponse } from "./api";
@@ -82,6 +82,7 @@ function currentScope(s) {
     folderId: s.activeFolderId,
     kind: s.filterKind,
     q: s.search,
+    ...s.historyFilters,
   };
 }
 
@@ -108,6 +109,7 @@ export function patchEverywhere(
 ) {
   patchCached(id, patch);
   set((s) => ({
+    inspectedItem: s.inspectedItem?.id === id ? patch(s.inspectedItem) : s.inspectedItem,
     items: s.items.map((i) => (i.id === id ? patch(i) : i)),
     threadItems: s.threadItems.map((i) => (i.id === id ? patch(i) : i)),
     pendingItems: s.pendingItems.map((i) => (i.id === id ? patch(i) : i)),
@@ -138,6 +140,7 @@ function invalidateFeedCache() {
  *  so searching only `items` would make the action silently do nothing. */
 export function findItem(s, id) {
   return (
+    (s.inspectedItem?.id === id ? s.inspectedItem : null) ??
     s.items.find((i) => i.id === id) ??
     s.threadItems.find((i) => i.id === id) ??
     s.pendingItems.find((i) => i.id === id)
@@ -156,8 +159,8 @@ function insertNewItem(
     // A new generation is always the newest row, so it goes at the head — no
     // re-sort needed, and none wanted: re-sorting the visible list is exactly
     // the movement this work is removing.
-    if (matchesScope(item, scope)) {
-      const items = [item, ...s.items.filter((i) => i.id !== item.id)];
+    if (matchesScope(item, scope) && !(scope.sort === "oldest" && s.hasMoreHistory)) {
+      const items = [item, ...s.items.filter((i) => i.id !== item.id)].sort((a, b) => compareInScope(a, b, scope));
       patch.items = items;
       writeCachedItems(scopeKey(scope), items);
     }
@@ -216,6 +219,18 @@ async function apiFetch(input, init) {
 
 export const useStore = create((set, get) => ({
   view: "studio",
+  modeDrafts: {},
+  modelPreferences: {},
+  referenceLabels: [],
+  stagedReferenceVideos: [],
+  stagedContinuationFrame: null,
+  composerNotice: "",
+  productionContext: null,
+  setComposerNotice: (composerNotice) => set({ composerNotice }),
+  setReferenceLabel: (index, label) => set((s) => ({ referenceLabels: s.referenceImages.map((_, i) => i === index ? label : s.referenceLabels[i] ?? "") })),
+  destinationProjectId: null,
+  destinationFolderId: null,
+  setDestination: (projectId, folderId = null) => set({ destinationProjectId: projectId, destinationFolderId: folderId }),
 
   // composer defaults (video by default, matching the reference)
   mode: "video",
@@ -288,6 +303,12 @@ export const useStore = create((set, get) => ({
   gridColumns: [],
   search: "",
   filterKind: "all",
+  libraryWidth: "balanced",
+  setLibraryWidth: (libraryWidth) => set({ libraryWidth }),
+  mediaDensity: "comfortable",
+  setMediaDensity: (mediaDensity) => set({ mediaDensity }),
+  historyFilters: {},
+  setHistoryFilters: (historyFilters) => set({ historyFilters }),
   selectedIds: [],
 
   assets: [],
@@ -308,58 +329,8 @@ export const useStore = create((set, get) => ({
   setSeed: (seed) => set({ seed }),
   setContinuationFrame: (continuationFrame) => set({ continuationFrame }),
 
-  setMode: (mode) => {
-    const d = DEFAULTS[mode];
-    set({
-      mode,
-      model: d.model,
-      aspectRatio: d.aspectRatio,
-      resolution: d.resolution,
-      duration: "duration" in d ? d.duration : get().duration,
-      videoTaskMode: "generate",
-    });
-  },
-  setModel: (model) =>
-    set((s) => {
-      // Clamp duration/resolution/aspectRatio into the new model's valid
-      // ranges by MEMBERSHIP, not just a max/min bound — Omni's durations
-      // ([4,6,8]) don't contain today's default (5s), so a Math.min-style
-      // clamp would silently leave 5s selected and the enqueue guard would
-      // 400 on an untouched-defaults happy path. Also covers Higgsfield
-      // Seedance (12s cap), Seedance Mini (720p cap), Omni (16:9/9:16 only).
-      // Seedance 2.0/2.5 are the one exception: BytePlus takes any integer
-      // duration in a bounded range rather than an enum (see
-      // durationRangeForModel), so those clamp by min/max instead.
-      const durationRange = durationRangeForModel(model);
-      let duration;
-      if (durationRange) {
-        duration = Math.min(durationRange.max, Math.max(durationRange.min, s.duration));
-      } else {
-        const durations = durationsForModel(model);
-        duration = durations.includes(s.duration)
-          ? s.duration
-          : durations[durations.length - 1];
-      }
-      const resolutions = resolutionsForModel(model, s.mode, s.referenceImages.length > 0);
-      const resolution = (model === "Seedream 5.0 Pro" || model === "seedream-5-pro") && model !== s.model
-        ? "2K" : resolutions.includes(s.resolution)
-        ? s.resolution
-        : resolutions[resolutions.length - 1];
-      const aspectRatios = aspectRatiosForModel(model, s.mode);
-      const aspectRatio = aspectRatios.includes(s.aspectRatio)
-        ? s.aspectRatio
-        : aspectRatios[0];
-      // Same reasoning as the clamps above: a setting the chosen model has no
-      // field for must not survive the switch, or the composer shows an
-      // enabled toggle whose value the provider will silently discard.
-      const generateAudio = supportsAudio(model) ? s.generateAudio : false;
-      const referenceVideos = supportsVideoReference(model) ? s.referenceVideos : [];
-      // Same reasoning: Edit/Extend only exist on Seedance 2.5, so switching
-      // away must not leave the composer claiming a mode the new model has
-      // no such task type for.
-      const videoTaskMode = supportsVideoEditExtend(model) ? s.videoTaskMode : "generate";
-      return { model, duration, resolution, aspectRatio, generateAudio, referenceVideos, videoTaskMode };
-    }),
+  setMode: (mode) => set((s) => modeTransition(s, mode)),
+  setModel: (model) => set((s) => modelTransition(s, model)),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set({ resolution }),
   setDuration: (duration) => set({ duration }),
@@ -388,6 +359,8 @@ export const useStore = create((set, get) => ({
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
       referenceKinds: s.referenceKinds.filter((_, i) => i !== index),
+      referenceLabels: s.referenceLabels.filter((_, i) => i !== index),
+      prompt: renumberImgMentions(s.prompt, s.referenceImages.map((_, i) => i === index ? -1 : i > index ? i - 1 : i)),
     })),
   // Drag-reorder from the composer. Diffs old vs. new position per image
   // (by value — reference images are treated as distinct, so an exact
@@ -398,14 +371,21 @@ export const useStore = create((set, get) => ({
   // a reordered video-derived reference keeps its badge.
   reorderReferences: (newOrder) =>
     set((s) => {
-      const mapping = s.referenceImages.map((img) => newOrder.indexOf(img));
+      const used = new Set();
+      const mapping = s.referenceImages.map((img) => {
+        const index = newOrder.findIndex((candidate, i) => candidate === img && !used.has(i));
+        used.add(index); return index;
+      });
+      if (mapping.some((index) => index < 0) || newOrder.length !== s.referenceImages.length) return {};
+      const newLabels = new Array(newOrder.length);
       const newKinds = new Array(newOrder.length);
       mapping.forEach((newIndex, oldIndex) => {
-        if (newIndex >= 0) newKinds[newIndex] = s.referenceKinds[oldIndex];
+        if (newIndex >= 0) { newKinds[newIndex] = s.referenceKinds[oldIndex]; newLabels[newIndex] = s.referenceLabels[oldIndex] ?? ""; }
       });
       return {
         referenceImages: newOrder,
         referenceKinds: newKinds,
+        referenceLabels: newLabels,
         prompt: renumberImgMentions(s.prompt, mapping),
       };
     }),
@@ -419,6 +399,7 @@ export const useStore = create((set, get) => ({
   removeReferenceVideo: (index) =>
     set((s) => ({
       referenceVideos: s.referenceVideos.filter((_, i) => i !== index),
+      prompt: renumberVideoMentions(s.prompt, s.referenceVideos.map((_, i) => i === index ? -1 : i > index ? i - 1 : i)),
     })),
 
   // See audioNotes' comment above — filename only, no real attachment.
@@ -427,7 +408,10 @@ export const useStore = create((set, get) => ({
     set((s) => ({ audioNotes: s.audioNotes.filter((_, i) => i !== index) })),
 
   setRightTab: (rightTab) => set({ rightTab }),
-  setActiveId: (activeId) => set({ activeId }),
+  inspectedItem: null,
+  openInspectedItem: (item) => set({ inspectedItem: item, activeId: item.id }),
+  updateInspectedItem: (item) => { patchEverywhere(set, item.id, (old) => ({ ...old, ...item })); set({ inspectedItem: item }); },
+  setActiveId: (activeId) => set({ activeId, inspectedItem: null }),
   // `columns` is AssetGrid's packColumns() output (arrays of items). Stored
   // as id arrays only — DetailModal doesn't need the items themselves, and
   // this avoids holding a second reference to objects that already live in
@@ -563,6 +547,7 @@ export const useStore = create((set, get) => ({
         projectId: scope.projectId ?? undefined,
         kind: scope.kind,
         q: scope.q,
+        ...get().historyFilters,
       });
       const res = await apiFetch(`/api/history/counts?${params}`, {
         cache: "no-store",
@@ -674,6 +659,15 @@ export const useStore = create((set, get) => ({
     const prompt = s.prompt.trim();
     if (!prompt || s.generating) return [];
 
+    if ((s.stagedReferenceVideos.length && /@vid\d+/i.test(prompt)) || /\[removed reference\]/i.test(prompt)) {
+      set({ composerNotice: "Resolve the unavailable references in your prompt before generating. Your draft is preserved." });
+      return [];
+    }
+    const destination = s.projects.find((project) => project.id === (s.destinationProjectId ?? s.activeProjectId));
+    if (!destination || (s.destinationFolderId && !destination.folders?.some((folder) => folder.id === s.destinationFolderId))) {
+      set({ composerNotice: "Choose an available project and folder under Save to before generating." });
+      return [];
+    }
     set({ generating: true });
     const endpoint =
       s.mode === "image" ? "/api/generate/image" : "/api/generate/video";
@@ -708,8 +702,9 @@ export const useStore = create((set, get) => ({
       // for a model that doesn't support it, same convention as seed/
       // generateAudio above.
       continuationFrame: s.continuationFrame ?? undefined,
-      projectId: s.activeProjectId ?? undefined,
-      folderId: s.activeFolderId ?? undefined,
+      projectId: s.destinationProjectId ?? s.activeProjectId ?? undefined,
+      folderId: s.destinationFolderId ?? undefined,
+      productionContext: s.productionContext ?? undefined,
     };
 
     const created = [];
@@ -741,7 +736,8 @@ export const useStore = create((set, get) => ({
           // one-shot flags (set by regenerateWithSameSeed / continueShot),
           // not standing composer preferences — left set, the NEXT ordinary
           // "Generate" click would silently reuse them.
-          set({ prompt: "", seed: null, continuationFrame: null });
+          if (get().mode === s.mode && get().prompt === s.prompt) set({ prompt: "", seed: null, continuationFrame: null, productionContext: null });
+          else set((now) => ({ modeDrafts: { ...now.modeDrafts, [s.mode]: { ...now.modeDrafts[s.mode], prompt: now.modeDrafts[s.mode]?.prompt === s.prompt ? "" : now.modeDrafts[s.mode]?.prompt, seed: null, continuationFrame: null } } }));
           startPolling(item, set, get);
           created.push(item);
         }
@@ -999,7 +995,7 @@ export const useStore = create((set, get) => ({
   editInComposer: (id) => {
     const item = findItem(get(), id);
     if (!item) return { ok: false, error: "This generation is no longer available." };
-    set({ mode: item.kind, prompt: item.prompt });
+    set({ ...modeTransition(get(), item.kind), mode: item.kind, prompt: item.prompt });
     return { ok: true };
   },
 
@@ -1074,17 +1070,22 @@ export const useStore = create((set, get) => ({
     if (!supportsFirstFrameContinuation(item.model)) {
       return { ok: false, error: `${item.model} doesn't support continuing a shot yet.` };
     }
+    const before = get();
     try {
       const { extractFrame } = await import("./video-frame");
       // Infinity is clamped to (duration - 0.05) by seekTo — the same
       // last-frame convention video-frame-server.js's ffmpeg path uses
       // server-side (-sseof -1), just expressed for the browser API instead.
       const { dataUrl } = await extractFrame(inlineMediaUrl(item.url), Infinity);
+      if (get().mode !== before.mode || COMPOSER_FIELDS.some((key) => get()[key] !== before[key])) return { ok: false, error: "Your draft changed while the frame loaded. Try preparing this shot again when ready." };
       set({
+        ...modeTransition(get(), "video"),
         mode: "video",
         model: item.model,
         aspectRatio: item.aspectRatio,
         resolution: item.resolution ?? get().resolution,
+        duration: item.duration ?? DEFAULTS.video.duration ?? 5,
+        generateAudio: supportsAudio(item.model) && item.generateAudio === true,
         continuationFrame: dataUrl,
         productionContext: { sourceGenerationId: item.id, relation: "continuation", frame: "last" },
         destinationProjectId: item.projectId,
@@ -1098,6 +1099,7 @@ export const useStore = create((set, get) => ({
         prompt: "",
         referenceImages: [],
         referenceKinds: [],
+        referenceLabels: [],
       });
       return { ok: true };
     } catch (e) {
@@ -1123,7 +1125,25 @@ export const useStore = create((set, get) => ({
   cloneToComposer: async (id) => {
     const item = findItem(get(), id);
     if (!item) return { ok: false, error: "This generation is no longer available." };
+    const before = get();
+    let restored;
+    try {
+      restored = await Promise.all((item.referenceImages ?? []).map(async (path) => {
+        if (item.model === "Seedream 5.0 Pro" || item.model === "seedream-5-pro") return path;
+        const response = await fetch(inlineMediaUrl(path));
+        if (!response.ok) throw new Error("A reference could not be loaded. Your draft is unchanged.");
+        const blob = await response.blob();
+        return await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error("A reference could not be read. Your draft is unchanged."));
+          reader.readAsDataURL(blob);
+        });
+      }));
+    } catch (error) { return { ok: false, error: error.message }; }
+    if (get().mode !== before.mode || COMPOSER_FIELDS.some((key) => get()[key] !== before[key])) return { ok: false, error: "Your draft changed while references loaded. Try loading this take again when ready." };
     set({
+      ...modeTransition(get(), item.kind),
       mode: item.kind,
       model: item.model,
       productionContext: { sourceGenerationId: item.id, relation: "clone" },
@@ -1147,37 +1167,10 @@ export const useStore = create((set, get) => ({
       // its own extracted frame, not by going through cloneToComposer at all.
       continuationFrame: null,
       prompt: item.prompt,
-      referenceImages: [],
-      referenceKinds: [],
+      referenceImages: restored,
+      referenceKinds: restored.map(() => "image"),
+      referenceLabels: restored.map(() => ""),
     });
-    // Restore the stored reference images as data URLs so every provider works.
-    const paths = item.referenceImages ?? [];
-    if (paths.length && (item.model === "Seedream 5.0 Pro" || item.model === "seedream-5-pro")) {
-      set({ referenceImages: paths, referenceKinds: paths.map(() => "image") });
-      return { ok: true };
-    }
-    if (paths.length) {
-      const dataUrls = await Promise.all(
-        paths.map(async (p) => {
-          try {
-            const res = await fetch(inlineMediaUrl(p));
-            const blob = await res.blob();
-            return await new Promise((resolve) => {
-              const r = new FileReader();
-              r.onload = () => resolve(r.result );
-              r.readAsDataURL(blob);
-            });
-          } catch {
-            return null;
-          }
-        })
-      );
-      const restored = dataUrls.filter((d) => !!d);
-      // Original upload kind isn't stored on the saved generation, so a
-      // cloned reference always defaults to "image" (no video badge) —
-      // cosmetic-only consequence, same as the restoreComposerDraft case.
-      set({ referenceImages: restored, referenceKinds: restored.map(() => "image") });
-    }
     return { ok: true };
   },
 
@@ -1249,6 +1242,7 @@ export const useStore = create((set, get) => ({
       const projects = json.projects ?? [];
       set((s) => ({
         projects,
+        destinationProjectId: s.destinationProjectId && projects.some((p) => p.id === s.destinationProjectId) ? s.destinationProjectId : s.activeProjectId && projects.some((p) => p.id === s.activeProjectId) ? s.activeProjectId : projects[0]?.id ?? null,
         activeProjectId:
           s.activeProjectId && projects.some((p) => p.id === s.activeProjectId)
             ? s.activeProjectId
@@ -1279,6 +1273,7 @@ export const useStore = create((set, get) => ({
         activeFolderId: null,
       });
     }
+    return json.project;
   },
 
   renameProject: async (id, name) => {
@@ -1486,6 +1481,9 @@ export const useStore = create((set, get) => ({
       /* ignore */
     }
     disposeStoreRuntime();
+    try { for (const key of ["veevee-mode-drafts-v2", DRAFT_SETTINGS_KEY, DRAFT_PROMPT_KEY, DRAFT_REFS_KEY]) localStorage.removeItem(key); } catch {}
+    useStore.setState({ currentUser: null, modeDrafts: {}, prompt: "", referenceImages: [], referenceVideos: [], referenceLabels: [], stagedReferenceVideos: [], continuationFrame: null, stagedContinuationFrame: null, productionContext: null });
+    disposeStoreRuntime();
     window.location.href = "/login";
   },
 }));
@@ -1592,7 +1590,10 @@ export function mergeLiveItems(
 
       if (!matchesScope(inc, scope)) continue;
       const inFlight = inc.status === "queued" || inc.status === "running";
-      if (!inFlight && inc.createdAt <= oldestLoaded) continue;
+      if (scope.sort === "oldest") {
+        const last = s.items.at(-1);
+        if (s.hasMoreHistory && (!last || compareInScope(inc, last, scope) > 0)) continue;
+      } else if (!inFlight && inc.createdAt <= oldestLoaded) continue;
 
       if (s.feedPinned) {
         byId.set(inc.id, inc);
@@ -1881,7 +1882,7 @@ const DRAFT_REFS_KEY = "veevee-draft-refs-v1";
 /** Past this, restoring the draft is not worth a multi-megabyte synchronous
  *  write that the ~5MB origin quota would likely reject anyway. Measured in
  *  characters of base64, which is close enough to bytes for a guard. */
-const DRAFT_REFS_MAX_BYTES = 2_000_000;
+
 const DRAFT_SETTINGS_KEY = "veevee-draft-settings-v1";
 
 /** Restore the locally cached composer draft (prompt + reference images) and
@@ -1891,7 +1892,18 @@ const DRAFT_SETTINGS_KEY = "veevee-draft-settings-v1";
  *  is validated against the current catalog so a stale cache can't produce an
  *  invalid combination. */
 export function restoreComposerDraft() {
+  if (Object.keys(useStore.getState().modeDrafts).length) return;
   try {
+    const rawDrafts = localStorage.getItem("veevee-mode-drafts-v2");
+    if (rawDrafts && !useStore.getState().prompt && !Object.keys(useStore.getState().modeDrafts).length) {
+      const data = JSON.parse(rawDrafts);
+      if (data.ownerId && data.ownerId !== useStore.getState().currentUser?.id) return;
+      const drafts = Object.fromEntries(Object.entries(data.drafts || {}).map(([mode, draft]) => [mode, restoreComposerSnapshot(mode, draft)]).filter(([, draft]) => draft));
+      if (drafts[data.mode]) {
+        useStore.setState({ ...drafts[data.mode], mode: data.mode, modeDrafts: drafts, view: ["studio", "canvas", "agents"].includes(data.view) ? data.view : "studio", activeProjectId: data.activeProjectId ?? null, activeFolderId: data.activeFolderId ?? null, rightTab: ["project", "history", "favorites"].includes(data.rightTab) ? data.rightTab : "history", destinationProjectId: data.destinationProjectId ?? null, destinationFolderId: data.destinationFolderId ?? null });
+        return;
+      }
+    }
     const rawSettings = localStorage.getItem(DRAFT_SETTINGS_KEY);
     if (rawSettings) {
       const d = JSON.parse(rawSettings);
@@ -1992,7 +2004,8 @@ if (typeof window !== "undefined") {
       s.rightTab !== prev.rightTab ||
       s.rightPanelOpen !== prev.rightPanelOpen ||
       s.activeFolderId !== prev.activeFolderId ||
-      s.filterKind !== prev.filterKind;
+      s.filterKind !== prev.filterKind ||
+      s.historyFilters !== prev.historyFilters;
     if (!scopeChanged) return;
 
     const key = scopeKey(currentScope(s));
@@ -2018,38 +2031,6 @@ if (typeof window !== "undefined") {
   });
 
   useStore.subscribe((s, prev) => {
-    if (s.prompt !== prev.prompt) {
-      storeRuntime.promptTimer = clearStoreTimeout(storeRuntime.promptTimer);
-      storeRuntime.promptTimer = setStoreTimeout(() => {
-        try {
-          localStorage.setItem(DRAFT_PROMPT_KEY, s.prompt);
-        } catch {}
-      }, 400);
-    }
-    if (s.referenceImages !== prev.referenceImages) {
-      // References are base64 data URLs sized against a ~4MB upload budget, so
-      // this is the largest thing the app ever writes — and localStorage is
-      // synchronous, main-thread and disk-backed. Serialising several MB on
-      // the spot janks the UI at exactly the moment the user is adding or
-      // reordering images. Debounced like the prompt beside it, and skipped
-      // outright past a size the quota would reject anyway (typically 5MB for
-      // the whole origin, shared with the prompt and settings drafts): the
-      // stringify is most of the cost, so checking first avoids doing the
-      // expensive part only to throw it away.
-      storeRuntime.refsTimer = clearStoreTimeout(storeRuntime.refsTimer);
-      storeRuntime.refsTimer = setStoreTimeout(() => {
-        const bytes = s.referenceImages.reduce((n, r) => n + r.length, 0);
-        try {
-          if (bytes > DRAFT_REFS_MAX_BYTES) localStorage.removeItem(DRAFT_REFS_KEY);
-          else localStorage.setItem(DRAFT_REFS_KEY, JSON.stringify(s.referenceImages));
-        } catch {
-          // Quota exceeded anyway — drop the cached refs but keep the prompt.
-          try {
-            localStorage.removeItem(DRAFT_REFS_KEY);
-          } catch {}
-        }
-      }, 400);
-    }
     if (
       s.view !== prev.view ||
       s.mode !== prev.mode ||
@@ -2084,4 +2065,25 @@ if (typeof window !== "undefined") {
       } catch {}
     }
   });
+}
+
+if (typeof window !== "undefined") {
+  let draftTimer;
+  const persistDrafts = () => {
+    const state = useStore.getState();
+    if (!state.currentUser) return;
+    try {
+      const data = JSON.stringify({ ownerId: state.currentUser.id, view: state.view, mode: state.mode, drafts: { ...state.modeDrafts, [state.mode]: composerSnapshot(state) }, activeProjectId: state.activeProjectId, activeFolderId: state.activeFolderId, rightTab: state.rightTab, destinationProjectId: state.destinationProjectId, destinationFolderId: state.destinationFolderId });
+      localStorage.setItem("veevee-mode-drafts-v2", data);
+    } catch {
+      useStore.setState({ composerNotice: "This draft is preserved in this tab, but browser storage is full. Keep the tab open until you have saved your work." });
+    }
+  };
+  useStore.subscribe((state, previous) => {
+    if (COMPOSER_FIELDS.some((key) => state[key] !== previous[key]) || state.mode !== previous.mode || state.view !== previous.view || state.activeProjectId !== previous.activeProjectId || state.activeFolderId !== previous.activeFolderId || state.rightTab !== previous.rightTab || state.destinationProjectId !== previous.destinationProjectId || state.destinationFolderId !== previous.destinationFolderId) {
+      draftTimer = clearStoreTimeout(draftTimer);
+      draftTimer = setStoreTimeout(persistDrafts, 400);
+    }
+  });
+  window.addEventListener("pagehide", () => { draftTimer = clearStoreTimeout(draftTimer); persistDrafts(); });
 }

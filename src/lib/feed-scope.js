@@ -34,12 +34,16 @@ export const UNSORTED = "__unsorted__";
  * would key the same query under a different name for every project the user
  * clicked through.
  */
+function extraScope(scope) {
+  return Object.fromEntries(["model", "from", "to", "reviewStatus", "sort"].filter((key) => scope[key]).map((key) => [key, scope[key]]));
+}
 export function scopeKey(scope) {
   const q = scope.q.trim().toLowerCase();
+  const extra = Object.keys(extraScope(scope)).length ? ":" + JSON.stringify(extraScope(scope)) : "";
   if (scope.tab === "project") {
-    return `project:${scope.projectId ?? "-"}:${scope.folderId ?? "*"}:${scope.kind}:${q}`;
+    return `project:${scope.projectId ?? "-"}:${scope.folderId ?? "*"}:${scope.kind}:${q}${extra}`;
   }
-  return `${scope.tab}:${scope.kind}:${q}`;
+  return `${scope.tab}:${scope.kind}:${q}${extra}`;
 }
 
 /** The querystring shape of a scope. Mirrors parseHistoryFilter on the server. */
@@ -48,6 +52,7 @@ export function scopeToQuery(scope)
  {
   if (scope.tab === "project") {
     return {
+      ...extraScope(scope),
       projectId: scope.projectId ?? undefined,
       // `undefined` (any folder) and `null` (in no folder) are different
       // queries; "All in project" is the former.
@@ -58,6 +63,7 @@ export function scopeToQuery(scope)
     };
   }
   return {
+    ...extraScope(scope),
     kind: scope.kind,
     favorite: scope.tab === "favorites",
     q: scope.q,
@@ -74,10 +80,14 @@ export function scopeToQuery(scope)
  * view that a refetch would then remove.
  */
 export function matchesScope(item, scope) {
+  if (scope.model && item.model !== scope.model) return false;
+  if (scope.from && item.createdAt < Date.parse(scope.from + "T00:00:00Z")) return false;
+  if (scope.to && item.createdAt >= Date.parse(scope.to + "T00:00:00Z") + 86400000) return false;
+  if (scope.reviewStatus && (item.productionMetadata?.reviewStatus || "candidate") !== scope.reviewStatus) return false;
   if (scope.kind !== "all" && item.kind !== scope.kind) return false;
 
   const q = scope.q.trim().toLowerCase();
-  if (q && !item.prompt.toLowerCase().includes(q)) return false;
+  if (q && ![item.prompt, item.productionMetadata?.scene, item.productionMetadata?.shot, item.productionMetadata?.take].filter(Boolean).join(" ").toLowerCase().includes(q)) return false;
 
   if (scope.tab === "favorites") return Boolean(item.isFavorite);
 
@@ -111,6 +121,7 @@ export function compareInScope(
   scope
 ) {
   const d = sortValue(b, scope) - sortValue(a, scope);
-  if (d !== 0) return d;
-  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  const direction = scope.sort === "oldest" ? -1 : 1;
+  if (d !== 0) return d * direction;
+  return (a.id < b.id ? 1 : a.id > b.id ? -1 : 0) * direction;
 }

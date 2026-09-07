@@ -45,4 +45,9 @@ class ApiRouteContractTests(SimpleTestCase):
     def test_django_matches_retained_next_api_surface(self):
         actual = _routes(get_resolver().url_patterns)
         self.assertEqual({key: actual.get(key) for key in EXPECTED}, EXPECTED)
-        self.assertEqual(set(actual) - set(EXPECTED), {"health", "whoami"})
+        self.assertEqual(set(actual) - set(EXPECTED), {"health", "whoami", "pricing", "history/production"})
+
+    def test_audit_workflow_methods(self):
+        actual = _routes(get_resolver().url_patterns)
+        self.assertEqual(actual["pricing"], {"GET"})
+        self.assertEqual(actual["history/production"], {"GET", "PATCH"})

@@ -1,6 +1,8 @@
 """Port of src/lib/history-query.js — the querystring<->filter contract
 shared by the feed route and the counts route."""
 
+from datetime import date
+
 from .generations_service import MAX_QUERY_LENGTH
 
 
@@ -28,4 +30,17 @@ def parse_history_filter(params) -> dict:
     if q:
         filter["q"] = q[:MAX_QUERY_LENGTH]
 
+    for key in ("from", "to"):
+        value = params.get(key)
+        try:
+            if value and date.fromisoformat(value).isoformat() == value:
+                filter[key] = value
+        except ValueError:
+            pass
+    if params.get("model"):
+        filter["model"] = params["model"][:100]
+    if params.get("sort") == "oldest":
+        filter["sort"] = "oldest"
+    if params.get("reviewStatus") in ("candidate", "needs_changes", "approved"):
+        filter["reviewStatus"] = params["reviewStatus"]
     return filter

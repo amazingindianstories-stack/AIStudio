@@ -66,7 +66,9 @@ def admin_data(request):
         return Response({"error": "FORBIDDEN"}, status=403)
 
     all_users = list(User.objects.all())
-    stats = admin_stats.read_admin_stats()
+    from apps.generation.history_query import parse_history_filter
+    report_filter = {k: v for k, v in parse_history_filter(request.query_params).items() if k in ("from", "to", "projectId")}
+    stats = admin_stats.read_admin_stats(report_filter)
     pricing = pricing_db.read_pricing()
     global_limits = app_limits.read_all_global_limits()
     all_user_limits = app_limits.read_all_user_limits()
@@ -98,7 +100,7 @@ def admin_data(request):
         })
     users_out.sort(key=lambda u: u["costCents"], reverse=True)
 
-    return Response({"users": users_out, "stats": stats, "pricing": pricing, "limits": global_limits})
+    return Response({"users": users_out, "stats": stats, "pricing": pricing, "limits": global_limits, "reportFilter": report_filter})
 
 
 @api_view(["POST"])

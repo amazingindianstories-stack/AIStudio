@@ -1,8 +1,7 @@
 """Audit/adopt the legacy Drizzle catalog before Django owns migrations."""
 
-from django.apps import apps
 from django.core.management.base import BaseCommand, CommandError
-from django.db import connection
+from django.db import connection, transaction
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 from django.db.models.fields.composite import CompositePrimaryKey
@@ -12,23 +11,34 @@ LOCAL_LABELS = {
     "common", "assets", "generation", "projects", "canvas", "agents",
 }
 
+# Only these historical migrations describe the pre-Django catalog. Later
+# migrations must execute their DDL; adopting every graph node would skip it.
+ADOPTION_TARGETS = [
+    ("common", "0005_adopt_current_schema"),
+    ("assets", "0002_adopt_model_state"),
+    ("generation", "0007_adopt_current_schema"),
+    ("projects", "0002_adopt_model_state"),
+    ("canvas", "0002_adopt_current_indexes"),
+    ("agents", "0002_adopt_current_indexes"),
+]
 
-def _expected_models():
+
+def _expected_models(registry):
     return [
         model
-        for model in apps.get_models()
+        for model in registry.get_models()
         if model._meta.app_label in LOCAL_LABELS and model._meta.managed
     ]
 
 
-def audit_catalog():
+def audit_catalog(registry):
     if connection.vendor != "postgresql":
         return [f"DATABASE_URL uses {connection.vendor}; PostgreSQL is required"]
 
     problems = []
     with connection.cursor() as cursor:
         existing_tables = set(connection.introspection.table_names(cursor))
-        for model in _expected_models():
+        for model in _expected_models(registry):
             table = model._meta.db_table
             if table not in existing_tables:
                 problems.append(f"missing table: {table}")
@@ -139,24 +149,35 @@ class Command(BaseCommand):
         parser.add_argument("--require-adopted", action="store_true")
 
     def handle(self, *args, **options):
-        problems = audit_catalog()
+        loader = MigrationLoader(connection, ignore_no_migrations=True)
+        loader.check_consistent_history(connection)
+        baseline_nodes = {
+            node for target in ADOPTION_TARGETS
+            for node in loader.graph.forwards_plan(target)
+            if node[0] in LOCAL_LABELS
+        }
+        recorder = MigrationRecorder(connection)
+        applied = set(recorder.applied_migrations())
+        missing_baseline = baseline_nodes - applied
+        if options["require_adopted"] and missing_baseline:
+            missing = [f"{app}.{name}" for app, name in sorted(missing_baseline)]
+            raise CommandError("Legacy migrations are not adopted: " + ", ".join(missing))
+
+        # Audit the deployed state before migrate, including any already-applied
+        # later migrations, rather than requiring pending columns to exist.
+        targets = set(ADOPTION_TARGETS) | {
+            node for node in applied if node[0] in LOCAL_LABELS and node in loader.graph.nodes
+        }
+        registry = loader.project_state(nodes=sorted(targets)).apps
+        problems = audit_catalog(registry)
         if problems:
             raise CommandError("Schema preflight failed:\n- " + "\n- ".join(problems))
 
-        loader = MigrationLoader(connection, ignore_no_migrations=True)
-        local_nodes = sorted(node for node in loader.graph.nodes if node[0] in LOCAL_LABELS)
-        recorder = MigrationRecorder(connection)
-        applied = set(recorder.applied_migrations())
-
-        if options["require_adopted"]:
-            missing = [f"{app}.{name}" for app, name in local_nodes if (app, name) not in applied]
-            if missing:
-                raise CommandError("Schema matches, but migrations are not adopted: " + ", ".join(missing))
-
         if options["adopt"]:
-            for app_label, migration_name in local_nodes:
-                if (app_label, migration_name) not in applied:
+            recorder.ensure_schema()
+            with transaction.atomic():
+                for app_label, migration_name in sorted(missing_baseline):
                     recorder.record_applied(app_label, migration_name)
-            self.stdout.write(self.style.SUCCESS(f"Adopted {len(local_nodes)} local migrations after exact catalog audit."))
+            self.stdout.write(self.style.SUCCESS(f"Adopted {len(missing_baseline)} historical migrations after exact catalog audit; later migrations must run normally."))
         else:
-            self.stdout.write(self.style.SUCCESS("Catalog matches Django model state."))
+            self.stdout.write(self.style.SUCCESS("Catalog matches adopted/applied migration state."))

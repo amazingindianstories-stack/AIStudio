@@ -1,8 +1,9 @@
 from django.urls import path
 
-from . import depth_views, generation_views, history_views
+from . import production_views, depth_views, generation_views, history_views
 
 urlpatterns = [
+    path("history/production", production_views.production, name="history-production"),
     path("history", history_views.history, name="history"),
     path("history/counts", history_views.history_counts, name="history-counts"),
     path("history/updates", history_views.history_updates, name="history-updates"),

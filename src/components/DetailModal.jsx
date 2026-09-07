@@ -20,7 +20,10 @@ import {
   SkipForward,
   Flag,
 } from "lucide-react";
-import { useStore } from "@/lib/store";
+import { generationError } from "@/lib/generation-error";
+import { ProductionDetails } from "./ProductionDetails";
+import { useDialogFocus } from "./useDialogFocus";
+import { useStore, findItem } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 import { apiUrl } from "@/lib/api";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
@@ -111,7 +114,7 @@ function CopyPromptButton({ text }) {
           // clipboard permission denied or unavailable — no-op
         }
       }}
-      className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium text-white/50 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[10px] font-medium text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
       aria-label="Copy prompt"
       title="Copy prompt"
     >
@@ -138,7 +141,7 @@ function ReferenceCollage({ images }) {
 
   return (
     <div className="mb-5">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/70">
         Reference images
       </p>
       <div className={cn("grid gap-2", layoutClass)}>
@@ -154,7 +157,7 @@ function ReferenceCollage({ images }) {
             )}
             title="Open reference image"
           >
-            <img src={thumbUrl(src, 320)} alt="" className="h-full w-full object-cover" />
+            <img src={thumbUrl(src, 320)} alt={`Reference ${i + 1}`} className="h-full w-full object-cover" />
             <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
           </a>
         ))}
@@ -164,6 +167,9 @@ function ReferenceCollage({ images }) {
 }
 
 export function DetailModal() {
+  const dialogRef = useRef(null);
+  const inspected = useStore((s) => findItem(s, s.activeId));
+  useDialogFocus(dialogRef, Boolean(inspected));
   const activeId = useStore((s) => s.activeId);
   const items = useStore((s) => s.items);
   const gridColumns = useStore((s) => s.gridColumns);
@@ -195,7 +201,7 @@ export function DetailModal() {
   // favoritedAt but the grid did not), which showed up as arrow-key
   // navigation jumping to a different image than the one visually next to
   // the current card.
-  const item = items.find((i) => i.id === activeId) || null;
+  const item = inspected || null;
   const navigableItems = useMemo(
     () =>
       items.filter(
@@ -375,6 +381,8 @@ export function DetailModal() {
           onClick={() => void closeModal()}
         >
           <motion.div
+            ref={dialogRef}
+            role="dialog" aria-modal="true" aria-label="Asset viewer" tabIndex={-1}
             initial={{ opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ type: "spring", stiffness: 280, damping: 30 }}
@@ -399,7 +407,7 @@ export function DetailModal() {
                     className="h-full w-full object-contain"
                   />
                 )}
-                {item.kind === "video" && (
+                {item.kind === "video" && item.url && (
                   <video
                     data-detail-video
                     src={apiUrl(item.url)}
@@ -440,7 +448,7 @@ export function DetailModal() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-white">{item.model}</p>
-                  <p className="text-xs capitalize text-white/45">{item.kind} generation</p>
+                  <p className="text-xs capitalize text-white/70">{item.kind} generation</p>
                 </div>
                 <button
                   onClick={() => toggleFlag(item.id)}
@@ -448,7 +456,7 @@ export function DetailModal() {
                     "ml-auto grid h-8 w-8 place-items-center rounded-lg border transition",
                     item.flagged
                       ? "border-red-400/35 bg-red-500/15 text-red-300"
-                      : "border-line bg-ink-700 text-white/55 hover:text-white"
+                      : "border-line bg-ink-700 text-white/70 hover:text-white"
                   )}
                   aria-label={
                     item.flagged
@@ -471,7 +479,7 @@ export function DetailModal() {
                     "grid h-8 w-8 place-items-center rounded-lg border transition",
                     item.isFavorite
                       ? "border-amber-300/35 bg-amber-400/15 text-amber-300"
-                      : "border-line bg-ink-700 text-white/55 hover:text-white"
+                      : "border-line bg-ink-700 text-white/70 hover:text-white"
                   )}
                   aria-label={
                     item.isFavorite ? "Remove from favourites" : "Add to favourites"
@@ -483,6 +491,7 @@ export function DetailModal() {
                   />
                 </button>
               </div>
+              {item.status === "failed" && <div role="status" className="mb-4 rounded-lg border border-red-400/40 bg-red-950/30 p-3 text-sm text-white/85"><h3 className="font-semibold">{generationError(item).category}</h3><p className="mt-1">{generationError(item).action}</p><details className="mt-2"><summary>Technical details for support</summary><p className="mt-1 whitespace-pre-wrap break-words">{generationError(item).detail}</p><p>Generation ID: {item.id}</p></details></div>}
               {item.flagged && (
                 <div className="mb-5 rounded-lg border border-red-400/25 bg-red-500/10 px-3 py-2">
                   <p className="flex items-center gap-1.5 text-xs font-medium text-red-300">
@@ -494,7 +503,7 @@ export function DetailModal() {
                 </div>
               )}
 
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/70">
                 Parameters
               </p>
               <div className="mb-6 grid grid-cols-2 gap-2">
@@ -524,12 +533,13 @@ export function DetailModal() {
               )}
 
               <div className="mb-1 flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                <p className="text-xs font-medium uppercase tracking-wide text-white/70">
                   Prompt
                 </p>
                 <CopyPromptButton text={item.prompt} />
               </div>
               <DetailPrompt key={item.id} text={item.prompt} />
+              <ProductionDetails key={`production-${item.id}`} item={item} />
               </div>
 
               {/* sticky bottom actions */}
@@ -537,8 +547,8 @@ export function DetailModal() {
                 {item.kind === "image" && item.url && (
                   <button
                     onClick={() => {
-                      addReferenceFromUrl(item.url);
                       setMode("image");
+                      addReferenceFromUrl(item.url);
                       setActiveId(null);
                     }}
                     className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
@@ -592,7 +602,7 @@ export function DetailModal() {
                       className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
                       title="Start a new video from this clip's last frame — write what happens next"
                     >
-                      <SkipForward className="h-4 w-4" /> Continue this shot
+                      <SkipForward className="h-4 w-4" /> Continue from last frame
                     </button>
                   )}
                 {/* True video-to-video, BytePlus only. Gated on the model the
@@ -602,8 +612,8 @@ export function DetailModal() {
                 {item.kind === "video" && item.url && supportsVideoReference(model) && (
                   <button
                     onClick={() => {
-                      addReferenceVideo(item.url);
                       setMode("video");
+                      addReferenceVideo(item.url);
                       setActiveId(null);
                     }}
                     className="flex items-center justify-center gap-2 rounded-xl border border-line bg-white/[0.06] py-2.5 text-sm font-semibold text-white/85 hover:bg-white/[0.1]"
@@ -623,7 +633,7 @@ export function DetailModal() {
                   }}
                   className="flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-brand to-accent py-2.5 text-sm font-semibold text-ink-900 shadow-glow hover:brightness-110"
                 >
-                  <Copy className="h-4 w-4" /> Clone &amp; try
+                  <Copy className="h-4 w-4" /> Load prompt &amp; settings
                 </button>
                 {/* Only offered when this row actually carries a seed —
                     config.supportsSeed models only (Nano Banana Pro, native
@@ -642,7 +652,7 @@ export function DetailModal() {
                       });
                     }}
                     className="flex items-center justify-center gap-2 rounded-xl border border-line bg-white/[0.06] py-2.5 text-sm font-semibold text-white/85 hover:bg-white/[0.1]"
-                    title={`Regenerate using the same seed (${item.seed}) for a reproducible result`}
+                    title={`Generate again with seed ${item.seed}. Results can vary by provider and model version; this starts a new billed job.`}
                   >
                     <RefreshCw className="h-4 w-4" /> Regenerate (same seed)
                   </button>
@@ -690,7 +700,7 @@ function Param({
 ) {
   return (
     <div className="rounded-lg border border-line bg-ink-800 px-3 py-2">
-      <p className="text-[10px] uppercase tracking-wide text-white/35">{label}</p>
+      <p className="text-[10px] uppercase tracking-wide text-white/70">{label}</p>
       <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm text-white/85">
         {icon}
         {value}

@@ -83,8 +83,9 @@ def history_counts(request):
     favorite = filter.pop("favorite", None)  # noqa: F841 — stripped, matching the TS route
 
     project = gs.count_history(filter) if filter.get("projectId") else {"total": 0, "unsorted": 0, "byFolder": {}}
-    all_assets = gs.count_scope({"kind": filter.get("kind"), "q": filter.get("q")})
-    favorites = gs.count_scope({"kind": filter.get("kind"), "q": filter.get("q"), "favorite": True})
+    global_filter = {k: v for k, v in filter.items() if k != "projectId"}
+    all_assets = gs.count_scope(global_filter)
+    favorites = gs.count_scope({**global_filter, "favorite": True})
 
     return Response({"project": project, "allAssets": all_assets, "favorites": favorites})
 

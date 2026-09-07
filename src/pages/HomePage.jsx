@@ -28,6 +28,7 @@ export default function Page() {
   // Panel open/closed is store state now: ConversationPanel renders the
   // shortcut strip that replaces this panel while it is collapsed, so both
   // need to agree on which of the two is showing.
+  const libraryWidth = useStore((s) => s.libraryWidth);
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
   const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const currentUser = useStore((s) => s.currentUser);
@@ -144,7 +145,7 @@ export default function Page() {
               <section
                 className={cn(
                   "hidden shrink-0 transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none lg:flex",
-                  rightPanelOpen ? "w-[clamp(25rem,42vw,48.75rem)]" : "w-10"
+                  rightPanelOpen ? (libraryWidth === "wide" ? "w-[min(58vw,62rem)]" : "w-[clamp(25rem,42vw,48.75rem)]") : "w-10"
                 )}
               >
                 <div className="flex w-10 shrink-0 items-center justify-center border-l border-line bg-ink-900">

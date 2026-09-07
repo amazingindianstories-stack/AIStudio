@@ -48,6 +48,7 @@ export const folders = pgTable("folders", {
 });
 
 export const generations = pgTable("generations", {
+  productionMetadata: jsonb("production_metadata").notNull().default({}),
   id: uuid("id").primaryKey().defaultRandom(),
   kind: text("kind").notNull(), // 'image' | 'video' | 'depth'
   status: text("status").notNull(),

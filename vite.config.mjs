@@ -116,7 +116,7 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       environment: "node",
-      include: ["src/**/*.test.js"],
+      include: ["src/**/*.test.{js,jsx}"],
       exclude: ["src/**/*.integration.js"],
       fileParallelism: false,
       testTimeout: 10_000,

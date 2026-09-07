@@ -7,7 +7,8 @@ import re
 
 from django.db import connection
 
-from apps.generation.generations_service import encode_cursor, like_pattern
+from apps.generation.generations_service import encode_cursor, like_pattern, _filter_conditions
+from apps.generation.history_query import parse_history_filter
 
 PROMPT_PREVIEW_CHARS = 300
 MAX_LOG_PAGE = 200
@@ -53,12 +54,12 @@ def parse_admin_log_filter(params) -> dict:
     if q:
         filter["q"] = q[:MAX_LOG_QUERY_LENGTH]
 
+    filter.update({k: v for k, v in parse_history_filter(params).items() if k in ("from", "to", "projectId")})
     return filter
 
 
 def _conditions(filter: dict) -> tuple[list[str], list]:
-    conds = []
-    params = []
+    conds, params = _filter_conditions({k: v for k, v in filter.items() if k in ("from", "to", "projectId")})
     if filter.get("userId"):
         conds.append("user_id = %s")
         params.append(filter["userId"])
