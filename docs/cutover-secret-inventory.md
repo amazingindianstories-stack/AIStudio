@@ -1,6 +1,6 @@
 # Cutover secret inventory (names only)
 
-Captured: 2026-09-05. Values, object names, credential identifiers, and key material
+Captured: 2026-09-05; preview inventory refreshed 2026-09-07. Values, object names, credential identifiers, and key material
 are intentionally omitted. This record describes presence and required disposition;
 it is not permission to copy or delete a value.
 
@@ -39,16 +39,16 @@ begin from the shared set only when Railway cannot scope shared references more 
 
 | Name/category | Preview API | Preview cleanup | Preview reconcile | Production API | Production cleanup | Production reconcile |
 |---|---|---|---|---|---|---|
-| `DATABASE_URL` |  |  |  |  |  |  |
-| `DJANGO_SECRET_KEY` |  |  |  |  |  |  |
-| `AUTH_SECRET` |  |  |  |  |  |  |
-| allowed host/CORS/CSRF names |  |  |  |  |  |  |
-| `CRON_SECRET` |  |  |  |  |  |  |
-| `SET_TOKEN_SECRET` |  |  |  |  |  |  |
-| `DEPTH_WORKER_TOKEN` |  |  |  |  |  |  |
-| media/GCP non-secret names |  |  |  |  |  |  |
-| `GCP_SERVICE_ACCOUNT_JSON` sealed |  |  |  |  |  |  |
-| enabled provider credential names |  |  |  |  |  |  |
+| `DATABASE_URL` | Present | Present | Present | Service absent | Service absent | Service absent |
+| `DJANGO_SECRET_KEY` | Present | Present | Present | Service absent | Service absent | Service absent |
+| `AUTH_SECRET` | Present | Present | Present | Service absent | Service absent | Service absent |
+| allowed host/CORS/CSRF names | Present | Hosts only | Hosts only | Service absent | Service absent | Service absent |
+| `CRON_SECRET` | Present | Present | Present | Service absent | Service absent | Service absent |
+| `SET_TOKEN_SECRET` | Present | Absent | Absent | Service absent | Service absent | Service absent |
+| `DEPTH_WORKER_TOKEN` | Present | Absent | Absent | Service absent | Service absent | Service absent |
+| media/GCP non-secret names | Present | Present | Present | Service absent | Service absent | Service absent |
+| `GCP_SERVICE_ACCOUNT_JSON` sealed | Present; sealing not rechecked | Not needed | Present; sealing not rechecked | Service absent | Service absent | Service absent |
+| enabled provider credential names | Absent | Not needed | Absent | Service absent | Service absent | Service absent |
 
 ## Isolation rules
 
@@ -60,15 +60,29 @@ begin from the shared set only when Railway cannot scope shared references more 
 - Never use CLI JSON/KV variable-list output in shared logs because it includes raw
   values. Record names manually from the platform's redacted view.
 
-## Current blockers
+## September 7 verified preview inventory and remaining blockers
 
-- Railway project `balanced-acceptance` was identified, with only its production
-  PostgreSQL service present. Creating `cutover-preview` from the production topology
-  was attempted, but Railway rejected it because the account trial has expired. A
-  follow-up environment listing confirmed that no preview environment or service was
-  created. A Railway plan must be selected before preview provisioning can continue.
-- GCP CLI required interactive reauthentication before it could even list buckets;
-  consequently no preview bucket, service account, IAM grant, credential, or GCS write
-  was created.
-- Vercel cleanup is deliberately blocked until the current Next runtime no longer owns
-  production/rollback.
+The September 5 Railway/GCP provisioning blockers are superseded: `cutover-preview`
+exists, API deployment succeeds, and a disposable object passed signed GCS upload,
+direct range read, and verified deletion in the dedicated preview bucket.
+
+Name-only inspection through the selected preview service environments found:
+
+- API: database, Django/auth secrets, allowed-host/CORS/CSRF names, cron/setup/depth
+  tokens, GCS project/bucket/backend configuration, and service-account JSON present.
+- Login cleanup: database, Django/auth/cron secrets, allowed hosts, GCS
+  project/bucket/backend names present. No GCS credential is needed for login cleanup.
+- Video reconciliation: the cleanup set plus GCS service-account JSON present.
+- Enabled provider credentials: **absent** from API and reconciliation preview
+  environments (Google/Gemini, Kling, Ark/BytePlus, Higgsfield categories inspected).
+  No live provider readiness is claimed.
+- Production: only PostgreSQL currently exists in this Railway project; API/cron
+  configuration and credential inventory remain pending the agreed release gate.
+
+Both preview cron schedules are now paused in `.railway/railway.ts`; their acceptance
+runs are explicit. Production schedules were not changed. Vercel legacy environment
+values remain in place for the current Next runtime and rollback window.
+
+Browser acceptance remains limited by Vercel sign-in protection. GCS IAM least-privilege
+review and full provider/depth acceptance still require evidence even though the tested
+storage transport operations pass. See [release evidence](UX_Cutover_Preview_2026-09-07.md).

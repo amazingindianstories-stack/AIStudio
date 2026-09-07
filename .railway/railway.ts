@@ -11,7 +11,8 @@ export default defineRailway((ctx) => {
     replicas: { "sfo": 1 },
     start: "./run-service.sh login-cleanup",
     deploy: {
-      cronSchedule: "17 3 * * *",
+      // Preview acceptance runs are explicit; production cadence is documented.
+      cronSchedule: null,
       restartPolicyType: "NEVER",
     },
     env: { AUTH_SECRET: preserve(), CRON_SECRET: preserve(), DATABASE_URL: preserve(), DJANGO_ALLOWED_HOSTS: preserve(), DJANGO_DEBUG: preserve(), DJANGO_SECRET_KEY: preserve(), GCP_MEDIA_BUCKET: preserve(), GCP_PROJECT_ID: preserve(), MEDIA_BACKEND: preserve(), SECURE_HSTS_SECONDS: preserve() },
@@ -20,7 +21,7 @@ export default defineRailway((ctx) => {
     replicas: { "sfo": 1 },
     start: "./run-service.sh video-reconciliation",
     deploy: {
-      cronSchedule: "*/15 * * * *",
+      cronSchedule: null,
       restartPolicyType: "NEVER",
     },
     env: { AUTH_SECRET: preserve(), CRON_SECRET: preserve(), DATABASE_URL: preserve(), DJANGO_ALLOWED_HOSTS: preserve(), DJANGO_DEBUG: preserve(), DJANGO_SECRET_KEY: preserve(), GCP_MEDIA_BUCKET: preserve(), GCP_PROJECT_ID: preserve(), GCP_SERVICE_ACCOUNT_JSON: preserve(), MEDIA_BACKEND: preserve(), SECURE_HSTS_SECONDS: preserve() },

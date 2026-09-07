@@ -1,12 +1,19 @@
 # Django + React cutover go/no-go package
 
-Status: **NOT READY / preparation only**
+Status: **PREVIEW DEPLOYED / production NOT READY** (updated 2026-09-07)
 
 Earliest production decision: **2026-09-10, after the AWS/GCS observation gate**
 
-Current external blockers: Railway preview provisioning requires an active plan;
-GCP preview bucket/service-account provisioning requires interactive CLI
-reauthentication. The 2026-09-05 attempts made no partial infrastructure change.
+Current release evidence: [UX cutover preview verification](UX_Cutover_Preview_2026-09-07.md).
+Railway preview provisioning and GCS signing/upload/read are now verified; the
+September 5 provisioning blockers below have been superseded. Production remains
+on the retained Next.js deployment. The user selected the full cutover **after**
+the September 10 storage observation gate; this is not an early-launch approval.
+
+Remaining blockers: protected-preview browser sign-in, enabled-provider credentials
+and acceptance evidence, the mandatory GPU depth gate, production service/configuration
+readiness, and the September 10 storage/production checks. No paid provider probe or
+agent message was authorized or run during this release preparation.
 
 Release branch: `migration/restore-django-cutover`
 
@@ -17,17 +24,17 @@ or move traffic while this document remains unsigned.
 
 ## Immutable release identity
 
-- [ ] Release commit: `________________________________________`
-- [ ] Pull request: `________________________________________`
-- [ ] GitHub Actions run: `________________________________________`
-- [ ] `django` check conclusion / ID: `________________________________________`
-- [ ] `web` check conclusion / ID: `________________________________________`
-- [ ] `database` check conclusion / ID: `________________________________________`
-- [ ] Vercel preview deployment ID: `________________________________________`
-- [ ] Stable Vercel preview alias: `________________________________________`
-- [ ] Railway preview API deployment ID/origin: `________________________________________`
-- [ ] Railway preview login-cleanup service/deploy ID: `________________________________________`
-- [ ] Railway preview reconciliation service/deploy ID: `________________________________________`
+- [x] Application release commit: `a836d12470e4039142f852c7706da8a04b64ed54` (later documentation/paused-preview-schedule commits contain no application changes).
+- [x] Pull request: [#36](https://github.com/amazingindianstories-stack/AIStudio/pull/36), held open until release gates pass.
+- [x] GitHub Actions run: [34088342580](https://github.com/amazingindianstories-stack/AIStudio/actions/runs/34088342580).
+- [x] `django`: SUCCESS / `101636621516`.
+- [x] `web`: SUCCESS / `101636621777`.
+- [x] `database`: SUCCESS / `101636621732`.
+- [x] Vercel preview deployment ID: `dpl_3nxnvKzEhU5PZUuimA6GJoEsVb1G`.
+- [x] Stable Vercel preview alias: https://aistudio-cutover-preview.vercel.app (Vercel sign-in protected).
+- [x] Railway preview API: `218d209d-5c15-456f-a525-d405a17a7ae9` / https://veevee-api-preview-cutover-preview.up.railway.app.
+- [x] Railway preview login cleanup: `login-cleanup-preview` / `dff78121-825e-45bf-9eb2-69c6f8f79f79`; explicit empty-queue invocation passed.
+- [x] Railway preview reconciliation: `video-reconciliation-preview` / `800a8ac2-945a-4a46-996b-c1f4173d3bb4`; explicit empty-queue invocation passed.
 - [ ] Disposable PostgreSQL identifier: `________________________________________`
 - [ ] Preview GCS bucket/service-account names: `________________________________________`
 
@@ -46,31 +53,31 @@ or move traffic while this document remains unsigned.
 
 ## Local and CI gates
 
-- [ ] 419 Django tests pass against PostgreSQL.
-- [ ] `python manage.py check` passes.
-- [ ] `python manage.py makemigrations --check --dry-run` reports no changes.
-- [ ] Django/retained-route method inventory parity passes.
-- [ ] 787 Vitest cases pass.
-- [ ] ESLint passes with zero warnings.
-- [ ] Guarded Vite production build passes with exact `VITE_API_URL`.
+- [x] 434 Django tests pass against PostgreSQL.
+- [x] `python manage.py check` passes.
+- [x] `python manage.py makemigrations --check --dry-run` reports no changes.
+- [x] Django/retained-route method inventory parity passes (test suite).
+- [x] 812 Vitest cases pass.
+- [x] ESLint passes with zero warnings.
+- [x] Guarded Vite build passes with the exact preview `VITE_API_URL`.
 - [ ] No `.ts` or `.tsx` source files exist.
-- [ ] `git diff --check` passes.
-- [ ] The Vite module graph contains no API/server, database, provider, worker,
+- [x] `git diff --check` passes.
+- [x] The Vite module graph contains no API/server, database, provider, worker,
       cron, private-key, storage-credential, or secret-handling module.
-- [ ] Built `dist/index.html` CSP contains only self, the exact preview API,
+- [x] Built and deployed `index.html` CSP contains only self, the exact preview API,
       and `https://storage.googleapis.com`; it contains no bare `https:` source.
 
 Evidence: `__________________________________________________________________`
 
 ## Preview isolation and configuration
 
-- [ ] Preview API and both preview cron services deploy only the release commit.
+- [x] Preview API and both preview cron services deployed application candidate `a836d12` from clean archived source; schedules paused.
 - [ ] Preview PostgreSQL is disposable and has no production connection path.
 - [ ] Preview GCS bucket and service account are dedicated to preview.
 - [ ] Service-account permission is bucket-scoped object access only.
-- [ ] Preview CORS/CSRF lists contain the exact stable Vercel preview origin.
-- [ ] Vercel preview `VITE_API_URL` is the exact Railway preview API origin.
-- [ ] Django allowed hosts contain only the assigned API host(s).
+- [x] Preview CORS/CSRF lists contain the exact stable Vercel preview origin.
+- [x] Vercel preview `VITE_API_URL` is the exact Railway preview API origin.
+- [x] Django allowed hosts contain the assigned preview API host and Railway healthcheck host.
 - [ ] Production Railway services exist but deployment and schedules remain paused.
 - [ ] Production `VITE_API_URL` is prepared but no production redeploy occurred.
 
@@ -85,11 +92,10 @@ the names applicable to their execution paths:
 `GCP_MEDIA_BUCKET`, `GCP_MEDIA_CDN_URL`, `GCP_SERVICE_ACCOUNT_JSON`, and the
 provider-key names used by the enabled model registry.
 
-- [ ] Preview inventory recorded: `________________________________________`
+- [x] Preview inventory recorded in [name-only inventory](cutover-secret-inventory.md); provider credentials are absent.
 - [ ] Production Railway inventory recorded: `________________________________________`
-- [ ] Vercel contains browser-visible `VITE_*` values only for the cutover.
-- [ ] Vercel contains no database, provider, worker, cron, GCP private-key, or
-      Django secret credential required solely by the new runtime.
+- [x] The Vite browser bundle uses public `VITE_*` values only; server-module boundary checks pass.
+- [ ] Remove legacy Vercel server-runtime configuration after the seven-day rollback window; retain it while Next.js owns production/rollback.
 
 ## Preview workflow acceptance
 
@@ -205,7 +211,7 @@ python manage.py showmigrations
 python manage.py schema_preflight
 python manage.py schema_preflight --adopt
 python manage.py migrate --plan
-python manage.py migrate --noinput
+python manage.py migrate --noinput  # includes generation.0008; never fake this DDL
 python manage.py schema_preflight --require-adopted
 ```
 
@@ -227,11 +233,11 @@ schema/catalog mismatch, sustained 5xx/error increase, queue non-drain, stale jo
 media signing/range/fallback failure, provider settlement error, cron overlap/miss,
 or any depth fencing/recovery failure.
 
-Prepared retained deployment ID: `________________________________________`
+Prepared retained deployment ID: `dpl_FNsZRUGATFD8hjUaqdTBsvPfPb5A` (reconfirmed 2026-09-07).
 
 ```bash
 # Run by the Vercel rollback operator after replacing the placeholder.
-vercel promote <retained-pre-cutover-deployment-url-or-id> --scope <team>
+vercel promote dpl_FNsZRUGATFD8hjUaqdTBsvPfPb5A --scope amazing-indian-stories
 ```
 
 After promotion, verify the three browser routes and the retained Next API, disable
@@ -262,7 +268,7 @@ outputs in the restricted release evidence location.
 ## Decision
 
 - [ ] **GO** — every mandatory gate is checked and all named operators sign below.
-- [ ] **NO-GO** — blocker IDs/evidence: `______________________________________`
+- [x] **NO-GO for production on September 7** — storage date gate, browser acceptance, provider/depth evidence, and production readiness remain open; see linked preview evidence.
 
 Release commander: `________________`  Signature/time: `________________`
 
