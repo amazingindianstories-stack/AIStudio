@@ -22,6 +22,7 @@ test("named assets expand in order with roles and edits retained", () => {
   assert.match(result.prompt, /image 1, image 2/);
   assert.match(result.prompt, /character: Hero — blue coat/);
   assert.match(result.prompt, /image 3; change coat to red/);
+  assert.match(resolveSeedreamReferences("@img1-inspired coat", [], ["a"]).prompt, /image 1-inspired coat/);
 });
 test("ten resolved references accepted, eleven and missing tags rejected", () => {
   assert.equal(resolveSeedreamReferences("compose", [], Array(10).fill("a")).references.length, 10);

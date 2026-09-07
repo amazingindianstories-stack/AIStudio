@@ -29,3 +29,16 @@ Initial configuration files contained redacted placeholders; attempts stopped be
 Enable Seedream 5.0 Pro in the account before continuing the approved maximum $5 live validation. Required cases: text generation, one-reference edit, multi-reference composition, both output sizes, and original-versus-2048 comparison. Synthetic fixtures only. Record outputs, actual dimensions, latency and cumulative estimated spend. Unseeded comparisons are qualitative.
 
 Production promotion remains gated on those cases, authenticated preview/browser checks, and a successful deployed upload/generation/history/reuse/download/cost check. Record feature commits, deployment IDs and retained prior production deployment before promotion. Migration previews are separate and retain `docs/cutover-go-no-go.md` unchanged.
+
+## Preview deployment checkpoint
+
+- Production application code: `b1b6409`, draft PR [#38](https://github.com/amazingindianstories-stack/AIStudio/pull/38). GitHub web/database checks and Vercel checks passed.
+- Next.js preview with supplied Ark configuration: `dpl_4DXNpMgHxaRSUcbyj6E1VMRc3Epg`, https://aistudio-v1-lcaerfxq5-amazing-indian-stories.vercel.app (Ready).
+- Migration application code: `1ec5b50`. Vite preview: `dpl_7yzywezj5u9cu3uywEm7Bx29JCMf`, https://aistudio-cutover-preview.vercel.app (Ready).
+- Django preview after Ark configuration: `da6d1681-cc6a-48e8-8ab9-3f1368b0fd3f` (SUCCESS); `/api/health` reports HTTP 200, `db: true`.
+- Retained production: `dpl_FNsZRUGATFD8hjUaqdTBsvPfPb5A`, Ready on www.veevee.ai; no production promotion performed.
+- Preview key/base configuration is limited to the feature-branch Vercel environment and the Django cutover-preview API. Existing production credentials and migration cron schedules remain unchanged.
+- Browser: Next preview reaches Vercel sign-in; authenticated acceptance is pending. API rejects unauthenticated requests.
+- ModelArk console confirms Dola-Seedream-5.0-pro is not activated. Its activation dialog requires acceptance of the Customer Agreement, Service Specific Terms and GenAI Acceptable Use Policy; action-time confirmation is pending. Dialog: https://console.byteplus.com/ark/region:ap-southeast-1/openManagement?tab=ComputerVision .
+- Synthetic 4096px and 2048px comparison fixtures are prepared. `scripts/seedream-live-suite.js prepare` performs no generation; named cases or `all` submit with a persisted budget ledger and never automatically repeat an attempted case. The six-case maximum estimate is $0.498, with a $1 suite guard leaving room under the $5 total session ceiling for deployed-app acceptance. Live cases have not run.
+- Follow-up hardening preserves upload tags in compounds such as `@img1-inspired`; the 10 focused Node and 11 Django tests pass after this adjustment. Preview IDs above identify the preceding application builds; refresh previews after the follow-up commit before acceptance.
