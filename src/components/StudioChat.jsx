@@ -1,3 +1,5 @@
+import { isProviderModel } from "@/lib/model-registry";
+import { uploadOriginalReference } from "@/lib/client-reference-upload";
 import {
   useEffect,
   useRef,
@@ -175,7 +177,7 @@ export function StudioChat({ conversationId }) {
       (file) => isVideoFile(file) || file.type.startsWith("image/")
     );
     const maxReferences =
-      mode === "video" ? maxReferenceImagesForVideoModel(model) : null;
+      isProviderModel(model, "seedream") ? 10 : mode === "video" ? maxReferenceImagesForVideoModel(model) : null;
     const available =
       maxReferences === null
         ? referenceFiles.length
@@ -203,6 +205,13 @@ export function StudioChat({ conversationId }) {
     }
     const valid = acceptedReferenceFiles.filter((f) => f.type.startsWith("image/"));
     if (!valid.length) return;
+    if (isProviderModel(model, "seedream")) {
+      for (const file of valid) {
+        try { addReference(await uploadOriginalReference(file)); }
+        catch (error) { alert(error.message); }
+      }
+      return;
+    }
     let dataUrls = [];
     for (let i = 0; i < REF_BUDGET_STEPS.length; i++) {
       const { dim, quality } = REF_BUDGET_STEPS[i];

@@ -150,21 +150,21 @@ def _queue_snapshot(kind: str, created_at: int, item_id: str, best_of: int, wind
                 WHERE created_at > %(skirt_start)s
                   AND updated_at >= %(window_start)s
                   AND status IN ('running', 'succeeded', 'failed')
-                  AND (kind = 'image' OR model ILIKE '%%omni%%')
+                  AND ((kind = 'image' AND model NOT IN ('Seedream 5.0 Pro', 'seedream-5-pro')) OR model ILIKE '%%omni%%')
                   AND NOT (status = 'failed' AND coalesce(error, '') LIKE '%%429%%')
               ) AS window_cents,
               (SELECT count(*) FROM generations
                 WHERE created_at > %(skirt_start)s
                   AND updated_at >= %(window_start)s
                   AND status IN ('running', 'succeeded', 'failed')
-                  AND (kind = 'image' OR model ILIKE '%%omni%%')
+                  AND ((kind = 'image' AND model NOT IN ('Seedream 5.0 Pro', 'seedream-5-pro')) OR model ILIKE '%%omni%%')
                   AND NOT (status = 'failed' AND coalesce(error, '') LIKE '%%429%%')
               ) AS window_rows,
               (SELECT min(updated_at) FROM generations
                 WHERE created_at > %(skirt_start)s
                   AND updated_at >= %(window_start)s
                   AND status IN ('running', 'succeeded', 'failed')
-                  AND (kind = 'image' OR model ILIKE '%%omni%%')
+                  AND ((kind = 'image' AND model NOT IN ('Seedream 5.0 Pro', 'seedream-5-pro')) OR model ILIKE '%%omni%%')
                   AND NOT (status = 'failed' AND coalesce(error, '') LIKE '%%429%%')
               ) AS oldest_updated_at
             """,
@@ -204,7 +204,7 @@ def get_queue_position(item_id: str) -> dict | None:
     if position > 0:
         return {"position": position, "status": item["status"]}
 
-    bills_gemini = item["kind"] == "image" or bool(re.search(r"omni", item["model"], re.IGNORECASE))
+    bills_gemini = (item["kind"] == "image" and item["model"].lower() not in ("seedream 5.0 pro", "seedream-5-pro")) or bool(re.search(r"omni", item["model"], re.IGNORECASE))
     if not bills_gemini:
         return {"position": position, "status": item["status"]}
 

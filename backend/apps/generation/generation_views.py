@@ -47,6 +47,8 @@ from .providers import higgsfield_mcp as hf
 from .providers import kling as kling_provider
 from .providers import omni as omni_provider
 from .providers import seedance as seedance_provider
+from .providers import seedream as seedream_provider
+from . import seedream
 from .video_reconciliation import advance_video_status
 
 
@@ -218,10 +220,22 @@ def generate_image(request):
     item_id = str(uuid.uuid4())
     now = int(time.time() * 1000)
 
+    reference_count = 0
+    if seedream.is_seedream(model):
+        resolution = resolution or "2K"
+        try:
+            seedream.size(resolution, aspect_ratio)
+            seedream.resolve(prompt, read_assets(), reference_images)
+            reference_images = save_media.save_reference_images(reference_images or [], item_id)
+            resolved = seedream.resolve(prompt, read_assets(), reference_images)
+            reference_count = len(resolved["references"])
+            seedream.prepare(resolved["references"], item_id, str(request.user.id), sign=False, persist=False)
+        except ValueError as error:
+            return Response({"error": str(error)}, status=400)
     try:
         pricing_rows = pricing_db.read_pricing()
         cost_cents = pricing_lib.compute_cost_cents(
-            {"kind": "image", "model": model, "resolution": resolution, "hasReferenceImage": bool(reference_images)},
+            {"kind": "image", "model": model, "resolution": resolution, "aspectRatio": aspect_ratio, "referenceCount": reference_count, "hasReferenceImage": bool(reference_images)},
             pricing_rows,
         )
         saved_refs = save_media.save_reference_images(reference_images, item_id) if reference_images else None
@@ -680,6 +694,15 @@ def queue_execute(request):
             if done["status"] != "succeeded" or not done.get("url"):
                 raise RuntimeError(done.get("error") or "Higgsfield image generation failed.")
             url = save_media.save_from_url(done["url"], "png", item_id)
+        elif seedream.is_seedream(model):
+            resolved = seedream.resolve(prompt, read_assets(), reference_images or [])
+            refs = seedream.prepare(resolved["references"], item_id, base.get("userId"))
+            image_bytes = seedream_provider.generate(resolved["prompt"], resolution, aspect_ratio, refs)
+            url = storage.upload_buffer(image_bytes, f"generations/{item_id}.png", "png")
+            with Image.open(io.BytesIO(image_bytes)) as im:
+                w, h = im.size
+            aspect_ratio_out = min(config.ASPECT_RATIOS["image"], key=lambda ratio: abs(w/h - int(ratio.split(":")[0])/int(ratio.split(":")[1])))
+            cost_cents = pricing_lib.compute_seedream_cost({"width": w, "height": h, "referenceCount": len(refs)}, pricing_db.read_pricing())
         elif kling_provider.is_kling_model(model):
             assembled = assemble_prompt(prompt, read_assets(), reference_images or [], aspect_ratio)
             kling_input = build_kling_input(assembled, model)
