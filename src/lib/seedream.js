@@ -14,7 +14,7 @@ export function seedreamSize(resolution = "2K", aspectRatio = "1:1") {
 export function resolveSeedreamReferences(prompt, assets = [], uploads = []) {
   if (!Array.isArray(uploads) || uploads.some(x => typeof x !== "string" || !x)) throw new Error("Invalid reference images. Upload the images again.");
   const groups = [];
-  for (const slug of parseAssetSlugs(prompt)) {
+  for (const slug of parseAssetSlugs(prompt.replace(/@img\d+\b/gi, ""))) {
     const asset = assets.find(a => a.slug.toLowerCase() === slug);
     if (!asset?.images?.length) throw new Error(`Missing reference @${slug}. Attach the asset or remove its tag.`);
     groups.push({ tag: slug, refs: asset.images, role: `${asset.kind}: ${asset.name}${asset.description ? " — " + asset.description : ""}` });
@@ -31,6 +31,6 @@ export function resolveSeedreamReferences(prompt, assets = [], uploads = []) {
     legend.push(`${images}: ${group.role}`);
   }
   if (references.length > 10) throw new Error(`Seedream 5.0 Pro accepts at most 10 resolved images; this prompt resolves to ${references.length}. Reduce uploads or named asset images.`);
-  const rewritten = prompt.replace(new RegExp(TAG_REGEX), (tag, slug) => names.get(slug.toLowerCase()) ?? tag);
+  const rewritten = prompt.replace(/@img(\d+)\b/gi, (tag, n) => names.get(`img${Number(n)}`) ?? tag).replace(new RegExp(TAG_REGEX), (tag, slug) => names.get(slug.toLowerCase()) ?? tag);
   return { references, prompt: legend.length ? `References:\n${legend.join("\n")}\nFollow the user's editing instructions, including any requested changes to the references.\n\n${rewritten}` : rewritten };
 }

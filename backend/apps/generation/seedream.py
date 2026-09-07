@@ -25,7 +25,7 @@ def resolve(prompt, assets=None, uploads=None):
     if not isinstance(uploads, list) or any(not isinstance(ref, str) or not ref for ref in uploads):
         raise ValueError("Invalid reference images. Upload the images again.")
     groups = []
-    for slug in parse_asset_slugs(prompt):
+    for slug in parse_asset_slugs(re.sub(r"@img\d+\b", "", prompt, flags=re.I)):
         asset = next((a for a in assets if a["slug"].lower() == slug), None)
         if not asset or not asset.get("images"):
             raise ValueError(f"Missing reference @{slug}. Attach the asset or remove its tag.")
@@ -45,7 +45,8 @@ def resolve(prompt, assets=None, uploads=None):
         legend.append(f"{names[tag]}: {role}")
     if len(refs) > 10:
         raise ValueError(f"Seedream 5.0 Pro accepts at most 10 resolved images; this prompt resolves to {len(refs)}.")
-    rewritten = TAG_RE.sub(lambda m: names.get(m.group(1).lower(), m.group(0)), prompt)
+    rewritten = re.sub(r"@img(\d+)\b", lambda m: names.get(f"img{int(m.group(1))}", m.group(0)), prompt, flags=re.I)
+    rewritten = TAG_RE.sub(lambda m: names.get(m.group(1).lower(), m.group(0)), rewritten)
     text = "References:\n" + "\n".join(legend) + "\nFollow the user's editing instructions, including requested changes.\n\n" + rewritten if legend else rewritten
     return {"prompt": text, "references": refs}
 

@@ -22,6 +22,7 @@ class SeedreamTests(TestCase):
         self.assertEqual(result['references'], ['a','b','d'])
         self.assertIn('image 3, change coat to red',result['prompt'])
         self.assertEqual(len(seedream.resolve('compose',uploads=['a']*10)['references']),10)
+        self.assertIn('image 1-inspired coat', seedream.resolve('@img1-inspired coat', uploads=['a'])['prompt'])
         for prompt, refs in [('compose',['a']*11),('@img2',['a']),('@absent',[])]:
             with self.assertRaises(ValueError):seedream.resolve(prompt, uploads=refs)
 
