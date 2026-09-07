@@ -1,4 +1,5 @@
 
+import { SEEDREAM_PRICING } from "./pricing";
 import { getDb } from "./db";
 import { pricing } from "./schema";
 
@@ -6,6 +7,7 @@ import { pricing } from "./schema";
 
 export async function readPricing() {
   const db = await getDb();
+  await db.insert(pricing).values(SEEDREAM_PRICING).onConflictDoNothing({ target: pricing.model });
   const rows = await db.select().from(pricing);
   return rows.map((r) => ({
     model: r.model,

@@ -1,3 +1,7 @@
+import { getModelDefinition } from "@/lib/model-registry";
+import { seedreamSize, resolveSeedreamReferences } from "@/lib/seedream";
+import { prepareSeedreamReferences } from "@/lib/seedream-reference";
+import { readAssets } from "@/lib/assets-db";
 import { NextResponse } from "next/server";
 import { saveReferenceImages } from "@/lib/save-media";
 import { upsertItem } from "@/lib/store-db";
@@ -19,9 +23,9 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const prompt = (body.prompt || "").trim();
   const aspectRatio = body.aspectRatio || "1:1";
-  const resolution = body.resolution;
+  const resolution = body.resolution ?? (getModelDefinition(body.model)?.provider === "seedream" ? "2K" : undefined);
   const model = body.model || "Nano Banana Pro";
-  const referenceImages = body.referenceImages;
+  let referenceImages = body.referenceImages;
   const projectId = body.projectId || undefined;
   const folderId = body.folderId || undefined;
   // "Regenerate with same seed" (Phase 3.1): only honoured for models
@@ -55,11 +59,25 @@ export async function POST(req) {
   // a raw "Unexpected end of JSON input" instead of a readable error.
   let costCents;
   let savedRefs;
+  let referenceCount;
+  const isSeedream = getModelDefinition(model)?.provider === "seedream";
+  if (isSeedream) {
+    try {
+      seedreamSize(resolution, aspectRatio);
+      resolveSeedreamReferences(prompt, await readAssets(), referenceImages ?? []);
+      referenceImages = await saveReferenceImages(referenceImages ?? [], id);
+      const resolved = resolveSeedreamReferences(prompt, await readAssets(), referenceImages ?? []);
+      referenceCount = resolved.references.length;
+      await prepareSeedreamReferences(resolved.references, id, { userId: user.id, sign: false, persist: false });
+    } catch (error) { return NextResponse.json({ error: error.message }, { status: 400 }); }
+  }
   try {
     const pricingRows = await readPricing();
     costCents = computeCostCents(
       {
         kind: "image",
+        referenceCount,
+        aspectRatio,
         model,
         resolution,
         // Kling Image 2.1 bills image-to-image at double its text-to-image rate,

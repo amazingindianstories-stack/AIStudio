@@ -11,9 +11,25 @@
  * changes future generations only — historical attribution is never rewritten
  * underneath the admin dashboard's totals.
  */
+import { seedreamSize } from "./seedream";
 import { getModelDefinition } from "./model-registry";
 
+export const SEEDREAM_PRICING = [
+  { model: "Seedream 5.0 Pro", unitCostCents: 4500, unit: "per_1000_images", notes: "Estimated published rate: outputs up to 2.61 megapixels; not invoice reconciled." },
+  { model: "Seedream 5.0 Pro · large", unitCostCents: 9000, unit: "per_1000_images", notes: "Estimated published rate: outputs above 2.61 megapixels." },
+  { model: "Seedream 5.0 Pro · extra reference", unitCostCents: 300, unit: "per_1000_images", notes: "Estimated surcharge for each reference after the first." },
+];
+export function computeSeedreamCostCents({ width, height, referenceCount = 0, resolution, aspectRatio }, pricing) {
+  if (!width || !height) [width, height] = seedreamSize(resolution, aspectRatio).split("x").map(Number);
+  const rate = (name) => {
+    const row = pricing.find(p => p.model === name) ?? SEEDREAM_PRICING.find(p => p.model === name);
+    if (row.unit !== "per_1000_images") throw new Error("Seedream pricing requires per_1000_images rates.");
+    return row.unitCostCents;
+  };
+  return Math.round((rate(width * height > 2_610_000 ? "Seedream 5.0 Pro · large" : "Seedream 5.0 Pro") + Math.max(0, referenceCount - 1) * rate("Seedream 5.0 Pro · extra reference")) / 1000);
+}
 export const DEFAULT_PRICING = [
+  ...SEEDREAM_PRICING,
   {
     model: "Nano Banana 2",
     unitCostCents: 5,
@@ -295,6 +311,7 @@ export function computeCostCents(
   input,
   pricing
 ) {
+  if (getModelDefinition(input.model)?.provider === "seedream") return computeSeedreamCostCents(input, pricing);
   const pricingKey = getModelDefinition(input.model)?.pricingKey ?? input.model;
   const row = pricing.find((p) => p.model === pricingKey);
   if (!row) return 0;

@@ -346,7 +346,8 @@ export const useStore = create((set, get) => ({
           : durations[durations.length - 1];
       }
       const resolutions = resolutionsForModel(model, s.mode, s.referenceImages.length > 0);
-      const resolution = resolutions.includes(s.resolution)
+      const resolution = (model === "Seedream 5.0 Pro" || model === "seedream-5-pro") && model !== s.model
+        ? "2K" : resolutions.includes(s.resolution)
         ? s.resolution
         : resolutions[resolutions.length - 1];
       const aspectRatios = aspectRatiosForModel(model, s.mode);
@@ -1007,6 +1008,7 @@ export const useStore = create((set, get) => ({
   },
 
   addReferenceFromUrl: async (url) => {
+    if (get().model === "Seedream 5.0 Pro" || get().model === "seedream-5-pro") { get().addReference(url); return; }
     // Fetch a generated image and add it to the composer as a reference (data
     // URL so every provider works) — enables the hero-first crowd workflow.
     // Generated images can be full-resolution (well over Vercel's 4.5MB body
@@ -1138,6 +1140,10 @@ export const useStore = create((set, get) => ({
     });
     // Restore the stored reference images as data URLs so every provider works.
     const paths = item.referenceImages ?? [];
+    if (paths.length && (item.model === "Seedream 5.0 Pro" || item.model === "seedream-5-pro")) {
+      set({ referenceImages: paths, referenceKinds: paths.map(() => "image") });
+      return { ok: true };
+    }
     if (paths.length) {
       const dataUrls = await Promise.all(
         paths.map(async (p) => {

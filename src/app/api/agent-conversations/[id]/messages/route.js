@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { getConversation, listMessages, appendMessage } from "@/lib/agent-conversations-db";
 import { adminOrNull } from "@/lib/admin";
 import { runOrchestratorTurn } from "@/lib/agents/orchestrator/orchestrator";
+import { readImageAsBase64 } from "@/lib/save-media";
+import { mediaKeyFromRef, isProtectedMediaKey } from "@/lib/storage";
+import { prepReference } from "@/lib/middleware/image-prep";
 import { imagesToParts } from "@/lib/agents/orchestrator/images";
 import { parseMessageBody } from "@/lib/agents/orchestrator/validate-message";
 
@@ -34,7 +37,16 @@ export async function POST(
 
   let imageParts;
   try {
-    imageParts = imagesToParts(imageDataUrls);
+    const dataUrls = [];
+    for (const ref of imageDataUrls) {
+      if (ref.startsWith("data:")) { dataUrls.push(ref); continue; }
+      const key = mediaKeyFromRef(ref);
+      if (!key || isProtectedMediaKey(key)) throw new Error("Use stored reference images.");
+      const raw = await readImageAsBase64(ref);
+      const preview = await prepReference(raw.mimeType, raw.data);
+      dataUrls.push(`data:${preview.mimeType};base64,${preview.data}`);
+    }
+    imageParts = imagesToParts(dataUrls);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Invalid reference image.";
     return NextResponse.json({ error: message }, { status: 400 });

@@ -535,21 +535,21 @@ async function queueSnapshot(
         where created_at > ${windowStart - 6 * 60 * 60 * 1000}
           and updated_at >= ${windowStart}
           and status in ('running', 'succeeded', 'failed')
-          and (kind = 'image' or model = 'Gemini Omni Flash')
+          and ((kind = 'image' and model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or model = 'Gemini Omni Flash')
           and not (status = 'failed' and coalesce(error, '') like '%429%')
       ) as window_cents,
       (select count(*) from ${generations}
         where created_at > ${windowStart - 6 * 60 * 60 * 1000}
           and updated_at >= ${windowStart}
           and status in ('running', 'succeeded', 'failed')
-          and (kind = 'image' or model = 'Gemini Omni Flash')
+          and ((kind = 'image' and model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or model = 'Gemini Omni Flash')
           and not (status = 'failed' and coalesce(error, '') like '%429%')
       ) as window_rows,
       (select min(updated_at) from ${generations}
         where created_at > ${windowStart - 6 * 60 * 60 * 1000}
           and updated_at >= ${windowStart}
           and status in ('running', 'succeeded', 'failed')
-          and (kind = 'image' or model = 'Gemini Omni Flash')
+          and ((kind = 'image' and model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or model = 'Gemini Omni Flash')
           and not (status = 'failed' and coalesce(error, '') like '%429%')
       ) as oldest_updated_at
   `);
@@ -600,7 +600,7 @@ export async function getQueuePosition(id) {
   //
   // Only jobs that actually bill Gemini are gated. A Higgsfield or BytePlus
   // video must never be held behind a Google budget it does not consume.
-  const billsGemini = item.kind === "image" || isProviderModel(item.model, "omni");
+  const billsGemini = (item.kind === "image" && !isProviderModel(item.model, "seedream")) || isProviderModel(item.model, "omni");
   if (!billsGemini) return { position, status: item.status };
 
   const limitCents = spendLimitCents();
