@@ -8,6 +8,9 @@ from ..providers import seedance as sd
 
 
 class ReferenceImageLimitTests(SimpleTestCase):
+    def test_seedance_25_preserves_production_1080p_support(self):
+        self.assertEqual(config.resolutions_for_model("Seedance 2.5", "video"), ["480p", "720p", "1080p"])
+
     def test_caps_match_modelark_api(self):
         self.assertEqual(config.max_reference_images_for_video_model("Seedance 2.0"), 9)
         self.assertEqual(config.max_reference_images_for_video_model("Seedance 2.0 Mini"), 9)

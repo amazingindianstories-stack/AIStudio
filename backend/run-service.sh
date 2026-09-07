@@ -12,6 +12,7 @@ case "${1:-}" in
   api)
     python manage.py schema_preflight --require-adopted
     python manage.py migrate --noinput
+    python manage.py schema_preflight --require-adopted
     python manage.py collectstatic --noinput
     exec gunicorn config.wsgi --bind "0.0.0.0:${PORT}" --workers "${WEB_CONCURRENCY:-3}"
     ;;
