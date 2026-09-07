@@ -1,4 +1,5 @@
 "use client";
+import { uploadOriginalReference } from "@/lib/client-reference-upload";
 
 import {
   useEffect,
@@ -188,7 +189,7 @@ export function PromptComposer() {
       (file) => isVideoFile(file) || file.type.startsWith("image/")
     );
     const maxReferences =
-      s.mode === "video" ? maxReferenceImagesForVideoModel(s.model) : null;
+      isProviderModel(s.model, "seedream") ? 10 : s.mode === "video" ? maxReferenceImagesForVideoModel(s.model) : null;
     const available =
       maxReferences === null
         ? referenceFiles.length
@@ -234,6 +235,13 @@ export function PromptComposer() {
     const valid = acceptedReferenceFiles.filter((f) => f.type.startsWith("image/"));
     if (!valid.length) return;
 
+    if (isProviderModel(s.model, "seedream")) {
+      for (const file of valid) {
+        try { s.addReference(await uploadOriginalReference(file)); }
+        catch (error) { alert(error.message); }
+      }
+      return;
+    }
     let dataUrls = [];
     for (let i = 0; i < REF_BUDGET_STEPS.length; i++) {
       const { dim, quality } = REF_BUDGET_STEPS[i];

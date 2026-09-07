@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import { generateImageSeedream } from "@/lib/providers/seedream";
+import { resolveSeedreamReferences } from "@/lib/seedream";
+import { prepareSeedreamReferences } from "@/lib/seedream-reference";
+import { readPricing } from "@/lib/pricing-db";
+import { computeSeedreamCostCents } from "@/lib/pricing";
 import { generateImageGemini } from "@/lib/providers/gemini";
 import {
   isHiggsfieldModel,
@@ -490,6 +495,18 @@ export async function POST(req) {
       }, signal);
       url = saved.url;
       aspectRatioOut = saved.aspectRatio;
+    } else if (getModelDefinition(model)?.provider === "seedream") {
+      const assembled = resolveSeedreamReferences(prompt, await readAssets(), referenceImages ?? []);
+      const prepared = await prepareSeedreamReferences(assembled.references, id, { signal, userId: base.userId });
+      const bytes = await generateImageSeedream({ prompt: assembled.prompt, aspectRatio, resolution, references: prepared.urls }, { signal });
+      throwIfAborted(signal);
+      const saved = await saveBufferWithMetadata(bytes, "png", id, { kind: "image", model, requestedAspectRatio: aspectRatio });
+      if (!saved.width || !saved.height) throw new Error("Seedream output was stored but its dimensions could not be read.");
+      url = saved.url;
+      aspectRatioOut = saved.aspectRatio;
+      costCents = computeSeedreamCostCents({ width: saved.width, height: saved.height, referenceCount: prepared.stable.length }, await readPricing());
+      costBasis = "estimated";
+      console.log("[seedream] completed", { id, width: saved.width, height: saved.height, references: prepared.stable.length, costCents, costBasis });
     } else if (isKlingModel(model)) {
       // Kling takes ONE reference image and ONE prompt string on this endpoint
       // (see providers/kling.js). buildKlingInput adapts the assembled payload

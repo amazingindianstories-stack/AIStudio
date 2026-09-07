@@ -20,6 +20,7 @@ export const runtime = "nodejs";
  * uniformly (isProtectedMediaKey is checked inside getSignedUploadUrl).
  */
 const ALLOWED_PURPOSES = {
+  "image-reference": { prefix: "uploads/image-reference", contentTypes: [/^image\/(jpeg|png|webp|tiff|gif|heic|heif)$/] },
   "depth-input": { prefix: "uploads/depth-input", contentTypes: [/^video\//] },
 };
 
