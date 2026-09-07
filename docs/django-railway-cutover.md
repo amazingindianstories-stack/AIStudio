@@ -1,7 +1,7 @@
 # Django Railway cutover
 
 Release preparation status: **stop before production launch**. The signed evidence
-record is `docs/cutover-go-no-go.md`. Production work cannot begin before the
+record is `docs/cutover-go-no-go.md`. Production activation cannot begin before the
 AWS/GCS gate closes on 2026-09-10 and every final inventory check passes.
 
 The Django service is the target API and schema authority. Vercel serves the
@@ -57,6 +57,12 @@ python manage.py migrate --noinput
 python manage.py schema_preflight --require-adopted
 ```
 
+Adoption records only the fixed historical boundaries (through generation `0007`),
+never later DDL. The preflight audits the adopted/applied migration state so pending
+additive migrations can run. API startup checks before and after `migrate`.
+Migration `generation.0008_generation_production_metadata` must execute normally
+before the new UX is activated; keep its defaulted JSONB column during rollback.
+
 Historical migrations are preserved. The adoption migrations change Django
 state only because the corresponding tables, columns, and indexes already
 exist. All later schema changes must be normal Django migrations.
@@ -74,6 +80,9 @@ to opt into the deprecated per-service `railway.json` format:
 The IaC definition refuses to evaluate outside `cutover-preview`. Production activation
 requires a separately reviewed production environment definition after the observation
 gate; do not remove the guard during preview preparation.
+
+The checked-in preview definition has both cron schedules set to null for explicit
+acceptance runs. The schedules above describe the future production cadence.
 
 Both cron commands are bounded, terminate, and close Django connections.
 Railway skips a run while the preceding invocation is active. Enable these and

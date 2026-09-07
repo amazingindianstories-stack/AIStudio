@@ -2,7 +2,7 @@
 
 Implemented locally on 2026-09-07 against the Vite frontend and authoritative Django API. Source audit: [VeeVee Three-Persona UX Audit](VeeVee_Three_Persona_UX_Audit_2026-09-05.md).
 
-All 18 findings have an implementation. The director opportunities use optional metadata and a lightweight ordered JSON handoff; they do not introduce a required production taxonomy. No production deployment, commit, live generation, provider diagnostic, or external agent message was performed.
+All 18 findings have an implementation. The director opportunities use optional metadata and a lightweight ordered JSON handoff; they do not introduce a required production taxonomy. The original local implementation did not change production. Subsequent release preparation committed and pushed the changes and deployed isolated previews; see [release evidence](UX_Cutover_Preview_2026-09-07.md). No production deployment, live generation, provider diagnostic, or external agent message was performed.
 
 ## Changes by finding
 
