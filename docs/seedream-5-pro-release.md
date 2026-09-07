@@ -1,6 +1,6 @@
 # Seedream 5.0 Pro release evidence
 
-Status on 2026-09-07: implementation and local automated checks complete; live acceptance and production promotion pending model activation.
+Status on 2026-09-07: implementation and local automated checks complete; model activated with explicit user approval; six direct-provider live requests completed; authenticated preview acceptance and production promotion pending.
 
 Production patch starts at `960766e` (current main when work began). Django/Vite mirror starts at `5c8279e`; the broader migration is not part of the production patch. Nano Banana Pro remains the default model. Seedream defaults to 2K PNG, standard prompt optimization, watermark off, and independent queued requests.
 
@@ -42,3 +42,30 @@ Production promotion remains gated on those cases, authenticated preview/browser
 - ModelArk console confirms Dola-Seedream-5.0-pro is not activated. Its activation dialog requires acceptance of the Customer Agreement, Service Specific Terms and GenAI Acceptable Use Policy; action-time confirmation is pending. Dialog: https://console.byteplus.com/ark/region:ap-southeast-1/openManagement?tab=ComputerVision .
 - Synthetic 4096px and 2048px comparison fixtures are prepared. `scripts/seedream-live-suite.js prepare` performs no generation; named cases or `all` submit with a persisted budget ledger and never automatically repeat an attempted case. The six-case maximum estimate is $0.498, with a $1 suite guard leaving room under the $5 total session ceiling for deployed-app acceptance. Live cases have not run.
 - Follow-up hardening preserves upload tags in compounds such as `@img1-inspired`; the 10 focused Node and 11 Django tests pass after this adjustment. Preview IDs above identify the preceding application builds; refresh previews after the follow-up commit before acceptance.
+
+## Activation and current acceptance build
+
+Seedream Pro was activated on September 7 with explicit user authorization to accept the BytePlus customer, service-specific and GenAI acceptable-use terms. Only Seedream was selected; automatic activation and diagnostic retention remained off.
+
+- Next code: `1fb3329`; preview `dpl_G3z2T3vT27LvGEjtAH493vMtxLaK` at https://aistudio-v1-22ekur3fw-amazing-indian-stories.vercel.app . All remote checks passed.
+- Migration code: `5b35d20`; frontend `dpl_CPSVcgKMuB8zvsyQ2mWm67kZFuVE` at https://aistudio-cutover-preview.vercel.app . All remote checks passed.
+- Migration backend: `2a99ba91-e0a9-41d4-8487-40bd13205ec7`, SUCCESS.
+- Live text checks succeeded: 2K 2048×2048 PNG in 51.329 seconds; 1K portrait 800×1424 PNG in 29.270 seconds. The 2K output visibly follows the teapot, engraving, ribbon and printed-card prompt. Reference cases are in progress.
+- Latest Next preview passes Vercel access but needs a separate app login; the older deployment's app session does not carry across deployment hostnames.
+
+Qualitative findings so far: single-reference edit produced the requested green tile 28, with all 64 numbered tiles and line patterns visibly retained (2048×2048, 117.145 s). Multi-reference composition successfully placed the grid left and ROUND emblem right (2368×1776, 97.748 s), but condensed the grid to seven columns and corrupted several numbers. This is a model-fidelity limitation, not evidence of exact reference preservation in generated content. The application preserves reference input bytes; generation remains probabilistic.
+
+## Completed direct-provider live suite
+
+All six requests returned decodable PNG outputs, with no resubmission. Published-rate estimated total: **$0.498** of the authorized $5 (not invoice-reconciled).
+
+| Case | Dimensions | Seconds | Estimated USD |
+| --- | --- | ---: | ---: |
+| text-2k | 2048×2048 | 51.329 | 0.090 |
+| text-1k | 800×1424 | 29.270 | 0.045 |
+| single-edit | 2048×2048 | 117.145 | 0.090 |
+| multi-composition | 2368×1776 | 97.748 | 0.093 |
+| compare-original | 2048×2048 | 94.370 | 0.090 |
+| compare-2048 | 2048×2048 | 111.861 | 0.090 |
+
+Both original-4096 and downscaled-2048 comparison outputs retained the 8×8 layout and visibly changed tile 28 to green. Fine lettering remains imperfect; these unseeded samples do not establish a causal quality advantage for either input resolution. Multi-composition limitations are recorded above. Evidence PNGs and the submission ledger are retained locally under `/private/tmp/seedream-live-suite`. Direct-provider success does not replace deployed storage/queue/browser acceptance, which is pending login at the latest Next preview. No production deployment has been promoted.
