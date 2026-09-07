@@ -53,6 +53,13 @@ async function withFakeArkResponse(taskId, run) {
   }
 }
 
+test("createVideoTask: Seedance 2.5 forwards 1080p without downgrading", async () => {
+  const { body } = await withFakeArkResponse("task1080", () =>
+    createVideoTask({ prompt: "A landscape", modelDisplay: "Seedance 2.5", resolution: "1080p", duration: 4 })
+  );
+  assert.equal(body.resolution, "1080p");
+});
+
 test("createVideoTask: edit task forces adaptive ratio and duration -1", async () => {
   const { result, body } = await withFakeArkResponse("task123", () =>
     createVideoTask({ prompt: "do the edit", taskMode: "edit", ratio: "16:9", duration: 10 })
