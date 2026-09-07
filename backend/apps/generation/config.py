@@ -115,7 +115,7 @@ def resolutions_for_model(model: str, kind: str, has_reference: bool = False) ->
     if re.search(r"seedance.*mini", model, re.IGNORECASE):
         return ["480p", "720p"]
     if re.search(r"seedance 2\.5", model, re.IGNORECASE):
-        return ["480p", "720p"]
+        return ["480p", "720p", "1080p"]
     # Kling Image 2.1 does 2K, but only WITHOUT a reference image — measured,
     # not read. See providers/kling.py's KLING_MODELS and the JS twin.
     if is_kling_image_model(model):
