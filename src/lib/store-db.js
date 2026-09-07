@@ -1,4 +1,4 @@
-import { eq, desc, lt, or, gt, inArray, isNull, and, sql, } from "drizzle-orm";
+import { eq, asc, desc, lt, or, gt, inArray, isNull, and, sql, } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations } from "./schema";
 import { isProviderModel } from "./model-registry";
@@ -11,6 +11,7 @@ import { isProviderModel } from "./model-registry";
 export function rowToItem(r) {
   return {
     id: r.id,
+    productionMetadata: r.productionMetadata ?? {},
     kind: r.kind ,
     status: r.status ,
     prompt: r.prompt,
@@ -158,8 +159,12 @@ function filterConditions(filter) {
   else if (filter.folderId) conds.push(eq(generations.folderId, filter.folderId));
   if (filter.kind) conds.push(eq(generations.kind, filter.kind));
   if (filter.favorite) conds.push(eq(generations.isFavorite, true));
+  if (filter.model) conds.push(eq(generations.model, filter.model));
+  if (filter.from) conds.push(sql`${generations.createdAt} >= ${Date.parse(filter.from + "T00:00:00Z")}`);
+  if (filter.to) conds.push(sql`${generations.createdAt} < ${Date.parse(filter.to + "T00:00:00Z") + 86400000}`);
+  if (filter.reviewStatus) conds.push(sql`coalesce(${generations.productionMetadata}->>'reviewStatus', 'candidate') = ${filter.reviewStatus}`);
   const q = filter.q?.trim();
-  if (q) conds.push(sql`${generations.prompt} ilike ${likePattern(q)}`);
+  if (q) conds.push(sql`concat_ws(' ', ${generations.prompt}, ${generations.productionMetadata}->>'scene', ${generations.productionMetadata}->>'shot', ${generations.productionMetadata}->>'take') ilike ${likePattern(q)}`);
   return conds;
 }
 
@@ -183,7 +188,7 @@ export async function queryHistory(
     // `a < c OR (a = c AND b < d)` because only the row-value form is
     // recognised as an index range bound.
     conds.push(
-      sql`(${sortCol}, ${generations.id}) < (${cursor.sort}::bigint, ${cursor.id}::uuid)`
+      (filter.sort === "oldest" ? sql`(${sortCol}, ${generations.id}) > (${cursor.sort}::bigint, ${cursor.id}::uuid)` : sql`(${sortCol}, ${generations.id}) < (${cursor.sort}::bigint, ${cursor.id}::uuid)`)
     );
   }
 
@@ -195,7 +200,7 @@ export async function queryHistory(
     .select()
     .from(generations)
     .where(conds.length ? and(...conds) : undefined)
-    .orderBy(desc(sortCol), desc(generations.id))
+    .orderBy((filter.sort === "oldest" ? asc : desc)(sortCol), (filter.sort === "oldest" ? asc : desc)(generations.id))
     .limit(limitN + 1);
 
   const hasMore = rows.length > limitN;

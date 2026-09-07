@@ -5,6 +5,10 @@
 :root {
   color-scheme: dark;
   --font-sans: "Inter";
+  --text-primary: #e7e9ec;
+  --text-secondary: #b6b9c0;
+  --control-border: #717680;
+  --focus-indicator: #e5e7eb;
 }
 
 html,
@@ -65,45 +69,14 @@ body {
   flex-shrink: 0;
 }
 
-@container (max-width: 44rem) {
-  .composer-secondary-setting,
-  .composer-folder-separator,
-  .composer-folder-label {
-    display: none;
-  }
-
-  .composer-model-label {
-    max-width: 10rem;
-  }
-}
-
-@container (max-width: 34rem) {
-  .composer-mode-label,
-  .composer-setting-value,
-  .composer-setting-separator,
-  .composer-project-label {
-    display: none;
-  }
-
-  .composer-toolbar {
-    gap: 0.25rem;
-  }
-
-  .composer-toolbar .control-chip {
-    gap: 0.375rem;
-    padding-inline: 0.5rem;
-  }
-
-  .composer-model-label {
-    max-width: 7rem;
-  }
-}
-
-@container (max-width: 24rem) {
-  .composer-model-label {
-    max-width: 5.5rem;
-  }
-}
+/* Keep decision-critical labels visible; the toolbar wraps instead of hiding them. */
+.composer-toolbar .control-chip { white-space: normal; overflow: visible; }
+.composer-model-label { max-width: none; overflow: visible; }
+.composer-toolbar > .composer-model { flex: 1 1 12rem; }
+.composer-toolbar > .composer-settings { flex: 1 1 auto; }
+.composer-shell { max-height: 65dvh; overflow-y: auto; }
+:root :is(button, a, input, select, textarea, summary):focus-visible { outline: 2px solid var(--focus-indicator); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
 
 /* crisp white brand text */
 .brand-text {
@@ -211,9 +184,8 @@ body {
       The icons and their fixed order still identify the scopes, and
       title/aria-label carry the name for hover and screen readers. */
 @container (max-width: 34rem) {
-  .scope-tab-label {
-    display: none;
-  }
+  .scope-tabs { flex-wrap: wrap; }
+  .scope-tab-label { display: inline; }
 }
 
 /* 4. Last resorts, for the narrow mobile drawer. The project's own name is
@@ -237,3 +209,17 @@ body {
     display: none;
   }
 }
+
+/* Folders get a full-width row on narrow library panels. */
+.history-panel { container-type: inline-size; }
+@container (max-width: 30rem) {
+  .project-layout { flex-direction: column; }
+  .project-folders { width: 100%; max-height: 10rem; flex-shrink: 0; overflow-y: auto; }
+  .project-folders .truncate { white-space: normal; overflow: visible; }
+}
+
+/* Folder names are destinations, so preserve the whole label at every width. */
+.project-folders .truncate { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+.project-folders { align-items: stretch; }
+
+:root :is(input:not([type="range"]), select, textarea) { border-color: var(--control-border); }

@@ -7,6 +7,7 @@ urlpatterns = [
     path("whoami", views.whoami, name="whoami"),
     path("users", views.list_users, name="users"),
     path("settings", settings_views.settings_view, name="settings"),
+    path("pricing", settings_views.pricing_view, name="pricing"),
     path("auth/login", auth_views.login, name="auth-login"),
     path("auth/logout", auth_views.logout, name="auth-logout"),
     path("auth/me", auth_views.me, name="auth-me"),

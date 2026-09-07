@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Pencil,
 } from "lucide-react";
+import { generationError } from "@/lib/generation-error";
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
@@ -195,7 +196,7 @@ function FeedBlock({ item, index }) {
 
       <PromptText text={item.prompt} />
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/70">
         <Meta icon={<Layers className="h-3.5 w-3.5" />}>{item.model}</Meta>
         <Meta>Proportion {item.aspectRatio}</Meta>
         {item.resolution && <Meta>Resolution {item.resolution}</Meta>}
@@ -249,7 +250,7 @@ function FeedBlock({ item, index }) {
           {item.status === "failed" && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-red-950/30 p-6 text-center">
               <AlertCircle className="h-7 w-7 text-red-400" />
-              <span className="text-sm text-red-200/80">{item.error}</span>
+              <span className="text-sm text-red-200/80">{generationError(item).category}</span><button className="text-sm underline" onClick={(e) => { e.stopPropagation(); setActiveId(item.id); }}>Open error details &amp; next steps</button>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
@@ -258,7 +259,7 @@ function FeedBlock({ item, index }) {
                 className="mt-1 flex items-center gap-1.5 rounded-lg bg-brand/20 px-3 py-1.5 text-xs font-semibold text-brand transition hover:bg-brand/30"
                 title="Restore this prompt, settings and references into the composer"
               >
-                <Copy className="h-3.5 w-3.5" /> Clone &amp; try
+                <Copy className="h-3.5 w-3.5" /> Load prompt &amp; settings
               </button>
             </div>
           )}
@@ -322,9 +323,7 @@ function FeedBlock({ item, index }) {
                   <Download className="h-4 w-4" />
                 </a>
               )}
-              <span className="pointer-events-none grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm">
-                <Maximize2 className="h-4 w-4" />
-              </span>
+              <button onClick={(e) => { e.stopPropagation(); setActiveId(item.id); }} aria-label={`Open ${item.kind} asset, ${item.model}`} className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85"><Maximize2 className="h-4 w-4" /></button>
             </div>
           )}
         </div>
@@ -366,7 +365,7 @@ function Welcome() {
         <h1 className="text-2xl font-semibold text-white">
           Create with <span className="brand-text">Veevee.ai</span>
         </h1>
-        <p className="text-sm text-white/55">
+        <p className="text-sm text-white/70">
           Generate images with Nano Banana Pro and videos with Seedance.
         </p>
       </div>

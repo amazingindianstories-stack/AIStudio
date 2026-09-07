@@ -90,7 +90,7 @@ export function TopBar() {
 
         <span className="hidden h-6 w-px shrink-0 bg-line sm:block" aria-hidden />
 
-        <nav aria-label="Sections" className="flex min-w-0 items-center gap-0.5 sm:gap-1">
+        <nav aria-label="Sections" className="flex min-w-0 flex-1 items-center gap-0.5 sm:gap-1">
           {DESTINATIONS.map((d) => {
             const active = d.id === activeDestination;
             return (
@@ -100,8 +100,8 @@ export function TopBar() {
                 aria-label={d.label}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors sm:px-3",
-                  active ? "text-white" : "text-white/50 hover:bg-white/5 hover:text-white/90"
+                  "relative flex flex-col sm:flex-row items-center gap-1 rounded-lg px-1.5 py-1.5 text-[10px] sm:text-sm font-medium transition-colors sm:px-3",
+                  active ? "text-white" : "text-white/70 hover:bg-white/5 hover:text-white/90"
                 )}
               >
                 {active && (
@@ -133,7 +133,7 @@ export function TopBar() {
                     />
                   )}
                 </span>
-                <span className="relative z-10 hidden sm:inline">{d.label}</span>
+                <span className="relative z-10 inline">{d.label}</span>
               </button>
             );
           })}
@@ -146,10 +146,10 @@ export function TopBar() {
               aria-label="Agents"
               aria-current={activeDestination === "agents" ? "page" : undefined}
               className={cn(
-                "relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors sm:px-3",
+                "relative flex flex-col sm:flex-row items-center gap-1 rounded-lg px-1.5 py-1.5 text-[10px] sm:text-sm font-medium transition-colors sm:px-3",
                 activeDestination === "agents"
                   ? "text-white"
-                  : "text-white/50 hover:bg-white/5 hover:text-white/90"
+                  : "text-white/70 hover:bg-white/5 hover:text-white/90"
               )}
             >
               {activeDestination === "agents" && (
@@ -160,7 +160,7 @@ export function TopBar() {
                 />
               )}
               <Sparkles className="relative z-10 h-4 w-4 text-brand" strokeWidth={1.9} />
-              <span className="relative z-10 hidden sm:inline">Agents</span>
+              <span className="relative z-10 inline">Agents</span>
             </button>
           ) : (
             <span

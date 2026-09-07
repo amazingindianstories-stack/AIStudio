@@ -13,6 +13,8 @@ created_at is a millisecond bigint and batch generation can insert several
 rows in the same millisecond.
 """
 
+from datetime import datetime, timezone
+
 import re
 import time
 
@@ -30,6 +32,7 @@ _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f
 def row_to_item(g: Generation) -> dict:
     return {
         "id": str(g.id),
+        "productionMetadata": g.production_metadata,
         "kind": g.kind,
         "status": g.status,
         "prompt": g.prompt,
@@ -116,9 +119,19 @@ def _filter_conditions(filter: dict) -> tuple[list[str], list]:
         params.append(filter["kind"])
     if filter.get("favorite"):
         conds.append("is_favorite = true")
+    if filter.get("model"):
+        conds.append("model = %s")
+        params.append(filter["model"])
+    for key, operator, offset in (("from", ">=", 0), ("to", "<", 86400000)):
+        if filter.get(key):
+            conds.append(f"created_at {operator} %s")
+            params.append(int(datetime.fromisoformat(filter[key]).replace(tzinfo=timezone.utc).timestamp() * 1000) + offset)
+    if filter.get("reviewStatus"):
+        conds.append("coalesce(production_metadata->>'reviewStatus', 'candidate') = %s")
+        params.append(filter["reviewStatus"])
     q = (filter.get("q") or "").strip()
     if q:
-        conds.append("prompt ILIKE %s")
+        conds.append("concat_ws(' ', prompt, production_metadata->>'scene', production_metadata->>'shot', production_metadata->>'take') ILIKE %s")
         params.append(like_pattern(q))
     return conds, params
 
@@ -127,16 +140,18 @@ def query_history(filter: dict | None = None, cursor: tuple[int, str] | None = N
     filter = filter or {}
     sort_col = "favorited_at" if filter.get("favorite") else "created_at"
 
+    direction = "ASC" if filter.get("sort") == "oldest" else "DESC"
+    operator = ">" if direction == "ASC" else "<"
     conds, params = _filter_conditions(filter)
     if cursor:
-        conds.append(f"({sort_col}, id) < (%s::bigint, %s::uuid)")
+        conds.append(f"({sort_col}, id) {operator} (%s::bigint, %s::uuid)")
         params.extend([cursor[0], cursor[1]])
 
     where_sql = f"WHERE {' AND '.join(conds)}" if conds else ""
     sql = f"""
         SELECT * FROM generations
         {where_sql}
-        ORDER BY {sort_col} DESC, id DESC
+        ORDER BY {sort_col} {direction}, id {direction}
         LIMIT %s
     """
     params_with_limit = params + [limit_n + 1]

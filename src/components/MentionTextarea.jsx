@@ -289,7 +289,7 @@ export const MentionTextarea = forwardRef(
             // Deliberately NOT scroll-thin: a visible scrollbar (any width)
             // narrows this element's text-wrapping width relative to the
             // overlay div above, which never shows one — see TYPO's comment.
-            "relative max-h-[180px] min-h-[58px] w-full resize-none bg-transparent text-transparent caret-white outline-none placeholder:text-white/35",
+            "relative max-h-[180px] min-h-[58px] w-full resize-none bg-transparent text-transparent caret-white outline-none placeholder:text-white/70",
             TYPO,
             className
           )}

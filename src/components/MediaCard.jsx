@@ -17,6 +17,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 
+import { generationError } from "@/lib/generation-error";
 import { useStore } from "@/lib/store";
 import { aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 import { apiUrl } from "@/lib/api";
@@ -76,6 +77,7 @@ export function MediaCard({
 }
 
 ) {
+  const density = useStore((s) => s.mediaDensity);
   const setActiveId = useStore((s) => s.setActiveId);
   const removeItem = useStore((s) => s.removeItem);
   const retryTextToVideo = useStore((s) => s.retryTextToVideo);
@@ -329,7 +331,7 @@ export function MediaCard({
               <AlertCircle className="h-6 w-6 text-red-400/90" />
             )}
             <span className="line-clamp-3 text-[11px] text-red-100/80">
-              {item.error || "Failed"}
+              {generationError(item).category}
             </span>
 
             <div className="mt-1 flex max-w-full items-center justify-center gap-1.5">
@@ -522,6 +524,13 @@ export function MediaCard({
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>}
+      </div>
+      <div className="border-t border-line bg-ink-800 p-2 text-xs text-white/80" onClick={(e) => e.stopPropagation()}>
+        {density !== "compact" && <><p className="truncate" title={item.model}>{item.model}</p>
+        <p>{new Date(item.createdAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · {item.resolution || item.kind}</p>
+        <p className="break-words">{[item.productionMetadata?.scene, item.productionMetadata?.shot, item.productionMetadata?.take].filter(Boolean).join(" / ") || "No shot context"} · {(item.productionMetadata?.reviewStatus || "candidate").replaceAll("_", " ")}</p>
+        </>}
+        <button className="mt-1 min-h-8 w-full rounded border border-white/30 px-2 text-left hover:bg-white/10" onClick={() => setActiveId(item.id)} aria-label={`Open ${item.kind} asset, ${item.model}, ${new Date(item.createdAt).toLocaleDateString()}`}>Open asset &amp; details</button>
       </div>
     </motion.div>
       <ConfirmActionDialog {...confirmation.dialogProps} />

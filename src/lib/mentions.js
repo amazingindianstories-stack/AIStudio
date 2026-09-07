@@ -121,6 +121,13 @@ export function renumberImgMentions(prompt, mapping) {
   return prompt.replace(re, (match, digits) => {
     const oldIndex = parseInt(digits, 10) - 1;
     const newIndex = mapping[oldIndex];
-    return newIndex === undefined ? match : `@img${newIndex + 1}`;
+    return newIndex === undefined ? match : newIndex < 0 ? "[removed reference]" : `@img${newIndex + 1}`;
+  });
+}
+
+export function renumberVideoMentions(prompt, mapping) {
+  return prompt.replace(/@vid(\d+)\b/gi, (match, digits) => {
+    const index = mapping[Number(digits) - 1];
+    return index === undefined ? match : index < 0 ? "[removed reference]" : `@vid${index + 1}`;
   });
 }

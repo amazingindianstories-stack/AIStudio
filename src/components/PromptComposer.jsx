@@ -19,7 +19,6 @@ import {
   Loader2,
   Upload,
   BookOpen,
-  Images,
   X,
   Box,
   FolderClosed,
@@ -28,6 +27,9 @@ import {
   Volume2,
   SkipForward,
 } from "lucide-react";
+import { ComposerEstimate } from "./ComposerEstimate";
+import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { modelTransition } from "@/lib/composer-state";
 import { useStore, restoreComposerDraft } from "@/lib/store";
 import { parseMentionIndices } from "@/lib/mentions";
 import { limitDefinition } from "@/lib/limits";
@@ -71,6 +73,9 @@ const MODE_ICONS = {
 
 export function PromptComposer() {
   const s = useStore();
+  const [pendingModel, setPendingModel] = useState(null);
+  const destinationProject = s.projects.find((p) => p.id === (s.destinationProjectId ?? s.activeProjectId));
+  const destinationFolder = destinationProject?.folders.find((f) => f.id === s.destinationFolderId);
   // s.limits is populated async on load (store.ts's loadLimits) and starts
   // empty — fall back to the registry's own default so there's no window
   // where every prompt looks "too long" before that fetch resolves.
@@ -346,7 +351,7 @@ export function PromptComposer() {
               @vid{i + 1}
               <button
                 onClick={() => s.removeReferenceVideo(i)}
-                className="grid h-4 w-4 place-items-center rounded text-white/40 hover:bg-white/10 hover:text-white"
+                className="grid h-4 w-4 place-items-center rounded text-white/70 hover:bg-white/10 hover:text-white"
                 aria-label={`Remove reference clip ${i + 1}`}
               >
                 <X className="h-3 w-3" />
@@ -443,6 +448,7 @@ export function PromptComposer() {
         </Reorder.Group>
       )}
 
+      {s.referenceImages.length > 0 && <details className="mb-2 text-xs text-white/75"><summary className="cursor-pointer">Reference labels and order</summary><p className="my-2">Labels help you organize references. Describe their intended role in the prompt; labels do not enforce a model constraint.</p>{s.referenceImages.map((ref, i) => <div key={`${ref}-${i}`} className="mb-2 flex items-center gap-2"><label className="flex min-w-0 flex-1 items-center gap-2">@img{i + 1}<input aria-label={`Label for reference ${i + 1}`} value={s.referenceLabels[i] ?? ""} onChange={(e) => s.setReferenceLabel(i, e.target.value)} placeholder="Identity, costume, composition…" className="min-w-0 flex-1 rounded border border-line bg-ink-700 px-2 py-1" /></label><button type="button" disabled={i === 0} aria-label={`Move reference ${i + 1} earlier`} onClick={() => { const refs = [...s.referenceImages]; [refs[i - 1], refs[i]] = [refs[i], refs[i - 1]]; s.reorderReferences(refs); }} className="rounded border border-line p-1 disabled:opacity-40">←</button><button type="button" aria-label={`Remove reference ${i + 1}`} onClick={() => s.removeReference(i)} className="rounded border border-line p-1">Remove</button></div>)}</details>}
       {/* @audioN chips — filename-only tags, no real attachment (see
           audioNotes' comment in store.js): clicking inserts the tag into the
           prompt text the same way an @imgN thumbnail does, but there is no
@@ -545,21 +551,28 @@ export function PromptComposer() {
         </div>
       )}
 
+      <div className="mb-2 flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-white/80">
+        <span className="font-semibold">Create {s.mode === "image" ? "an image" : "a video"}</span>
+        <span className="break-words">Save to: {destinationProject?.name ?? "Choose a project"} / {destinationFolder?.name ?? "Unsorted"}</span>
+      </div>
+      {s.composerNotice && <p role="status" className="mb-2 rounded-lg bg-white/5 p-2 text-xs leading-5 text-white/80">{s.composerNotice}<button type="button" onClick={() => s.setComposerNotice("")} className="ml-2 underline">Dismiss</button></p>}
+      {(s.stagedReferenceVideos.length > 0 || s.stagedContinuationFrame) && <p className="mb-2 text-xs text-amber-200">References held for a compatible model: {s.stagedReferenceVideos.length} clip(s){s.stagedContinuationFrame ? " and a continuation frame" : ""}. They will not be sent.</p>}
       {/* input row */}
       <div className="flex items-start gap-2">
         {/* upload */}
         <Dropdown
+          label="Add references"
           side="top"
           trigger={(open) => (
             <span
               className={cn(
-                "grid h-[58px] w-[58px] shrink-0 place-items-center rounded-xl border border-dashed border-white/15 text-white/55 transition-colors hover:border-brand/40 hover:text-brand",
+                "grid h-[58px] w-[76px] shrink-0 place-items-center rounded-xl border border-dashed border-white/15 text-white/70 transition-colors hover:border-brand/40 hover:text-brand",
                 open && "border-brand/50 text-brand"
               )}
             >
               <span className="flex flex-col items-center gap-0.5">
                 <Plus className="h-4 w-4" />
-                <span className="text-[10px]">material</span>
+                <span className="text-xs">References</span>
               </span>
             </span>
           )}
@@ -587,7 +600,7 @@ export function PromptComposer() {
                 <Clapperboard
                   className={cn(
                     "h-4 w-4",
-                    supportsVideoReference(s.model) ? "text-brand" : "text-white/40"
+                    supportsVideoReference(s.model) ? "text-brand" : "text-white/70"
                   )}
                 />
                 <span className="flex-1">Attach clip (video&#8209;to&#8209;video)</span>
@@ -604,11 +617,9 @@ export function PromptComposer() {
                   close();
                 }}
               >
-                <BookOpen className="h-4 w-4 text-brand" /> Material library
+                <BookOpen className="h-4 w-4 text-brand" /> Reference library
               </MenuItem>
-              <MenuItem disabled>
-                <Images className="h-4 w-4" /> Portrait Gallery
-              </MenuItem>
+              <p className="max-w-xs px-3 py-2 text-xs leading-5 text-white/75">Optional: add images for identity, style or composition. Use @img1 in your prompt to describe its role. Clips use @vid1 and require a compatible video model.</p>
             </>
           )}
         </Dropdown>
@@ -640,17 +651,17 @@ export function PromptComposer() {
           maxLength={maxPromptLength}
           placeholder={
             s.mode === "image"
-              ? "Describe the image… type @ to reference uploaded images (@img1, @img2)."
-              : "Describe the video… type @ to reference uploaded images (@img1, @img2)."
+              ? "Describe the image you want to create…"
+              : "Describe the action, camera and mood of your video…"
           }
         />
       </div>
 
       {/* toolbar */}
-      <div className="mt-2 flex min-w-0 items-center gap-2">
+      <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
         <div
           ref={toolbarMeasureRef}
-          className="composer-toolbar flex min-w-0 flex-1 items-center gap-1.5 py-px"
+          className="composer-toolbar flex w-full min-w-0 flex-wrap items-center gap-1.5 py-px"
         >
         {/* mode */}
         <Dropdown
@@ -700,7 +711,7 @@ export function PromptComposer() {
           side="top"
           trigger={(open) => (
             <Chip open={open}>
-              <Box className="h-4 w-4 text-white/55" />
+              <Box className="h-4 w-4 text-white/70" />
               <span className="composer-model-label max-w-[14rem] truncate font-medium">
                 {s.model}
               </span>
@@ -714,15 +725,15 @@ export function PromptComposer() {
                 key={m.id}
                 active={m.name === s.model}
                 onClick={() => {
-                  s.setModel(m.name);
+                  if (m.name !== s.model) setPendingModel(m.name);
                   close();
                 }}
               >
-                <Box className="h-4 w-4 text-white/50" />
+                <Box className="h-4 w-4 text-white/70" />
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span>{m.name}</span>
                   {m.hint && (
-                    <span className="text-[10px] leading-snug text-white/40">
+                    <span className="text-xs leading-5 text-white/75">
                       {m.hint}
                     </span>
                   )}
@@ -748,23 +759,23 @@ export function PromptComposer() {
           panelClassName="w-max min-w-[230px] max-w-[min(92vw,340px)] p-3 max-h-[60vh] overflow-y-auto scroll-thin"
           trigger={(open) => (
             <Chip open={open}>
-              <Settings2 className="h-4 w-4 text-white/55" />
+              <Settings2 className="h-4 w-4 text-white/70" />
               {editExtendApplies && videoTaskMode !== "generate" && (
                 <>
                   <span className="composer-setting-value font-medium capitalize text-brand">
                     {videoTaskMode}
                   </span>
-                  <span className="composer-setting-separator text-white/35">·</span>
+                  <span className="composer-setting-separator text-white/70">·</span>
                 </>
               )}
               <span className="composer-setting-value font-medium">
                 {videoTaskMode === "generate" ? s.aspectRatio : "Adaptive"}
               </span>
-              <span className="composer-setting-separator text-white/35">·</span>
+              <span className="composer-setting-separator text-white/70">·</span>
               <span className="composer-secondary-setting">{s.resolution}</span>
               {s.mode === "video" && (
                 <>
-                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting text-white/70">·</span>
                   <span className="composer-secondary-setting">
                     {videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}
                   </span>
@@ -772,7 +783,7 @@ export function PromptComposer() {
               )}
               {s.batchCount > 1 && (
                 <>
-                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting text-white/70">·</span>
                   <span className="composer-secondary-setting text-brand">
                     {s.batchCount}×
                   </span>
@@ -783,7 +794,7 @@ export function PromptComposer() {
                   never appears where the provider has no audio field. */}
               {audioApplies && s.generateAudio && (
                 <>
-                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting text-white/70">·</span>
                   <Volume2 className="composer-secondary-setting h-3.5 w-3.5 text-brand" />
                 </>
               )}
@@ -821,10 +832,10 @@ export function PromptComposer() {
                 />
               ) : (
                 <div>
-                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/70">
                     Aspect ratio
                   </p>
-                  <p className="text-xs text-white/50">
+                  <p className="text-xs text-white/70">
                     Adaptive — matches the reference clip
                   </p>
                 </div>
@@ -837,17 +848,17 @@ export function PromptComposer() {
               />
               {s.mode === "video" && videoTaskMode === "edit" && (
                 <div>
-                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/70">
                     Duration
                   </p>
-                  <p className="text-xs text-white/50">
+                  <p className="text-xs text-white/70">
                     Auto — matches the reference clip
                   </p>
                 </div>
               )}
               {s.mode === "video" && videoTaskMode !== "edit" && durationRange && (
                 <div>
-                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/70">
                     Duration
                   </p>
                   <div className="flex items-center gap-2">
@@ -892,7 +903,7 @@ export function PromptComposer() {
                     value={s.generateAudio ? "On" : "Off"}
                     onChange={(v) => s.setGenerateAudio(v === "On")}
                   />
-                  <p className="mt-1 text-[11px] leading-snug text-white/35">
+                  <p className="mt-1 text-[11px] leading-snug text-white/70">
                     Seedance scores the video with synchronised sound. Billed on
                     top of the video.
                   </p>
@@ -910,17 +921,17 @@ export function PromptComposer() {
           side="top"
           panelClassName="min-w-[210px]"
           trigger={(open) => {
-            const proj = s.projects.find((p) => p.id === s.activeProjectId);
-            const folder = proj?.folders.find((f) => f.id === s.activeFolderId);
+            const proj = destinationProject;
+            const folder = proj?.folders.find((f) => f.id === s.destinationFolderId);
             return (
               <Chip open={open}>
-                <FolderClosed className="h-4 w-4 text-white/55" />
+                <FolderClosed className="h-4 w-4 text-white/70" />
                 <span className="composer-project-label max-w-[110px] truncate font-medium">
                   {proj ? proj.name : "No project"}
                 </span>
-                <span className="composer-folder-separator text-white/35">/</span>
+                <span className="composer-folder-separator text-white/70">/</span>
                 <span className="composer-folder-label max-w-[80px] truncate">
-                  {folder ? folder.name : "All"}
+                  {folder ? folder.name : "Unsorted"}
                 </span>
                 <ChevronDown
                   className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
@@ -930,27 +941,27 @@ export function PromptComposer() {
           }}
         >
           {() => {
-            const proj = s.projects.find((p) => p.id === s.activeProjectId);
+            const proj = destinationProject;
             return (
               <div>
-                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
+                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/70">
                   Project
                 </p>
                 {s.projects.map((p) => (
                   <MenuItem
                     key={p.id}
-                    active={p.id === s.activeProjectId}
-                    onClick={() => s.setActiveProject(p.id)}
+                    active={p.id === (s.destinationProjectId ?? s.activeProjectId)}
+                    onClick={() => s.setDestination(p.id)}
                   >
-                    <Layers className="h-4 w-4 text-white/45" />
+                    <Layers className="h-4 w-4 text-white/70" />
                     <span className="flex-1 truncate">{p.name}</span>
-                    {p.id === s.activeProjectId && <Check className="h-4 w-4 text-brand" />}
+                    {p.id === (s.destinationProjectId ?? s.activeProjectId) && <Check className="h-4 w-4 text-brand" />}
                   </MenuItem>
                 ))}
                 <MenuItem
                   onClick={() => {
                     const name = window.prompt("New project name");
-                    if (name?.trim()) s.createProject(name.trim());
+                    if (name?.trim()) void s.createProject(name.trim()).then((project) => { if (project?.id) s.setDestination(project.id); });
                   }}
                 >
                   <Plus className="h-4 w-4 text-white/60" />
@@ -959,26 +970,26 @@ export function PromptComposer() {
                 {proj && (
                   <>
                     <div className="my-1 h-px bg-line" />
-                    <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
+                    <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/70">
                       Folder
                     </p>
                     <MenuItem
-                      active={s.activeFolderId === null}
-                      onClick={() => s.setActiveFolder(null)}
+                      active={s.destinationFolderId === null}
+                      onClick={() => s.setDestination(destinationProject?.id, null)}
                     >
-                      <Layers className="h-4 w-4 text-white/45" />
-                      <span className="flex-1">All assets</span>
-                      {s.activeFolderId === null && <Check className="h-4 w-4 text-brand" />}
+                      <Layers className="h-4 w-4 text-white/70" />
+                      <span className="flex-1">Project root / Unsorted</span>
+                      {s.destinationFolderId === null && <Check className="h-4 w-4 text-brand" />}
                     </MenuItem>
                     {proj.folders.map((f) => (
                       <MenuItem
                         key={f.id}
-                        active={s.activeFolderId === f.id}
-                        onClick={() => s.setActiveFolder(f.id)}
+                        active={s.destinationFolderId === f.id}
+                        onClick={() => s.setDestination(destinationProject?.id, f.id)}
                       >
-                        <FolderClosed className="h-4 w-4 text-white/45" />
+                        <FolderClosed className="h-4 w-4 text-white/70" />
                         <span className="flex-1 truncate">{f.name}</span>
-                        {s.activeFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
+                        {s.destinationFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
                       </MenuItem>
                     ))}
                   </>
@@ -990,12 +1001,14 @@ export function PromptComposer() {
 
         </div>
 
+        <div className="flex w-full items-center justify-between gap-3">
+        <ComposerEstimate state={s} />
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => s.generate()}
           disabled={!s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength}
           className={cn(
-            "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
+            "flex h-10 shrink-0 items-center justify-center gap-2 rounded-full px-4 transition-all duration-200",
             s.prompt.trim() && !s.generating && s.prompt.length <= maxPromptLength
               ? "bg-gradient-to-br from-brand to-accent text-ink-900 shadow-glow hover:brightness-110"
               : "cursor-not-allowed bg-ink-650 text-white/30"
@@ -1008,8 +1021,11 @@ export function PromptComposer() {
           ) : (
             <ArrowUp className="h-5 w-5" strokeWidth={2.4} />
           )}
+          <span className="text-sm font-semibold">{s.generating ? "Starting…" : "Generate"}</span>
         </motion.button>
+        </div>
       </div>
+      <ConfirmActionDialog open={!!pendingModel} title="Change model?" description={pendingModel ? modelTransition(s, pendingModel).composerNotice : ""} confirmLabel="Change model" onConfirm={() => { s.setModel(pendingModel); setPendingModel(null); }} onCancel={() => setPendingModel(null)} />
     </motion.div>
   );
 }
@@ -1037,7 +1053,7 @@ function Segment({
 ) {
   return (
     <div>
-      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">
+      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/70">
         {label}
       </p>
       <div className="flex flex-wrap gap-1.5">

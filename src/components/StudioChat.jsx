@@ -84,7 +84,7 @@ export function StudioChat({ conversationId }) {
     setMessages([]);
     setGeneratedItemIds({});
     setLiveMessageIds({});
-    if (!conversationId) return;
+    if (!conversationId) { setLoadingThread(false); return; }
     const requestId = ++requestIdRef.current;
     setLoadingThread(true);
     (async () => {
@@ -288,7 +288,7 @@ export function StudioChat({ conversationId }) {
 
       {/* message feed */}
       <div ref={scrollRef} className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8">
-        {!conversationId || loadingThread ? (
+        {!conversationId ? <div className="mx-auto max-w-3xl text-sm text-white/75">Choose an existing conversation or select Start conversation. Entering Agents does not create a chat or send a message.</div> : loadingThread ? (
           <div className="mx-auto flex max-w-3xl items-center gap-2 text-sm text-white/40">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading chat…
           </div>
@@ -403,7 +403,7 @@ export function StudioChat({ conversationId }) {
             <motion.button
               whileTap={{ scale: 0.92 }}
               onClick={send}
-              disabled={sending || !input.trim() || !conversationId}
+              disabled={!conversationId || sending || !input.trim()}
               className={cn(
                 "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
                 input.trim() && !sending
