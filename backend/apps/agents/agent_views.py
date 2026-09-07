@@ -90,7 +90,20 @@ def agent_conversation_messages(request, conversation_id):
     content, image_data_urls = parsed["content"], parsed["images"]
 
     try:
-        image_parts = images_to_parts(image_data_urls)
+        from apps.media import storage
+        from apps.generation.image_prep import prep_reference
+        urls = []
+        for ref in image_data_urls:
+            if ref.startswith("data:"):
+                urls.append(ref)
+                continue
+            key = storage.media_key_from_ref(ref)
+            if not key or storage.is_protected_media_key(key):
+                raise ValueError("Use stored reference images.")
+            mime, data = storage.read_as_base64(ref)
+            preview = prep_reference(mime, data)
+            urls.append(f"data:{preview['mimeType']};base64,{preview['data']}")
+        image_parts = images_to_parts(urls)
     except Exception as e:
         return Response({"error": str(e) or "Invalid reference image."}, status=400)
 

@@ -1,7 +1,7 @@
 """Port of src/lib/agents/orchestrator/validate-message.js."""
 
 MAX_CONTENT_LEN = 8000
-MAX_IMAGES = 4
+MAX_IMAGES = 10
 
 
 def parse_message_body(body) -> dict:

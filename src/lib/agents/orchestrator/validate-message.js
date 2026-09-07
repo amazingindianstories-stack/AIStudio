@@ -1,5 +1,5 @@
 export const MAX_CONTENT_LEN = 8000;
-export const MAX_IMAGES = 4;
+export const MAX_IMAGES = 10;
 
  
 

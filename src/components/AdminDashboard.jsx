@@ -1656,7 +1656,7 @@ function PricingTab({ data, reload }) {
             {data.pricing.map((p) => (
               <tr key={p.model} className="border-t border-line">
                 <td className="px-3 py-2 font-medium">{p.model}</td>
-                <td className="px-3 py-2 text-xs text-white/70">{p.unit}</td>
+                <td className="px-3 py-2 text-xs text-white/70">{p.unit === "per_1000_images" ? "per 1,000 images" : p.unit}</td>
                 <td className="px-3 py-2">
                   <EditableSetting label={`Rate for ${p.model}`} value={p.unitCostCents} unit="cents" onSave={(value) => save(p.model, value, p.unit)} />
                 </td>

@@ -5,7 +5,27 @@ file's header: costCents is computed and stored at generation time, so
 editing a rate changes future generations only.
 """
 
+from .seedream import is_seedream, size
+import math
+SEEDREAM_PRICING = [
+    {"model": "Seedream 5.0 Pro", "unitCostCents": 4500, "unit": "per_1000_images", "notes": "Estimated published rate: outputs up to 2.61 megapixels; not invoice reconciled."},
+    {"model": "Seedream 5.0 Pro · large", "unitCostCents": 9000, "unit": "per_1000_images", "notes": "Estimated published rate: outputs above 2.61 megapixels."},
+    {"model": "Seedream 5.0 Pro · extra reference", "unitCostCents": 300, "unit": "per_1000_images", "notes": "Estimated surcharge for each reference after the first."},
+]
+def compute_seedream_cost(input, pricing):
+    w, h = input.get("width"), input.get("height")
+    if not w or not h:
+        w, h = map(int, size(input.get("resolution"), input.get("aspectRatio")).split("x"))
+    def rate(name):
+        row = next((p for p in pricing if p["model"] == name), next(p for p in SEEDREAM_PRICING if p["model"] == name))
+        if row["unit"] != "per_1000_images":
+            raise ValueError("Seedream pricing requires per_1000_images rates.")
+        return row["unitCostCents"]
+    cents = (rate("Seedream 5.0 Pro · large" if w*h > 2_610_000 else "Seedream 5.0 Pro") + max(0, input.get("referenceCount", 0)-1)*rate("Seedream 5.0 Pro · extra reference"))/1000
+    return math.floor(cents + .5)
+
 DEFAULT_PRICING = [
+    *SEEDREAM_PRICING,
     {"model": "Nano Banana 2", "unitCostCents": 5, "unit": "per_image",
      "notes": "Gemini 3.1 Flash Image (direct API); base = 1K, scaled by resolution factor"},
     {"model": "Nano Banana Pro", "unitCostCents": 14, "unit": "per_image",
@@ -112,6 +132,8 @@ def audio_row_model(model: str) -> str:
 def compute_cost_cents(input: dict, pricing: list[dict]) -> int:
     """input: {kind, model, resolution?, duration?, generateAudio?,
     hasReferenceImage?}."""
+    if is_seedream(input["model"]):
+        return compute_seedream_cost(input, pricing)
     row = next((p for p in pricing if p["model"] == input["model"]), None)
     if not row:
         return 0

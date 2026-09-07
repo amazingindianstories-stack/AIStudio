@@ -15,6 +15,7 @@ DEPTH_MODEL_NAME = "Depth Anything (Local)"
 DEPTH_ENCODERS = ["vits", "vitb", "vitl"]
 
 MODELS = [
+    {"id": "seedream-5-pro", "name": "Seedream 5.0 Pro", "kind": "image", "badge": "NEW", "hint": "Precise editing · up to 10 references · 1K/2K PNG"},
     {"id": "nano-banana-pro", "name": "Nano Banana Pro", "kind": "image", "badge": "BEST"},
     {
         "id": "kling-image-3",
@@ -110,6 +111,8 @@ def duration_range_for_model(model: str) -> dict | None:
 
 
 def resolutions_for_model(model: str, kind: str, has_reference: bool = False) -> list[str]:
+    if model.lower() in ("seedream-5-pro", "seedream 5.0 pro"):
+        return ["1K", "2K"]
     if re.search(r"omni", model, re.IGNORECASE):
         return ["720p"]
     if re.search(r"seedance.*mini", model, re.IGNORECASE):

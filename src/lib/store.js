@@ -1002,6 +1002,7 @@ export const useStore = create((set, get) => ({
   },
 
   addReferenceFromUrl: async (url) => {
+    if (get().model === "Seedream 5.0 Pro" || get().model === "seedream-5-pro") { get().addReference(url); return; }
     // Fetch a generated image and add it to the composer as a reference (data
     // URL so every provider works) — enables the hero-first crowd workflow.
     // Generated images can be full-resolution (well over Vercel's 4.5MB body
@@ -1129,6 +1130,7 @@ export const useStore = create((set, get) => ({
     let restored;
     try {
       restored = await Promise.all((item.referenceImages ?? []).map(async (path) => {
+        if (item.model === "Seedream 5.0 Pro" || item.model === "seedream-5-pro") return path;
         const response = await fetch(inlineMediaUrl(path));
         if (!response.ok) throw new Error("A reference could not be loaded. Your draft is unchanged.");
         const blob = await response.blob();
