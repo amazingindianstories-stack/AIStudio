@@ -93,6 +93,23 @@ test("createVideoTask: generate_audio is only true when explicitly requested", a
   assert.equal(body.generate_audio, true);
 });
 
+test("createVideoTask: translates and forwards tagged audio references", async () => {
+  const { body } = await withFakeArkResponse("task-audio", () =>
+    createVideoTask({
+      prompt: "Animate @img1 to the beat of @audio1",
+      references: [{ tag: "@img1", index: 1, dataUrl: "data:image/png;base64,AAAA" }],
+      referenceAudioUrls: ["https://media.example/audio.mp3"],
+      generateAudio: true,
+    })
+  );
+  assert.match(body.content[0].text, /\[audio 1\]/);
+  assert.deepEqual(body.content.at(-1), {
+    type: "audio_url",
+    audio_url: { url: "https://media.example/audio.mp3" },
+    role: "reference_audio",
+  });
+});
+
 test("createVideoTask: forwards the queue abort signal to fetch", async () => {
   const controller = new AbortController();
   const { signal } = await withFakeArkResponse("task-signal", () =>

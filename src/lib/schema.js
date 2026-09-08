@@ -66,6 +66,7 @@ export const generations = pgTable("generations", {
   // to the provider: images are inlined as base64, videos are handed over as
   // short-lived presigned URLs (see queue/execute).
   referenceVideos: jsonb("reference_videos").$type(),
+  referenceAudios: jsonb("reference_audios").$type(),
   projectId: uuid("project_id"),
   folderId: uuid("folder_id"),
   userId: uuid("user_id"),

@@ -7,6 +7,7 @@ export const MENTION_REGEX = /@img(\d+)/gi;
  *  A separate namespace from @imgN because the two travel to the provider by
  *  completely different routes (inline base64 vs presigned URL). */
 export const VIDEO_MENTION_REGEX = /@vid(\d+)/gi;
+export const AUDIO_MENTION_REGEX = /@audio(\d+)/gi;
 
 /** Match any @tag token: ad-hoc @imgN OR a named asset slug like @priya. */
 export const TAG_REGEX = /@([a-z][a-z0-9_-]*)/gi;
@@ -71,6 +72,24 @@ export function parseVideoMentionIndices(prompt) {
     if (n >= 1) set.add(n);
   }
   return [...set].sort((a, b) => a - b);
+}
+
+export function parseAudioMentionIndices(prompt) {
+  const set = new Set();
+  const re = new RegExp(AUDIO_MENTION_REGEX);
+  let m;
+  while ((m = re.exec(prompt))) {
+    const n = parseInt(m[1], 10);
+    if (n >= 1) set.add(n);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+export function resolveAudioReferences(prompt, audio) {
+  if (!audio?.length) return [];
+  const tagged = parseAudioMentionIndices(prompt).filter((n) => n <= audio.length);
+  const indices = tagged.length ? tagged : audio.map((_, i) => i + 1);
+  return indices.map((n) => audio[n - 1]);
 }
 
 /**

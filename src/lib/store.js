@@ -259,11 +259,8 @@ export const useStore = create((set, get) => ({
   // generation's stored referenceImages don't carry the original kind.
   referenceKinds: [],
   referenceVideos: [],
-  // Local-only audio "notes" — @audio1, @audio2… tags. Deliberately NOT a
-  // real attachment: no file is stored anywhere, no provider ever sees
-  // this. It exists purely so a filename can be referenced by tag in the
-  // prompt text, the same way a person might type "(see attached)" — see
-  // PromptComposer's audio picker.
+  referenceAudios: [],
+  // Display metadata for uploaded audio references. Each entry is {name, ref}.
   audioNotes: [],
 
   items: [],
@@ -427,7 +424,7 @@ export const useStore = create((set, get) => ({
     })),
 
   // See audioNotes' comment above — filename only, no real attachment.
-  addAudioNote: (name) => set((s) => ({ audioNotes: [...s.audioNotes, name] })),
+  addAudioNote: (audio) => set((s) => ({ audioNotes: [...s.audioNotes, audio] })),
   removeAudioNote: (index) =>
     set((s) => ({ audioNotes: s.audioNotes.filter((_, i) => i !== index) })),
 
@@ -699,6 +696,7 @@ export const useStore = create((set, get) => ({
       duration: videoTaskMode === "edit" ? undefined : s.duration,
       referenceImages: s.referenceImages,
       referenceVideos: s.referenceVideos,
+      referenceAudios: s.audioNotes.map((a) => typeof a === "string" ? null : a?.ref).filter(Boolean),
       generateAudio: s.generateAudio,
       videoTaskMode,
       // Only ever non-null when regenerateWithSameSeed set it deliberately —
@@ -1090,6 +1088,15 @@ export const useStore = create((set, get) => ({
         aspectRatio: item.aspectRatio,
         resolution: item.resolution ?? get().resolution,
         continuationFrame: dataUrl,
+        productionContext: { sourceGenerationId: item.id, relation: "continuation", frame: "last" },
+        destinationProjectId: item.projectId,
+        destinationFolderId: item.folderId ?? null,
+        referenceVideos: [],
+        referenceAudios: [],
+        stagedReferenceVideos: [],
+        stagedContinuationFrame: null,
+        seed: null,
+        videoTaskMode: "generate",
         prompt: "",
         referenceImages: [],
         referenceKinds: [],
@@ -1121,6 +1128,13 @@ export const useStore = create((set, get) => ({
     set({
       mode: item.kind,
       model: item.model,
+      productionContext: { sourceGenerationId: item.id, relation: "clone" },
+      destinationProjectId: item.projectId,
+      destinationFolderId: item.folderId ?? null,
+        referenceVideos: item.referenceVideos ?? [],
+        referenceAudios: item.referenceAudios ?? [],
+      stagedReferenceVideos: [],
+      stagedContinuationFrame: null,
       aspectRatio: item.aspectRatio,
       resolution: item.resolution ?? get().resolution,
       duration: item.duration ?? get().duration,
