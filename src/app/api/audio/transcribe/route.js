@@ -22,6 +22,7 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const audioRef = typeof body.audioRef === "string" ? body.audioRef : "";
   const name = typeof body.name === "string" ? body.name.slice(0, 200) : "audio";
+  const projectId = typeof body.projectId === "string" && body.projectId.trim() ? body.projectId.trim() : null;
   if (!audioRef) return NextResponse.json({ error: "Audio reference is required." }, { status: 400 });
 
   try {
@@ -55,6 +56,7 @@ export async function POST(req) {
     const item = {
       id, kind: "audio", status: "succeeded", prompt: transcript, model: `Gemini (${GEMINI_MODEL})`,
       aspectRatio: "audio", resolution: null, duration: null, referenceAudios: [audioRef],
+      projectId,
       productionMetadata: { type: "audio-transcription", originalName: name, transcript, sourceAudio: audioRef },
       userId: user.id, costCents: 0, costBasis: "estimated", createdAt: now, updatedAt: now,
     };

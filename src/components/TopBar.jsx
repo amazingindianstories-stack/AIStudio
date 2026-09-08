@@ -55,6 +55,7 @@ export function TopBar() {
   const mobileHistoryOpen = useStore((s) => s.mobileHistoryOpen);
   const setMobileHistoryOpen = useStore((s) => s.setMobileHistoryOpen);
   const user = useStore((s) => s.currentUser);
+  const activeProjectId = useStore((s) => s.activeProjectId);
   const loadMe = useStore((s) => s.loadMe);
   const loadUsers = useStore((s) => s.loadUsers);
   const logout = useStore((s) => s.logout);
@@ -289,7 +290,7 @@ export function TopBar() {
           }}
         />
       )}
-      <AudioTranscriptionModal open={audioOpen} onClose={() => setAudioOpen(false)} />
+      <AudioTranscriptionModal open={audioOpen} projectId={activeProjectId} onClose={() => setAudioOpen(false)} />
     </>
   );
 }
