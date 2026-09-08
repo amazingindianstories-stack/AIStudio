@@ -8,8 +8,10 @@ export const maxDuration = 120;
 
 const GEMINI_MODEL = "gemini-1.5-flash";
 
+const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
+
 function mimeForAudio(mime) {
-  return /^(audio\/(mpeg|mp3|wav|x-wav))$/i.test(mime || "") ? mime.toLowerCase() : null;
+  return /^(audio\/(mpeg|mp3|wav|x-wav|wave|ogg|webm|mp4|x-m4a|aac|flac))$/i.test(mime || "") ? mime.toLowerCase() : null;
 }
 
 export async function POST(req) {
@@ -23,7 +25,11 @@ export async function POST(req) {
   try {
     const raw = await readAsBase64(audioRef);
     const mimeType = mimeForAudio(raw.mimeType);
-    if (!mimeType) return NextResponse.json({ error: "Only MP3 and WAV files are supported." }, { status: 400 });
+    if (!mimeType) return NextResponse.json({ error: "Use a common audio file such as MP3, WAV, M4A, OGG, AAC, FLAC or WebM." }, { status: 400 });
+    if (Buffer.byteLength(raw.data, "base64") > MAX_AUDIO_BYTES) {
+      return NextResponse.json({ error: "Audio files must be 15 MB or smaller." }, { status: 413 });
+    }
+    if (!process.env.GOOGLE_API_KEY) throw new Error("GOOGLE_API_KEY is not configured.");
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
       {
