@@ -662,6 +662,7 @@ export function PromptComposer() {
           assets={s.assets}
           references={s.referenceImages}
           videoRefs={s.referenceVideos}
+          audioRefs={s.audioNotes}
           maxLength={maxPromptLength}
           placeholder={
             s.mode === "image"

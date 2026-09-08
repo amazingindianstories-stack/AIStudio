@@ -15,11 +15,14 @@ test("composer renders attached references with the production store shape", () 
     Object.assign(initial, {
       referenceImages: ["data:image/png;base64,aGVsbG8="],
       referenceKinds: ["image"],
+      audioNotes: [{ name: "reference.mp3", ref: "/api/media/reference.mp3" }],
+      prompt: "@audio1",
     });
     assert.equal(initial.referenceLabels, undefined);
     const html = renderToString(React.createElement(PromptComposer));
     assert.match(html, /data:image\/png;base64,aGVsbG8=/);
     assert.match(html, /@img1/);
+    assert.match(html, /text-brand">@audio1<\/span>/);
   } finally {
     Object.assign(initial, before);
     globalThis.React = previousReact;
