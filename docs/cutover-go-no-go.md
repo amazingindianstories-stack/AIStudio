@@ -1,16 +1,21 @@
 # Django + React cutover go/no-go package
 
-Status: **PREVIEW DEPLOYED / production NOT READY** (updated 2026-09-07)
+Status: **PREVIEW DEPLOYED / production NOT READY** (updated 2026-09-08)
 
 Earliest production decision: **2026-09-10, after the AWS/GCS observation gate**
 
-Current release evidence: [UX cutover preview verification](UX_Cutover_Preview_2026-09-07.md).
+Current release evidence: [merged preview and audio-drop verification](Cutover_Merged_Preview_2026-09-08.md).
+
+The immutable identities and checked items below from September 7 are historical
+unless superseded in the September 8 evidence. Current automated checks pass (451
+Django, 827 frontend, 13 DB integration tests), but deployed Chrome app login loops
+back to login. Do not treat HTTP authentication success as browser acceptance.
 Railway preview provisioning and GCS signing/upload/read are now verified; the
 September 5 provisioning blockers below have been superseded. Production remains
 on the retained Next.js deployment. The user selected the full cutover **after**
 the September 10 storage observation gate; this is not an early-launch approval.
 
-Remaining blockers: protected-preview browser sign-in, enabled-provider credentials
+Remaining blockers: deployed cross-site browser app sign-in, enabled-provider credentials
 and acceptance evidence, the mandatory GPU depth gate, production service/configuration
 readiness, and the September 10 storage/production checks. No paid provider probe or
 agent message was authorized or run during this release preparation.
@@ -211,7 +216,7 @@ python manage.py showmigrations
 python manage.py schema_preflight
 python manage.py schema_preflight --adopt
 python manage.py migrate --plan
-python manage.py migrate --noinput  # includes generation.0008; never fake this DDL
+python manage.py migrate --noinput  # includes pending generation.0008/0009; never fake pending DDL
 python manage.py schema_preflight --require-adopted
 ```
 
@@ -233,11 +238,11 @@ schema/catalog mismatch, sustained 5xx/error increase, queue non-drain, stale jo
 media signing/range/fallback failure, provider settlement error, cron overlap/miss,
 or any depth fencing/recovery failure.
 
-Prepared retained deployment ID: `dpl_FNsZRUGATFD8hjUaqdTBsvPfPb5A` (reconfirmed 2026-09-07).
+Prepared retained deployment ID: `dpl_Frooezh2buT8nnJZSoHAU3oogVNj` (current Next production, reconfirmed 2026-09-08; preserves current audio features).
 
 ```bash
 # Run by the Vercel rollback operator after replacing the placeholder.
-vercel promote dpl_FNsZRUGATFD8hjUaqdTBsvPfPb5A --scope amazing-indian-stories
+vercel promote dpl_Frooezh2buT8nnJZSoHAU3oogVNj --scope amazing-indian-stories
 ```
 
 After promotion, verify the three browser routes and the retained Next API, disable
@@ -268,7 +273,7 @@ outputs in the restricted release evidence location.
 ## Decision
 
 - [ ] **GO** — every mandatory gate is checked and all named operators sign below.
-- [x] **NO-GO for production on September 7** — storage date gate, browser acceptance, provider/depth evidence, and production readiness remain open; see linked preview evidence.
+- [x] **NO-GO for production on September 8** — storage date gate, browser acceptance, provider/depth evidence, and production readiness remain open; see linked preview evidence.
 
 Release commander: `________________`  Signature/time: `________________`
 
