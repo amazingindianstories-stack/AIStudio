@@ -471,7 +471,6 @@ export function PromptComposer() {
         </Reorder.Group>
       )}
 
-      {s.referenceImages.length > 0 && <details className="mb-2 text-xs text-white/75"><summary className="cursor-pointer">Reference labels and order</summary><p className="my-2">Labels help you organize references. Describe their intended role in the prompt; labels do not enforce a model constraint.</p>{s.referenceImages.map((ref, i) => <div key={`${ref}-${i}`} className="mb-2 flex items-center gap-2"><label className="flex min-w-0 flex-1 items-center gap-2">@img{i + 1}<input aria-label={`Label for reference ${i + 1}`} value={s.referenceLabels[i] ?? ""} onChange={(e) => s.setReferenceLabel(i, e.target.value)} placeholder="Identity, costume, composition…" className="min-w-0 flex-1 rounded border border-line bg-ink-700 px-2 py-1" /></label><button type="button" disabled={i === 0} aria-label={`Move reference ${i + 1} earlier`} onClick={() => { const refs = [...s.referenceImages]; [refs[i - 1], refs[i]] = [refs[i], refs[i - 1]]; s.reorderReferences(refs); }} className="rounded border border-line p-1 disabled:opacity-40">←</button><button type="button" aria-label={`Remove reference ${i + 1}`} onClick={() => s.removeReference(i)} className="rounded border border-line p-1">Remove</button></div>)}</details>}
       {/* @audioN chips are persisted Seedance audio references. */}
       {s.audioNotes.length > 0 && (
         <div className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1">
