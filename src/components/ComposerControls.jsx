@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { Reorder } from "framer-motion";
 import {
@@ -75,7 +73,7 @@ export function ReferenceStrip({ onInsertTag }) {
               @vid{i + 1}
               <button
                 onClick={() => s.removeReferenceVideo(i)}
-                className="grid h-4 w-4 place-items-center rounded text-white/40 hover:bg-white/10 hover:text-white"
+                className="grid h-4 w-4 place-items-center rounded text-white/70 hover:bg-white/10 hover:text-white"
                 aria-label={`Remove reference clip ${i + 1}`}
               >
                 <X className="h-3 w-3" />
@@ -111,7 +109,6 @@ export function ReferenceStrip({ onInsertTag }) {
               className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing"
               onClick={() => onInsertTag(`@img${i + 1}`)}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={src}
                 alt=""
@@ -165,6 +162,7 @@ export function SettingsToolbar() {
 
   return (
       <div className="composer-toolbar flex min-w-0 flex-wrap items-center gap-1.5 py-px">
+        {s.composerNotice && <p role="status" className="w-full text-xs text-white/80">{s.composerNotice}</p>}
         {/* model */}
         <Dropdown
           className="composer-model min-w-0 flex-1"
@@ -172,7 +170,7 @@ export function SettingsToolbar() {
           side="top"
           trigger={(open) => (
             <Chip open={open}>
-              <Box className="h-4 w-4 text-white/55" />
+              <Box className="h-4 w-4 text-white/70" />
               <span className="max-w-[14rem] truncate font-medium">{s.model}</span>
               <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
             </Chip>
@@ -188,10 +186,10 @@ export function SettingsToolbar() {
                   close();
                 }}
               >
-                <Box className="h-4 w-4 text-white/50" />
+                <Box className="h-4 w-4 text-white/70" />
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span>{m.name}</span>
-                  {m.hint && <span className="text-[10px] leading-snug text-white/40">{m.hint}</span>}
+                  {m.hint && <span className="text-[10px] leading-snug text-white/70">{m.hint}</span>}
                 </span>
                 {m.badge && (
                   <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
@@ -214,31 +212,31 @@ export function SettingsToolbar() {
           panelClassName="w-max min-w-[230px] max-w-[min(92vw,340px)] p-3 max-h-[60vh] overflow-y-auto scroll-thin"
           trigger={(open) => (
             <Chip open={open}>
-              <Settings2 className="h-4 w-4 text-white/55" />
+              <Settings2 className="h-4 w-4 text-white/70" />
               {editExtendApplies && videoTaskMode !== "generate" && (
                 <>
                   <span className="font-medium capitalize text-brand">{videoTaskMode}</span>
-                  <span className="text-white/35">·</span>
+                  <span className="text-white/70">·</span>
                 </>
               )}
               <span className="font-medium">{videoTaskMode === "generate" ? s.aspectRatio : "Adaptive"}</span>
-              <span className="text-white/35">·</span>
+              <span className="text-white/70">·</span>
               <span>{s.resolution}</span>
               {s.mode === "video" && (
                 <>
-                  <span className="text-white/35">·</span>
+                  <span className="text-white/70">·</span>
                   <span>{videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}</span>
                 </>
               )}
               {s.batchCount > 1 && (
                 <>
-                  <span className="text-white/35">·</span>
+                  <span className="text-white/70">·</span>
                   <span className="text-brand">{s.batchCount}×</span>
                 </>
               )}
               {audioApplies && s.generateAudio && (
                 <>
-                  <span className="text-white/35">·</span>
+                  <span className="text-white/70">·</span>
                   <Volume2 className="h-3.5 w-3.5 text-brand" />
                 </>
               )}
@@ -271,10 +269,10 @@ export function SettingsToolbar() {
                 />
               ) : (
                 <div>
-                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/70">
                     Aspect ratio
                   </p>
-                  <p className="text-xs text-white/50">Adaptive — matches the reference clip</p>
+                  <p className="text-xs text-white/70">Adaptive — matches the reference clip</p>
                 </div>
               )}
               <Segment
@@ -285,15 +283,15 @@ export function SettingsToolbar() {
               />
               {s.mode === "video" && videoTaskMode === "edit" && (
                 <div>
-                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/70">
                     Duration
                   </p>
-                  <p className="text-xs text-white/50">Auto — matches the reference clip</p>
+                  <p className="text-xs text-white/70">Auto — matches the reference clip</p>
                 </div>
               )}
               {s.mode === "video" && videoTaskMode !== "edit" && durationRange && (
                 <div>
-                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/70">
                     Duration
                   </p>
                   <div className="flex items-center gap-2">
@@ -335,7 +333,7 @@ export function SettingsToolbar() {
                     value={s.generateAudio ? "On" : "Off"}
                     onChange={(v) => s.setGenerateAudio(v === "On")}
                   />
-                  <p className="mt-1 text-[11px] leading-snug text-white/35">
+                  <p className="mt-1 text-[11px] leading-snug text-white/70">
                     Seedance scores the video with synchronised sound. Billed on top of the video.
                   </p>
                 </div>
@@ -352,39 +350,39 @@ export function SettingsToolbar() {
           side="top"
           panelClassName="min-w-[210px]"
           trigger={(open) => {
-            const proj = s.projects.find((p) => p.id === s.activeProjectId);
-            const folder = proj?.folders.find((f) => f.id === s.activeFolderId);
+            const proj = s.projects.find((p) => p.id === (s.destinationProjectId ?? s.activeProjectId));
+            const folder = proj?.folders.find((f) => f.id === s.destinationFolderId);
             return (
               <Chip open={open}>
-                <FolderClosed className="h-4 w-4 text-white/55" />
+                <FolderClosed className="h-4 w-4 text-white/70" />
                 <span className="max-w-[110px] truncate font-medium">{proj ? proj.name : "No project"}</span>
-                <span className="text-white/35">/</span>
-                <span className="max-w-[80px] truncate">{folder ? folder.name : "All"}</span>
+                <span className="text-white/70">/</span>
+                <span className="max-w-[80px] truncate">{folder ? folder.name : "Unsorted"}</span>
                 <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
               </Chip>
             );
           }}
         >
           {() => {
-            const proj = s.projects.find((p) => p.id === s.activeProjectId);
+            const proj = s.projects.find((p) => p.id === (s.destinationProjectId ?? s.activeProjectId));
             return (
               <div>
-                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">Project</p>
+                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/70">Project</p>
                 {s.projects.map((p) => (
                   <MenuItem
                     key={p.id}
-                    active={p.id === s.activeProjectId}
-                    onClick={() => s.setActiveProject(p.id)}
+                    active={p.id === (s.destinationProjectId ?? s.activeProjectId)}
+                    onClick={() => s.setDestination(p.id)}
                   >
-                    <Layers className="h-4 w-4 text-white/45" />
+                    <Layers className="h-4 w-4 text-white/70" />
                     <span className="flex-1 truncate">{p.name}</span>
-                    {p.id === s.activeProjectId && <Check className="h-4 w-4 text-brand" />}
+                    {p.id === (s.destinationProjectId ?? s.activeProjectId) && <Check className="h-4 w-4 text-brand" />}
                   </MenuItem>
                 ))}
                 <MenuItem
                   onClick={() => {
                     const name = window.prompt("New project name");
-                    if (name?.trim()) s.createProject(name.trim());
+                    if (name?.trim()) void s.createProject(name.trim()).then((project) => { if (project?.id) s.setDestination(project.id); });
                   }}
                 >
                   <Plus className="h-4 w-4 text-white/60" />
@@ -393,21 +391,21 @@ export function SettingsToolbar() {
                 {proj && (
                   <>
                     <div className="my-1 h-px bg-line" />
-                    <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">Folder</p>
-                    <MenuItem active={s.activeFolderId === null} onClick={() => s.setActiveFolder(null)}>
-                      <Layers className="h-4 w-4 text-white/45" />
-                      <span className="flex-1">All assets</span>
-                      {s.activeFolderId === null && <Check className="h-4 w-4 text-brand" />}
+                    <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/70">Folder</p>
+                    <MenuItem active={s.destinationFolderId === null} onClick={() => s.setDestination(proj.id, null)}>
+                      <Layers className="h-4 w-4 text-white/70" />
+                      <span className="flex-1">Unsorted</span>
+                      {s.destinationFolderId === null && <Check className="h-4 w-4 text-brand" />}
                     </MenuItem>
                     {proj.folders.map((f) => (
                       <MenuItem
                         key={f.id}
-                        active={s.activeFolderId === f.id}
-                        onClick={() => s.setActiveFolder(f.id)}
+                        active={s.destinationFolderId === f.id}
+                        onClick={() => s.setDestination(proj.id, f.id)}
                       >
-                        <FolderClosed className="h-4 w-4 text-white/45" />
+                        <FolderClosed className="h-4 w-4 text-white/70" />
                         <span className="flex-1 truncate">{f.name}</span>
-                        {s.activeFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
+                        {s.destinationFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
                       </MenuItem>
                     ))}
                   </>
@@ -443,7 +441,7 @@ function Segment({
 ) {
   return (
     <div>
-      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">{label}</p>
+      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/70">{label}</p>
       <div className="flex flex-wrap gap-1.5">
         {options.map((opt) => (
           <button

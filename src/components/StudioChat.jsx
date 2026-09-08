@@ -1,4 +1,3 @@
-"use client";
 import { uploadOriginalReference } from "@/lib/client-reference-upload";
 import { isProviderModel } from "@/lib/model-registry";
 
@@ -26,6 +25,7 @@ import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, } from "./MentionTextarea";
 import { MediaCard } from "./MediaCard";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 
 const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
 
@@ -87,11 +87,11 @@ export function StudioChat({ conversationId }) {
     setMessages([]);
     setGeneratedItemIds({});
     setLiveMessageIds({});
-    if (!conversationId) return;
+    if (!conversationId) { setLoadingThread(false); return; }
     const requestId = ++requestIdRef.current;
     setLoadingThread(true);
     (async () => {
-      const res = await fetch(`/api/agent-conversations/${conversationId}`, { cache: "no-store" });
+      const res = await apiFetch(`/api/agent-conversations/${conversationId}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
       if (requestIdRef.current !== requestId) return;
       const loaded = json.messages ?? [];
@@ -126,7 +126,7 @@ export function StudioChat({ conversationId }) {
         // the loader effect above). A failure here just means a refresh
         // would show "Generated — check your library" instead of the inline
         // card for this one message — not worth blocking or retrying over.
-        fetch(`/api/agent-conversations/${conversationId}/messages/${messageId}`, {
+        apiFetch(`/api/agent-conversations/${conversationId}/messages/${messageId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ generatedItemId: created[0].id }),
@@ -151,7 +151,7 @@ export function StudioChat({ conversationId }) {
     setError(null);
     setSending(true);
     try {
-      const res = await fetch(`/api/agent-conversations/${conversationId}/messages`, {
+      const res = await apiFetch(`/api/agent-conversations/${conversationId}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, images: referenceImages }),
@@ -298,7 +298,7 @@ export function StudioChat({ conversationId }) {
 
       {/* message feed */}
       <div ref={scrollRef} className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8">
-        {!conversationId || loadingThread ? (
+        {!conversationId ? <div className="mx-auto max-w-3xl text-sm text-white/75">Choose an existing conversation or select Start conversation. Entering Agents does not create a chat or send a message.</div> : loadingThread ? (
           <div className="mx-auto flex max-w-3xl items-center gap-2 text-sm text-white/40">
             <Loader2 className="h-4 w-4 animate-spin" /> Loading chat…
           </div>
@@ -413,7 +413,7 @@ export function StudioChat({ conversationId }) {
             <motion.button
               whileTap={{ scale: 0.92 }}
               onClick={send}
-              disabled={sending || !input.trim() || !conversationId}
+              disabled={!conversationId || sending || !input.trim()}
               className={cn(
                 "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
                 input.trim() && !sending

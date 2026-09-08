@@ -37,7 +37,7 @@
  * Run:
  *   npx tsx --test src/lib/status-checks.test.ts
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import {
   runCheck,

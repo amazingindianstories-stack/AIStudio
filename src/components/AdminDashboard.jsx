@@ -1,8 +1,6 @@
-"use client";
-
-import { useEffect, useId, useMemo, useRef, useState, } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import {
   ResponsiveContainer,
   BarChart,
@@ -42,7 +40,9 @@ import {
 import { formatCost } from "@/lib/pricing";
 import { LIMIT_DEFINITIONS, } from "@/lib/limits";
 import { cn } from "@/lib/utils";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiUrl, parseApiResponse, requestJson } from "@/lib/api";
+import { statusEvidence } from "@/lib/status-evidence";
+import { EditableSetting } from "./EditableSetting";
 import { AccountSettings } from "./AccountSettings";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
@@ -55,28 +55,39 @@ const CHART_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#f
 
 export function AdminDashboard() {
   const [data, setData] = useState(null);
+  const [reportScope, setReportScope] = useState({});
+  const [reportError, setReportError] = useState("");
+  const [reportLoading, setReportLoading] = useState(false);
+  const [projects, setProjects] = useState([]);
+  const loadSequence = useRef(0);
   const [tab, setTab] = useState("overview");
   const [currentUser, setCurrentUser] = useState(null);
   const [accountOpen, setAccountOpen] = useState(false);
 
-  const load = async () => {
-    const res = await apiFetch("/api/admin/data", { cache: "no-store" });
-    if (res.ok) setData(await res.json());
-  };
+  const load = useCallback(async () => {
+    const mine = ++loadSequence.current;
+    setReportLoading(true); setReportError("");
+    try {
+      const next = await requestJson(`/api/admin/data?${new URLSearchParams(reportScope)}`, { cache: "no-store" });
+      if (mine === loadSequence.current) setData(next);
+    } catch (error) { if (mine === loadSequence.current) setReportError(error.message); }
+    finally { if (mine === loadSequence.current) setReportLoading(false); }
+  }, [reportScope]);
   const loadCurrentUser = async () => {
     try {
       const response = await apiFetch("/api/auth/me", { cache: "no-store" });
-      if (!response.ok) return;
-      const json = await response.json();
-      setCurrentUser(json.user ?? null);
+      const result = await parseApiResponse(response);
+      if (!result.ok) return;
+      setCurrentUser(result.data.user ?? null);
     } catch {
       setCurrentUser(null);
     }
   };
   useEffect(() => {
-    load();
     loadCurrentUser();
+    requestJson("/api/projects").then((result) => setProjects(result.projects || [])).catch(() => {});
   }, []);
+  useEffect(() => { void load(); }, [load]);
 
   const usersById = useMemo(() => {
     const m = {};
@@ -88,7 +99,7 @@ export function AdminDashboard() {
     <div className="min-h-[100dvh] bg-ink-900 text-white">
       <header className="flex h-14 items-center gap-3 border-b border-line px-3 sm:px-4">
         <Link
-          href="/"
+          to="/"
           className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-white/70 hover:bg-white/5 hover:text-white"
         >
           <ArrowLeft className="h-4 w-4" /> Back to app
@@ -118,7 +129,7 @@ export function AdminDashboard() {
 
       <div className="mx-auto max-w-6xl p-4 sm:p-6">
         {/* tabs */}
-        <div className="mb-5 flex gap-1 rounded-xl bg-ink-800 p-1">
+        <div className="mb-5 flex flex-wrap gap-1 rounded-xl bg-ink-800 p-1">
           {(
             [
               ["overview", "Overview", LayoutDashboard],
@@ -127,6 +138,7 @@ export function AdminDashboard() {
               ["pricing", "Pricing", DollarSign],
               ["limits", "Limits", SlidersHorizontal],
               ["status", "Status", Activity],
+              ["integrations", "Integrations", Settings],
             ] 
           ).map(([id, label, Icon]) => (
             <button
@@ -137,25 +149,33 @@ export function AdminDashboard() {
               title={label}
               className={cn(
                 "flex flex-1 items-center justify-center gap-1.5 rounded-lg py-2 text-sm font-medium transition",
-                tab === id ? "bg-ink-650 text-white" : "text-white/55 hover:text-white"
+                tab === id ? "bg-ink-650 text-white" : "text-white/70 hover:text-white"
               )}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              <span className="hidden min-[420px]:inline">{label}</span>
+              <span className="inline">{label}</span>
             </button>
           ))}
         </div>
 
-        {tab === "status" ? (
+        {["overview", "logs"].includes(tab) && <div className="mb-4 flex flex-wrap items-end gap-3 text-xs text-white/80">
+          {["from", "to"].map((key) => <label key={key}>{key === "from" ? "From (UTC)" : "Through (UTC)"}<input className="mt-1 block rounded border border-white/30 bg-ink-800 p-2" type="date" value={reportScope[key] || ""} onChange={(e) => setReportScope({ ...reportScope, [key]: e.target.value })} /></label>)}
+          <label>Project<select className="mt-1 block max-w-56 rounded border border-white/30 bg-ink-800 p-2" value={reportScope.projectId || ""} onChange={(e) => setReportScope({ ...reportScope, projectId: e.target.value })}><option value="">All projects</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
+          <button className="p-2" onClick={() => setReportScope({})}>Clear reporting filters</button>
+        </div>}
+        {reportError && <p role="alert" className="mb-3 text-red-300">{reportError} <button className="underline" onClick={load}>Retry</button></p>}
+        {tab === "integrations" ? (
+          <div className="space-y-4"><p className="text-sm text-white/70">Integration maintenance. Higgsfield supports historical jobs; it is not offered for new work. Configuration alone does not verify provider availability.</p><HiggsfieldTokenCard /></div>
+        ) : tab === "status" ? (
           <StatusTab />
         ) : !data ? (
-          <p className="py-20 text-center text-white/40">Loading…</p>
+          <p className="py-20 text-center text-white/70">Loading…</p>
         ) : tab === "overview" ? (
-          <Overview data={data} />
+          reportLoading || reportError ? <p role="status">{reportLoading ? "Updating report…" : "Report unavailable. Retry to load the selected scope."}</p> : <Overview data={data} />
         ) : tab === "users" ? (
           <UsersTab data={data} reload={load} currentUserId={currentUser?.id ?? null} />
         ) : tab === "logs" ? (
-          <LogsTab data={data} usersById={usersById} />
+          <LogsTab data={data} usersById={usersById} reportScope={reportScope} />
         ) : tab === "pricing" ? (
           <PricingTab data={data} reload={load} />
         ) : (
@@ -180,9 +200,9 @@ export function AdminDashboard() {
 function Stat({ label, value, detail }) {
   return (
     <div className="rounded-xl border border-line bg-ink-800 p-4">
-      <p className="text-xs uppercase tracking-wide text-white/40">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-white/70">{label}</p>
       <p className="mt-1 text-2xl font-semibold">{value}</p>
-      {detail && <p className="mt-1 text-[11px] leading-4 text-white/40">{detail}</p>}
+      {detail && <p className="mt-1 text-[11px] leading-4 text-white/70">{detail}</p>}
     </div>
   );
 }
@@ -211,15 +231,17 @@ function Overview({ data }) {
     overTime,
   } = data.stats;
 
-  const costPerUser = data.users
-    .filter((u) => u.genCount > 0)
-    .map((u) => ({ name: u.name || u.email, cost: u.costCents / 100, color: u.color || "#34d399" }));
+  const costPerUser = (data.stats.costByUser || []).map((row) => {
+    const user = data.users.find((u) => u.id === row.userId);
+    return { name: user?.name || "Unassigned / deleted user", cost: row.costCents / 100, color: user?.color || "#34d399" };
+  });
 
   // Chart wants MM-DD; the wire format is a full UTC date so it stays sortable.
-  const overTimeChart = overTime.map((d) => ({ day: d.day.slice(5), count: d.count }));
+  const overTimeChart = overTime.map((d) => ({ day: d.day, count: d.count }));
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-white/70">Recorded activity for the selected project and dates · UTC · USD. Empty dates mean all time; the activity chart defaults to the last 90 days. User totals on the Users tab remain all-time. Estimates may differ from provider invoices.</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat
           label="Recorded spend"
@@ -227,7 +249,7 @@ function Overview({ data }) {
           detail={`${formatCost(reconciledCostCents)} reconciled · ${formatCost(estimatedCostCents)} estimated`}
         />
         <Stat label="Generations" value={totalGenerations.toLocaleString()} />
-        <Stat label="Users" value={String(data.users.length)} />
+        <Stat label="Registered users" value={String(data.users.length)} detail="Current accounts · independent of reporting period" />
         <Stat
           label="Avg / generation"
           value={`${estimatedCostCents > 0 ? "≈" : ""}${formatCost(
@@ -242,8 +264,8 @@ function Overview({ data }) {
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={costPerUser}>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
-              <XAxis dataKey="name" stroke="#ffffff66" fontSize={11} />
-              <YAxis stroke="#ffffff66" fontSize={11} />
+              <XAxis dataKey="name" stroke="#ffffffb3" fontSize={11} />
+              <YAxis stroke="#ffffffb3" fontSize={11} />
               <Tooltip contentStyle={TOOLTIP} />
               <Bar dataKey="cost" radius={[4, 4, 0, 0]}>
                 {costPerUser.map((u, i) => (
@@ -258,8 +280,8 @@ function Overview({ data }) {
           <ResponsiveContainer width="100%" height={240}>
             <LineChart data={overTimeChart}>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
-              <XAxis dataKey="day" stroke="#ffffff66" fontSize={11} />
-              <YAxis stroke="#ffffff66" fontSize={11} allowDecimals={false} />
+              <XAxis dataKey="day" stroke="#ffffffb3" fontSize={11} />
+              <YAxis stroke="#ffffffb3" fontSize={11} allowDecimals={false} />
               <Tooltip contentStyle={TOOLTIP} />
               <Line type="monotone" dataKey="count" stroke="#34d399" strokeWidth={2} dot={false} />
             </LineChart>
@@ -283,8 +305,8 @@ function Overview({ data }) {
           <ResponsiveContainer width="100%" height={240}>
             <BarChart data={byModel}>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff14" />
-              <XAxis dataKey="name" stroke="#ffffff66" fontSize={11} />
-              <YAxis stroke="#ffffff66" fontSize={11} allowDecimals={false} />
+              <XAxis dataKey="name" stroke="#ffffffb3" fontSize={11} />
+              <YAxis stroke="#ffffffb3" fontSize={11} allowDecimals={false} />
               <Tooltip contentStyle={TOOLTIP} />
               <Bar dataKey="value" fill="#60a5fa" radius={[4, 4, 0, 0]} />
             </BarChart>
@@ -292,7 +314,7 @@ function Overview({ data }) {
         </Panel>
       </div>
 
-      <HiggsfieldTokenCard />
+
     </div>
   );
 }
@@ -317,7 +339,7 @@ function HiggsfieldTokenCard() {
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
       setState("ok");
-      setMessage("Token seeded — Higgsfield generations should work now.");
+      setMessage("Token saved. Provider availability has not been verified.");
       setValue("");
     } catch (e) {
       setState("error");
@@ -327,7 +349,7 @@ function HiggsfieldTokenCard() {
 
   return (
     <Panel title="Higgsfield MCP token">
-      <p className="mb-2 text-xs text-white/45">
+      <p className="mb-2 text-xs text-white/70">
         If Higgsfield generations fail with “token refresh failed”, run{" "}
         <code className="rounded bg-ink-700 px-1">npm run hf:login</code> on any machine
         and paste the contents of <code className="rounded bg-ink-700 px-1">.higgsfield-mcp-token.json</code>{" "}
@@ -335,6 +357,7 @@ function HiggsfieldTokenCard() {
       </p>
       <div className="flex items-start gap-2">
         <textarea
+          aria-label="Higgsfield recovery token JSON"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder='{"access_token": "...", "refresh_token": "...", "client_id": "..."}'
@@ -468,6 +491,8 @@ function UsersTab({
     const ok =
       kind === "delete"
         ? await deleteUser(user)
+        : kind === "role"
+          ? await patchUser(user.id, { role: pendingAction.role }, "Role updated.")
         : await patchUser(
             user.id,
             { isActive: !user.isActive },
@@ -576,9 +601,9 @@ function UsersTab({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
                   {user.name || user.email}
-                  {isSelf && <span className="ml-1.5 text-xs font-normal text-white/35">You</span>}
+                  {isSelf && <span className="ml-1.5 text-xs font-normal text-white/70">You</span>}
                 </p>
-                <p className="truncate text-xs text-white/40">{user.email}</p>
+                <p className="truncate text-xs text-white/70">{user.email}</p>
               </div>
               <button
                 type="button"
@@ -588,7 +613,7 @@ function UsersTab({
                   "rounded px-2 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
                   user.isActive
                     ? "bg-emerald-500/15 text-emerald-300"
-                    : "bg-white/10 text-white/50"
+                    : "bg-white/10 text-white/70"
                 )}
                 title={isSelf ? "You cannot disable your own account" : undefined}
               >
@@ -601,7 +626,7 @@ function UsersTab({
                 disabled={isSelf}
                 aria-label={`Role for ${user.name || user.email}`}
                 onChange={(event) =>
-                  patchUser(user.id, { role: event.target.value }, "Role updated.")
+                  setPendingAction({ kind: "role", user, role: event.target.value })
                 }
                 className="rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-45"
                 title={isSelf ? "You cannot change your own role" : undefined}
@@ -609,7 +634,7 @@ function UsersTab({
                 <option value="user">user</option>
                 <option value="admin">admin</option>
               </select>
-              <span className="text-xs text-white/45">
+              <span className="text-xs text-white/70">
                 {user.genCount} gens · {user.estimatedCostCents > 0 ? "≈" : ""}{formatCost(user.costCents)}
               </span>
               <UserActions
@@ -627,7 +652,7 @@ function UsersTab({
 
       <div className="scroll-thin hidden overflow-x-auto rounded-xl border border-line sm:block">
         <table className="w-full min-w-[760px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/70">
             <tr>
               <th className="px-3 py-2">User</th>
               <th className="px-3 py-2">Role</th>
@@ -646,9 +671,9 @@ function UsersTab({
                     <div className="min-w-0">
                       <p className="max-w-[220px] truncate font-medium">
                         {user.name || user.email}
-                        {isSelf && <span className="ml-1.5 text-xs font-normal text-white/35">You</span>}
+                        {isSelf && <span className="ml-1.5 text-xs font-normal text-white/70">You</span>}
                       </p>
-                      <p className="max-w-[220px] truncate text-xs text-white/40">{user.email}</p>
+                      <p className="max-w-[220px] truncate text-xs text-white/70">{user.email}</p>
                     </div>
                   </div>
                 </td>
@@ -658,7 +683,7 @@ function UsersTab({
                     disabled={isSelf}
                     aria-label={`Role for ${user.name || user.email}`}
                     onChange={(event) =>
-                      patchUser(user.id, { role: event.target.value }, "Role updated.")
+                      setPendingAction({ kind: "role", user, role: event.target.value })
                     }
                     className="rounded-lg border border-line bg-ink-700 px-2 py-1 text-xs disabled:cursor-not-allowed disabled:opacity-45"
                     title={isSelf ? "You cannot change your own role" : undefined}
@@ -670,7 +695,7 @@ function UsersTab({
                 <td className="px-3 py-2 tabular-nums">{user.genCount}</td>
                 <td className="px-3 py-2 tabular-nums">
                   <span>{user.estimatedCostCents > 0 ? "≈" : ""}{formatCost(user.costCents)}</span>
-                  <span className="mt-0.5 block text-[10px] text-white/35">
+                  <span className="mt-0.5 block text-[10px] text-white/70">
                     {formatCost(user.reconciledCostCents)} reconciled · {formatCost(user.estimatedCostCents)} estimated
                   </span>
                 </td>
@@ -683,7 +708,7 @@ function UsersTab({
                       "rounded px-2 py-1 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
                       user.isActive
                         ? "bg-emerald-500/15 text-emerald-300"
-                        : "bg-white/10 text-white/50"
+                        : "bg-white/10 text-white/70"
                     )}
                     title={isSelf ? "You cannot disable your own account" : undefined}
                   >
@@ -734,6 +759,7 @@ function UsersTab({
           <ConfirmUserActionDialog
             key={`${pendingAction.kind}-${pendingAction.user.id}`}
             action={pendingAction}
+            error={notice?.kind === "error" ? notice.text : null}
             busy={actionBusy}
             onClose={() => !actionBusy && setPendingAction(null)}
             onConfirm={confirmAction}
@@ -787,7 +813,7 @@ function UserActions({
         onClick={onLimits}
         aria-label={`Limits for ${user.name || user.email}`}
         title="Limits"
-        className="grid h-8 w-8 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+        className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
       >
         <SlidersHorizontal className="h-4 w-4" />
       </button>
@@ -801,7 +827,7 @@ function UserActions({
             : `Reset password for ${user.name || user.email}`
         }
         title={isSelf ? "Use Account settings to change your password" : "Reset password"}
-        className="grid h-8 w-8 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:cursor-not-allowed disabled:opacity-30"
+        className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:cursor-not-allowed disabled:opacity-30"
       >
         <KeyRound className="h-4 w-4" />
       </button>
@@ -811,7 +837,7 @@ function UserActions({
         disabled={isSelf}
         aria-label={`Delete ${user.name || user.email}`}
         title={isSelf ? "You cannot delete your own account" : "Delete user"}
-        className="grid h-8 w-8 place-items-center rounded-lg text-white/55 transition hover:bg-red-500/15 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:cursor-not-allowed disabled:opacity-30"
+        className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-red-500/15 hover:text-red-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:cursor-not-allowed disabled:opacity-30"
       >
         <Trash2 className="h-4 w-4" />
       </button>
@@ -852,7 +878,7 @@ function PasswordResetDialog({
   return (
     <AdminModal title="Reset password" onClose={() => !busy && onClose()} initialFocusRef={inputRef}>
       <form onSubmit={submit} className="space-y-4">
-        <p className="text-sm leading-5 text-white/55">
+        <p className="text-sm leading-5 text-white/70">
           Set a new password for <span className="font-medium text-white">{user.name || user.email}</span>.
           Their current password is never shown.
         </p>
@@ -921,98 +947,22 @@ function UserLimitsModal({
 }
 
 ) {
-  const [values, setValues] = useState(() => {
-    const init = {};
-    for (const def of LIMIT_DEFINITIONS) {
-      const override = user.limits[def.key];
-      init[def.key] = override != null ? String(override) : "";
-    }
-    return init;
-  });
-  // What's actually persisted, tracked locally rather than read back off the
-  // `user` prop — mutating a prop object is the wrong way to reflect a save,
-  // and onSaved() (a background reload()) won't hand this modal a fresh
-  // `user` object anyway, since `limitsUser` in the parent is a separate
-  // snapshot that reload() doesn't touch.
-  const [savedOverrides, setSavedOverrides] = useState(() => {
-    const init = {};
-    for (const def of LIMIT_DEFINITIONS) init[def.key] = user.limits[def.key] ?? null;
-    return init;
-  });
-  const [busyKey, setBusyKey] = useState(null);
-  const [savedKey, setSavedKey] = useState(null);
-  const [notice, setNotice] = useState(null);
-
-  const save = async (def) => {
-    const raw = values[def.key].trim();
-    const nextValue = raw === "" ? null : Math.round(Number(raw));
-    if (nextValue === savedOverrides[def.key]) return;
-    if (nextValue !== null && (!Number.isFinite(nextValue) || nextValue < def.min)) {
-      setNotice({ kind: "error", text: `Invalid ${def.label.toLowerCase()}.` });
-      return;
-    }
-    setBusyKey(def.key);
-    setNotice(null);
-    try {
-      const res = await apiFetch("/api/admin/user-limits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: user.id, key: def.key, value: nextValue }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Could not update the limit.");
-      setSavedOverrides((s) => ({ ...s, [def.key]: nextValue }));
-      onSaved();
-      setSavedKey(def.key);
-      setTimeout(() => setSavedKey((k) => (k === def.key ? null : k)), 2000);
-    } catch (error) {
-      setNotice({
-        kind: "error",
-        text: error instanceof Error ? error.message : "Could not update the limit.",
-      });
-    } finally {
-      setBusyKey(null);
-    }
-  };
-
   return (
     <AdminModal title={`Limits for ${user.name || user.email}`} onClose={onClose}>
       <div className="space-y-4">
-        <p className="text-sm leading-5 text-white/55">
-          Leave a field blank to use the global default (Limits tab). A value
-          here overrides it for this user specifically.
-        </p>
+        <p className="text-sm text-white/70">Overrides apply only to this user. Leave blank to inherit the global default. Review each change, then Apply.</p>
         {LIMIT_DEFINITIONS.map((def) => (
           <div key={def.key} className="rounded-xl border border-line p-3">
-            <label className="mb-1 block text-sm font-medium text-white">{def.label}</label>
-            <p className="mb-2 text-xs leading-5 text-white/45">{def.description}</p>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={def.min}
-                value={values[def.key]}
-                placeholder={`Default (${globalLimits[def.key]?.toLocaleString() ?? def.defaultValue.toLocaleString()})`}
-                onChange={(e) => setValues((v) => ({ ...v, [def.key]: e.target.value }))}
-                onBlur={() => save(def)}
-                disabled={busyKey === def.key}
-                className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none placeholder:text-white/30 focus:border-brand/40 disabled:opacity-50"
-              />
-              <span className="text-xs text-white/40">{def.unit}</span>
-              {busyKey === def.key && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
-              {savedKey === def.key && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
-            </div>
+            <p className="font-medium">{def.label}</p>
+            <p className="mb-3 text-xs text-white/70">{def.description} Global default: {globalLimits[def.key] ?? def.defaultValue} {def.unit}.</p>
+            <EditableSetting label={`${def.label} for ${user.name || user.email}`} value={user.limits[def.key] ?? null} min={def.min} unit={def.unit} allowDefault
+              onSave={async (value) => {
+                await requestJson("/api/admin/user-limits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: user.id, key: def.key, value }) });
+                onSaved();
+              }} />
           </div>
         ))}
-        <AdminNoticeLine notice={notice} />
-        <div className="flex justify-end border-t border-line pt-4">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/[0.06] hover:text-white"
-          >
-            Done
-          </button>
-        </div>
+        <button type="button" onClick={onClose} className="rounded-lg border border-line px-3 py-2">Close</button>
       </div>
     </AdminModal>
   );
@@ -1020,6 +970,7 @@ function UserLimitsModal({
 
 function ConfirmUserActionDialog({
   action,
+  error,
   busy,
   onClose,
   onConfirm,
@@ -1029,14 +980,17 @@ function ConfirmUserActionDialog({
   const confirmRef = useRef(null);
   const isDelete = action.kind === "delete";
   const isDisable = action.kind === "status" && action.user.isActive;
-  const verb = isDelete ? "Delete" : isDisable ? "Disable" : "Enable";
+  const isRole = action.kind === "role";
+  const verb = isRole ? "Apply role change" : isDelete ? "Delete" : isDisable ? "Disable" : "Enable";
   const Icon = isDelete ? Trash2 : isDisable ? UserX : UserCheck;
 
   return (
-    <AdminModal title={`${verb} account?`} onClose={onClose} initialFocusRef={confirmRef}>
+    <AdminModal title={isRole ? "Apply role change?" : `${verb} account?`} onClose={onClose} initialFocusRef={confirmRef}>
       <div className="space-y-4">
-        <p className="text-sm leading-5 text-white/55">
-          {isDelete ? (
+        <p className="text-sm leading-5 text-white/70">
+          {isRole ? (
+            <>{action.user.name || action.user.email}: {action.user.role} → {action.role}. This changes their access when you apply it.</>
+          ) : isDelete ? (
             <>This permanently deletes <span className="font-medium text-white">{action.user.name || action.user.email}</span>.</>
           ) : (
             <>
@@ -1045,6 +999,7 @@ function ConfirmUserActionDialog({
             </>
           )}
         </p>
+        {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
         <div className="flex justify-end gap-2 border-t border-line pt-4">
           <button
             type="button"
@@ -1157,7 +1112,7 @@ function AdminModal({
           <button
             type="button"
             onClick={onClose}
-            className="grid h-8 w-8 place-items-center rounded-lg text-white/50 transition hover:bg-white/[0.07] hover:text-white"
+            className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/[0.07] hover:text-white"
             aria-label={`Close ${title.toLowerCase()}`}
           >
             <X className="h-4 w-4" />
@@ -1186,6 +1141,7 @@ function AdminNoticeLine({ notice }) {
 }
 
 function LogsTab({
+  reportScope,
   data,
   usersById,
 }
@@ -1212,7 +1168,7 @@ function LogsTab({
   const models = data.stats.models;
 
   const params = useMemo(() => {
-    const p = new URLSearchParams();
+    const p = new URLSearchParams(reportScope);
     if (user) p.set("userId", user);
     if (kind) p.set("kind", kind);
     if (model) p.set("model", model);
@@ -1220,7 +1176,7 @@ function LogsTab({
     if (flagged) p.set("flagged", "1");
     if (q.trim()) p.set("q", q.trim());
     return p.toString();
-  }, [user, kind, model, status, flagged, q]);
+  }, [user, kind, model, status, flagged, q, reportScope]);
 
   // Filtering happens in Postgres, so a filter change is a refetch. Search is
   // debounced; the others fire immediately since they come from a select.
@@ -1278,7 +1234,7 @@ function LogsTab({
 
   // The export is a server download: it covers every row matching the filter
   // with full prompts, not just the rows currently on screen.
-  const exportHref = `/api/admin/logs?${params}${params ? "&" : ""}format=csv`;
+  const exportHref = apiUrl(`/api/admin/logs?${params}${params ? "&" : ""}format=csv`);
 
   const sel =
     "rounded-lg border border-line bg-ink-700 px-2.5 py-1.5 text-sm outline-none focus:border-brand/40";
@@ -1286,7 +1242,7 @@ function LogsTab({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <select value={user} onChange={(e) => setUser(e.target.value)} className={sel}>
+        <select aria-label="Generation log user" value={user} onChange={(e) => setUser(e.target.value)} className={sel}>
           <option value="">All users</option>
           {data.users.map((u) => (
             <option key={u.id} value={u.id}>
@@ -1294,12 +1250,12 @@ function LogsTab({
             </option>
           ))}
         </select>
-        <select value={kind} onChange={(e) => setKind(e.target.value)} className={sel}>
+        <select aria-label="Generation log media type" value={kind} onChange={(e) => setKind(e.target.value)} className={sel}>
           <option value="">All types</option>
           <option value="image">image</option>
           <option value="video">video</option>
         </select>
-        <select value={model} onChange={(e) => setModel(e.target.value)} className={sel}>
+        <select aria-label="Generation log model" value={model} onChange={(e) => setModel(e.target.value)} className={sel}>
           <option value="">All models</option>
           {models.map((m) => (
             <option key={m} value={m}>
@@ -1307,7 +1263,7 @@ function LogsTab({
             </option>
           ))}
         </select>
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className={sel}>
+        <select aria-label="Generation log status" value={status} onChange={(e) => setStatus(e.target.value)} className={sel}>
           <option value="">All statuses</option>
           <option value="succeeded">succeeded</option>
           <option value="running">running</option>
@@ -1333,6 +1289,7 @@ function LogsTab({
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          aria-label="Search generation log prompts"
           placeholder="Search prompt…"
           className={cn(sel, "flex-1")}
         />
@@ -1344,7 +1301,7 @@ function LogsTab({
         </a>
       </div>
 
-      <p className="text-xs text-white/40">
+      <p className="text-xs text-white/70">
         {loading ? (
           "Loading…"
         ) : (
@@ -1362,7 +1319,7 @@ function LogsTab({
 
       <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
         <table className="w-full min-w-[900px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/70">
             <tr>
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">User</th>
@@ -1377,7 +1334,7 @@ function LogsTab({
           <tbody>
             {rows.map((g) => (
               <tr key={g.id} className="border-t border-line align-top">
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-white/55">
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-white/70">
                   {new Date(g.createdAt).toLocaleString()}
                 </td>
                 <td className="px-3 py-2 text-xs">
@@ -1393,12 +1350,12 @@ function LogsTab({
                         Flagged
                       </span>
                       {g.flagReason && (
-                        <p className="truncate text-[11px] text-white/55" title={g.flagReason}>
+                        <p className="truncate text-[11px] text-white/70" title={g.flagReason}>
                           {g.flagReason}
                         </p>
                       )}
                       {g.judgeScore && (
-                        <p className="text-[10px] text-white/40" title={JSON.stringify(g.judgeScore)}>
+                        <p className="text-[10px] text-white/70" title={JSON.stringify(g.judgeScore)}>
                           Judge evidence saved
                         </p>
                       )}
@@ -1438,7 +1395,7 @@ function LogsTab({
             ))}
             {!loading && rows.length === 0 && (
               <tr className="border-t border-line">
-                <td colSpan={8} className="px-3 py-8 text-center text-xs text-white/40">
+                <td colSpan={8} className="px-3 py-8 text-center text-xs text-white/70">
                   No generations match these filters.
                 </td>
               </tr>
@@ -1572,7 +1529,7 @@ function ActivityLog({
     <div className="space-y-2 pt-4">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-semibold text-white">Activity</h3>
-        <select value={action} onChange={(e) => setAction(e.target.value)} className={sel}>
+        <select aria-label="Activity action" value={action} onChange={(e) => setAction(e.target.value)} className={sel}>
           <option value="">All actions</option>
           {actions.map((a) => (
             <option key={a} value={a}>
@@ -1580,7 +1537,7 @@ function ActivityLog({
             </option>
           ))}
         </select>
-        <select value={user} onChange={(e) => setUser(e.target.value)} className={sel}>
+        <select aria-label="Activity user" value={user} onChange={(e) => setUser(e.target.value)} className={sel}>
           <option value="">All users</option>
           {data.users.map((u) => (
             <option key={u.id} value={u.id}>
@@ -1590,7 +1547,7 @@ function ActivityLog({
         </select>
         {/* A real total now, from count(*) over the whole table under the same
             filter — not the length of a window. */}
-        <p className="text-xs text-white/40">
+        <p className="text-xs text-white/70">
           {loading
             ? "Loading…"
             : `Showing ${rows.length.toLocaleString()} of ${total.toLocaleString()} events`}
@@ -1598,7 +1555,7 @@ function ActivityLog({
       </div>
       <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
         <table className="w-full min-w-[680px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/70">
             <tr>
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">User</th>
@@ -1609,7 +1566,7 @@ function ActivityLog({
           <tbody>
             {rows.map((a) => (
               <tr key={a.id} className="border-t border-line align-top">
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-white/55">
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-white/70">
                   {new Date(a.createdAt).toLocaleString()}
                 </td>
                 <td className="px-3 py-2 text-xs">
@@ -1630,7 +1587,7 @@ function ActivityLog({
             ))}
             {!loading && rows.length === 0 && (
               <tr className="border-t border-line">
-                <td colSpan={4} className="px-3 py-8 text-center text-xs text-white/40">
+                <td colSpan={4} className="px-3 py-8 text-center text-xs text-white/70">
                   No events match these filters.
                 </td>
               </tr>
@@ -1656,7 +1613,7 @@ function ActivityLog({
 
 function PricingTab({ data, reload }) {
   const save = async (model, unitCostCents, unit) => {
-    await apiFetch("/api/admin/pricing", {
+    await requestJson("/api/admin/pricing", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model, unitCostCents, unit }),
@@ -1665,7 +1622,7 @@ function PricingTab({ data, reload }) {
   };
   return (
     <div className="space-y-2">
-      <div className="space-y-1 text-xs text-white/45">
+      <div className="space-y-1 text-xs text-white/70">
         <p>
           Cost applied to each generation, in cents, and stored on the row when
           it is created — editing a rate affects future generations only, never
@@ -1687,7 +1644,7 @@ function PricingTab({ data, reload }) {
       </div>
       <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
         <table className="w-full min-w-[680px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/70">
             <tr>
               <th className="px-3 py-2">Model</th>
               <th className="px-3 py-2">Unit</th>
@@ -1701,16 +1658,9 @@ function PricingTab({ data, reload }) {
                 <td className="px-3 py-2 font-medium">{p.model}</td>
                 <td className="px-3 py-2 text-xs text-white/55">{p.unit === "per_1000_images" ? "per 1,000 images" : p.unit}</td>
                 <td className="px-3 py-2">
-                  <input
-                    type="number"
-                    defaultValue={p.unitCostCents}
-                    onBlur={(e) =>
-                      save(p.model, Number(e.target.value), p.unit)
-                    }
-                    className="w-24 rounded-lg border border-line bg-ink-700 px-2 py-1 text-sm outline-none focus:border-brand/40"
-                  />
+                  <EditableSetting label={`Rate for ${p.model}`} value={p.unitCostCents} unit="cents" onSave={(value) => save(p.model, value, p.unit)} />
                 </td>
-                <td className="max-w-[26rem] px-3 py-2 text-xs leading-snug text-white/40">
+                <td className="max-w-[26rem] px-3 py-2 text-xs leading-snug text-white/70">
                   {p.notes}
                 </td>
               </tr>
@@ -1746,56 +1696,15 @@ function GlobalLimitCard({
 }
 
 ) {
-  const [value, setValue] = useState(String(data.limits[def.key] ?? def.defaultValue));
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  // Re-sync if another admin session changed it and this tab reloads —
-  // mirrors PricingTab's defaultValue-per-row approach, just for one field.
-  useEffect(() => {
-    setValue(String(data.limits[def.key] ?? def.defaultValue));
-  }, [data.limits, def.key, def.defaultValue]);
-
-  const save = async () => {
-    const n = Math.round(Number(value));
-    if (!Number.isFinite(n) || n < def.min) return;
-    setSaving(true);
-    setSaved(false);
-    try {
-      await apiFetch("/api/admin/limits", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: def.key, value: n }),
-      });
-      reload();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   return (
     <div className="rounded-xl border border-line p-4">
-      <label className="mb-1 block text-sm font-medium text-white">{def.label}</label>
-      <p className="mb-3 text-xs leading-5 text-white/45">
-        {def.description} This is the default for every user; give an
-        individual user their own limit from the Users tab, which overrides
-        this value for them specifically.
-      </p>
-      <div className="flex items-center gap-2">
-        <input
-          type="number"
-          min={def.min}
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          onBlur={save}
-          className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none focus:border-brand/40"
-        />
-        <span className="text-xs text-white/40">{def.unit}</span>
-        {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
-        {saved && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
-      </div>
+      <p className="mb-1 text-sm font-medium">{def.label}</p>
+      <p className="mb-3 text-sm text-white/70">{def.description} Default for every user; individual overrides in Users take precedence.</p>
+      <EditableSetting label={`Global ${def.label}`} value={data.limits[def.key] ?? def.defaultValue} min={def.min} unit={def.unit}
+        onSave={async (value) => {
+          await requestJson("/api/admin/limits", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: def.key, value }) });
+          reload();
+        }} />
     </div>
   );
 }
@@ -1820,9 +1729,9 @@ const STATUS_ROWS_FALLBACK = [
   { id: "storage", name: "Media Storage" },
 ];
 
-function StatusBadge({ status }) {
+function StatusBadge({ status, check }) {
   const config = {
-    ok: { label: "OK", Icon: CheckCircle2, cls: "bg-emerald-500/15 text-emerald-300" },
+    ok: { label: check ? statusEvidence(check).label : "Check passed", Icon: CheckCircle2, cls: check && ["configured", "cached"].includes(statusEvidence(check).kind) ? "bg-blue-500/15 text-blue-200" : "bg-emerald-500/15 text-emerald-300" },
     error: { label: "Error", Icon: AlertCircle, cls: "bg-red-500/15 text-red-300" },
     unknown: { label: "Unknown", Icon: AlertTriangle, cls: "bg-amber-400/15 text-amber-300" },
   }[status];
@@ -1845,7 +1754,7 @@ function StatusBadge({ status }) {
 function StatusTab() {
   const [results, setResults] = useState(null);
   const [checkedAt, setCheckedAt] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [audit, setAudit] = useState(null);
   const [auditLoading, setAuditLoading] = useState(false);
@@ -1869,9 +1778,6 @@ function StatusTab() {
       setLoading(false);
     }
   };
-  useEffect(() => {
-    load();
-  }, []);
 
   const runAudit = async () => {
     setAuditLoading(true);
@@ -1897,6 +1803,7 @@ function StatusTab() {
         id: r.id,
         name: r.name,
         status: r.status,
+        evidence: r,
         detail: r.detail,
         checkedAt: r.checkedAt,
         pending: false,
@@ -1912,17 +1819,18 @@ function StatusTab() {
       : STATUS_ROWS_FALLBACK.map((c) => ({
           ...c,
           status: "unknown" ,
-          detail: "check failed",
+          detail: error ? "Check failed" : "Not checked in this session",
           checkedAt: null,
           pending: false,
         }));
 
   const summary = (() => {
-    if (checkedAt === null) return error ? "Status check failed" : "Running checks…";
-    const ok = results?.filter((r) => r.status === "ok").length ?? 0;
+    if (checkedAt === null) return error ? "Status check failed" : loading ? "Running checks…" : "Not checked in this session";
+    const configured = results?.filter((r) => statusEvidence(r).kind === "configured").length ?? 0;
+    const ok = results?.filter((r) => ["reachable", "checked"].includes(statusEvidence(r).kind)).length ?? 0;
     const errCount = results?.filter((r) => r.status === "error").length ?? 0;
     const unknown = results?.filter((r) => r.status === "unknown").length ?? 0;
-    const parts = [`Last checked ${new Date(checkedAt).toLocaleTimeString()}`, `${ok} OK`];
+    const parts = [`Last checked ${new Date(checkedAt).toLocaleString()}`, `${ok} checks passed`, `${configured} configured only`];
     if (errCount) parts.push(`${errCount} error${errCount === 1 ? "" : "s"}`);
     if (unknown) parts.push(`${unknown} unknown`);
     return parts.join(" · ");
@@ -1936,8 +1844,8 @@ function StatusTab() {
   return (
     <div className="space-y-3">
       <div className="flex min-h-9 flex-wrap items-center justify-between gap-2">
-        <p role="status" aria-live="polite" className="text-xs text-white/40">
-          {summary}
+        <p role="status" aria-live="polite" className="text-xs text-white/70">
+          {summary} · Configuration and cached credentials do not verify generation availability.
         </p>
         <button
           type="button"
@@ -1950,7 +1858,7 @@ function StatusTab() {
           ) : (
             <RefreshCw className="h-4 w-4" />
           )}
-          {loading ? "Checking…" : "Refresh"}
+          {loading ? "Checking…" : checkedAt ? "Refresh checks" : "Run status checks"}
         </button>
       </div>
 
@@ -1967,7 +1875,7 @@ function StatusTab() {
         )}
       >
         <table className="w-full min-w-[640px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/70">
             <tr>
               <th className="px-3 py-2">Dependency</th>
               <th className="px-3 py-2">Status</th>
@@ -1981,11 +1889,11 @@ function StatusTab() {
                 <td className="px-3 py-2 font-medium">{r.name}</td>
                 <td className="px-3 py-2">
                   {r.pending ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-white/40">
-                      <Loader2 className="h-4 w-4 animate-spin text-white/40" /> Checking…
+                    <span className="inline-flex items-center gap-1.5 text-xs text-white/70">
+                      <Loader2 className="h-4 w-4 animate-spin text-white/70" /> Checking…
                     </span>
                   ) : (
-                    <StatusBadge status={r.status} />
+                    <StatusBadge status={r.status} check={r.evidence} />
                   )}
                 </td>
                 <td
@@ -1994,7 +1902,7 @@ function StatusTab() {
                 >
                   {r.detail ?? <span className="text-white/30">—</span>}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2 text-xs text-white/55">
+                <td className="whitespace-nowrap px-3 py-2 text-xs text-white/70">
                   {r.checkedAt ? (
                     new Date(r.checkedAt).toLocaleTimeString()
                   ) : (
@@ -2019,11 +1927,11 @@ function StatusTab() {
               <p className="truncate text-sm font-medium">{r.name}</p>
               <div className="ml-auto shrink-0">
                 {r.pending ? (
-                  <span className="inline-flex items-center gap-1.5 text-xs text-white/40">
-                    <Loader2 className="h-4 w-4 animate-spin text-white/40" /> Checking…
+                  <span className="inline-flex items-center gap-1.5 text-xs text-white/70">
+                    <Loader2 className="h-4 w-4 animate-spin text-white/70" /> Checking…
                   </span>
                 ) : (
-                  <StatusBadge status={r.status} />
+                  <StatusBadge status={r.status} check={r.evidence} />
                 )}
               </div>
             </div>
@@ -2034,7 +1942,7 @@ function StatusTab() {
               >
                 {r.detail ?? <span className="text-white/30">—</span>}
               </span>
-              <span className="shrink-0 text-xs text-white/45">
+              <span className="shrink-0 text-xs text-white/70">
                 {r.checkedAt ? (
                   new Date(r.checkedAt).toLocaleTimeString()
                 ) : (
@@ -2050,7 +1958,7 @@ function StatusTab() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Audit diagnostics</p>
-            <p className="mt-1 text-xs text-white/45">
+            <p className="mt-1 text-xs text-white/70">
               Validation-only provider checks plus temporary database fixtures that are always removed.
             </p>
           </div>
@@ -2068,7 +1976,7 @@ function StatusTab() {
         {audit && (
           <div className="mt-4 overflow-x-auto rounded-lg border border-line">
             <table className="w-full min-w-[520px] text-sm">
-              <thead className="bg-ink-700 text-left text-xs uppercase tracking-wide text-white/40">
+              <thead className="bg-ink-700 text-left text-xs uppercase tracking-wide text-white/70">
                 <tr><th className="px-3 py-2">Audit ID</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Sanitized detail</th></tr>
               </thead>
               <tbody>

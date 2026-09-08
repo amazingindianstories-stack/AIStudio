@@ -1,10 +1,9 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { UploadCloud, Loader2, X, Users } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { DEPTH_ENCODERS, DEPTH_ENCODER_LABELS as ENCODER_LABELS } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import { apiFetch } from "@/lib/api";
 
 /**
  * The composer for depth-map jobs (mode="depth") — a different shape from
@@ -59,7 +58,7 @@ export function DepthComposer() {
     setUploading(true);
     setError(null);
     try {
-      const presignRes = await fetch("/api/uploads/presign", {
+      const presignRes = await apiFetch("/api/uploads/presign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ purpose: "depth-input", contentType: file.type }),

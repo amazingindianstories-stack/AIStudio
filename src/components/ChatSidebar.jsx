@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -16,6 +14,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { ProjectMenu } from "./ProjectMenu";
+import { apiFetch, requestJson } from "@/lib/api";
 
 const COLLAPSE_KEY = "veevee-chat-sidebar-collapsed";
 
@@ -37,7 +36,10 @@ export function ChatSidebar({
   const projects = useStore((s) => s.projects);
   const [collapsed, setCollapsed] = useState(false);
   const [conversations, setConversations] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(Boolean(activeProjectId));
+  const [error, setError] = useState(null);
+  const [creating, setCreating] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [renamingRowId, setRenamingRowId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const initializedFor = useRef(null);
@@ -60,82 +62,86 @@ export function ChatSidebar({
   };
 
   useEffect(() => {
-    const scopeKey = activeProjectId ? `${activeProjectId}:${agentKind}` : null;
-    if (!scopeKey || initializedFor.current === scopeKey) return;
+    const scopeKey = activeProjectId ? `${activeProjectId}:${agentKind}:${loadAttempt}` : null;
+    if (!scopeKey) {
+      requestIdRef.current += 1; initializedFor.current = null;
+      setConversations([]); setLoading(false); setError(null); onConversationIdChange(null);
+      return;
+    }
+    if (initializedFor.current === scopeKey) return;
     initializedFor.current = scopeKey;
     const requestId = ++requestIdRef.current;
     setLoading(true);
+    setConversations([]);
+    onConversationIdChange(null);
+    setError(null);
     (async () => {
-      const res = await fetch(
-        `/api/agent-conversations?projectId=${encodeURIComponent(activeProjectId)}&agentKind=${agentKind}`,
-        { cache: "no-store" }
-      );
-      const json = await res.json().catch(() => ({}));
-      if (requestIdRef.current !== requestId) return;
-      let list = json.conversations ?? [];
-      if (list.length === 0) {
-        // Lazily create the project's first chat for this tab — same
-        // pattern BoardSwitcher.tsx uses for a project's first board.
-        // Without this, a project with no threads yet has nothing to
-        // select, and the feed below shows "Loading chat…" forever with no
-        // way out except manually clicking "+ New chat".
-        const created = await fetch("/api/agent-conversations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, agentKind, name: "New chat" }),
-        });
-        const createdJson = await created.json().catch(() => ({}));
+      try {
+        const json = await requestJson(`/api/agent-conversations?projectId=${encodeURIComponent(activeProjectId)}&agentKind=${agentKind}`, { cache: "no-store" });
         if (requestIdRef.current !== requestId) return;
-        list = createdJson.conversations ?? [];
-      }
-      setConversations(list);
-      setLoading(false);
-      if (!conversationId || !list.some((c) => c.id === conversationId)) {
-        if (list[0]) onConversationIdChange(list[0].id);
+        if (!Array.isArray(json.conversations)) throw new Error("Could not read conversations.");
+        const list = json.conversations;
+        setConversations(list);
+        onConversationIdChange(list.some((c) => c.id === conversationId) ? conversationId : list[0]?.id ?? null);
+      } catch (err) {
+        if (requestIdRef.current === requestId) setError(err.message);
+      } finally {
+        if (requestIdRef.current === requestId) setLoading(false);
       }
     })();
-  }, [activeProjectId, agentKind, conversationId, onConversationIdChange]);
+  }, [activeProjectId, agentKind, conversationId, onConversationIdChange, loadAttempt]);
 
   const createConversation = async () => {
-    if (!activeProjectId) return;
-    const res = await fetch("/api/agent-conversations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, agentKind, name: "New chat" }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (json.conversations) {
+    if (!activeProjectId || creating || loading) return;
+    const requestId = requestIdRef.current;
+    setCreating(true);
+    setError(null);
+    try {
+      const json = await requestJson("/api/agent-conversations", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, agentKind, name: "New chat" }),
+      });
+      if (requestId !== requestIdRef.current) return;
+      if (!json.conversation?.id || !Array.isArray(json.conversations)) throw new Error("No conversation returned. Reload before trying again.");
       setConversations(json.conversations);
-      if (json.conversation?.id) {
-        onConversationIdChange(json.conversation.id);
-        setRenamingRowId(json.conversation.id);
-      }
-    }
+      onConversationIdChange(json.conversation.id);
+      setRenamingRowId(json.conversation.id);
+    } catch (err) { if (requestId === requestIdRef.current) setError(err.message); }
+    finally { setCreating(false); }
   };
 
   const renameConversation = async (id, name) => {
+    const requestId = requestIdRef.current;
+    try {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setConversations((cs) => cs.map((c) => (c.id === id ? { ...c, name: trimmed } : c)));
-    const res = await fetch("/api/agent-conversations", {
+    const res = await apiFetch("/api/agent-conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "renameConversation", id, name: trimmed }),
     });
+    if (!res.ok) { setError("Could not save the change. Reload and try again."); return; }
     const json = await res.json().catch(() => ({}));
+    if (requestId !== requestIdRef.current) return;
     if (json.conversations) setConversations(json.conversations);
+    } catch (error) { if (requestId === requestIdRef.current) setError(error.message || "Could not save the change."); }
   };
 
   const deleteConversation = async (id) => {
-    const res = await fetch("/api/agent-conversations", {
+    const requestId = requestIdRef.current;
+    try {
+    const res = await apiFetch("/api/agent-conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "deleteConversation", id }),
     });
+    if (!res.ok) { setError("Could not save the change. Reload and try again."); return; }
     const json = await res.json().catch(() => ({}));
+    if (requestId !== requestIdRef.current) return;
     const list = json.conversations ?? conversations.filter((c) => c.id !== id);
     setConversations(list);
-    if (conversationId === id && list[0]) onConversationIdChange(list[0].id);
+    if (conversationId === id) onConversationIdChange(list[0]?.id ?? null);
+    } catch (error) { if (requestId === requestIdRef.current) setError(error.message || "Could not save the change."); }
   };
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
@@ -196,14 +202,14 @@ export function ChatSidebar({
 
       <button
         onClick={createConversation}
-        disabled={!activeProjectId}
+        disabled={!activeProjectId || loading || creating || !!error}
         className="m-2 flex shrink-0 items-center gap-2 rounded-lg border border-dashed border-white/15 px-3 py-2 text-sm text-white/70 transition hover:border-brand/40 hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
       >
-        <MessageSquarePlus className="h-4 w-4" /> New chat
+        <MessageSquarePlus className="h-4 w-4" /> {creating ? "Creating…" : "Start conversation"}
       </button>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-        {loading ? (
+        {error ? (<div role="alert" className="p-2 text-sm text-red-300">{error}<button type="button" className="mt-2 block underline" onClick={() => setLoadAttempt((n) => n + 1)}>Reload conversations</button></div>) : loading ? (
           <p className="px-2 py-2 text-xs text-white/40">Loading…</p>
         ) : conversations.length === 0 ? (
           <p className="px-2 py-2 text-xs text-white/40">

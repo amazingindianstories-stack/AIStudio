@@ -22,7 +22,7 @@
  *    "nw" = top-left, origin moves with it) as the most defensible default
  *    for a FigJam-style resize handle set.
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import {
   worldToScreen,

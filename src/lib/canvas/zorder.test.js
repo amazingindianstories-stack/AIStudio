@@ -16,7 +16,7 @@
  * unselected neighbor in that direction, preserving the selected subset's
  * own relative order. See final report for how to interpret a mismatch here.
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { bringToFront, sendToBack, bringForward, sendBackward } from "./zorder";
 

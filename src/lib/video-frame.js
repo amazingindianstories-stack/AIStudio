@@ -1,5 +1,3 @@
-"use client";
-
 import { REF_BUDGET_STEPS, dataUrlBytes } from "./client-image-budget";
 
 /**

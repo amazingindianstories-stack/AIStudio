@@ -23,13 +23,30 @@ const nextConfig = {
   // genuinely installed. Excluding it from the server bundle lets it resolve
   // normally against the real node_modules at runtime instead.
   serverExternalPackages: ["@ffmpeg-installer/ffmpeg"],
-  // Baseline security headers. Deliberately NOT including Content-Security-Policy
-  // here — this app serves media from S3/GCS signed URLs and a CDN whose exact
-  // domains vary by environment, and getting a CSP wrong (missing a domain,
-  // blocking an inline style framer-motion needs) breaks real functionality
-  // rather than failing loudly. Needs its own pass with live browser
-  // verification before it's added.
+  // Browser policy for the cross-origin API and signed media hosts. Keep the
+  // allow-list below in sync with Railway and the configured media origin.
   async headers() {
+    const apiOrigin = (() => {
+      try { return new URL(process.env.NEXT_PUBLIC_API_URL || "").origin; } catch { return ""; }
+    })();
+    const mediaOrigin = (() => {
+      try { return new URL(process.env.NEXT_PUBLIC_MEDIA_URL || process.env.GCP_MEDIA_CDN_URL || "").origin; } catch { return ""; }
+    })();
+    const connectSources = ["'self'", apiOrigin, "https://storage.googleapis.com"].filter(Boolean).join(" ");
+    const mediaSources = ["'self'", "data:", "blob:", apiOrigin, mediaOrigin, "https://storage.googleapis.com"].filter(Boolean).join(" ");
+    const csp = [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline'",
+      "style-src 'self' 'unsafe-inline'",
+      `connect-src ${connectSources}`,
+      `img-src ${mediaSources}`,
+      `media-src ${mediaSources}`,
+      "font-src 'self' data:",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-ancestors 'none'",
+    ].join("; ");
     return [
       {
         source: "/:path*",
@@ -40,6 +57,7 @@ const nextConfig = {
           // No camera/mic/geolocation use anywhere in this app.
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
+          { key: "Content-Security-Policy", value: csp },
         ],
       },
     ];

@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
 import {
   FolderClosed,
@@ -13,7 +11,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { apiFetch } from "@/lib/api";
+import { requestJson } from "@/lib/api";
 import { MediaCard } from "./MediaCard";
 import { AssetGrid } from "./AssetGrid";
 import { UNSORTED } from "@/lib/feed-scope";
@@ -68,8 +66,8 @@ export function ProjectPanel({ cardWidth = 160 }) {
   if (!project) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <Layers className="h-7 w-7 text-white/35" />
-        <p className="text-sm text-white/55">No project yet.</p>
+        <Layers className="h-7 w-7 text-white/70" />
+        <p className="text-sm text-white/70">No project yet.</p>
         <button
           onClick={() => createProject("My Project")}
           className="rounded-lg bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand hover:bg-brand/30"
@@ -84,9 +82,9 @@ export function ProjectPanel({ cardWidth = 160 }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex min-h-0 flex-1">
+      <div className="project-layout flex min-h-0 flex-1">
         {/* folder rail */}
-        <div className="scroll-thin flex w-[clamp(7.5rem,26%,11rem)] shrink-0 flex-col overflow-y-auto border-r border-line p-2">
+        <div className="project-folders scroll-thin flex w-[clamp(7.5rem,26%,11rem)] shrink-0 flex-col overflow-y-auto border-r border-line p-2">
           <FolderRow
             label="All in project"
             count={counts.project.total}
@@ -112,12 +110,12 @@ export function ProjectPanel({ cardWidth = 160 }) {
           />
 
           <div className="mt-3 flex items-center justify-between px-1.5 py-1">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-white/35">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-white/70">
               Folders
             </span>
             <button
               onClick={() => setAdding((v) => !v)}
-              className="grid h-5 w-5 place-items-center rounded text-white/45 transition hover:bg-white/10 hover:text-white"
+              className="grid h-5 w-5 place-items-center rounded text-white/70 transition hover:bg-white/10 hover:text-white"
               aria-label="New folder"
               title="New folder"
             >
@@ -211,7 +209,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {briefView ? (
             <div className="min-h-0 flex-1 overflow-y-auto p-3">
-              <BriefEditor projectId={project.id} brief={project.brief ?? ""} />
+              <BriefEditor key={project.id} projectId={project.id} brief={project.brief ?? ""} />
             </div>
           ) : (
             <AssetGrid
@@ -290,11 +288,11 @@ export function EmptyState({
 ) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2.5 px-6 text-center">
-      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-ink-700 text-white/40 ring-1 ring-line">
+      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-ink-700 text-white/70 ring-1 ring-line">
         {icon}
       </div>
       <p className="text-sm font-medium text-white/75">{title}</p>
-      <p className="max-w-[22rem] text-[13px] leading-relaxed text-white/40">{body}</p>
+      <p className="max-w-[22rem] text-[13px] leading-relaxed text-white/70">{body}</p>
     </div>
   );
 }
@@ -327,7 +325,7 @@ function FolderRow({
         dragOver && "bg-brand/10 ring-1 ring-brand/60"
       )}
     >
-      <span className={cn("shrink-0", active ? "text-brand" : "text-white/45")}>
+      <span className={cn("shrink-0", active ? "text-brand" : "text-white/70")}>
         {icon}
       </span>
       <span className="flex-1 truncate">{label}</span>
@@ -339,7 +337,7 @@ function FolderRow({
                 e.stopPropagation();
                 onRename();
               }}
-              className="grid h-5 w-5 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white"
+              className="grid h-5 w-5 place-items-center rounded text-white/70 hover:bg-white/10 hover:text-white"
               aria-label={`Rename ${label}`}
             >
               <Pencil className="h-3 w-3" />
@@ -351,7 +349,7 @@ function FolderRow({
                 e.stopPropagation();
                 onDelete();
               }}
-              className="grid h-5 w-5 place-items-center rounded text-white/50 hover:bg-red-500/15 hover:text-red-300"
+              className="grid h-5 w-5 place-items-center rounded text-white/70 hover:bg-red-500/15 hover:text-red-300"
               aria-label={`Delete ${label}`}
             >
               <Trash2 className="h-3 w-3" />
@@ -363,7 +361,7 @@ function FolderRow({
         <span
           className={cn(
             "text-[11px] tabular-nums",
-            active ? "text-white/55" : "text-white/35",
+            active ? "text-white/70" : "text-white/70",
             (onRename || onDelete) && "group-hover:hidden"
           )}
         >
@@ -382,42 +380,43 @@ function BriefEditor({ projectId, brief }) {
   // A different project's brief must replace the textarea's contents, which a
   // useState initialiser alone will not do — the component stays mounted.
   useEffect(() => {
-    setText(brief);
+    setText((current) => current === initial.current ? brief : current);
     initial.current = brief;
-    setState("idle");
   }, [projectId, brief]);
 
   const save = async () => {
     if (text === initial.current) return;
     setState("saving");
     try {
-      await apiFetch("/api/projects", {
+      await requestJson("/api/projects", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ op: "setBrief", projectId, brief: text }),
       });
       initial.current = text;
+      useStore.setState((store) => ({ projects: store.projects.map((project) => project.id === projectId ? { ...project, brief: text } : project) }));
       setState("saved");
     } catch {
-      setState("idle");
+      setState("error");
     }
   };
 
   return (
     <div className="flex h-full flex-col gap-2">
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-white/40">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-white/70">
           Project brief
         </p>
         {/* The old editor saved silently on blur, so there was no way to tell a
             saved brief from a lost one. */}
-        <span className="flex items-center gap-1.5 text-[11px] text-white/35">
+        <span role="status" className="flex items-center gap-1.5 text-xs text-white/70">
           {state === "saving" && (
             <>
               <Loader2 className="h-3 w-3 animate-spin" /> Saving…
             </>
           )}
           {state === "saved" && "Saved"}
+          {state === "error" && "Could not save. Your edit is preserved — try again."}
           {state === "idle" && text !== initial.current && "Unsaved"}
         </span>
       </div>
@@ -427,10 +426,15 @@ function BriefEditor({ projectId, brief }) {
           setText(e.target.value);
           if (state === "saved") setState("idle");
         }}
-        onBlur={save}
+        disabled={state === "saving"}
+        aria-label="Project brief"
         placeholder="Notes, references, direction, shot list…"
         className="flex-1 resize-none rounded-lg border border-line bg-ink-800 p-3 text-sm leading-relaxed text-white outline-none placeholder:text-white/30 focus:border-brand/40"
       />
+      <div className="flex justify-end gap-2">
+        <button type="button" disabled={state === "saving" || text === initial.current} onClick={() => { setText(initial.current); setState("idle"); }} className="rounded-lg border border-line px-3 py-2 text-sm disabled:opacity-50">Cancel</button>
+        <button type="button" disabled={state === "saving" || text === initial.current} onClick={save} className="rounded-lg bg-white px-3 py-2 text-sm text-ink-900 disabled:opacity-50">{state === "saving" ? "Saving…" : "Save brief"}</button>
+      </div>
     </div>
   );
 }

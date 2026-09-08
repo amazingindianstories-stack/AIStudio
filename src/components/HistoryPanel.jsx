@@ -1,5 +1,3 @@
-"use client";
-
 import { useEffect, useMemo, useState } from "react";
 
 import {
@@ -18,6 +16,8 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
+import { MODELS } from "@/lib/config";
+import { TakeReviewDialog } from "./TakeReviewDialog";
 import { MediaCard } from "./MediaCard";
 import { ProjectPanel, EmptyState } from "./ProjectPanel";
 import { AssetGrid } from "./AssetGrid";
@@ -30,6 +30,11 @@ const ZOOM_MIN = 120;
 const ZOOM_MAX = 260;
 
 export function HistoryPanel() {
+  const density = useStore((s) => s.mediaDensity);
+  const libraryWidth = useStore((s) => s.libraryWidth);
+  const historyFilters = useStore((s) => s.historyFilters);
+  const setHistoryFilters = useStore((s) => s.setHistoryFilters);
+  const filterField = (key, value) => setHistoryFilters({ ...historyFilters, [key]: value });
   const items = useStore((s) => s.items);
   const loading = useStore((s) => s.loading);
   const refreshing = useStore((s) => s.refreshing);
@@ -47,8 +52,10 @@ export function HistoryPanel() {
   const projects = useStore((s) => s.projects);
   const activeProjectId = useStore((s) => s.activeProjectId);
 
+  const activeFolderId = useStore((s) => s.activeFolderId);
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
+  const [reviewItems, setReviewItems] = useState(null);
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
 
   // Thumbnail size is a workspace preference, not session state — losing it on
@@ -127,7 +134,8 @@ export function HistoryPanel() {
   };
 
   return (
-    <div className="flex h-full flex-col bg-ink-850">
+    <div className="history-panel flex h-full min-w-0 flex-col bg-ink-850">
+      {reviewItems && <TakeReviewDialog items={reviewItems} onClose={() => setReviewItems(null)} />}
       {/* ── scope bar ────────────────────────────────────────────────────────
           One row: where you are (project / all / favourites) on the left, how
           you are filtering it on the right.
@@ -188,7 +196,7 @@ export function HistoryPanel() {
               trigger={(open) => (
                 <span
                   className={cn(
-                    "grid h-7 w-7 place-items-center rounded-full text-white/50 transition hover:bg-white/10 hover:text-white",
+                    "grid h-7 w-7 place-items-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white",
                     open && "bg-white/10 text-white"
                   )}
                   title="Switch project"
@@ -226,16 +234,16 @@ export function HistoryPanel() {
               cluster around it. Below this the bar wraps to a second row, which
               is the correct degradation — a clipped search box is not. */}
           <div className="relative min-w-[9rem] flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/70" />
             <input
               value={searchDraft}
               onChange={(e) => {
                 setSearchDraft(e.target.value);
                 setSearch(e.target.value);
               }}
-              placeholder="Search prompts"
-              aria-label="Search prompts"
-              className="w-full rounded-full border border-line bg-ink-700 py-1.5 pl-8 pr-8 text-sm text-white/90 outline-none transition placeholder:text-white/35 focus:border-brand/40 focus:bg-ink-650"
+              placeholder="Search prompt, scene, shot or take"
+              aria-label="Search prompt, scene, shot or take"
+              className="w-full rounded-full border border-line bg-ink-700 py-1.5 pl-8 pr-8 text-sm text-white/90 outline-none transition placeholder:text-white/70 focus:border-brand/40 focus:bg-ink-650"
             />
             {/* Search now runs against the database rather than the handful of
                 rows the client had loaded, so an active query can hide a lot.
@@ -246,7 +254,7 @@ export function HistoryPanel() {
                   setSearchDraft("");
                   setSearch("");
                 }}
-                className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-white/40 transition hover:bg-white/10 hover:text-white"
+                className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white"
                 aria-label="Clear search"
               >
                 <X className="h-3.5 w-3.5" />
@@ -296,6 +304,20 @@ export function HistoryPanel() {
         </div>
       </div>
 
+      <p className="shrink-0 break-words px-4 pt-2 text-xs text-white/80">Browsing: {rightTab === "project" ? `${project?.name || "Choose a project"} / ${project?.folders?.find((folder) => folder.id === activeFolderId)?.name || (activeFolderId === "__unsorted__" ? "Unsorted" : "All in project")}` : rightTab === "favorites" ? "Favourites across all projects" : "All assets across all projects"}</p>
+      <details className="shrink-0 border-b border-line px-4 py-2 text-xs text-white/80">
+        <summary className="cursor-pointer">Browse filters {Object.values(historyFilters).filter(Boolean).length ? `· ${Object.values(historyFilters).filter(Boolean).join(" · ").replaceAll("_", " ")}` : "· model, dates and review"}</summary>
+        <div className="mt-2 flex flex-wrap gap-3">
+          <label>Model<select className="block max-w-48 rounded bg-ink-700 p-2" value={historyFilters.model || ""} onChange={(e) => filterField("model", e.target.value)}><option value="">All models</option>{[...new Set([...MODELS.map((m) => m.name), ...items.map((i) => i.model)])].sort().map((name) => <option key={name}>{name}</option>)}</select></label>
+          {["from", "to"].map((key) => <label key={key}>{key === "from" ? "From (UTC)" : "Through (UTC)"}<input type="date" className="block rounded bg-ink-700 p-2" value={historyFilters[key] || ""} onChange={(e) => filterField(key, e.target.value)} /></label>)}
+          <label>Order<select className="block rounded bg-ink-700 p-2" value={historyFilters.sort || ""} onChange={(e) => filterField("sort", e.target.value)}><option value="">Newest first</option><option value="oldest">Oldest first</option></select></label>
+          <label>Review<select className="block rounded bg-ink-700 p-2" value={historyFilters.reviewStatus || ""} onChange={(e) => filterField("reviewStatus", e.target.value)}><option value="">All review states</option><option value="candidate">Candidate</option><option value="needs_changes">Needs changes</option><option value="approved">Approved</option></select></label>
+          <label>Card details<select className="block rounded bg-ink-700 p-2" value={density} onChange={(e) => useStore.getState().setMediaDensity(e.target.value)}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>
+          <label className="hidden lg:block">Library width<select className="block rounded bg-ink-700 p-2" value={libraryWidth} onChange={(e) => useStore.getState().setLibraryWidth(e.target.value)}><option value="balanced">Balanced</option><option value="wide">Wide</option></select></label>
+          <button onClick={() => setHistoryFilters({})}>Clear filters</button>
+        </div>
+      </details>
+      {selectedIds.length > 0 && <button className="shrink-0 border-b border-line px-4 py-2 text-left text-sm text-white/85 disabled:opacity-50" disabled={!items.some((item) => selectedIds.includes(item.id) && item.url && item.status === "succeeded")} onClick={() => setReviewItems(items.filter((item) => selectedIds.includes(item.id) && item.url && item.status === "succeeded"))}>Compare selection / prepare handoff</button>}
       {/* selection toolbar — only while something is selected, so it stops
           costing a permanent row for a count nobody was reading */}
       {selectedIds.length > 0 && (
@@ -317,7 +339,7 @@ export function HistoryPanel() {
             {allSelected ? "Deselect all" : "Select all"}
           </button>
 
-          <span className="text-sm text-white/45">{selectedIds.length} selected</span>
+          <span className="text-sm text-white/70">{selectedIds.length} selected</span>
 
           <button
             onClick={downloadSelectedZip}
@@ -356,7 +378,7 @@ export function HistoryPanel() {
           >
             {(close) =>
               projects.length === 0 ? (
-                <p className="px-2 py-1.5 text-sm text-white/45">No projects yet.</p>
+                <p className="px-2 py-1.5 text-sm text-white/70">No projects yet.</p>
               ) : (
                 projects.map((p) => (
                   <MenuItem
@@ -366,7 +388,7 @@ export function HistoryPanel() {
                       close();
                     }}
                   >
-                    <Layers className="h-4 w-4 text-white/45" />
+                    <Layers className="h-4 w-4 text-white/70" />
                     <span className="flex-1 truncate">{p.name}</span>
                   </MenuItem>
                 ))
@@ -376,7 +398,7 @@ export function HistoryPanel() {
 
           <button
             onClick={clearSelection}
-            className="ml-auto grid h-7 w-7 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white"
+            className="ml-auto grid h-7 w-7 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
             aria-label="Clear selection"
           >
             <X className="h-4 w-4" />
@@ -446,7 +468,7 @@ function ScopeCount({ n, active }) {
     <span
       className={cn(
         "scope-tab-count shrink-0 rounded-full px-1.5 text-[11px] font-medium tabular-nums",
-        active ? "bg-white/10 text-white/60" : "text-white/35"
+        active ? "bg-white/10 text-white/60" : "text-white/70"
       )}
     >
       {n > 999 ? `${Math.floor(n / 1000)}k` : n}
@@ -477,7 +499,7 @@ function TabBtn({
         "flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
         active
           ? "bg-ink-850 text-white shadow-sm"
-          : "text-white/55 hover:text-white/90"
+          : "text-white/70 hover:text-white/90"
       )}
     >
       {children}
@@ -521,7 +543,7 @@ function AssetZoomControl({
         type="button"
         onClick={() => onChange(value - 20)}
         disabled={value <= ZOOM_MIN}
-        className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
+        className="grid h-7 w-7 place-items-center rounded-md text-white/70 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
         aria-label="Zoom assets out"
         title="Smaller assets"
       >
@@ -542,7 +564,7 @@ function AssetZoomControl({
         type="button"
         onClick={() => onChange(value + 20)}
         disabled={value >= ZOOM_MAX}
-        className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
+        className="grid h-7 w-7 place-items-center rounded-md text-white/70 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
         aria-label="Zoom assets in"
         title="Larger assets"
       >

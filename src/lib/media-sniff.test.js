@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 import { extensionFromBytes } from "./media-sniff";
 
 test("extensionFromBytes: recognises a PNG signature", () => {

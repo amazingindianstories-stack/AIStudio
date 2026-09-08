@@ -1,4 +1,4 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
@@ -25,14 +25,16 @@ test("BoardSwitcher rejects stale project-list responses", () => {
   assert.match(switcher, /const requestId = \+\+requestIdRef\.current/);
   assert.ok(
     (switcher.match(/requestIdRef\.current !== requestId/g) || []).length >= 2,
-    "both list-fetch and auto-create responses must be fenced"
+    "list-fetch and explicit-create responses must be fenced"
   );
   assert.match(switcher, /encodeURIComponent\(projectId\)/);
 });
 
 test("BoardSwitcher surfaces list failures and offers an accessible retry", () => {
   assert.match(switcher, /if \(!res\.ok\) throw new Error\("Could not load boards"\)/);
-  assert.match(switcher, /if \(!created\.ok\) throw new Error\("Could not create a board"\)/);
+  assert.match(switcher, /const json = await requestJson\("\/api\/canvas-boards"/);
+  const entryEffect = switcher.slice(switcher.indexOf("useEffect(() =>"), switcher.indexOf("const createBoard"));
+  assert.doesNotMatch(entryEffect, /method: "POST"/);
   assert.match(switcher, /setBoardsError\(true\)/);
   assert.match(switcher, /Could not load boards — Retry/);
   assert.match(switcher, /setLoadAttempt\(\(attempt\) => attempt \+ 1\)/);

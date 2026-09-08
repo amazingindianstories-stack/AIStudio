@@ -1,5 +1,3 @@
-"use client";
-
 import {
   useCallback,
   useEffect,
@@ -276,7 +274,7 @@ export function packColumns(
       if (heights[i] < heights[target]) target = i;
     }
     columns[target].push(item);
-    heights[target] += relativeHeight(item.aspectRatio) + 0.06; // + gap
+    heights[target] += relativeHeight(item.aspectRatio) + 0.55; // + gap
   }
   return columns;
 }

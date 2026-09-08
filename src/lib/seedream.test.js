@@ -1,4 +1,4 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import sharp from "sharp";
 import { seedreamSize, SEEDREAM_SIZES, resolveSeedreamReferences } from "./seedream";

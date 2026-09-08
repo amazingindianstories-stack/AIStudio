@@ -16,7 +16,7 @@
  * contract is documented as generic over T and does not itself touch the
  * canvas node shape.
  */
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { commit, undo, redo } from "./history";
 
