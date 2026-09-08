@@ -117,6 +117,8 @@ export function PromptComposer() {
   const mentionRef = useRef(null);
   const toolbarMeasureRef = useRef(null);
   const [dragging, setDragging] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState(0);
+  const uploading = pendingUploads > 0;
   const [extractingFrames, setExtractingFrames] = useState(0);
   const [pickingClips, setPickingClips] = useState(false);
   const [preferredWidth, setPreferredWidth] = useState(768);
@@ -185,7 +187,7 @@ export function PromptComposer() {
   // uploads at full REF_MAX_DIM fidelity — the density identity tiles are
   // cropped from — while the last step (1024px/q0.8, today's behavior) is a
   // guaranteed-to-fit floor.
-  const addImageFiles = async (files) => {
+  const prepareImageFiles = async (files) => {
     const referenceFiles = files.filter(
       (file) => isVideoFile(file) || file.type.startsWith("image/")
     );
@@ -282,6 +284,24 @@ export function PromptComposer() {
     for (const dataUrl of dataUrls) s.addReference(dataUrl);
   };
 
+  // Track whole batches through every async path, including failures and early
+  // returns. A counter keeps overlapping drops from hiding an active upload.
+  const addImageFiles = async (files) => {
+    const supported = files.filter((file) =>
+      isVideoFile(file) || file.type.startsWith("image/") ||
+      (file.type.startsWith("audio/") && supportsAudio(s.model))
+    );
+    if (!supported.length) return;
+    setPendingUploads((count) => count + 1);
+    try {
+      await prepareImageFiles(supported);
+    } catch (error) {
+      alert(error?.message || "Could not prepare the attachments. Please try again.");
+    } finally {
+      setPendingUploads((count) => count - 1);
+    }
+  };
+
   const onFiles = (e) => {
     addImageFiles(Array.from(e.target.files ?? []));
     e.target.value = "";
@@ -347,11 +367,20 @@ export function PromptComposer() {
         <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-brand/60 bg-ink-900/85 backdrop-blur-sm">
           <Upload className="h-6 w-6 text-brand" />
           <p className="text-sm font-medium text-white/90">
-            Drop images or video to add as references
+            Drop images, video or audio to add as references
           </p>
         </div>
       )}
       {pickingClips && <VideoRefPicker onClose={() => setPickingClips(false)} />}
+
+      <div role="status" aria-live="polite" aria-atomic="true">
+        {uploading && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg bg-brand/10 px-3 py-2 text-xs text-white/80">
+            <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin text-brand" />
+            <span>Uploading and preparing attachments… Generate will be available when they’re ready.</span>
+          </div>
+        )}
+      </div>
 
       {extractingFrames > 0 && (
         <div className="mb-2 flex items-center gap-2 rounded-lg bg-ink-750 px-3 py-2 text-xs text-white/70">
@@ -656,7 +685,7 @@ export function PromptComposer() {
             // generate/image and generate/video, which returns a readable
             // error either way. This just skips a submit already known to
             // fail rather than round-tripping to find that out.
-            if (s.prompt.length > maxPromptLength) return;
+            if (uploading || s.prompt.length > maxPromptLength) return;
             s.generate();
           }}
           assets={s.assets}
@@ -1019,17 +1048,17 @@ export function PromptComposer() {
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => s.generate()}
-          disabled={!s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength}
+          disabled={uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength}
           className={cn(
             "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
-            s.prompt.trim() && !s.generating && s.prompt.length <= maxPromptLength
+            !uploading && s.prompt.trim() && !s.generating && s.prompt.length <= maxPromptLength
               ? "bg-gradient-to-br from-brand to-accent text-ink-900 shadow-glow hover:brightness-110"
               : "cursor-not-allowed bg-ink-650 text-white/30"
           )}
           aria-label="Generate"
-          title={s.prompt.length > maxPromptLength ? `Prompt exceeds the ${maxPromptLength.toLocaleString()}-character limit` : undefined}
+          title={uploading ? "Waiting for attachments to finish uploading" : s.prompt.length > maxPromptLength ? `Prompt exceeds the ${maxPromptLength.toLocaleString()}-character limit` : undefined}
         >
-          {s.generating ? (
+          {s.generating || uploading ? (
             <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
             <ArrowUp className="h-5 w-5" strokeWidth={2.4} />
