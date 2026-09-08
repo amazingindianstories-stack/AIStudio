@@ -6,7 +6,9 @@ import { upsertItem } from "@/lib/store-db";
 export const runtime = "nodejs";
 export const maxDuration = 120;
 
-const GEMINI_MODEL = "gemini-1.5-flash";
+// Gemini 1.5 Flash has been retired and returns 404. Keep the model
+// configurable for future rotations; 2.5 Flash supports audio input and text.
+const GEMINI_MODEL = process.env.AUDIO_TRANSCRIPTION_MODEL || "gemini-2.5-flash";
 
 const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
 
@@ -51,7 +53,7 @@ export async function POST(req) {
     const id = crypto.randomUUID();
     const now = Date.now();
     const item = {
-      id, kind: "audio", status: "succeeded", prompt: transcript, model: "Gemini 1.5 Flash",
+      id, kind: "audio", status: "succeeded", prompt: transcript, model: `Gemini (${GEMINI_MODEL})`,
       aspectRatio: "audio", resolution: null, duration: null, referenceAudios: [audioRef],
       productionMetadata: { type: "audio-transcription", originalName: name, transcript, sourceAudio: audioRef },
       userId: user.id, costCents: 0, costBasis: "estimated", createdAt: now, updatedAt: now,
