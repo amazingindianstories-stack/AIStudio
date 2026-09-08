@@ -1,4 +1,4 @@
-import { eq, desc, lt, or, gt, inArray, isNull, and, sql, } from "drizzle-orm";
+import { ne, eq, desc, lt, or, gt, inArray, isNull, and, sql, } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations } from "./schema";
 import { isProviderModel } from "./model-registry";
@@ -154,7 +154,7 @@ export function likePattern(q) {
  *  definition so a filter can never mean two different things in the grid and
  *  in the number next to it. */
 function filterConditions(filter) {
-  const conds = [];
+  const conds = filter.kind === "audio" ? [] : [ne(generations.kind, "audio")];
   if (filter.projectId) conds.push(eq(generations.projectId, filter.projectId));
   if (filter.folderId === null) conds.push(isNull(generations.folderId));
   else if (filter.folderId) conds.push(eq(generations.folderId, filter.folderId));
@@ -668,9 +668,12 @@ export async function readGenerationUpdates(
     .select()
     .from(generations)
     .where(
-      or(
-        inArray(generations.status, ["queued", "running"]),
-        gt(generations.updatedAt, since)
+      and(
+        ne(generations.kind, "audio"),
+        or(
+          inArray(generations.status, ["queued", "running"]),
+          gt(generations.updatedAt, since)
+        )
       )
     )
     .orderBy(desc(generations.updatedAt))

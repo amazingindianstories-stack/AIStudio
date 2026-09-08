@@ -74,6 +74,7 @@ export function scopeToQuery(scope)
  * view that a refetch would then remove.
  */
 export function matchesScope(item, scope) {
+  if (item.kind === "audio" && scope.kind !== "audio") return false;
   if (scope.kind !== "all" && item.kind !== scope.kind) return false;
 
   const q = scope.q.trim().toLowerCase();
