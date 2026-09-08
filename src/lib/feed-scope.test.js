@@ -211,3 +211,11 @@ test("an over-long search term is truncated on both sides", () => {
   const parsed = parseHistoryFilter(historyFilterToParams({ q: long }));
   assert.equal(parsed.q?.length, 200);
 });
+
+test("transcripts only match an explicit audio scope", () => {
+ const transcript = item({kind: "audio", projectId: UUID_A, isFavorite: true});
+ for (const tab of ["history", "project", "favorites"]) {
+   assert.equal(matchesScope(transcript, scope({tab, projectId: UUID_A})), false);
+ }
+ assert.equal(matchesScope(transcript, scope({kind: "audio"})), true);
+});

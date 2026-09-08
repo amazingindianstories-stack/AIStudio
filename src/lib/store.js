@@ -167,7 +167,7 @@ function insertNewItem(
     // join the conversational thread — they're not a prompt/response chat
     // turn the way image/video generations are, and mixing a worker-run
     // depth job into that feed was explicitly unwanted.
-    if (item.kind !== "depth" && item.projectId && item.projectId === s.activeProjectId) {
+    if (item.kind !== "depth" && item.kind !== "audio" && item.projectId && item.projectId === s.activeProjectId) {
       patch.threadItems = [item, ...s.threadItems.filter((i) => i.id !== item.id)];
     }
     return patch;
@@ -605,7 +605,7 @@ export const useStore = create((set, get) => ({
       // undershoot THREAD_PAGE_SIZE when a page happens to contain depth
       // rows — acceptable for a kind this infrequent, on an unpaginated
       // single fetch.
-      const threadItems = (json.items ?? []).filter((it) => it.kind !== "depth");
+      const threadItems = (json.items ?? []).filter((it) => it.kind !== "depth" && it.kind !== "audio");
       set({ threadItems, threadLoading: false });
       for (const it of threadItems) startPolling(it, set, get);
     } catch {
