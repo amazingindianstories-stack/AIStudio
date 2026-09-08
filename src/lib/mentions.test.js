@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   isImgTag,
+  isAudioTag,
+  parseAudioMentionIndices,
+  resolveAudioReferences,
   isVidTag,
   parseAssetSlugs,
   parseMentionIndices,
@@ -122,4 +125,13 @@ test("renumberImgMentions renumbers every occurrence of a repeated tag", () => {
     renumberImgMentions("@img1 matches @img1 again", [1, 0]),
     "@img2 matches @img2 again"
   );
+});
+
+test("audio tags resolve separately from images, clips and named assets", () => {
+  const prompt = "@AUDIO2 @audio2 @img1 @vid1 @priya";
+  assert.equal(isAudioTag("AUDIO2"), true);
+  assert.equal(isAudioTag("audio"), false);
+  assert.deepEqual(parseAssetSlugs(prompt), ["priya"]);
+  assert.deepEqual(parseAudioMentionIndices(prompt), [2]);
+  assert.deepEqual(resolveAudioReferences(prompt, ["a.mp3", "b.wav"]), ["b.wav"]);
 });
