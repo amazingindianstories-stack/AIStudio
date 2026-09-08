@@ -44,6 +44,7 @@ def row_to_item(g: Generation) -> dict:
         "poster": g.poster,
         "referenceImages": g.reference_images,
         "referenceVideos": g.reference_videos,
+        "referenceAudios": g.reference_audios,
         "error": g.error,
         "moderationBlocked": g.moderation_blocked,
         "taskId": g.task_id,

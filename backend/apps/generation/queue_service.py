@@ -30,9 +30,7 @@ _last_reap_at = 0
 def upsert_item(item: dict) -> None:
     """item: the same dict shape row_to_item produces (camelCase keys),
     used both for reads and as the write shape from routes."""
-    Generation.objects.update_or_create(
-        id=item["id"],
-        defaults={
+    defaults = {
             "kind": item["kind"],
             "status": item["status"],
             "prompt": item["prompt"],
@@ -46,6 +44,7 @@ def upsert_item(item: dict) -> None:
             "moderation_blocked": item.get("moderationBlocked"),
             "reference_images": item.get("referenceImages"),
             "reference_videos": item.get("referenceVideos"),
+            "reference_audios": item.get("referenceAudios"),
             "project_id": item.get("projectId"),
             "folder_id": item.get("folderId"),
             "user_id": item.get("userId"),
@@ -70,7 +69,10 @@ def upsert_item(item: dict) -> None:
             "track_characters": item.get("trackCharacters"),
             "created_at": item["createdAt"],
             "updated_at": item["updatedAt"],
-        },
+        }
+    Generation.objects.update_or_create(
+        id=item["id"], defaults=defaults,
+        create_defaults={**defaults, "production_metadata": item.get("productionMetadata") or {}},
     )
 
 
@@ -150,21 +152,21 @@ def _queue_snapshot(kind: str, created_at: int, item_id: str, best_of: int, wind
                 WHERE created_at > %(skirt_start)s
                   AND updated_at >= %(window_start)s
                   AND status IN ('running', 'succeeded', 'failed')
-                  AND (kind = 'image' OR model ILIKE '%%omni%%')
+                  AND ((kind = 'image' AND model NOT IN ('Seedream 5.0 Pro', 'seedream-5-pro')) OR model ILIKE '%%omni%%')
                   AND NOT (status = 'failed' AND coalesce(error, '') LIKE '%%429%%')
               ) AS window_cents,
               (SELECT count(*) FROM generations
                 WHERE created_at > %(skirt_start)s
                   AND updated_at >= %(window_start)s
                   AND status IN ('running', 'succeeded', 'failed')
-                  AND (kind = 'image' OR model ILIKE '%%omni%%')
+                  AND ((kind = 'image' AND model NOT IN ('Seedream 5.0 Pro', 'seedream-5-pro')) OR model ILIKE '%%omni%%')
                   AND NOT (status = 'failed' AND coalesce(error, '') LIKE '%%429%%')
               ) AS window_rows,
               (SELECT min(updated_at) FROM generations
                 WHERE created_at > %(skirt_start)s
                   AND updated_at >= %(window_start)s
                   AND status IN ('running', 'succeeded', 'failed')
-                  AND (kind = 'image' OR model ILIKE '%%omni%%')
+                  AND ((kind = 'image' AND model NOT IN ('Seedream 5.0 Pro', 'seedream-5-pro')) OR model ILIKE '%%omni%%')
                   AND NOT (status = 'failed' AND coalesce(error, '') LIKE '%%429%%')
               ) AS oldest_updated_at
             """,
@@ -204,7 +206,7 @@ def get_queue_position(item_id: str) -> dict | None:
     if position > 0:
         return {"position": position, "status": item["status"]}
 
-    bills_gemini = item["kind"] == "image" or bool(re.search(r"omni", item["model"], re.IGNORECASE))
+    bills_gemini = (item["kind"] == "image" and item["model"].lower() not in ("seedream 5.0 pro", "seedream-5-pro")) or bool(re.search(r"omni", item["model"], re.IGNORECASE))
     if not bills_gemini:
         return {"position": position, "status": item["status"]}
 

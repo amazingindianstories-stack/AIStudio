@@ -139,6 +139,7 @@ def create_video_task(
     duration: int | None = None, references: list[dict] | None = None, reference_video_urls: list[str] | None = None,
     generate_audio: bool = False, task_mode: str = "generate", seed: int | None = None,
     first_frame: dict | None = None,
+    reference_audio_urls: list[str] | None = None,
 ) -> str:
     """references: [{"dataUrl": "..."}] (already resolved LabeledRef dicts,
     only .dataUrl is used here). first_frame: {"dataUrl": "..."} — multi-shot
@@ -172,6 +173,7 @@ def create_video_task(
             )
         )
 
+    text = re.sub(r"@audio(\d+)", lambda match: f"[audio {match.group(1)}]", text, flags=re.I)
     content: list[dict] = [{"type": "text", "text": text}]
     for ref in refs:
         content.append({"type": "image_url", "image_url": {"url": ref["dataUrl"]}, "role": ref_role})
@@ -179,6 +181,9 @@ def create_video_task(
         content.append({"type": "image_url", "image_url": {"url": first_frame["dataUrl"]}, "role": "first_frame"})
     for url in (reference_video_urls or [])[:3]:
         content.append({"type": "video_url", "video_url": {"url": url}, "role": "reference_video"})
+
+    for url in (reference_audio_urls or [])[:10]:
+        content.append({"type": "audio_url", "audio_url": {"url": url}, "role": "reference_audio"})
 
     body: dict = {"model": model, "content": content, "generate_audio": generate_audio is True}
     if task_mode in ("edit", "extend"):

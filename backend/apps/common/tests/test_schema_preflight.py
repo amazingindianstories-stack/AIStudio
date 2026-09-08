@@ -18,6 +18,7 @@ class SchemaPreflightTests(TransactionTestCase):
         recorder.migration_qs.filter(app__in=LOCAL_LABELS).delete()
         with connection.cursor() as cursor:
             cursor.execute("ALTER TABLE generations DROP COLUMN production_metadata")
+            cursor.execute("ALTER TABLE generations DROP COLUMN reference_audios")
         try:
             call_command("schema_preflight", adopt=True, stdout=StringIO())
             applied = recorder.applied_migrations()
@@ -38,6 +39,8 @@ class SchemaPreflightTests(TransactionTestCase):
         finally:
             with connection.cursor() as cursor:
                 cursor.execute("ALTER TABLE generations ADD COLUMN IF NOT EXISTS production_metadata jsonb NOT NULL DEFAULT '{}'::jsonb")
+            with connection.cursor() as cursor:
+                cursor.execute("ALTER TABLE generations ADD COLUMN IF NOT EXISTS reference_audios jsonb")
             recorder.migration_qs.filter(app__in=LOCAL_LABELS).delete()
 
     def test_unadopted_catalog_is_not_allowed_to_start(self):
@@ -45,8 +48,21 @@ class SchemaPreflightTests(TransactionTestCase):
             call_command("schema_preflight", require_adopted=True, stdout=StringIO())
 
     def test_drift_does_not_record_adoption(self):
-        # A current-model test DB has the future column but no local migration
-        # records. Adoption must reject that mismatch, never fake the new DDL.
-        with self.assertRaisesMessage(CommandError, "unexpected columns production_metadata"):
-            call_command("schema_preflight", adopt=True, stdout=StringIO())
-        self.assertFalse(MigrationRecorder(connection).migration_qs.filter(app__in=LOCAL_LABELS).exists())
+        with connection.cursor() as cursor:
+            cursor.execute("ALTER TABLE generations ADD COLUMN unexpected_release_column text")
+        try:
+            with self.assertRaisesMessage(CommandError, "unexpected columns unexpected_release_column"):
+                call_command("schema_preflight", adopt=True, stdout=StringIO())
+            self.assertFalse(MigrationRecorder(connection).migration_qs.filter(app__in=LOCAL_LABELS).exists())
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("ALTER TABLE generations DROP COLUMN unexpected_release_column")
+
+    def test_current_production_columns_are_audited_and_adopted(self):
+        call_command("schema_preflight", adopt=True, stdout=StringIO())
+        applied = MigrationRecorder(connection).applied_migrations()
+        self.assertIn(("generation", "0008_generation_production_metadata"), applied)
+        self.assertIn(("generation", "0009_generation_reference_audios"), applied)
+        call_command("schema_preflight", require_adopted=True, stdout=StringIO())
+        call_command("migrate", "generation", interactive=False, stdout=StringIO())
+        MigrationRecorder(connection).migration_qs.filter(app__in=LOCAL_LABELS).delete()

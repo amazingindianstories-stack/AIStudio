@@ -20,7 +20,7 @@ def parse_history_filter(params) -> dict:
         filter["folderId"] = folder_id
 
     kind = params.get("kind")
-    if kind in ("image", "video"):
+    if kind in ("image", "video", "audio"):
         filter["kind"] = kind
 
     if params.get("favorite") == "1":

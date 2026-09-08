@@ -168,6 +168,22 @@ class Command(BaseCommand):
         targets = set(ADOPTION_TARGETS) | {
             node for node in applied if node[0] in LOCAL_LABELS and node in loader.graph.nodes
         }
+        # Production Next already added these columns, while older previews may
+        # lack them. Audit their exact migration state before recording adoption;
+        # absent columns remain pending real DDL. Never blanket-fake the graph.
+        additive = [
+            (("generation", "0008_generation_production_metadata"), "production_metadata"),
+            (("generation", "0009_generation_reference_audios"), "reference_audios"),
+        ]
+        with connection.cursor() as cursor:
+            columns = {col.name for col in connection.introspection.get_table_description(cursor, "generations")}
+        adopted_additive = set()
+        for node, column in additive:
+            if column not in columns:
+                break
+            targets.add(node)
+            if node not in applied:
+                adopted_additive.add(node)
         registry = loader.project_state(nodes=sorted(targets)).apps
         problems = audit_catalog(registry)
         if problems:
@@ -176,8 +192,8 @@ class Command(BaseCommand):
         if options["adopt"]:
             recorder.ensure_schema()
             with transaction.atomic():
-                for app_label, migration_name in sorted(missing_baseline):
+                for app_label, migration_name in sorted(missing_baseline | adopted_additive):
                     recorder.record_applied(app_label, migration_name)
-            self.stdout.write(self.style.SUCCESS(f"Adopted {len(missing_baseline)} historical migrations after exact catalog audit; later migrations must run normally."))
+            self.stdout.write(self.style.SUCCESS(f"Adopted {len(missing_baseline | adopted_additive)} catalog-verified migrations after exact catalog audit; later migrations must run normally."))
         else:
             self.stdout.write(self.style.SUCCESS("Catalog matches adopted/applied migration state."))

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioLines, Clipboard, Loader2, Upload, X } from "lucide-react";
+import { useDialogFocus } from "./useDialogFocus";
 import { apiFetch } from "@/lib/api";
 
 export function AudioTranscriptionModal({ open, onClose, projectId }) {
@@ -9,6 +10,8 @@ export function AudioTranscriptionModal({ open, onClose, projectId }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const inputRef = useRef(null);
+  const dialogRef = useRef(null);
+  useDialogFocus(dialogRef, open);
 
   const loadHistory = useCallback(async () => {
     const scope = projectId ? `&projectId=${encodeURIComponent(projectId)}` : "";
@@ -45,7 +48,7 @@ export function AudioTranscriptionModal({ open, onClose, projectId }) {
   };
   const copy = async (value) => { try { await navigator.clipboard.writeText(value); } catch {} };
   return (
-    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Audio transcription">
+    <div ref={dialogRef} tabIndex={-1} onKeyDown={(event) => { if (event.key === "Escape") onClose(); }} className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-4" role="dialog" aria-modal="true" aria-label="Audio transcription">
       <div className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl border border-line bg-ink-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-line px-5 py-4"><div className="flex items-center gap-2"><AudioLines className="h-5 w-5 text-brand" /><div><h2 className="font-semibold text-white">Audio transcription</h2><p className="text-xs text-white/50">Timestamped prompt-ready notes for Seedance</p></div></div><button onClick={onClose} aria-label="Close"><X className="h-5 w-5 text-white/60" /></button></div>
         <div className="grid min-h-0 gap-5 overflow-y-auto p-5 md:grid-cols-[minmax(220px,0.8fr)_minmax(300px,1.3fr)_minmax(220px,0.9fr)]">

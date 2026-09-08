@@ -280,7 +280,9 @@ def admin_pricing(request):
     except (TypeError, ValueError):
         unit_cost_cents = 0
         valid = False
-    unit = "per_second" if body.get("unit") == "per_second" else "per_image"
+    unit = body.get("unit")
+    if unit not in ("per_image", "per_second", "per_million_tokens", "per_1000_images"):
+        return Response({"error": "Invalid pricing unit."}, status=400)
     if not model or not valid:
         return Response({"error": "Invalid pricing."}, status=400)
     pricing_db.update_pricing(model, unit_cost_cents, unit)

@@ -3,6 +3,7 @@ from django.urls import URLPattern, URLResolver, get_resolver
 
 
 EXPECTED = {
+    "audio/transcribe": {"POST"},
     "admin/activity": {"GET"}, "admin/audit/runtime": {"POST"}, "admin/data": {"GET"},
     "admin/limits": {"POST"}, "admin/logs": {"GET"}, "admin/pricing": {"POST"},
     "admin/set-token": {"POST"}, "admin/status": {"GET"}, "admin/user-limits": {"POST"},

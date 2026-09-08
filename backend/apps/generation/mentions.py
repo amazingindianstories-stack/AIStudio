@@ -24,7 +24,7 @@ def parse_asset_slugs(prompt: str) -> list[str]:
     order: list[str] = []
     for m in TAG_RE.finditer(prompt):
         slug = m.group(1).lower()
-        if is_img_tag(slug) or is_vid_tag(slug) or slug in seen:
+        if is_img_tag(slug) or is_vid_tag(slug) or re.fullmatch(r"audio\d+", slug) or slug in seen:
             continue
         seen.add(slug)
         order.append(slug)
@@ -74,3 +74,8 @@ def renumber_img_mentions(prompt: str, mapping: list[int | None]) -> str:
         return m.group(0) if new_index is None else f"@img{new_index + 1}"
 
     return MENTION_RE.sub(replace, prompt)
+
+
+def resolve_audio_references(prompt: str, clips: list[str]) -> list[str]:
+    tagged = sorted({int(n) for n in re.findall(r"@audio(\d+)", prompt, re.I) if 1 <= int(n) <= len(clips)})
+    return [clips[n - 1] for n in tagged] if tagged else clips

@@ -4,6 +4,9 @@ from .models import Pricing
 
 
 def read_pricing() -> list[dict]:
+    from .pricing import SEEDREAM_PRICING
+    for row in SEEDREAM_PRICING:
+        Pricing.objects.get_or_create(model=row["model"], defaults={"unit_cost_cents": row["unitCostCents"], "unit": row["unit"], "notes": row["notes"]})
     return [
         {"model": p.model, "unitCostCents": p.unit_cost_cents, "unit": p.unit, "notes": p.notes}
         for p in Pricing.objects.all()

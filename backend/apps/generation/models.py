@@ -22,6 +22,7 @@ class Generation(models.Model):
     moderation_blocked = models.BooleanField(null=True)
     reference_images = models.JSONField(null=True)
     reference_videos = models.JSONField(null=True)
+    reference_audios = models.JSONField(null=True)
     project_id = models.UUIDField(null=True)
     folder_id = models.UUIDField(null=True)
     user_id = models.UUIDField(null=True)

@@ -26,6 +26,7 @@ export const COMPOSER_FIELDS = [
   "referenceKinds",
   "referenceLabels",
   "referenceVideos",
+  "referenceAudios",
   "stagedReferenceVideos",
   "stagedContinuationFrame",
   "audioNotes",
@@ -50,6 +51,7 @@ export function modeTransition(state, mode) {
     referenceKinds: [],
     referenceLabels: [],
     referenceVideos: [],
+    referenceAudios: [],
     stagedReferenceVideos: [],
     stagedContinuationFrame: null,
     audioNotes: [],
@@ -84,7 +86,7 @@ export function modelTransition(state, model) {
       : durations.includes(saved.duration)
         ? saved.duration
         : durations[0],
-    resolution: resolutions.includes(saved.resolution)
+    resolution: (model === "Seedream 5.0 Pro" || model === "seedream-5-pro") && model !== state.model ? "2K" : resolutions.includes(saved.resolution)
       ? saved.resolution
       : resolutions[0],
     aspectRatio: aspects.includes(saved.aspectRatio)
@@ -163,6 +165,7 @@ export function restoreComposerSnapshot(mode, draft) {
     "referenceKinds",
     "referenceLabels",
     "referenceVideos",
+    "referenceAudios",
     "stagedReferenceVideos",
     "audioNotes",
   ]) {

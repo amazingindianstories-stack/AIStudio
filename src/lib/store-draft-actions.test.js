@@ -28,3 +28,18 @@ test("reference reorder preserves duplicate occurrences and role labels", () => 
  expect(useStore.getState().referenceLabels).toEqual(["Identity","Costume","Motion"]);
  expect(useStore.getState().prompt).toBe("@img1 @img3 @img2");
 });
+
+test("audio references survive mode drafts without leaking into image mode", () => {
+ useStore.setState({ mode: "video", referenceAudios: ["/api/media/audio"], modeDrafts: {} });
+ useStore.getState().setMode("image");
+ expect(useStore.getState().referenceAudios).toEqual([]);
+ useStore.getState().setMode("video");
+ expect(useStore.getState().referenceAudios).toEqual(["/api/media/audio"]);
+});
+test("Seedream clones preserve stored original references", async () => {
+ const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+ useStore.setState({items: [{...take, model: "Seedream 5.0 Pro"}]});
+ expect((await useStore.getState().cloneToComposer("source")).ok).toBe(true);
+ expect(useStore.getState().referenceImages).toEqual(take.referenceImages);
+ fetch.mock.calls.forEach(([url]) => expect(url).not.toBe(take.referenceImages[0]));
+});
