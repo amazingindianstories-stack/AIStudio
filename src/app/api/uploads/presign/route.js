@@ -22,6 +22,7 @@ export const runtime = "nodejs";
 const ALLOWED_PURPOSES = {
   "image-reference": { prefix: "uploads/image-reference", contentTypes: [/^image\/(jpeg|png|webp|tiff|gif|heic|heif)$/] },
   "depth-input": { prefix: "uploads/depth-input", contentTypes: [/^video\//] },
+  "audio-reference": { prefix: "uploads/audio-reference", contentTypes: [/^audio\/(mpeg|mp3|wav|x-wav)$/] },
 };
 
 export async function POST(req) {
