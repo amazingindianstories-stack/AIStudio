@@ -58,6 +58,11 @@ export async function POST(req) {
         .filter((v) => typeof v === "string" && v.length > 0)
         .slice(0, MAX_REFERENCE_VIDEOS)
     : [];
+  const referenceAudios = supportsAudio(model)
+    ? (Array.isArray(body.referenceAudios) ? body.referenceAudios : [])
+        .filter((v) => typeof v === "string" && v.length > 0)
+        .slice(0, model === "Seedance 2.5" ? 10 : 3)
+    : [];
   // Seedance 2.5 only — Edit/Extend an attached clip instead of ordinary
   // generation. Anything unrecognized falls back to "generate" rather than
   // 400ing, since this field didn't exist before this model shipped.
@@ -244,6 +249,7 @@ export async function POST(req) {
     duration,
     referenceImages: savedRefs,
     referenceVideos: referenceVideos.length ? referenceVideos : undefined,
+    referenceAudios: referenceAudios.length ? referenceAudios : undefined,
     continuationFrameUrl,
     generateAudio,
     videoTaskMode: videoTaskMode !== "generate" ? videoTaskMode : undefined,

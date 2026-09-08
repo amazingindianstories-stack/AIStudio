@@ -21,7 +21,7 @@ import {
 import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
 import { supportsSeed, supportsVideoBestOf } from "@/lib/config";
 import { buildKlingInput } from "@/lib/kling-input";
-import { resolveReferences, resolveVideoReferences } from "@/lib/mentions";
+import { resolveReferences, resolveVideoReferences, resolveAudioReferences } from "@/lib/mentions";
 import {
   readImageAsBase64,
 } from "@/lib/save-media";
@@ -103,6 +103,16 @@ async function signVideoRefs(refs, signal) {
         `Reference clip could not be prepared for the provider. ${e?.message ?? e}`
       );
     }
+  }
+  return out;
+}
+
+async function signAudioRefs(refs, signal) {
+  const out = [];
+  for (const ref of refs) {
+    throwIfAborted(signal);
+    const signed = await signStoredRef(ref);
+    out.push(signed ?? ref);
   }
   return out;
 }
@@ -229,6 +239,9 @@ async function submitVideo(base, signal) {
       resolveVideoReferences(prompt, base.referenceVideos ?? []),
       signal
     );
+    const signedRefAudios = await signAudioRefs(
+      resolveAudioReferences(prompt, base.referenceAudios ?? []), signal
+    );
     const resolvedRefs = resolveReferences(prompt, inlined);
     // Multi-shot chaining (Phase 3.3) — reuses the same stored-ref → inline
     // data-URL materialisation referenceImages already goes through; a
@@ -254,6 +267,7 @@ async function submitVideo(base, signal) {
       // to the browser. BytePlus fetches the clip itself and /api/media/… is
       // session-gated, so a signed URL is the only thing it can actually read.
       referenceVideoUrls: signedRefVideos,
+      referenceAudioUrls: signedRefAudios,
       // Read off the row, not off this request: /api/generate/video only
       // enqueues, so the user's choice reaches the provider through the
       // persisted column and nothing else.

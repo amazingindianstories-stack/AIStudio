@@ -32,6 +32,7 @@ import {
   SkipForward,
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
+import { apiFetch } from "@/lib/api";
 import { parseMentionIndices } from "@/lib/mentions";
 import { limitDefinition } from "@/lib/limits";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
@@ -224,12 +225,29 @@ export function PromptComposer() {
       setExtractingFrames(0);
     }
 
-    // Audio has no image/video-style content to fold into a reference — no
-    // provider here takes one, and there's no frame to extract. It's kept as
-    // a filename-only @audioN tag purely so it can be mentioned in the
-    // prompt text, never uploaded or stored anywhere.
+    // Audio is a first-class Seedance reference. Upload directly to storage so
+    // large files never travel through the generation request, then retain the
+    // stable media URL behind the @audioN chip.
     for (const file of files.filter((f) => f.type.startsWith("audio/"))) {
-      s.addAudioNote(file.name);
+      if (!supportsAudio(s.model)) continue;
+      try {
+        const presignRes = await apiFetch("/api/uploads/presign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ purpose: "audio-reference", contentType: file.type }),
+        });
+        const presign = await presignRes.json();
+        if (!presignRes.ok) throw new Error(presign.error || "Could not start the audio upload.");
+        const putRes = await fetch(presign.uploadUrl, {
+          method: "PUT",
+          headers: { "Content-Type": file.type },
+          body: file,
+        });
+        if (!putRes.ok) throw new Error(`Audio upload failed (${putRes.status}).`);
+        s.addAudioNote({ name: file.name, ref: `/api/media/${presign.key}` });
+      } catch (e) {
+        alert(e?.message || `Could not upload ${file.name}.`);
+      }
     }
 
     const valid = acceptedReferenceFiles.filter((f) => f.type.startsWith("image/"));
@@ -453,16 +471,14 @@ export function PromptComposer() {
         </Reorder.Group>
       )}
 
-      {/* @audioN chips — filename-only tags, no real attachment (see
-          audioNotes' comment in store.js): clicking inserts the tag into the
-          prompt text the same way an @imgN thumbnail does, but there is no
-          file, upload, or provider on the other end of it. */}
+      {s.referenceImages.length > 0 && <details className="mb-2 text-xs text-white/75"><summary className="cursor-pointer">Reference labels and order</summary><p className="my-2">Labels help you organize references. Describe their intended role in the prompt; labels do not enforce a model constraint.</p>{s.referenceImages.map((ref, i) => <div key={`${ref}-${i}`} className="mb-2 flex items-center gap-2"><label className="flex min-w-0 flex-1 items-center gap-2">@img{i + 1}<input aria-label={`Label for reference ${i + 1}`} value={s.referenceLabels[i] ?? ""} onChange={(e) => s.setReferenceLabel(i, e.target.value)} placeholder="Identity, costume, composition…" className="min-w-0 flex-1 rounded border border-line bg-ink-700 px-2 py-1" /></label><button type="button" disabled={i === 0} aria-label={`Move reference ${i + 1} earlier`} onClick={() => { const refs = [...s.referenceImages]; [refs[i - 1], refs[i]] = [refs[i], refs[i - 1]]; s.reorderReferences(refs); }} className="rounded border border-line p-1 disabled:opacity-40">←</button><button type="button" aria-label={`Remove reference ${i + 1}`} onClick={() => s.removeReference(i)} className="rounded border border-line p-1">Remove</button></div>)}</details>}
+      {/* @audioN chips are persisted Seedance audio references. */}
       {s.audioNotes.length > 0 && (
         <div className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1">
           {s.audioNotes.map((name, i) => (
             <div
               key={`${name}-${i}`}
-              title={name}
+              title={typeof name === "string" ? name : name.name}
               className="group relative flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg bg-ink-750 px-1 ring-1 ring-line transition hover:ring-brand/50"
             >
               <button
@@ -471,7 +487,7 @@ export function PromptComposer() {
               >
                 <AudioLines className="h-4 w-4 text-brand" />
                 <span className="line-clamp-1 w-full text-center text-[9px] leading-tight text-white/60">
-                  {name}
+                  {typeof name === "string" ? name : name.name}
                 </span>
               </button>
               <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">

@@ -115,6 +115,10 @@ function tagsToImageRefs(prompt) {
     .replace(/@vid(\d+)/gi, (_, n) => `[video ${n}]`);
 }
 
+function tagsToAudioRefs(prompt) {
+  return prompt.replace(/@audio(\d+)/gi, (_, n) => `[audio ${n}]`);
+}
+
 export const MODERATION_MESSAGE =
   "BytePlus rejected the reference image — its privacy / anti-deepfake filter flags photorealistic faces (it can't tell an AI-generated face from a real one). Retry as text-to-video, or use a clearly stylized reference.";
 
@@ -193,14 +197,14 @@ export async function createVideoTask(
   // Edit/Extend skip it entirely — see the trigger-sentence comment above.
   let text;
   if (taskMode === "edit") {
-    text = EDIT_TRIGGER + tagsToImageRefs(input.prompt.trim());
+    text = EDIT_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim()));
   } else if (taskMode === "extend") {
-    text = EXTEND_TRIGGER + tagsToImageRefs(input.prompt.trim());
+    text = EXTEND_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim()));
   } else {
     text = legacyDirective()
-      ? legacyHeroDirective(refs.length) + tagsToImageRefs(input.prompt.trim())
+      ? legacyHeroDirective(refs.length) + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim()))
       : buildVideoDirective({
-          prompt: tagsToImageRefs(input.prompt.trim()),
+          prompt: tagsToAudioRefs(tagsToImageRefs(input.prompt.trim())),
           refCount: refs.length,
           tagSyntax: "bracket",
           refRoles: buildRefRoles(refs, input.prompt),
@@ -255,6 +259,9 @@ export async function createVideoTask(
       video_url: { url },
       role: "reference_video",
     });
+  }
+  for (const url of (input.referenceAudioUrls ?? []).slice(0, 10)) {
+    content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" });
   }
 
   const body = {
