@@ -33,7 +33,7 @@ export function parseHistoryFilter(params) {
   else if (folderId) filter.folderId = folderId;
 
   const kind = params.get("kind");
-  if (kind === "image" || kind === "video") filter.kind = kind;
+  if (kind === "image" || kind === "video" || kind === "audio") filter.kind = kind;
 
   if (params.get("favorite") === "1") filter.favorite = true;
 
