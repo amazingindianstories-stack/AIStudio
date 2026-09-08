@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import {
   Image as ImageIcon,
   Clapperboard,
+  AudioLines,
   Layers,
   Shapes,
   Sparkles,
@@ -19,6 +20,7 @@ import { useStore } from "@/lib/store";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { AccountSettings } from "./AccountSettings";
 import { cn } from "@/lib/utils";
+import { AudioTranscriptionModal } from "./AudioTranscriptionModal";
 
 const DESTINATIONS = [
   { id: "image", icon: ImageIcon, label: "Image" },
@@ -45,6 +47,7 @@ const DEPTH_STATUS_POLL_MS = 12_000;
  */
 export function TopBar() {
   const [accountOpen, setAccountOpen] = useState(false);
+  const [audioOpen, setAudioOpen] = useState(false);
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
   const view = useStore((s) => s.view);
@@ -139,6 +142,15 @@ export function TopBar() {
               </button>
             );
           })}
+
+          <button
+            onClick={() => setAudioOpen(true)}
+            aria-label="Audio transcription"
+            className="relative flex flex-col items-center gap-1 rounded-lg px-1.5 py-1.5 text-[10px] font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white/90 sm:flex-row sm:px-3 sm:text-sm"
+          >
+            <AudioLines className="h-4 w-4" strokeWidth={1.9} />
+            <span>Audio</span>
+          </button>
 
           <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-line sm:block" aria-hidden />
 
@@ -277,6 +289,7 @@ export function TopBar() {
           }}
         />
       )}
+      <AudioTranscriptionModal open={audioOpen} onClose={() => setAudioOpen(false)} />
     </>
   );
 }
