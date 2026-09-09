@@ -184,7 +184,7 @@ function insertNewItem(
 // matter how many jobs are in flight. It only OBSERVES: the per-item pollers
 // still own execution (pollQueue is what posts /api/queue/execute), so nothing
 // here can double-submit work.
-const LIVE_MS_ACTIVE = 4000; // something is in flight — stay responsive
+const LIVE_MS_ACTIVE = 30000; // callback is authoritative; poll as a fallback
 const LIVE_MS_IDLE = 20000; // nothing running — just watch for teammates
 
 // A queued job is driven entirely by the tab that created it: pollQueue is what
@@ -1495,7 +1495,7 @@ function pollVideo(
   polling.add(id);
 
   const tick = async () => {
-    let retryAfterMs = 4000;
+    let retryAfterMs = 30000;
     try {
       const res = await apiFetch(
         `/api/generate/video/status?id=${encodeURIComponent(id)}`,
@@ -1525,7 +1525,7 @@ function pollVideo(
     if (polling.has(id)) setStoreTimeout(tick, retryAfterMs);
   };
 
-  setStoreTimeout(tick, 3000);
+  setStoreTimeout(tick, 30000);
 }
 
 /**

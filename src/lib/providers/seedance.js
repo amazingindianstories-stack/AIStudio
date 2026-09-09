@@ -271,6 +271,12 @@ export async function createVideoTask(
     // nothing, so nothing starts paying for audio it did not ask for.
     generate_audio: input.generateAudio === true,
   };
+  // BytePlus can notify our server even when the artist closes the browser.
+  // Configure this as a public HTTPS endpoint in production; the 30-second
+  // browser poll remains a fallback for delivery/UI refresh.
+  if (typeof input.callbackUrl === "string" && /^https:\/\//i.test(input.callbackUrl)) {
+    body.callback_url = input.callbackUrl;
+  }
   if (taskMode === "edit" || taskMode === "extend") {
     // BOTH task types require ratio:"adaptive" (output follows the source
     // clip's own aspect ratio) — sending the UI's own aspectRatio here would

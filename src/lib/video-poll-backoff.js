@@ -1,4 +1,4 @@
-export const VIDEO_POLL_BASE_MS = 4_000;
+export const VIDEO_POLL_BASE_MS = 30_000;
 export const VIDEO_POLL_MAX_MS = 60_000;
 
 export function retryAfterMsForPollErrors(count) {

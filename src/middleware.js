@@ -31,12 +31,15 @@ export function middleware(req) {
   // /api/cron/* is invoked by Vercel without a browser session. Each cron
   // route fails closed on its own CRON_SECRET bearer token before touching
   // data, so the edge cookie-presence gate must let that token reach it.
+  // /api/webhooks/seedance is invoked by BytePlus without a browser session;
+  // the Node route verifies its callback token before accepting the payload.
   if (
     pathname.startsWith("/api/auth") ||
     pathname === "/api/admin/set-token" ||
     pathname === "/api/media-grant" ||
     pathname.startsWith("/api/worker/depth/") ||
     pathname.startsWith("/api/cron/") ||
+    pathname === "/api/webhooks/seedance" ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   ) {

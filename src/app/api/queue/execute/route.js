@@ -243,6 +243,10 @@ async function submitVideo(base, signal) {
       resolveAudioReferences(prompt, base.referenceAudios ?? []), signal
     );
     const resolvedRefs = resolveReferences(prompt, inlined);
+    const callbackBase = process.env.SEEDANCE_CALLBACK_URL;
+    const callbackUrl = callbackBase && process.env.SEEDANCE_CALLBACK_SECRET
+      ? `${callbackBase}${callbackBase.includes("?") ? "&" : "?"}token=${encodeURIComponent(process.env.SEEDANCE_CALLBACK_SECRET)}`
+      : callbackBase;
     // Multi-shot chaining (Phase 3.3) — reuses the same stored-ref → inline
     // data-URL materialisation referenceImages already goes through; a
     // continuation frame is stored exactly like a reference image (see
@@ -282,6 +286,7 @@ async function submitVideo(base, signal) {
       // Multi-shot chaining (Phase 3.3) — see createVideoTask's own header
       // for the evidence caveat (third-party tutorial, not official docs).
       firstFrame: firstFrameDataUrl ? { dataUrl: firstFrameDataUrl } : undefined,
+      callbackUrl,
       signal,
     });
 

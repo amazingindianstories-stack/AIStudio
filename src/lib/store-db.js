@@ -281,6 +281,21 @@ export async function getItem(id) {
   return rows[0] ? rowToItem(rows[0]) : undefined;
 }
 
+/** Find a video by the provider task id used in a BytePlus callback. */
+export async function getItemByTaskId(taskId) {
+  if (!taskId) return undefined;
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(generations)
+    .where(or(
+      eq(generations.taskId, taskId),
+      sql`${generations.candidateTaskIds} @> ${JSON.stringify([taskId])}::jsonb`,
+    ))
+    .limit(1);
+  return rows[0] ? rowToItem(rows[0]) : undefined;
+}
+
 export async function deleteItem(id) {
   const db = await getDb();
   await db.delete(generations).where(eq(generations.id, id));
