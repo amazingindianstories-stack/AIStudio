@@ -42,6 +42,7 @@ import { klingUnitsToCents } from "@/lib/pricing";
 import { getModelDefinition } from "@/lib/model-registry";
 import { boundedBestOf, generateAndSpoolCandidates, readSpooledBase64 } from "@/lib/best-of-spool";
 import { submitVideoCandidates } from "@/lib/video-submissions";
+import { buildSeedanceCallbackUrl } from "@/lib/seedance-callback";
 import {
   emitGenerationEvent,
   persistGenerationFailure,
@@ -243,6 +244,10 @@ async function submitVideo(base, signal) {
       resolveAudioReferences(prompt, base.referenceAudios ?? []), signal
     );
     const resolvedRefs = resolveReferences(prompt, inlined);
+    const callbackUrl = buildSeedanceCallbackUrl(
+      process.env.SEEDANCE_CALLBACK_URL,
+      process.env.SEEDANCE_CALLBACK_SECRET,
+    );
     // Multi-shot chaining (Phase 3.3) — reuses the same stored-ref → inline
     // data-URL materialisation referenceImages already goes through; a
     // continuation frame is stored exactly like a reference image (see
@@ -282,6 +287,7 @@ async function submitVideo(base, signal) {
       // Multi-shot chaining (Phase 3.3) — see createVideoTask's own header
       // for the evidence caveat (third-party tutorial, not official docs).
       firstFrame: firstFrameDataUrl ? { dataUrl: firstFrameDataUrl } : undefined,
+      callbackUrl,
       signal,
     });
 
@@ -321,7 +327,17 @@ async function submitVideo(base, signal) {
       taskId = await createVideoTask(taskInput(seed));
     }
   }
-  return { ...base, ...refUpdates, taskId, status: "running", updatedAt: Date.now() };
+  const submittedAt = Date.now();
+  return {
+    ...base,
+    ...refUpdates,
+    taskId,
+    status: "running",
+    submittedAt,
+    nextPollAt: submittedAt + 5_000,
+    pollAttempts: 0,
+    updatedAt: submittedAt,
+  };
 }
 
 export async function POST(req) {
@@ -332,7 +348,10 @@ export async function POST(req) {
     return NextResponse.json({ error: "Job ID is required." }, { status: 400 });
   }
 
-  const user = await getSession();
+  const workerSecret = process.env.GENERATION_WORKER_SECRET;
+  const internalWorker = !!workerSecret &&
+    req.headers.get("x-generation-worker-secret") === workerSecret;
+  const user = internalWorker ? { id: "server-worker" } : await getSession();
   if (!user) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }

@@ -118,6 +118,17 @@ test("createVideoTask: forwards the queue abort signal to fetch", async () => {
   assert.equal(signal, controller.signal);
 });
 
+test("createVideoTask: sends only an HTTPS callback URL supplied by the configured caller", async () => {
+  const { body } = await withFakeArkResponse("task-callback", () =>
+    createVideoTask({ prompt: "a scene", callbackUrl: "https://app.example/api/webhooks/seedance?token=redacted" })
+  );
+  assert.equal(body.callback_url, "https://app.example/api/webhooks/seedance?token=redacted");
+  const insecure = await withFakeArkResponse("task-no-callback", () =>
+    createVideoTask({ prompt: "a scene", callbackUrl: "http://app.example/callback" })
+  );
+  assert.equal("callback_url" in insecure.body, false);
+});
+
 // ── reproducibility seed (Phase 3.1) ────────────────────────────────────────
 
 test("createVideoTask: seed is included when a number is given", async () => {

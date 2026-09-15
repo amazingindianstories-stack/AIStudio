@@ -271,6 +271,9 @@ export async function createVideoTask(
     // nothing, so nothing starts paying for audio it did not ask for.
     generate_audio: input.generateAudio === true,
   };
+  if (typeof input.callbackUrl === "string" && /^https:\/\//i.test(input.callbackUrl)) {
+    body.callback_url = input.callbackUrl;
+  }
   if (taskMode === "edit" || taskMode === "extend") {
     // BOTH task types require ratio:"adaptive" (output follows the source
     // clip's own aspect ratio) — sending the UI's own aspectRatio here would
@@ -329,26 +332,32 @@ export async function getVideoTask(
   }
   const json = await res.json();
 
+  return normalizeVideoTaskPayload(json);
+}
+
+/** Normalize both GET and callback task payloads through one parser. */
+export function normalizeVideoTaskPayload(json = {}) {
+  const source = json?.data && typeof json.data === "object" ? json.data : json;
   // ModelArk statuses: queued | running | succeeded | failed | cancelled
-  const rawStatus = (json?.status || "").toLowerCase();
+  const rawStatus = (source?.status || source?.state || "").toLowerCase();
   let status = "running";
   if (rawStatus === "succeeded") status = "succeeded";
   else if (rawStatus === "failed" || rawStatus === "cancelled") status = "failed";
   else if (rawStatus === "queued") status = "queued";
 
   const videoUrl =
-    json?.content?.video_url ||
-    json?.content?.[0]?.video_url ||
-    json?.video_url;
+    source?.content?.video_url ||
+    source?.content?.[0]?.video_url ||
+    source?.video_url;
 
   const error =
     status === "failed"
-      ? json?.error?.message || json?.error || "Generation failed"
+      ? source?.error?.message || source?.error || "Generation failed"
       : undefined;
 
   // Seedance 2.5 only (2.0's response has no `usage` object) — see the file
   // header and pricing.js computeSeedanceTokenCostCents.
-  const totalTokensRaw = json?.usage?.total_tokens;
+  const totalTokensRaw = source?.usage?.total_tokens;
   const totalTokens =
     typeof totalTokensRaw === "number" && Number.isFinite(totalTokensRaw)
       ? totalTokensRaw
