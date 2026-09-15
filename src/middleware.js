@@ -37,6 +37,8 @@ export function middleware(req) {
     pathname === "/api/media-grant" ||
     pathname.startsWith("/api/worker/depth/") ||
     pathname.startsWith("/api/cron/") ||
+    pathname === "/api/webhooks/seedance" ||
+    pathname === "/api/queue/execute" ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   ) {

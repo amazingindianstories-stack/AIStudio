@@ -65,6 +65,10 @@ const EXEMPT = new Map([
     "Polled by the client for a row it already knows the id of; has no auth " +
       "check by design.",
   ],
+  [
+    "webhooks/seedance",
+    "Public provider callback authenticated with SEEDANCE_CALLBACK_SECRET.",
+  ],
 ]);
 
 /** Walk `src/app/api` and yield every route file with its route path. */

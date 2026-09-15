@@ -23,6 +23,7 @@ import {
   recordVideoPollError,
 } from "./video-poll-db";
 import { retryAfterMsForPollErrors } from "./video-poll-backoff";
+import { providerTimestamps, scheduleGeneration } from "./generation-coordinator";
 
 const defaults = {
   now: () => Date.now(),
@@ -46,6 +47,7 @@ const defaults = {
   compareAndSetVideoOutcome,
   recordVideoPollError,
   emitGenerationEvent,
+  scheduleGeneration,
   delay: (ms, signal) => new Promise((resolve, reject) => {
     const timer = setTimeout(resolve, ms);
     signal?.addEventListener("abort", () => {
@@ -83,6 +85,11 @@ function terminalUpdates(item, next) {
       : item.judgeScore ?? null,
     costCents: next.costCents ?? item.costCents ?? 0,
     costBasis: next.costBasis ?? item.costBasis ?? "estimated",
+    completedAt: next.completedAt ?? item.completedAt ?? next.updatedAt,
+    providerCreatedAt: next.providerCreatedAt ?? item.providerCreatedAt ?? null,
+    providerUpdatedAt: next.providerUpdatedAt ?? item.providerUpdatedAt ?? null,
+    providerStatus: next.providerStatus ?? item.providerStatus ?? null,
+    callbackReceivedAt: next.callbackReceivedAt ?? item.callbackReceivedAt ?? null,
     updatedAt: next.updatedAt,
   };
 }
@@ -91,7 +98,11 @@ async function persistTerminal(item, next, context) {
   const { deps, signal, source } = context;
   throwIfAborted(signal);
   const persisted = await deps.compareAndSetVideoOutcome(
-    expected(item), terminalUpdates(item, next)
+    expected(item), terminalUpdates(item, {
+      ...context.provider,
+      ...next,
+      ...(context.callbackReceivedAt ? { callbackReceivedAt: context.callbackReceivedAt } : {}),
+    })
   );
   if (!persisted) return { kind: "raced" };
   if (persisted.status === "failed" && source !== "cron") {
@@ -110,6 +121,13 @@ async function persistTerminal(item, next, context) {
 async function clearAfterProviderResponse(item, context) {
   throwIfAborted(context.signal);
   const persisted = await context.deps.clearVideoPollErrors(expected(item));
+  if (persisted) {
+    await context.deps.scheduleGeneration(persisted, {
+      now: context.deps.now(),
+      delayMs: context.delayMs ?? 5_000,
+      provider: context.provider ?? {},
+    }).catch(() => {});
+  }
   return persisted ? { kind: "pending", item: persisted } : { kind: "raced" };
 }
 
@@ -293,10 +311,12 @@ async function advanceStandard(item, result, context) {
 export async function advanceVideoStatus(item, {
   source = "browser",
   signal,
+  provider,
+  callbackReceivedAt,
   dependencies,
 } = {}) {
   const deps = { ...defaults, ...dependencies };
-  const context = { deps, signal, source };
+  const context = { deps, signal, source, provider, callbackReceivedAt };
   if (["succeeded", "failed"].includes(item.status)) return { kind: item.status, item };
   if (!item.taskId) return { kind: "pending", item };
 
@@ -313,11 +333,15 @@ export async function advanceVideoStatus(item, {
     }
     if (deps.isOmniModel(item.model)) {
       const result = await deps.getOmniVideoStatus(item.taskId, { signal });
+      context.provider = { ...context.provider, ...providerTimestamps(result) };
+      context.delayMs = 5_000;
       return await advanceOmni(item, result, context);
     }
     const result = deps.isHiggsfieldModel(item.model)
       ? await deps.mcpJobStatus(item.taskId, { signal })
       : await deps.getVideoTask(item.taskId, { signal });
+    context.provider = { ...context.provider, ...providerTimestamps(result) };
+    context.delayMs = deps.isHiggsfieldModel(item.model) ? 8_000 : 5_000;
     return await advanceStandard(item, result, context);
   } catch (_error) {
     const health = await deps.recordVideoPollError(expected(item), deps.now());

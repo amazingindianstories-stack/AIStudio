@@ -181,10 +181,9 @@ function insertNewItem(
 // by a teammate was never observed here and only appeared on a manual refresh.
 //
 // One shared poll fixes all of those at once, and costs a single request no
-// matter how many jobs are in flight. It only OBSERVES: the per-item pollers
-// still own execution (pollQueue is what posts /api/queue/execute), so nothing
-// here can double-submit work.
-const LIVE_MS_ACTIVE = 4000; // something is in flight — stay responsive
+// matter how many jobs are in flight. The server coordinator owns execution;
+// browser pollers provide only a delayed recovery path.
+const LIVE_MS_ACTIVE = 30000; // callback/worker are authoritative; browser is fallback
 const LIVE_MS_IDLE = 20000; // nothing running — just watch for teammates
 
 // A queued job is driven entirely by the tab that created it: pollQueue is what
@@ -1495,7 +1494,7 @@ function pollVideo(
   polling.add(id);
 
   const tick = async () => {
-    let retryAfterMs = 4000;
+    let retryAfterMs = 30000;
     try {
       const res = await apiFetch(
         `/api/generate/video/status?id=${encodeURIComponent(id)}`,
@@ -1525,7 +1524,7 @@ function pollVideo(
     if (polling.has(id)) setStoreTimeout(tick, retryAfterMs);
   };
 
-  setStoreTimeout(tick, 3000);
+  setStoreTimeout(tick, 30000);
 }
 
 /**
@@ -1639,7 +1638,7 @@ export function adoptOrphanedJobs(
     if (item.status !== "queued") continue;
     if (polling.has(item.id)) continue;
     if (now - item.updatedAt < ADOPT_QUEUED_AFTER_MS) continue;
-    startPolling(item, set, get);
+    pollQueue(item.id, set, get);
   }
 }
 
@@ -1689,9 +1688,8 @@ function scheduleLive(
   storeRuntime.liveTimer = setStoreTimeout(() => liveTick(set, get), ms);
 }
 
-/** Route a fresh/resumed item to the right poller: queued jobs of BOTH kinds
- *  wait in the capped queue (pollQueue executes at position 0); running
- *  videos are already submitted remotely and just need status polling. */
+/** Route a fresh/resumed item to a read fallback. The server worker submits
+ * queued jobs; only stale adoption may execute from a browser. */
 function startPolling(
   item,
   set,
@@ -1707,9 +1705,7 @@ function startPolling(
     }
     return;
   }
-  if (item.status === "queued") {
-    pollQueue(item.id, set, get);
-  } else if (item.status === "running") {
+  if (item.status === "running") {
     if (item.kind === "video") {
       pollVideo(item.id, set, get);
     } else {

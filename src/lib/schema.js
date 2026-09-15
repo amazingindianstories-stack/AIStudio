@@ -79,6 +79,17 @@ export const generations = pgTable("generations", {
   isFavorite: boolean("is_favorite").notNull().default(false),
   favoritedAt: bigint("favorited_at", { mode: "number" }),
   taskId: text("task_id"),
+  submittedAt: bigint("submitted_at", { mode: "number" }),
+  providerCreatedAt: bigint("provider_created_at", { mode: "number" }),
+  providerUpdatedAt: bigint("provider_updated_at", { mode: "number" }),
+  completedAt: bigint("completed_at", { mode: "number" }),
+  lastPollAt: bigint("last_poll_at", { mode: "number" }),
+  nextPollAt: bigint("next_poll_at", { mode: "number" }),
+  pollAttempts: integer("poll_attempts").notNull().default(0),
+  callbackReceivedAt: bigint("callback_received_at", { mode: "number" }),
+  providerStatus: text("provider_status"),
+  workerLeaseId: text("worker_lease_id"),
+  workerLeaseUntil: bigint("worker_lease_until", { mode: "number" }),
   // Provider polling health is deliberately separate from updatedAt. A
   // transient status-read failure must be observable without making a stale
   // generation look recently advanced to the reconciliation selector.
@@ -237,6 +248,9 @@ export const generations = pgTable("generations", {
   index("generations_stale_video_poll_idx")
     .on(table.updatedAt, table.createdAt, table.id)
     .where(sql`${table.kind} = 'video' and ${table.status} in ('queued', 'running') and ${table.taskId} is not null`),
+  index("generations_coordinator_due_idx")
+    .on(table.status, table.nextPollAt, table.createdAt)
+    .where(sql`(${table.kind} = 'video' and ${table.status} in ('queued', 'running')) or (${table.kind} = 'image' and ${table.status} = 'queued')`),
 ]);
 
 /**

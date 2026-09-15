@@ -9,7 +9,7 @@ import {
 
 test("video poll retry delay doubles and caps at one minute", () => {
   assert.equal(retryAfterMsForPollErrors(1), VIDEO_POLL_BASE_MS);
-  assert.equal(retryAfterMsForPollErrors(2), 8_000);
+  assert.equal(retryAfterMsForPollErrors(2), 60_000);
   assert.equal(retryAfterMsForPollErrors(99), VIDEO_POLL_MAX_MS);
 });
 
@@ -18,7 +18,7 @@ test("transient response produces a non-terminal warning and bounded backoff", (
     transientPollError: true, pollErrorCount: 3, retryAfterMs: 16_000,
   });
   assert.equal(decision.transient, true);
-  assert.equal(decision.retryAfterMs, 16_000);
+  assert.equal(decision.retryAfterMs, 30_000);
   assert.match(decision.warning, /Retrying automatically/);
   assert.equal(decision.item, undefined);
 });

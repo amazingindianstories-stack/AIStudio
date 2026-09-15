@@ -25,6 +25,7 @@ function dependencies(overrides = {}) {
     saveBase64WithMetadata: async () => ({ url: "/saved.mp4", aspectRatio: "16:9" }),
     getModelDefinition: () => undefined,
     emitGenerationEvent: () => {},
+    scheduleGeneration: async (current) => current,
     ...overrides,
   };
 }
@@ -57,7 +58,7 @@ test("transport, authentication, and timeout-like errors stay non-terminal", asy
   }) });
   assert.equal(outcome.kind, "poll_error");
   assert.equal(outcome.pollErrorCount, 3);
-  assert.equal(outcome.retryAfterMs, 16_000);
+  assert.equal(outcome.retryAfterMs, 60_000);
   assert.equal(terminalWrites, 0);
   assert.equal(recorded.expected.updatedAt, 100);
   assert.equal(JSON.stringify(outcome).includes("credential"), false);

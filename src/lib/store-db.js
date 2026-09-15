@@ -26,6 +26,17 @@ export function rowToItem(r) {
     error: r.error ?? undefined,
     moderationBlocked: r.moderationBlocked ?? undefined,
     taskId: r.taskId ?? undefined,
+    submittedAt: r.submittedAt ?? undefined,
+    providerCreatedAt: r.providerCreatedAt ?? undefined,
+    providerUpdatedAt: r.providerUpdatedAt ?? undefined,
+    completedAt: r.completedAt ?? undefined,
+    lastPollAt: r.lastPollAt ?? undefined,
+    nextPollAt: r.nextPollAt ?? undefined,
+    pollAttempts: r.pollAttempts ?? 0,
+    callbackReceivedAt: r.callbackReceivedAt ?? undefined,
+    providerStatus: r.providerStatus ?? undefined,
+    workerLeaseId: r.workerLeaseId ?? undefined,
+    workerLeaseUntil: r.workerLeaseUntil ?? undefined,
     pollErrorCount: r.pollErrorCount ?? 0,
     lastPollErrorAt: r.lastPollErrorAt ?? undefined,
     generateAudio: r.generateAudio ?? undefined,
@@ -87,6 +98,17 @@ function itemToValues(item) {
     flagReason: item.flagReason ?? null,
     judgeScore: item.judgeScore ?? null,
     taskId: item.taskId ?? null,
+    submittedAt: item.submittedAt ?? null,
+    providerCreatedAt: item.providerCreatedAt ?? null,
+    providerUpdatedAt: item.providerUpdatedAt ?? null,
+    completedAt: item.completedAt ?? null,
+    lastPollAt: item.lastPollAt ?? null,
+    nextPollAt: item.nextPollAt ?? null,
+    pollAttempts: item.pollAttempts ?? 0,
+    callbackReceivedAt: item.callbackReceivedAt ?? null,
+    providerStatus: item.providerStatus ?? null,
+    workerLeaseId: item.workerLeaseId ?? null,
+    workerLeaseUntil: item.workerLeaseUntil ?? null,
     pollErrorCount: item.pollErrorCount ?? 0,
     lastPollErrorAt: item.lastPollErrorAt ?? null,
     generateAudio: item.generateAudio ?? null,
@@ -278,6 +300,32 @@ export async function getItem(id) {
     .from(generations)
     .where(eq(generations.id, id))
     .limit(1);
+  return rows[0] ? rowToItem(rows[0]) : undefined;
+}
+
+/** Find a video by either its primary or best-of candidate provider task id. */
+export async function getItemByTaskId(taskId, dbOverride) {
+  if (!taskId) return undefined;
+  const db = dbOverride ?? await getDb();
+  const rows = await db.select().from(generations).where(or(
+    eq(generations.taskId, taskId),
+    sql`${generations.candidateTaskIds} @> ${JSON.stringify([taskId])}::jsonb`,
+  )).limit(1);
+  return rows[0] ? rowToItem(rows[0]) : undefined;
+}
+
+/** Record delivery without changing updated_at or reviving a terminal row. */
+export async function markCallbackReceived(taskId, at = Date.now(), provider = {}, dbOverride) {
+  if (!taskId) return undefined;
+  const db = dbOverride ?? await getDb();
+  const values = { callbackReceivedAt: at };
+  if (provider.providerCreatedAt != null) values.providerCreatedAt = provider.providerCreatedAt;
+  if (provider.providerUpdatedAt != null) values.providerUpdatedAt = provider.providerUpdatedAt;
+  if (provider.providerStatus != null) values.providerStatus = provider.providerStatus;
+  const rows = await db.update(generations).set(values).where(or(
+    eq(generations.taskId, taskId),
+    sql`${generations.candidateTaskIds} @> ${JSON.stringify([taskId])}::jsonb`,
+  )).returning();
   return rows[0] ? rowToItem(rows[0]) : undefined;
 }
 
