@@ -48,6 +48,13 @@ export const MEDIA_ACTION_COPY = {
     confirmLabel: "Delete asset",
     destructive: true,
   },
+  deletePortrait: {
+    title: "Delete this portrait?",
+    description:
+      "This permanently removes the portrait reference from your character gallery. This cannot be undone.",
+    confirmLabel: "Delete portrait",
+    destructive: true,
+  },
 };
 
 export function mediaActionCopy(kind) {

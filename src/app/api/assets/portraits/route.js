@@ -7,6 +7,7 @@ import {
   getPortraitGroup,
   deletePortraitAsset,
   getPortraitAsset,
+  getPortraitAssetByByteplusId,
   updatePortraitAssetName,
 } from "@/lib/portrait-db";
 import { byteplusAssetClient, BytePlusAssetError } from "@/lib/byteplus-assets";
@@ -149,14 +150,27 @@ export async function DELETE(req) {
 
   try {
     if (assetId) {
-      const asset = await getPortraitAsset(assetId);
+      let asset = await getPortraitAsset(assetId);
       if (!asset) {
-        return NextResponse.json({ error: "Asset not found." }, { status: 404 });
+        asset = await getPortraitAssetByByteplusId(assetId);
       }
 
-      if (asset.byteplusAssetId) {
+      if (!asset) {
+        // If not in DB, but matches byteplus format, try remote deletion
+        if (assetId.startsWith("asset-")) {
+          try {
+            await byteplusAssetClient.deleteAsset(assetId);
+          } catch (bpErr) {
+            console.warn("[portraits] Direct BytePlus DeleteAsset failed:", bpErr?.message);
+          }
+        }
+        return NextResponse.json({ ok: true, deleted: "already_removed" });
+      }
+
+      const bpId = asset.byteplusAssetId || (assetId.startsWith("asset-") ? assetId : null);
+      if (bpId) {
         try {
-          await byteplusAssetClient.deleteAsset(asset.byteplusAssetId);
+          await byteplusAssetClient.deleteAsset(bpId);
         } catch (bpErr) {
           console.warn("[portraits] BytePlus DeleteAsset failed:", bpErr?.message);
         }
@@ -166,8 +180,8 @@ export async function DELETE(req) {
         await deleteAssetImage(asset.imageUrl).catch(() => {});
       }
 
-      await deletePortraitAsset(assetId);
-      await logActivity(user.id, "delete_portrait_asset", { id: assetId, name: asset.name });
+      await deletePortraitAsset(asset.id);
+      await logActivity(user.id, "delete_portrait_asset", { id: asset.id, name: asset.name });
       return NextResponse.json({ ok: true });
     }
 

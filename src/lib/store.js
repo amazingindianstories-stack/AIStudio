@@ -1431,13 +1431,18 @@ export const useStore = create((set, get) => ({
   deletePortraitAssetDirect: async (assetId) => {
     const prev = get().portraitAssets;
     set((s) => ({
-      portraitAssets: s.portraitAssets.filter((a) => a.id !== assetId),
+      portraitAssets: s.portraitAssets.filter(
+        (a) => a.id !== assetId && a.byteplusAssetId !== assetId
+      ),
     }));
     try {
-      const res = await apiFetch(`/api/assets/portraits?assetId=${assetId}`, {
+      const res = await apiFetch(`/api/assets/portraits?assetId=${encodeURIComponent(assetId)}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("Delete failed");
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error || "Delete failed");
+      }
       await get().loadAllPortraitAssets();
       return { ok: true };
     } catch (err) {

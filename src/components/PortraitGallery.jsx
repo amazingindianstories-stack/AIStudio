@@ -462,7 +462,7 @@ export function PortraitGallery() {
                             onClick={(e) => {
                               e.stopPropagation();
                               confirmation.ask("deletePortrait", () =>
-                                deleteDirect(asset.id)
+                                deleteDirect(asset.id || asset.byteplusAssetId)
                               );
                             }}
                             title="Delete portrait"

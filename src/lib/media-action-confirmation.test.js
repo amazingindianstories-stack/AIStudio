@@ -8,6 +8,7 @@ test("every risky media shortcut has explicit confirmation copy", () => {
     "continueShot",
     "deleteAsset",
     "deleteGeneration",
+    "deletePortrait",
     "editPrompt",
     "regenerate",
     "regenerateWithSameSeed",
@@ -23,6 +24,7 @@ test("every risky media shortcut has explicit confirmation copy", () => {
 test("only permanent deletion confirmations use destructive styling", () => {
   assert.equal(mediaActionCopy("deleteGeneration").destructive, true);
   assert.equal(mediaActionCopy("deleteAsset").destructive, true);
+  assert.equal(mediaActionCopy("deletePortrait").destructive, true);
   assert.equal(mediaActionCopy("retryTextToVideo").destructive, undefined);
 });
 
