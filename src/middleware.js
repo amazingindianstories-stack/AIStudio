@@ -40,6 +40,7 @@ export function middleware(req) {
   if (
     pathname.startsWith("/api/auth") ||
     pathname === "/api/admin/set-token" ||
+    pathname === "/api/admin/migrate-schema" ||
     pathname === "/api/media-grant" ||
     pathname.startsWith("/api/worker/depth/") ||
     pathname.startsWith("/api/cron/") ||
