@@ -192,3 +192,44 @@ export async function deletePortraitAsset(id) {
   await db.delete(portraitAssets).where(eq(portraitAssets.id, id));
   return existing;
 }
+
+export async function listAllPortraitAssets() {
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(portraitAssets)
+    .orderBy(desc(portraitAssets.createdAt));
+  return rows.map(rowToAsset);
+}
+
+export async function ensureDefaultPortraitGroup() {
+  const db = await getDb();
+  const rows = await db.select().from(portraitGroups).limit(1);
+  if (rows[0]) return rowToGroup(rows[0]);
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await db.insert(portraitGroups).values({
+    id,
+    name: "General Portraits",
+    description: "Default portrait collection",
+    groupType: "AIGC",
+    projectName: "default",
+    createdAt: now,
+    updatedAt: now,
+  });
+  return getPortraitGroup(id);
+}
+
+export async function updatePortraitAssetName(id, name) {
+  const db = await getDb();
+  const now = Date.now();
+  await db
+    .update(portraitAssets)
+    .set({
+      name: name.trim(),
+      updatedAt: now,
+    })
+    .where(eq(portraitAssets.id, id));
+  return getPortraitAsset(id);
+}
+

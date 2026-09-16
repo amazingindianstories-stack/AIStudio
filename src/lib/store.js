@@ -304,6 +304,8 @@ export const useStore = create((set, get) => ({
 
   portraitGroups: [],
   portraitGroupsLoading: false,
+  portraitAssets: [],
+  portraitAssetsLoading: false,
   portraitGalleryOpen: false,
   selectedPortraitGroup: null,
 
@@ -1382,6 +1384,77 @@ export const useStore = create((set, get) => ({
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err?.message || "Delete asset failed" };
+    }
+  },
+
+  loadAllPortraitAssets: async () => {
+    set({ portraitAssetsLoading: true });
+    try {
+      const res = await apiFetch("/api/assets/portraits", { cache: "no-store" });
+      const json = await res.json();
+      const assets = json.assets ?? [];
+      const groups = json.groups ?? [];
+      set({
+        portraitAssets: assets,
+        portraitGroups: groups,
+        portraitAssetsLoading: false,
+      });
+      return assets;
+    } catch {
+      set({ portraitAssetsLoading: false });
+      return [];
+    }
+  },
+
+  uploadPortraitImageDirect: async ({ dataUrl, name, role = "reference" }) => {
+    try {
+      const res = await apiFetch("/api/assets/portraits/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataUrl, name, role }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return { ok: false, error: err.error || "Failed to upload portrait." };
+      }
+      const json = await res.json();
+      await get().loadAllPortraitAssets();
+      return { ok: true, asset: json.asset };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Network error uploading portrait." };
+    }
+  },
+
+  deletePortraitAssetDirect: async (assetId) => {
+    const prev = get().portraitAssets;
+    set((s) => ({
+      portraitAssets: s.portraitAssets.filter((a) => a.id !== assetId),
+    }));
+    try {
+      const res = await apiFetch(`/api/assets/portraits?assetId=${assetId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Delete failed");
+      await get().loadAllPortraitAssets();
+      return { ok: true };
+    } catch (err) {
+      set({ portraitAssets: prev });
+      return { ok: false, error: err?.message || "Delete failed" };
+    }
+  },
+
+  renamePortraitAssetDirect: async (assetId, name) => {
+    try {
+      const res = await apiFetch("/api/assets/portraits", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assetId, name }),
+      });
+      if (!res.ok) throw new Error("Rename failed");
+      await get().loadAllPortraitAssets();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Rename failed" };
     }
   },
 

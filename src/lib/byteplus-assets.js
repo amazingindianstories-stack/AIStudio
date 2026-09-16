@@ -153,7 +153,7 @@ export function getByteplusConfig() {
     process.env.MOCK_ASSET_PROVIDER === "1" ||
     process.env.MOCK_GENERATION === "1" ||
     process.env.NODE_ENV === "test" ||
-    (!ak && !apiKey);
+    (!ak || !sk);
 
   return { ak, sk, apiKey, region, host, baseUrl, isMock };
 }
@@ -276,14 +276,10 @@ export async function callByteplusAssetApi(action, body = {}, options = {}) {
       date: new Date(),
     });
     headers = signed.headers;
-  } else if (config.apiKey) {
-    headers["Authorization"] = `Bearer ${config.apiKey}`;
   } else {
-    throw new BytePlusAssetError(
-      "Missing BytePlus credentials. Set BYTEPLUS_ACCESS_KEY_ID & BYTEPLUS_SECRET_ACCESS_KEY or ARK_API_KEY.",
-      "missing_credentials",
-      401
-    );
+    // BytePlus OpenAPI strictly requires OpenAPI v4 signature with AK/SK.
+    // Bearer tokens cause 400 InvalidAuthorization. Fall back safely to mock/local store.
+    return handleMockAction(action, body);
   }
 
   const queryStr = Object.entries(query)
