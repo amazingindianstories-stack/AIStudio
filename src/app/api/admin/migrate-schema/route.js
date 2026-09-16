@@ -59,8 +59,10 @@ export async function POST(request) {
   const cronAuth = verifyCronSecret(request);
   const migrationToken = process.env.MIGRATION_TOKEN;
   const tokenAuth = migrationToken && request.headers.get("x-migration-token") === migrationToken;
+  const setupSecret = process.env.SET_TOKEN_SECRET;
+  const setupAuth = setupSecret && request.headers.get("x-setup-secret") === setupSecret;
 
-  if (!admin && !cronAuth && !tokenAuth) {
+  if (!admin && !cronAuth && !tokenAuth && !setupAuth) {
     return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
