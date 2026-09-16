@@ -61,3 +61,11 @@ test("Portraits API: all routes require valid session authentication", async () 
   );
   assert.equal(delAssetRes.status, 401);
 });
+
+test("syncByteplusPortraits: falls back safely to local store when mock/unconfigured", async () => {
+  const { syncByteplusPortraits } = await import("@/lib/portrait-sync.js");
+  const result = await syncByteplusPortraits();
+  assert.ok(Array.isArray(result.groups));
+  assert.ok(Array.isArray(result.assets));
+  assert.equal(typeof result.syncedWithByteplus, "boolean");
+});

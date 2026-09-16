@@ -14,6 +14,8 @@ import {
   Search,
   Loader2,
   Plus,
+  FolderPlus,
+  Users,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { thumbUrl } from "@/lib/utils";
@@ -24,11 +26,13 @@ export function PortraitGallery() {
   const open = useStore((s) => s.portraitGalleryOpen);
   const setOpen = useStore((s) => s.setPortraitGalleryOpen);
   const assets = useStore((s) => s.portraitAssets);
+  const groups = useStore((s) => s.portraitGroups);
   const loading = useStore((s) => s.portraitAssetsLoading);
   const loadAll = useStore((s) => s.loadAllPortraitAssets);
   const uploadDirect = useStore((s) => s.uploadPortraitImageDirect);
   const deleteDirect = useStore((s) => s.deletePortraitAssetDirect);
   const renameDirect = useStore((s) => s.renamePortraitAssetDirect);
+  const createGroup = useStore((s) => s.createPortraitGroup);
   const attachPortrait = useStore((s) => s.attachPortraitToComposer);
 
   const fileInputRef = useRef(null);
@@ -39,6 +43,12 @@ export function PortraitGallery() {
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
+  const [selectedGroupId, setSelectedGroupId] = useState(null);
+
+  // Creating new character group
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [savingGroup, setSavingGroup] = useState(false);
 
   const confirmation = useConfirmedAction();
 
@@ -88,6 +98,7 @@ export function PortraitGallery() {
             dataUrl,
             name: cleanName,
             role: "reference",
+            groupId: selectedGroupId || undefined,
           });
 
           if (res.ok) {
@@ -109,7 +120,7 @@ export function PortraitGallery() {
         setError(`Uploaded ${successCount} image(s), but some failed: ${lastError}`);
       }
     },
-    [uploadDirect]
+    [uploadDirect, selectedGroupId]
   );
 
   const onDrop = (e) => {
@@ -142,9 +153,28 @@ export function PortraitGallery() {
     setEditingId(null);
   };
 
-  const filteredAssets = assets.filter((a) =>
-    (a.name || "").toLowerCase().includes(search.toLowerCase())
-  );
+  const handleCreateGroup = async (e) => {
+    e.preventDefault();
+    const name = newGroupName.trim();
+    if (!name) return;
+    setSavingGroup(true);
+    const res = await createGroup(name, "Virtual Portrait Character");
+    setSavingGroup(false);
+    if (res.ok && res.group) {
+      setSelectedGroupId(res.group.id);
+      setNewGroupName("");
+      setCreatingGroup(false);
+      await loadAll();
+    } else {
+      setError(res.error || "Failed to create character group");
+    }
+  };
+
+  const activeGroup = groups.find((g) => g.id === selectedGroupId);
+
+  const filteredAssets = assets
+    .filter((a) => (!selectedGroupId ? true : a.groupId === selectedGroupId))
+    .filter((a) => (a.name || "").toLowerCase().includes(search.toLowerCase()));
 
   return (
     <AnimatePresence>
@@ -184,22 +214,98 @@ export function PortraitGallery() {
                     </span>
                   </div>
                   <p className="text-[11px] text-white/50">
-                    Upload and manage character portraits for consistent face generation
+                    Image-first character portrait library synchronized with BytePlus ModelArk
                   </p>
                 </div>
               </div>
 
-              <button
-                onClick={() => setOpen(false)}
-                className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setOpen(false)}
+                  className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </header>
 
             {/* Main scrollable body */}
             <div className="min-h-0 flex-1 overflow-y-auto scroll-thin p-5">
+              {/* Character Groups Selector Tabs */}
+              <div className="mb-4 flex flex-wrap items-center gap-1.5">
+                <button
+                  onClick={() => setSelectedGroupId(null)}
+                  className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                    selectedGroupId === null
+                      ? "bg-brand text-ink-950 font-semibold shadow-sm"
+                      : "bg-ink-800 text-white/70 hover:bg-ink-750 hover:text-white border border-line/60"
+                  }`}
+                >
+                  <Users className="h-3 w-3" />
+                  All Characters ({assets.length})
+                </button>
+
+                {groups.map((group) => {
+                  const count = assets.filter((a) => a.groupId === group.id).length;
+                  const isSelected = selectedGroupId === group.id;
+                  return (
+                    <button
+                      key={group.id}
+                      onClick={() => setSelectedGroupId(group.id)}
+                      className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                        isSelected
+                          ? "bg-brand text-ink-950 font-semibold shadow-sm"
+                          : "bg-ink-800 text-white/70 hover:bg-ink-750 hover:text-white border border-line/60"
+                      }`}
+                    >
+                      <span>{group.name}</span>
+                      <span className={`text-[10px] ${isSelected ? "text-ink-950/70" : "text-white/40"}`}>
+                        ({count})
+                      </span>
+                    </button>
+                  );
+                })}
+
+                {creatingGroup ? (
+                  <form onSubmit={handleCreateGroup} className="flex items-center gap-1 ml-1">
+                    <input
+                      type="text"
+                      placeholder="Character name…"
+                      value={newGroupName}
+                      autoFocus
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      className="h-7 w-32 rounded-lg border border-brand bg-ink-900 px-2 text-xs text-white placeholder-white/40 focus:outline-none"
+                    />
+                    <button
+                      type="submit"
+                      disabled={savingGroup || !newGroupName.trim()}
+                      className="grid h-7 w-7 place-items-center rounded-lg bg-brand text-ink-950 hover:bg-brand-light disabled:opacity-50"
+                    >
+                      {savingGroup ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreatingGroup(false);
+                        setNewGroupName("");
+                      }}
+                      className="grid h-7 w-7 place-items-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    onClick={() => setCreatingGroup(true)}
+                    className="flex items-center gap-1 rounded-lg border border-dashed border-white/20 bg-ink-800/40 px-2 py-1 text-xs text-white/60 transition hover:border-brand/50 hover:text-brand"
+                  >
+                    <FolderPlus className="h-3 w-3" />
+                    <span>New Character</span>
+                  </button>
+                )}
+              </div>
+
               {/* Dropzone / Upload area */}
               <div
                 onDrop={onDrop}
@@ -233,7 +339,7 @@ export function PortraitGallery() {
                       Uploading {uploadCount > 1 ? `${uploadCount} portraits` : "portrait"}…
                     </p>
                     <p className="text-xs text-white/40">
-                      Validating image aspect ratio and storing asset
+                      Validating image and registering asset in BytePlus ModelArk
                     </p>
                   </div>
                 ) : (
@@ -244,6 +350,9 @@ export function PortraitGallery() {
                     <div>
                       <p className="text-sm font-medium text-white">
                         <span className="text-brand font-semibold">Click to upload</span> or drag and drop portrait images
+                        {activeGroup ? (
+                          <span className="text-white/60"> for <strong>{activeGroup.name}</strong></span>
+                        ) : ""}
                       </p>
                       <p className="mt-0.5 text-xs text-white/45">
                         PNG, JPG, or WebP. Optimal face reference: clear lighting, neutral expression, 300px to 6000px.
@@ -269,7 +378,7 @@ export function PortraitGallery() {
 
               {/* Filter bar & stats */}
               {assets.length > 0 && (
-                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div className="relative flex-1 max-w-xs">
                     <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/40" />
                     <input
@@ -282,7 +391,8 @@ export function PortraitGallery() {
                   </div>
                   <div className="flex items-center gap-3 text-xs text-white/50">
                     <span>
-                      {assets.length} portrait{assets.length === 1 ? "" : "s"}
+                      {filteredAssets.length} portrait{filteredAssets.length === 1 ? "" : "s"}
+                      {activeGroup ? ` in ${activeGroup.name}` : ""}
                     </span>
                     <button
                       onClick={() => fileInputRef.current?.click()}
@@ -308,7 +418,7 @@ export function PortraitGallery() {
                 ) : filteredAssets.length === 0 ? (
                   assets.length === 0 ? null : (
                     <div className="py-12 text-center text-xs text-white/40">
-                      No portraits match &quot;{search}&quot;.
+                      No portraits match current filter.
                     </div>
                   )
                 ) : (

@@ -61,18 +61,36 @@ export async function POST(req) {
     // 3. Persist image to media storage
     const savedPath = await saveAssetImage(dataUrl);
 
-    // 4. Create in BytePlus (falls back to local mock safely if AK/SK missing)
+    // 4. Create in BytePlus ModelArk
     let bpAssetId = null;
     let initialStatus = "Active";
     try {
-      const signedUrl = await signStoredRef(savedPath);
-      const bpRes = await byteplusAssetClient.createAsset({
-        groupId: group.byteplusGroupId,
-        url: signedUrl,
-        name,
-        assetType: "Image",
-      });
-      bpAssetId = bpRes?.Id || null;
+      if (!group.byteplusGroupId) {
+        const bpGroupRes = await byteplusAssetClient.createAssetGroup({
+          name: group.name || "Default Character",
+          description: group.description || "Virtual Portrait Group",
+          groupType: "AIGC",
+        });
+        if (bpGroupRes?.Id) {
+          group.byteplusGroupId = bpGroupRes.Id;
+          await upsertPortraitGroup({
+            ...group,
+            byteplusGroupId: bpGroupRes.Id,
+            updatedAt: Date.now(),
+          });
+        }
+      }
+
+      if (group.byteplusGroupId) {
+        const signedUrl = await signStoredRef(savedPath);
+        const bpRes = await byteplusAssetClient.createAsset({
+          groupId: group.byteplusGroupId,
+          url: signedUrl,
+          name,
+          assetType: "Image",
+        });
+        bpAssetId = bpRes?.Id || null;
+      }
     } catch (bpErr) {
       console.warn("[portraits/upload] BytePlus CreateAsset skipped or mock:", bpErr?.message);
     }

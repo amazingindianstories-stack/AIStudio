@@ -1406,12 +1406,12 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  uploadPortraitImageDirect: async ({ dataUrl, name, role = "reference" }) => {
+  uploadPortraitImageDirect: async ({ dataUrl, name, role = "reference", groupId }) => {
     try {
       const res = await apiFetch("/api/assets/portraits/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataUrl, name, role }),
+        body: JSON.stringify({ dataUrl, name, role, groupId }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));

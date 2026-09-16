@@ -14,12 +14,15 @@ import {
 import { byteplusAssetClient, BytePlusAssetError } from "@/lib/byteplus-assets";
 import { deleteAssetImage } from "@/lib/save-media";
 
+import { syncByteplusPortraits } from "@/lib/portrait-sync";
+
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 /**
  * GET /api/assets/portraits
- * Lists all portrait character groups and all flat portrait assets.
+ * Lists all portrait character groups and all flat portrait assets,
+ * syncing bidirectionally with BytePlus ModelArk when credentials are present.
  */
 export async function GET() {
   const user = await getSession();
@@ -28,11 +31,8 @@ export async function GET() {
   }
 
   try {
-    const [groups, assets] = await Promise.all([
-      listPortraitGroups(),
-      listAllPortraitAssets(),
-    ]);
-    return NextResponse.json({ groups, assets });
+    const result = await syncByteplusPortraits();
+    return NextResponse.json(result);
   } catch (err) {
     console.error("[portraits] GET error:", err);
     return NextResponse.json(
