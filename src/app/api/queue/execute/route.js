@@ -37,6 +37,7 @@ import { crispen, prepReference } from "@/lib/middleware/image-prep";
 import { judgeCandidate, judgeIdentity, selectBestCandidate } from "@/lib/middleware/face-judge";
 import { assemblePrompt } from "@/lib/prompt-assembler";
 import { readAssets } from "@/lib/assets-db";
+import { getPortraitAssetByImageUrl } from "@/lib/portrait-db";
 import { getSession } from "@/lib/auth";
 import { klingUnitsToCents } from "@/lib/pricing";
 import { getModelDefinition } from "@/lib/model-registry";
@@ -135,6 +136,25 @@ async function toProviderDataUrls(refs, signal) {
   const out = [];
   for (const ref of refs) {
     throwIfAborted(signal);
+    if (typeof ref === "string" && ref.startsWith("asset://")) {
+      out.push(ref);
+      continue;
+    }
+
+    // If this reference image was attached from the Portrait Gallery, resolve
+    // it to its registered BytePlus asset URI so Seedance accepts it without
+    // human face privacy rejections.
+    if (typeof ref === "string") {
+      try {
+        const portrait = await getPortraitAssetByImageUrl(ref);
+        if (portrait && portrait.byteplusAssetId && portrait.status?.toLowerCase() === "active") {
+          out.push(`asset://${portrait.byteplusAssetId}`);
+          continue;
+        }
+      } catch (err) {
+        console.warn("[queue/execute] Failed to lookup portrait asset by imageUrl:", ref, err?.message);
+      }
+    }
     const raw = await readImageAsBase64(ref, signal);
     let { mimeType, data } = await prepReference(raw.mimeType, raw.data);
     if (!/^image\/(jpeg|png)$/i.test(mimeType)) {
@@ -310,6 +330,7 @@ async function submitVideo(base, signal) {
       taskId = submissions.acceptedTaskIds[0];
       refUpdates.candidateTaskIds = submissions.acceptedTaskIds.slice(1);
       refUpdates.costCents = submissions.costCents;
+      if (submissions.providerResponses) refUpdates.providerResponses = submissions.providerResponses;
       if (submissions.rejectedCount) {
         emitGenerationEvent({
           event: "generation_partial_submission",
@@ -326,7 +347,17 @@ async function submitVideo(base, signal) {
       taskId = await createVideoTask(taskInput(seed));
     }
   }
-  return { ...base, ...refUpdates, taskId, status: "running", updatedAt: Date.now() };
+  const submittedAt = Date.now();
+  return {
+    ...base,
+    ...refUpdates,
+    taskId,
+    status: "running",
+    submittedAt,
+    nextPollAt: submittedAt + 5_000,
+    pollAttempts: 0,
+    updatedAt: submittedAt,
+  };
 }
 
 export async function POST(req) {
@@ -337,7 +368,9 @@ export async function POST(req) {
     return NextResponse.json({ error: "Job ID is required." }, { status: 400 });
   }
 
-  const user = await getSession();
+  const internalWorker = process.env.GENERATION_WORKER_SECRET &&
+    req.headers.get("x-generation-worker-secret") === process.env.GENERATION_WORKER_SECRET;
+  const user = internalWorker ? { id: "server-worker" } : await getSession();
   if (!user) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
@@ -438,7 +471,8 @@ export async function POST(req) {
       work: (signal) => submitVideo({ ...base, seed, videoBestOf, costCents }, signal),
       onSuccess: async (running) => {
         await upsertItem(running);
-        return NextResponse.json(running);
+        const { providerResponses: _providerResponses, ...publicItem } = running;
+        return NextResponse.json(publicItem);
       },
       onFailure: async (e) => {
         const failed = {
@@ -452,6 +486,7 @@ export async function POST(req) {
           route: "queue_execute",
           phase: "video_submission",
           errorCode: e?.code,
+          providerResponses: e?.providerResponses || (e?.providerResponse ? [e.providerResponse] : undefined),
         });
         return NextResponse.json(failed);
       },

@@ -156,7 +156,12 @@ export function SettingsToolbar() {
   const s = useStore();
   const audioApplies = s.mode === "video" && supportsAudio(s.model);
   const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
-  const videoTaskMode = editExtendApplies ? s.videoTaskMode : "generate";
+  // A stale draft or an older server row can omit this field. Keep the
+  // toolbar render-safe because the edit/extend label is computed before any
+  // enqueue validation runs.
+  const videoTaskMode = editExtendApplies && typeof s.videoTaskMode === "string" && s.videoTaskMode
+    ? s.videoTaskMode
+    : "generate";
   // Seedance 2.0/2.5 take any integer duration within a bounded range rather
   // than a fixed enum (see durationRangeForModel) — non-null here switches
   // the Duration control below from Segment buttons to a slider.

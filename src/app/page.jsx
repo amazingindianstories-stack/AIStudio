@@ -11,6 +11,7 @@ import { PromptComposer } from "@/components/PromptComposer";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { DetailModal } from "@/components/DetailModal";
 import { AssetLibrary } from "@/components/AssetLibrary";
+import { PortraitGallery } from "@/components/PortraitGallery";
 import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { StudioView } from "@/components/StudioView";
@@ -230,6 +231,7 @@ export default function Page() {
 
         <DetailModal />
         <AssetLibrary />
+        <PortraitGallery />
       </div>
     </MotionConfig>
   );

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { getItemByTaskId } from "@/lib/store-db";
+import { getItemByTaskId, markCallbackReceived } from "@/lib/store-db";
 import { advanceVideoStatus } from "@/lib/video-status-advancement";
+import { providerTimestamps } from "@/lib/generation-coordinator";
+import { getVideoTask, normalizeVideoTaskPayload } from "@/lib/providers/seedance";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -31,7 +33,19 @@ export async function POST(request) {
   // 202 asks BytePlus to retry rather than dropping the completion.
   if (!item) return NextResponse.json({ accepted: false }, { status: 202 });
 
-  const outcome = await advanceVideoStatus(item, { source: "callback" });
+  await markCallbackReceived(taskId, Date.now(), providerTimestamps(payload));
+
+  const outcome = await advanceVideoStatus(item, {
+    source: "callback",
+    callbackReceivedAt: Date.now(),
+    provider: providerTimestamps(payload),
+    dependencies: {
+      // Use the callback body for the candidate that triggered this delivery;
+      // only the remaining best-of candidates need a provider GET.
+      getVideoTask: async (requestedTaskId, options) =>
+        requestedTaskId === taskId ? normalizeVideoTaskPayload(payload) : getVideoTask(requestedTaskId, options),
+    },
+  });
   return NextResponse.json(
     { accepted: true, taskId, outcome: outcome.kind },
     { headers: { "Cache-Control": "no-store" } },

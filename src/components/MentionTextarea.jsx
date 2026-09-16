@@ -9,7 +9,7 @@ import {
 
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { TAG_REGEX, isImgTag, isVidTag } from "@/lib/mentions";
+import { TAG_REGEX, isImgTag, isVidTag, isAudioTag } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 
 // Admin-configurable ceiling (src/lib/settings.js) — purely a display aid
@@ -72,6 +72,7 @@ export const MentionTextarea = forwardRef(
       submitOnEnter = true,
       references,
       videoRefs = [],
+      audioRefs = [],
       assets = [],
       placeholder,
       className,
@@ -129,10 +130,21 @@ export const MentionTextarea = forwardRef(
         label: `@vid${n}`,
         sub: "attached clip",
       }));
+    const audioSuggestions = Array.from(
+      { length: audioRefs.length },
+      (_, i) => i + 1
+    )
+      .filter((n) => `audio${n}`.startsWith(q))
+      .map((n) => ({
+        tag: `@audio${n}`,
+        label: `@audio${n}`,
+        sub: "attached audio",
+      }));
     const available = [
       ...assetSuggestions,
       ...imgSuggestions,
       ...vidSuggestions,
+      ...audioSuggestions,
     ];
 
     // Keeps the keyboard-selected suggestion visible: the list scrolls
@@ -182,7 +194,8 @@ export const MentionTextarea = forwardRef(
       }
     };
 
-    const hasSuggestions = tagCount > 0 || assets.length > 0;
+    const hasSuggestions =
+      tagCount > 0 || assets.length > 0 || videoRefs.length > 0 || audioRefs.length > 0;
 
     const detectMention = (text, caret) => {
       const slice = text.slice(0, caret);
@@ -266,7 +279,7 @@ export const MentionTextarea = forwardRef(
           )}
           style={SYNCED_TEXT_STYLE}
         >
-          {renderHighlighted(value, tagCount, assetSlugs, videoRefs.length)}
+          {renderHighlighted(value, tagCount, assetSlugs, videoRefs.length, audioRefs.length)}
           {"\n"}
         </div>
 
@@ -380,7 +393,8 @@ function renderHighlighted(
   text,
   tagCount,
   assetSlugs,
-  videoCount = 0
+  videoCount = 0,
+  audioCount = 0
 ) {
   const out = [];
   const re = new RegExp(TAG_REGEX);
@@ -395,6 +409,8 @@ function renderHighlighted(
       ? n >= 1 && n <= tagCount
       : isVidTag(slug)
       ? n >= 1 && n <= videoCount
+      : isAudioTag(slug)
+      ? n >= 1 && n <= audioCount
       : assetSlugs.has(slug);
     out.push(
       <span

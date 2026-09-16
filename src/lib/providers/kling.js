@@ -406,6 +406,25 @@ export async function getKlingImageTask(taskId, opts = {}) {
  * this route's maxDuration so a hung task surfaces as our timeout message
  * rather than as the invocation being killed with the row stranded in `running`.
  */
+export async function submitImageKling(input, opts = {}) {
+  return createKlingImageTask(input, opts);
+}
+
+export async function resolveImageKling(taskId, opts = {}) {
+  const task = await getKlingImageTask(taskId, opts);
+  if (task.task_status === "succeed") {
+    const url = task.task_result?.images?.[0]?.url;
+    if (!url) throw new Error("Kling reported success but returned no image URL.");
+    return { status: "succeeded", url, unitDeduction: task.final_unit_deduction };
+  }
+  if (task.task_status === "failed") {
+    throw new Error(task.task_status_msg
+      ? `Kling generation failed: ${task.task_status_msg}`
+      : "Kling generation failed with no reason given.");
+  }
+  return { status: task.task_status === "submitted" ? "running" : "queued", task };
+}
+
 export async function generateImageKling(
   input,
   opts = {}
@@ -413,26 +432,13 @@ export async function generateImageKling(
   const timeoutMs = opts.timeoutMs ?? 240_000;
   const pollMs = opts.pollMs ?? 3_000;
 
-  const taskId = await createKlingImageTask(input, opts);
+  const taskId = await submitImageKling(input, opts);
   const deadline = Date.now() + timeoutMs;
 
   while (Date.now() < deadline) {
     await abortableDelay(pollMs, opts.signal);
-    const task = await getKlingImageTask(taskId, opts);
-    if (task.task_status === "succeed") {
-      const url = task.task_result?.images?.[0]?.url;
-      if (!url) {
-        throw new Error("Kling reported success but returned no image URL.");
-      }
-      return { url, unitDeduction: task.final_unit_deduction };
-    }
-    if (task.task_status === "failed") {
-      throw new Error(
-        task.task_status_msg
-          ? `Kling generation failed: ${task.task_status_msg}`
-          : "Kling generation failed with no reason given."
-      );
-    }
+    const result = await resolveImageKling(taskId, opts);
+    if (result.status === "succeeded") return result;
   }
   throw new Error(
     `Kling task ${taskId} did not finish within ${Math.round(timeoutMs / 1000)}s.`

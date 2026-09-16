@@ -59,6 +59,8 @@ export const generations = pgTable("generations", {
   url: text("url"),
   poster: text("poster"),
   error: text("error"),
+  // Server-only submission diagnostics; excluded from rowToItem/API output.
+  providerResponses: jsonb("provider_responses"),
   moderationBlocked: boolean("moderation_blocked"),
   referenceImages: jsonb("reference_images").$type(),
   // Stored media refs for clips used as `reference_video` on BytePlus. Kept
@@ -79,6 +81,20 @@ export const generations = pgTable("generations", {
   isFavorite: boolean("is_favorite").notNull().default(false),
   favoritedAt: bigint("favorited_at", { mode: "number" }),
   taskId: text("task_id"),
+  // Server-owned coordinator state. These timestamps intentionally describe
+  // provider/app boundaries instead of deriving duration from created_at and
+  // updated_at (which includes queue and callback latency).
+  submittedAt: bigint("submitted_at", { mode: "number" }),
+  providerCreatedAt: bigint("provider_created_at", { mode: "number" }),
+  providerUpdatedAt: bigint("provider_updated_at", { mode: "number" }),
+  completedAt: bigint("completed_at", { mode: "number" }),
+  lastPollAt: bigint("last_poll_at", { mode: "number" }),
+  nextPollAt: bigint("next_poll_at", { mode: "number" }),
+  pollAttempts: integer("poll_attempts").notNull().default(0),
+  callbackReceivedAt: bigint("callback_received_at", { mode: "number" }),
+  providerStatus: text("provider_status"),
+  workerLeaseId: text("worker_lease_id"),
+  workerLeaseUntil: bigint("worker_lease_until", { mode: "number" }),
   // Provider polling health is deliberately separate from updatedAt. A
   // transient status-read failure must be observable without making a stale
   // generation look recently advanced to the reconciliation selector.
@@ -271,6 +287,34 @@ export const assets = pgTable("assets", {
   slug: text("slug").notNull(),
   description: text("description"),
   images: jsonb("images").$type().notNull().default([]),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export const portraitGroups = pgTable("portrait_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  byteplusGroupId: text("byteplus_group_id").unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  groupType: text("group_type").notNull().default("AIGC"),
+  projectName: text("project_name").notNull().default("default"),
+  primaryAssetId: text("primary_asset_id"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export const portraitAssets = pgTable("portrait_assets", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  groupId: uuid("group_id")
+    .notNull()
+    .references(() => portraitGroups.id, { onDelete: "cascade" }),
+  byteplusAssetId: text("byteplus_asset_id").unique(),
+  name: text("name"),
+  assetType: text("asset_type").notNull().default("Image"),
+  role: text("role").notNull().default("reference"),
+  imageUrl: text("image_url").notNull(),
+  status: text("status").notNull().default("Processing"),
+  statusMessage: text("status_message"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });

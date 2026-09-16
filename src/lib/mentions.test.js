@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   isImgTag,
   isVidTag,
+  isAudioTag,
   parseAssetSlugs,
   parseMentionIndices,
   parseVideoMentionIndices,
@@ -25,6 +26,14 @@ test("@vidN is a clip tag, not an asset slug", () => {
   assert.equal(isVidTag("img1"), false);
   assert.equal(isVidTag("video"), false, "bare word must stay an asset slug");
   assert.equal(isVidTag("priya"), false);
+});
+
+test("@audioN is an audio tag, not an asset slug", () => {
+  assert.equal(isAudioTag("audio1"), true);
+  assert.equal(isAudioTag("AUDIO12"), true);
+  assert.equal(isAudioTag("audio"), false);
+  assert.equal(isAudioTag("img1"), false);
+  assert.deepEqual(parseAssetSlugs("use @audio1 with @priya"), ["priya"]);
 });
 
 test("parseAssetSlugs no longer swallows @vidN", () => {

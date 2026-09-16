@@ -309,7 +309,18 @@ export async function createVideoTask(
 
   if (!res.ok) {
     const text = await res.text();
-    throw friendlyError(res.status, text);
+    const error = friendlyError(res.status, text);
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { /* Preserve non-JSON bodies too. */ }
+    error.providerResponse = {
+      provider: "seedance",
+      httpStatus: res.status,
+      rawBody: text,
+      requestId: res.headers?.get("x-request-id") || res.headers?.get("x-tt-logid") ||
+        parsed?.request_id || parsed?.RequestId || parsed?.error?.request_id || null,
+      receivedAt: Date.now(),
+    };
+    throw error;
   }
   const json = await res.json();
   const id = json?.id || json?.task_id || json?.data?.id;
@@ -336,7 +347,12 @@ export async function getVideoTask(
   const json = await res.json();
 
   // ModelArk statuses: queued | running | succeeded | failed | cancelled
-  const rawStatus = (json?.status || "").toLowerCase();
+  return normalizeVideoTaskPayload(json);
+}
+
+/** Normalize both GET and callback task payloads through one parser. */
+export function normalizeVideoTaskPayload(json = {}) {
+  const rawStatus = (json?.status || json?.state || "").toLowerCase();
   let status = "running";
   if (rawStatus === "succeeded") status = "succeeded";
   else if (rawStatus === "failed" || rawStatus === "cancelled") status = "failed";
@@ -360,5 +376,20 @@ export async function getVideoTask(
       ? totalTokensRaw
       : undefined;
 
-  return { status, videoUrl, error, raw: json, totalTokens };
+  return {
+    status,
+    videoUrl,
+    error,
+    raw: json,
+    totalTokens,
+    ...providerUsageTimestamps(json),
+  };
+}
+
+function providerUsageTimestamps(json) {
+  return {
+    providerCreatedAt: json?.created_at ?? json?.createdAt,
+    providerUpdatedAt: json?.updated_at ?? json?.updatedAt,
+    providerStatus: json?.status ?? json?.state,
+  };
 }

@@ -14,12 +14,17 @@ export async function submitVideoCandidates({ count, totalCostCents, seed, submi
   const rejected = settled.filter((result) => result.status === "rejected");
   if (!acceptedTaskIds.length) {
     const first = rejected[0]?.reason;
-    throw new Error(
+    const error = new Error(
       `Video candidate submission failed (0/${count} accepted): ` +
         `${first?.message || String(first || "provider rejected every candidate")}`
     );
+    error.code = first?.code;
+    error.providerResponses = rejected.flatMap(({ reason }) => reason?.providerResponse ? [reason.providerResponse] : []);
+    throw error;
   }
+  const providerResponses = rejected.flatMap(({ reason }) => reason?.providerResponse ? [reason.providerResponse] : []);
   return {
+    ...(providerResponses.length ? { providerResponses } : {}),
     acceptedTaskIds,
     rejectedCount: rejected.length,
     // totalCostCents is the full requested-N estimate. It originates as one

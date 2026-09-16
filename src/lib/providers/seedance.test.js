@@ -265,3 +265,46 @@ test("createVideoTask: Seedance 2.0 rejects a tenth reference before network", a
     }
   );
 });
+
+for (const rawBody of [JSON.stringify({ error: { code: "SensitiveContent", message: "blocked" }, request_id: "body-id" }), "upstream unavailable"]) {
+  test(`submission preserves rejection diagnostics: ${rawBody}`, async () => {
+    const originalFetch = globalThis.fetch;
+    const originalKey = process.env.ARK_API_KEY;
+    process.env.ARK_API_KEY = "test-key";
+    globalThis.fetch = async () => new Response(rawBody, { status: 400, headers: { "x-tt-logid": "trace-id" } });
+    try {
+      await assert.rejects(createVideoTask({ prompt: "landscape", modelDisplay: "Seedance 2.5" }), error => {
+        assert.equal(error.providerResponse.rawBody, rawBody);
+        assert.equal(error.providerResponse.httpStatus, 400);
+        assert.equal(error.providerResponse.requestId, "trace-id");
+        if (rawBody.includes("SensitiveContent")) assert.equal(error.code, "moderation");
+        return true;
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalKey === undefined) delete process.env.ARK_API_KEY;
+      else process.env.ARK_API_KEY = originalKey;
+    }
+  });
+}
+
+test("createVideoTask: passes asset:// URIs through in image_url content items", async () => {
+  const { body } = await withFakeArkResponse("task-asset-test", () =>
+    createVideoTask({
+      modelDisplay: "Seedance 2.0",
+      prompt: "@img1 walks into the neon diner",
+      references: [
+        {
+          tag: "@img1",
+          index: 1,
+          dataUrl: "asset://asset-20260318035710-kctzf",
+        },
+      ],
+    })
+  );
+
+  const imageItems = body.content.filter((c) => c.type === "image_url");
+  assert.equal(imageItems.length, 1);
+  assert.equal(imageItems[0].image_url.url, "asset://asset-20260318035710-kctzf");
+  assert.equal(imageItems[0].role, "reference_image");
+});

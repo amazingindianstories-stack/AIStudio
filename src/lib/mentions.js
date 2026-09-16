@@ -22,6 +22,11 @@ export function isVidTag(slug) {
   return /^vid\d+$/i.test(slug);
 }
 
+/** True for attached audio tags (@audio1, @audio2 …). */
+export function isAudioTag(slug) {
+  return /^audio\d+$/i.test(slug);
+}
+
 /**
  * Named asset slugs referenced in a prompt (e.g. @priya, @red-lehenga), in
  * first-appearance order, excluding the ad-hoc @imgN tokens.
@@ -37,7 +42,7 @@ export function parseAssetSlugs(prompt) {
     // a saved asset named "vid1", found nothing, and silently stayed in the
     // prompt as ordinary text — which is why typing @vid1 appeared to do
     // nothing at all.
-    if (isImgTag(slug) || isVidTag(slug) || seen.has(slug)) continue;
+    if (isImgTag(slug) || isVidTag(slug) || isAudioTag(slug) || seen.has(slug)) continue;
     seen.add(slug);
     order.push(slug);
   }

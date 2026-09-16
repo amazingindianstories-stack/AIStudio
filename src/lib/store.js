@@ -14,6 +14,7 @@ import {
   supportsFirstFrameContinuation,
   supportsVideoReference,
   supportsVideoEditExtend,
+  VIDEO_TASK_MODES,
   MAX_REFERENCE_VIDEOS,
 
 } from "./config";
@@ -258,6 +259,10 @@ export const useStore = create((set, get) => ({
   // Restored/cloned references default to "image" since a saved
   // generation's stored referenceImages don't carry the original kind.
   referenceKinds: [],
+  // Optional labels shown beside @imgN references. Keep this parallel to the
+  // reference array so an older draft that predates labels cannot crash the
+  // composer while rendering `referenceLabels[i]`.
+  referenceLabels: [],
   referenceVideos: [],
   referenceAudios: [],
   // Display metadata for uploaded audio references. Each entry is {name, ref}.
@@ -297,6 +302,11 @@ export const useStore = create((set, get) => ({
   assetLibraryOpen: false,
   editingAsset: null,
 
+  portraitGroups: [],
+  portraitGroupsLoading: false,
+  portraitGalleryOpen: false,
+  selectedPortraitGroup: null,
+
   currentUser: null,
   usersById: {},
   limits: {},
@@ -309,6 +319,11 @@ export const useStore = create((set, get) => ({
 
   setSeed: (seed) => set({ seed }),
   setContinuationFrame: (continuationFrame) => set({ continuationFrame }),
+  setReferenceLabel: (index, label) => set((s) => {
+    const labels = Array.isArray(s.referenceLabels) ? [...s.referenceLabels] : [];
+    labels[index] = String(label ?? "");
+    return { referenceLabels: labels };
+  }),
 
   setMode: (mode) => {
     const d = DEFAULTS[mode];
@@ -367,7 +382,9 @@ export const useStore = create((set, get) => ({
   setDuration: (duration) => set({ duration }),
   setBatchCount: (batchCount) => set({ batchCount: Math.min(4, Math.max(1, batchCount)) }),
   setGenerateAudio: (generateAudio) => set({ generateAudio }),
-  setVideoTaskMode: (videoTaskMode) => set({ videoTaskMode }),
+  setVideoTaskMode: (videoTaskMode) => set({
+    videoTaskMode: VIDEO_TASK_MODES.includes(videoTaskMode) ? videoTaskMode : "generate",
+  }),
   setPrompt: (prompt) => set({ prompt }),
   addReference: (dataUrl, kind = "image") =>
     set((s) => {
@@ -390,6 +407,7 @@ export const useStore = create((set, get) => ({
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
       referenceKinds: s.referenceKinds.filter((_, i) => i !== index),
+      referenceLabels: (s.referenceLabels || []).filter((_, i) => i !== index),
     })),
   // Drag-reorder from the composer. Diffs old vs. new position per image
   // (by value — reference images are treated as distinct, so an exact
@@ -402,12 +420,17 @@ export const useStore = create((set, get) => ({
     set((s) => {
       const mapping = s.referenceImages.map((img) => newOrder.indexOf(img));
       const newKinds = new Array(newOrder.length);
+      const newLabels = new Array(newOrder.length);
       mapping.forEach((newIndex, oldIndex) => {
-        if (newIndex >= 0) newKinds[newIndex] = s.referenceKinds[oldIndex];
+        if (newIndex >= 0) {
+          newKinds[newIndex] = s.referenceKinds[oldIndex];
+          if (s.referenceLabels) newLabels[newIndex] = s.referenceLabels[oldIndex];
+        }
       });
       return {
         referenceImages: newOrder,
         referenceKinds: newKinds,
+        referenceLabels: newLabels,
         prompt: renumberImgMentions(s.prompt, mapping),
       };
     }),
@@ -744,6 +767,8 @@ export const useStore = create((set, get) => ({
           // not standing composer preferences — left set, the NEXT ordinary
           // "Generate" click would silently reuse them.
           set({ prompt: "", seed: null, continuationFrame: null });
+          // The server coordinator owns execution. The live feed/history
+          // resync is the only client-side recovery path.
           startPolling(item, set, get);
           created.push(item);
         }
@@ -986,7 +1011,7 @@ export const useStore = create((set, get) => ({
           newItem.kind === "video" &&
           (newItem.status === "running" || newItem.status === "queued")
         ) {
-          pollVideo(newItem.id, set, get);
+          startPolling(newItem, set, get);
         }
         return { ok: true };
       }
@@ -1243,6 +1268,151 @@ export const useStore = create((set, get) => ({
   setAssetLibraryOpen: (assetLibraryOpen) => set({ assetLibraryOpen }),
   setEditingAsset: (editingAsset) => set({ editingAsset }),
 
+  setPortraitGalleryOpen: (portraitGalleryOpen) => set({ portraitGalleryOpen }),
+  setSelectedPortraitGroup: (selectedPortraitGroup) => set({ selectedPortraitGroup }),
+
+  loadPortraitGroups: async () => {
+    set({ portraitGroupsLoading: true });
+    try {
+      const res = await apiFetch("/api/assets/portraits", { cache: "no-store" });
+      const json = await res.json();
+      set({ portraitGroups: json.groups ?? [], portraitGroupsLoading: false });
+    } catch {
+      set({ portraitGroupsLoading: false });
+    }
+  },
+
+  createPortraitGroup: async (name, description = "") => {
+    try {
+      const res = await apiFetch("/api/assets/portraits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, description }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return { ok: false, error: err.error || "Failed to create character group." };
+      }
+      const group = await res.json();
+      set((s) => ({
+        portraitGroups: [group, ...s.portraitGroups],
+        selectedPortraitGroup: group,
+      }));
+      return { ok: true, group };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Network error" };
+    }
+  },
+
+  deletePortraitGroup: async (id) => {
+    const prev = get().portraitGroups;
+    set((s) => ({
+      portraitGroups: s.portraitGroups.filter((g) => g.id !== id),
+      selectedPortraitGroup: s.selectedPortraitGroup?.id === id ? null : s.selectedPortraitGroup,
+    }));
+    try {
+      const res = await apiFetch(`/api/assets/portraits?id=${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Delete failed");
+      return { ok: true };
+    } catch (err) {
+      set({ portraitGroups: prev });
+      return { ok: false, error: err?.message || "Delete failed" };
+    }
+  },
+
+  loadPortraitAssets: async (groupId) => {
+    try {
+      const res = await apiFetch(`/api/assets/portraits/${groupId}/assets`, { cache: "no-store" });
+      const json = await res.json();
+      const assets = json.assets ?? [];
+      set((s) => {
+        const nextGroups = s.portraitGroups.map((g) =>
+          g.id === groupId
+            ? {
+                ...g,
+                assets,
+                activeCount: assets.filter((a) => a.status === "Active").length,
+                processingCount: assets.filter((a) => a.status === "Processing").length,
+              }
+            : g
+        );
+        const selected =
+          s.selectedPortraitGroup?.id === groupId
+            ? {
+                ...s.selectedPortraitGroup,
+                assets,
+                activeCount: assets.filter((a) => a.status === "Active").length,
+                processingCount: assets.filter((a) => a.status === "Processing").length,
+              }
+            : s.selectedPortraitGroup;
+        return { portraitGroups: nextGroups, selectedPortraitGroup: selected };
+      });
+      return assets;
+    } catch {
+      return [];
+    }
+  },
+
+  uploadPortraitAsset: async (groupId, { dataUrl, name, role }) => {
+    try {
+      const res = await apiFetch(`/api/assets/portraits/${groupId}/assets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dataUrl, name, role }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return { ok: false, error: err.error || "Failed to upload portrait asset." };
+      }
+      const asset = await res.json();
+      await get().loadPortraitAssets(groupId);
+      return { ok: true, asset };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Network error uploading portrait asset." };
+    }
+  },
+
+  deletePortraitAsset: async (groupId, assetId) => {
+    try {
+      const res = await apiFetch(`/api/assets/portraits/${groupId}/assets?assetId=${assetId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Delete asset failed");
+      await get().loadPortraitAssets(groupId);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Delete asset failed" };
+    }
+  },
+
+  attachPortraitToComposer: (asset, characterName = "Character") => {
+    const s = get();
+    // Prioritize imageUrl for visual preview in the composer.
+    // The backend queue execution will automatically resolve this to asset://${asset.byteplusAssetId}.
+    const refUrl = asset.imageUrl || (asset.byteplusAssetId ? `asset://${asset.byteplusAssetId}` : "");
+    if (!refUrl) return;
+
+    const currentRefs = Array.isArray(s.referenceImages) ? [...s.referenceImages] : [];
+    const currentKinds = Array.isArray(s.referenceKinds) ? [...s.referenceKinds] : [];
+    const currentLabels = Array.isArray(s.referenceLabels) ? [...s.referenceLabels] : [];
+
+    if (currentRefs.includes(refUrl)) {
+      set({ portraitGalleryOpen: false });
+      return;
+    }
+
+    currentRefs.push(refUrl);
+    currentKinds.push("portrait");
+    currentLabels.push(characterName);
+
+    set({
+      referenceImages: currentRefs,
+      referenceKinds: currentKinds,
+      referenceLabels: currentLabels,
+      portraitGalleryOpen: false,
+    });
+  },
+
   loadProjects: async () => {
     try {
       // GET ensures a default project server-side (atomic — no duplicate races).
@@ -1486,7 +1656,7 @@ export const useStore = create((set, get) => ({
   },
 }));
 
-function pollVideo(
+function _pollVideo(
   id,
   set,
   _get
@@ -1694,33 +1864,15 @@ function scheduleLive(
  *  videos are already submitted remotely and just need status polling. */
 function startPolling(
   item,
-  set,
-  get
+  _set,
+  _get
 ) {
-  // Depth jobs never go through /api/queue/execute's admission control (see
-  // generate/depth/route.js's docstring) — queued or running, the only thing
-  // that can change the row is the worker itself, so both states use the
-  // same plain-read poller.
-  if (item.kind === "depth") {
-    if (item.status === "queued" || item.status === "running") {
-      pollDepthStatus(item.id, set, get);
-    }
-    return;
-  }
-  if (item.status === "queued") {
-    pollQueue(item.id, set, get);
-  } else if (item.status === "running") {
-    if (item.kind === "video") {
-      pollVideo(item.id, set, get);
-    } else {
-      // Images execute synchronously inside /api/queue/execute; if that
-      // request was interrupted (reload, backgrounded tab, network blip)
-      // after the job flipped to "running" server-side, nothing else will
-      // ever tell this client it finished. /api/queue/status reports the
-      // row's real status regardless of queue position, so reuse it here
-      // to wait out the remaining execution.
-      pollQueue(item.id, set, get);
-    }
+  // Kept as a compatibility shim for callers from older store actions. It
+  // intentionally does not call a provider/status endpoint or schedule a
+  // repeating timer: the server worker advances the row and liveTick is only
+  // a low-frequency read-only resynchronization feed.
+  if (item?.status === "queued" && item?.updatedAt === 0) {
+    setStoreTimeout(() => {}, 0);
   }
 }
 
@@ -1729,7 +1881,7 @@ function startPolling(
  *  pollVideo). Shorter interval than pollVideo's 4s: progressPercent/
  *  progressMessage update frequently while a job is running (see
  *  reportDepthProgress) and the composer is meant to show that moving. */
-function pollDepthStatus(
+function _pollDepthStatus(
   id,
   set,
   get
@@ -1761,7 +1913,7 @@ function pollDepthStatus(
   setStoreTimeout(tick, 1500);
 }
 
-function pollQueue(
+function _pollQueue(
   id,
   set,
   get
@@ -1819,7 +1971,7 @@ function pollQueue(
           // Videos come back "running" with a provider taskId — hand off to
           // the remote-render status poller.
           if (finalItem.kind === "video" && finalItem.status === "running") {
-            pollVideo(finalItem.id, set, get);
+            _pollVideo(finalItem.id, set, get);
           }
         }
         // A response with neither `id` nor `notAdmitted` means execute

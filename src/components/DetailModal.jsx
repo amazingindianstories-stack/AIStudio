@@ -168,7 +168,8 @@ function ReferenceCollage({ images }) {
 export function DetailModal() {
   const activeId = useStore((s) => s.activeId);
   const items = useStore((s) => s.items);
-  const gridColumns = useStore((s) => s.gridColumns);
+  const rightTab = useStore((s) => s.rightTab);
+  const activeProjectId = useStore((s) => s.activeProjectId);
   // rightTab/search/filterKind are no longer read here: the feed arrives
   // already filtered and ordered by those, so re-deriving them would only
   // create a second, drifting definition of the same list.
@@ -191,41 +192,21 @@ export function DetailModal() {
   const escapeCloseTimerRef = useRef(null);
 
   // `items` is already the scope the user is looking at — server-filtered and
-  // in the same order the grid renders — so Left/Right (reading order) just
-  // walks it. The old per-tab re-filter and re-sort here duplicated the
-  // panel's rules and had already drifted from them (it sorted favourites by
-  // favoritedAt but the grid did not), which showed up as arrow-key
-  // navigation jumping to a different image than the one visually next to
-  // the current card.
+  // in the same order the grid renders. Keep the project guard here as a
+  // second line of defence so a stale feed/cache response can never make the
+  // viewer jump into another project.
   const item = items.find((i) => i.id === activeId) || null;
   const navigableItems = useMemo(
     () =>
       items.filter(
         (candidate) =>
-          candidate.status === "succeeded" && Boolean(candidate.url || candidate.poster)
+          candidate.status === "succeeded" &&
+          Boolean(candidate.url || candidate.poster) &&
+          (rightTab !== "project" ||
+            !activeProjectId ||
+            candidate.projectId === activeProjectId)
       ),
-    [items]
-  );
-
-  // Up/Down can't reuse flat `items` order the way Left/Right does: the grid
-  // is a packed masonry (AssetGrid's packColumns), so the item immediately
-  // before/after the current one in list order usually lands in a *different*
-  // column at a similar row, not the card visually above/below it — pressing
-  // Up would as often show something below as above. `gridColumns` is the
-  // actual column assignment AssetGrid just rendered, published live via the
-  // store; each column is filtered down to navigable ids (preserving order)
-  // so the placeholder/failed cards the grid also renders don't break the
-  // walk. Falls back to flat order (same as Left/Right) when the active item
-  // isn't in any column — DetailModal can be opened from views with no grid
-  // mounted at all, e.g. a chat thread.
-  const navigableColumns = useMemo(
-    () => {
-      const navigableIds = new Set(navigableItems.map((i) => i.id));
-      return gridColumns
-        .map((col) => col.filter((id) => navigableIds.has(id)))
-        .filter((col) => col.length > 0);
-    },
-    [gridColumns, navigableItems]
+    [activeProjectId, items, rightTab]
   );
 
   useEffect(() => {
@@ -336,20 +317,6 @@ export function DetailModal() {
       if (hasFullscreenMedia()) return;
       const delta = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1;
 
-      if (isVertical) {
-        const column = navigableColumns.find((col) => col.includes(item.id));
-        if (column && column.length > 1) {
-          event.preventDefault();
-          const currentIndex = column.indexOf(item.id);
-          const nextIndex = (currentIndex + delta + column.length) % column.length;
-          setActiveId(column[nextIndex]);
-          return;
-        }
-        // No column info (or a lone item in its column) — fall through to
-        // the same flat-order walk Left/Right uses, rather than doing
-        // nothing.
-      }
-
       if (navigableItems.length < 2) return;
       event.preventDefault();
       const currentIndex = navigableItems.findIndex(
@@ -361,7 +328,7 @@ export function DetailModal() {
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closeModal, confirmation.dialogProps.open, item, navigableItems, navigableColumns, setActiveId]);
+  }, [closeModal, confirmation.dialogProps.open, item, navigableItems, setActiveId]);
 
   return (
     <>
