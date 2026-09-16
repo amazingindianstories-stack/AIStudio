@@ -2,8 +2,6 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
 import {
-  listPortraitGroups,
-  listAllPortraitAssets,
   upsertPortraitGroup,
   deletePortraitGroup,
   getPortraitGroup,
