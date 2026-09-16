@@ -132,13 +132,22 @@ async function signAudioRefs(refs, signal) {
  * allowed by `splitDataUrl` on upload) is re-encoded to JPEG rather than sent
  * as a format the provider will reject.
  */
-async function toProviderDataUrls(refs, signal) {
+export async function toProviderDataUrls(refs, signal) {
   const out = [];
   for (const ref of refs) {
     throwIfAborted(signal);
     if (typeof ref === "string" && ref.startsWith("asset://")) {
       out.push(ref);
       continue;
+    }
+
+    // Fast-path: direct resolution if bp_asset_id is encoded on the reference URL
+    if (typeof ref === "string") {
+      const match = ref.match(/[?&#]bp[-_]asset(?:_id)?=([^&#]+)/);
+      if (match && match[1]) {
+        out.push(`asset://${decodeURIComponent(match[1])}`);
+        continue;
+      }
     }
 
     // If this reference image was attached from the Portrait Gallery, resolve

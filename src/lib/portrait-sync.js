@@ -124,10 +124,13 @@ export async function syncByteplusPortraits() {
           updatedAt,
         });
       } else {
-        // Update URL or status if changed
+        // Update URL or status if changed. Check base URL to avoid thrashing on dynamic query params.
+        const remoteClean = (remoteAsset.URL || "").split("?")[0];
+        const localClean = (localAsset.imageUrl || "").split("?")[0];
+        const urlBaseChanged = Boolean(remoteClean && localClean !== remoteClean);
         if (
           localAsset.status !== remoteAsset.Status ||
-          (remoteAsset.URL && localAsset.imageUrl !== remoteAsset.URL)
+          urlBaseChanged
         ) {
           await upsertPortraitAsset({
             ...localAsset,

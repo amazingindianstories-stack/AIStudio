@@ -69,3 +69,25 @@ test("syncByteplusPortraits: falls back safely to local store when mock/unconfig
   assert.ok(Array.isArray(result.assets));
   assert.equal(typeof result.syncedWithByteplus, "boolean");
 });
+
+test("mediaKeyFromRef: cleanly strips query params and fragments", async () => {
+  const { mediaKeyFromRef } = await import("@/lib/storage.js");
+  assert.equal(mediaKeyFromRef("/api/media/assets/photo.png?w=400"), "assets/photo.png");
+  assert.equal(mediaKeyFromRef("/api/media/assets/photo.png?bp_asset_id=asset-123&w=400"), "assets/photo.png");
+  assert.equal(mediaKeyFromRef("/api/media/assets/photo.png#bp-asset=asset-123"), "assets/photo.png");
+});
+
+test("toProviderDataUrls: fast-paths asset:// and bp_asset_id query parameters", async () => {
+  const { toProviderDataUrls } = await import("@/app/api/queue/execute/route.js");
+  const refs = [
+    "asset://asset-20260910192105-wq66m",
+    "https://example.com/photo.png?bp_asset_id=asset-20260910192105-wq66m",
+    "/api/media/assets/uuid.png?bp_asset_id=asset-custom-group-123&w=400",
+  ];
+  const resolved = await toProviderDataUrls(refs);
+  assert.deepEqual(resolved, [
+    "asset://asset-20260910192105-wq66m",
+    "asset://asset-20260910192105-wq66m",
+    "asset://asset-custom-group-123",
+  ]);
+});

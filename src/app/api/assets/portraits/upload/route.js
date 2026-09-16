@@ -10,6 +10,7 @@ import {
   byteplusAssetClient,
   validatePortraitImage,
   BytePlusAssetError,
+  getByteplusConfig,
 } from "@/lib/byteplus-assets";
 import { saveAssetImage } from "@/lib/save-media";
 import { splitDataUrl, signStoredRef } from "@/lib/storage";
@@ -64,6 +65,7 @@ export async function POST(req) {
     // 4. Create in BytePlus ModelArk
     let bpAssetId = null;
     let initialStatus = "Active";
+    const bpConfig = getByteplusConfig();
     try {
       if (!group.byteplusGroupId) {
         const bpGroupRes = await byteplusAssetClient.createAssetGroup({
@@ -92,6 +94,10 @@ export async function POST(req) {
         bpAssetId = bpRes?.Id || null;
       }
     } catch (bpErr) {
+      if (!bpConfig.isMock) {
+        console.error("[portraits/upload] BytePlus CreateAsset failed in production:", bpErr);
+        throw bpErr;
+      }
       console.warn("[portraits/upload] BytePlus CreateAsset skipped or mock:", bpErr?.message);
     }
 

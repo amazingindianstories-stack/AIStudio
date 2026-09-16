@@ -1414,6 +1414,9 @@ export const useStore = create((set, get) => ({
         body: JSON.stringify({ dataUrl, name, role, groupId }),
       });
       if (!res.ok) {
+        if (res.status === 413) {
+          return { ok: false, error: "Image file is too large for the server (HTTP 413). Please select an image under 25MB." };
+        }
         const err = await res.json().catch(() => ({}));
         return { ok: false, error: err.error || "Failed to upload portrait." };
       }
@@ -1461,9 +1464,16 @@ export const useStore = create((set, get) => ({
   attachPortraitToComposer: (asset, characterName = "Character") => {
     const s = get();
     // Prioritize imageUrl for visual preview in the composer.
-    // The backend queue execution will automatically resolve this to asset://${asset.byteplusAssetId}.
-    const refUrl = asset.imageUrl || (asset.byteplusAssetId ? `asset://${asset.byteplusAssetId}` : "");
+    // If byteplusAssetId exists, append it as a query param so queue execution resolves it to asset://${asset.byteplusAssetId}.
+    let refUrl = asset.imageUrl;
+    if (!refUrl && asset.byteplusAssetId) {
+      refUrl = `asset://${asset.byteplusAssetId}`;
+    }
     if (!refUrl) return;
+
+    if (asset.byteplusAssetId && !refUrl.includes("bp_asset_id=")) {
+      refUrl = `${refUrl}${refUrl.includes("?") ? "&" : "?"}bp_asset_id=${encodeURIComponent(asset.byteplusAssetId)}`;
+    }
 
     const currentRefs = Array.isArray(s.referenceImages) ? [...s.referenceImages] : [];
     const currentKinds = Array.isArray(s.referenceKinds) ? [...s.referenceKinds] : [];

@@ -1,4 +1,4 @@
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, desc, asc, like } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { portraitGroups, portraitAssets } from "./schema.js";
 
@@ -139,13 +139,60 @@ export async function getPortraitAssetByByteplusId(byteplusAssetId) {
 }
 
 export async function getPortraitAssetByImageUrl(imageUrl) {
+  if (!imageUrl || typeof imageUrl !== "string") return undefined;
   const db = await getDb();
-  const rows = await db
+
+  // 1. Direct exact match
+  const exactRows = await db
     .select()
     .from(portraitAssets)
     .where(eq(portraitAssets.imageUrl, imageUrl))
     .limit(1);
-  return rows[0] ? rowToAsset(rows[0]) : undefined;
+  if (exactRows[0]) return rowToAsset(exactRows[0]);
+
+  // 2. Query-string stripped match (for dynamic signed TOS URLs or media URLs with params)
+  const cleanUrl = imageUrl.split("?")[0].split("#")[0];
+  if (cleanUrl && cleanUrl !== imageUrl) {
+    const cleanExactRows = await db
+      .select()
+      .from(portraitAssets)
+      .where(eq(portraitAssets.imageUrl, cleanUrl))
+      .limit(1);
+    if (cleanExactRows[0]) return rowToAsset(cleanExactRows[0]);
+
+    const prefixRows = await db
+      .select()
+      .from(portraitAssets)
+      .where(like(portraitAssets.imageUrl, `${cleanUrl}%`))
+      .limit(1);
+    if (prefixRows[0]) return rowToAsset(prefixRows[0]);
+  } else {
+    // imageUrl had no query params, but DB row might have query params (e.g. TOS URL)
+    const prefixRows = await db
+      .select()
+      .from(portraitAssets)
+      .where(like(portraitAssets.imageUrl, `${imageUrl}%`))
+      .limit(1);
+    if (prefixRows[0]) return rowToAsset(prefixRows[0]);
+  }
+
+  // 3. Fallback: match by URL pathname (e.g. /3000924751/091019210558441937.png or /assets/uuid.png)
+  try {
+    const parsed = new URL(imageUrl, "http://localhost");
+    const pathname = parsed.pathname;
+    if (pathname && pathname !== "/" && pathname.length > 5) {
+      const pathRows = await db
+        .select()
+        .from(portraitAssets)
+        .where(like(portraitAssets.imageUrl, `%${pathname}%`))
+        .limit(1);
+      if (pathRows[0]) return rowToAsset(pathRows[0]);
+    }
+  } catch {
+    // Ignore invalid URLs
+  }
+
+  return undefined;
 }
 
 export async function upsertPortraitAsset(asset) {

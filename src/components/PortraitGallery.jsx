@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { thumbUrl } from "@/lib/utils";
+import { encodeBlobWithBudget } from "@/lib/client-image-budget";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 
@@ -78,14 +79,18 @@ export function PortraitGallery() {
       let successCount = 0;
       let lastError = "";
 
+      const MAX_PORTRAIT_RAW_BYTES = 25 * 1024 * 1024; // 25 MB
+
       for (const file of imageFiles) {
         try {
-          const dataUrl = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(new Error("Failed to read file"));
-            reader.readAsDataURL(file);
-          });
+          if (file.size > MAX_PORTRAIT_RAW_BYTES) {
+            lastError = `"${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Max size is 25MB.`;
+            continue;
+          }
+
+          // Use client budget ladder to resize to max 2048px and compress under 3MB
+          // This keeps facial fidelity sharp while preventing Vercel HTTP 413 body ceiling crashes
+          const dataUrl = await encodeBlobWithBudget(file);
 
           const baseName = file.name
             .replace(/\.[^/.]+$/, "")
@@ -355,7 +360,7 @@ export function PortraitGallery() {
                         ) : ""}
                       </p>
                       <p className="mt-0.5 text-xs text-white/45">
-                        PNG, JPG, or WebP. Optimal face reference: clear lighting, neutral expression, 300px to 6000px.
+                        PNG, JPG, or WebP up to 25MB (auto-compressed for crisp facial detail under 4MB). 300px to 6000px.
                       </p>
                     </div>
                   </div>

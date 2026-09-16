@@ -1,9 +1,9 @@
 
 
-import { buildVideoDirective } from "../video-directive";
-import { parseRefRoles } from "../shot-spec";
-import { maxReferenceImagesForVideoModel } from "../config";
-import { isProviderModel, providerModelId } from "../model-registry";
+import { buildVideoDirective } from "../video-directive.js";
+import { parseRefRoles } from "../shot-spec.js";
+import { maxReferenceImagesForVideoModel } from "../config.js";
+import { isProviderModel, providerModelId } from "../model-registry.js";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
  *  hand-written directives on BOTH Seedance paths, without a deploy. The new
@@ -140,7 +140,11 @@ function friendlyError(status, body) {
   } catch {
     /* not JSON */
   }
-  if (isModerationMessage(code + message)) {
+  if (
+    code !== "InvalidEndpointOrModel.NotFound" &&
+    status !== 404 &&
+    isModerationMessage(code + message)
+  ) {
     return new SeedanceError(MODERATION_MESSAGE, "moderation", status);
   }
   if (code)
