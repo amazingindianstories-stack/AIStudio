@@ -10,6 +10,7 @@ config({ path: process.env.ENV_FILE || ".env.local" });
 async function main() {
   const db = await getDb();
   for (const statement of [
+  `alter table generations add column if not exists provider_responses jsonb`,
   `alter table generations add column if not exists submitted_at bigint`,
   `alter table generations add column if not exists provider_created_at bigint`,
   `alter table generations add column if not exists provider_updated_at bigint`,

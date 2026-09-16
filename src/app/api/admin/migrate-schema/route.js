@@ -7,6 +7,7 @@ import { verifyCronSecret } from "@/lib/cron-auth";
 export const runtime = "nodejs";
 
 const COORDINATOR_STATEMENTS = [
+  "alter table generations add column if not exists provider_responses jsonb",
   "alter table generations add column if not exists submitted_at bigint",
   "alter table generations add column if not exists provider_created_at bigint",
   "alter table generations add column if not exists provider_updated_at bigint",
@@ -85,6 +86,7 @@ export async function POST(request) {
       from information_schema.columns
       where table_name = 'generations'
         and column_name in (
+          'provider_responses',
           'submitted_at', 'provider_created_at', 'provider_updated_at',
           'completed_at', 'last_poll_at', 'next_poll_at', 'poll_attempts',
           'callback_received_at', 'provider_status', 'worker_lease_id', 'worker_lease_until'
@@ -104,7 +106,7 @@ export async function POST(request) {
       success: true,
       coordinatorColumns: coordCount,
       portraitTables: portCount,
-      verified: coordCount === 11 && portCount === 2,
+      verified: coordCount === 12 && portCount === 2,
     });
   } catch (error) {
     console.error("[migrate-schema] Error applying migration:", error);
