@@ -426,8 +426,13 @@ export const byteplusAssetClient = {
 
   listAssetGroups: (input = {}, options) =>
     callByteplusAssetApi("ListAssetGroups", {
+      Filter: {
+        GroupType: input.groupType || "AIGC",
+        ...(input.name ? { Name: input.name } : {}),
+        ...(input.groupIds?.length ? { GroupIds: input.groupIds } : {}),
+      },
       MaxResults: input.maxResults || 50,
-      NextToken: input.nextToken || "",
+      ...(input.nextToken ? { NextToken: input.nextToken } : {}),
       ProjectName: input.projectName || "default",
     }, options),
 
@@ -464,10 +469,10 @@ export const byteplusAssetClient = {
       Filter: {
         ...(input.groupIds?.length ? { GroupIds: input.groupIds } : {}),
         ...(input.statuses?.length ? { Statuses: input.statuses } : {}),
-        ...(input.groupType ? { GroupType: input.groupType } : {}),
+        GroupType: input.groupType || "AIGC",
       },
       MaxResults: input.maxResults || 50,
-      NextToken: input.nextToken || "",
+      ...(input.nextToken ? { NextToken: input.nextToken } : {}),
       ProjectName: input.projectName || "default",
     }, options),
 

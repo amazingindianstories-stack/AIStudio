@@ -1,6 +1,6 @@
 import { eq, desc, asc } from "drizzle-orm";
-import { getDb } from "./db";
-import { portraitGroups, portraitAssets } from "./schema";
+import { getDb } from "./db.js";
+import { portraitGroups, portraitAssets } from "./schema.js";
 
 function rowToGroup(r) {
   return {
