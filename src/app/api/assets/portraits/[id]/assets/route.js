@@ -117,9 +117,31 @@ export async function POST(req, { params }) {
     const savedPath = await saveAssetImage(dataUrl);
 
     // 3. Mint fetchable URL for BytePlus
-    const signedUrl = await signStoredRef(savedPath);
+    const signedUrl = (await signStoredRef(savedPath)) || savedPath;
 
-    // 4. Submit to BytePlus ModelArk Asset API (CreateAsset)
+    // 4. Ensure group exists in BytePlus ModelArk
+    if (!group.byteplusGroupId) {
+      try {
+        const bpGroupRes = await byteplusAssetClient.createAssetGroup({
+          name: group.name || "Default Character",
+          description: group.description || "Virtual Portrait Group",
+          groupType: "AIGC",
+          projectName: "default",
+        });
+        if (bpGroupRes?.Id) {
+          group.byteplusGroupId = bpGroupRes.Id;
+          await upsertPortraitGroup({
+            ...group,
+            byteplusGroupId: bpGroupRes.Id,
+            updatedAt: Date.now(),
+          });
+        }
+      } catch (bpGrpErr) {
+        console.warn("[portraits] Failed to create BytePlus group:", bpGrpErr?.message);
+      }
+    }
+
+    // 5. Submit to BytePlus ModelArk Asset API (CreateAsset)
     const bpRes = await byteplusAssetClient.createAsset({
       groupId: group.byteplusGroupId,
       url: signedUrl,

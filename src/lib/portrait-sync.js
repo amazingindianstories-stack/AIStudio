@@ -152,6 +152,71 @@ export async function syncByteplusPortraits() {
 
     // Ensure in-memory assets returned to the client carry the freshly-signed BytePlus URLs
     const bpUrlMap = new Map(bpAssets.filter((a) => a.URL).map((a) => [a.Id, a.URL]));
+
+    // 5. Auto-sync any local assets missing BytePlus ID to BytePlus ModelArk
+    if (!config.isMock) {
+      for (const localAsset of assets) {
+        if (!localAsset.byteplusAssetId && localAsset.imageUrl) {
+          try {
+            let parentGroup = groups.find((g) => g.id === localAsset.groupId);
+            if (!parentGroup?.byteplusGroupId) {
+              const targetName = parentGroup?.name || "General Portraits";
+              const existingBpGroup = bpGroups.find((g) => g.Name === targetName) || bpGroups[0];
+              if (existingBpGroup?.Id) {
+                if (parentGroup) parentGroup.byteplusGroupId = existingBpGroup.Id;
+              } else {
+                const bpGroupRes = await byteplusAssetClient.createAssetGroup({
+                  name: targetName,
+                  description: parentGroup?.description || "Virtual Portrait Group",
+                  groupType: "AIGC",
+                  projectName: "default",
+                });
+                if (bpGroupRes?.Id && parentGroup) {
+                  parentGroup.byteplusGroupId = bpGroupRes.Id;
+                }
+              }
+              if (parentGroup?.byteplusGroupId) {
+                await upsertPortraitGroup({
+                  ...parentGroup,
+                  byteplusGroupId: parentGroup.byteplusGroupId,
+                  updatedAt: Date.now(),
+                });
+              }
+            }
+
+            const targetGroupId = parentGroup?.byteplusGroupId || bpGroups[0]?.Id;
+            if (targetGroupId) {
+              const { signStoredRef } = await import("./storage.js");
+              const signedUrl = (await signStoredRef(localAsset.imageUrl)) || localAsset.imageUrl;
+              if (signedUrl && !signedUrl.startsWith("data:")) {
+                const bpRes = await byteplusAssetClient.createAsset({
+                  groupId: targetGroupId,
+                  url: signedUrl,
+                  name: localAsset.name || "Portrait",
+                  assetType: "Image",
+                });
+                if (bpRes?.Id) {
+                  localAsset.byteplusAssetId = bpRes.Id;
+                  localAsset.status = bpRes.Status || "Active";
+                  await upsertPortraitAsset({
+                    ...localAsset,
+                    byteplusAssetId: bpRes.Id,
+                    status: bpRes.Status || "Active",
+                    updatedAt: Date.now(),
+                  });
+                  if (bpRes.URL) {
+                    bpUrlMap.set(bpRes.Id, bpRes.URL);
+                  }
+                }
+              }
+            }
+          } catch (pushErr) {
+            console.warn(`[portrait-sync] Auto-sync asset ${localAsset.id} to BytePlus:`, pushErr?.message);
+          }
+        }
+      }
+    }
+
     const freshAssets = assets.map((a) => {
       const freshUrl = a.byteplusAssetId ? bpUrlMap.get(a.byteplusAssetId) : null;
       if (freshUrl) return { ...a, imageUrl: freshUrl };

@@ -1,4 +1,4 @@
-import { eq, desc, asc, like } from "drizzle-orm";
+import { eq, desc, asc, like, or } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { portraitGroups, portraitAssets } from "./schema.js";
 
@@ -234,9 +234,20 @@ export async function updatePortraitAssetStatus(byteplusAssetId, status, statusM
 
 export async function deletePortraitAsset(id) {
   const db = await getDb();
-  const existing = await getPortraitAsset(id);
+  let existing = await getPortraitAsset(id);
+  if (!existing) {
+    existing = await getPortraitAssetByByteplusId(id);
+  }
   if (!existing) return undefined;
-  await db.delete(portraitAssets).where(eq(portraitAssets.id, id));
+  await db
+    .delete(portraitAssets)
+    .where(
+      or(
+        eq(portraitAssets.id, existing.id),
+        eq(portraitAssets.id, id),
+        eq(portraitAssets.byteplusAssetId, id)
+      )
+    );
   return existing;
 }
 

@@ -457,31 +457,34 @@ export function PortraitGallery() {
                             </span>
                           </div>
 
-                          {/* Delete button (top-right hover) */}
+                          {/* Hover action overlay */}
+                          <div className="pointer-events-none absolute inset-0 z-20 flex flex-col items-center justify-end bg-gradient-to-t from-ink-950/90 via-ink-950/40 to-transparent p-3 opacity-0 transition duration-200 group-hover:opacity-100">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                attachPortrait(asset, asset.name || "Character")
+                              }
+                              className="pointer-events-auto flex w-full items-center justify-center gap-1.5 rounded-lg bg-brand py-2 text-xs font-semibold text-ink-950 shadow-md transition hover:bg-brand-light"
+                            >
+                              <Sparkles className="h-3.5 w-3.5" /> Use in Prompt
+                            </button>
+                          </div>
+
+                          {/* Delete button (top-right hover, sits above overlay) */}
                           <button
+                            type="button"
                             onClick={(e) => {
+                              e.preventDefault();
                               e.stopPropagation();
                               confirmation.ask("deletePortrait", () =>
                                 deleteDirect(asset.id || asset.byteplusAssetId)
                               );
                             }}
                             title="Delete portrait"
-                            className="absolute right-2 top-2 grid h-7 w-7 place-items-center rounded-lg bg-ink-950/80 text-white/70 opacity-0 transition hover:bg-red-500/80 hover:text-white group-hover:opacity-100 backdrop-blur-md"
+                            className="pointer-events-auto absolute right-2 top-2 z-30 grid h-7 w-7 cursor-pointer place-items-center rounded-lg bg-ink-950/85 text-white/70 opacity-90 transition hover:bg-red-600 hover:text-white sm:opacity-0 sm:group-hover:opacity-100 backdrop-blur-md"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
+                            <Trash2 className="h-3.5 w-3.5 pointer-events-none" />
                           </button>
-
-                          {/* Hover action overlay */}
-                          <div className="absolute inset-0 flex flex-col items-center justify-end bg-gradient-to-t from-ink-950/90 via-ink-950/40 to-transparent p-3 opacity-0 transition duration-200 group-hover:opacity-100">
-                            <button
-                              onClick={() =>
-                                attachPortrait(asset, asset.name || "Character")
-                              }
-                              className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-brand py-2 text-xs font-semibold text-ink-950 shadow-md transition hover:bg-brand-light"
-                            >
-                              <Sparkles className="h-3.5 w-3.5" /> Use in Prompt
-                            </button>
-                          </div>
                         </div>
 
                         {/* Card metadata label */}
@@ -514,13 +517,30 @@ export function PortraitGallery() {
                               >
                                 {asset.name || "Portrait Reference"}
                               </span>
-                              <button
-                                onClick={() => startRenaming(asset)}
-                                title="Rename portrait"
-                                className="opacity-0 transition group-hover:opacity-100 grid h-5 w-5 place-items-center rounded text-white/40 hover:text-white"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => startRenaming(asset)}
+                                  title="Rename portrait"
+                                  className="grid h-5 w-5 place-items-center rounded text-white/40 transition hover:text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100"
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    confirmation.ask("deletePortrait", () =>
+                                      deleteDirect(asset.id || asset.byteplusAssetId)
+                                    );
+                                  }}
+                                  title="Delete portrait"
+                                  className="grid h-5 w-5 place-items-center rounded text-white/40 transition hover:text-red-400 opacity-90 sm:opacity-0 sm:group-hover:opacity-100"
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              </div>
                             </div>
                           )}
                         </div>

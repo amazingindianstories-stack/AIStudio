@@ -5,6 +5,7 @@ import {
   ensureDefaultPortraitGroup,
   upsertPortraitAsset,
   getPortraitGroup,
+  upsertPortraitGroup,
 } from "@/lib/portrait-db";
 import {
   byteplusAssetClient,
@@ -68,23 +69,47 @@ export async function POST(req) {
     const bpConfig = getByteplusConfig();
     try {
       if (!group.byteplusGroupId) {
-        const bpGroupRes = await byteplusAssetClient.createAssetGroup({
-          name: group.name || "Default Character",
-          description: group.description || "Virtual Portrait Group",
-          groupType: "AIGC",
-        });
-        if (bpGroupRes?.Id) {
-          group.byteplusGroupId = bpGroupRes.Id;
+        // Try finding existing group on BytePlus first (e.g. "General Portraits")
+        try {
+          const bpGroupsRes = await byteplusAssetClient.listAssetGroups({
+            groupType: "AIGC",
+            projectName: "default",
+            maxResults: 50,
+          });
+          const existingBpGroup = bpGroupsRes?.Items?.find(
+            (g) => g.Name === (group.name || "General Portraits")
+          ) || bpGroupsRes?.Items?.[0];
+
+          if (existingBpGroup?.Id) {
+            group.byteplusGroupId = existingBpGroup.Id;
+          }
+        } catch {
+          // Fall through to create
+        }
+
+        if (!group.byteplusGroupId) {
+          const bpGroupRes = await byteplusAssetClient.createAssetGroup({
+            name: group.name || "General Portraits",
+            description: group.description || "Virtual Portrait Group",
+            groupType: "AIGC",
+            projectName: "default",
+          });
+          if (bpGroupRes?.Id) {
+            group.byteplusGroupId = bpGroupRes.Id;
+          }
+        }
+
+        if (group.byteplusGroupId) {
           await upsertPortraitGroup({
             ...group,
-            byteplusGroupId: bpGroupRes.Id,
+            byteplusGroupId: group.byteplusGroupId,
             updatedAt: Date.now(),
           });
         }
       }
 
       if (group.byteplusGroupId) {
-        const signedUrl = await signStoredRef(savedPath);
+        const signedUrl = (await signStoredRef(savedPath)) || savedPath;
         const bpRes = await byteplusAssetClient.createAsset({
           groupId: group.byteplusGroupId,
           url: signedUrl,
@@ -92,6 +117,9 @@ export async function POST(req) {
           assetType: "Image",
         });
         bpAssetId = bpRes?.Id || null;
+        if (bpRes?.Status) {
+          initialStatus = bpRes.Status;
+        }
       }
     } catch (bpErr) {
       if (!bpConfig.isMock) {
