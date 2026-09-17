@@ -100,11 +100,12 @@ export async function POST(req) {
         }
 
         if (group.byteplusGroupId) {
-          await upsertPortraitGroup({
+          group = await upsertPortraitGroup({
             ...group,
             byteplusGroupId: group.byteplusGroupId,
             updatedAt: Date.now(),
           });
+          groupId = group.id;
         }
       }
 

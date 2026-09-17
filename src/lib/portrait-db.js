@@ -86,6 +86,35 @@ export async function getPortraitGroupByByteplusId(byteplusGroupId) {
 export async function upsertPortraitGroup(group) {
   const db = await getDb();
   const now = Date.now();
+
+  // If this group specifies a byteplusGroupId, check if another row already holds it
+  if (group.byteplusGroupId) {
+    const existingWithBpId = await getPortraitGroupByByteplusId(group.byteplusGroupId);
+    if (existingWithBpId && existingWithBpId.id !== group.id) {
+      // Re-point all assets from group.id to existingWithBpId.id
+      await db
+        .update(portraitAssets)
+        .set({ groupId: existingWithBpId.id })
+        .where(eq(portraitAssets.groupId, group.id));
+
+      // Remove the redundant duplicate group row
+      await db.delete(portraitGroups).where(eq(portraitGroups.id, group.id));
+
+      // Update canonical group's metadata
+      const updateVals = {
+        name: group.name || existingWithBpId.name,
+        description: group.description ?? existingWithBpId.description,
+        updatedAt: now,
+      };
+      await db
+        .update(portraitGroups)
+        .set(updateVals)
+        .where(eq(portraitGroups.id, existingWithBpId.id));
+
+      return getPortraitGroup(existingWithBpId.id);
+    }
+  }
+
   const values = {
     id: group.id,
     byteplusGroupId: group.byteplusGroupId ?? null,
@@ -262,8 +291,15 @@ export async function listAllPortraitAssets() {
 
 export async function ensureDefaultPortraitGroup() {
   const db = await getDb();
-  const rows = await db.select().from(portraitGroups).limit(1);
-  if (rows[0]) return rowToGroup(rows[0]);
+  const rows = await db.select().from(portraitGroups);
+  if (rows.length > 0) {
+    const preferred =
+      rows.find((r) => r.byteplusGroupId && /general|default/i.test(r.name)) ||
+      rows.find((r) => r.byteplusGroupId) ||
+      rows.find((r) => /general|default/i.test(r.name)) ||
+      rows[0];
+    return rowToGroup(preferred);
+  }
   const id = crypto.randomUUID();
   const now = Date.now();
   await db.insert(portraitGroups).values({

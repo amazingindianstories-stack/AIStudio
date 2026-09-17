@@ -5,7 +5,11 @@ import {
   upsertPortraitAsset,
   getPortraitGroupByByteplusId,
   getPortraitAssetByByteplusId,
+  deletePortraitGroup,
 } from "./portrait-db.js";
+import { getDb } from "./db.js";
+import { portraitAssets } from "./schema.js";
+import { eq } from "drizzle-orm";
 import { byteplusAssetClient, getByteplusConfig } from "./byteplus-assets.js";
 
 /**
@@ -50,17 +54,31 @@ export async function syncByteplusPortraits() {
         : Date.now();
 
       if (!localGroup) {
-        const id = crypto.randomUUID();
-        localGroup = await upsertPortraitGroup({
-          id,
-          byteplusGroupId: remoteGroup.Id,
-          name: remoteGroup.Name || "Untitled Group",
-          description: remoteGroup.Description || "",
-          groupType: remoteGroup.GroupType || "AIGC",
-          projectName: remoteGroup.ProjectName || "default",
-          createdAt,
-          updatedAt,
-        });
+        const groupsBefore = await listPortraitGroups();
+        const unlinked = groupsBefore.find(
+          (g) =>
+            !g.byteplusGroupId &&
+            g.name.trim().toLowerCase() === (remoteGroup.Name || "").trim().toLowerCase()
+        );
+        if (unlinked) {
+          localGroup = await upsertPortraitGroup({
+            ...unlinked,
+            byteplusGroupId: remoteGroup.Id,
+            updatedAt,
+          });
+        } else {
+          const id = crypto.randomUUID();
+          localGroup = await upsertPortraitGroup({
+            id,
+            byteplusGroupId: remoteGroup.Id,
+            name: remoteGroup.Name || "Untitled Group",
+            description: remoteGroup.Description || "",
+            groupType: remoteGroup.GroupType || "AIGC",
+            projectName: remoteGroup.ProjectName || "default",
+            createdAt,
+            updatedAt,
+          });
+        }
       } else if (localGroup.name !== remoteGroup.Name) {
         localGroup = await upsertPortraitGroup({
           ...localGroup,
@@ -163,7 +181,24 @@ export async function syncByteplusPortraits() {
               const targetName = parentGroup?.name || "General Portraits";
               const existingBpGroup = bpGroups.find((g) => g.Name === targetName) || bpGroups[0];
               if (existingBpGroup?.Id) {
-                if (parentGroup) parentGroup.byteplusGroupId = existingBpGroup.Id;
+                const existingOwner = await getPortraitGroupByByteplusId(existingBpGroup.Id);
+                if (existingOwner) {
+                  if (existingOwner.id !== localAsset.groupId) {
+                    const db = await getDb();
+                    await db
+                      .update(portraitAssets)
+                      .set({ groupId: existingOwner.id })
+                      .where(eq(portraitAssets.id, localAsset.id));
+                    localAsset.groupId = existingOwner.id;
+                  }
+                  parentGroup = existingOwner;
+                } else if (parentGroup) {
+                  parentGroup = await upsertPortraitGroup({
+                    ...parentGroup,
+                    byteplusGroupId: existingBpGroup.Id,
+                    updatedAt: Date.now(),
+                  });
+                }
               } else {
                 const bpGroupRes = await byteplusAssetClient.createAssetGroup({
                   name: targetName,
@@ -172,15 +207,12 @@ export async function syncByteplusPortraits() {
                   projectName: "default",
                 });
                 if (bpGroupRes?.Id && parentGroup) {
-                  parentGroup.byteplusGroupId = bpGroupRes.Id;
+                  parentGroup = await upsertPortraitGroup({
+                    ...parentGroup,
+                    byteplusGroupId: bpGroupRes.Id,
+                    updatedAt: Date.now(),
+                  });
                 }
-              }
-              if (parentGroup?.byteplusGroupId) {
-                await upsertPortraitGroup({
-                  ...parentGroup,
-                  byteplusGroupId: parentGroup.byteplusGroupId,
-                  updatedAt: Date.now(),
-                });
               }
             }
 
@@ -217,13 +249,42 @@ export async function syncByteplusPortraits() {
       }
     }
 
-    const freshAssets = assets.map((a) => {
+    // Deduplicate any groups that share the same name (e.g. duplicate "General Portraits")
+    const refreshedGroups = await listPortraitGroups();
+    const seenGroupNames = new Map();
+    const db = await getDb();
+    for (const g of refreshedGroups) {
+      const nameKey = (g.name || "").trim().toLowerCase();
+      const existing = seenGroupNames.get(nameKey);
+      if (existing) {
+        const keep = existing.byteplusGroupId ? existing : (g.byteplusGroupId ? g : (existing.assets.length >= g.assets.length ? existing : g));
+        const discard = keep.id === existing.id ? g : existing;
+
+        if (discard.assets.length > 0) {
+          await db
+            .update(portraitAssets)
+            .set({ groupId: keep.id })
+            .where(eq(portraitAssets.groupId, discard.id));
+        }
+        await deletePortraitGroup(discard.id);
+        seenGroupNames.set(nameKey, keep);
+      } else {
+        seenGroupNames.set(nameKey, g);
+      }
+    }
+
+    const [finalGroups, finalAssets] = await Promise.all([
+      listPortraitGroups(),
+      listAllPortraitAssets(),
+    ]);
+
+    const freshAssets = finalAssets.map((a) => {
       const freshUrl = a.byteplusAssetId ? bpUrlMap.get(a.byteplusAssetId) : null;
       if (freshUrl) return { ...a, imageUrl: freshUrl };
       return a;
     });
 
-    return { groups, assets: freshAssets, syncedWithByteplus: true };
+    return { groups: finalGroups, assets: freshAssets, syncedWithByteplus: true };
   } catch (syncErr) {
     console.warn("[portrait-sync] Warning during BytePlus sync:", syncErr?.message);
     const [groups, assets] = await Promise.all([
