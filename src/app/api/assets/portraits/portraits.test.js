@@ -77,17 +77,19 @@ test("mediaKeyFromRef: cleanly strips query params and fragments", async () => {
   assert.equal(mediaKeyFromRef("/api/media/assets/photo.png#bp-asset=asset-123"), "assets/photo.png");
 });
 
-test("toProviderDataUrls: fast-paths asset:// and bp_asset_id query parameters", async () => {
+test("toProviderDataUrls: fast-paths asset:// and bp_asset_id query parameters or fragments", async () => {
   const { toProviderDataUrls } = await import("@/app/api/queue/execute/route.js");
   const refs = [
     "asset://asset-20260910192105-wq66m",
     "https://example.com/photo.png?bp_asset_id=asset-20260910192105-wq66m",
     "/api/media/assets/uuid.png?bp_asset_id=asset-custom-group-123&w=400",
+    "https://ark-media-asset.tos.volces.com/photo.png?sig=xyz#bp_asset_id=asset-hash-456",
   ];
   const resolved = await toProviderDataUrls(refs);
   assert.deepEqual(resolved, [
     "asset://asset-20260910192105-wq66m",
     "asset://asset-20260910192105-wq66m",
     "asset://asset-custom-group-123",
+    "asset://asset-hash-456",
   ]);
 });

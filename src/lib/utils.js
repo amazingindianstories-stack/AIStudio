@@ -48,7 +48,50 @@ const MEDIA_MAX_VH = 62;
 export function thumbUrl(url, width) {
   if (!url) return undefined;
   if (!url.startsWith("/api/media/")) return url;
-  return `${url}${url.includes("?") ? "&" : "?"}w=${width}`;
+  const [base, hash] = url.split("#");
+  const sep = base.includes("?") ? "&" : "?";
+  const withWidth = `${base}${sep}w=${width}`;
+  return hash ? `${withWidth}#${hash}` : withWidth;
+}
+
+/**
+ * Resolves a reference image URI (asset://, /api/media/..., remote URL, data URL)
+ * to a clean, displayable URL for browser <img> tags.
+ *
+ * - Resolves `asset://<id>` by looking up matching portrait in portraitAssets.
+ * - Strips `#bp_asset_id=...` hash fragments so display URLs are clean.
+ * - Strips any `?bp_asset_id=...` or `&bp_asset_id=...` query parameters from remote
+ *   signed URLs (e.g. BytePlus TOS) to restore valid HMAC signatures.
+ */
+export function referenceDisplayUrl(url, portraitAssets = []) {
+  if (!url || typeof url !== "string") return "";
+
+  // 1. Resolve asset:// URIs to their viewable imageUrl
+  if (url.startsWith("asset://")) {
+    const assetId = url.slice("asset://".length).split(/[?&#]/)[0];
+    const match = Array.isArray(portraitAssets)
+      ? portraitAssets.find((a) => a?.byteplusAssetId === assetId || a?.id === assetId)
+      : null;
+    if (match?.imageUrl) {
+      return referenceDisplayUrl(match.imageUrl, portraitAssets);
+    }
+    return url;
+  }
+
+  // 2. Strip hash fragment for <img> display
+  let clean = url.split("#")[0];
+
+  // 3. Strip any query parameter bp_asset_id that might have been saved in drafts
+  if (clean.startsWith("http://") || clean.startsWith("https://")) {
+    clean = clean
+      .replace(/([?&])bp[-_]asset(?:_id)?=[^&#]+(&?)/, (match, prefix, suffix) => {
+        if (prefix === "?" && suffix) return "?";
+        return "";
+      })
+      .replace(/[?&]$/, "");
+  }
+
+  return clean;
 }
 
 /**

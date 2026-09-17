@@ -54,7 +54,7 @@ import {
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
 } from "@/lib/config";
-import { cn } from "@/lib/utils";
+import { cn, referenceDisplayUrl } from "@/lib/utils";
 import { isProviderModel } from "@/lib/model-registry";
 
 import {
@@ -422,9 +422,12 @@ export function PromptComposer() {
               // over state guarantees the store gets the settled order.
               onDragEnd={() => s.reorderReferences(dragRefsRef.current)}
               title={`Insert @img${i + 1} — drag to reorder`}
-              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing"
+              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing bg-ink-800 flex items-center justify-center"
               onClick={() => mentionRef.current?.insertTag(`@img${i + 1}`)}
             >
+              <div className="absolute inset-0 grid place-items-center bg-ink-800 text-white/20 pointer-events-none">
+                <UserRound className="h-6 w-6" />
+              </div>
               {/* draggable=false + -webkit-user-drag:none: an <img> is
                   natively draggable in every browser, and that native
                   "drag the image out" gesture starts on the same mousedown
@@ -433,13 +436,16 @@ export function PromptComposer() {
                   "sometimes it just doesn't grab" symptom. Suppressing the
                   native drag leaves the pointer event free for Framer. */}
               <img
-                src={src}
+                src={referenceDisplayUrl(src, s.portraitAssets)}
                 alt=""
                 draggable={false}
-                style={{ WebkitUserDrag: "none" } }
-                className="h-full w-full object-cover"
+                style={{ WebkitUserDrag: "none" }}
+                className="relative z-10 h-full w-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
               />
-              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
+              <span className="absolute inset-x-0 bottom-0 z-20 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
                 @img{i + 1}
               </span>
               {/* This is still an @imgN tag functionally — @vid1 already

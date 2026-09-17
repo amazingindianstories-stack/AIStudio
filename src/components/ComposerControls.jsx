@@ -13,6 +13,7 @@ import {
   FolderClosed,
   Layers,
   Sparkles,
+  User,
   Volume2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -27,7 +28,7 @@ import {
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
 } from "@/lib/config";
-import { cn } from "@/lib/utils";
+import { cn, referenceDisplayUrl } from "@/lib/utils";
 import { isProviderModel } from "@/lib/model-registry";
 
 /**
@@ -108,18 +109,24 @@ export function ReferenceStrip({ onInsertTag }) {
               whileDrag={{ scale: 1.05, zIndex: 1 }}
               onDragEnd={() => s.reorderReferences(dragRefsRef.current)}
               title={`Insert @img${i + 1} — drag to reorder`}
-              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing"
+              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing bg-ink-800 flex items-center justify-center"
               onClick={() => onInsertTag(`@img${i + 1}`)}
             >
+              <div className="absolute inset-0 grid place-items-center bg-ink-800 text-white/20 pointer-events-none">
+                <User className="h-6 w-6" />
+              </div>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={src}
+                src={referenceDisplayUrl(src, s.portraitAssets)}
                 alt=""
                 draggable={false}
-                style={{ WebkitUserDrag: "none" } }
-                className="h-full w-full object-cover"
+                style={{ WebkitUserDrag: "none" }}
+                className="relative z-10 h-full w-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
               />
-              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
+              <span className="absolute inset-x-0 bottom-0 z-20 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
                 @img{i + 1}
               </span>
               <span

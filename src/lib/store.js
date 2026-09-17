@@ -1469,15 +1469,27 @@ export const useStore = create((set, get) => ({
   attachPortraitToComposer: (asset, characterName = "Character") => {
     const s = get();
     // Prioritize imageUrl for visual preview in the composer.
-    // If byteplusAssetId exists, append it as a query param so queue execution resolves it to asset://${asset.byteplusAssetId}.
+    // If byteplusAssetId exists, append it as a hash fragment (#bp_asset_id=) so:
+    // 1. Browsers never send the fragment in HTTP requests (preserving BytePlus TOS HMAC-SHA256 signatures and avoiding HTTP 403 Forbidden).
+    // 2. Queue execution resolves the asset via regex to asset://${asset.byteplusAssetId}.
     let refUrl = asset.imageUrl;
     if (!refUrl && asset.byteplusAssetId) {
       refUrl = `asset://${asset.byteplusAssetId}`;
     }
     if (!refUrl) return;
 
+    // Clean any prior query param bp_asset_id if present
+    if (refUrl.startsWith("http") && /[?&]bp[-_]asset(?:_id)?=/.test(refUrl)) {
+      refUrl = refUrl
+        .replace(/([?&])bp[-_]asset(?:_id)?=[^&#]+(&?)/, (match, prefix, suffix) => {
+          if (prefix === "?" && suffix) return "?";
+          return "";
+        })
+        .replace(/[?&]$/, "");
+    }
+
     if (asset.byteplusAssetId && !refUrl.includes("bp_asset_id=")) {
-      refUrl = `${refUrl}${refUrl.includes("?") ? "&" : "?"}bp_asset_id=${encodeURIComponent(asset.byteplusAssetId)}`;
+      refUrl = `${refUrl}#bp_asset_id=${encodeURIComponent(asset.byteplusAssetId)}`;
     }
 
     const currentRefs = Array.isArray(s.referenceImages) ? [...s.referenceImages] : [];
@@ -2192,7 +2204,22 @@ export function restoreComposerDraft() {
     const refsRaw = localStorage.getItem(DRAFT_REFS_KEY);
     const refs = refsRaw ? JSON.parse(refsRaw) : [];
     if (!prompt && !(Array.isArray(refs) && refs.length)) return;
-    const restoredRefs = Array.isArray(refs) ? refs.filter((r) => typeof r === "string") : [];
+    const restoredRefs = Array.isArray(refs)
+      ? refs
+          .filter((r) => typeof r === "string")
+          .map((r) => {
+            if (r.startsWith("http") && /[?&]bp[-_]asset(?:_id)?=/.test(r)) {
+              const match = r.match(/[?&]bp[-_]asset(?:_id)?=([^&#]+)/);
+              if (match) {
+                const stripped = r
+                  .replace(/([?&])bp[-_]asset(?:_id)?=[^&#]+(&?)/, (m, p, s) => (p === "?" && s ? "?" : ""))
+                  .replace(/[?&]$/, "");
+                return `${stripped}#bp_asset_id=${match[1]}`;
+              }
+            }
+            return r;
+          })
+      : [];
     useStore.setState({
       prompt,
       referenceImages: restoredRefs,

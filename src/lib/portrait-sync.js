@@ -128,9 +128,12 @@ export async function syncByteplusPortraits() {
         const remoteClean = (remoteAsset.URL || "").split("?")[0];
         const localClean = (localAsset.imageUrl || "").split("?")[0];
         const urlBaseChanged = Boolean(remoteClean && localClean !== remoteClean);
+        const isRemoteTos = (localAsset.imageUrl || "").includes("tos-") || (remoteAsset.URL || "").includes("tos-");
+        const olderThanOneHour = Date.now() - (localAsset.updatedAt || 0) > 3600000;
         if (
           localAsset.status !== remoteAsset.Status ||
-          urlBaseChanged
+          urlBaseChanged ||
+          (isRemoteTos && remoteAsset.URL && olderThanOneHour)
         ) {
           await upsertPortraitAsset({
             ...localAsset,
@@ -147,7 +150,15 @@ export async function syncByteplusPortraits() {
       listAllPortraitAssets(),
     ]);
 
-    return { groups, assets, syncedWithByteplus: true };
+    // Ensure in-memory assets returned to the client carry the freshly-signed BytePlus URLs
+    const bpUrlMap = new Map(bpAssets.filter((a) => a.URL).map((a) => [a.Id, a.URL]));
+    const freshAssets = assets.map((a) => {
+      const freshUrl = a.byteplusAssetId ? bpUrlMap.get(a.byteplusAssetId) : null;
+      if (freshUrl) return { ...a, imageUrl: freshUrl };
+      return a;
+    });
+
+    return { groups, assets: freshAssets, syncedWithByteplus: true };
   } catch (syncErr) {
     console.warn("[portrait-sync] Warning during BytePlus sync:", syncErr?.message);
     const [groups, assets] = await Promise.all([

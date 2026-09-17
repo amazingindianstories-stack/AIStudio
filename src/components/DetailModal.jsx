@@ -23,7 +23,7 @@ import {
   Flag,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
+import { cn, inlineMediaUrl, thumbUrl, referenceDisplayUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
 import { supportsFirstFrameContinuation, supportsVideoReference } from "@/lib/config";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
@@ -143,23 +143,33 @@ function ReferenceCollage({ images }) {
         Reference images
       </p>
       <div className={cn("grid gap-2", layoutClass)}>
-        {images.map((src, i) => (
-          <a
-            key={i}
-            href={src}
-            target="_blank"
-            rel="noreferrer"
-            className={cn(
-              "group relative overflow-hidden rounded-xl border border-line bg-ink-700 ring-1 ring-white/5 transition hover:border-brand/40 hover:ring-brand/20",
-              images.length === 2 && "min-h-24"
-            )}
-            title="Open reference image"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={thumbUrl(src, 320)} alt="" className="h-full w-full object-cover" />
-            <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
-          </a>
-        ))}
+        {images.map((src, i) => {
+          const displaySrc = referenceDisplayUrl(src);
+          return (
+            <a
+              key={i}
+              href={displaySrc}
+              target="_blank"
+              rel="noreferrer"
+              className={cn(
+                "group relative overflow-hidden rounded-xl border border-line bg-ink-700 ring-1 ring-white/5 transition hover:border-brand/40 hover:ring-brand/20",
+                images.length === 2 && "min-h-24"
+              )}
+              title="Open reference image"
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={thumbUrl(displaySrc, 320)}
+                alt=""
+                className="h-full w-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
+              />
+              <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
+            </a>
+          );
+        })}
       </div>
     </div>
   );
