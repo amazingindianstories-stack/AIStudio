@@ -12,6 +12,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { TAG_REGEX, isImgTag, isVidTag, isAudioTag } from "@/lib/mentions";
 import { cn, referenceDisplayUrl } from "@/lib/utils";
 
+
 // Admin-configurable ceiling (src/lib/settings.js) — purely a display aid
 // here (counter appears once within WARN_RATIO of it, turns red past it).
 // Never blocks typing/pasting: the actual submit-time gate lives in the
@@ -119,32 +120,10 @@ export const MentionTextarea = forwardRef(
       }));
     // Attached clips get their own tags. These were missing entirely, so typing
     // @vid1 offered nothing and highlighted red — the tag existed only in the
-    // provider layer, with nothing on this side producing or validating it.
-    const vidSuggestions = Array.from(
-      { length: videoRefs.length },
-      (_, i) => i + 1
-    )
-      .filter((n) => `vid${n}`.startsWith(q))
-      .map((n) => ({
-        tag: `@vid${n}`,
-        label: `@vid${n}`,
-        sub: "attached clip",
-      }));
-    const audioSuggestions = Array.from(
-      { length: audioRefs.length },
-      (_, i) => i + 1
-    )
-      .filter((n) => `audio${n}`.startsWith(q))
-      .map((n) => ({
-        tag: `@audio${n}`,
-        label: `@audio${n}`,
-        sub: "attached audio",
-      }));
     const available = [
       ...assetSuggestions,
       ...imgSuggestions,
-      ...vidSuggestions,
-      ...audioSuggestions,
+      ...attachedMediaSuggestions(q, videoRefs.length, audioRefs.length),
     ];
 
     // Keeps the keyboard-selected suggestion visible: the list scrolls
@@ -413,7 +392,7 @@ function renderHighlighted(
       : isVidTag(slug)
       ? n >= 1 && n <= videoCount
       : isAudioTag(slug)
-      ? n >= 1 && n <= audioCount
+      ? Number(slug.slice(5)) >= 1 && Number(slug.slice(5)) <= audioCount
       : assetSlugs.has(slug);
     out.push(
       <span
@@ -430,4 +409,17 @@ function renderHighlighted(
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
+}
+
+/** Attached media share the same autocomplete and keyboard selection path. */
+export function attachedMediaSuggestions(query, videoCount, audioCount) {
+  const q = query.toLowerCase();
+  return [
+    { prefix: "vid", count: videoCount, sub: "attached clip" },
+    { prefix: "audio", count: audioCount, sub: "attached audio" },
+  ].flatMap(({ prefix, count, sub }) =>
+    Array.from({ length: count }, (_, i) => `${prefix}${i + 1}`)
+      .filter((tag) => tag.startsWith(q))
+      .map((tag) => ({ tag: `@${tag}`, label: `@${tag}`, sub }))
+  );
 }

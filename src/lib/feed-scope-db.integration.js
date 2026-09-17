@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import { UNSORTED, compareInScope, matchesScope, scopeToQuery } from "@/lib/feed-scope";
 import { historyFilterToParams, parseHistoryFilter } from "@/lib/history-query";
-import { decodeCursor, deleteItem, queryHistory, upsertItem } from "@/lib/store-db";
+import { decodeCursor, deleteItem, queryHistory, upsertItem, countScope, readGenerationUpdates } from "@/lib/store-db";
 
 const marker = `scope-parity-${randomUUID()}`;
 const projectA = randomUUID();
@@ -30,6 +30,7 @@ function row(patch) {
 }
 
 const rows = [
+  row({ kind: "audio", projectId: projectA, createdAt: t + 5, isFavorite: true, favoritedAt: t + 21 }),
   row({ projectId: projectA, folderId: folderA, createdAt: t + 4 }),
   row({ kind: "video", projectId: projectA, folderId: folderA, createdAt: t + 3 }),
   row({ projectId: projectA, createdAt: t + 2, isFavorite: true, favoritedAt: t + 20 }),
@@ -47,6 +48,7 @@ function scope(patch = {}) {
 const scopes = [
   scope(),
   scope({ kind: "image" }),
+  scope({ kind: "audio", tab: "project", projectId: projectA }),
   scope({ tab: "project", projectId: projectA }),
   scope({ tab: "project", projectId: projectA, folderId: folderA, kind: "video" }),
   scope({ tab: "project", projectId: projectA, folderId: UNSORTED }),
@@ -82,8 +84,11 @@ test("PostgreSQL history queries match client scope membership, ordering, and ke
         .map((item) => item.id);
       const actual = await readAllPages(viewScope);
       assert.deepEqual(actual, expected, `SQL drifted for ${JSON.stringify(viewScope)}`);
+      assert.equal(await countScope(sqlFilterFor(viewScope)), expected.length);
       assert.equal(new Set(actual).size, actual.length, "keyset pagination returned a duplicate row");
     }
+    const updates = await readGenerationUpdates(t - 1);
+    assert.equal(updates.some((item) => item.kind === "audio"), false);
   } finally {
     await Promise.all(rows.map((item) => deleteItem(item.id)));
   }
