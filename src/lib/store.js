@@ -256,13 +256,7 @@ export const useStore = create((set, get) => ({
   // Display-only: it never leaves the client, never reaches a provider, and
   // the actual @imgN tag/index math in mentions.ts is entirely unaffected —
   // this only decides whether the composer shows a "from video" badge.
-  // Restored/cloned references default to "image" since a saved
-  // generation's stored referenceImages don't carry the original kind.
   referenceKinds: [],
-  // Optional labels shown beside @imgN references. Keep this parallel to the
-  // reference array so an older draft that predates labels cannot crash the
-  // composer while rendering `referenceLabels[i]`.
-  referenceLabels: [],
   referenceVideos: [],
   referenceAudios: [],
   // Display metadata for uploaded audio references. Each entry is {name, ref}.

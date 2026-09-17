@@ -27,11 +27,6 @@ export function isVidTag(slug) {
   return /^vid\d+$/i.test(slug);
 }
 
-/** True for attached audio tags (@audio1, @audio2 …). */
-export function isAudioTag(slug) {
-  return /^audio\d+$/i.test(slug);
-}
-
 /**
  * Named asset slugs referenced in a prompt (e.g. @priya, @red-lehenga), in
  * first-appearance order, excluding the ad-hoc @imgN tokens.

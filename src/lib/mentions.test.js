@@ -6,7 +6,6 @@ import {
   parseAudioMentionIndices,
   resolveAudioReferences,
   isVidTag,
-  isAudioTag,
   parseAssetSlugs,
   parseMentionIndices,
   parseVideoMentionIndices,
