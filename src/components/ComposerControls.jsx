@@ -129,17 +129,20 @@ export function ReferenceStrip({ onInsertTag }) {
               <span className="absolute inset-x-0 bottom-0 z-20 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
                 @img{i + 1}
               </span>
-              <span
-                role="button"
+              <button
+                type="button"
+                aria-label={`Remove reference ${i + 1}`}
                 onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
                   s.removeReference(i);
                 }}
-                className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white/90 opacity-0 transition group-hover:opacity-100"
+                className="absolute right-1 top-1 z-30 grid h-5 w-5 place-items-center rounded-full bg-ink-950/85 text-white/90 shadow-md backdrop-blur-sm transition hover:bg-red-600 hover:text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
               >
-                <X className="h-2.5 w-2.5" />
-              </span>
+                <X className="h-3 w-3 pointer-events-none" />
+              </button>
             </Reorder.Item>
           ))}
         </Reorder.Group>
