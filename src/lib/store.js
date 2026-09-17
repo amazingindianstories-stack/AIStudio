@@ -1309,6 +1309,7 @@ export const useStore = create((set, get) => ({
     try {
       const res = await apiFetch(`/api/assets/portraits?id=${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
+      await get().loadAllPortraitAssets();
       return { ok: true };
     } catch (err) {
       set({ portraitGroups: prev });
@@ -1457,6 +1458,21 @@ export const useStore = create((set, get) => ({
       return { ok: true };
     } catch (err) {
       return { ok: false, error: err?.message || "Rename failed" };
+    }
+  },
+
+  renamePortraitGroupDirect: async (groupId, name) => {
+    try {
+      const res = await apiFetch("/api/assets/portraits", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groupId, name }),
+      });
+      if (!res.ok) throw new Error("Rename group failed");
+      await get().loadAllPortraitAssets();
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Rename group failed" };
     }
   },
 

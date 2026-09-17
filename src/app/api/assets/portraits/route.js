@@ -100,7 +100,7 @@ export async function POST(req) {
 
 /**
  * PATCH /api/assets/portraits
- * Updates asset name: { assetId, name }
+ * Updates asset name: { assetId, name } or character group name: { groupId, name }
  */
 export async function PATCH(req) {
   const user = await getSession();
@@ -110,22 +110,38 @@ export async function PATCH(req) {
 
   const body = await req.json().catch(() => ({}));
   const assetId = body.assetId;
+  const groupId = body.groupId;
   const name = (body.name || "").trim();
 
-  if (!assetId || !name) {
-    return NextResponse.json({ error: "assetId and name are required." }, { status: 400 });
+  if ((!assetId && !groupId) || !name) {
+    return NextResponse.json({ error: "assetId or groupId, and name are required." }, { status: 400 });
   }
 
   try {
+    if (groupId) {
+      const existing = await getPortraitGroup(groupId);
+      if (!existing) {
+        return NextResponse.json({ error: "Character group not found." }, { status: 404 });
+      }
+      const updated = await upsertPortraitGroup({
+        ...existing,
+        name,
+        updatedAt: Date.now(),
+      });
+      await logActivity(user.id, "rename_portrait_group", { id: groupId, name });
+      return NextResponse.json({ ok: true, group: updated });
+    }
+
     const updated = await updatePortraitAssetName(assetId, name);
     if (!updated) {
       return NextResponse.json({ error: "Asset not found." }, { status: 404 });
     }
+    await logActivity(user.id, "rename_portrait_asset", { id: assetId, name });
     return NextResponse.json({ ok: true, asset: updated });
   } catch (err) {
     console.error("[portraits] PATCH error:", err);
     return NextResponse.json(
-      { error: err?.message || "Failed to update asset." },
+      { error: err?.message || "Failed to update resource." },
       { status: 500 }
     );
   }
