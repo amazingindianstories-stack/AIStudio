@@ -57,3 +57,19 @@ test("video best-of rejects an invalid candidate count before submission", async
   );
   assert.equal(calls, 0);
 });
+
+test("candidate rejections retain every raw response on full and partial failure", async () => {
+  const submit = async (_, index) => {
+    const error = new Error("blocked");
+    error.code = "moderation";
+    error.providerResponse = { rawBody: `response-${index}` };
+    throw error;
+  };
+  await assert.rejects(submitVideoCandidates({ count: 2, totalCostCents: 40, submit }), error => {
+    assert.equal(error.code, "moderation");
+    assert.deepEqual(error.providerResponses, [{ rawBody: "response-0" }, { rawBody: "response-1" }]);
+    return true;
+  });
+  const partial = await submitVideoCandidates({ count: 2, totalCostCents: 40, submit: (seed, index) => index ? submit(seed, index) : Promise.resolve("accepted") });
+  assert.deepEqual(partial.providerResponses, [{ rawBody: "response-1" }]);
+});

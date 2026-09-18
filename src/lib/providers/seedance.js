@@ -1,9 +1,9 @@
 
 
-import { buildVideoDirective } from "../video-directive";
-import { parseRefRoles } from "../shot-spec";
-import { maxReferenceImagesForVideoModel } from "../config";
-import { isProviderModel, providerModelId } from "../model-registry";
+import { buildVideoDirective } from "../video-directive.js";
+import { parseRefRoles } from "../shot-spec.js";
+import { maxReferenceImagesForVideoModel } from "../config.js";
+import { isProviderModel, providerModelId } from "../model-registry.js";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
  *  hand-written directives on BOTH Seedance paths, without a deploy. The new
@@ -140,7 +140,11 @@ function friendlyError(status, body) {
   } catch {
     /* not JSON */
   }
-  if (isModerationMessage(code + message)) {
+  if (
+    code !== "InvalidEndpointOrModel.NotFound" &&
+    status !== 404 &&
+    isModerationMessage(code + message)
+  ) {
     return new SeedanceError(MODERATION_MESSAGE, "moderation", status);
   }
   if (code)
@@ -271,6 +275,12 @@ export async function createVideoTask(
     // nothing, so nothing starts paying for audio it did not ask for.
     generate_audio: input.generateAudio === true,
   };
+  // BytePlus can notify our server even when the artist closes the browser.
+  // Configure this as a public HTTPS endpoint in production; the 30-second
+  // browser poll remains a fallback for delivery/UI refresh.
+  if (typeof input.callbackUrl === "string" && /^https:\/\//i.test(input.callbackUrl)) {
+    body.callback_url = input.callbackUrl;
+  }
   if (taskMode === "edit" || taskMode === "extend") {
     // BOTH task types require ratio:"adaptive" (output follows the source
     // clip's own aspect ratio) — sending the UI's own aspectRatio here would
@@ -303,7 +313,18 @@ export async function createVideoTask(
 
   if (!res.ok) {
     const text = await res.text();
-    throw friendlyError(res.status, text);
+    const error = friendlyError(res.status, text);
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { /* Preserve non-JSON bodies too. */ }
+    error.providerResponse = {
+      provider: "seedance",
+      httpStatus: res.status,
+      rawBody: text,
+      requestId: res.headers?.get("x-request-id") || res.headers?.get("x-tt-logid") ||
+        parsed?.request_id || parsed?.RequestId || parsed?.error?.request_id || null,
+      receivedAt: Date.now(),
+    };
+    throw error;
   }
   const json = await res.json();
   const id = json?.id || json?.task_id || json?.data?.id;
@@ -330,7 +351,12 @@ export async function getVideoTask(
   const json = await res.json();
 
   // ModelArk statuses: queued | running | succeeded | failed | cancelled
-  const rawStatus = (json?.status || "").toLowerCase();
+  return normalizeVideoTaskPayload(json);
+}
+
+/** Normalize both GET and callback task payloads through one parser. */
+export function normalizeVideoTaskPayload(json = {}) {
+  const rawStatus = (json?.status || json?.state || "").toLowerCase();
   let status = "running";
   if (rawStatus === "succeeded") status = "succeeded";
   else if (rawStatus === "failed" || rawStatus === "cancelled") status = "failed";
@@ -354,5 +380,20 @@ export async function getVideoTask(
       ? totalTokensRaw
       : undefined;
 
-  return { status, videoUrl, error, raw: json, totalTokens };
+  return {
+    status,
+    videoUrl,
+    error,
+    raw: json,
+    totalTokens,
+    ...providerUsageTimestamps(json),
+  };
+}
+
+function providerUsageTimestamps(json) {
+  return {
+    providerCreatedAt: json?.created_at ?? json?.createdAt,
+    providerUpdatedAt: json?.updated_at ?? json?.updatedAt,
+    providerStatus: json?.status ?? json?.state,
+  };
 }

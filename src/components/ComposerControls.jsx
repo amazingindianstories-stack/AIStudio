@@ -13,6 +13,7 @@ import {
   FolderClosed,
   Layers,
   Sparkles,
+  User,
   Volume2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -27,7 +28,7 @@ import {
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
 } from "@/lib/config";
-import { cn } from "@/lib/utils";
+import { cn, referenceDisplayUrl } from "@/lib/utils";
 import { isProviderModel } from "@/lib/model-registry";
 
 /**
@@ -108,31 +109,40 @@ export function ReferenceStrip({ onInsertTag }) {
               whileDrag={{ scale: 1.05, zIndex: 1 }}
               onDragEnd={() => s.reorderReferences(dragRefsRef.current)}
               title={`Insert @img${i + 1} — drag to reorder`}
-              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing"
+              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing bg-ink-800 flex items-center justify-center"
               onClick={() => onInsertTag(`@img${i + 1}`)}
             >
+              <div className="absolute inset-0 grid place-items-center bg-ink-800 text-white/20 pointer-events-none">
+                <User className="h-6 w-6" />
+              </div>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={src}
+                src={referenceDisplayUrl(src, s.portraitAssets)}
                 alt=""
                 draggable={false}
-                style={{ WebkitUserDrag: "none" } }
-                className="h-full w-full object-cover"
+                style={{ WebkitUserDrag: "none" }}
+                className="relative z-10 h-full w-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
               />
-              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
+              <span className="absolute inset-x-0 bottom-0 z-20 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
                 @img{i + 1}
               </span>
-              <span
-                role="button"
+              <button
+                type="button"
+                aria-label={`Remove reference ${i + 1}`}
                 onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
                   s.removeReference(i);
                 }}
-                className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white/90 opacity-0 transition group-hover:opacity-100"
+                className="absolute right-1 top-1 z-30 grid h-5 w-5 place-items-center rounded-full bg-ink-950/85 text-white/90 shadow-md backdrop-blur-sm transition hover:bg-red-600 hover:text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
               >
-                <X className="h-2.5 w-2.5" />
-              </span>
+                <X className="h-3 w-3 pointer-events-none" />
+              </button>
             </Reorder.Item>
           ))}
         </Reorder.Group>
@@ -156,7 +166,12 @@ export function SettingsToolbar() {
   const s = useStore();
   const audioApplies = s.mode === "video" && supportsAudio(s.model);
   const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
-  const videoTaskMode = editExtendApplies ? s.videoTaskMode : "generate";
+  // A stale draft or an older server row can omit this field. Keep the
+  // toolbar render-safe because the edit/extend label is computed before any
+  // enqueue validation runs.
+  const videoTaskMode = editExtendApplies && typeof s.videoTaskMode === "string" && s.videoTaskMode
+    ? s.videoTaskMode
+    : "generate";
   // Seedance 2.0/2.5 take any integer duration within a bounded range rather
   // than a fixed enum (see durationRangeForModel) — non-null here switches
   // the Duration control below from Segment buttons to a slider.

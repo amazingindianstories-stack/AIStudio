@@ -83,3 +83,16 @@ test("persistGenerationFailure rejects a non-failed row", async () => {
     /requires status=failed/
   );
 });
+
+test("raw provider responses persist without entering telemetry or mutating public item", async () => {
+  const providerResponses = [{ rawBody: "PRIVATE RESPONSE", requestId: "trace" }];
+  let saved;
+  const logs = [];
+  await persistGenerationFailure(failed, { providerResponses }, {
+    persist: async item => { saved = item; },
+    logger: line => logs.push(line),
+  });
+  assert.deepEqual(saved.providerResponses, providerResponses);
+  assert.equal(failed.providerResponses, undefined);
+  assert.doesNotMatch(logs.join(""), /PRIVATE RESPONSE|trace/);
+});

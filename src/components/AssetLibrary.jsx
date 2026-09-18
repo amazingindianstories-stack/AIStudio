@@ -220,7 +220,7 @@ function AssetList({ assets, loading }) {
                     {KIND_LABEL[a.kind]} · {a.images.length} ref
                     {a.images.length === 1 ? "" : "s"}
                   </span>
-                  <div className="mt-auto flex gap-1 pt-1 opacity-0 transition group-hover:opacity-100">
+                  <div className="mt-auto flex gap-1 pt-1 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 transition">
                     <button
                       onClick={() => setEditing(a)}
                       className="grid h-6 w-6 place-items-center rounded text-white/60 hover:bg-white/10 hover:text-white"

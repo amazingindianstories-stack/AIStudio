@@ -106,7 +106,12 @@ export function verifySessionToken(
 
 /** Current logged-in user, or null. Reads + verifies the session cookie. */
 export async function getSession() {
-  const store = await cookies();
+  let store;
+  try {
+    store = await cookies();
+  } catch {
+    return null;
+  }
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;
   const session = verifySessionToken(token);

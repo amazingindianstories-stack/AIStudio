@@ -26,6 +26,17 @@ export function rowToItem(r) {
     error: r.error ?? undefined,
     moderationBlocked: r.moderationBlocked ?? undefined,
     taskId: r.taskId ?? undefined,
+    submittedAt: r.submittedAt ?? undefined,
+    providerCreatedAt: r.providerCreatedAt ?? undefined,
+    providerUpdatedAt: r.providerUpdatedAt ?? undefined,
+    completedAt: r.completedAt ?? undefined,
+    lastPollAt: r.lastPollAt ?? undefined,
+    nextPollAt: r.nextPollAt ?? undefined,
+    pollAttempts: r.pollAttempts ?? 0,
+    callbackReceivedAt: r.callbackReceivedAt ?? undefined,
+    providerStatus: r.providerStatus ?? undefined,
+    workerLeaseId: r.workerLeaseId ?? undefined,
+    workerLeaseUntil: r.workerLeaseUntil ?? undefined,
     pollErrorCount: r.pollErrorCount ?? 0,
     lastPollErrorAt: r.lastPollErrorAt ?? undefined,
     generateAudio: r.generateAudio ?? undefined,
@@ -68,6 +79,7 @@ function itemToValues(item) {
     url: item.url ?? null,
     poster: item.poster ?? null,
     error: item.error ?? null,
+    ...(item.providerResponses !== undefined ? { providerResponses: item.providerResponses } : {}),
     moderationBlocked: item.moderationBlocked ?? null,
     referenceImages: item.referenceImages ?? null,
     referenceVideos: item.referenceVideos ?? null,
@@ -87,6 +99,17 @@ function itemToValues(item) {
     flagReason: item.flagReason ?? null,
     judgeScore: item.judgeScore ?? null,
     taskId: item.taskId ?? null,
+    submittedAt: item.submittedAt ?? null,
+    providerCreatedAt: item.providerCreatedAt ?? null,
+    providerUpdatedAt: item.providerUpdatedAt ?? null,
+    completedAt: item.completedAt ?? null,
+    lastPollAt: item.lastPollAt ?? null,
+    nextPollAt: item.nextPollAt ?? null,
+    pollAttempts: item.pollAttempts ?? 0,
+    callbackReceivedAt: item.callbackReceivedAt ?? null,
+    providerStatus: item.providerStatus ?? null,
+    workerLeaseId: item.workerLeaseId ?? null,
+    workerLeaseUntil: item.workerLeaseUntil ?? null,
     pollErrorCount: item.pollErrorCount ?? 0,
     lastPollErrorAt: item.lastPollErrorAt ?? null,
     generateAudio: item.generateAudio ?? null,
@@ -278,6 +301,39 @@ export async function getItem(id) {
     .from(generations)
     .where(eq(generations.id, id))
     .limit(1);
+  return rows[0] ? rowToItem(rows[0]) : undefined;
+}
+
+/** Find a video by the provider task id used in a BytePlus callback. */
+export async function getItemByTaskId(taskId) {
+  if (!taskId) return undefined;
+  const db = await getDb();
+  const rows = await db
+    .select()
+    .from(generations)
+    .where(or(
+      eq(generations.taskId, taskId),
+      sql`${generations.candidateTaskIds} @> ${JSON.stringify([taskId])}::jsonb`,
+    ))
+    .limit(1);
+  return rows[0] ? rowToItem(rows[0]) : undefined;
+}
+
+/** Record every accepted callback, including provider retries after terminal
+ * completion. This does not touch updated_at, so a duplicate delivery cannot
+ * resurrect or reorder a generation. */
+export async function markCallbackReceived(taskId, at = Date.now(), provider = {}) {
+  if (!taskId) return undefined;
+  const db = await getDb();
+  const rows = await db.update(generations).set({
+    callbackReceivedAt: at,
+    providerCreatedAt: provider.providerCreatedAt ?? undefined,
+    providerUpdatedAt: provider.providerUpdatedAt ?? undefined,
+    providerStatus: provider.providerStatus ?? undefined,
+  }).where(or(
+    eq(generations.taskId, taskId),
+    sql`${generations.candidateTaskIds} @> ${JSON.stringify([taskId])}::jsonb`,
+  )).returning();
   return rows[0] ? rowToItem(rows[0]) : undefined;
 }
 

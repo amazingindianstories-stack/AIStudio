@@ -10,7 +10,8 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { TAG_REGEX, isImgTag, isVidTag, isAudioTag } from "@/lib/mentions";
-import { cn } from "@/lib/utils";
+import { cn, referenceDisplayUrl } from "@/lib/utils";
+
 
 // Admin-configurable ceiling (src/lib/settings.js) — purely a display aid
 // here (counter appears once within WARN_RATIO of it, turns red past it).
@@ -107,7 +108,7 @@ export const MentionTextarea = forwardRef(
         tag: `@img${n}`,
         label: `@img${n}`,
         sub: "uploaded image",
-        thumb: references[n - 1],
+        thumb: referenceDisplayUrl(references[n - 1], assets),
       }));
     const assetSuggestions = assets
       .filter((a) => a.slug.startsWith(q) || a.name.toLowerCase().includes(q))
@@ -119,7 +120,6 @@ export const MentionTextarea = forwardRef(
       }));
     // Attached clips get their own tags. These were missing entirely, so typing
     // @vid1 offered nothing and highlighted red — the tag existed only in the
-    // provider layer, with nothing on this side producing or validating it.
     const available = [
       ...assetSuggestions,
       ...imgSuggestions,
@@ -173,7 +173,8 @@ export const MentionTextarea = forwardRef(
       }
     };
 
-    const hasSuggestions = tagCount > 0 || assets.length > 0 || videoRefs.length > 0 || audioRefs.length > 0;
+    const hasSuggestions =
+      tagCount > 0 || assets.length > 0 || videoRefs.length > 0 || audioRefs.length > 0;
 
     const detectMention = (text, caret) => {
       const slice = text.slice(0, caret);
@@ -337,9 +338,12 @@ export const MentionTextarea = forwardRef(
                   {sug.thumb ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={sug.thumb}
+                      src={referenceDisplayUrl(sug.thumb, assets)}
                       alt=""
                       className="h-8 w-8 rounded-md object-cover ring-1 ring-line"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
                     />
                   ) : (
                     <span className="grid h-8 w-8 place-items-center rounded-md bg-ink-700 text-brand ring-1 ring-line">

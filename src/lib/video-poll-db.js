@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, lte, or, isNull, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { generations } from "./schema";
 import { rowToItem } from "./store-db";
@@ -52,6 +52,8 @@ export async function compareAndSetVideoOutcome(expected, updates, dbOverride) {
 /** Oldest unchanged rows first; task-less rows can never be provider-polled. */
 export async function selectStaleVideoPollCandidates({
   before,
+  now = Date.now(),
+  due = false,
   limit = 5,
   db: dbOverride,
 } = {}) {
@@ -62,7 +64,9 @@ export async function selectStaleVideoPollCandidates({
     eq(generations.kind, "video"),
     inArray(generations.status, ACTIVE),
     isNotNull(generations.taskId),
-    lte(generations.updatedAt, before)
+    due
+      ? or(isNull(generations.nextPollAt), lte(generations.nextPollAt, now))
+      : lte(generations.updatedAt, before)
   )).orderBy(
     asc(generations.updatedAt),
     asc(generations.createdAt),

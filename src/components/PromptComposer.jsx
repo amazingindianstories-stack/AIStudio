@@ -54,7 +54,7 @@ import {
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
 } from "@/lib/config";
-import { cn } from "@/lib/utils";
+import { cn, referenceDisplayUrl } from "@/lib/utils";
 import { isProviderModel } from "@/lib/model-registry";
 
 import {
@@ -451,9 +451,12 @@ export function PromptComposer() {
               // over state guarantees the store gets the settled order.
               onDragEnd={() => s.reorderReferences(dragRefsRef.current)}
               title={`Insert @img${i + 1} — drag to reorder`}
-              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing"
+              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing bg-ink-800 flex items-center justify-center"
               onClick={() => mentionRef.current?.insertTag(`@img${i + 1}`)}
             >
+              <div className="absolute inset-0 grid place-items-center bg-ink-800 text-white/20 pointer-events-none">
+                <UserRound className="h-6 w-6" />
+              </div>
               {/* draggable=false + -webkit-user-drag:none: an <img> is
                   natively draggable in every browser, and that native
                   "drag the image out" gesture starts on the same mousedown
@@ -462,13 +465,16 @@ export function PromptComposer() {
                   "sometimes it just doesn't grab" symptom. Suppressing the
                   native drag leaves the pointer event free for Framer. */}
               <img
-                src={src}
+                src={referenceDisplayUrl(src, s.portraitAssets)}
                 alt=""
                 draggable={false}
-                style={{ WebkitUserDrag: "none" } }
-                className="h-full w-full object-cover"
+                style={{ WebkitUserDrag: "none" }}
+                className="relative z-10 h-full w-full object-cover"
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
               />
-              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
+              <span className="absolute inset-x-0 bottom-0 z-20 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
                 @img{i + 1}
               </span>
               {/* This is still an @imgN tag functionally — @vid1 already
@@ -479,22 +485,33 @@ export function PromptComposer() {
               {s.referenceKinds[i] === "video" && (
                 <span
                   title="Extracted from a video file"
-                  className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white/85"
+                  className="absolute left-0.5 top-0.5 z-20 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white/85"
                 >
                   <Clapperboard className="h-2.5 w-2.5" />
                 </span>
               )}
-              <span
-                role="button"
+              {s.referenceKinds[i] === "portrait" && (
+                <span
+                  title={s.referenceLabels?.[i] ? `Character Persona: ${s.referenceLabels[i]}` : "BytePlus Portrait Persona"}
+                  className="absolute left-0.5 top-0.5 z-20 grid h-4 w-4 place-items-center rounded-full bg-brand text-black shadow-sm font-bold"
+                >
+                  <UserRound className="h-2.5 w-2.5" />
+                </span>
+              )}
+              <button
+                type="button"
+                aria-label={`Remove reference ${i + 1}`}
                 onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
                   s.removeReference(i);
                 }}
-                className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white/90 opacity-0 transition group-hover:opacity-100"
+                className="absolute right-1 top-1 z-30 grid h-5 w-5 place-items-center rounded-full bg-ink-950/85 text-white/90 shadow-md backdrop-blur-sm transition hover:bg-red-600 hover:text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
               >
-                <X className="h-2.5 w-2.5" />
-              </span>
+                <X className="h-3 w-3 pointer-events-none" />
+              </button>
             </Reorder.Item>
           ))}
         </Reorder.Group>
@@ -521,16 +538,20 @@ export function PromptComposer() {
               <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
                 @audio{i + 1}
               </span>
-              <span
-                role="button"
+              <button
+                type="button"
+                aria-label={`Remove audio note ${i + 1}`}
+                onPointerDown={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 onClick={(e) => {
+                  e.preventDefault();
                   e.stopPropagation();
                   s.removeAudioNote(i);
                 }}
-                className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white/90 opacity-0 transition group-hover:opacity-100"
+                className="absolute right-1 top-1 z-30 grid h-5 w-5 place-items-center rounded-full bg-ink-950/85 text-white/90 shadow-md backdrop-blur-sm transition hover:bg-red-600 hover:text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
               >
-                <X className="h-2.5 w-2.5" />
-              </span>
+                <X className="h-3 w-3 pointer-events-none" />
+              </button>
             </div>
           ))}
         </div>
@@ -660,8 +681,13 @@ export function PromptComposer() {
               >
                 <BookOpen className="h-4 w-4 text-brand" /> Material library
               </MenuItem>
-              <MenuItem disabled>
-                <Images className="h-4 w-4" /> Portrait Gallery
+              <MenuItem
+                onClick={() => {
+                  s.setPortraitGalleryOpen(true);
+                  close();
+                }}
+              >
+                <Images className="h-4 w-4 text-brand" /> Portrait Gallery
               </MenuItem>
             </>
           )}

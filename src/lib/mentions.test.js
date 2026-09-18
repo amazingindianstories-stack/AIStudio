@@ -30,6 +30,14 @@ test("@vidN is a clip tag, not an asset slug", () => {
   assert.equal(isVidTag("priya"), false);
 });
 
+test("@audioN is an audio tag, not an asset slug", () => {
+  assert.equal(isAudioTag("audio1"), true);
+  assert.equal(isAudioTag("AUDIO12"), true);
+  assert.equal(isAudioTag("audio"), false);
+  assert.equal(isAudioTag("img1"), false);
+  assert.deepEqual(parseAssetSlugs("use @audio1 with @priya"), ["priya"]);
+});
+
 test("parseAssetSlugs no longer swallows @vidN", () => {
   // The actual bug: this used to return ["vid1"], sending the prompt off to
   // look up an asset that does not exist.
