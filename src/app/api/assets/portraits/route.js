@@ -23,14 +23,17 @@ export const maxDuration = 60;
  * Lists all portrait character groups and all flat portrait assets,
  * syncing bidirectionally with BytePlus ModelArk when credentials are present.
  */
-export async function GET() {
+export async function GET(req) {
   const user = await getSession();
   if (!user) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
 
+  const { searchParams } = new URL(req?.url || "http://localhost");
+  const projectId = searchParams.get("projectId") || undefined;
+
   try {
-    const result = await syncByteplusPortraits();
+    const result = await syncByteplusPortraits(projectId);
     return NextResponse.json(result);
   } catch (err) {
     console.error("[portraits] GET error:", err);
@@ -44,7 +47,7 @@ export async function GET() {
 /**
  * POST /api/assets/portraits
  * Creates a new character asset group.
- * Body: { name, description }
+ * Body: { name, description, projectId? }
  */
 export async function POST(req) {
   const user = await getSession();
@@ -55,6 +58,7 @@ export async function POST(req) {
   const body = await req.json().catch(() => ({}));
   const name = (body.name || "").trim();
   const description = (body.description || "").trim();
+  const projectId = body.projectId || undefined;
 
   if (!name) {
     return NextResponse.json({ error: "Character name is required." }, { status: 400 });
@@ -77,6 +81,7 @@ export async function POST(req) {
       description,
       groupType: "AIGC",
       projectName: "default",
+      projectId,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -85,6 +90,7 @@ export async function POST(req) {
       id,
       byteplusGroupId: byteplusRes.Id,
       name,
+      projectId,
     });
 
     return NextResponse.json(group);

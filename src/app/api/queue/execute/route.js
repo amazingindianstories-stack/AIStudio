@@ -206,7 +206,7 @@ async function submitVideo(base, signal) {
     // Same context-engineering path Nano Banana Pro uses for images — role-
     // labeled reference groups + identity tiles + shot-spec framing/negative
     // codas — instead of a flat hand-rolled prompt (see omni-input.js).
-    const assembled = await assemblePrompt(prompt, await readAssets(), base.referenceImages ?? [], {
+    const assembled = await assemblePrompt(prompt, await readAssets(base.projectId), base.referenceImages ?? [], {
       aspectRatio,
       medium: "video",
     });
@@ -262,7 +262,7 @@ async function submitVideo(base, signal) {
     });
   } else {
     // Native BytePlus ModelArk Seedance 2.0.
-    const allAssets = await readAssets();
+    const allAssets = await readAssets(base.projectId);
     const assetBySlug = new Map(allAssets.map((a) => [a.slug.toLowerCase(), a]));
     const assetByImgUrl = new Map();
     for (const a of allAssets) {
@@ -597,7 +597,7 @@ export async function POST(req) {
       // Higgsfield image via the MCP — Soul (photoreal, one ref, `quality`)
       // or Nano Banana Pro (all refs, `resolution` 1k/2k/4k). Upload refs,
       // submit, then poll the job to completion.
-      const assembled = await assemblePrompt(prompt, await readAssets(), referenceImages ?? []);
+      const assembled = await assemblePrompt(prompt, await readAssets(base.projectId), referenceImages ?? []);
       const isNanoBanana = getModelDefinition(model)?.higgsfieldTool === "nano-banana";
       const refs = isNanoBanana
         ? referenceImages ?? []
@@ -637,7 +637,7 @@ export async function POST(req) {
       url = saved.url;
       aspectRatioOut = saved.aspectRatio;
     } else if (getModelDefinition(model)?.provider === "seedream") {
-      const assembled = resolveSeedreamReferences(prompt, await readAssets(), referenceImages ?? []);
+      const assembled = resolveSeedreamReferences(prompt, await readAssets(base.projectId), referenceImages ?? []);
       const prepared = await prepareSeedreamReferences(assembled.references, id, { signal, userId: base.userId });
       const bytes = await generateImageSeedream({ prompt: assembled.prompt, aspectRatio, resolution, references: prepared.urls }, { signal });
       throwIfAborted(signal);
@@ -655,7 +655,7 @@ export async function POST(req) {
       // saved @slug asset actually reaches Kling instead of being dropped the
       // way iterating the raw uploads did — and rewrites the @tags that Kling
       // would otherwise receive as literal machine syntax.
-      const assembled = await assemblePrompt(prompt, await readAssets(), referenceImages ?? [], {
+      const assembled = await assemblePrompt(prompt, await readAssets(base.projectId), referenceImages ?? [], {
         aspectRatio,
       });
       const klingInput = buildKlingInput(assembled, model);
@@ -711,7 +711,7 @@ export async function POST(req) {
     } else {
       // Context engineering: resolve @slug assets + @imgN uploads into a
       // structured, role-labeled payload (literal SCENE + grouped references).
-      const assets = await readAssets();
+      const assets = await readAssets(base.projectId);
       const assembled = await assemblePrompt(prompt, assets, referenceImages ?? [], {
         aspectRatio,
       });

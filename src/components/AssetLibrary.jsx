@@ -78,10 +78,13 @@ export function AssetLibrary() {
   const setEditing = useStore((s) => s.setEditingAsset);
   const loadAssets = useStore((s) => s.loadAssets);
   const assetsLoading = useStore((s) => s.assetsLoading);
+  const projects = useStore((s) => s.projects);
+  const activeProjectId = useStore((s) => s.activeProjectId);
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
   useEffect(() => {
-    if (open) loadAssets();
-  }, [open, loadAssets]);
+    if (open) loadAssets(activeProjectId);
+  }, [open, loadAssets, activeProjectId]);
 
   return (
     <AnimatePresence>
@@ -119,17 +122,24 @@ export function AssetLibrary() {
                 <Library className="h-5 w-5 text-brand" />
               )}
               <div>
-                <h2 className="text-sm font-semibold text-white">
-                  {editing
-                    ? editing === "new"
-                      ? "Add Material Sheet"
-                      : "Edit Material Sheet"
-                    : "Material Library"}
-                </h2>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-sm font-semibold text-white">
+                    {editing
+                      ? editing === "new"
+                        ? "Add Material Sheet"
+                        : "Edit Material Sheet"
+                      : "Material Library"}
+                  </h2>
+                  {activeProject && (
+                    <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/80">
+                      {activeProject.name}
+                    </span>
+                  )}
+                </div>
                 <p className="text-[11px] text-white/40">
                   {editing
                     ? "Single reference sheet or turnaround per asset, referenceable by @name"
-                    : "Manage reference sheets & reusable materials referenced by @name in prompts"}
+                    : "Reusable turnaround sheets and materials for this project. Reference with @name in prompts."}
                 </p>
               </div>
               <span className="ml-auto" />
@@ -297,6 +307,8 @@ function AssetList({ assets, loading }) {
             <p className="mt-1 max-w-sm text-xs text-white/40">
               {searchQuery
                 ? `No materials matched "${searchQuery}". Try a different name or clear the search.`
+                : activeProject
+                ? `No materials in "${activeProject.name}" yet. Upload a character turnaround sheet, prop, or location for this project.`
                 : "Upload a character turnaround sheet, prop, or location to reference by @name in your prompts."}
             </p>
             {!searchQuery && (
@@ -455,6 +467,7 @@ function AssetList({ assets, loading }) {
 function AssetEditor({ asset }) {
   const saveAsset = useStore((s) => s.saveAsset);
   const setEditing = useStore((s) => s.setEditingAsset);
+  const activeProjectId = useStore((s) => s.activeProjectId);
   const fileRef = useRef(null);
 
   const [name, setName] = useState(asset?.name ?? "");
@@ -515,6 +528,7 @@ function AssetEditor({ asset }) {
       name: name.trim(),
       description: description.trim() || undefined,
       image: finalImageUrl,
+      projectId: asset?.projectId || activeProjectId || undefined,
     };
     const res = await saveAsset(draft);
     setSaving(false);

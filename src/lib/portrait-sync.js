@@ -17,15 +17,15 @@ import { byteplusAssetClient, getByteplusConfig } from "./byteplus-assets.js";
  * If BytePlus AK/SK is configured, it fetches remote groups and assets from BytePlus
  * and reconciles them into the local store.
  */
-export async function syncByteplusPortraits() {
+export async function syncByteplusPortraits(projectId) {
   const config = getByteplusConfig();
 
   // If mock/no credentials configured, return local DB contents directly
   if (config.isMock) {
     try {
       const [groups, assets] = await Promise.all([
-        listPortraitGroups(),
-        listAllPortraitAssets(),
+        listPortraitGroups(projectId),
+        listAllPortraitAssets(projectId),
       ]);
       return { groups, assets, syncedWithByteplus: false };
     } catch (err) {
@@ -274,8 +274,8 @@ export async function syncByteplusPortraits() {
     }
 
     const [finalGroups, finalAssets] = await Promise.all([
-      listPortraitGroups(),
-      listAllPortraitAssets(),
+      listPortraitGroups(projectId),
+      listAllPortraitAssets(projectId),
     ]);
 
     const freshAssets = finalAssets.map((a) => {
@@ -288,8 +288,8 @@ export async function syncByteplusPortraits() {
   } catch (syncErr) {
     console.warn("[portrait-sync] Warning during BytePlus sync:", syncErr?.message);
     const [groups, assets] = await Promise.all([
-      listPortraitGroups(),
-      listAllPortraitAssets(),
+      listPortraitGroups(projectId),
+      listAllPortraitAssets(projectId),
     ]);
     return { groups, assets, syncedWithByteplus: false, syncError: syncErr?.message };
   }

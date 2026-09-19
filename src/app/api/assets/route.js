@@ -14,17 +14,19 @@ import { logActivity } from "@/lib/activity";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(req) {
   if (!(await getSession())) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
-  const assets = await readAssets();
+  const { searchParams } = new URL(req?.url || "http://localhost");
+  const projectId = searchParams.get("projectId") || undefined;
+  const assets = await readAssets(projectId);
   return NextResponse.json({ assets });
 }
 
 /**
  * Create or update an asset.
- * Body: { id?, kind, name, description?, images: string[] }
+ * Body: { id?, kind, name, description?, images: string[], projectId? }
  * `images` may mix existing public paths (/assets/…) and new data URLs; new
  * data URLs are saved to disk and replaced with their public path.
  */
@@ -38,6 +40,7 @@ export async function POST(req) {
     const name = (body.name || "").trim();
     const kind = body.kind;
     const description = (body.description || "").trim();
+    const projectId = body.projectId || undefined;
     const inputImages = Array.isArray(body.images)
       ? body.images
       : body.image
@@ -84,9 +87,10 @@ export async function POST(req) {
     }
 
     const now = Date.now();
+    const targetProjectId = projectId || existing?.projectId;
     const slug = body.slug
-      ? await makeUniqueSlug(body.slug, existing?.id)
-      : existing?.slug ?? (await makeUniqueSlug(name, existing?.id));
+      ? await makeUniqueSlug(body.slug, existing?.id, targetProjectId)
+      : existing?.slug ?? (await makeUniqueSlug(name, existing?.id, targetProjectId));
 
     const asset = {
       id: existing?.id ?? crypto.randomUUID(),
@@ -95,6 +99,7 @@ export async function POST(req) {
       slug,
       description: description || undefined,
       images: images.slice(0, 1), // single image per material asset for now
+      projectId: targetProjectId,
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
     };
@@ -104,6 +109,7 @@ export async function POST(req) {
       name: asset.name,
       kind: asset.kind,
       slug: asset.slug,
+      projectId: asset.projectId,
     }).catch(() => {});
     return NextResponse.json(asset);
   } catch (err) {

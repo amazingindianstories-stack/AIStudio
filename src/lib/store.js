@@ -1213,10 +1213,12 @@ export const useStore = create((set, get) => ({
     return { ok: true };
   },
 
-  loadAssets: async () => {
+  loadAssets: async (projectId) => {
     set({ assetsLoading: true });
     try {
-      const res = await apiFetch("/api/assets", { cache: "no-store" });
+      const pid = projectId !== undefined ? projectId : get().activeProjectId;
+      const url = pid ? `/api/assets?projectId=${encodeURIComponent(pid)}` : "/api/assets";
+      const res = await apiFetch(url, { cache: "no-store" });
       const json = await res.json();
       set({ assets: json.assets ?? [] });
     } catch {
@@ -1230,10 +1232,14 @@ export const useStore = create((set, get) => ({
 
   saveAsset: async (draft) => {
     try {
+      const payload = {
+        ...draft,
+        projectId: draft.projectId ?? get().activeProjectId ?? undefined,
+      };
       const res = await apiFetch("/api/assets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(draft),
+        body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.id) {
@@ -1327,12 +1333,13 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  createPortraitGroup: async (name, description = "") => {
+  createPortraitGroup: async (name, description = "", projectId) => {
     try {
+      const pid = projectId !== undefined ? projectId : get().activeProjectId;
       const res = await apiFetch("/api/assets/portraits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description }),
+        body: JSON.stringify({ name, description, projectId: pid ?? undefined }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -1431,10 +1438,12 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  loadAllPortraitAssets: async () => {
+  loadAllPortraitAssets: async (projectId) => {
     set({ portraitAssetsLoading: true });
     try {
-      const res = await apiFetch("/api/assets/portraits", { cache: "no-store" });
+      const pid = projectId !== undefined ? projectId : get().activeProjectId;
+      const url = pid ? `/api/assets/portraits?projectId=${encodeURIComponent(pid)}` : "/api/assets/portraits";
+      const res = await apiFetch(url, { cache: "no-store" });
       const json = await res.json();
       const assets = json.assets ?? [];
       const groups = json.groups ?? [];
@@ -1450,12 +1459,13 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  uploadPortraitImageDirect: async ({ dataUrl, name, role = "reference", groupId }) => {
+  uploadPortraitImageDirect: async ({ dataUrl, name, role = "reference", groupId, projectId }) => {
     try {
+      const pid = projectId !== undefined ? projectId : get().activeProjectId;
       const res = await apiFetch("/api/assets/portraits/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataUrl, name, role, groupId }),
+        body: JSON.stringify({ dataUrl, name, role, groupId, projectId: pid ?? undefined }),
       });
       if (!res.ok) {
         if (res.status === 413) {
@@ -1465,7 +1475,7 @@ export const useStore = create((set, get) => ({
         return { ok: false, error: err.error || "Failed to upload portrait." };
       }
       const json = await res.json();
-      await get().loadAllPortraitAssets();
+      await get().loadAllPortraitAssets(pid);
       return { ok: true, asset: json.asset };
     } catch (err) {
       return { ok: false, error: err?.message || "Network error uploading portrait." };
@@ -1578,13 +1588,19 @@ export const useStore = create((set, get) => ({
       const res = await apiFetch("/api/projects", { cache: "no-store" });
       const json = await res.json();
       const projects = json.projects ?? [];
-      set((s) => ({
+      const currentActiveId = get().activeProjectId;
+      const nextProjectId =
+        currentActiveId && projects.some((p) => p.id === currentActiveId)
+          ? currentActiveId
+          : projects[0]?.id ?? null;
+      set({
         projects,
-        activeProjectId:
-          s.activeProjectId && projects.some((p) => p.id === s.activeProjectId)
-            ? s.activeProjectId
-            : projects[0]?.id ?? null,
-      }));
+        activeProjectId: nextProjectId,
+      });
+      if (nextProjectId) {
+        void get().loadAssets(nextProjectId);
+        void get().loadAllPortraitAssets(nextProjectId);
+      }
     } catch {
       /* ignore */
     }
@@ -2328,9 +2344,13 @@ if (typeof window !== "undefined") {
       const st = useStore.getState();
       void st.loadFeed();
       void st.loadCounts();
-      // The chat thread only depends on the project, so leave it alone when
+      // The chat thread, materials, and portraits depend on the project, so leave them alone when
       // the user is merely filtering the library.
-      if (projectChanged) void st.loadThread();
+      if (projectChanged) {
+        void st.loadThread();
+        void st.loadAssets(st.activeProjectId);
+        void st.loadAllPortraitAssets(st.activeProjectId);
+      }
     };
     // Only typing waits; clicking a folder should feel instant.
     if (searchChanged && !projectChanged) {

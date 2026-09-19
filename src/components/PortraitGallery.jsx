@@ -40,6 +40,9 @@ export function PortraitGallery() {
   const deleteGroup = useStore((s) => s.deletePortraitGroup);
   const renameGroup = useStore((s) => s.renamePortraitGroupDirect);
   const attachPortrait = useStore((s) => s.attachPortraitToComposer);
+  const projects = useStore((s) => s.projects);
+  const activeProjectId = useStore((s) => s.activeProjectId);
+  const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
   const fileInputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
@@ -72,12 +75,12 @@ export function PortraitGallery() {
   // Load all assets when modal opens
   useEffect(() => {
     if (open) {
-      loadAll();
+      loadAll(activeProjectId);
       setError("");
       setSearch("");
       setSelectedAssetForPreview(null);
     }
-  }, [open, loadAll]);
+  }, [open, loadAll, activeProjectId]);
 
   // Global Escape key support
   useEffect(() => {
@@ -107,7 +110,7 @@ export function PortraitGallery() {
     setSyncing(true);
     setError("");
     try {
-      await loadAll();
+      await loadAll(activeProjectId);
     } catch (err) {
       setError(err?.message || "Sync failed");
     } finally {
@@ -158,6 +161,7 @@ export function PortraitGallery() {
             name: cleanName,
             role: "reference",
             groupId: selectedGroupId || undefined,
+            projectId: activeProjectId || undefined,
           });
 
           if (res.ok) {
@@ -179,7 +183,7 @@ export function PortraitGallery() {
         setError(`Uploaded ${successCount} image(s), but some failed: ${lastError}`);
       }
     },
-    [uploadDirect, selectedGroupId]
+    [uploadDirect, selectedGroupId, activeProjectId]
   );
 
   const onDrop = (e) => {
@@ -218,13 +222,13 @@ export function PortraitGallery() {
     const name = newGroupName.trim();
     if (!name) return;
     setSavingGroup(true);
-    const res = await createGroup(name, "Virtual Portrait Character");
+    const res = await createGroup(name, "Virtual Portrait Character", activeProjectId);
     setSavingGroup(false);
     if (res.ok && res.group) {
       setSelectedGroupId(res.group.id);
       setNewGroupName("");
       setCreatingGroup(false);
-      await loadAll();
+      await loadAll(activeProjectId);
     } else {
       setError(res.error || "Failed to create character group");
     }
@@ -300,6 +304,11 @@ export function PortraitGallery() {
                       <h2 className="text-sm font-semibold text-white">
                         Portrait Gallery
                       </h2>
+                      {activeProject && (
+                        <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/80">
+                          {activeProject.name}
+                        </span>
+                      )}
                       <span className="rounded-md bg-brand/15 px-2 py-0.5 text-[10px] font-semibold text-brand ring-1 ring-brand/30">
                         Asset Library
                       </span>

@@ -280,28 +280,38 @@ export const depthWorkers = pgTable("depth_workers", {
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
-export const assets = pgTable("assets", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  kind: text("kind").notNull(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull(),
-  description: text("description"),
-  images: jsonb("images").$type().notNull().default([]),
-  createdAt: bigint("created_at", { mode: "number" }).notNull(),
-  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-});
+export const assets = pgTable(
+  "assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    images: jsonb("images").$type().notNull().default([]),
+    projectId: uuid("project_id"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [index("assets_project_id_idx").on(table.projectId)]
+);
 
-export const portraitGroups = pgTable("portrait_groups", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  byteplusGroupId: text("byteplus_group_id").unique(),
-  name: text("name").notNull(),
-  description: text("description"),
-  groupType: text("group_type").notNull().default("AIGC"),
-  projectName: text("project_name").notNull().default("default"),
-  primaryAssetId: text("primary_asset_id"),
-  createdAt: bigint("created_at", { mode: "number" }).notNull(),
-  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
-});
+export const portraitGroups = pgTable(
+  "portrait_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    byteplusGroupId: text("byteplus_group_id").unique(),
+    name: text("name").notNull(),
+    description: text("description"),
+    groupType: text("group_type").notNull().default("AIGC"),
+    projectName: text("project_name").notNull().default("default"),
+    primaryAssetId: text("primary_asset_id"),
+    projectId: uuid("project_id"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [index("portrait_groups_project_id_idx").on(table.projectId)]
+);
 
 export const portraitAssets = pgTable("portrait_assets", {
   id: uuid("id").primaryKey().defaultRandom(),

@@ -68,6 +68,11 @@ test("syncByteplusPortraits: falls back safely to local store when mock/unconfig
   assert.ok(Array.isArray(result.groups));
   assert.ok(Array.isArray(result.assets));
   assert.equal(typeof result.syncedWithByteplus, "boolean");
+
+  const scopedResult = await syncByteplusPortraits("00000000-0000-0000-0000-000000000001");
+  assert.ok(Array.isArray(scopedResult.groups));
+  assert.ok(Array.isArray(scopedResult.assets));
+  assert.equal(typeof scopedResult.syncedWithByteplus, "boolean");
 });
 
 test("mediaKeyFromRef: cleanly strips query params and fragments", async () => {

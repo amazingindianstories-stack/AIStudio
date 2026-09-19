@@ -4,21 +4,30 @@ import { assets } from "./schema";
 
 /** Reusable reference assets — Postgres (was assets.json). Dormant in the UI. */
 
-function rowToAsset(r) {
+export function rowToAsset(r) {
   return {
     id: r.id,
-    kind: r.kind ,
+    kind: r.kind,
     name: r.name,
     slug: r.slug,
     description: r.description ?? undefined,
     images: r.images ?? [],
+    projectId: r.projectId ?? undefined,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
 }
 
-export async function readAssets() {
+export async function readAssets(projectId) {
   const db = await getDb();
+  if (projectId) {
+    const rows = await db
+      .select()
+      .from(assets)
+      .where(eq(assets.projectId, projectId))
+      .orderBy(desc(assets.createdAt));
+    return rows.map(rowToAsset);
+  }
   const rows = await db.select().from(assets).orderBy(desc(assets.createdAt));
   return rows.map(rowToAsset);
 }
@@ -38,6 +47,7 @@ export async function upsertAsset(asset) {
     slug: asset.slug,
     description: asset.description ?? null,
     images: asset.images,
+    projectId: asset.projectId ?? null,
     createdAt: asset.createdAt,
     updatedAt: asset.updatedAt,
   };
@@ -58,10 +68,11 @@ export { sanitizeSlug, isReservedSlug };
 
 export async function makeUniqueSlug(
   name,
-  excludeId
+  excludeId,
+  projectId
 ) {
   const base = sanitizeSlug(name);
-  const all = await readAssets();
+  const all = await readAssets(projectId);
   const taken = new Set(all.filter((a) => a.id !== excludeId).map((a) => a.slug));
   if (!taken.has(base)) return base;
   let n = 2;

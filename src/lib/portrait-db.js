@@ -1,4 +1,4 @@
-import { eq, desc, asc, like, or } from "drizzle-orm";
+import { eq, desc, asc, like, or, inArray } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { portraitGroups, portraitAssets } from "./schema.js";
 
@@ -11,6 +11,7 @@ function rowToGroup(r) {
     groupType: r.groupType,
     projectName: r.projectName,
     primaryAssetId: r.primaryAssetId ?? undefined,
+    projectId: r.projectId ?? undefined,
     createdAt: Number(r.createdAt),
     updatedAt: Number(r.updatedAt),
   };
@@ -32,10 +33,21 @@ function rowToAsset(r) {
   };
 }
 
-export async function listPortraitGroups() {
+export async function listPortraitGroups(projectId) {
   const db = await getDb();
-  const groups = await db.select().from(portraitGroups).orderBy(desc(portraitGroups.createdAt));
-  const assets = await db.select().from(portraitAssets).orderBy(asc(portraitAssets.createdAt));
+  const groupsQuery = db.select().from(portraitGroups);
+  const groups = projectId
+    ? await groupsQuery.where(eq(portraitGroups.projectId, projectId)).orderBy(desc(portraitGroups.createdAt))
+    : await groupsQuery.orderBy(desc(portraitGroups.createdAt));
+
+  if (groups.length === 0) return [];
+
+  const groupIds = groups.map((g) => g.id);
+  const assets = await db
+    .select()
+    .from(portraitAssets)
+    .where(inArray(portraitAssets.groupId, groupIds))
+    .orderBy(asc(portraitAssets.createdAt));
 
   const assetsByGroup = new Map();
   for (const asset of assets) {
@@ -123,6 +135,7 @@ export async function upsertPortraitGroup(group) {
     groupType: group.groupType || "AIGC",
     projectName: group.projectName || "default",
     primaryAssetId: group.primaryAssetId ?? null,
+    projectId: group.projectId ?? null,
     createdAt: group.createdAt || now,
     updatedAt: group.updatedAt || now,
   };
@@ -280,8 +293,22 @@ export async function deletePortraitAsset(id) {
   return existing;
 }
 
-export async function listAllPortraitAssets() {
+export async function listAllPortraitAssets(projectId) {
   const db = await getDb();
+  if (projectId) {
+    const groups = await db
+      .select({ id: portraitGroups.id })
+      .from(portraitGroups)
+      .where(eq(portraitGroups.projectId, projectId));
+    const groupIds = groups.map((g) => g.id);
+    if (groupIds.length === 0) return [];
+    const rows = await db
+      .select()
+      .from(portraitAssets)
+      .where(inArray(portraitAssets.groupId, groupIds))
+      .orderBy(desc(portraitAssets.createdAt));
+    return rows.map(rowToAsset);
+  }
   const rows = await db
     .select()
     .from(portraitAssets)
@@ -289,9 +316,12 @@ export async function listAllPortraitAssets() {
   return rows.map(rowToAsset);
 }
 
-export async function ensureDefaultPortraitGroup() {
+export async function ensureDefaultPortraitGroup(projectId) {
   const db = await getDb();
-  const rows = await db.select().from(portraitGroups);
+  const query = db.select().from(portraitGroups);
+  const rows = projectId
+    ? await query.where(eq(portraitGroups.projectId, projectId))
+    : await query;
   if (rows.length > 0) {
     const preferred =
       rows.find((r) => r.byteplusGroupId && /general|default/i.test(r.name)) ||
@@ -308,6 +338,7 @@ export async function ensureDefaultPortraitGroup() {
     description: "Default portrait collection",
     groupType: "AIGC",
     projectName: "default",
+    projectId: projectId ?? null,
     createdAt: now,
     updatedAt: now,
   });

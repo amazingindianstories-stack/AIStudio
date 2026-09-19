@@ -36,6 +36,7 @@ export async function POST(req) {
   const name = rawName || "Portrait";
   const role = body.role || "reference";
   let groupId = body.groupId;
+  const projectId = body.projectId || undefined;
 
   if (!dataUrl || typeof dataUrl !== "string" || !dataUrl.startsWith("data:")) {
     return NextResponse.json(
@@ -51,7 +52,7 @@ export async function POST(req) {
       group = await getPortraitGroup(groupId);
     }
     if (!group) {
-      group = await ensureDefaultPortraitGroup();
+      group = await ensureDefaultPortraitGroup(projectId);
       groupId = group.id;
     }
 
