@@ -94,19 +94,38 @@ function pickModel(modelDisplay) {
 function buildRefRoles(refs, rawPrompt) {
   if (!refs.length) return undefined;
   const roleByTag = parseRefRoles(rawPrompt);
-  if (!roleByTag.size) return undefined;
   const map = new Map();
-  for (const ref of refs) {
-    const role = roleByTag.get(ref.tag);
-    if (role) map.set(ref.index, role);
-  }
+  refs.forEach((ref, idx) => {
+    const imgIndex = ref.index ?? (idx + 1);
+    if (ref.kind) {
+      const k = String(ref.kind).toLowerCase();
+      if (k === "character") map.set(imgIndex, "person");
+      else if (k === "location") map.set(imgIndex, "location");
+      else if (k === "style") map.set(imgIndex, "style");
+      else if (k === "prop") map.set(imgIndex, "prop");
+      else if (k === "outfit") map.set(imgIndex, "outfit");
+    } else if (ref.tag && roleByTag.get(ref.tag)) {
+      map.set(imgIndex, roleByTag.get(ref.tag));
+    }
+  });
   return map.size ? map : undefined;
 }
 
 /** Seedance reads "[image N]" references in the prompt. Translate the UI's
- *  @imgN tags so the model binds each tag to the matching reference_image. */
-function tagsToImageRefs(prompt) {
-  return prompt
+ *  @imgN and named @slug tags so the model binds each tag to the matching reference_image. */
+export function tagsToImageRefs(prompt, refs = []) {
+  let result = prompt;
+  if (Array.isArray(refs) && refs.length > 0) {
+    refs.forEach((ref, idx) => {
+      const imgIndex = ref.index ?? (idx + 1);
+      if (ref.tag) {
+        const escaped = ref.tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`${escaped}(?!\\w)`, "gi");
+        result = result.replace(re, `[image ${imgIndex}]`);
+      }
+    });
+  }
+  return result
     .replace(/@img(\d+)/gi, (_, n) => `[image ${n}]`)
     // Same convention for clips. Unlike the image form this one is NOT
     // probe-verified — reference clips are attached as content items and work
@@ -201,14 +220,14 @@ export async function createVideoTask(
   // Edit/Extend skip it entirely — see the trigger-sentence comment above.
   let text;
   if (taskMode === "edit") {
-    text = EDIT_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim()));
+    text = EDIT_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim(), refs));
   } else if (taskMode === "extend") {
-    text = EXTEND_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim()));
+    text = EXTEND_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim(), refs));
   } else {
     text = legacyDirective()
-      ? legacyHeroDirective(refs.length) + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim()))
+      ? legacyHeroDirective(refs.length) + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim(), refs))
       : buildVideoDirective({
-          prompt: tagsToAudioRefs(tagsToImageRefs(input.prompt.trim())),
+          prompt: tagsToAudioRefs(tagsToImageRefs(input.prompt.trim(), refs)),
           refCount: refs.length,
           tagSyntax: "bracket",
           refRoles: buildRefRoles(refs, input.prompt),

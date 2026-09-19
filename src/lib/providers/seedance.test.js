@@ -308,3 +308,49 @@ test("createVideoTask: passes asset:// URIs through in image_url content items",
   assert.equal(imageItems[0].image_url.url, "asset://asset-20260318035710-kctzf");
   assert.equal(imageItems[0].role, "reference_image");
 });
+
+test("createVideoTask: translates named material slugs and ad-hoc @img tags to [image N]", async () => {
+  const { body } = await withFakeArkResponse("task-material-test", () =>
+    createVideoTask({
+      modelDisplay: "Seedance 2.0",
+      prompt: "@sati stands in front of @scene1 holding a glowing orb with @img1 style",
+      references: [
+        {
+          tag: "@sati",
+          slug: "sati",
+          kind: "character",
+          name: "Sati",
+          index: 1,
+          dataUrl: "data:image/jpeg;base64,SATI_BASE64",
+        },
+        {
+          tag: "@scene1",
+          slug: "scene1",
+          kind: "location",
+          name: "Scene 1",
+          index: 2,
+          dataUrl: "data:image/jpeg;base64,SCENE_BASE64",
+        },
+        {
+          tag: "@img1",
+          index: 3,
+          dataUrl: "data:image/jpeg;base64,ADHOC_BASE64",
+        },
+      ],
+    })
+  );
+
+  const text = body.content[0].text;
+  assert.match(text, /\[image 1\] stands in front of \[image 2\]/);
+  assert.match(text, /with \[image 3\] style/);
+  assert.match(text, /\[image 1\] = the exact face\/identity/);
+  assert.match(text, /\[image 2\] = the exact location\/setting/);
+  assert.match(text, /\[image 3\] defines the visual style/);
+
+  const imageItems = body.content.filter((c) => c.type === "image_url");
+  assert.equal(imageItems.length, 3);
+  assert.equal(imageItems[0].image_url.url, "data:image/jpeg;base64,SATI_BASE64");
+  assert.equal(imageItems[1].image_url.url, "data:image/jpeg;base64,SCENE_BASE64");
+  assert.equal(imageItems[2].image_url.url, "data:image/jpeg;base64,ADHOC_BASE64");
+});
+

@@ -343,13 +343,13 @@ export function PortraitGallery() {
                     onClick={() => setSelectedGroupId(null)}
                     className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition ${
                       selectedGroupId === null
-                        ? "bg-brand text-ink-950 font-semibold shadow-sm"
+                        ? "bg-white text-zinc-950 font-semibold shadow-sm"
                         : "bg-ink-800 text-white/70 hover:bg-ink-750 hover:text-white border border-line/60"
                     }`}
                   >
                     <Users className="h-3.5 w-3.5" />
                     <span>All Characters</span>
-                    <span className={`rounded-full px-1.5 py-0.2 text-[10px] ${selectedGroupId === null ? "bg-ink-950/20 text-ink-950" : "bg-ink-700 text-white/50"}`}>
+                    <span className={`rounded-full px-1.5 py-0.2 text-[10px] ${selectedGroupId === null ? "bg-black/15 text-zinc-950 font-bold" : "bg-ink-700 text-white/50"}`}>
                       {assets.length}
                     </span>
                   </button>
@@ -376,7 +376,7 @@ export function PortraitGallery() {
                           <button
                             type="button"
                             onClick={() => saveRenamingGroup(group.id)}
-                            className="grid h-5 w-5 place-items-center rounded bg-brand text-ink-950 hover:bg-brand-light"
+                            className="grid h-5 w-5 place-items-center rounded bg-white text-zinc-950 hover:bg-zinc-200"
                           >
                             <Check className="h-3 w-3" />
                           </button>
@@ -396,7 +396,7 @@ export function PortraitGallery() {
                         key={group.id}
                         className={`group relative flex items-center rounded-lg border transition ${
                           isSelected
-                            ? "border-brand/40 bg-brand text-ink-950 shadow-sm"
+                            ? "border-white bg-white text-zinc-950 shadow-sm"
                             : "border-line/60 bg-ink-800 text-white/70 hover:bg-ink-750 hover:text-white"
                         }`}
                       >
@@ -405,10 +405,10 @@ export function PortraitGallery() {
                           onClick={() => setSelectedGroupId(group.id)}
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium"
                         >
-                          <span className={isSelected ? "font-semibold text-ink-950" : ""}>{group.name}</span>
+                          <span className={isSelected ? "font-semibold text-zinc-950" : ""}>{group.name}</span>
                           <span
                             className={`rounded-full px-1.5 py-0.2 text-[10px] ${
-                              isSelected ? "bg-ink-950/20 text-ink-950" : "bg-ink-700 text-white/50"
+                              isSelected ? "bg-black/15 text-zinc-950 font-bold" : "bg-ink-700 text-white/50"
                             }`}
                           >
                             {count}
@@ -417,12 +417,12 @@ export function PortraitGallery() {
 
                         {/* Selected Group Action Controls (Rename & Delete) */}
                         {isSelected && (
-                          <div className="flex items-center gap-0.5 pr-1.5 text-ink-950/70">
+                          <div className="flex items-center gap-0.5 pr-1.5 text-zinc-950/70">
                             <button
                               type="button"
                               onClick={(e) => startRenamingGroup(group, e)}
                               title="Rename character group"
-                              className="grid h-5 w-5 place-items-center rounded hover:bg-ink-950/15 hover:text-ink-950 transition"
+                              className="grid h-5 w-5 place-items-center rounded hover:bg-black/10 hover:text-zinc-950 transition"
                             >
                               <Pencil className="h-3 w-3" />
                             </button>
@@ -459,7 +459,7 @@ export function PortraitGallery() {
                       <button
                         type="submit"
                         disabled={savingGroup || !newGroupName.trim()}
-                        className="grid h-7 w-7 place-items-center rounded-lg bg-brand text-ink-950 hover:bg-brand-light disabled:opacity-50"
+                        className="grid h-7 w-7 place-items-center rounded-lg bg-white text-zinc-950 hover:bg-zinc-200 disabled:opacity-50"
                       >
                         {savingGroup ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
                       </button>
@@ -630,14 +630,14 @@ export function PortraitGallery() {
                             className="group relative flex cursor-pointer flex-col overflow-hidden rounded-xl border border-line bg-ink-800 transition hover:border-brand/50 hover:shadow-lg"
                           >
                             {/* Thumbnail image */}
-                            <div className="relative aspect-[3/4] w-full overflow-hidden bg-ink-700">
+                            <div className="relative aspect-[3/4] w-full overflow-hidden bg-ink-950/85 p-1 flex items-center justify-center">
                               {asset.imageUrl ? (
                                 // eslint-disable-next-line @next/next/no-img-element
                                 <img
                                   src={thumbUrl(asset.imageUrl, 400)}
                                   alt={asset.name || "Portrait"}
                                   loading="lazy"
-                                  className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                                  className="h-full w-full object-contain transition duration-300 group-hover:scale-105"
                                 />
                               ) : (
                                 <div className="grid h-full w-full place-items-center text-white/20">
@@ -703,8 +703,8 @@ export function PortraitGallery() {
                                   }}
                                   className={`flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold shadow-md transition ${
                                     isAttached
-                                      ? "bg-emerald-500 text-ink-950"
-                                      : "bg-brand text-ink-950 hover:bg-brand-light"
+                                      ? "bg-emerald-500 text-zinc-950 font-bold"
+                                      : "bg-white text-zinc-950 hover:bg-zinc-200"
                                   }`}
                                 >
                                   {isAttached ? (

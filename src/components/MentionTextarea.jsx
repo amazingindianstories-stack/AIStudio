@@ -95,7 +95,7 @@ export const MentionTextarea = forwardRef(
     const suppressNextKeyUp = useRef(false);
 
     const tagCount = references.length;
-    const assetSlugs = new Set(assets.map((a) => a.slug));
+    const assetSlugs = new Set(assets.map((a) => (a.slug || "").toLowerCase()));
 
     // Unified suggestion list: ad-hoc uploads (@imgN) + named assets (@slug).
     const q = query.toLowerCase();
@@ -111,12 +111,12 @@ export const MentionTextarea = forwardRef(
         thumb: referenceDisplayUrl(references[n - 1], assets),
       }));
     const assetSuggestions = assets
-      .filter((a) => a.slug.startsWith(q) || a.name.toLowerCase().includes(q))
+      .filter((a) => (a.slug || "").toLowerCase().startsWith(q) || (a.name || "").toLowerCase().includes(q))
       .map((a) => ({
         tag: `@${a.slug}`,
         label: `@${a.slug}`,
         sub: `${a.name} · ${a.kind}`,
-        thumb: a.thumb,
+        thumb: a.thumb || a.images?.[0],
       }));
     // Attached clips get their own tags. These were missing entirely, so typing
     // @vid1 offered nothing and highlighted red — the tag existed only in the

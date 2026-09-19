@@ -450,9 +450,9 @@ export function PromptComposer() {
               // the last setDragRefs — reading the ref instead of the closed-
               // over state guarantees the store gets the settled order.
               onDragEnd={() => s.reorderReferences(dragRefsRef.current)}
-              title={`Insert @img${i + 1} — drag to reorder`}
+              title={s.referenceTags?.[i] ? `Insert ${s.referenceTags[i]} — drag to reorder` : `Insert @img${i + 1} — drag to reorder`}
               className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing bg-ink-800 flex items-center justify-center"
-              onClick={() => mentionRef.current?.insertTag(`@img${i + 1}`)}
+              onClick={() => mentionRef.current?.insertTag(s.referenceTags?.[i] || `@img${i + 1}`)}
             >
               <div className="absolute inset-0 grid place-items-center bg-ink-800 text-white/20 pointer-events-none">
                 <UserRound className="h-6 w-6" />
@@ -474,8 +474,8 @@ export function PromptComposer() {
                   e.currentTarget.style.display = "none";
                 }}
               />
-              <span className="absolute inset-x-0 bottom-0 z-20 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
-                @img{i + 1}
+              <span className="absolute inset-x-0 bottom-0 z-20 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm truncate max-w-full">
+                {s.referenceTags?.[i] || `@img${i + 1}`}
               </span>
               {/* This is still an @imgN tag functionally — @vid1 already
                   means something else entirely (an attached video-to-video
@@ -496,6 +496,14 @@ export function PromptComposer() {
                   className="absolute left-0.5 top-0.5 z-20 grid h-4 w-4 place-items-center rounded-full bg-brand text-black shadow-sm font-bold"
                 >
                   <UserRound className="h-2.5 w-2.5" />
+                </span>
+              )}
+              {s.referenceKinds[i] === "material" && (
+                <span
+                  title={s.referenceLabels?.[i] ? `Material: ${s.referenceLabels[i]}` : "Material Library Asset"}
+                  className="absolute left-0.5 top-0.5 z-20 grid h-4 w-4 place-items-center rounded-full bg-purple-600 text-white shadow-sm font-bold"
+                >
+                  <Sparkles className="h-2.5 w-2.5" />
                 </span>
               )}
               <button

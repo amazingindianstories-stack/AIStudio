@@ -53,17 +53,14 @@ export async function deleteAsset(id) {
   return rows[0] ? rowToAsset(rows[0]) : undefined;
 }
 
+import { sanitizeSlug, isReservedSlug } from "./mentions";
+export { sanitizeSlug, isReservedSlug };
+
 export async function makeUniqueSlug(
   name,
   excludeId
 ) {
-  const base =
-    name
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 32) || "asset";
+  const base = sanitizeSlug(name);
   const all = await readAssets();
   const taken = new Set(all.filter((a) => a.id !== excludeId).map((a) => a.slug));
   if (!taken.has(base)) return base;

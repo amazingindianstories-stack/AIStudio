@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { motion } from "framer-motion";
 import {
   X,
   ChevronLeft,
@@ -14,6 +13,8 @@ import {
   Pencil,
   Eye,
   ExternalLink,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
 import { inlineMediaUrl } from "@/lib/utils";
 
@@ -31,6 +32,7 @@ export function PortraitLightbox({
   const [addedPrompt, setAddedPrompt] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(asset?.name || "");
+  const [isZoomed, setIsZoomed] = useState(false);
 
   const currentIndex = assets.findIndex((a) => (a.id || a.byteplusAssetId) === (asset?.id || asset?.byteplusAssetId));
   const hasPrev = currentIndex > 0;
@@ -38,12 +40,14 @@ export function PortraitLightbox({
 
   const goToPrev = useCallback(() => {
     if (hasPrev && onSelectAsset) {
+      setIsZoomed(false);
       onSelectAsset(assets[currentIndex - 1]);
     }
   }, [hasPrev, onSelectAsset, assets, currentIndex]);
 
   const goToNext = useCallback(() => {
     if (hasNext && onSelectAsset) {
+      setIsZoomed(false);
       onSelectAsset(assets[currentIndex + 1]);
     }
   }, [hasNext, onSelectAsset, assets, currentIndex]);
@@ -72,6 +76,7 @@ export function PortraitLightbox({
     setNameInput(asset?.name || "");
     setEditingName(false);
     setAddedPrompt(false);
+    setIsZoomed(false);
   }, [asset]);
 
   if (!asset) return null;
@@ -151,7 +156,7 @@ export function PortraitLightbox({
                 />
                 <button
                   onClick={handleSaveName}
-                  className="grid h-7 w-7 place-items-center rounded bg-brand text-ink-950 hover:bg-brand-light"
+                  className="grid h-7 w-7 place-items-center rounded bg-white text-zinc-950 hover:bg-zinc-200"
                 >
                   <Check className="h-3.5 w-3.5" />
                 </button>
@@ -210,8 +215,8 @@ export function PortraitLightbox({
             onClick={handleAttach}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
               addedPrompt
-                ? "bg-emerald-500 text-ink-950"
-                : "bg-brand text-ink-950 hover:bg-brand-light"
+                ? "bg-emerald-500 text-zinc-950 font-bold"
+                : "bg-white text-zinc-950 hover:bg-zinc-200"
             }`}
           >
             {addedPrompt ? (
@@ -223,6 +228,16 @@ export function PortraitLightbox({
                 <Sparkles className="h-3.5 w-3.5" /> Use in Prompt
               </>
             )}
+          </button>
+
+          {/* Zoom Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsZoomed((v) => !v)}
+            title={isZoomed ? "Fit to screen" : "Zoom in 2x"}
+            className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
+          >
+            {isZoomed ? <ZoomOut className="h-4 w-4" /> : <ZoomIn className="h-4 w-4" />}
           </button>
 
           {/* Download */}
@@ -286,49 +301,54 @@ export function PortraitLightbox({
           </button>
         )}
 
-        {/* Central High-Resolution Image */}
-        <motion.div
-          key={asset.id || asset.byteplusAssetId || asset.imageUrl}
-          initial={{ opacity: 0, scale: 0.97 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-          className="relative flex max-h-[76dvh] max-w-full items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-ink-950 shadow-2xl ring-1 ring-white/10"
+        {/* Central High-Resolution Image with Zoom Support */}
+        <div
+          className={`relative flex h-full max-h-[78dvh] w-full items-center justify-center overflow-auto rounded-2xl border border-white/10 bg-ink-950 p-2 shadow-2xl ring-1 ring-white/10 scroll-thin ${
+            isZoomed ? "cursor-zoom-out" : "cursor-zoom-in"
+          }`}
+          onClick={() => setIsZoomed((v) => !v)}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={asset.imageUrl}
             alt={asset.name || "Virtual Portrait"}
-            className="max-h-[76dvh] max-w-[85vw] object-contain select-none"
+            className={`select-none transition-all duration-200 ${
+              isZoomed
+                ? "max-w-none origin-center transform p-8 scale-150"
+                : "max-h-[76dvh] max-w-[85vw] object-contain"
+            }`}
           />
 
           {/* Status Badge Over Image */}
-          <div className="absolute left-3 top-3 flex items-center gap-2">
-            <span
-              className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold backdrop-blur-md shadow-md ${
-                asset.status === "Processing"
-                  ? "bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/40"
-                  : asset.status === "Failed"
-                  ? "bg-red-500/25 text-red-300 ring-1 ring-red-500/40"
-                  : "bg-ink-950/85 text-emerald-400 ring-1 ring-emerald-500/40"
-              }`}
-            >
+          {!isZoomed && (
+            <div className="absolute left-3 top-3 flex items-center gap-2 pointer-events-none">
               <span
-                className={`h-1.5 w-1.5 rounded-full ${
+                className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold backdrop-blur-md shadow-md ${
                   asset.status === "Processing"
-                    ? "bg-amber-400 animate-ping"
+                    ? "bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/40"
                     : asset.status === "Failed"
-                    ? "bg-red-400"
-                    : "bg-emerald-400"
+                    ? "bg-red-500/25 text-red-300 ring-1 ring-red-500/40"
+                    : "bg-ink-950/85 text-emerald-400 ring-1 ring-emerald-500/40"
                 }`}
-              />
-              {asset.status === "Processing"
-                ? "Syncing with BytePlus"
-                : asset.status === "Failed"
-                ? "Sync Failed"
-                : "Active • ModelArk Ready"}
-            </span>
-          </div>
-        </motion.div>
+              >
+                <span
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    asset.status === "Processing"
+                      ? "bg-amber-400 animate-ping"
+                      : asset.status === "Failed"
+                      ? "bg-red-400"
+                      : "bg-emerald-400"
+                  }`}
+                />
+                {asset.status === "Processing"
+                  ? "Syncing with BytePlus"
+                  : asset.status === "Failed"
+                  ? "Sync Failed"
+                  : "Active • ModelArk Ready"}
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* Next Button */}
         {hasNext && (
@@ -351,7 +371,7 @@ export function PortraitLightbox({
               {currentIndex + 1} of {assets.length}
             </span>
           )}
-          <span className="hidden sm:inline">Use left and right arrow keys to navigate portraits</span>
+          <span className="hidden sm:inline">Use ← → arrows to navigate • Esc to close • Click image to toggle zoom</span>
         </div>
 
         <div className="flex items-center gap-3">

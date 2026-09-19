@@ -29,7 +29,9 @@ const legacyReadsEnabled = () =>
   process.env.GCS_MIGRATION_READ_FALLBACK === "1" &&
   !!process.env.AWS_ACCESS_KEY_ID;
 
-const primaryIsGcs = () => process.env.MEDIA_BACKEND === "gcs";
+const primaryIsGcs = () =>
+  process.env.MEDIA_BACKEND === "gcs" ||
+  Boolean(process.env.GCP_MEDIA_BUCKET || process.env.GCS_BUCKET_NAME);
 
 let storageClient;
 let legacyS3Client;

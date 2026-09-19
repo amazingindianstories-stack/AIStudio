@@ -257,6 +257,7 @@ export const useStore = create((set, get) => ({
   // the actual @imgN tag/index math in mentions.ts is entirely unaffected —
   // this only decides whether the composer shows a "from video" badge.
   referenceKinds: [],
+  referenceTags: [],
   referenceVideos: [],
   referenceAudios: [],
   // Display metadata for uploaded audio references. Each entry is {name, ref}.
@@ -382,7 +383,7 @@ export const useStore = create((set, get) => ({
     videoTaskMode: VIDEO_TASK_MODES.includes(videoTaskMode) ? videoTaskMode : "generate",
   }),
   setPrompt: (prompt) => set({ prompt }),
-  addReference: (dataUrl, kind = "image") =>
+  addReference: (dataUrl, kind = "image", label = "", tag = "") =>
     set((s) => {
       const referenceImages = [...s.referenceImages, dataUrl];
       // Attaching a reference can itself invalidate the chosen resolution:
@@ -391,9 +392,13 @@ export const useStore = create((set, get) => ({
       // the model switch clamps, or the composer keeps showing 2K selected
       // while the picker no longer offers it and the provider refuses it.
       const resolutions = resolutionsForModel(s.model, s.mode, referenceImages.length > 0);
+      const referenceLabels = Array.isArray(s.referenceLabels) ? [...s.referenceLabels, label] : [label];
+      const referenceTags = Array.isArray(s.referenceTags) ? [...s.referenceTags, tag] : [tag];
       return {
         referenceImages,
         referenceKinds: [...s.referenceKinds, kind],
+        referenceLabels,
+        referenceTags,
         resolution: resolutions.includes(s.resolution)
           ? s.resolution
           : resolutions[resolutions.length - 1],
@@ -404,6 +409,7 @@ export const useStore = create((set, get) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
       referenceKinds: s.referenceKinds.filter((_, i) => i !== index),
       referenceLabels: (s.referenceLabels || []).filter((_, i) => i !== index),
+      referenceTags: (s.referenceTags || []).filter((_, i) => i !== index),
     })),
   // Drag-reorder from the composer. Diffs old vs. new position per image
   // (by value — reference images are treated as distinct, so an exact
@@ -417,16 +423,19 @@ export const useStore = create((set, get) => ({
       const mapping = s.referenceImages.map((img) => newOrder.indexOf(img));
       const newKinds = new Array(newOrder.length);
       const newLabels = new Array(newOrder.length);
+      const newTags = new Array(newOrder.length);
       mapping.forEach((newIndex, oldIndex) => {
         if (newIndex >= 0) {
           newKinds[newIndex] = s.referenceKinds[oldIndex];
           if (s.referenceLabels) newLabels[newIndex] = s.referenceLabels[oldIndex];
+          if (s.referenceTags) newTags[newIndex] = s.referenceTags[oldIndex];
         }
       });
       return {
         referenceImages: newOrder,
         referenceKinds: newKinds,
         referenceLabels: newLabels,
+        referenceTags: newTags,
         prompt: renumberImgMentions(s.prompt, mapping),
       };
     }),
@@ -1226,15 +1235,17 @@ export const useStore = create((set, get) => ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(draft),
       });
-      const asset = await res.json();
-      if (!asset?.id) return null;
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.id) {
+        return { ok: false, error: data?.error || `Failed to save asset (${res.status})` };
+      }
       set((s) => ({
-        assets: [asset, ...s.assets.filter((a) => a.id !== asset.id)],
+        assets: [data, ...s.assets.filter((a) => a.id !== data.id)],
         editingAsset: null,
       }));
-      return asset;
-    } catch {
-      return null;
+      return { ok: true, asset: data };
+    } catch (err) {
+      return { ok: false, error: err?.message || "Failed to save asset." };
     }
   },
 
@@ -1262,6 +1273,44 @@ export const useStore = create((set, get) => ({
   },
 
   setAssetLibraryOpen: (assetLibraryOpen) => set({ assetLibraryOpen }),
+  attachMaterialToComposer: (asset) => {
+    if (!asset) return;
+    const imageUrl = asset.images?.[0] || asset.thumb || "";
+    if (!imageUrl) return;
+    const tag = `@${asset.slug}`;
+    set((s) => {
+      const existingIdx = s.referenceImages.indexOf(imageUrl);
+      let referenceImages = s.referenceImages;
+      let referenceKinds = s.referenceKinds;
+      let referenceLabels = Array.isArray(s.referenceLabels) ? [...s.referenceLabels] : [];
+      let referenceTags = Array.isArray(s.referenceTags) ? [...s.referenceTags] : [];
+
+      if (existingIdx === -1) {
+        referenceImages = [...referenceImages, imageUrl];
+        referenceKinds = [...referenceKinds, "material"];
+        referenceLabels.push(asset.name || "");
+        referenceTags.push(tag);
+      }
+
+      let prompt = s.prompt || "";
+      if (!prompt.includes(tag)) {
+        prompt = prompt.trim().length > 0 ? `${prompt.trim()} ${tag} ` : `${tag} `;
+      }
+
+      const resolutions = resolutionsForModel(s.model, s.mode, referenceImages.length > 0);
+      return {
+        referenceImages,
+        referenceKinds,
+        referenceLabels,
+        referenceTags,
+        prompt,
+        assetLibraryOpen: false,
+        resolution: resolutions.includes(s.resolution)
+          ? s.resolution
+          : resolutions[resolutions.length - 1],
+      };
+    });
+  },
   setEditingAsset: (editingAsset) => set({ editingAsset }),
 
   setPortraitGalleryOpen: (portraitGalleryOpen) => set({ portraitGalleryOpen }),

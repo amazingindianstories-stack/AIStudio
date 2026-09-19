@@ -21,7 +21,7 @@ import {
 import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
 import { supportsSeed, supportsVideoBestOf } from "@/lib/config";
 import { buildKlingInput } from "@/lib/kling-input";
-import { resolveReferences, resolveVideoReferences, resolveAudioReferences } from "@/lib/mentions";
+import { resolveReferences, resolveVideoReferences, resolveAudioReferences, parseAssetSlugs } from "@/lib/mentions";
 import {
   readImageAsBase64,
 } from "@/lib/save-media";
@@ -261,9 +261,88 @@ async function submitVideo(base, signal) {
       signal,
     });
   } else {
-    // Native BytePlus ModelArk Seedance 2.0. resolveReferences maps @imgN to
-    // uploads by position, so the inlined list must keep referenceImages' order.
-    const inlined = await toProviderDataUrls(base.referenceImages ?? [], signal);
+    // Native BytePlus ModelArk Seedance 2.0.
+    const allAssets = await readAssets();
+    const assetBySlug = new Map(allAssets.map((a) => [a.slug.toLowerCase(), a]));
+    const assetByImgUrl = new Map();
+    for (const a of allAssets) {
+      for (const img of (a.images || [])) {
+        assetByImgUrl.set(img, a);
+      }
+    }
+
+    const rawUploads = base.referenceImages ?? [];
+    const adhocUploads = [];
+    for (const u of rawUploads) {
+      if (!assetByImgUrl.has(u)) {
+        adhocUploads.push(u);
+      }
+    }
+
+    const mentionedSlugs = parseAssetSlugs(prompt);
+    const resolvedMaterials = [];
+    for (const slug of mentionedSlugs) {
+      const asset = assetBySlug.get(slug);
+      if (asset?.images?.[0]) {
+        resolvedMaterials.push({
+          tag: `@${asset.slug}`,
+          slug: asset.slug,
+          kind: asset.kind,
+          name: asset.name,
+          imageUrl: asset.images[0],
+        });
+      }
+    }
+
+    const adhocRefs = resolveReferences(prompt, adhocUploads);
+
+    const combinedRefs = [];
+    for (const mat of resolvedMaterials) {
+      combinedRefs.push({
+        tag: mat.tag,
+        slug: mat.slug,
+        kind: mat.kind,
+        name: mat.name,
+        imageUrl: mat.imageUrl,
+      });
+    }
+    for (const adh of adhocRefs) {
+      combinedRefs.push({
+        tag: adh.tag,
+        kind: "image",
+        imageUrl: adh.dataUrl,
+      });
+    }
+
+    if (combinedRefs.length === 0 && rawUploads.length > 0) {
+      for (let i = 0; i < rawUploads.length; i++) {
+        const u = rawUploads[i];
+        const mat = assetByImgUrl.get(u);
+        if (mat) {
+          combinedRefs.push({
+            tag: `@${mat.slug}`,
+            slug: mat.slug,
+            kind: mat.kind,
+            name: mat.name,
+            imageUrl: u,
+          });
+        } else {
+          combinedRefs.push({
+            tag: `@img${i + 1}`,
+            kind: "image",
+            imageUrl: u,
+          });
+        }
+      }
+    }
+
+    const inlined = await toProviderDataUrls(combinedRefs.map((r) => r.imageUrl), signal);
+    const resolvedRefs = combinedRefs.map((r, i) => ({
+      ...r,
+      index: i + 1,
+      dataUrl: inlined[i],
+    }));
+
     const signedRefVideos = await signVideoRefs(
       resolveVideoReferences(prompt, base.referenceVideos ?? []),
       signal
@@ -271,7 +350,6 @@ async function submitVideo(base, signal) {
     const signedRefAudios = await signAudioRefs(
       resolveAudioReferences(prompt, base.referenceAudios ?? []), signal
     );
-    const resolvedRefs = resolveReferences(prompt, inlined);
     const callbackBase = process.env.SEEDANCE_CALLBACK_URL;
     const callbackUrl = callbackBase && process.env.SEEDANCE_CALLBACK_SECRET
       ? `${callbackBase}${callbackBase.includes("?") ? "&" : "?"}token=${encodeURIComponent(process.env.SEEDANCE_CALLBACK_SECRET)}`
