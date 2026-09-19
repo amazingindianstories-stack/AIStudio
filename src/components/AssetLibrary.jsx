@@ -158,7 +158,11 @@ export function AssetLibrary() {
               {editing ? (
                 <AssetEditor asset={editing === "new" ? null : editing} />
               ) : (
-                <AssetList assets={assets} loading={assetsLoading} />
+                <AssetList
+                  assets={assets}
+                  loading={assetsLoading}
+                  activeProject={activeProject}
+                />
               )}
             </div>
           </motion.div>
@@ -168,7 +172,7 @@ export function AssetLibrary() {
   );
 }
 
-function AssetList({ assets, loading }) {
+function AssetList({ assets, loading, activeProject: propActiveProject }) {
   const setEditing = useStore((s) => s.setEditingAsset);
   const deleteAsset = useStore((s) => s.deleteAsset);
   const setOpen = useStore((s) => s.setAssetLibraryOpen);
@@ -176,6 +180,10 @@ function AssetList({ assets, loading }) {
   const prompt = useStore((s) => s.prompt);
   const setPrompt = useStore((s) => s.setPrompt);
   const confirmation = useConfirmedAction();
+  const projects = useStore((s) => s.projects);
+  const activeProjectId = useStore((s) => s.activeProjectId);
+  const activeProject =
+    propActiveProject ?? (projects.find((p) => p.id === activeProjectId) ?? null);
 
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
