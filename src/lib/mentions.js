@@ -22,14 +22,38 @@ export function isAudioTag(slug) {
   return /^audio\d+$/i.test(slug);
 }
 
-/** True for attached-clip tags (@vid1, @vid2 …). */
+/** True for attached-clip tags (@vid1, @vid2 …, or @video1 …). */
 export function isVidTag(slug) {
-  return /^vid\d+$/i.test(slug);
+  return /^(vid|video)\d+$/i.test(slug);
+}
+
+/** True for any ad-hoc/system tags (@imgN, @vidN, @videoN, @audioN). */
+export function isReservedTag(slug) {
+  return isImgTag(slug) || isVidTag(slug) || isAudioTag(slug);
+}
+
+export function isReservedSlug(slug) {
+  return /^(img|vid|video|audio)\d+$/i.test(slug);
+}
+
+export function sanitizeSlug(name) {
+  let base = (name || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 32);
+
+  if (!base) base = "asset";
+  if (isReservedSlug(base)) {
+    base = `asset-${base}`;
+  }
+  return base;
 }
 
 /**
- * Named asset slugs referenced in a prompt (e.g. @priya, @red-lehenga), in
- * first-appearance order, excluding the ad-hoc @imgN tokens.
+ * Named asset slugs referenced in a prompt (e.g. @sati, @scene1, @priya), in
+ * first-appearance order, excluding ad-hoc tokens.
  */
 export function parseAssetSlugs(prompt) {
   const seen = new Set();
@@ -38,11 +62,7 @@ export function parseAssetSlugs(prompt) {
   let m;
   while ((m = re.exec(prompt))) {
     const slug = m[1].toLowerCase();
-    // @vidN is a clip tag, not an asset slug. Without this it was looked up as
-    // a saved asset named "vid1", found nothing, and silently stayed in the
-    // prompt as ordinary text — which is why typing @vid1 appeared to do
-    // nothing at all.
-    if (isImgTag(slug) || isVidTag(slug) || isAudioTag(slug) || seen.has(slug)) continue;
+    if (isReservedTag(slug) || seen.has(slug)) continue;
     seen.add(slug);
     order.push(slug);
   }
@@ -147,4 +167,42 @@ export function renumberImgMentions(prompt, mapping) {
     const newIndex = mapping[oldIndex];
     return newIndex === undefined ? match : `@img${newIndex + 1}`;
   });
+}
+
+/**
+ * Resolves all references from both the Material Library (@sati, @scene1)
+ * and ad-hoc attachments (@imgN, @vidN, @audioN).
+ */
+export function resolveAllReferences(
+  prompt = "",
+  assets = [],
+  uploads = [],
+  clips = [],
+  audios = []
+) {
+  const bySlug = new Map(assets.map((a) => [a.slug.toLowerCase(), a]));
+  const slugs = parseAssetSlugs(prompt);
+  const materials = [];
+  for (const slug of slugs) {
+    const asset = bySlug.get(slug);
+    if (asset && asset.images?.length) {
+      materials.push({
+        tag: `@${asset.slug}`,
+        slug: asset.slug,
+        asset,
+        image: asset.images[0],
+      });
+    }
+  }
+
+  const images = resolveReferences(prompt, uploads);
+  const videos = resolveVideoReferences(prompt, clips);
+  const audio = resolveAudioReferences(prompt, audios);
+
+  return {
+    materials,
+    images,
+    videos,
+    audio,
+  };
 }

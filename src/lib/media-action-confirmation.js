@@ -48,6 +48,20 @@ export const MEDIA_ACTION_COPY = {
     confirmLabel: "Delete asset",
     destructive: true,
   },
+  deletePortrait: {
+    title: "Delete this portrait?",
+    description:
+      "This permanently removes the portrait reference from your character gallery. This cannot be undone.",
+    confirmLabel: "Delete portrait",
+    destructive: true,
+  },
+  deletePortraitGroup: {
+    title: "Delete this character group?",
+    description:
+      "This permanently removes the character group and all associated portrait references from BytePlus ModelArk and your library. This cannot be undone.",
+    confirmLabel: "Delete character",
+    destructive: true,
+  },
 };
 
 export function mediaActionCopy(kind) {

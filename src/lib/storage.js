@@ -8,14 +8,14 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { gcpProjectId, getStorageCredentials } from "./gcp-auth";
+import { gcpProjectId, getStorageCredentials } from "./gcp-auth.js";
 import {
   isThumbnailable,
   originalKeyFromThumb,
   THUMB_LADDER,
   THUMB_PREFIX,
   thumbKey,
-} from "./media-derivatives";
+} from "./media-derivatives.js";
 
 const getBucketName = () =>
   process.env.GCP_MEDIA_BUCKET ||
@@ -29,7 +29,9 @@ const legacyReadsEnabled = () =>
   process.env.GCS_MIGRATION_READ_FALLBACK === "1" &&
   !!process.env.AWS_ACCESS_KEY_ID;
 
-const primaryIsGcs = () => process.env.MEDIA_BACKEND === "gcs";
+const primaryIsGcs = () =>
+  process.env.MEDIA_BACKEND === "gcs" ||
+  Boolean(process.env.GCP_MEDIA_BUCKET || process.env.GCS_BUCKET_NAME);
 
 let storageClient;
 let legacyS3Client;
@@ -79,10 +81,12 @@ function encodeKey(key) {
 }
 
 export function mediaKeyFromRef(ref) {
-  if (ref.startsWith("/api/media/")) return ref.slice("/api/media/".length);
+  if (typeof ref !== "string") return null;
+  const cleanRef = ref.split("?")[0].split("#")[0];
+  if (cleanRef.startsWith("/api/media/")) return cleanRef.slice("/api/media/".length);
   const cdn = process.env.GCP_MEDIA_CDN_URL?.replace(/\/$/, "");
-  if (cdn && ref.startsWith(`${cdn}/`)) {
-    return decodeURIComponent(ref.slice(cdn.length + 1));
+  if (cdn && cleanRef.startsWith(`${cdn}/`)) {
+    return decodeURIComponent(cleanRef.slice(cdn.length + 1));
   }
   return null;
 }
@@ -399,7 +403,7 @@ export async function signStoredRef(
   try {
     return await getSignedReadUrl(key, ttlSeconds);
   } catch (cloudError) {
-    const { mediaGrantUrl } = await import("./media-grant");
+    const { mediaGrantUrl } = await import("./media-grant.js");
     try {
       return mediaGrantUrl(key, ttlSeconds);
     } catch (grantError) {

@@ -14,68 +14,111 @@ import { logActivity } from "@/lib/activity";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(req) {
   if (!(await getSession())) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
-  const assets = await readAssets();
+  const { searchParams } = new URL(req?.url || "http://localhost");
+  const projectId = searchParams.get("projectId") || undefined;
+  const assets = await readAssets(projectId);
   return NextResponse.json({ assets });
 }
 
 /**
  * Create or update an asset.
- * Body: { id?, kind, name, description?, images: string[] }
+ * Body: { id?, kind, name, description?, images: string[], projectId? }
  * `images` may mix existing public paths (/assets/…) and new data URLs; new
  * data URLs are saved to disk and replaced with their public path.
  */
 export async function POST(req) {
-  if (!(await getSession())) {
+  const user = await getSession();
+  if (!user) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
-  const body = await req.json().catch(() => ({}));
-  const name = (body.name || "").trim();
-  const kind = body.kind;
-  const description = (body.description || "").trim();
-  const inputImages = Array.isArray(body.images) ? body.images : [];
+  try {
+    const body = await req.json().catch(() => ({}));
+    const name = (body.name || "").trim();
+    const kind = body.kind;
+    const description = (body.description || "").trim();
+    const projectId = body.projectId || undefined;
+    const inputImages = Array.isArray(body.images)
+      ? body.images
+      : body.image
+      ? [body.image]
+      : body.imageUrl
+      ? [body.imageUrl]
+      : [];
 
-  if (!name) {
-    return NextResponse.json({ error: "Name is required." }, { status: 400 });
-  }
-  if (!ASSET_KINDS.includes(kind)) {
-    return NextResponse.json({ error: "Invalid asset kind." }, { status: 400 });
-  }
-
-  const existing = body.id ? await getAsset(body.id) : undefined;
-
-  // Persist any newly-uploaded images (data URLs) to disk; keep existing paths.
-  const images = [];
-  for (const img of inputImages) {
-    if (typeof img !== "string") continue;
-    if (img.startsWith("data:")) images.push(await saveAssetImage(img));
-    else images.push(img);
-  }
-
-  // Clean up images that were removed during an edit.
-  if (existing) {
-    const kept = new Set(images);
-    for (const old of existing.images) {
-      if (!kept.has(old)) await deleteAssetImage(old);
+    if (!name) {
+      return NextResponse.json({ error: "Name is required." }, { status: 400 });
     }
-  }
+    if (!ASSET_KINDS.includes(kind)) {
+      return NextResponse.json({ error: "Invalid asset kind." }, { status: 400 });
+    }
+    if (!inputImages.length && !body.id) {
+      return NextResponse.json({ error: "A reference image is required for this material." }, { status: 400 });
+    }
 
-  const now = Date.now();
-  const asset = {
-    id: existing?.id ?? crypto.randomUUID(),
-    kind,
-    name,
-    slug: existing?.slug ?? (await makeUniqueSlug(name)),
-    description: description || undefined,
-    images,
-    createdAt: existing?.createdAt ?? now,
-    updatedAt: now,
-  };
-  await upsertAsset(asset);
-  return NextResponse.json(asset);
+    const existing = body.id ? await getAsset(body.id) : undefined;
+
+    // Persist any newly-uploaded images (data URLs) to disk; keep existing paths.
+    const images = [];
+    for (const img of inputImages) {
+      if (typeof img !== "string" || !img.trim()) continue;
+      if (img.startsWith("data:")) images.push(await saveAssetImage(img));
+      else images.push(img.trim());
+    }
+
+    // If editing without replacing image, retain existing images
+    if (!images.length && existing?.images?.length) {
+      images.push(...existing.images);
+    }
+
+    if (!images.length) {
+      return NextResponse.json({ error: "A reference image is required for this material." }, { status: 400 });
+    }
+
+    // Clean up images that were removed during an edit.
+    if (existing) {
+      const kept = new Set(images);
+      for (const old of existing.images) {
+        if (!kept.has(old)) await deleteAssetImage(old);
+      }
+    }
+
+    const now = Date.now();
+    const targetProjectId = projectId || existing?.projectId;
+    const slug = body.slug
+      ? await makeUniqueSlug(body.slug, existing?.id, targetProjectId)
+      : existing?.slug ?? (await makeUniqueSlug(name, existing?.id, targetProjectId));
+
+    const asset = {
+      id: existing?.id ?? crypto.randomUUID(),
+      kind,
+      name,
+      slug,
+      description: description || undefined,
+      images: images.slice(0, 1), // single image per material asset for now
+      projectId: targetProjectId,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    };
+    await upsertAsset(asset);
+    await logActivity(user.id, existing ? "update_asset" : "create_asset", {
+      assetId: asset.id,
+      name: asset.name,
+      kind: asset.kind,
+      slug: asset.slug,
+      projectId: asset.projectId,
+    }).catch(() => {});
+    return NextResponse.json(asset);
+  } catch (err) {
+    console.error("POST /api/assets failed:", err);
+    return NextResponse.json(
+      { error: err?.message || "Failed to save material asset." },
+      { status: 500 }
+    );
+  }
 }
 
 export async function DELETE(req) {

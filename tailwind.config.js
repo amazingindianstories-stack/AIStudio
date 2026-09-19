@@ -6,6 +6,7 @@ const config = {
       colors: {
         // Veevee dark palette
         ink: {
+          950: "#050608",
           900: "#070708",
           850: "#0c0d0f",
           800: "#111214",
@@ -18,10 +19,12 @@ const config = {
         lineStrong: "rgba(255,255,255,0.12)",
         brand: {
           DEFAULT: "#ffffff",
+          light: "#f3f4f6",
           400: "#e5e7eb",
           500: "#d1d5db",
           600: "#9ca3af",
         },
+        "brand-light": "#f3f4f6",
         accent: "#f3f4f6",
       },
       fontFamily: {

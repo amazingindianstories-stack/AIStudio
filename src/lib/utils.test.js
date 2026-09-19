@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aspectMaxWidth, aspectToPadding, inlineMediaUrl, thumbUrl } from "./utils";
+import { aspectMaxWidth, aspectToPadding, inlineMediaUrl, thumbUrl, referenceDisplayUrl } from "./utils";
 
 test("thumbUrl and inlineMediaUrl only touch our own media route", () => {
   // Data URLs and provider URLs must pass through untouched — only
@@ -60,3 +60,57 @@ test("aspectMaxWidth declines to cap what it cannot parse", () => {
     assert.equal(aspectMaxWidth(bad), undefined, JSON.stringify(bad));
   }
 });
+
+test("thumbUrl preserves hash fragments on media routes", () => {
+  assert.equal(
+    thumbUrl("/api/media/assets/uuid.png#bp_asset_id=asset-123", 400),
+    "/api/media/assets/uuid.png?w=400#bp_asset_id=asset-123"
+  );
+  assert.equal(
+    thumbUrl("/api/media/assets/uuid.png?custom=1#bp_asset_id=asset-123", 400),
+    "/api/media/assets/uuid.png?custom=1&w=400#bp_asset_id=asset-123"
+  );
+});
+
+test("referenceDisplayUrl cleanly prepares references for browser <img> tags", () => {
+  // 1. Strips hash fragments
+  assert.equal(
+    referenceDisplayUrl("https://tos.volces.com/img.png?X-Tos-Sig=xyz#bp_asset_id=asset-123"),
+    "https://tos.volces.com/img.png?X-Tos-Sig=xyz"
+  );
+  assert.equal(
+    referenceDisplayUrl("/api/media/assets/uuid.png#bp_asset_id=asset-123"),
+    "/api/media/assets/uuid.png"
+  );
+
+  // 2. Strips legacy query parameter bp_asset_id on remote signed URLs
+  assert.equal(
+    referenceDisplayUrl("https://tos.volces.com/img.png?X-Tos-Sig=xyz&bp_asset_id=asset-123"),
+    "https://tos.volces.com/img.png?X-Tos-Sig=xyz"
+  );
+  assert.equal(
+    referenceDisplayUrl("https://example.com/photo.png?bp_asset_id=asset-123"),
+    "https://example.com/photo.png"
+  );
+
+  // 3. Resolves asset:// URIs against portraitAssets
+  const portraitAssets = [
+    { byteplusAssetId: "asset-zain-1", imageUrl: "https://tos.volces.com/zain.png?sig=abc#bp_asset_id=asset-zain-1" },
+    { id: "local-uuid-2", byteplusAssetId: "asset-sati-2", imageUrl: "/api/media/assets/sati.png" },
+  ];
+  assert.equal(
+    referenceDisplayUrl("asset://asset-zain-1", portraitAssets),
+    "https://tos.volces.com/zain.png?sig=abc"
+  );
+  assert.equal(
+    referenceDisplayUrl("asset://asset-sati-2", portraitAssets),
+    "/api/media/assets/sati.png"
+  );
+
+  // 4. Fallback for unresolvable or empty
+  assert.equal(referenceDisplayUrl("asset://unknown-asset", []), "asset://unknown-asset");
+  assert.equal(referenceDisplayUrl("data:image/png;base64,AAAA"), "data:image/png;base64,AAAA");
+  assert.equal(referenceDisplayUrl(null), "");
+  assert.equal(referenceDisplayUrl(undefined), "");
+});
+

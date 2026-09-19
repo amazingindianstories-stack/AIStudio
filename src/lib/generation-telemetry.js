@@ -56,7 +56,9 @@ export async function persistGenerationFailure(
     throw new Error("persistGenerationFailure requires status=failed.");
   }
   try {
-    await persist(item);
+    await persist(context?.providerResponses?.length
+      ? { ...item, providerResponses: context.providerResponses }
+      : item);
   } catch (error) {
     emitGenerationEvent(
       {

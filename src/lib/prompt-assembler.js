@@ -32,6 +32,8 @@ const KIND_LABEL = {
   location: "LOCATION",
   style: "STYLE",
   prop: "PROP",
+  audio: "AUDIO",
+  other: "REFERENCE",
 };
 
 /** Maps a named-asset kind onto the shot-spec RefRole vocabulary. */
@@ -41,6 +43,8 @@ const ASSET_KIND_TO_ROLE = {
   location: "location",
   style: "style",
   prop: "prop",
+  audio: "other",
+  other: "other",
 };
 
 const KIND_RULE = {
@@ -58,6 +62,8 @@ const KIND_RULE = {
   style:
     "match this exact visual style — same rendering, palette, grain and lighting treatment",
   prop: "reproduce this exact object — same shape, colors, materials, markings and wear",
+  audio: "reproduce the audio style, voice tone or acoustic atmosphere represented here",
+  other: "reproduce the visual subject shown in this reference exactly",
 };
 
 async function readAll(refs) {
@@ -197,7 +203,7 @@ export async function assemblePrompt(
 
   // 1) Named asset references (@slug) — only those actually mentioned.
   const slugs = parseAssetSlugs(prompt);
-  const bySlug = new Map(assets.map((a) => [a.slug, a]));
+  const bySlug = new Map(assets.map((a) => [a.slug.toLowerCase(), a]));
   for (const slug of slugs) {
     const asset = bySlug.get(slug);
     if (!asset || !asset.images.length) continue;
