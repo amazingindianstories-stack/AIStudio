@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 export const UPLOAD_PURPOSES = Object.freeze({
   "image-reference": {
     prefix: "uploads/image-reference",
-    contentTypes: /^image\/(jpeg|png|webp|tiff|gif|heic|heif)$/,
+    contentTypes: /^image\/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$/,
   },
   "audio-reference": {
     prefix: "uploads/audio-reference",
@@ -31,7 +31,12 @@ export async function createUploadPresign(
     };
   }
 
-  if (typeof contentType !== "string" || !config.contentTypes.test(contentType)) {
+  const normalizedContentType = typeof contentType === "string"
+    ? contentType.trim().toLowerCase()
+        .replace(/^image\/(jpg|pjpeg)$/, "image/jpeg")
+        .replace(/^image\/x-png$/, "image/png")
+    : "";
+  if (!config.contentTypes.test(normalizedContentType)) {
     return {
       status: 400,
       body: { error: `${purpose} does not accept content type "${typeof contentType === "string" ? contentType : ""}".` },
@@ -40,7 +45,7 @@ export async function createUploadPresign(
 
   const key = `${config.prefix}/${userId}-${createId()}`;
   try {
-    const uploadUrl = await signUploadUrl(key, contentType);
+    const uploadUrl = await signUploadUrl(key, normalizedContentType);
     return { status: 200, body: { key, uploadUrl } };
   } catch (error) {
     console.error("[uploads/presign] signing failed", {

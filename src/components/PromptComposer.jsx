@@ -1,5 +1,5 @@
 "use client";
-import { uploadOriginalReference } from "@/lib/client-reference-upload";
+import { uploadFileDirect, uploadOriginalReference } from "@/lib/client-reference-upload";
 
 import {
   useEffect,
@@ -32,7 +32,6 @@ import {
   SkipForward,
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
-import { apiFetch } from "@/lib/api";
 import { parseMentionIndices } from "@/lib/mentions";
 import { limitDefinition } from "@/lib/limits";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
@@ -233,20 +232,8 @@ export function PromptComposer() {
     for (const file of files.filter((f) => f.type.startsWith("audio/"))) {
       if (!supportsAudio(s.model)) continue;
       try {
-        const presignRes = await apiFetch("/api/uploads/presign", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ purpose: "audio-reference", contentType: file.type }),
-        });
-        const presign = await presignRes.json();
-        if (!presignRes.ok) throw new Error(presign.error || "Could not start the audio upload.");
-        const putRes = await fetch(presign.uploadUrl, {
-          method: "PUT",
-          headers: { "Content-Type": file.type },
-          body: file,
-        });
-        if (!putRes.ok) throw new Error(`Audio upload failed (${putRes.status}).`);
-        s.addAudioNote({ name: file.name, ref: `/api/media/${presign.key}` });
+        const uploaded = await uploadFileDirect(file, "audio-reference");
+        s.addAudioNote({ name: file.name, ref: uploaded.ref });
       } catch (e) {
         alert(e?.message || `Could not upload ${file.name}.`);
       }

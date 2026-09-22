@@ -50,6 +50,16 @@ test("rejects unknown purposes and mismatched MIME types", async () => {
   assert.equal((await createUploadPresign({ userId: "u", purpose: "depth-input", contentType: "" }, dependencies)).status, 400);
 });
 
+test("normalizes the image/jpg browser alias before signing", async () => {
+  const calls = [];
+  const result = await createUploadPresign(
+    { userId: "u", purpose: "image-reference", contentType: " IMAGE/JPG " },
+    { createId: () => "id", signUploadUrl: async (...args) => { calls.push(args); return "signed"; } }
+  );
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls, [["uploads/image-reference/u-id", "image/jpeg"]]);
+});
+
 test("returns a sanitized signing failure without leaking credentials", async (t) => {
   const logs = [];
   t.mock.method(console, "error", (...args) => logs.push(args));

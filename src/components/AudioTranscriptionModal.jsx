@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioLines, Clipboard, Loader2, Upload, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 
 export function AudioTranscriptionModal({ open, onClose, projectId }) {
   const [file, setFile] = useState(null);
@@ -28,14 +29,9 @@ export function AudioTranscriptionModal({ open, onClose, projectId }) {
     if (!file || busy) return;
     setBusy(true); setError(""); setTranscript("");
     try {
-      if (!/^audio\/(mpeg|mp3|wav|x-wav|wave|ogg|webm|mp4|x-m4a|aac|flac)$/i.test(file.type)) throw new Error("Choose a common audio file such as MP3, WAV, M4A, OGG, AAC, FLAC or WebM.");
+      if (!/^audio\/(mpeg|mp3|wav|x-wav|wave|ogg|webm|mp4|x-m4a|aac|flac)$/i.test(uploadContentType(file))) throw new Error("Choose a common audio file such as MP3, WAV, M4A, OGG, AAC, FLAC or WebM.");
       if (file.size > 15 * 1024 * 1024) throw new Error("Audio files must be 15 MB or smaller.");
-      const presignRes = await apiFetch("/api/uploads/presign", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: "audio-reference", contentType: file.type }) });
-      const presign = await presignRes.json();
-      if (!presignRes.ok) throw new Error(presign.error || "Could not start the upload.");
-      const put = await fetch(presign.uploadUrl, { method: "PUT", headers: { "Content-Type": file.type }, body: file });
-      if (!put.ok) throw new Error(`Upload failed (${put.status}).`);
-      const ref = `/api/media/${presign.key}`;
+      const { ref } = await uploadFileDirect(file, "audio-reference");
       const res = await apiFetch("/api/audio/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audioRef: ref, name: file.name, projectId }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Transcription failed.");
