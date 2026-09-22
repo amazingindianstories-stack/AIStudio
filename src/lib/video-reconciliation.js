@@ -34,6 +34,8 @@ export async function runVideoReconciliation({
   try {
     const rows = await raceAbort(select({
       before: now - VIDEO_RECONCILIATION_STALE_MS,
+      now,
+      due: true,
       limit: VIDEO_RECONCILIATION_LIMIT,
     }), controller.signal);
     for (const item of rows.slice(0, VIDEO_RECONCILIATION_LIMIT)) {

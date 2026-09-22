@@ -1,9 +1,9 @@
 
 
-import { buildVideoDirective } from "../video-directive";
-import { parseRefRoles } from "../shot-spec";
-import { maxReferenceImagesForVideoModel } from "../config";
-import { isProviderModel, providerModelId } from "../model-registry";
+import { buildVideoDirective } from "../video-directive.js";
+import { parseRefRoles } from "../shot-spec.js";
+import { maxReferenceImagesForVideoModel } from "../config.js";
+import { isProviderModel, providerModelId } from "../model-registry.js";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
  *  hand-written directives on BOTH Seedance paths, without a deploy. The new
@@ -94,19 +94,38 @@ function pickModel(modelDisplay) {
 function buildRefRoles(refs, rawPrompt) {
   if (!refs.length) return undefined;
   const roleByTag = parseRefRoles(rawPrompt);
-  if (!roleByTag.size) return undefined;
   const map = new Map();
-  for (const ref of refs) {
-    const role = roleByTag.get(ref.tag);
-    if (role) map.set(ref.index, role);
-  }
+  refs.forEach((ref, idx) => {
+    const imgIndex = ref.index ?? (idx + 1);
+    if (ref.kind) {
+      const k = String(ref.kind).toLowerCase();
+      if (k === "character") map.set(imgIndex, "person");
+      else if (k === "location") map.set(imgIndex, "location");
+      else if (k === "style") map.set(imgIndex, "style");
+      else if (k === "prop") map.set(imgIndex, "prop");
+      else if (k === "outfit") map.set(imgIndex, "outfit");
+    } else if (ref.tag && roleByTag.get(ref.tag)) {
+      map.set(imgIndex, roleByTag.get(ref.tag));
+    }
+  });
   return map.size ? map : undefined;
 }
 
 /** Seedance reads "[image N]" references in the prompt. Translate the UI's
- *  @imgN tags so the model binds each tag to the matching reference_image. */
-function tagsToImageRefs(prompt) {
-  return prompt
+ *  @imgN and named @slug tags so the model binds each tag to the matching reference_image. */
+export function tagsToImageRefs(prompt, refs = []) {
+  let result = prompt;
+  if (Array.isArray(refs) && refs.length > 0) {
+    refs.forEach((ref, idx) => {
+      const imgIndex = ref.index ?? (idx + 1);
+      if (ref.tag) {
+        const escaped = ref.tag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const re = new RegExp(`${escaped}(?!\\w)`, "gi");
+        result = result.replace(re, `[image ${imgIndex}]`);
+      }
+    });
+  }
+  return result
     .replace(/@img(\d+)/gi, (_, n) => `[image ${n}]`)
     // Same convention for clips. Unlike the image form this one is NOT
     // probe-verified — reference clips are attached as content items and work
@@ -140,7 +159,11 @@ function friendlyError(status, body) {
   } catch {
     /* not JSON */
   }
-  if (isModerationMessage(code + message)) {
+  if (
+    code !== "InvalidEndpointOrModel.NotFound" &&
+    status !== 404 &&
+    isModerationMessage(code + message)
+  ) {
     return new SeedanceError(MODERATION_MESSAGE, "moderation", status);
   }
   if (code)
@@ -197,14 +220,14 @@ export async function createVideoTask(
   // Edit/Extend skip it entirely — see the trigger-sentence comment above.
   let text;
   if (taskMode === "edit") {
-    text = EDIT_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim()));
+    text = EDIT_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim(), refs));
   } else if (taskMode === "extend") {
-    text = EXTEND_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim()));
+    text = EXTEND_TRIGGER + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim(), refs));
   } else {
     text = legacyDirective()
-      ? legacyHeroDirective(refs.length) + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim()))
+      ? legacyHeroDirective(refs.length) + tagsToAudioRefs(tagsToImageRefs(input.prompt.trim(), refs))
       : buildVideoDirective({
-          prompt: tagsToAudioRefs(tagsToImageRefs(input.prompt.trim())),
+          prompt: tagsToAudioRefs(tagsToImageRefs(input.prompt.trim(), refs)),
           refCount: refs.length,
           tagSyntax: "bracket",
           refRoles: buildRefRoles(refs, input.prompt),
@@ -271,6 +294,12 @@ export async function createVideoTask(
     // nothing, so nothing starts paying for audio it did not ask for.
     generate_audio: input.generateAudio === true,
   };
+  // BytePlus can notify our server even when the artist closes the browser.
+  // Configure this as a public HTTPS endpoint in production; the 30-second
+  // browser poll remains a fallback for delivery/UI refresh.
+  if (typeof input.callbackUrl === "string" && /^https:\/\//i.test(input.callbackUrl)) {
+    body.callback_url = input.callbackUrl;
+  }
   if (taskMode === "edit" || taskMode === "extend") {
     // BOTH task types require ratio:"adaptive" (output follows the source
     // clip's own aspect ratio) — sending the UI's own aspectRatio here would
@@ -303,7 +332,18 @@ export async function createVideoTask(
 
   if (!res.ok) {
     const text = await res.text();
-    throw friendlyError(res.status, text);
+    const error = friendlyError(res.status, text);
+    let parsed;
+    try { parsed = JSON.parse(text); } catch { /* Preserve non-JSON bodies too. */ }
+    error.providerResponse = {
+      provider: "seedance",
+      httpStatus: res.status,
+      rawBody: text,
+      requestId: res.headers?.get("x-request-id") || res.headers?.get("x-tt-logid") ||
+        parsed?.request_id || parsed?.RequestId || parsed?.error?.request_id || null,
+      receivedAt: Date.now(),
+    };
+    throw error;
   }
   const json = await res.json();
   const id = json?.id || json?.task_id || json?.data?.id;
@@ -330,29 +370,50 @@ export async function getVideoTask(
   const json = await res.json();
 
   // ModelArk statuses: queued | running | succeeded | failed | cancelled
-  const rawStatus = (json?.status || "").toLowerCase();
+  return normalizeVideoTaskPayload(json);
+}
+
+/** Normalize both GET and callback task payloads through one parser. */
+export function normalizeVideoTaskPayload(json = {}) {
+  const source = json?.data && typeof json.data === "object" ? json.data : json;
+  const rawStatus = (source?.status || source?.state || "").toLowerCase();
   let status = "running";
   if (rawStatus === "succeeded") status = "succeeded";
   else if (rawStatus === "failed" || rawStatus === "cancelled") status = "failed";
   else if (rawStatus === "queued") status = "queued";
 
   const videoUrl =
-    json?.content?.video_url ||
-    json?.content?.[0]?.video_url ||
-    json?.video_url;
+    source?.content?.video_url ||
+    source?.content?.[0]?.video_url ||
+    source?.video_url;
 
   const error =
     status === "failed"
-      ? json?.error?.message || json?.error || "Generation failed"
+      ? source?.error?.message || source?.error || "Generation failed"
       : undefined;
 
   // Seedance 2.5 only (2.0's response has no `usage` object) — see the file
   // header and pricing.js computeSeedanceTokenCostCents.
-  const totalTokensRaw = json?.usage?.total_tokens;
+  const totalTokensRaw = source?.usage?.total_tokens;
   const totalTokens =
     typeof totalTokensRaw === "number" && Number.isFinite(totalTokensRaw)
       ? totalTokensRaw
       : undefined;
 
-  return { status, videoUrl, error, raw: json, totalTokens };
+  return {
+    status,
+    videoUrl,
+    error,
+    raw: json,
+    totalTokens,
+    ...providerUsageTimestamps(source),
+  };
+}
+
+function providerUsageTimestamps(json) {
+  return {
+    providerCreatedAt: json?.created_at ?? json?.createdAt,
+    providerUpdatedAt: json?.updated_at ?? json?.updatedAt,
+    providerStatus: json?.status ?? json?.state,
+  };
 }

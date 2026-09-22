@@ -7,8 +7,8 @@ import { drizzle as drizzleNodePg } from "drizzle-orm/node-postgres";
 import { drizzle as drizzlePostgresJs } from "drizzle-orm/postgres-js";
 import pg from "pg";
 import postgres from "postgres";
-import { getGoogleAuth } from "./gcp-auth";
-import * as schema from "./schema";
+import { getGoogleAuth } from "./gcp-auth.js";
+import * as schema from "./schema.js";
 
 const globalForDb = globalThis ;
 const runtime = globalForDb.__veeveeDb ?? {};

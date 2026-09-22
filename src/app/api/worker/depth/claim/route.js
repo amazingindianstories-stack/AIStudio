@@ -35,11 +35,12 @@ export async function POST(req) {
   }
   const body = await req.json().catch(() => ({}));
   const workerId = (body.workerId || "").trim();
+  const protocolVersion = Number.isInteger(body.protocolVersion) ? body.protocolVersion : 1;
   if (!workerId) {
     return NextResponse.json({ error: "workerId is required." }, { status: 400 });
   }
 
-  const job = await claimNextDepthJob(workerId);
+  const job = await claimNextDepthJob(workerId, { protocolVersion });
   if (!job) return NextResponse.json({ job: null });
   // The encoder choice (vits/vitb/vitl) rides in the `resolution` column —
   // there's no dedicated column for it, and it plays the same "which quality
@@ -51,7 +52,7 @@ export async function POST(req) {
     // Shouldn't happen (the enqueue route requires an input video), but a
     // job with nothing to process can't be handed to the worker as if it
     // could — fail it now rather than silently wedging.
-    await completeDepthJob(job.id, { ok: false, error: "No input video was attached to this job." });
+    await completeDepthJob(job.id, job.claimId, { ok: false, error: "No input video was attached to this job." });
     return NextResponse.json({ job: null });
   }
 
@@ -59,7 +60,7 @@ export async function POST(req) {
   try {
     inputVideoUrl = await getSignedReadUrl(inputRef, 30 * 60);
   } catch (e) {
-    await completeDepthJob(job.id, {
+    await completeDepthJob(job.id, job.claimId, {
       ok: false,
       error: `Could not produce a download URL for the input video: ${e?.message ?? e}`,
     });
@@ -69,6 +70,7 @@ export async function POST(req) {
   return NextResponse.json({
     job: {
       id: job.id,
+      ...(job.claimId ? { claimId: job.claimId } : {}),
       inputVideoUrl,
       encoder: job.encoder ?? "vitb",
       // YOLOv8-seg person tracking composited onto the depth map — see

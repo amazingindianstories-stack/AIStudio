@@ -27,3 +27,26 @@ test("attached audio tags highlight as valid while missing references stay inval
     globalThis.React = previousReact;
   }
 });
+
+test("named material tags highlight as valid from assets while unknown tags stay invalid", () => {
+  const previousReact = globalThis.React;
+  globalThis.React = React;
+  try {
+    const assets = [
+      { slug: "sati", name: "Sati", kind: "character", images: ["/sati.png"] },
+      { slug: "scene1", name: "Scene 1", kind: "location", images: ["/scene1.png"] },
+    ];
+    const html = renderToString(React.createElement(MentionTextarea, {
+      value: "@sati in @scene1 with @img1 and @mystery",
+      onChange() {},
+      references: ["data:image/png;base64,AA=="],
+      assets,
+    }));
+    assert.match(html, /text-brand">@sati<\/span>/);
+    assert.match(html, /text-brand">@scene1<\/span>/);
+    assert.match(html, /text-brand">@img1<\/span>/);
+    assert.match(html, /text-red-300">@mystery<\/span>/);
+  } finally {
+    globalThis.React = previousReact;
+  }
+});

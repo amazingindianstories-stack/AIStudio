@@ -21,7 +21,7 @@ import {
 import { isOmniModel, createOmniVideoTask } from "@/lib/providers/omni";
 import { supportsSeed, supportsVideoBestOf } from "@/lib/config";
 import { buildKlingInput } from "@/lib/kling-input";
-import { resolveReferences, resolveVideoReferences, resolveAudioReferences } from "@/lib/mentions";
+import { resolveReferences, resolveVideoReferences, resolveAudioReferences, parseAssetSlugs } from "@/lib/mentions";
 import {
   readImageAsBase64,
 } from "@/lib/save-media";
@@ -37,11 +37,13 @@ import { crispen, prepReference } from "@/lib/middleware/image-prep";
 import { judgeCandidate, judgeIdentity, selectBestCandidate } from "@/lib/middleware/face-judge";
 import { assemblePrompt } from "@/lib/prompt-assembler";
 import { readAssets } from "@/lib/assets-db";
+import { getPortraitAssetByImageUrl } from "@/lib/portrait-db";
 import { getSession } from "@/lib/auth";
 import { klingUnitsToCents } from "@/lib/pricing";
 import { getModelDefinition } from "@/lib/model-registry";
 import { boundedBestOf, generateAndSpoolCandidates, readSpooledBase64 } from "@/lib/best-of-spool";
 import { submitVideoCandidates } from "@/lib/video-submissions";
+import { buildSeedanceCallbackUrl } from "@/lib/seedance-callback";
 import {
   emitGenerationEvent,
   persistGenerationFailure,
@@ -131,10 +133,38 @@ async function signAudioRefs(refs, signal) {
  * allowed by `splitDataUrl` on upload) is re-encoded to JPEG rather than sent
  * as a format the provider will reject.
  */
-async function toProviderDataUrls(refs, signal) {
+export async function toProviderDataUrls(refs, signal) {
   const out = [];
   for (const ref of refs) {
     throwIfAborted(signal);
+    if (typeof ref === "string" && ref.startsWith("asset://")) {
+      out.push(ref);
+      continue;
+    }
+
+    // Fast-path: direct resolution if bp_asset_id is encoded on the reference URL
+    if (typeof ref === "string") {
+      const match = ref.match(/[?&#]bp[-_]asset(?:_id)?=([^&#]+)/);
+      if (match && match[1]) {
+        out.push(`asset://${decodeURIComponent(match[1])}`);
+        continue;
+      }
+    }
+
+    // If this reference image was attached from the Portrait Gallery, resolve
+    // it to its registered BytePlus asset URI so Seedance accepts it without
+    // human face privacy rejections.
+    if (typeof ref === "string") {
+      try {
+        const portrait = await getPortraitAssetByImageUrl(ref);
+        if (portrait && portrait.byteplusAssetId && portrait.status?.toLowerCase() === "active") {
+          out.push(`asset://${portrait.byteplusAssetId}`);
+          continue;
+        }
+      } catch (err) {
+        console.warn("[queue/execute] Failed to lookup portrait asset by imageUrl:", ref, err?.message);
+      }
+    }
     const raw = await readImageAsBase64(ref, signal);
     let { mimeType, data } = await prepReference(raw.mimeType, raw.data);
     if (!/^image\/(jpeg|png)$/i.test(mimeType)) {
@@ -177,7 +207,7 @@ async function submitVideo(base, signal) {
     // Same context-engineering path Nano Banana Pro uses for images — role-
     // labeled reference groups + identity tiles + shot-spec framing/negative
     // codas — instead of a flat hand-rolled prompt (see omni-input.js).
-    const assembled = await assemblePrompt(prompt, await readAssets(), base.referenceImages ?? [], {
+    const assembled = await assemblePrompt(prompt, await readAssets(base.projectId), base.referenceImages ?? [], {
       aspectRatio,
       medium: "video",
     });
@@ -232,9 +262,88 @@ async function submitVideo(base, signal) {
       signal,
     });
   } else {
-    // Native BytePlus ModelArk Seedance 2.0. resolveReferences maps @imgN to
-    // uploads by position, so the inlined list must keep referenceImages' order.
-    const inlined = await toProviderDataUrls(base.referenceImages ?? [], signal);
+    // Native BytePlus ModelArk Seedance 2.0.
+    const allAssets = await readAssets(base.projectId);
+    const assetBySlug = new Map(allAssets.map((a) => [a.slug.toLowerCase(), a]));
+    const assetByImgUrl = new Map();
+    for (const a of allAssets) {
+      for (const img of (a.images || [])) {
+        assetByImgUrl.set(img, a);
+      }
+    }
+
+    const rawUploads = base.referenceImages ?? [];
+    const adhocUploads = [];
+    for (const u of rawUploads) {
+      if (!assetByImgUrl.has(u)) {
+        adhocUploads.push(u);
+      }
+    }
+
+    const mentionedSlugs = parseAssetSlugs(prompt);
+    const resolvedMaterials = [];
+    for (const slug of mentionedSlugs) {
+      const asset = assetBySlug.get(slug);
+      if (asset?.images?.[0]) {
+        resolvedMaterials.push({
+          tag: `@${asset.slug}`,
+          slug: asset.slug,
+          kind: asset.kind,
+          name: asset.name,
+          imageUrl: asset.images[0],
+        });
+      }
+    }
+
+    const adhocRefs = resolveReferences(prompt, adhocUploads);
+
+    const combinedRefs = [];
+    for (const mat of resolvedMaterials) {
+      combinedRefs.push({
+        tag: mat.tag,
+        slug: mat.slug,
+        kind: mat.kind,
+        name: mat.name,
+        imageUrl: mat.imageUrl,
+      });
+    }
+    for (const adh of adhocRefs) {
+      combinedRefs.push({
+        tag: adh.tag,
+        kind: "image",
+        imageUrl: adh.dataUrl,
+      });
+    }
+
+    if (combinedRefs.length === 0 && rawUploads.length > 0) {
+      for (let i = 0; i < rawUploads.length; i++) {
+        const u = rawUploads[i];
+        const mat = assetByImgUrl.get(u);
+        if (mat) {
+          combinedRefs.push({
+            tag: `@${mat.slug}`,
+            slug: mat.slug,
+            kind: mat.kind,
+            name: mat.name,
+            imageUrl: u,
+          });
+        } else {
+          combinedRefs.push({
+            tag: `@img${i + 1}`,
+            kind: "image",
+            imageUrl: u,
+          });
+        }
+      }
+    }
+
+    const inlined = await toProviderDataUrls(combinedRefs.map((r) => r.imageUrl), signal);
+    const resolvedRefs = combinedRefs.map((r, i) => ({
+      ...r,
+      index: i + 1,
+      dataUrl: inlined[i],
+    }));
+
     const signedRefVideos = await signVideoRefs(
       resolveVideoReferences(prompt, base.referenceVideos ?? []),
       signal
@@ -242,7 +351,10 @@ async function submitVideo(base, signal) {
     const signedRefAudios = await signAudioRefs(
       resolveAudioReferences(prompt, base.referenceAudios ?? []), signal
     );
-    const resolvedRefs = resolveReferences(prompt, inlined);
+    const callbackUrl = buildSeedanceCallbackUrl(
+      process.env.SEEDANCE_CALLBACK_URL,
+      process.env.SEEDANCE_CALLBACK_SECRET,
+    );
     // Multi-shot chaining (Phase 3.3) — reuses the same stored-ref → inline
     // data-URL materialisation referenceImages already goes through; a
     // continuation frame is stored exactly like a reference image (see
@@ -282,6 +394,7 @@ async function submitVideo(base, signal) {
       // Multi-shot chaining (Phase 3.3) — see createVideoTask's own header
       // for the evidence caveat (third-party tutorial, not official docs).
       firstFrame: firstFrameDataUrl ? { dataUrl: firstFrameDataUrl } : undefined,
+      callbackUrl,
       signal,
     });
 
@@ -305,6 +418,7 @@ async function submitVideo(base, signal) {
       taskId = submissions.acceptedTaskIds[0];
       refUpdates.candidateTaskIds = submissions.acceptedTaskIds.slice(1);
       refUpdates.costCents = submissions.costCents;
+      if (submissions.providerResponses) refUpdates.providerResponses = submissions.providerResponses;
       if (submissions.rejectedCount) {
         emitGenerationEvent({
           event: "generation_partial_submission",
@@ -321,7 +435,17 @@ async function submitVideo(base, signal) {
       taskId = await createVideoTask(taskInput(seed));
     }
   }
-  return { ...base, ...refUpdates, taskId, status: "running", updatedAt: Date.now() };
+  const submittedAt = Date.now();
+  return {
+    ...base,
+    ...refUpdates,
+    taskId,
+    status: "running",
+    submittedAt,
+    nextPollAt: submittedAt + 5_000,
+    pollAttempts: 0,
+    updatedAt: submittedAt,
+  };
 }
 
 export async function POST(req) {
@@ -332,7 +456,9 @@ export async function POST(req) {
     return NextResponse.json({ error: "Job ID is required." }, { status: 400 });
   }
 
-  const user = await getSession();
+  const internalWorker = process.env.GENERATION_WORKER_SECRET &&
+    req.headers.get("x-generation-worker-secret") === process.env.GENERATION_WORKER_SECRET;
+  const user = internalWorker ? { id: "server-worker" } : await getSession();
   if (!user) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
@@ -433,7 +559,8 @@ export async function POST(req) {
       work: (signal) => submitVideo({ ...base, seed, videoBestOf, costCents }, signal),
       onSuccess: async (running) => {
         await upsertItem(running);
-        return NextResponse.json(running);
+        const { providerResponses: _providerResponses, ...publicItem } = running;
+        return NextResponse.json(publicItem);
       },
       onFailure: async (e) => {
         const failed = {
@@ -447,6 +574,7 @@ export async function POST(req) {
           route: "queue_execute",
           phase: "video_submission",
           errorCode: e?.code,
+          providerResponses: e?.providerResponses || (e?.providerResponse ? [e.providerResponse] : undefined),
         });
         return NextResponse.json(failed);
       },
@@ -470,7 +598,7 @@ export async function POST(req) {
       // Higgsfield image via the MCP — Soul (photoreal, one ref, `quality`)
       // or Nano Banana Pro (all refs, `resolution` 1k/2k/4k). Upload refs,
       // submit, then poll the job to completion.
-      const assembled = await assemblePrompt(prompt, await readAssets(), referenceImages ?? []);
+      const assembled = await assemblePrompt(prompt, await readAssets(base.projectId), referenceImages ?? []);
       const isNanoBanana = getModelDefinition(model)?.higgsfieldTool === "nano-banana";
       const refs = isNanoBanana
         ? referenceImages ?? []
@@ -510,7 +638,7 @@ export async function POST(req) {
       url = saved.url;
       aspectRatioOut = saved.aspectRatio;
     } else if (getModelDefinition(model)?.provider === "seedream") {
-      const assembled = resolveSeedreamReferences(prompt, await readAssets(), referenceImages ?? []);
+      const assembled = resolveSeedreamReferences(prompt, await readAssets(base.projectId), referenceImages ?? []);
       const prepared = await prepareSeedreamReferences(assembled.references, id, { signal, userId: base.userId });
       const bytes = await generateImageSeedream({ prompt: assembled.prompt, aspectRatio, resolution, references: prepared.urls }, { signal });
       throwIfAborted(signal);
@@ -528,7 +656,7 @@ export async function POST(req) {
       // saved @slug asset actually reaches Kling instead of being dropped the
       // way iterating the raw uploads did — and rewrites the @tags that Kling
       // would otherwise receive as literal machine syntax.
-      const assembled = await assemblePrompt(prompt, await readAssets(), referenceImages ?? [], {
+      const assembled = await assemblePrompt(prompt, await readAssets(base.projectId), referenceImages ?? [], {
         aspectRatio,
       });
       const klingInput = buildKlingInput(assembled, model);
@@ -584,7 +712,7 @@ export async function POST(req) {
     } else {
       // Context engineering: resolve @slug assets + @imgN uploads into a
       // structured, role-labeled payload (literal SCENE + grouped references).
-      const assets = await readAssets();
+      const assets = await readAssets(base.projectId);
       const assembled = await assemblePrompt(prompt, assets, referenceImages ?? [], {
         aspectRatio,
       });

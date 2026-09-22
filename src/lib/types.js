@@ -2,9 +2,11 @@
 
 export const ASSET_KINDS = [
   "character",
-  "outfit",
+  "prop",
   "location",
   "style",
-  "prop",
+  "outfit",
+  "audio",
+  "other",
 ];
 

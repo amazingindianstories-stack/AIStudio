@@ -12,6 +12,7 @@ import {
   renumberImgMentions,
   resolveReferences,
   resolveVideoReferences,
+  resolveAllReferences,
 } from "./mentions";
 
 /**
@@ -28,6 +29,14 @@ test("@vidN is a clip tag, not an asset slug", () => {
   assert.equal(isVidTag("img1"), false);
   assert.equal(isVidTag("video"), false, "bare word must stay an asset slug");
   assert.equal(isVidTag("priya"), false);
+});
+
+test("@audioN is an audio tag, not an asset slug", () => {
+  assert.equal(isAudioTag("audio1"), true);
+  assert.equal(isAudioTag("AUDIO12"), true);
+  assert.equal(isAudioTag("audio"), false);
+  assert.equal(isAudioTag("img1"), false);
+  assert.deepEqual(parseAssetSlugs("use @audio1 with @priya"), ["priya"]);
 });
 
 test("parseAssetSlugs no longer swallows @vidN", () => {
@@ -134,4 +143,33 @@ test("audio tags resolve separately from images, clips and named assets", () => 
   assert.deepEqual(parseAssetSlugs(prompt), ["priya"]);
   assert.deepEqual(parseAudioMentionIndices(prompt), [2]);
   assert.deepEqual(resolveAudioReferences(prompt, ["a.mp3", "b.wav"]), ["b.wav"]);
+});
+
+test("renumberImgMentions preserves named material tags completely untouched", () => {
+  const prompt = "@sati in @scene-1 holding @img1 and @img2 next to @mysong";
+  const renumbered = renumberImgMentions(prompt, [1, 0]);
+  assert.equal(
+    renumbered,
+    "@sati in @scene-1 holding @img2 and @img1 next to @mysong"
+  );
+});
+
+test("resolveAllReferences resolves named materials and ad-hoc uploads together", () => {
+  const assets = [
+    { slug: "sati", name: "Sati", kind: "character", images: ["/sati.png"] },
+    { slug: "scene-1", name: "Scene 1", kind: "location", images: ["/scene1.png"] },
+  ];
+  const uploads = ["data:image/jpeg;base64,upload1", "data:image/jpeg;base64,upload2"];
+  const prompt = "cinematic shot of @sati in @scene-1 with @img2";
+
+  const resolved = resolveAllReferences(prompt, assets, uploads);
+  assert.equal(resolved.materials.length, 2);
+  assert.equal(resolved.materials[0].slug, "sati");
+  assert.equal(resolved.materials[0].image, "/sati.png");
+  assert.equal(resolved.materials[1].slug, "scene-1");
+  assert.equal(resolved.materials[1].image, "/scene1.png");
+
+  assert.equal(resolved.images.length, 1);
+  assert.equal(resolved.images[0].tag, "@img2");
+  assert.equal(resolved.images[0].dataUrl, "data:image/jpeg;base64,upload2");
 });

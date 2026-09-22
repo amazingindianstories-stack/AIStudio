@@ -59,6 +59,8 @@ export const generations = pgTable("generations", {
   url: text("url"),
   poster: text("poster"),
   error: text("error"),
+  // Server-only submission diagnostics; excluded from rowToItem/API output.
+  providerResponses: jsonb("provider_responses"),
   moderationBlocked: boolean("moderation_blocked"),
   referenceImages: jsonb("reference_images").$type(),
   // Stored media refs for clips used as `reference_video` on BytePlus. Kept
@@ -79,6 +81,20 @@ export const generations = pgTable("generations", {
   isFavorite: boolean("is_favorite").notNull().default(false),
   favoritedAt: bigint("favorited_at", { mode: "number" }),
   taskId: text("task_id"),
+  // Server-owned coordinator state. These timestamps intentionally describe
+  // provider/app boundaries instead of deriving duration from created_at and
+  // updated_at (which includes queue and callback latency).
+  submittedAt: bigint("submitted_at", { mode: "number" }),
+  providerCreatedAt: bigint("provider_created_at", { mode: "number" }),
+  providerUpdatedAt: bigint("provider_updated_at", { mode: "number" }),
+  completedAt: bigint("completed_at", { mode: "number" }),
+  lastPollAt: bigint("last_poll_at", { mode: "number" }),
+  nextPollAt: bigint("next_poll_at", { mode: "number" }),
+  pollAttempts: integer("poll_attempts").notNull().default(0),
+  callbackReceivedAt: bigint("callback_received_at", { mode: "number" }),
+  providerStatus: text("provider_status"),
+  workerLeaseId: text("worker_lease_id"),
+  workerLeaseUntil: bigint("worker_lease_until", { mode: "number" }),
   // Provider polling health is deliberately separate from updatedAt. A
   // transient status-read failure must be observable without making a stale
   // generation look recently advanced to the reconciliation selector.
@@ -117,6 +133,12 @@ export const generations = pgTable("generations", {
   // wholly different kind, which would read as a depth row somehow having an
   // audio setting).
   trackCharacters: boolean("track_characters"),
+  // Fencing lease for depth workers. Version-2 workers receive a fresh UUID
+  // for every claim and must echo it on every write. Null is reserved for a
+  // legacy worker claimed during the server-first rollout.
+  depthClaimId: uuid("depth_claim_id"),
+  depthClaimWorkerId: text("depth_claim_worker_id"),
+  depthReapAttempts: integer("depth_reap_attempts").notNull().default(0),
   // Reproducibility seed (Phase 3.1, 2026-08-18). Only Gemini/NBP (image) and
   // native BytePlus Seedance (video) have a probe/docs-confirmed `seed`
   // request field — see config.ts's supportsSeed. For those, /api/queue/execute
@@ -237,6 +259,9 @@ export const generations = pgTable("generations", {
   index("generations_stale_video_poll_idx")
     .on(table.updatedAt, table.createdAt, table.id)
     .where(sql`${table.kind} = 'video' and ${table.status} in ('queued', 'running') and ${table.taskId} is not null`),
+  index("generations_coordinator_due_idx")
+    .on(table.status, table.nextPollAt, table.createdAt)
+    .where(sql`(${table.kind} = 'video' and ${table.status} in ('queued', 'running')) or (${table.kind} = 'image' and ${table.status} = 'queued')`),
 ]);
 
 /**
@@ -258,19 +283,61 @@ export const depthWorkers = pgTable("depth_workers", {
   device: text("device"), // 'mps' | 'cuda' | 'cpu', reported by the worker
   status: text("status").notNull().default("idle"), // 'idle' | 'busy' — never 'offline': that's derived from lastSeenAt
   currentJobId: uuid("current_job_id"),
+  // A heartbeat is proof of ownership only when both the job and claim match.
+  // Protocol 1 is the temporary legacy-worker compatibility path.
+  currentClaimId: uuid("current_claim_id"),
+  protocolVersion: integer("protocol_version").notNull().default(1),
   ramLimitMb: integer("ram_limit_mb"),
   ramUsedMb: integer("ram_used_mb"),
   lastSeenAt: bigint("last_seen_at", { mode: "number" }).notNull(),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
 });
 
-export const assets = pgTable("assets", {
+export const assets = pgTable(
+  "assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    images: jsonb("images").$type().notNull().default([]),
+    projectId: uuid("project_id"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [index("assets_project_id_idx").on(table.projectId)]
+);
+
+export const portraitGroups = pgTable(
+  "portrait_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    byteplusGroupId: text("byteplus_group_id").unique(),
+    name: text("name").notNull(),
+    description: text("description"),
+    groupType: text("group_type").notNull().default("AIGC"),
+    projectName: text("project_name").notNull().default("default"),
+    primaryAssetId: text("primary_asset_id"),
+    projectId: uuid("project_id"),
+    createdAt: bigint("created_at", { mode: "number" }).notNull(),
+    updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  },
+  (table) => [index("portrait_groups_project_id_idx").on(table.projectId)]
+);
+
+export const portraitAssets = pgTable("portrait_assets", {
   id: uuid("id").primaryKey().defaultRandom(),
-  kind: text("kind").notNull(),
-  name: text("name").notNull(),
-  slug: text("slug").notNull(),
-  description: text("description"),
-  images: jsonb("images").$type().notNull().default([]),
+  groupId: uuid("group_id")
+    .notNull()
+    .references(() => portraitGroups.id, { onDelete: "cascade" }),
+  byteplusAssetId: text("byteplus_asset_id").unique(),
+  name: text("name"),
+  assetType: text("asset_type").notNull().default("Image"),
+  role: text("role").notNull().default("reference"),
+  imageUrl: text("image_url").notNull(),
+  status: text("status").notNull().default("Processing"),
+  statusMessage: text("status_message"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });
