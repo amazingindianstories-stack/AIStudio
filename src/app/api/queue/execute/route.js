@@ -43,6 +43,7 @@ import { klingUnitsToCents } from "@/lib/pricing";
 import { getModelDefinition } from "@/lib/model-registry";
 import { boundedBestOf, generateAndSpoolCandidates, readSpooledBase64 } from "@/lib/best-of-spool";
 import { submitVideoCandidates } from "@/lib/video-submissions";
+import { buildSeedanceCallbackUrl } from "@/lib/seedance-callback";
 import {
   emitGenerationEvent,
   persistGenerationFailure,
@@ -350,10 +351,10 @@ async function submitVideo(base, signal) {
     const signedRefAudios = await signAudioRefs(
       resolveAudioReferences(prompt, base.referenceAudios ?? []), signal
     );
-    const callbackBase = process.env.SEEDANCE_CALLBACK_URL;
-    const callbackUrl = callbackBase && process.env.SEEDANCE_CALLBACK_SECRET
-      ? `${callbackBase}${callbackBase.includes("?") ? "&" : "?"}token=${encodeURIComponent(process.env.SEEDANCE_CALLBACK_SECRET)}`
-      : callbackBase;
+    const callbackUrl = buildSeedanceCallbackUrl(
+      process.env.SEEDANCE_CALLBACK_URL,
+      process.env.SEEDANCE_CALLBACK_SECRET,
+    );
     // Multi-shot chaining (Phase 3.3) — reuses the same stored-ref → inline
     // data-URL materialisation referenceImages already goes through; a
     // continuation frame is stored exactly like a reference image (see

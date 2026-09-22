@@ -375,25 +375,26 @@ export async function getVideoTask(
 
 /** Normalize both GET and callback task payloads through one parser. */
 export function normalizeVideoTaskPayload(json = {}) {
-  const rawStatus = (json?.status || json?.state || "").toLowerCase();
+  const source = json?.data && typeof json.data === "object" ? json.data : json;
+  const rawStatus = (source?.status || source?.state || "").toLowerCase();
   let status = "running";
   if (rawStatus === "succeeded") status = "succeeded";
   else if (rawStatus === "failed" || rawStatus === "cancelled") status = "failed";
   else if (rawStatus === "queued") status = "queued";
 
   const videoUrl =
-    json?.content?.video_url ||
-    json?.content?.[0]?.video_url ||
-    json?.video_url;
+    source?.content?.video_url ||
+    source?.content?.[0]?.video_url ||
+    source?.video_url;
 
   const error =
     status === "failed"
-      ? json?.error?.message || json?.error || "Generation failed"
+      ? source?.error?.message || source?.error || "Generation failed"
       : undefined;
 
   // Seedance 2.5 only (2.0's response has no `usage` object) — see the file
   // header and pricing.js computeSeedanceTokenCostCents.
-  const totalTokensRaw = json?.usage?.total_tokens;
+  const totalTokensRaw = source?.usage?.total_tokens;
   const totalTokens =
     typeof totalTokensRaw === "number" && Number.isFinite(totalTokensRaw)
       ? totalTokensRaw
@@ -405,7 +406,7 @@ export function normalizeVideoTaskPayload(json = {}) {
     error,
     raw: json,
     totalTokens,
-    ...providerUsageTimestamps(json),
+    ...providerUsageTimestamps(source),
   };
 }
 

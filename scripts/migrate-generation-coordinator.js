@@ -22,7 +22,7 @@ async function main() {
   `alter table generations add column if not exists provider_status text`,
   `alter table generations add column if not exists worker_lease_id text`,
   `alter table generations add column if not exists worker_lease_until bigint`,
-  `create index concurrently if not exists generations_coordinator_due_idx on generations (status, next_poll_at, created_at) where kind in ('video', 'image') and status in ('queued', 'running')`,
+  `create index concurrently if not exists generations_coordinator_due_idx on generations (status, next_poll_at, created_at) where (kind = 'video' and status in ('queued', 'running')) or (kind = 'image' and status = 'queued')`,
   ]) await db.execute(sql.raw(statement));
   console.log("generation coordinator migration complete");
 }

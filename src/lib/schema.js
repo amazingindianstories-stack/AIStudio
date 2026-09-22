@@ -253,6 +253,9 @@ export const generations = pgTable("generations", {
   index("generations_stale_video_poll_idx")
     .on(table.updatedAt, table.createdAt, table.id)
     .where(sql`${table.kind} = 'video' and ${table.status} in ('queued', 'running') and ${table.taskId} is not null`),
+  index("generations_coordinator_due_idx")
+    .on(table.status, table.nextPollAt, table.createdAt)
+    .where(sql`(${table.kind} = 'video' and ${table.status} in ('queued', 'running')) or (${table.kind} = 'image' and ${table.status} = 'queued')`),
 ]);
 
 /**

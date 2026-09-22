@@ -6,6 +6,11 @@ import { rowToItem } from "./store-db";
 export const DEFAULT_POLL_DELAY_MS = 5_000;
 export const MAX_COORDINATOR_BATCH = 25;
 
+export function isCoordinatorEligible(item) {
+  return (item?.status === "queued" && ["image", "video"].includes(item?.kind)) ||
+    (item?.status === "running" && item?.kind === "video");
+}
+
 export function normalizeProviderTimestamp(value) {
   if (value == null) return undefined;
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -47,7 +52,10 @@ export async function claimGeneration(id, owner, {
     workerLeaseUntil: now + ttlMs,
   }).where(and(
     eq(generations.id, id),
-    inArray(generations.status, ["queued", "running"]),
+    or(
+      and(eq(generations.status, "queued"), inArray(generations.kind, ["image", "video"])),
+      and(eq(generations.status, "running"), eq(generations.kind, "video")),
+    ),
     or(isNull(generations.workerLeaseUntil), lte(generations.workerLeaseUntil, now), eq(generations.workerLeaseId, owner)),
   )).returning();
   return rows[0] ? rowToItem(rows[0]) : undefined;
@@ -66,7 +74,10 @@ export async function selectDueGenerations({ now = Date.now(), limit = MAX_COORD
   const db = dbOverride ?? await getDb();
   const safeLimit = Math.max(1, Math.min(MAX_COORDINATOR_BATCH, Number(limit) || MAX_COORDINATOR_BATCH));
   const rows = await db.select().from(generations).where(and(
-    inArray(generations.status, ["queued", "running"]),
+    or(
+      and(eq(generations.status, "queued"), inArray(generations.kind, ["image", "video"])),
+      and(eq(generations.status, "running"), eq(generations.kind, "video")),
+    ),
     or(isNull(generations.nextPollAt), lte(generations.nextPollAt, now)),
     or(isNull(generations.workerLeaseUntil), lte(generations.workerLeaseUntil, now)),
   )).orderBy(generations.createdAt).limit(safeLimit);
@@ -90,4 +101,3 @@ export async function scheduleGeneration(item, {
   )).returning();
   return rows[0] ? rowToItem(rows[0]) : undefined;
 }
-
