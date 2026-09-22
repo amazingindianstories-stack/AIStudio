@@ -13,10 +13,17 @@ export async function POST(req) {
   }
   const body = await req.json().catch(() => ({}));
   const jobId = (body.jobId || "").trim();
+  const claimId = typeof body.claimId === "string" ? body.claimId.trim() : "";
   const percent = Number(body.percent);
   if (!jobId || !Number.isFinite(percent)) {
     return NextResponse.json({ error: "jobId and a numeric percent are required." }, { status: 400 });
   }
-  await reportDepthProgress(jobId, percent, typeof body.message === "string" ? body.message.slice(0, 300) : undefined);
+  const updated = await reportDepthProgress(
+    jobId,
+    claimId || undefined,
+    percent,
+    typeof body.message === "string" ? body.message.slice(0, 300) : undefined
+  );
+  if (!updated) return NextResponse.json({ error: "STALE_CLAIM" }, { status: 409 });
   return NextResponse.json({ ok: true });
 }

@@ -32,6 +32,12 @@ Nothing here is a web server — there's no port to open, no `curl` health
 check to hit locally. The only observability is the nav bar pill and this
 terminal's own log lines.
 
+Every protocol-v2 claim carries a unique fencing ID. Progress, upload, and
+completion calls must echo that ID, so a worker returning after a network
+partition cannot overwrite a job that has already been reassigned. The server
+accepts the legacy null-claim protocol during the server-first rollout, but
+only fenced claims are eligible for automatic recovery.
+
 ## First-time setup
 
 1. Get `Video-Depth-Anything` checked out and its checkpoints downloaded
@@ -108,6 +114,9 @@ for the OS and everything else running on it.
 - **Job stays queued forever**: the worker only *polls* for work every 3s —
   it isn't pushed a job the instant one is submitted, so a few seconds of
   lag before it picks something up is normal.
+- **`STALE_CLAIM` in the worker log**: this process lost its lease after its
+  heartbeat went stale. The replacement claim is authoritative; restart this
+  worker if it does not return to polling automatically.
 - **`Video-Depth-Anything checkout not found`**: `DEPTH_ASSETS_ROOT` in
   `.env` doesn't point at the right folder, or the `Video-Depth-Anything/`
   subfolder isn't there.
