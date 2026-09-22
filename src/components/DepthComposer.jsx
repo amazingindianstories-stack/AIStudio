@@ -5,6 +5,7 @@ import { UploadCloud, Loader2, X, Users } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { DEPTH_ENCODERS, DEPTH_ENCODER_LABELS as ENCODER_LABELS } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 
 /**
  * The composer for depth-map jobs (mode="depth") — a different shape from
@@ -40,7 +41,7 @@ export function DepthComposer() {
 
   const pickFile = (f) => {
     if (!f) return;
-    if (!f.type.startsWith("video/")) {
+    if (!uploadContentType(f).startsWith("video/")) {
       setError("That's not a video file.");
       return;
     }
@@ -59,23 +60,10 @@ export function DepthComposer() {
     setUploading(true);
     setError(null);
     try {
-      const presignRes = await fetch("/api/uploads/presign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ purpose: "depth-input", contentType: file.type }),
-      });
-      const presign = await presignRes.json();
-      if (!presignRes.ok) throw new Error(presign.error || "Could not start the upload.");
-
-      const putRes = await fetch(presign.uploadUrl, {
-        method: "PUT",
-        headers: { "Content-Type": file.type },
-        body: file,
-      });
-      if (!putRes.ok) throw new Error(`Upload failed (${putRes.status}).`);
+      const uploaded = await uploadFileDirect(file, "depth-input");
 
       const item = await generateDepthMap({
-        inputVideoKey: presign.key,
+        inputVideoKey: uploaded.key,
         encoder,
         trackCharacters,
         originalName: file.name,
