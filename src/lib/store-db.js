@@ -436,7 +436,7 @@ import {
 // running job is a 30–60s serverless invocation with best-of-N provider
 // calls); videos bound the provider (concurrent remote renders + MCP rate
 // limits). Anything beyond the cap waits in the queue.
-const MAX_CONCURRENT = { image: 2, video: 2 };
+const MAX_CONCURRENT = { image: 6, video: 4 };
 
 // Image jobs execute synchronously inside one serverless invocation
 // (/api/queue/execute). If the platform hard-kills that invocation mid-flight
@@ -553,7 +553,7 @@ async function queueSnapshot(
     with global_user_limit as (
       select coalesce(
         max(case when value ~ '^[0-9]{1,9}$' and value::int >= 1 then value::int end),
-        1
+        2
       ) as value
       from settings where key = 'maxConcurrentJobs'
     ), running_by_user as (
