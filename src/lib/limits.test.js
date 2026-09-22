@@ -16,9 +16,9 @@ test("LIMIT_DEFINITIONS: every entry has a positive default at or above its own 
   }
 });
 
-test("maxConcurrentJobs defaults to one shared slot per user and kind", () => {
+test("maxConcurrentJobs defaults to two shared slots per user and kind", () => {
   const def = limitDefinition("maxConcurrentJobs");
-  assert.equal(def.defaultValue, 1);
+  assert.equal(def.defaultValue, 2);
   assert.equal(def.min, 1);
 });
 
