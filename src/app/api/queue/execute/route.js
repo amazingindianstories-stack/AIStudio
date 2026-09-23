@@ -384,6 +384,8 @@ async function submitVideo(base, signal) {
       // enqueues, so the user's choice reaches the provider through the
       // persisted column and nothing else.
       generateAudio: base.generateAudio === true,
+      draftMode: base.draftMode === true,
+      bitrateMode: base.bitrateMode,
       // Seedance 2.5 only — Edit/Extend an attached clip. Same "off the row,
       // not off this request" reasoning as generateAudio above.
       taskMode: base.videoTaskMode,

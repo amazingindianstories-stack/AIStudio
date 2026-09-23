@@ -181,6 +181,17 @@ export function supportsAudio(model) {
   return capability(model, "audio", false);
 }
 
+/** Direct BytePlus Seedance render-quality controls. These are explicit
+ * capabilities so similarly named Higgsfield compatibility models never
+ * inherit request fields their MCP does not expose. */
+export function supportsDraftMode(model) {
+  return capability(model, "draft", false);
+}
+
+export function supportsBitrateMode(model) {
+  return capability(model, "bitrate", false);
+}
+
 /** The three task types Seedance 2.5's single endpoint supports, chosen by
  *  content role + prompt wording rather than a request field (see
  *  providers/seedance.js createVideoTask). "generate" covers ordinary
@@ -277,7 +288,7 @@ export function supportsFirstFrameContinuation(model) {
 export const DEFAULTS = {
   image: {
     model: "Nano Banana Pro",
-    aspectRatio: "1:1",
+    aspectRatio: "21:9",
     resolution: "2K",
   },
   video: {
@@ -288,7 +299,7 @@ export const DEFAULTS = {
     // on a model the picker cannot show — and still routes to that provider.
     // `defaultsAreOfferedModels` in config.test.js pins this.
     model: "Seedance 2.0",
-    aspectRatio: "16:9",
+    aspectRatio: "21:9",
     resolution: "1080p",
     duration: 5,
   },

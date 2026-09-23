@@ -49,6 +49,8 @@ import {
   maxReferenceImagesForVideoModel,
   resolutionsForModel,
   supportsAudio,
+  supportsDraftMode,
+  supportsBitrateMode,
   supportsVideoReference,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
@@ -88,6 +90,7 @@ export function PromptComposer() {
    * apart again.
    */
   const audioApplies = s.mode === "video" && supportsAudio(s.model);
+  const renderControlsApply = s.mode === "video" && supportsDraftMode(s.model) && supportsBitrateMode(s.model);
   // Edit/Extend only exist on Seedance 2.5 (config.supportsVideoEditExtend).
   // Both require BytePlus's ratio:"adaptive" and Edit also forces duration to
   // "match the source" — see the videoTaskMode branches on the Aspect
@@ -863,6 +866,16 @@ export function PromptComposer() {
                   <Volume2 className="composer-secondary-setting h-3.5 w-3.5 text-brand" />
                 </>
               )}
+              {renderControlsApply && (
+                <>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting">{s.draftMode ? "Draft" : "Final"}</span>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting">
+                    {s.bitrateMode === "standard" ? "Standard" : "High"}
+                  </span>
+                </>
+              )}
             </Chip>
           )}
         >
@@ -973,6 +986,22 @@ export function PromptComposer() {
                     top of the video.
                   </p>
                 </div>
+              )}
+              {renderControlsApply && (
+                <>
+                  <Segment
+                    label="Render"
+                    options={["Final", "Draft"]}
+                    value={s.draftMode ? "Draft" : "Final"}
+                    onChange={(v) => s.setDraftMode(v === "Draft")}
+                  />
+                  <Segment
+                    label="Bitrate"
+                    options={["Standard", "High"]}
+                    value={s.bitrateMode === "standard" ? "Standard" : "High"}
+                    onChange={(v) => s.setBitrateMode(v.toLowerCase())}
+                  />
+                </>
               )}
             </div>
           )}

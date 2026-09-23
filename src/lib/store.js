@@ -11,6 +11,8 @@ import {
   durationRangeForModel,
   resolutionsForModel,
   supportsAudio,
+  supportsDraftMode,
+  supportsBitrateMode,
   supportsFirstFrameContinuation,
   supportsVideoReference,
   supportsVideoEditExtend,
@@ -233,6 +235,8 @@ export const useStore = create((set, get) => ({
   // ANDs it with supportsAudio and setModel clamps it — so a default of true
   // is inert everywhere else.
   generateAudio: true,
+  draftMode: false,
+  bitrateMode: "high",
   videoTaskMode: "generate",
   // Reproducibility seed (Phase 3.1). null for an ordinary "Generate" click —
   // the enqueue route only honours it for models config.supportsSeed
@@ -331,6 +335,9 @@ export const useStore = create((set, get) => ({
       resolution: d.resolution,
       duration: "duration" in d ? d.duration : get().duration,
       videoTaskMode: "generate",
+      generateAudio: mode === "video" && supportsAudio(d.model),
+      draftMode: supportsDraftMode(d.model) ? get().draftMode : false,
+      bitrateMode: supportsBitrateMode(d.model) ? get().bitrateMode : "high",
     });
   },
   setModel: (model) =>
@@ -360,25 +367,40 @@ export const useStore = create((set, get) => ({
         ? s.resolution
         : resolutions[resolutions.length - 1];
       const aspectRatios = aspectRatiosForModel(model, s.mode);
-      const aspectRatio = aspectRatios.includes(s.aspectRatio)
-        ? s.aspectRatio
-        : aspectRatios[0];
+      // 21:9 is the global image/video default. Preserve a deliberate valid
+      // choice while switching between capable models, but restore 21:9 when
+      // returning from a constrained provider (Omni only offers 16:9/9:16).
+      const previousAspectRatios = aspectRatiosForModel(s.model, s.mode);
+      const aspectRatio =
+        aspectRatios.includes("21:9") && !previousAspectRatios.includes("21:9")
+          ? "21:9"
+          : aspectRatios.includes(s.aspectRatio)
+            ? s.aspectRatio
+            : aspectRatios[0];
       // Same reasoning as the clamps above: a setting the chosen model has no
       // field for must not survive the switch, or the composer shows an
       // enabled toggle whose value the provider will silently discard.
-      const generateAudio = supportsAudio(model) ? s.generateAudio : false;
+      const generateAudio = supportsAudio(model)
+        ? (supportsAudio(s.model) ? s.generateAudio : true)
+        : false;
+      const draftMode = supportsDraftMode(model) ? s.draftMode : false;
+      const bitrateMode = supportsBitrateMode(model) ? s.bitrateMode : "high";
       const referenceVideos = supportsVideoReference(model) ? s.referenceVideos : [];
       // Same reasoning: Edit/Extend only exist on Seedance 2.5, so switching
       // away must not leave the composer claiming a mode the new model has
       // no such task type for.
       const videoTaskMode = supportsVideoEditExtend(model) ? s.videoTaskMode : "generate";
-      return { model, duration, resolution, aspectRatio, generateAudio, referenceVideos, videoTaskMode };
+      return { model, duration, resolution, aspectRatio, generateAudio, draftMode, bitrateMode, referenceVideos, videoTaskMode };
     }),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set({ resolution }),
   setDuration: (duration) => set({ duration }),
   setBatchCount: (batchCount) => set({ batchCount: Math.min(4, Math.max(1, batchCount)) }),
   setGenerateAudio: (generateAudio) => set({ generateAudio }),
+  setDraftMode: (draftMode) => set({ draftMode: draftMode === true }),
+  setBitrateMode: (bitrateMode) => set({
+    bitrateMode: bitrateMode === "standard" ? "standard" : "high",
+  }),
   setVideoTaskMode: (videoTaskMode) => set({
     videoTaskMode: VIDEO_TASK_MODES.includes(videoTaskMode) ? videoTaskMode : "generate",
   }),
@@ -726,6 +748,8 @@ export const useStore = create((set, get) => ({
       referenceVideos: s.referenceVideos,
       referenceAudios: s.audioNotes.map((a) => typeof a === "string" ? null : a?.ref).filter(Boolean),
       generateAudio: s.generateAudio,
+      draftMode: s.draftMode,
+      bitrateMode: s.bitrateMode,
       videoTaskMode,
       // Only ever non-null when regenerateWithSameSeed set it deliberately —
       // the enqueue route re-checks config.supportsSeed itself and drops it
@@ -1004,6 +1028,8 @@ export const useStore = create((set, get) => ({
           resolution: item.resolution,
           duration: item.duration,
           referenceImages: [],
+          draftMode: item.draftMode,
+          bitrateMode: item.bitrateMode,
           projectId: item.projectId,
           folderId: item.folderId,
         }),
@@ -1169,6 +1195,9 @@ export const useStore = create((set, get) => ({
       resolution: item.resolution ?? get().resolution,
       duration: item.duration ?? get().duration,
       generateAudio: item.generateAudio === true && supportsAudio(item.model),
+      draftMode: item.draftMode === true && supportsDraftMode(item.model),
+      bitrateMode:
+        supportsBitrateMode(item.model) && item.bitrateMode === "standard" ? "standard" : "high",
       videoTaskMode: supportsVideoEditExtend(item.model)
         ? item.videoTaskMode ?? "generate"
         : "generate",
@@ -2260,6 +2289,12 @@ export function restoreComposerDraft() {
       if (d.audioDefault && typeof d.generateAudio === "boolean") {
         patch.generateAudio = d.generateAudio && supportsAudio(effModel);
       }
+      if (typeof d.draftMode === "boolean") {
+        patch.draftMode = supportsDraftMode(effModel) && d.draftMode;
+      }
+      if (["standard", "high"].includes(d.bitrateMode)) {
+        patch.bitrateMode = supportsBitrateMode(effModel) ? d.bitrateMode : "high";
+      }
       if (["project", "history", "favorites"].includes(d.rightTab)) {
         patch.rightTab = d.rightTab;
       }
@@ -2401,6 +2436,8 @@ if (typeof window !== "undefined") {
       s.duration !== prev.duration ||
       s.batchCount !== prev.batchCount ||
       s.generateAudio !== prev.generateAudio ||
+      s.draftMode !== prev.draftMode ||
+      s.bitrateMode !== prev.bitrateMode ||
       s.rightTab !== prev.rightTab ||
       s.activeProjectId !== prev.activeProjectId ||
       s.activeFolderId !== prev.activeFolderId
@@ -2417,6 +2454,8 @@ if (typeof window !== "undefined") {
             duration: s.duration,
             batchCount: s.batchCount,
             generateAudio: s.generateAudio,
+            draftMode: s.draftMode,
+            bitrateMode: s.bitrateMode,
             audioDefault: true,
             rightTab: s.rightTab,
             activeProjectId: s.activeProjectId,

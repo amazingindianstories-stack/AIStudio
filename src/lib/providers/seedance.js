@@ -293,6 +293,11 @@ export async function createVideoTask(
     // Was hardcoded false. Still defaults to false when the caller says
     // nothing, so nothing starts paying for audio it did not ask for.
     generate_audio: input.generateAudio === true,
+    // Independent request-level render controls. Callers persist explicit
+    // defaults for new jobs; these fallbacks also keep direct provider calls
+    // aligned with the public application contract.
+    draft: input.draftMode === true,
+    bitrate_mode: input.bitrateMode === "standard" ? "standard" : "high",
   };
   // BytePlus can notify our server even when the artist closes the browser.
   // Configure this as a public HTTPS endpoint in production; the 30-second

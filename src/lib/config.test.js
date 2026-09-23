@@ -17,6 +17,8 @@ import {
   maxReferenceImagesForVideoModel,
   resolutionsForModel,
   supportsAudio,
+  supportsDraftMode,
+  supportsBitrateMode,
   supportsFirstFrameContinuation,
   supportsSeed,
   supportsVideoBestOf,
@@ -43,6 +45,17 @@ test("Higgsfield Seedance does NOT get an audio toggle", () => {
   // no audio parameter at all.
   assert.equal(supportsAudio("Higgsfield Seedance 2.0"), false);
   assert.equal(supportsAudio("Higgsfield Seedance 2.0 Mini"), false);
+});
+
+test("draft and bitrate controls belong to every direct BytePlus Seedance model only", () => {
+  for (const model of ["Seedance 2.0", "Seedance 2.0 Mini", "Seedance 2.5"]) {
+    assert.equal(supportsDraftMode(model), true, model);
+    assert.equal(supportsBitrateMode(model), true, model);
+  }
+  for (const model of ["Higgsfield Seedance 2.0", "Higgsfield Seedance 2.0 Mini", "Gemini Omni Flash"]) {
+    assert.equal(supportsDraftMode(model), false, model);
+    assert.equal(supportsBitrateMode(model), false, model);
+  }
 });
 
 test("Omni video has no audio field either", () => {
@@ -423,4 +436,9 @@ test("each DEFAULTS combination is valid for its own model", () => {
     durationsForModel(DEFAULTS.video.model).includes(DEFAULTS.video.duration),
     `${DEFAULTS.video.model} does not offer ${DEFAULTS.video.duration}s`
   );
+});
+
+test("image and video composer defaults use the cinematic 21:9 aspect ratio", () => {
+  assert.equal(DEFAULTS.image.aspectRatio, "21:9");
+  assert.equal(DEFAULTS.video.aspectRatio, "21:9");
 });
