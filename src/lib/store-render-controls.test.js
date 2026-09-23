@@ -30,7 +30,7 @@ test("switching to an unsupported provider resets render controls", () => {
   assert.equal(useStore.getState().bitrateMode, "high");
 });
 
-test("local composer restoration discards render controls for unsupported providers", () => {
+test("local composer restoration keeps supported Draft and discards unsupported bitrate", () => {
   const previousStorage = globalThis.localStorage;
   const values = new Map([
     ["veevee-draft-settings-v1", JSON.stringify({ mode: "video", model: "Seedance 2.5", draftMode: true, bitrateMode: "standard" })],
@@ -43,7 +43,7 @@ test("local composer restoration discards render controls for unsupported provid
   try {
     useStore.setState({ prompt: "", referenceImages: [], draftMode: false, bitrateMode: "high" });
     restoreComposerDraft();
-    assert.equal(useStore.getState().draftMode, false);
+    assert.equal(useStore.getState().draftMode, true);
     assert.equal(useStore.getState().bitrateMode, "high");
 
     values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "video", model: "Gemini Omni Flash", draftMode: true, bitrateMode: "standard" }));
@@ -57,6 +57,12 @@ test("local composer restoration discards render controls for unsupported provid
 
 test("cloneToComposer discards unsupported stored settings and gives legacy rows safe defaults", async () => {
   const current = useStore.getState();
+  const supported = { id: "supported", kind: "video", status: "succeeded", prompt: "scene", model: "Seedance 2.5", aspectRatio: "21:9", resolution: "720p", duration: 5, draftMode: true, bitrateMode: "standard" };
+  useStore.setState({ items: [supported], threadItems: [], pendingItems: [] });
+  assert.deepEqual(await current.cloneToComposer("supported"), { ok: true });
+  assert.equal(useStore.getState().draftMode, true);
+  assert.equal(useStore.getState().bitrateMode, "high");
+
   const modern = { id: "modern", kind: "video", status: "succeeded", prompt: "scene", model: "Seedance 2.0", aspectRatio: "16:9", resolution: "720p", duration: 5, draftMode: true, bitrateMode: "standard" };
   useStore.setState({ items: [modern], threadItems: [], pendingItems: [] });
   assert.deepEqual(await current.cloneToComposer("modern"), { ok: true });

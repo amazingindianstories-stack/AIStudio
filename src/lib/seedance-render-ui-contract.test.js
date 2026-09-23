@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-test("both composer settings surfaces expose Render and Bitrate controls and summaries", () => {
+test("both composer settings surfaces gate Render and Bitrate independently", () => {
   for (const file of ["src/components/ComposerControls.jsx", "src/components/PromptComposer.jsx"]) {
     const source = readFileSync(file, "utf8");
     assert.match(source, /label="Render"/);
     assert.match(source, /label="Bitrate"/);
+    assert.match(source, /draftApplies/);
+    assert.match(source, /bitrateApplies/);
     assert.match(source, /s\.draftMode \? "Draft" : "Final"/);
     assert.match(source, /s\.bitrateMode === "standard" \? "Standard" : "High"/);
   }

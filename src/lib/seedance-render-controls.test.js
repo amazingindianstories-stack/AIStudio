@@ -2,14 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveSeedanceRenderControls } from "./seedance-render-controls";
 
-test("current direct BytePlus models discard unsupported render controls", () => {
-  for (const model of ["Seedance 2.0", "Seedance 2.0 Mini", "Seedance 2.5"]) {
+test("Seedance 2.0 variants discard unsupported render controls", () => {
+  for (const model of ["Seedance 2.0", "Seedance 2.0 Mini"]) {
     assert.deepEqual(resolveSeedanceRenderControls(model, {}), {});
   }
 });
 
-test("selected render settings are discarded for current Seedance models", () => {
-  assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.5", { draftMode: true, bitrateMode: "high" }), {});
+test("Seedance 2.5 keeps Draft independently and discards unsupported bitrate", () => {
+  assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.5", {}), { draftMode: false });
+  assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.5", { draftMode: true, bitrateMode: "high" }), { draftMode: true });
   assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.0", { draftMode: false, bitrateMode: "standard" }), {});
 });
 

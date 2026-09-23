@@ -47,8 +47,10 @@ test("Higgsfield Seedance does NOT get an audio toggle", () => {
   assert.equal(supportsAudio("Higgsfield Seedance 2.0 Mini"), false);
 });
 
-test("current Seedance 2.x models do not expose unsupported draft or bitrate controls", () => {
-  for (const model of ["Seedance 2.0", "Seedance 2.0 Mini", "Seedance 2.5"]) {
+test("only Seedance 2.5 exposes documented Draft; no current model exposes bitrate", () => {
+  assert.equal(supportsDraftMode("Seedance 2.5"), true);
+  assert.equal(supportsBitrateMode("Seedance 2.5"), false);
+  for (const model of ["Seedance 2.0", "Seedance 2.0 Mini"]) {
     assert.equal(supportsDraftMode(model), false, model);
     assert.equal(supportsBitrateMode(model), false, model);
   }

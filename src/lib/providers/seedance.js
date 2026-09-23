@@ -2,7 +2,7 @@
 
 import { buildVideoDirective } from "../video-directive.js";
 import { parseRefRoles } from "../shot-spec.js";
-import { maxReferenceImagesForVideoModel } from "../config.js";
+import { maxReferenceImagesForVideoModel, supportsDraftMode } from "../config.js";
 import { isProviderModel, providerModelId } from "../model-registry.js";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
@@ -294,6 +294,11 @@ export async function createVideoTask(
     // nothing, so nothing starts paying for audio it did not ask for.
     generate_audio: input.generateAudio === true,
   };
+  // ModelArk documents this top-level field for Seedance 2.5 Draft mode.
+  // It must be absent (not even false) for 2.0, whose API rejects `draft`.
+  if (supportsDraftMode(input.modelDisplay)) {
+    body.draft = input.draftMode === true;
+  }
   // BytePlus can notify our server even when the artist closes the browser.
   // Configure this as a public HTTPS endpoint in production; the 30-second
   // browser poll remains a fallback for delivery/UI refresh.
