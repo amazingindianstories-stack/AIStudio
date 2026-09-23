@@ -35,6 +35,12 @@ export const MEDIA_ACTION_COPY = {
       "This replaces the current composer with this clip's final frame and clears the prompt so you can write the next shot. It does not start a generation.",
     confirmLabel: "Replace composer",
   },
+  finalizeDraft: {
+    title: "Generate the 1080p final?",
+    description:
+      "This immediately starts a new billable 1080p generation from the provider draft. The original 480p draft will remain in your library.",
+    confirmLabel: "Generate final",
+  },
   deleteGeneration: {
     title: "Delete this generation?",
     description: "This permanently removes the generation from your history. This cannot be undone.",

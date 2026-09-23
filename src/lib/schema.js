@@ -81,6 +81,10 @@ export const generations = pgTable("generations", {
   isFavorite: boolean("is_favorite").notNull().default(false),
   favoritedAt: bigint("favorited_at", { mode: "number" }),
   taskId: text("task_id"),
+  // Draft-to-final lineage. A final render is a separate library row; these
+  // fields retain both the local source and the provider draft task it uses.
+  sourceGenerationId: uuid("source_generation_id"),
+  draftTaskId: text("draft_task_id"),
   // Server-owned coordinator state. These timestamps intentionally describe
   // provider/app boundaries instead of deriving duration from created_at and
   // updated_at (which includes queue and callback latency).

@@ -11,6 +11,7 @@ test("every risky media shortcut has explicit confirmation copy", () => {
     "deletePortrait",
     "deletePortraitGroup",
     "editPrompt",
+    "finalizeDraft",
     "regenerate",
     "regenerateWithSameSeed",
     "retryTextToVideo",

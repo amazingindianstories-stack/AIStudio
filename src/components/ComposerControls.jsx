@@ -180,6 +180,9 @@ export function SettingsToolbar() {
   // than a fixed enum (see durationRangeForModel) — non-null here switches
   // the Duration control below from Segment buttons to a slider.
   const durationRange = s.mode === "video" ? durationRangeForModel(s.model) : null;
+  const resolutionOptions = draftApplies && s.draftMode
+    ? ["480p"]
+    : resolutionsForModel(s.model, s.mode, s.referenceImages.length > 0);
   const modeModels = MODELS.filter((m) => m.kind === s.mode);
 
   return (
@@ -310,7 +313,7 @@ export function SettingsToolbar() {
               )}
               <Segment
                 label="Resolution"
-                options={resolutionsForModel(s.model, s.mode, s.referenceImages.length > 0)}
+                options={resolutionOptions}
                 value={s.resolution}
                 onChange={s.setResolution}
               />

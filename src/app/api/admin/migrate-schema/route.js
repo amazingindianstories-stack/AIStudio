@@ -19,6 +19,8 @@ const COORDINATOR_STATEMENTS = [
   "alter table generations add column if not exists provider_status text",
   "alter table generations add column if not exists worker_lease_id text",
   "alter table generations add column if not exists worker_lease_until bigint",
+  "alter table generations add column if not exists source_generation_id uuid",
+  "alter table generations add column if not exists draft_task_id text",
   "create index if not exists generations_coordinator_due_idx on generations (status, next_poll_at, created_at) where kind in ('video', 'image') and status in ('queued', 'running')",
 ];
 

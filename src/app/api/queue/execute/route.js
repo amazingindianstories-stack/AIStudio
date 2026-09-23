@@ -12,7 +12,7 @@ import {
   mcpGenerateVideo,
   mcpUploadImage,
 } from "@/lib/providers/higgsfield-mcp";
-import { createVideoTask } from "@/lib/providers/seedance";
+import { createFinalVideoTask, createVideoTask } from "@/lib/providers/seedance";
 import {
   generateImageKling,
   isKlingModel,
@@ -199,6 +199,24 @@ async function submitVideo(base, signal) {
       status: "running",
       updatedAt: Date.now(),
     };
+  }
+
+  // Draft conversion is already fully specified by the provider task. Keep it
+  // ahead of every reference/prompt/best-of path so no forbidden option can
+  // leak into the finalization request.
+  if (base.draftTaskId) {
+    const callbackUrl = buildSeedanceCallbackUrl(
+      process.env.SEEDANCE_CALLBACK_URL,
+      process.env.SEEDANCE_CALLBACK_SECRET,
+    );
+    const taskId = await createFinalVideoTask({
+      modelDisplay: base.model,
+      draftTaskId: base.draftTaskId,
+      callbackUrl,
+      signal,
+    });
+    const submittedAt = Date.now();
+    return { ...base, taskId, status: "running", submittedAt, nextPollAt: submittedAt + 5_000, pollAttempts: 0, updatedAt: submittedAt };
   }
 
   let taskId;
@@ -519,7 +537,7 @@ export async function POST(req) {
   // supported generation ends up with a concrete seed to regenerate from —
   // "regenerate with same seed" has nothing to reuse against a null.
   let seed = base.seed ?? null;
-  if (supportsSeed(model) && seed == null) {
+  if (!base.draftTaskId && supportsSeed(model) && seed == null) {
     seed = Math.floor(Math.random() * 2147483647);
   }
   // Every provider result is measured from its persisted bytes. Inspection is
@@ -538,6 +556,7 @@ export async function POST(req) {
     base.kind === "video" &&
     supportsVideoBestOf(model) &&
     process.env.VIDEO_BEST_OF &&
+    !base.draftTaskId &&
     (base.referenceImages ?? []).length > 0
       ? Math.min(3, Math.max(2, Number(process.env.VIDEO_BEST_OF) || 2))
       : 1;

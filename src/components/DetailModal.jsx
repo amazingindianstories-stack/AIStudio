@@ -19,6 +19,7 @@ import {
   Clapperboard,
   Layers,
   RefreshCw,
+  BadgeCheck,
   SkipForward,
   Flag,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import { useStore } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl, referenceDisplayUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
 import { supportsFirstFrameContinuation, supportsVideoReference } from "@/lib/config";
+import { canFinalizeDraft } from "@/lib/seedance-finalization";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 import {
@@ -187,6 +189,7 @@ export function DetailModal() {
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const regenerateWithSameSeed = useStore((s) => s.regenerateWithSameSeed);
   const continueShot = useStore((s) => s.continueShot);
+  const finalizeDraft = useStore((s) => s.finalizeDraft);
   const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
   const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
   const addReferenceVideo = useStore((s) => s.addReferenceVideo);
@@ -523,6 +526,21 @@ export function DetailModal() {
 
               {/* sticky bottom actions */}
               <div className="flex flex-col gap-2 p-5 pt-2 border-t border-white/5 bg-ink-850/95 backdrop-blur z-10 shadow-[0_-10px_20px_rgba(0,0,0,0.2)]">
+                {canFinalizeDraft(item) && (
+                  <button
+                    onClick={() => {
+                      confirmation.ask("finalizeDraft", async () => {
+                        const result = await finalizeDraft(item.id);
+                        if (result === false || result?.ok === false) return result;
+                        setActiveId(null);
+                        return true;
+                      });
+                    }}
+                    className="flex items-center justify-center gap-2 rounded-xl border border-emerald-400/40 bg-emerald-400/15 py-2.5 text-sm font-semibold text-emerald-300 hover:bg-emerald-400/25"
+                  >
+                    <BadgeCheck className="h-4 w-4" /> Generate 1080p final
+                  </button>
+                )}
                 {item.kind === "image" && item.url && (
                   <button
                     onClick={() => {
