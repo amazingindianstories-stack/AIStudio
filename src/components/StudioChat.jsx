@@ -25,6 +25,7 @@ import { ReferenceStrip, SettingsToolbar } from "./ComposerControls";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, } from "./MentionTextarea";
 import { MediaCard } from "./MediaCard";
+import { GenerationStatus } from "./GenerationStatus";
 import { cn } from "@/lib/utils";
 
 const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
@@ -317,7 +318,6 @@ export function StudioChat({ conversationId }) {
               <MessageBubble
                 key={m.id}
                 message={m}
-                mode={mode}
                 isLive={!!liveMessageIds[m.id]}
                 generatedItemId={generatedItemIds[m.id]}
                 generatedItem={generatedItemIds[m.id] ? findItem(generatedItemIds[m.id]) : undefined}
@@ -433,7 +433,6 @@ export function StudioChat({ conversationId }) {
 
 function MessageBubble({
   message,
-  mode,
   isLive,
   generatedItemId,
   generatedItem,
@@ -515,9 +514,7 @@ function MessageBubble({
               Generated — check your library to view it.
             </div>
           ) : generating || isLive ? (
-            <div className="flex items-center gap-1.5 rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
-              <Loader2 className="h-3 w-3 animate-spin" /> Starting {mode} generation…
-            </div>
+            <GenerationStatus status="running" compact className="rounded-lg ring-1 ring-line" />
           ) : (
             <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
               Generation was requested — check your library for the result.
