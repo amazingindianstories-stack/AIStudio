@@ -356,6 +356,36 @@ export async function createVideoTask(
   return id;
 }
 
+/** Convert a Seedance 2.5 draft task into its billable 1080p final. BytePlus
+ * requires this deliberately tiny payload; never merge ordinary generation
+ * options into it, because prompt/references/seed/etc. invalidate the contract. */
+export async function createFinalVideoTask(input) {
+  const body = {
+    model: pickModel(input.modelDisplay),
+    content: [{ type: "draft_task", draft_task: { id: input.draftTaskId } }],
+    resolution: "1080p",
+  };
+  if (typeof input.callbackUrl === "string" && /^https:\/\//i.test(input.callbackUrl)) {
+    body.callback_url = input.callbackUrl;
+  }
+  const res = await fetch(`${arkBase()}/contents/generations/tasks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${arkKey()}` },
+    body: JSON.stringify(body),
+    signal: input.signal,
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    const error = friendlyError(res.status, text);
+    error.providerResponse = { provider: "seedance", httpStatus: res.status, rawBody: text, receivedAt: Date.now() };
+    throw error;
+  }
+  const json = await res.json();
+  const id = json?.id || json?.task_id || json?.data?.id;
+  if (!id) throw new Error("Seedance finalization: no task id in response.");
+  return id;
+}
+
 export async function getVideoTask(
   taskId,
   options = {}

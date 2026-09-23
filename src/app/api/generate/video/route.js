@@ -62,6 +62,12 @@ export async function POST(req) {
   // New supported requests store explicit defaults. Unsupported providers
   // discard both values, preserving null/absent semantics in persistence.
   const { draftMode, bitrateMode } = renderControls;
+  if (draftMode === true && resolution !== "480p") {
+    return NextResponse.json(
+      { error: "Seedance 2.5 draft generations must use 480p resolution." },
+      { status: 400 }
+    );
+  }
   // Clips already in the library, referenced by their stored path. Dropped for
   // models with no video-reference field rather than persisted and ignored.
   const referenceVideos = supportsVideoReference(model)
@@ -271,6 +277,8 @@ export async function POST(req) {
     userId: user?.id,
     costCents,
     seed,
+    sourceGenerationId: null,
+    draftTaskId: null,
     createdAt: now,
     updatedAt: now,
   };

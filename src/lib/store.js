@@ -377,7 +377,7 @@ export const useStore = create((set, get) => ({
           : durations[durations.length - 1];
       }
       const resolutions = resolutionsForModel(model, s.mode, s.referenceImages.length > 0);
-      const resolution = (model === "Seedream 5.0 Pro" || model === "seedream-5-pro") && model !== s.model
+      let resolution = (model === "Seedream 5.0 Pro" || model === "seedream-5-pro") && model !== s.model
         ? "2K" : resolutions.includes(s.resolution)
         ? s.resolution
         : resolutions[resolutions.length - 1];
@@ -399,6 +399,7 @@ export const useStore = create((set, get) => ({
         ? (supportsAudio(s.model) ? s.generateAudio : true)
         : false;
       const draftMode = supportsDraftMode(model) ? s.draftMode : false;
+      if (draftMode) resolution = "480p";
       const bitrateMode = supportsBitrateMode(model) ? s.bitrateMode : "high";
       const referenceVideos = supportsVideoReference(model) ? s.referenceVideos : [];
       // Same reasoning: Edit/Extend only exist on Seedance 2.5, so switching
@@ -408,11 +409,16 @@ export const useStore = create((set, get) => ({
       return { model, duration, resolution, aspectRatio, generateAudio, draftMode, bitrateMode, referenceVideos, videoTaskMode };
     }),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
-  setResolution: (resolution) => set({ resolution }),
+  setResolution: (resolution) => set((s) => ({
+    resolution: s.draftMode && supportsDraftMode(s.model) ? "480p" : resolution,
+  })),
   setDuration: (duration) => set({ duration }),
   setBatchCount: (batchCount) => set({ batchCount: Math.min(4, Math.max(1, batchCount)) }),
   setGenerateAudio: (generateAudio) => set({ generateAudio }),
-  setDraftMode: (draftMode) => set({ draftMode: draftMode === true }),
+  setDraftMode: (draftMode) => set(() => ({
+    draftMode: draftMode === true,
+    ...(draftMode === true ? { resolution: "480p" } : {}),
+  })),
   setBitrateMode: (bitrateMode) => set({
     bitrateMode: bitrateMode === "standard" ? "standard" : "high",
   }),
@@ -1186,6 +1192,23 @@ export const useStore = create((set, get) => ({
     } catch (e) {
       console.error("Failed to extract the last frame for continuation:", e);
       return { ok: false, error: e?.message || "Could not read the last frame from this video." };
+    }
+  },
+
+  finalizeDraft: async (id) => {
+    try {
+      const res = await apiFetch("/api/generate/video/finalize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceGenerationId: id }),
+      });
+      const item = await res.json().catch(() => ({}));
+      if (!res.ok) return { ok: false, error: item.error || `Server error: ${res.status}` };
+      insertNewItem(set, item);
+      startPolling(item, set, get);
+      return { ok: true, item };
+    } catch (error) {
+      return { ok: false, error: error?.message || "Could not start the final render." };
     }
   },
 

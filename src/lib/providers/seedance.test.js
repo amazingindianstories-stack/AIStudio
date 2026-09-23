@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createVideoTask, isModerationMessage, SeedanceError } from "./seedance";
+import { createFinalVideoTask, createVideoTask, isModerationMessage, SeedanceError } from "./seedance";
 
 test("isModerationMessage: detects moderation keywords", () => {
   assert.equal(isModerationMessage("SensitiveContent detected"), true);
@@ -58,6 +58,29 @@ test("createVideoTask: Seedance 2.5 forwards 1080p without downgrading", async (
     createVideoTask({ prompt: "A landscape", modelDisplay: "Seedance 2.5", resolution: "1080p", duration: 4 })
   );
   assert.equal(body.resolution, "1080p");
+});
+
+test("createFinalVideoTask sends only the draft contract and optional callback", async () => {
+  const { result, body } = await withFakeArkResponse("final-task", () =>
+    createFinalVideoTask({
+      modelDisplay: "Seedance 2.5",
+      draftTaskId: "draft-task",
+      callbackUrl: "https://example.test/callback",
+      prompt: "must not leak",
+      duration: 12,
+      ratio: "16:9",
+      seed: 42,
+      generateAudio: true,
+      draftMode: true,
+    })
+  );
+  assert.equal(result, "final-task");
+  assert.deepEqual(body, {
+    model: "dreamina-seedance-2-5-260628",
+    content: [{ type: "draft_task", draft_task: { id: "draft-task" } }],
+    resolution: "1080p",
+    callback_url: "https://example.test/callback",
+  });
 });
 
 test("createVideoTask: edit task forces adaptive ratio and duration -1", async () => {
