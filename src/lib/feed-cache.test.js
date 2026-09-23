@@ -3,9 +3,11 @@ import assert from "node:assert/strict";
 import {
   FEED_CACHE_MAX,
   clearFeedCache,
+  dedupeFirstPage,
   dropCached,
   feedCacheKeys,
   getCached,
+  isFeedFresh,
   patchCached,
   putFeedCache,
   writeCachedItems,
@@ -133,4 +135,24 @@ test("a patch applied repeatedly, as a poll would, stays bounded", { timeout: 50
   }
   assert.equal(feedCacheKeys().length, 4);
   assert.equal(getCached("a").items.find((i) => i.id === "live").updatedAt, 199);
+});
+
+test("freshness expires at thirty seconds", () => {
+  assert.equal(isFeedFresh({ at: 1000 }, 30_999), true);
+  assert.equal(isFeedFresh({ at: 1000 }, 31_000), false);
+});
+
+test("simultaneous first-page reads are deduplicated", async () => {
+  clearFeedCache();
+  let calls = 0;
+  let release;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const fetcher = async () => { calls++; await gate; return { items: [] }; };
+  const first = dedupeFirstPage("same", fetcher);
+  const second = dedupeFirstPage("same", fetcher);
+  assert.equal(first, second);
+  assert.equal(calls, 0);
+  release();
+  await first;
+  assert.equal(calls, 1);
 });

@@ -29,6 +29,7 @@ import { uploadOriginalReference } from "@/lib/client-reference-upload";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { AssetLightbox } from "./AssetLightbox";
+import { ProgressiveImage } from "./ProgressiveImage";
 
 export const KIND_ICON = {
   character: UserRound,
@@ -78,6 +79,8 @@ export function AssetLibrary() {
   const setEditing = useStore((s) => s.setEditingAsset);
   const loadAssets = useStore((s) => s.loadAssets);
   const assetsLoading = useStore((s) => s.assetsLoading);
+  const assetsRefreshing = useStore((s) => s.assetsRefreshing);
+  const assetsError = useStore((s) => s.assetsError);
   const projects = useStore((s) => s.projects);
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
@@ -161,6 +164,8 @@ export function AssetLibrary() {
                 <AssetList
                   assets={assets}
                   loading={assetsLoading}
+                  refreshing={assetsRefreshing}
+                  error={assetsError}
                   activeProject={activeProject}
                 />
               )}
@@ -172,7 +177,7 @@ export function AssetLibrary() {
   );
 }
 
-function AssetList({ assets, loading, activeProject: propActiveProject }) {
+function AssetList({ assets, loading, refreshing, error, activeProject: propActiveProject }) {
   const setEditing = useStore((s) => s.setEditingAsset);
   const deleteAsset = useStore((s) => s.deleteAsset);
   const setOpen = useStore((s) => s.setAssetLibraryOpen);
@@ -184,6 +189,7 @@ function AssetList({ assets, loading, activeProject: propActiveProject }) {
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeProject =
     propActiveProject ?? (projects.find((p) => p.id === activeProjectId) ?? null);
+  const loadAssets = useStore((s) => s.loadAssets);
 
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -306,6 +312,10 @@ function AssetList({ assets, loading, activeProject: propActiveProject }) {
             ))}
             <span className="sr-only">Loading materials…</span>
           </div>
+        ) : error && assets.length === 0 ? (
+          <div role="alert" className="grid min-h-56 place-items-center text-center text-sm text-white/55">
+            <div><p>{error}</p><button onClick={() => loadAssets(activeProjectId)} className="mt-3 rounded-lg bg-white/10 px-3 py-1.5 font-medium text-white hover:bg-white/15">Retry</button></div>
+          </div>
         ) : filteredAssets.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-line py-12 px-4 text-center">
             <Library className="h-10 w-10 text-white/20 mb-3" />
@@ -329,6 +339,8 @@ function AssetList({ assets, loading, activeProject: propActiveProject }) {
             )}
           </div>
         ) : (
+          <>
+          {refreshing && <div role="status" className="mb-3 text-center text-xs text-white/40">Refreshing materials…</div>}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filteredAssets.map((a) => {
               const Icon = KIND_ICON[a.kind] || Box;
@@ -345,13 +357,13 @@ function AssetList({ assets, loading, activeProject: propActiveProject }) {
                     className="relative aspect-[16/10] w-full overflow-hidden bg-ink-950/85 p-1 flex items-center justify-center cursor-pointer group/thumb"
                   >
                     {imageUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={thumbUrl(imageUrl, 600)}
+                      <ProgressiveImage
+                        src={thumbUrl(imageUrl, 512)}
                         alt={a.name}
                         loading="lazy"
                         decoding="async"
-                        className="h-full w-full object-contain transition duration-300 group-hover/thumb:scale-105"
+                        className="h-full w-full"
+                        imageClassName="object-contain transition duration-300 group-hover/thumb:scale-105"
                       />
                     ) : (
                       <div className="grid h-full w-full place-items-center text-white/30">
@@ -442,6 +454,7 @@ function AssetList({ assets, loading, activeProject: propActiveProject }) {
               );
             })}
           </div>
+          </>
         )}
       </div>
 

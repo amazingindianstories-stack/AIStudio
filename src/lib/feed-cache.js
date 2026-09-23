@@ -11,8 +11,10 @@
 /** LRU bound. Feeds are ~20 rows of metadata, but a user clicking through many
  *  folders would otherwise accumulate them for the life of the tab. */
 export const FEED_CACHE_MAX = 24;
+export const FEED_FRESH_MS = 30_000;
 
 const cache = new Map();
+const firstPageRequests = new Map();
 
 export function getCached(key) {
   return cache.get(key);
@@ -20,6 +22,23 @@ export function getCached(key) {
 
 export function clearFeedCache() {
   cache.clear();
+  firstPageRequests.clear();
+}
+
+export function isFeedFresh(entry, now = Date.now()) {
+  return Boolean(entry && now - entry.at < FEED_FRESH_MS);
+}
+
+/** Share simultaneous first-page reads across every library surface. */
+export function dedupeFirstPage(key, fetcher) {
+  const existing = firstPageRequests.get(key);
+  if (existing) return existing;
+  const request = Promise.resolve().then(fetcher);
+  firstPageRequests.set(key, request);
+  request.finally(() => {
+    if (firstPageRequests.get(key) === request) firstPageRequests.delete(key);
+  }).catch(() => {});
+  return request;
 }
 
 /** Test/diagnostic accessor. */

@@ -25,6 +25,7 @@ const PANEL_THUMB_WIDTH = 320;
 import { useStore } from "@/lib/store";
 import { useHistoryQuery } from "@/lib/use-history-query";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
+import { ProgressiveImage } from "@/components/ProgressiveImage";
 
 const COLLAPSE_KEY = "veevee-canvas-asset-panel-collapsed-v1";
 const SCOPE_KEY = "veevee-canvas-asset-scope-v1";
@@ -61,9 +62,13 @@ export function CanvasAssetPanel({
   const {
     items: filtered,
     loading,
+    refreshing,
     loadingMore: isLoadingMore,
+    error,
+    paginationError,
     hasMore: hasMoreHistory,
     loadMore,
+    retry,
   } = useHistoryQuery({
     projectId: scope === "all" ? undefined : scope,
     favorite: tab === "favourites",
@@ -214,6 +219,10 @@ export function CanvasAssetPanel({
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-3">
         {loading ? (
           <AssetSkeletonGrid />
+        ) : error && filtered.length === 0 ? (
+          <div role="alert" className="grid min-h-48 place-items-center text-center text-xs text-white/55">
+            <div><p>{error}</p><button onClick={retry} className="mt-2 rounded-lg bg-white/10 px-3 py-1.5 text-white">Retry</button></div>
+          </div>
         ) : filtered.length === 0 ? (
           showProjectEmptyNudge ? (
             <ProjectEmptyNudge onShowAllProjects={() => setScope("all")} />
@@ -224,15 +233,15 @@ export function CanvasAssetPanel({
             <AssetEmptyState tab={tab} hasAny={(libraryTotal ?? 0) > 0} />
           )
         ) : (
-          <div className="grid grid-cols-2 gap-2">
+          <><div className="grid grid-cols-2 gap-2">
             {filtered.map((item) => (
               <AssetThumb key={item.id} item={item} onPlaceAtCenter={onPlaceAtCenter} />
             ))}
-          </div>
+          </div>{refreshing && <div role="status" className="py-2 text-center text-[11px] text-white/35">Refreshing…</div>}</>
         )}
         {hasMoreHistory && !loading && (
           <div ref={observerTarget} className="flex h-14 w-full items-center justify-center opacity-50">
-            {isLoadingMore ? "Loading more…" : ""}
+            {isLoadingMore ? "Loading more…" : paginationError ? <button onClick={loadMore} className="text-white/70 underline">Retry loading more</button> : ""}
           </div>
         )}
       </div>
@@ -290,13 +299,14 @@ function AssetThumb({
     >
       <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
         {src && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <ProgressiveImage
             src={thumbUrl(src, PANEL_THUMB_WIDTH)}
             alt={item.prompt}
             loading="lazy"
+            decoding="async"
             draggable={false}
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full"
+            imageClassName="object-cover"
           />
         )}
         {item.kind === "video" && (
