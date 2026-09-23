@@ -25,6 +25,7 @@ import { useNearViewport } from "@/lib/use-near-viewport";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
+import { ProgressiveImage } from "./ProgressiveImage";
 
 // Grid cards render at ~160–320 CSS px; request a modest fixed width
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
@@ -165,33 +166,44 @@ export function MediaCard({
       <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
         {/* media */}
         {done && item.kind === "image" && item.url && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <ProgressiveImage
             src={thumbUrl(item.url, CARD_THUMB_WIDTH)}
             alt={item.prompt}
             loading="lazy"
             decoding="async"
-            className="absolute inset-0 h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+            className="absolute inset-0 h-full w-full"
+            imageClassName="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
           />
         )}
         {done && item.kind === "video" && (
           <>
-            {item.url && nearViewport ? (
+            {item.poster && (
+              <ProgressiveImage
+                src={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
+                alt={item.prompt}
+                loading="lazy"
+                decoding="async"
+                className="absolute inset-0 h-full w-full"
+                imageClassName="object-cover"
+              />
+            )}
+            {item.url && nearViewport && (
               <video
                 src={item.url}
-                poster={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
                 muted
                 loop
                 playsInline
                 preload="metadata"
+                onCanPlay={(e) => e.currentTarget.classList.remove("opacity-0")}
                 onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
                 onMouseLeave={(e) => {
                   e.currentTarget.pause();
                   e.currentTarget.currentTime = 0;
                 }}
-                className="absolute inset-0 h-full w-full object-cover"
+                className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-200"
               />
-            ) : (
+            )}
+            {!item.poster && !nearViewport && (
               // Either scrolled away (the <video> is unmounted rather than left
               // holding a decoder) or still rendering (no url yet). Same markup
               // for both: the poster is what a <video> displays until it is
@@ -203,16 +215,7 @@ export function MediaCard({
               // invocation — trading one leaked decoder per row for one eager
               // request per row. content-visibility does NOT defer this: it
               // skips layout and paint, not resource loading.
-              item.poster && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
-                  alt={item.prompt}
-                  loading="lazy"
-                  decoding="async"
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-              )
+              <div className="absolute inset-0 bg-ink-800" />
             )}
             <div className="pointer-events-none absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/45 backdrop-blur-sm">
               <Play className="h-3.5 w-3.5 translate-x-px fill-white text-white" />

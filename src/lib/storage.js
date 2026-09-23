@@ -818,9 +818,11 @@ export async function openMediaObject(
  * protected prefixes. For maintenance scripts (the thumbnail backfill) — the
  * request path never lists.
  */
-export async function listMediaKeys() {
+export async function listMediaKeys({ includeThumbnails = false } = {}) {
   const keep = (key) =>
-    !key.startsWith(THUMB_PREFIX) && !isProtectedMediaKey(key) && !key.endsWith("/");
+    (includeThumbnails || !key.startsWith(THUMB_PREFIX)) &&
+    !isProtectedMediaKey(key) &&
+    !key.endsWith("/");
 
   if (primaryIsGcs()) {
     const [files] = await storage().bucket(getBucketName()).getFiles();

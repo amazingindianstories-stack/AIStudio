@@ -22,7 +22,6 @@ config({ path: ".env.local" });
 
 import {
   listMediaKeys,
-  objectExists,
   readStoredBuffer,
   saveThumbnailObject,
 } from "../src/lib/storage";
@@ -49,7 +48,13 @@ async function mapWithLimit(
 }
 
 async function main() {
-  const keys = (await listMediaKeys()).filter(isThumbnailable);
+  // One bucket listing is dramatically cheaper than two HEAD requests per
+  // original (21k+ round trips in production), and gives the dry run an exact
+  // snapshot to compare against. Apply remains resumable: newly-written keys
+  // are tracked in this set for the duration of the pass.
+  const allKeys = await listMediaKeys({ includeThumbnails: true });
+  const existing = new Set(allKeys);
+  const keys = allKeys.filter(isThumbnailable);
   console.log(`${keys.length} thumbnailable objects; ladder ${THUMB_LADDER.join("/")}`);
 
   let missing = 0;
@@ -60,7 +65,7 @@ async function main() {
   await mapWithLimit(keys, CONCURRENCY, async (key) => {
     const absent = [];
     for (const width of THUMB_LADDER) {
-      if (!(await objectExists(thumbKey(key, width)))) absent.push(width);
+      if (!existing.has(thumbKey(key, width))) absent.push(width);
     }
     if (absent.length) {
       missing += absent.length;
@@ -75,6 +80,7 @@ async function main() {
               .webp({ quality: 75 })
               .toBuffer();
             await saveThumbnailObject(out, key, width);
+            existing.add(thumbKey(key, width));
             written++;
           }
         } catch (e) {

@@ -54,6 +54,9 @@ export function AssetGrid({
   const feedKey = useStore((s) => s.feedKey);
   const hasMoreHistory = useStore((s) => s.hasMoreHistory);
   const loadMoreHistory = useStore((s) => s.loadMoreHistory);
+  const loadFeed = useStore((s) => s.loadFeed);
+  const feedError = useStore((s) => s.feedError);
+  const paginationError = useStore((s) => s.paginationError);
   const pendingCount = useStore((s) => s.pendingItems.length);
   const flushPendingItems = useStore((s) => s.flushPendingItems);
   const setFeedPinned = useStore((s) => s.setFeedPinned);
@@ -160,6 +163,10 @@ export function AssetGrid({
       >
         {loading ? (
           <SkeletonGrid cardWidth={cardWidth} />
+        ) : feedError && items.length === 0 ? (
+          <div role="alert" className="grid h-[60vh] place-items-center text-center text-sm text-white/55">
+            <div><p>{feedError}</p><button onClick={() => loadFeed({ force: true })} className="mt-3 rounded-lg bg-white/10 px-3 py-1.5 font-medium text-white hover:bg-white/15">Retry</button></div>
+          </div>
         ) : items.length === 0 ? (
           <div className="h-[60vh]">{empty}</div>
         ) : (
@@ -192,11 +199,13 @@ export function AssetGrid({
                 ref={sentinelRef}
                 className="flex h-16 w-full items-center justify-center text-xs text-white/35"
               >
-                {isLoadingMore && (
+                {isLoadingMore ? (
                   <span className="flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading more…
                   </span>
-                )}
+                ) : paginationError ? (
+                  <button onClick={() => loadMoreHistory()} className="rounded-lg px-3 py-2 text-white/65 underline hover:text-white">Retry loading more</button>
+                ) : null}
               </div>
             )}
           </>

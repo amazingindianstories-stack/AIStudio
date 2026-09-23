@@ -27,8 +27,10 @@ import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch } from "./api";
 import {
   clearFeedCache,
+  dedupeFirstPage,
   dropCached,
   getCached,
+  isFeedFresh,
   patchCached,
   putFeedCache,
   writeCachedItems,
@@ -49,6 +51,16 @@ import {
   storeRuntime,
 } from "./store-runtime";
 import { videoPollClientDecision } from "./video-poll-backoff";
+import {
+  clearMaterialCache,
+  dedupeMaterialRequest,
+  dropMaterialCaches,
+  getMaterialCache,
+  isMaterialFresh,
+  materialKey,
+  patchMaterialCaches,
+  putMaterialCache,
+} from "./material-cache";
 
 const EMPTY_COUNTS = {
   project: { total: 0, unsorted: 0, byFolder: {} },
@@ -69,8 +81,6 @@ export const polling = storeRuntime.polling;
 // than blanking it — the user sees content, then sees it get more correct.
 /** Cached pages older than this revalidate on re-entry. Short, because history
  *  is team-wide: a teammate's generation should not stay invisible for long. */
-const FEED_FRESH_MS = 30_000;
-
 /** Rows loaded for the centre chat thread. Larger than a grid page because the
  *  thread is read top-to-bottom rather than scanned. */
 const THREAD_PAGE_SIZE = 60;
@@ -271,6 +281,8 @@ export const useStore = create((set, get) => ({
   hasMoreHistory: true,
   loading: true,
   refreshing: false,
+  feedError: null,
+  paginationError: null,
   counts: EMPTY_COUNTS,
   feedKey: "",
   threadItems: [],
@@ -298,6 +310,9 @@ export const useStore = create((set, get) => ({
 
   assets: [],
   assetsLoading: false,
+  assetsRefreshing: false,
+  assetsError: null,
+  assetsKey: "",
   assetLibraryOpen: false,
   editingAsset: null,
 
@@ -529,14 +544,14 @@ export const useStore = create((set, get) => ({
         pendingItems: [],
         feedKey: key,
       });
-      if (Date.now() - cached.at < FEED_FRESH_MS) return;
+      if (isFeedFresh(cached)) return;
     }
 
     const hasSomethingToShow = Boolean(cached);
     set(
       hasSomethingToShow
-        ? { refreshing: true, feedKey: key }
-        : { loading: true, refreshing: false, items: [], pendingItems: [], feedKey: key }
+        ? { refreshing: true, feedError: null, feedKey: key }
+        : { loading: true, refreshing: false, feedError: null, items: [], pendingItems: [], feedKey: key }
     );
 
     // Every in-flight feed request carries a sequence number; only the newest
@@ -547,8 +562,11 @@ export const useStore = create((set, get) => ({
     try {
       const params = historyFilterToParams(scopeToQuery(scope));
       params.set("limit", String(HISTORY_PAGE_SIZE));
-      const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
-      const json = await res.json();
+      const json = await dedupeFirstPage(key, async () => {
+        const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`History request failed (${res.status})`);
+        return res.json();
+      });
       if (seq !== currentStoreRequestSequence("feed")) return; // superseded
 
       const items = json.items ?? [];
@@ -559,14 +577,16 @@ export const useStore = create((set, get) => ({
         hasMoreHistory: nextCursor !== null,
         loading: false,
         refreshing: false,
+        feedError: null,
+        paginationError: null,
         pendingItems: [],
         feedKey: key,
       });
       // Resume driving anything still in flight that this page revealed.
       for (const it of items) startPolling(it, set, get);
-    } catch {
+    } catch (error) {
       if (seq !== currentStoreRequestSequence("feed")) return;
-      set({ loading: false, refreshing: false });
+      set({ loading: false, refreshing: false, feedError: error?.message || "Could not load assets." });
     }
   },
 
@@ -580,11 +600,13 @@ export const useStore = create((set, get) => ({
     if (!cursor) return;
 
     const seq = currentStoreRequestSequence("feed"); // appends belong to the scope that is current now
+    set({ paginationError: null });
     try {
       const params = historyFilterToParams(scopeToQuery(scope));
       params.set("limit", String(HISTORY_PAGE_SIZE));
       params.set("cursor", cursor);
       const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`History request failed (${res.status})`);
       const json = await res.json();
       if (seq !== currentStoreRequestSequence("feed")) return; // scope changed while we were paging
 
@@ -603,6 +625,9 @@ export const useStore = create((set, get) => ({
       });
       for (const it of newItems) startPolling(it, set, get);
     } catch (e) {
+      if (seq === currentStoreRequestSequence("feed")) {
+        set({ paginationError: e?.message || "Could not load more assets." });
+      }
       console.error("Failed to load more history:", e);
     }
   },
@@ -1243,19 +1268,30 @@ export const useStore = create((set, get) => ({
   },
 
   loadAssets: async (projectId) => {
-    set({ assetsLoading: true });
+    const pid = projectId !== undefined ? projectId : get().activeProjectId;
+    const key = materialKey(pid);
+    const cached = getMaterialCache(key);
+    if (cached) {
+      set({ assets: cached.items, assetsLoading: false, assetsError: null, assetsKey: key });
+      if (isMaterialFresh(cached)) return;
+      set({ assetsRefreshing: true });
+    } else {
+      set({ assets: [], assetsLoading: true, assetsRefreshing: false, assetsError: null, assetsKey: key });
+    }
     try {
-      const pid = projectId !== undefined ? projectId : get().activeProjectId;
       const url = pid ? `/api/assets?projectId=${encodeURIComponent(pid)}` : "/api/assets";
-      const res = await apiFetch(url, { cache: "no-store" });
-      const json = await res.json();
-      set({ assets: json.assets ?? [] });
-    } catch {
-      /* ignore — library just stays empty */
+      const json = await dedupeMaterialRequest(key, async () => {
+        const res = await apiFetch(url, { cache: "no-store" });
+        if (!res.ok) throw new Error(`Material request failed (${res.status})`);
+        return res.json();
+      });
+      const items = json.assets ?? [];
+      putMaterialCache(key, { items, at: Date.now() });
+      if (get().assetsKey === key) set({ assets: items, assetsError: null });
+    } catch (error) {
+      if (get().assetsKey === key) set({ assetsError: error?.message || "Could not load materials." });
     } finally {
-      // finally, not the try body: a failed fetch must still clear the
-      // spinner, or the panel spins forever on a network blip.
-      set({ assetsLoading: false });
+      if (get().assetsKey === key) set({ assetsLoading: false, assetsRefreshing: false });
     }
   },
 
@@ -1278,6 +1314,7 @@ export const useStore = create((set, get) => ({
         assets: [data, ...s.assets.filter((a) => a.id !== data.id)],
         editingAsset: null,
       }));
+      patchMaterialCaches(data);
       return { ok: true, asset: data };
     } catch (err) {
       return { ok: false, error: err?.message || "Failed to save asset." };
@@ -1288,6 +1325,7 @@ export const useStore = create((set, get) => ({
     const asset = get().assets.find((candidate) => candidate.id === id);
     if (!asset) return { ok: false, error: "This asset is no longer available." };
     set((s) => ({ assets: s.assets.filter((a) => a.id !== id) }));
+    dropMaterialCaches(id);
     try {
       const res = await apiFetch(`/api/assets?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
@@ -1303,6 +1341,7 @@ export const useStore = create((set, get) => ({
           ? s.assets
           : [asset, ...s.assets],
       }));
+      patchMaterialCaches(asset);
       return { ok: false, error: e.message || "Failed to delete the asset." };
     }
   },
@@ -1851,6 +1890,8 @@ export const useStore = create((set, get) => ({
 
   logout: async () => {
     try {
+      clearFeedCache();
+      clearMaterialCache();
       await apiFetch("/api/auth/logout", { method: "POST" });
     } catch {
       /* ignore */
