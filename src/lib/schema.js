@@ -107,6 +107,11 @@ export const generations = pgTable("generations", {
   // thing carrying the request between them. Nullable = "never asked",
   // i.e. every row that predates this column.
   generateAudio: boolean("generate_audio"),
+  // Direct BytePlus Seedance render controls. Nullable preserves the
+  // distinction between new requests (which store explicit defaults) and
+  // legacy rows created before these settings existed.
+  draftMode: boolean("draft_mode"),
+  bitrateMode: text("bitrate_mode"),
   // Seedance 2.5 only: "edit" | "extend" | null (= "generate", the default
   // path every other model and Seedance 2.0 always use). Persisted for the
   // same reason as generateAudio — /api/generate/video only enqueues and

@@ -23,6 +23,7 @@
     "db:migrate:cost-basis": "tsx scripts/migrate-cost-basis.js",
     "db:migrate:video-poll-health": "tsx scripts/migrate-video-poll-health.js",
     "db:migrate:generation-coordinator": "tsx scripts/migrate-generation-coordinator.js",
+    "db:migrate:seedance-render-controls": "tsx scripts/migrate-seedance-render-controls.js",
     "db:migrate:depth-claim-fencing": "tsx scripts/migrate-depth-claim-fencing.js",
     "db:seed": "tsx scripts/seed.js",
     "db:optimize": "tsx scripts/optimize-history-indexes.js",

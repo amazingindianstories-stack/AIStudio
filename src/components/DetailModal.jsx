@@ -497,6 +497,15 @@ export function DetailModal() {
                 {item.duration && <Param label="Duration" value={`${item.duration}s`} />}
                 <Param label="Model" value={item.model} icon={<Box className="h-3.5 w-3.5" />} />
                 {item.seed != null && <Param label="Seed" value={item.seed} />}
+                {item.draftMode != null && (
+                  <Param label="Render" value={item.draftMode ? "Draft" : "Final"} />
+                )}
+                {item.bitrateMode != null && (
+                  <Param
+                    label="Bitrate"
+                    value={item.bitrateMode === "standard" ? "Standard" : "High"}
+                  />
+                )}
               </div>
 
               {item.referenceImages && item.referenceImages.length > 0 && (

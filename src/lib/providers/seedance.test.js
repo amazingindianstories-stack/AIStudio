@@ -84,6 +84,35 @@ test("createVideoTask: generate task defaults generate_audio to false", async ()
     createVideoTask({ prompt: "a scene" })
   );
   assert.equal(body.generate_audio, false);
+  assert.equal(body.draft, false);
+  assert.equal(body.bitrate_mode, "high");
+});
+
+test("createVideoTask: draft and bitrate are independent and coexist with ratio/duration", async () => {
+  const { body } = await withFakeArkResponse("task-render-controls", () =>
+    createVideoTask({
+      prompt: "A sample Seedance 2.0 shot",
+      modelDisplay: "Seedance 2.0",
+      ratio: "16:9",
+      duration: 10,
+      draftMode: true,
+      bitrateMode: "standard",
+    })
+  );
+  assert.equal(body.draft, true);
+  assert.equal(body.bitrate_mode, "standard");
+  assert.equal(body.ratio, "16:9");
+  assert.equal(body.duration, 10);
+});
+
+test("createVideoTask: final rendering can explicitly use high or standard bitrate", async () => {
+  for (const bitrateMode of ["standard", "high"]) {
+    const { body } = await withFakeArkResponse(`task-${bitrateMode}`, () =>
+      createVideoTask({ prompt: "a scene", draftMode: false, bitrateMode })
+    );
+    assert.equal(body.draft, false);
+    assert.equal(body.bitrate_mode, bitrateMode);
+  }
 });
 
 test("createVideoTask: generate_audio is only true when explicitly requested", async () => {
@@ -353,4 +382,3 @@ test("createVideoTask: translates named material slugs and ad-hoc @img tags to [
   assert.equal(imageItems[1].image_url.url, "data:image/jpeg;base64,SCENE_BASE64");
   assert.equal(imageItems[2].image_url.url, "data:image/jpeg;base64,ADHOC_BASE64");
 });
-

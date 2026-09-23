@@ -22,6 +22,7 @@ import {
 
 } from "@/lib/config";
 import { isOmniModel } from "@/lib/providers/omni";
+import { resolveSeedanceRenderControls } from "@/lib/seedance-render-controls";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -51,6 +52,16 @@ export async function POST(req) {
   // it elsewhere beats storing a true that nothing will ever act on, which
   // would read back as "this video has audio" on a path that cannot produce it.
   const generateAudio = body.generateAudio === true && supportsAudio(model);
+  const renderControls = resolveSeedanceRenderControls(model, body);
+  if (renderControls.error) {
+    return NextResponse.json(
+      { error: renderControls.error },
+      { status: 400 }
+    );
+  }
+  // New supported requests store explicit defaults. Unsupported providers
+  // discard both values, preserving null/absent semantics in persistence.
+  const { draftMode, bitrateMode } = renderControls;
   // Clips already in the library, referenced by their stored path. Dropped for
   // models with no video-reference field rather than persisted and ignored.
   const referenceVideos = supportsVideoReference(model)
@@ -252,6 +263,8 @@ export async function POST(req) {
     referenceAudios: referenceAudios.length ? referenceAudios : undefined,
     continuationFrameUrl,
     generateAudio,
+    draftMode,
+    bitrateMode,
     videoTaskMode: videoTaskMode !== "generate" ? videoTaskMode : undefined,
     projectId,
     folderId,

@@ -25,6 +25,8 @@ import {
   durationRangeForModel,
   resolutionsForModel,
   supportsAudio,
+  supportsDraftMode,
+  supportsBitrateMode,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
 } from "@/lib/config";
@@ -165,6 +167,7 @@ export function ReferenceStrip({ onInsertTag }) {
 export function SettingsToolbar() {
   const s = useStore();
   const audioApplies = s.mode === "video" && supportsAudio(s.model);
+  const renderControlsApply = s.mode === "video" && supportsDraftMode(s.model) && supportsBitrateMode(s.model);
   const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
   // A stale draft or an older server row can omit this field. Keep the
   // toolbar render-safe because the edit/extend label is computed before any
@@ -255,6 +258,14 @@ export function SettingsToolbar() {
                 <>
                   <span className="text-white/35">·</span>
                   <Volume2 className="h-3.5 w-3.5 text-brand" />
+                </>
+              )}
+              {renderControlsApply && (
+                <>
+                  <span className="text-white/35">·</span>
+                  <span>{s.draftMode ? "Draft" : "Final"}</span>
+                  <span className="text-white/35">·</span>
+                  <span>{s.bitrateMode === "standard" ? "Standard" : "High"}</span>
                 </>
               )}
             </Chip>
@@ -354,6 +365,22 @@ export function SettingsToolbar() {
                     Seedance scores the video with synchronised sound. Billed on top of the video.
                   </p>
                 </div>
+              )}
+              {renderControlsApply && (
+                <>
+                  <Segment
+                    label="Render"
+                    options={["Final", "Draft"]}
+                    value={s.draftMode ? "Draft" : "Final"}
+                    onChange={(v) => s.setDraftMode(v === "Draft")}
+                  />
+                  <Segment
+                    label="Bitrate"
+                    options={["Standard", "High"]}
+                    value={s.bitrateMode === "standard" ? "Standard" : "High"}
+                    onChange={(v) => s.setBitrateMode(v.toLowerCase())}
+                  />
+                </>
               )}
             </div>
           )}

@@ -40,6 +40,8 @@ export function rowToItem(r) {
     pollErrorCount: r.pollErrorCount ?? 0,
     lastPollErrorAt: r.lastPollErrorAt ?? undefined,
     generateAudio: r.generateAudio ?? undefined,
+    draftMode: r.draftMode ?? undefined,
+    bitrateMode: r.bitrateMode ?? undefined,
     videoTaskMode: (r.videoTaskMode ) ?? undefined,
     progressPercent: r.progressPercent ?? undefined,
     progressMessage: r.progressMessage ?? undefined,
@@ -66,7 +68,7 @@ export function rowToItem(r) {
   };
 }
 
-function itemToValues(item) {
+export function itemToValues(item) {
   return {
     id: item.id,
     kind: item.kind,
@@ -113,6 +115,8 @@ function itemToValues(item) {
     pollErrorCount: item.pollErrorCount ?? 0,
     lastPollErrorAt: item.lastPollErrorAt ?? null,
     generateAudio: item.generateAudio ?? null,
+    draftMode: item.draftMode ?? null,
+    bitrateMode: item.bitrateMode ?? null,
     videoTaskMode: item.videoTaskMode ?? null,
     progressPercent: item.progressPercent ?? null,
     progressMessage: item.progressMessage ?? null,
