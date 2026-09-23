@@ -30,7 +30,7 @@ test("switching to an unsupported provider resets render controls", () => {
   assert.equal(useStore.getState().bitrateMode, "high");
 });
 
-test("local composer restoration validates render controls against the provider", () => {
+test("local composer restoration discards render controls for unsupported providers", () => {
   const previousStorage = globalThis.localStorage;
   const values = new Map([
     ["veevee-draft-settings-v1", JSON.stringify({ mode: "video", model: "Seedance 2.5", draftMode: true, bitrateMode: "standard" })],
@@ -43,8 +43,8 @@ test("local composer restoration validates render controls against the provider"
   try {
     useStore.setState({ prompt: "", referenceImages: [], draftMode: false, bitrateMode: "high" });
     restoreComposerDraft();
-    assert.equal(useStore.getState().draftMode, true);
-    assert.equal(useStore.getState().bitrateMode, "standard");
+    assert.equal(useStore.getState().draftMode, false);
+    assert.equal(useStore.getState().bitrateMode, "high");
 
     values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "video", model: "Gemini Omni Flash", draftMode: true, bitrateMode: "standard" }));
     restoreComposerDraft();
@@ -55,13 +55,13 @@ test("local composer restoration validates render controls against the provider"
   }
 });
 
-test("cloneToComposer restores stored settings and gives legacy rows the new defaults", async () => {
+test("cloneToComposer discards unsupported stored settings and gives legacy rows safe defaults", async () => {
   const current = useStore.getState();
   const modern = { id: "modern", kind: "video", status: "succeeded", prompt: "scene", model: "Seedance 2.0", aspectRatio: "16:9", resolution: "720p", duration: 5, draftMode: true, bitrateMode: "standard" };
   useStore.setState({ items: [modern], threadItems: [], pendingItems: [] });
   assert.deepEqual(await current.cloneToComposer("modern"), { ok: true });
-  assert.equal(useStore.getState().draftMode, true);
-  assert.equal(useStore.getState().bitrateMode, "standard");
+  assert.equal(useStore.getState().draftMode, false);
+  assert.equal(useStore.getState().bitrateMode, "high");
 
   const legacy = { ...modern, id: "legacy", draftMode: undefined, bitrateMode: undefined };
   useStore.setState({ items: [legacy] });
