@@ -167,7 +167,8 @@ export function ReferenceStrip({ onInsertTag }) {
 export function SettingsToolbar() {
   const s = useStore();
   const audioApplies = s.mode === "video" && supportsAudio(s.model);
-  const renderControlsApply = s.mode === "video" && supportsDraftMode(s.model) && supportsBitrateMode(s.model);
+  const draftApplies = s.mode === "video" && supportsDraftMode(s.model);
+  const bitrateApplies = s.mode === "video" && supportsBitrateMode(s.model);
   const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
   // A stale draft or an older server row can omit this field. Keep the
   // toolbar render-safe because the edit/extend label is computed before any
@@ -260,10 +261,14 @@ export function SettingsToolbar() {
                   <Volume2 className="h-3.5 w-3.5 text-brand" />
                 </>
               )}
-              {renderControlsApply && (
+              {draftApplies && (
                 <>
                   <span className="text-white/35">·</span>
                   <span>{s.draftMode ? "Draft" : "Final"}</span>
+                </>
+              )}
+              {bitrateApplies && (
+                <>
                   <span className="text-white/35">·</span>
                   <span>{s.bitrateMode === "standard" ? "Standard" : "High"}</span>
                 </>
@@ -366,21 +371,21 @@ export function SettingsToolbar() {
                   </p>
                 </div>
               )}
-              {renderControlsApply && (
-                <>
+              {draftApplies && (
                   <Segment
                     label="Render"
                     options={["Final", "Draft"]}
                     value={s.draftMode ? "Draft" : "Final"}
                     onChange={(v) => s.setDraftMode(v === "Draft")}
                   />
+              )}
+              {bitrateApplies && (
                   <Segment
                     label="Bitrate"
                     options={["Standard", "High"]}
                     value={s.bitrateMode === "standard" ? "Standard" : "High"}
                     onChange={(v) => s.setBitrateMode(v.toLowerCase())}
                   />
-                </>
               )}
             </div>
           )}

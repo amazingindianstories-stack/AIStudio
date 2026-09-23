@@ -147,6 +147,7 @@ export const MODEL_REGISTRY = [
       maxReferenceVideos: 3,
       videoReference: true,
       audio: true,
+      draft: true,
       editExtend: true,
       seed: true,
       videoBestOf: true,
