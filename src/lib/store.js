@@ -1975,14 +1975,33 @@ export function mergeLiveItems(
   set((s) => {
     const scope = currentScope(s);
     const byId = new Map(s.items.map((i) => [i.id, i]));
+    const threadById = new Map(s.threadItems.map((i) => [i.id, i]));
     const oldestLoaded = s.items.length
       ? Math.min(...s.items.map((i) => i.createdAt))
       : 0;
     const pendingById = new Map(s.pendingItems.map((i) => [i.id, i]));
     let changed = false;
+    let threadChanged = false;
     let pendingChanged = false;
 
     for (const inc of incoming) {
+      // The project conversation owns a separate copy of each row. Live
+      // completion used to update only the right-hand asset feed, leaving the
+      // chat copy permanently `running` until a full thread reload.
+      const threadItem = threadById.get(inc.id);
+      if (threadItem && inc.updatedAt > threadItem.updatedAt) {
+        if (inc.projectId === s.activeProjectId && inc.kind !== "depth" && inc.kind !== "audio") {
+          threadById.set(inc.id, {
+            ...threadItem,
+            ...inc,
+            queueNote: inc.status === "queued" ? threadItem.queueNote : undefined,
+          });
+        } else {
+          threadById.delete(inc.id);
+        }
+        threadChanged = true;
+      }
+
       const cur = byId.get(inc.id);
       if (cur) {
         if (inc.updatedAt > cur.updatedAt) {
@@ -2022,6 +2041,7 @@ export function mergeLiveItems(
       patch.items = items;
       writeCachedItems(scopeKey(scope), items);
     }
+    if (threadChanged) patch.threadItems = Array.from(threadById.values());
     if (pendingChanged) patch.pendingItems = Array.from(pendingById.values());
     return patch;
   });

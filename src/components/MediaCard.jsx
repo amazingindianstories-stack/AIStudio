@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Play,
-  Loader2,
   AlertCircle,
   ImageIcon,
   Layers,
@@ -26,6 +25,7 @@ import { Dropdown, MenuItem } from "./Dropdown";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { ProgressiveImage } from "./ProgressiveImage";
+import { GenerationStatus } from "./GenerationStatus";
 
 // Grid cards render at ~160–320 CSS px; request a modest fixed width
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
@@ -263,22 +263,19 @@ export function MediaCard({
 
         {/* pending skeleton */}
         {pending && (
-          <div className="skeleton absolute inset-0 flex flex-col items-center justify-center gap-2 p-3 text-center">
-            <Loader2 className="h-6 w-6 animate-spin text-brand/80" />
-            <span className="text-[11px] font-medium text-white/55">
-              {item.status === "queued" ? "Queued…" : "Generating…"}
-            </span>
+          <div className="absolute inset-0">
+            <GenerationStatus status={item.status} />
             {/* A job held by the spend gate is healthy and self-starting, so it
                 keeps the normal pending treatment — only the caption changes.
                 Showing it as an error would be the "not a good look" this whole
                 gate exists to avoid. */}
             {item.queueNote && (
-              <span className="text-[10px] leading-snug text-white/40">
+              <span className="absolute inset-x-3 bottom-2 z-10 text-center text-[10px] leading-snug text-white/40">
                 {item.queueNote}
               </span>
             )}
             {item.kind === "video" && item.pollWarning && (
-              <span className="text-[10px] leading-snug text-amber-300/80">
+              <span className="absolute inset-x-3 bottom-2 z-10 text-center text-[10px] leading-snug text-amber-300/80">
                 {item.pollWarning}
               </span>
             )}
@@ -289,7 +286,7 @@ export function MediaCard({
                 2.5s, so no new data plumbing is needed here, only the
                 render. Other kinds never populate these fields. */}
             {item.kind === "depth" && item.progressPercent != null && (
-              <div className="mt-1 w-full max-w-[140px]">
+              <div className="absolute inset-x-3 bottom-2 z-10 mx-auto w-full max-w-[140px]">
                 <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
                   <div
                     className="h-full rounded-full bg-brand transition-[width] duration-500"

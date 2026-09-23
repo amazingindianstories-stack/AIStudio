@@ -139,6 +139,28 @@ test("mergeLiveItems: a strictly-newer incoming row overwrites the existing one"
   assert.equal(h.state().items[0].prompt, "new");
 });
 
+test("mergeLiveItems: completion patches the project thread even when the asset feed holds a separate copy", () => {
+  const running = makeItem({ id: "a", projectId: "project-1", status: "running", updatedAt: 100 });
+  const complete = makeItem({ id: "a", projectId: "project-1", status: "succeeded", url: "/result.png", updatedAt: 200 });
+  const h = harness({
+    activeProjectId: "project-1",
+    items: [{ ...running }],
+    threadItems: [{ ...running }],
+  });
+  mergeLiveItems([complete], h.set);
+  assert.equal(h.state().items[0].status, "succeeded");
+  assert.equal(h.state().threadItems[0].status, "succeeded");
+  assert.equal(h.state().threadItems[0].url, "/result.png");
+});
+
+test("mergeLiveItems: a stale live row cannot regress a fresher chat result", () => {
+  const complete = makeItem({ id: "a", projectId: "project-1", status: "succeeded", updatedAt: 200 });
+  const stale = makeItem({ id: "a", projectId: "project-1", status: "running", updatedAt: 100 });
+  const h = harness({ activeProjectId: "project-1", threadItems: [complete] });
+  mergeLiveItems([stale], h.set);
+  assert.equal(h.state().threadItems[0].status, "succeeded");
+});
+
 test("mergeLiveItems: an incoming row that is not strictly newer is ignored, so a slow live poll can't clobber a fresher local write", () => {
   const cur = makeItem({ id: "a", updatedAt: 200, prompt: "fresh" });
   const inc = makeItem({ id: "a", updatedAt: 100, prompt: "stale" });

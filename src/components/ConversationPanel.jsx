@@ -4,7 +4,6 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion";
 import {
   Play,
-  Loader2,
   AlertCircle,
   ChevronsDown,
   ChevronDown,
@@ -21,6 +20,7 @@ import {
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { GenerationStatus } from "./GenerationStatus";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
 
@@ -237,14 +237,7 @@ function FeedBlock({ item, index }) {
           )}
 
           {pending && (
-            <div className="skeleton absolute inset-0 flex flex-col items-center justify-center gap-2.5">
-              <Loader2 className="h-7 w-7 animate-spin text-brand/80" />
-              <span className="text-xs text-white/60">
-                {item.kind === "video"
-                  ? "Rendering your video… this can take a minute"
-                  : "Painting your image…"}
-              </span>
-            </div>
+            <GenerationStatus status={item.status} className="absolute inset-0" />
           )}
 
           {item.status === "failed" && (
