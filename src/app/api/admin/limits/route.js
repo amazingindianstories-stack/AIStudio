@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { adminOrNull } from "@/lib/admin";
-import { limitDefinition } from "@/lib/limits";
+import { isLimitValueAllowed, limitDefinition } from "@/lib/limits";
 import { updateGlobalLimit } from "@/lib/limits-db";
 
 export const runtime = "nodejs";
@@ -17,7 +17,7 @@ export async function POST(req) {
   const def = limitDefinition(key);
   if (!def) return NextResponse.json({ error: "Unknown limit." }, { status: 400 });
   const value = Math.round(Number(b.value));
-  if (!Number.isFinite(value) || value < def.min) {
+  if (!isLimitValueAllowed(value, def)) {
     return NextResponse.json({ error: `Invalid ${def.label.toLowerCase()}.` }, { status: 400 });
   }
   await updateGlobalLimit(key, value);

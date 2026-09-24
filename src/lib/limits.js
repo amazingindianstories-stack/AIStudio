@@ -25,15 +25,21 @@ export const LIMIT_DEFINITIONS = [
     key: "maxConcurrentJobs",
     label: "Max concurrent jobs",
     description:
-      "Maximum running jobs per user and job kind. The global image/video caps still apply, so this prevents one user from occupying every shared slot.",
-    unit: "jobs per kind",
-    defaultValue: 2,
+      "Maximum total running image and video jobs per user. The global image/video caps still apply, so this prevents one user from occupying every shared slot.",
+    unit: "image/video jobs",
+    defaultValue: 4,
     min: 1,
+    max: 4,
   },
 ];
 
 export function limitDefinition(key) {
   return LIMIT_DEFINITIONS.find((d) => d.key === key);
+}
+
+/** Shared server/UI validation for an administrator-provided limit. */
+export function isLimitValueAllowed(value, def) {
+  return Number.isFinite(value) && value >= def.min && (def.max == null || value <= def.max);
 }
 
 /** Parses a stored value against its definition, falling back to the
@@ -45,5 +51,6 @@ export function parseLimitValue(
   def
 ) {
   const n = raw != null ? parseInt(raw, 10) : NaN;
-  return Number.isFinite(n) && n >= def.min ? n : def.defaultValue;
+  if (!Number.isFinite(n) || n < def.min) return def.defaultValue;
+  return def.max == null ? n : Math.min(n, def.max);
 }

@@ -2,6 +2,8 @@ import { ne, eq, desc, lt, or, gt, inArray, isNull, and, sql, } from "drizzle-or
 import { getDb } from "./db";
 import { generations } from "./schema";
 import { isProviderModel } from "./model-registry";
+import { MAX_CONCURRENT, MAX_CONCURRENT_PER_USER } from "./queue-limits";
+export { MAX_CONCURRENT, MAX_CONCURRENT_PER_USER } from "./queue-limits";
 
 /**
  * Generation persistence — Postgres `generations` table (was history.json).
@@ -444,8 +446,6 @@ import {
 // running job is a 30–60s serverless invocation with best-of-N provider
 // calls); videos bound the provider (concurrent remote renders + MCP rate
 // limits). Anything beyond the cap waits in the queue.
-const MAX_CONCURRENT = { image: 6, video: 4 };
-
 // Image jobs execute synchronously inside one serverless invocation
 // (/api/queue/execute). If the platform hard-kills that invocation mid-flight
 // (timeout, crash, cold-start OOM), nothing ever runs to flip the row off
@@ -546,11 +546,12 @@ async function queueSnapshot(
   createdAt,
   itemId,
   bestOf,
-  windowStart
+  windowStart,
+  database
 )
 
  {
-  const db = await getDb();
+  const db = database ?? await getDb();
   // `created_at > windowStart - 6h` is a redundant but index-backed superset of
   // the updated_at predicate (generations_created_at_idx exists; updated_at has
   // no index and adding one would mean a migration). Safe because nothing in
@@ -561,30 +562,30 @@ async function queueSnapshot(
     with global_user_limit as (
       select coalesce(
         max(case when value ~ '^[0-9]{1,9}$' and value::int >= 1 then value::int end),
-        2
+        ${MAX_CONCURRENT_PER_USER}
       ) as value
       from settings where key = 'maxConcurrentJobs'
     ), running_by_user as (
       select user_id, count(*)::int as n
       from ${generations}
-      where status = 'running' and kind = ${kind} and user_id is not null
+      where status = 'running' and kind in ('image', 'video') and user_id is not null
       group by user_id
     ), ranked_queue as (
-      select q.id, q.created_at,
+      select q.id, q.kind, q.created_at,
         row_number() over (
           partition by coalesce(q.user_id::text, q.id::text)
           order by q.created_at asc, q.id asc
         ) as user_rank,
         coalesce(r.n, 0) as user_running,
-        coalesce(
+        least(coalesce(
           case when ul.value ~ '^[0-9]{1,9}$' and ul.value::int >= 1 then ul.value::int end,
           gl.value
-        ) as user_cap
+        ), ${MAX_CONCURRENT_PER_USER}) as user_cap
       from ${generations} q
       cross join global_user_limit gl
       left join running_by_user r on r.user_id = q.user_id
       left join user_limits ul on ul.user_id = q.user_id and ul.key = 'maxConcurrentJobs'
-      where q.status = 'queued' and q.kind = ${kind}
+      where q.status = 'queued' and q.kind in ('image', 'video')
     ), eligible_queue as (
       select * from ranked_queue
       where user_rank <= greatest(user_cap - user_running, 0)
@@ -593,7 +594,8 @@ async function queueSnapshot(
       (select count(*) from ${generations}
         where status = 'running' and kind = ${kind}) as running,
       (select count(*) from eligible_queue
-        where (created_at, id) < (${createdAt}, ${itemId}::uuid)) as older,
+        where id <> ${itemId}::uuid and kind = ${kind}
+          and (created_at, id) < (${createdAt}, ${itemId}::uuid)) as older,
       exists(select 1 from eligible_queue where id = ${itemId}::uuid) as user_eligible,
       (select coalesce(sum(
           case when status = 'running' then cost_cents * ${bestOf} else cost_cents end
@@ -694,15 +696,52 @@ export async function getQueuePosition(id) {
   };
 }
 
+/**
+ * Atomically re-check admission and move a queued image/video to running.
+ *
+ * The kind lock serializes contenders for a shared global slot, while the
+ * user lock serializes image and video contenders for the same aggregate
+ * per-user slots. Both are transaction-scoped and held only for this small
+ * read/update transaction; provider work happens after they are released.
+ */
 export async function lockJob(id) {
   const db = await getDb();
-  // Atomic update: only lock if still queued
-  const res = await db
-    .update(generations)
-    .set({ status: "running", updatedAt: Date.now() })
-    .where(and(eq(generations.id, id), eq(generations.status, "queued")))
-    .returning({ id: generations.id });
-  return res.length > 0;
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(generations).where(eq(generations.id, id)).limit(1);
+    if (!row || row.status !== "queued" || !["image", "video"].includes(row.kind)) return false;
+
+    // A fixed acquisition order prevents a kind/user deadlock. Hashing keeps
+    // lock identifiers stable without requiring schema state.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${'generation-kind:' + row.kind}, 0))`);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${'generation-user:' + (row.userId ?? row.id)}, 0))`);
+
+    // The row may have changed while this transaction waited for a lock.
+    const [fresh] = await tx.select().from(generations).where(eq(generations.id, id)).limit(1);
+    if (!fresh || fresh.status !== "queued") return false;
+
+    const now = Date.now();
+    const bestOf = bestOfMultiplier();
+    const snap = await queueSnapshot(
+      fresh.kind, fresh.createdAt, fresh.id, bestOf, now - SPEND_WINDOW_MS, tx
+    );
+    const cap = MAX_CONCURRENT[fresh.kind];
+    if (!snap.userEligible || snap.running + snap.older >= cap) return false;
+
+    const billsGemini = (fresh.kind === "image" && !isProviderModel(fresh.model, "seedream")) || isProviderModel(fresh.model, "omni");
+    if (billsGemini && !admits({
+      windowCents: snap.windowCents,
+      jobCents: (fresh.costCents ?? 0) * bestOf,
+      limitCents: spendLimitCents(),
+      windowBusy: snap.windowRows > 0,
+    })) return false;
+
+    const res = await tx
+      .update(generations)
+      .set({ status: "running", updatedAt: now })
+      .where(and(eq(generations.id, id), eq(generations.status, "queued")))
+      .returning({ id: generations.id });
+    return res.length > 0;
+  });
 }
 
 /**

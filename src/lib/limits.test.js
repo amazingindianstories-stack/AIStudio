@@ -1,10 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LIMIT_DEFINITIONS, limitDefinition, parseLimitValue } from "./limits";
+import { isLimitValueAllowed, LIMIT_DEFINITIONS, limitDefinition, parseLimitValue } from "./limits";
 
 test("limitDefinition: finds a registered key, undefined for an unknown one", () => {
   assert.equal(limitDefinition("maxPromptLength")?.key, "maxPromptLength");
   assert.equal(limitDefinition("not-a-real-limit"), undefined);
+});
+
+test("admin limit validation rejects concurrency values above the hard maximum", () => {
+  const def = limitDefinition("maxConcurrentJobs");
+  assert.equal(isLimitValueAllowed(1, def), true);
+  assert.equal(isLimitValueAllowed(4, def), true);
+  assert.equal(isLimitValueAllowed(5, def), false);
+  assert.equal(isLimitValueAllowed(Number.NaN, def), false);
 });
 
 test("LIMIT_DEFINITIONS: every entry has a positive default at or above its own minimum", () => {
@@ -16,10 +24,12 @@ test("LIMIT_DEFINITIONS: every entry has a positive default at or above its own 
   }
 });
 
-test("maxConcurrentJobs defaults to two shared slots per user and kind", () => {
+test("maxConcurrentJobs defaults to four aggregate image/video slots and has a hard maximum", () => {
   const def = limitDefinition("maxConcurrentJobs");
-  assert.equal(def.defaultValue, 2);
+  assert.equal(def.defaultValue, 4);
   assert.equal(def.min, 1);
+  assert.equal(def.max, 4);
+  assert.equal(parseLimitValue("99", def), 4);
 });
 
 const maxPromptLength = limitDefinition("maxPromptLength");
