@@ -589,8 +589,9 @@ export const CanvasSurface = forwardRef
     if (drag.kind === "resize" && drag.resizeStartNode && drag.resizeNodeId && drag.resizeHandle) {
       const worldDx = dx / viewport.zoom;
       const worldDy = dy / viewport.zoom;
-      const keepAspectBase = drag.resizeStartNode.type === "image";
-      const keepAspect = e.shiftKey ? !keepAspectBase : keepAspectBase;
+      // Every node, including images, resizes freely by default. Holding
+      // Shift temporarily preserves the frame's current aspect ratio.
+      const keepAspect = e.shiftKey;
       const resized = resizeNode(drag.resizeStartNode, drag.resizeHandle, worldDx, worldDy, keepAspect);
       const nextNodes = present.nodes.map((n) => (n.id === drag.resizeNodeId ? resized : n));
       setPreview({ ...present, nodes: nextNodes });
@@ -727,8 +728,7 @@ export const CanvasSurface = forwardRef
       const screen = toScreenLocal(e.clientX, e.clientY);
       const worldDx = (screen.x - drag.startScreen.x) / viewport.zoom;
       const worldDy = (screen.y - drag.startScreen.y) / viewport.zoom;
-      const keepAspectBase = drag.resizeStartNode.type === "image";
-      const keepAspect = e.shiftKey ? !keepAspectBase : keepAspectBase;
+      const keepAspect = e.shiftKey;
       if (drag.moved) {
         resizeSelected(drag.resizeHandle, worldDx, worldDy, keepAspect);
       }

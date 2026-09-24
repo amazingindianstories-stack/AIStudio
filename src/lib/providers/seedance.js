@@ -2,7 +2,7 @@
 
 import { buildVideoDirective } from "../video-directive.js";
 import { parseRefRoles } from "../shot-spec.js";
-import { maxReferenceImagesForVideoModel, supportsDraftMode } from "../config.js";
+import { maxReferenceImagesForVideoModel, supportsBitrateMode, supportsDraftMode } from "../config.js";
 import { isProviderModel, providerModelId } from "../model-registry.js";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
@@ -298,6 +298,11 @@ export async function createVideoTask(
   // It must be absent (not even false) for 2.0, whose API rejects `draft`.
   if (supportsDraftMode(input.modelDisplay)) {
     body.draft = input.draftMode === true;
+  }
+  // Direct Seedance exposes two bitrate tiers. The UI calls the provider's
+  // `standard` tier "Low" so artists see a simple Low/High choice.
+  if (!input.modelDisplay || supportsBitrateMode(input.modelDisplay)) {
+    body.bitrate_mode = input.bitrateMode === "standard" ? "standard" : "high";
   }
   // BytePlus can notify our server even when the artist closes the browser.
   // Configure this as a public HTTPS endpoint in production; the 30-second

@@ -39,7 +39,7 @@ test("capabilities and provider ids are explicit with safe unknown defaults", ()
   assert.equal(capability("Higgsfield Seedance 2.0", "audio"), false);
   assert.equal(capability("Seedance 2.0 Mini", "draft"), false);
   assert.equal(capability("Seedance 2.5", "draft"), true);
-  assert.equal(capability("Seedance 2.5", "bitrate"), false);
+  assert.equal(capability("Seedance 2.5", "bitrate"), true);
   assert.equal(capability("unknown future model", "audio"), false);
   assert.equal(providerModelId("Seedance 2.5", { SEEDANCE_MODEL_25: "override-25" }), "override-25");
   assert.equal(providerModelId("unknown future model"), undefined);

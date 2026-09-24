@@ -500,7 +500,7 @@ export const useCanvasStore = create((set, get) => ({
         y: target.y - h / 2 + index * OFFSET,
         w, h, src: image.url, alt: image.alt ?? "",
         naturalW: image.naturalW, naturalH: image.naturalH,
-        aspectLocked: true, parentId: null, groupId: null,
+        aspectLocked: false, parentId: null, groupId: null,
       };
     });
     mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, ...nodes] }));
@@ -522,7 +522,7 @@ export const useCanvasStore = create((set, get) => ({
       w,
       h,
       src: a.url,
-      aspectLocked: true,
+      aspectLocked: false,
       parentId: null,
       groupId: null,
     };

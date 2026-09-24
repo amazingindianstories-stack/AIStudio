@@ -273,7 +273,7 @@ export function SettingsToolbar() {
               {bitrateApplies && (
                 <>
                   <span className="text-white/35">·</span>
-                  <span>{s.bitrateMode === "standard" ? "Standard" : "High"}</span>
+                  <span>{s.bitrateMode === "standard" ? "Low" : "High"}</span>
                 </>
               )}
             </Chip>
@@ -385,9 +385,9 @@ export function SettingsToolbar() {
               {bitrateApplies && (
                   <Segment
                     label="Bitrate"
-                    options={["Standard", "High"]}
-                    value={s.bitrateMode === "standard" ? "Standard" : "High"}
-                    onChange={(v) => s.setBitrateMode(v.toLowerCase())}
+                    options={["Low", "High"]}
+                    value={s.bitrateMode === "standard" ? "Low" : "High"}
+                    onChange={(v) => s.setBitrateMode(v === "Low" ? "standard" : "high")}
                   />
               )}
             </div>

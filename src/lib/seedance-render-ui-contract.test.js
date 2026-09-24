@@ -10,7 +10,7 @@ test("both composer settings surfaces gate Render and Bitrate independently", ()
     assert.match(source, /draftApplies/);
     assert.match(source, /bitrateApplies/);
     assert.match(source, /s\.draftMode \? "Draft" : "Final"/);
-    assert.match(source, /s\.bitrateMode === "standard" \? "Standard" : "High"/);
+    assert.match(source, /s\.bitrateMode === "standard" \? "Low" : "High"/);
   }
 });
 

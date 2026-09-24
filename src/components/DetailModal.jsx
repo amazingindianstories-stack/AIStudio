@@ -506,7 +506,7 @@ export function DetailModal() {
                 {item.bitrateMode != null && (
                   <Param
                     label="Bitrate"
-                    value={item.bitrateMode === "standard" ? "Standard" : "High"}
+                    value={item.bitrateMode === "standard" ? "Low" : "High"}
                   />
                 )}
               </div>
