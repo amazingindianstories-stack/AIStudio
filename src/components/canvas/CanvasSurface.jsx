@@ -99,7 +99,7 @@ export function buildDefaultNode(tool, center) {
 
 export const CanvasSurface = forwardRef
 
-(function CanvasSurface({ toolLocked, onAfterSingleShotPlace, boardId, onTransientChange }, ref) {
+(function CanvasSurface({ toolLocked, onAfterSingleShotPlace, boardId, onTransientChange, onImportFiles }, ref) {
   const containerRef = useRef(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
@@ -109,6 +109,8 @@ export const CanvasSurface = forwardRef
   const selectedConnectorIds = useCanvasStore((s) => s.selectedConnectorIds);
   const tool = useCanvasStore((s) => s.tool);
   const editingTextId = useCanvasStore((s) => s.editingTextId);
+  const croppingImageId = useCanvasStore((s) => s.croppingImageId);
+  const cropDraft = useCanvasStore((s) => s.cropDraft);
   const setSelection = useCanvasStore((s) => s.setSelection);
   const toggleSelect = useCanvasStore((s) => s.toggleSelect);
   const clearSelection = useCanvasStore((s) => s.clearSelection);
@@ -474,6 +476,9 @@ export const CanvasSurface = forwardRef
       case "copy":
         s.copy();
         break;
+      case "cut":
+        s.cut();
+        break;
       case "paste":
         s.paste();
         break;
@@ -501,6 +506,9 @@ export const CanvasSurface = forwardRef
     if (node.type === "text" || node.type === "sticky" || node.type === "frame") {
       setSelection([node.id]);
       useCanvasStore.getState().setEditingTextId(node.id);
+    } else if (node.type === "image") {
+      setSelection([node.id]);
+      useCanvasStore.getState().beginCrop(node.id);
     }
   };
 
@@ -752,13 +760,11 @@ export const CanvasSurface = forwardRef
       return;
     }
     // Direct OS file drop (best-effort; not the primary/AC path).
-    const file = Array.from(e.dataTransfer.files).find((f) => f.type.startsWith("image/"));
-    if (file && boardId) {
+    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    if (files.length && boardId) {
       const screen = toScreenLocal(e.clientX, e.clientY);
       const worldPoint = screenToWorld(screen, viewport);
-      uploadImageFile(file, boardId).then((url) => {
-        if (url) addImageFromAsset({ url }, worldPoint);
-      });
+      onImportFiles?.(files, worldPoint);
     }
   };
 
@@ -832,6 +838,12 @@ export const CanvasSurface = forwardRef
             onPointerDownHandle={onPointerDownHandle}
             onConnectorHandlePointerDown={onConnectorHandlePointerDown}
             connectorHoverTarget={connectorHoverTargetId === n.id}
+            cropMode={croppingImageId === n.id}
+            cropDraft={croppingImageId === n.id ? cropDraft : null}
+            onCropChange={(patch) => useCanvasStore.getState().updateCropDraft(patch)}
+            onApplyCrop={() => useCanvasStore.getState().applyCrop()}
+            onCancelCrop={() => useCanvasStore.getState().cancelCrop()}
+            onResetCrop={() => useCanvasStore.getState().resetCropDraft()}
           />
         ))}
 
@@ -930,6 +942,41 @@ export async function uploadImageFile(file, boardId) {
   } catch {
     return null;
   }
+}
+
+export async function readImageDimensions(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    return await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve({ naturalW: image.naturalWidth, naturalH: image.naturalHeight });
+      image.onerror = () => reject(new Error("Could not read image dimensions"));
+      image.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** Uploads with bounded concurrency while returning successes in input order. */
+export async function uploadImageFiles(files, boardId, concurrency = 3) {
+  const results = new Array(files.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < files.length) {
+      const index = cursor++;
+      const file = files[index];
+      try {
+        const dimensions = await readImageDimensions(file);
+        const url = await uploadImageFile(file, boardId);
+        results[index] = url ? { url, alt: file.name, ...dimensions } : null;
+      } catch {
+        results[index] = null;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, files.length) }, worker));
+  return { images: results.filter(Boolean), failed: results.filter((item) => !item).length };
 }
 
 export { screenToWorld as canvasScreenToWorld };

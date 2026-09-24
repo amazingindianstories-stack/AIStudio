@@ -45,6 +45,12 @@ export function NodeView({
   onConnectorHandlePointerDown,
   connectorHoverTarget,
   hasChildren = false,
+  cropMode,
+  cropDraft,
+  onCropChange,
+  onApplyCrop,
+  onCancelCrop,
+  onResetCrop,
 }
 
 ) {
@@ -114,7 +120,7 @@ export function NodeView({
               />
             );
           case "image":
-            return <ImageNode node={node} />;
+            return <ImageNode node={node} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
         }
       })()}
 
@@ -127,7 +133,7 @@ export function NodeView({
         />
       )}
 
-      {showHandles &&
+      {showHandles && !cropMode &&
         HANDLES.map((h) => (
           <button
             key={h.id}

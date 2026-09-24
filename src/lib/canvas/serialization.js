@@ -160,6 +160,13 @@ function validateNode(raw) {
       if (typeof r.alt === "string") node.alt = r.alt;
       if (isFiniteNumber(r.naturalW)) node.naturalW = r.naturalW;
       if (isFiniteNumber(r.naturalH)) node.naturalH = r.naturalH;
+      if (r.crop && typeof r.crop === "object") {
+        node.crop = {
+          x: clamp01(num(r.crop.x, 0.5)),
+          y: clamp01(num(r.crop.y, 0.5)),
+          zoom: Math.min(8, Math.max(1, num(r.crop.zoom, 1))),
+        };
+      }
       return node;
     }
     default:

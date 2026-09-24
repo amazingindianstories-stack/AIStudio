@@ -80,6 +80,14 @@ function clamp01(v) {
   return Math.min(1, Math.max(0, v));
 }
 
+function normalizeCrop(crop) {
+  return {
+    x: clamp01(crop?.x ?? 0.5),
+    y: clamp01(crop?.y ?? 0.5),
+    zoom: Math.min(8, Math.max(1, crop?.zoom ?? 1)),
+  };
+}
+
 function applyStylePatchToNode(n, patch) {
   const opacity = patch.opacity !== undefined ? clamp01(patch.opacity) : n.opacity;
   switch (n.type) {
@@ -375,6 +383,8 @@ async function loadBoardImpl(set, get, id) {
     selection: [],
     selectedConnectorIds: [],
     editingTextId: null,
+    croppingImageId: null,
+    cropDraft: null,
     saveStatus: "idle",
     loaded: true,
   });
@@ -394,6 +404,8 @@ export const useCanvasStore = create((set, get) => ({
   tool: "select",
   editingTextId: null,
   saveStatus: "idle",
+  croppingImageId: null,
+  cropDraft: null,
 
   loadBoard: (id) => loadBoardImpl(set, get, id),
 
@@ -415,6 +427,8 @@ export const useCanvasStore = create((set, get) => ({
       tool: "select",
       editingTextId: null,
       saveStatus: "idle",
+      croppingImageId: null,
+      cropDraft: null,
     });
   },
 
@@ -467,6 +481,30 @@ export const useCanvasStore = create((set, get) => ({
   addNode: (node) => {
     mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, node] }));
     set({ selection: [node.id], selectedConnectorIds: [] });
+  },
+
+  addImageBatch: (images, worldPoint) => {
+    if (!images.length) return;
+    const vp = get().history.present.viewport;
+    const target = worldPoint ?? viewportCenterWorld(vp);
+    const OFFSET = 24;
+    const nodes = images.map((image, index) => {
+      const ratio = image.naturalW > 0 && image.naturalH > 0
+        ? image.naturalW / image.naturalH
+        : parseAspectRatio(image.aspectRatio) ?? 1;
+      const w = ratio >= 1 ? 320 : 320 * ratio;
+      const h = ratio >= 1 ? 320 / ratio : 320;
+      return {
+        id: crypto.randomUUID(), type: "image",
+        x: target.x - w / 2 + index * OFFSET,
+        y: target.y - h / 2 + index * OFFSET,
+        w, h, src: image.url, alt: image.alt ?? "",
+        naturalW: image.naturalW, naturalH: image.naturalH,
+        aspectLocked: true, parentId: null, groupId: null,
+      };
+    });
+    mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, ...nodes] }));
+    set({ selection: nodes.map((node) => node.id), selectedConnectorIds: [] });
   },
 
   addImageFromAsset: (a, worldPoint) => {
@@ -698,6 +736,35 @@ export const useCanvasStore = create((set, get) => ({
     if (!selection.length) return;
     const selSet = new Set(selection);
     clipboard = history.present.nodes.filter((n) => selSet.has(n.id)).map((n) => ({ ...n }));
+  },
+
+  cut: () => {
+    const { selection, history } = get();
+    if (!selection.length) return;
+    const selected = new Set(selection);
+    clipboard = history.present.nodes.filter((node) => selected.has(node.id)).map((node) => ({ ...node }));
+    get().deleteSelected();
+  },
+
+  beginCrop: (id) => {
+    const node = get().history.present.nodes.find((item) => item.id === id && item.type === "image");
+    if (node) set({ croppingImageId: id, cropDraft: normalizeCrop(node.crop) });
+  },
+  updateCropDraft: (patch) => {
+    const draft = get().cropDraft;
+    if (draft) set({ cropDraft: normalizeCrop({ ...draft, ...patch }) });
+  },
+  resetCropDraft: () => set({ cropDraft: { x: 0.5, y: 0.5, zoom: 1 } }),
+  cancelCrop: () => set({ croppingImageId: null, cropDraft: null }),
+  applyCrop: () => {
+    const { croppingImageId, cropDraft } = get();
+    if (!croppingImageId || !cropDraft) return;
+    const crop = normalizeCrop(cropDraft);
+    mutateGraph(set, get, (present) => ({
+      ...present,
+      nodes: present.nodes.map((node) => node.id === croppingImageId ? { ...node, crop } : node),
+    }));
+    set({ croppingImageId: null, cropDraft: null });
   },
 
   paste: () => {

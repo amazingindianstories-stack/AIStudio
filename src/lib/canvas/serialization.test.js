@@ -322,3 +322,17 @@ test("validateCanvasState: a completely malformed 'nodes' value (not an array) i
   const result = validateCanvasState(raw);
   assert.ok(Array.isArray(result.nodes));
 });
+
+test("validateCanvasState: image crop is optional, clamped, and preserves intrinsic dimensions", () => {
+  const state = validateCanvasState({
+    nodes: [{
+      id: "cropped", type: "image", x: 0, y: 0, w: 320, h: 180,
+      src: "/api/media/example.jpg", naturalW: 1920, naturalH: 1080,
+      crop: { x: -2, y: 2, zoom: 20 },
+    }],
+    connectors: [],
+  });
+  assert.deepEqual(state.nodes[0].crop, { x: 0, y: 1, zoom: 8 });
+  assert.equal(state.nodes[0].naturalW, 1920);
+  assert.equal(state.nodes[0].naturalH, 1080);
+});

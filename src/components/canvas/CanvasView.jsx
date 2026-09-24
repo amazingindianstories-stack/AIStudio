@@ -8,7 +8,7 @@ import { useCanvasStore } from "@/lib/canvas-store";
 import {
   CanvasSurface,
   buildDefaultNode,
-  uploadImageFile,
+  uploadImageFiles,
 
 } from "./CanvasSurface";
 import { CanvasToolbar } from "./CanvasToolbar";
@@ -36,6 +36,7 @@ export function CanvasView() {
   const [assetPanelCollapsed, setAssetPanelCollapsed] = useState(false);
   const [transientActive, setTransientActive] = useState(false);
   const [tooSmall, setTooSmall] = useState(false);
+  const [importNotice, setImportNotice] = useState("");
 
   const surfaceRef = useRef(null);
 
@@ -55,6 +56,7 @@ export function CanvasView() {
   const setViewport = useCanvasStore((s) => s.setViewport);
   const addNode = useCanvasStore((s) => s.addNode);
   const addImageFromAsset = useCanvasStore((s) => s.addImageFromAsset);
+  const addImageBatch = useCanvasStore((s) => s.addImageBatch);
   const group = useCanvasStore((s) => s.group);
   const ungroup = useCanvasStore((s) => s.ungroup);
   const bringForward = useCanvasStore((s) => s.bringForward);
@@ -63,6 +65,7 @@ export function CanvasView() {
   const sendToBack = useCanvasStore((s) => s.sendToBack);
   const copy = useCanvasStore((s) => s.copy);
   const paste = useCanvasStore((s) => s.paste);
+  const cut = useCanvasStore((s) => s.cut);
 
   const imageFileInputRef = useRef(null);
 
@@ -144,14 +147,37 @@ export function CanvasView() {
     [addImageFromAsset]
   );
 
-  const addImageFile = useCallback(
-    async (file) => {
+  const importImageFiles = useCallback(
+    async (files, worldPoint) => {
       if (!boardId) return;
-      const url = await uploadImageFile(file, boardId);
-      if (url) placeAsset({ url });
+      const accepted = Array.from(files).filter((file) => file.type.startsWith("image/"));
+      if (!accepted.length) return;
+      setImportNotice(`Uploading ${accepted.length} image${accepted.length === 1 ? "" : "s"}…`);
+      const { images, failed } = await uploadImageFiles(accepted, boardId);
+      if (images.length) {
+        const target = worldPoint ?? surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
+        addImageBatch(images, target);
+      }
+      setImportNotice(failed
+        ? `${images.length} image${images.length === 1 ? "" : "s"} added; ${failed} failed.`
+        : `${images.length} image${images.length === 1 ? "" : "s"} added.`);
+      window.setTimeout(() => setImportNotice(""), 3500);
     },
-    [boardId, placeAsset]
+    [boardId, addImageBatch]
   );
+
+  useEffect(() => {
+    const onPaste = (event) => {
+      const target = event.target;
+      if (target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
+      const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
+      event.preventDefault();
+      if (files.length) void importImageFiles(files);
+      else paste();
+    };
+    document.addEventListener("paste", onPaste);
+    return () => document.removeEventListener("paste", onPaste);
+  }, [importImageFiles, paste]);
 
   // Single source of truth for "add image" (⇧I shortcut B / toolbar button)
   // — one hidden file input, one code path, so the toolbar's "(⇧I)" tooltip
@@ -165,8 +191,16 @@ export function CanvasView() {
     const onKeyDown = (e) => {
       const target = e.target ;
       const editing =
-        target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
+        target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.closest?.("[data-crop-controls]");
       if (editing) return;
+
+      const canvasState = useCanvasStore.getState();
+      if (canvasState.croppingImageId && (e.key === "Enter" || e.key === "Escape")) {
+        e.preventDefault();
+        if (e.key === "Enter") canvasState.applyCrop();
+        else canvasState.cancelCrop();
+        return;
+      }
 
       const mod = e.metaKey || e.ctrlKey;
 
@@ -218,9 +252,13 @@ export function CanvasView() {
         copy();
         return;
       }
-      if (mod && e.key.toLowerCase() === "v") {
+      if (mod && e.key.toLowerCase() === "x") {
         e.preventDefault();
-        paste();
+        cut();
+        return;
+      }
+      if (mod && e.key.toLowerCase() === "v") {
+        // Browser paste event decides whether OS images or internal nodes win.
         return;
       }
       if (!mod && e.shiftKey && e.key.toLowerCase() === "i") {
@@ -317,6 +355,7 @@ export function CanvasView() {
     bringToFront,
     sendToBack,
     copy,
+    cut,
     paste,
     openImagePicker,
   ]);
@@ -331,6 +370,7 @@ export function CanvasView() {
         onAfterSingleShotPlace={() => setTool("select")}
         boardId={boardId}
         onTransientChange={setTransientActive}
+        onImportFiles={importImageFiles}
       />
 
       <CanvasAssetPanel
@@ -370,16 +410,19 @@ export function CanvasView() {
         ref={imageFileInputRef}
         type="file"
         accept="image/*"
+        multiple
         className="hidden"
         tabIndex={-1}
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) addImageFile(file);
+          const files = Array.from(e.target.files ?? []);
+          if (files.length) void importImageFiles(files);
           e.target.value = "";
         }}
       />
 
       <SaveStatusChip status={saveStatus} onRetry={() => flushSave()} />
+
+      {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
       <StyleInspector hidden={transientActive} />
 
