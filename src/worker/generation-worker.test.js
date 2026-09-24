@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { boundedRetryDelay, DISPATCH_CONCURRENCY, runCoordinatorOnce } from "./generation-worker";
+import { boundedRetryDelay, DISPATCH_CONCURRENCY, runCoordinatorOnce, runGenerationWorker } from "./generation-worker";
 
 const queued = { id: "g1", kind: "video", status: "queued", updatedAt: 1, pollAttempts: 0 };
 
@@ -83,4 +83,29 @@ test("dispatches up to sixteen jobs concurrently and isolates failures", async (
   assert.equal(peak, 16);
   assert.deepEqual(result, { selected: 24, claimed: 24, advanced: 0, submitted: 23, deferred: 0, errors: 1 });
   assert.equal(releases, 24);
+});
+
+test("worker keeps scanning while an earlier synchronous image cycle is still running", async () => {
+  const controller = new AbortController();
+  let calls = 0;
+  let releaseFirst;
+  const first = new Promise((resolve) => { releaseFirst = resolve; });
+
+  const worker = runGenerationWorker({
+    intervalMs: 1,
+    signal: controller.signal,
+    maxConcurrentCycles: 2,
+    wait: async () => {},
+    runOnce: async () => {
+      calls += 1;
+      if (calls === 1) return first;
+      controller.abort();
+      releaseFirst({ errors: 0 });
+      return { errors: 0 };
+    },
+    logger: { error: () => {} },
+  });
+
+  await worker;
+  assert.equal(calls, 2, "a second queue scan starts without waiting for the first provider request");
 });

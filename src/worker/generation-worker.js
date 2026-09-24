@@ -93,17 +93,38 @@ export async function runCoordinatorOnce({
   return counts;
 }
 
-export async function runGenerationWorker({ intervalMs = 2_000, signal, runOnce = runCoordinatorOnce, logger = console } = {}) {
+export async function runGenerationWorker({
+  intervalMs = 2_000,
+  signal,
+  runOnce = runCoordinatorOnce,
+  logger = console,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  maxConcurrentCycles = DISPATCH_CONCURRENCY,
+} = {}) {
+  const active = new Set();
+  const cycleLimit = Math.max(1, Number(maxConcurrentCycles) || DISPATCH_CONCURRENCY);
+
+  // An image execute request remains open for the whole provider render. Do
+  // not let a job that arrived just after the current SELECT wait for that
+  // render to finish before the queue is scanned again. Claims and lockJob's
+  // transactional admission remain the duplicate/global-cap guards; this
+  // only keeps the coordinator responsive while earlier cycles are in flight.
   while (!signal?.aborted) {
-    try {
-      const counts = await runOnce();
-      const delay = counts.errors ? boundedRetryDelay(intervalMs * 4) : intervalMs;
-      await new Promise((resolve) => setTimeout(resolve, delay));
-    } catch (error) {
-      logger.error?.({ event: "generation_worker_loop_error", ...safeWorkerError(error) });
-      await new Promise((resolve) => setTimeout(resolve, boundedRetryDelay(intervalMs * 4)));
-    }
+    if (active.size >= cycleLimit) await Promise.race(active);
+    if (signal?.aborted) break;
+
+    let cycle;
+    cycle = Promise.resolve()
+      .then(() => runOnce())
+      .catch((error) => {
+        logger.error?.({ event: "generation_worker_loop_error", ...safeWorkerError(error) });
+      })
+      .finally(() => active.delete(cycle));
+    active.add(cycle);
+    await wait(intervalMs);
   }
+
+  await Promise.allSettled(active);
 }
 
 if (process.argv[1]?.endsWith("generation-worker.js")) {

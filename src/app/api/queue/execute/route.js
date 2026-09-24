@@ -32,6 +32,7 @@ import {
 } from "@/lib/generated-media-persistence";
 import { signStoredRef } from "@/lib/storage";
 import { upsertItem, lockJob, getItem, getQueuePosition } from "@/lib/store-db";
+import { publishGenerationUpdate } from "@/lib/generation-realtime";
 import { isMock, mockPlaceholder } from "@/lib/mock";
 import { crispen, prepReference } from "@/lib/middleware/image-prep";
 import { judgeCandidate, judgeIdentity, selectBestCandidate } from "@/lib/middleware/face-judge";
@@ -528,6 +529,14 @@ export async function POST(req) {
   if (!base) {
     return NextResponse.json({ error: "Job not found." }, { status: 404 });
   }
+
+  // lockJob has already persisted queued -> running. Publish that transition
+  // before waiting on the provider so every tab changes "Queued" to
+  // "Creating" promptly instead of learning about it only when the render
+  // finishes (or the low-frequency history fallback happens to run).
+  await publishGenerationUpdate(base).catch((error) => {
+    console.warn("[queue/execute] Failed to publish running state:", error?.message);
+  });
 
   const { prompt, aspectRatio, resolution, model, referenceImages } = base;
   let costCents = base.costCents || 0;
