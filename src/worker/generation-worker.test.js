@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { boundedRetryDelay, runCoordinatorOnce } from "./generation-worker";
+import { boundedRetryDelay, DISPATCH_CONCURRENCY, runCoordinatorOnce } from "./generation-worker";
 
 const queued = { id: "g1", kind: "video", status: "queued", updatedAt: 1, pollAttempts: 0 };
 
@@ -10,6 +10,7 @@ test("only one concurrent worker claim can submit a job", async () => {
   const claim = async (_id, candidate) => owner ? undefined : (owner = candidate, { ...queued, workerLeaseId: candidate });
   const options = {
     select: async () => [queued], claim, release: async () => {}, secret: "worker-secret", baseUrl: "https://app.example",
+    loadItem: async () => undefined,
     fetchImpl: async () => { submissions += 1; return { ok: true, json: async () => ({ id: "g1", status: "running" }) }; },
   };
   await Promise.all([runCoordinatorOnce(options), runCoordinatorOnce(options)]);
@@ -21,6 +22,7 @@ test("queue notAdmitted timing is scheduled instead of resubmitted immediately",
   const result = await runCoordinatorOnce({
     select: async () => [queued], claim: async () => queued, release: async () => {},
     schedule: async (_item, options) => { delay = options.delayMs; },
+    loadItem: async () => undefined,
     secret: "worker-secret", baseUrl: "https://app.example",
     fetchImpl: async () => ({ ok: true, json: async () => ({ notAdmitted: true, retryAfterMs: 42_000 }) }),
   });
@@ -42,6 +44,7 @@ test("provider/auth failures back off and logs never contain the worker secret",
   await runCoordinatorOnce({
     select: async () => [queued], claim: async () => queued, release: async () => {},
     schedule: async (_item, options) => { delay = options.delayMs; },
+    loadItem: async () => undefined,
     secret: "do-not-log-this", baseUrl: "https://app.example",
     fetchImpl: async () => ({ ok: false, status: 401, json: async () => ({}) }),
     logger: { error: (entry) => logs.push(entry) },
@@ -50,4 +53,34 @@ test("provider/auth failures back off and logs never contain the worker secret",
   assert.equal(JSON.stringify(logs).includes("do-not-log-this"), false);
   assert.equal(boundedRetryDelay(1), 5_000);
   assert.equal(boundedRetryDelay(999_999), 60_000);
+});
+
+test("dispatches up to sixteen jobs concurrently and isolates failures", async () => {
+  const rows = Array.from({ length: 24 }, (_, i) => ({ ...queued, id: `g${i}` }));
+  let active = 0;
+  let peak = 0;
+  let releases = 0;
+  const result = await runCoordinatorOnce({
+    select: async () => rows,
+    claim: async (id) => ({ ...queued, id }),
+    release: async () => { releases += 1; },
+    schedule: async () => {},
+    loadItem: async () => undefined,
+    secret: "worker-secret",
+    baseUrl: "https://app.example",
+    fetchImpl: async (_url, options) => {
+      const { id } = JSON.parse(options.body);
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      if (id === "g7") throw new Error("isolated failure");
+      return { ok: true, json: async () => ({ id, status: "running" }) };
+    },
+    logger: { error: () => {}, warn: () => {} },
+  });
+  assert.equal(DISPATCH_CONCURRENCY, 16);
+  assert.equal(peak, 16);
+  assert.deepEqual(result, { selected: 24, claimed: 24, advanced: 0, submitted: 23, deferred: 0, errors: 1 });
+  assert.equal(releases, 24);
 });

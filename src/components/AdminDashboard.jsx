@@ -947,7 +947,7 @@ function UserLimitsModal({
     const raw = values[def.key].trim();
     const nextValue = raw === "" ? null : Math.round(Number(raw));
     if (nextValue === savedOverrides[def.key]) return;
-    if (nextValue !== null && (!Number.isFinite(nextValue) || nextValue < def.min)) {
+    if (nextValue !== null && (!Number.isFinite(nextValue) || nextValue < def.min || (def.max != null && nextValue > def.max))) {
       setNotice({ kind: "error", text: `Invalid ${def.label.toLowerCase()}.` });
       return;
     }
@@ -990,6 +990,7 @@ function UserLimitsModal({
               <input
                 type="number"
                 min={def.min}
+                max={def.max}
                 value={values[def.key]}
                 placeholder={`Default (${globalLimits[def.key]?.toLocaleString() ?? def.defaultValue.toLocaleString()})`}
                 onChange={(e) => setValues((v) => ({ ...v, [def.key]: e.target.value }))}
@@ -1758,7 +1759,7 @@ function GlobalLimitCard({
 
   const save = async () => {
     const n = Math.round(Number(value));
-    if (!Number.isFinite(n) || n < def.min) return;
+    if (!Number.isFinite(n) || n < def.min || (def.max != null && n > def.max)) return;
     setSaving(true);
     setSaved(false);
     try {
@@ -1787,6 +1788,7 @@ function GlobalLimitCard({
         <input
           type="number"
           min={def.min}
+          max={def.max}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onBlur={save}

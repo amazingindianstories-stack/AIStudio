@@ -6,6 +6,7 @@ import { publishGenerationUpdate } from "../lib/generation-realtime.js";
 
 const MIN_DELAY_MS = 5_000;
 const MAX_DELAY_MS = 60_000;
+export const DISPATCH_CONCURRENCY = 16;
 
 export function boundedRetryDelay(value, fallback = MIN_DELAY_MS) {
   return Math.min(MAX_DELAY_MS, Math.max(MIN_DELAY_MS, Number(value) || fallback));
@@ -24,6 +25,8 @@ export async function runCoordinatorOnce({
   schedule = scheduleGeneration,
   advance = advanceVideoStatus,
   fetchImpl = fetch,
+  loadItem = getItem,
+  publish = publishGenerationUpdate,
   baseUrl = process.env.GENERATION_WORKER_URL || process.env.NEXT_PUBLIC_APP_URL,
   secret = process.env.GENERATION_WORKER_SECRET,
   logger = console,
@@ -36,11 +39,11 @@ export async function runCoordinatorOnce({
     return { selected: 0, claimed: 0, advanced: 0, submitted: 0, deferred: 0, errors: 1 };
   }
   const counts = { selected: rows.length, claimed: 0, advanced: 0, submitted: 0, deferred: 0, errors: 0 };
-  for (const row of rows) {
+  async function dispatch(row) {
     let claimed;
     try {
       claimed = await claim(row.id, owner, { now });
-      if (!claimed) continue;
+      if (!claimed) return;
       counts.claimed += 1;
       if (claimed.status === "queued") {
         if (!baseUrl || !secret) throw new Error("generation worker configuration is incomplete");
@@ -64,8 +67,8 @@ export async function runCoordinatorOnce({
         }
         counts.advanced += 1;
       }
-      const current = await getItem(claimed.id).catch(() => undefined);
-      if (current) await publishGenerationUpdate(current).catch((error) => logger.warn?.(error?.message));
+      const current = await loadItem(claimed.id).catch(() => undefined);
+      if (current) await publish(current).catch((error) => logger.warn?.(error?.message));
     } catch (error) {
       counts.errors += 1;
       if (claimed) {
@@ -77,6 +80,16 @@ export async function runCoordinatorOnce({
       if (claimed) await release(row.id, owner).catch(() => {});
     }
   }
+  // The database lease remains the duplicate-submission guard. This pool only
+  // bounds how many independent claimed rows can be dispatched at once.
+  let cursor = 0;
+  async function worker() {
+    while (cursor < rows.length) {
+      const row = rows[cursor++];
+      await dispatch(row);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(DISPATCH_CONCURRENCY, rows.length) }, worker));
   return counts;
 }
 

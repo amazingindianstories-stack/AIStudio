@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/lib/db";
 import { users } from "@/lib/schema";
 import { adminOrNull } from "@/lib/admin";
-import { limitDefinition } from "@/lib/limits";
+import { isLimitValueAllowed, limitDefinition } from "@/lib/limits";
 import { updateUserLimit } from "@/lib/limits-db";
 import { logActivity } from "@/lib/activity";
 
@@ -24,7 +24,7 @@ export async function POST(req) {
   if (!userId || !def) {
     return NextResponse.json({ error: "userId and a valid key are required." }, { status: 400 });
   }
-  if (b.value !== null && (!Number.isFinite(b.value) || b.value < def.min)) {
+  if (b.value !== null && !isLimitValueAllowed(b.value, def)) {
     return NextResponse.json({ error: `Invalid ${def.label.toLowerCase()}.` }, { status: 400 });
   }
 

@@ -483,11 +483,10 @@ export async function POST(req) {
     return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
 
-  // Admission is checked before the lock is acquired, not after: lockJob()
-  // flips the row to "running" unconditionally and there is no unlock path
-  // to undo that, so rejecting an inadmissible job afterward would strand it
-  // "running" until the stale-job reaper caught it minutes later. A plain
-  // read has no such side effect.
+  // This read gives callers an inexpensive queue/budget response. lockJob()
+  // repeats the final admission check under short transaction-scoped locks
+  // and performs queued -> running atomically, because this preliminary view
+  // can change while simultaneous execute requests are arriving.
   //
   // This used to be an ownership check instead (only the job's owner or an
   // admin could call execute). That was addressing the wrong risk: the real
@@ -498,7 +497,7 @@ export async function POST(req) {
   // only call it once /api/queue/status reported position 0, which any
   // direct POST (devtools, a retry bug, a race) could simply skip, bypassing
   // both the concurrency cap and the spend throttle spend-window.js exists to
-  // enforce. Re-running the same admission check here closes that regardless
+  // enforce. Checking here and atomically inside lockJob closes that regardless
   // of who's calling — including the legitimate case of a teammate's tab
   // adopting a job whose owner's tab has gone away (see adoptOrphanedJobs in
   // store.js), which an ownership-only gate would have blocked outright.
@@ -514,9 +513,13 @@ export async function POST(req) {
     return NextResponse.json({ ...position, notAdmitted: true });
   }
 
-  // Attempt to acquire the queue lock for this job
+  // Atomically re-check admission and acquire the queue lock for this job.
   const locked = await lockJob(id);
   if (!locked) {
+    const currentPosition = await getQueuePosition(id);
+    if (currentPosition?.status === "queued") {
+      return NextResponse.json({ ...currentPosition, notAdmitted: true });
+    }
     return NextResponse.json({ error: "Job is already running or invalid." }, { status: 400 });
   }
 
