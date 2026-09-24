@@ -26,7 +26,7 @@ test("PostgreSQL queue enforces per-user fairness, override precedence, and fixt
       id, email: `queue-audit-${id}@invalid.local`, passwordHash: "audit", passwordSalt: "audit",
       name: `Audit ${index}`, role: "user", isActive: true, authVersion: 0, createdAt: now,
     })));
-    const base = { kind: "audit", prompt: "runtime audit integration", model: "audit", aspectRatio: "1:1", costCents: 0, updatedAt: now };
+    const base = { kind: "image", prompt: "runtime audit integration", model: "seedream-5-pro", aspectRatio: "1:1", costCents: 0, updatedAt: now };
     await db.insert(generations).values([
       { ...base, id: generationIds[0], userId: userIds[0], status: "running", createdAt: now },
       { ...base, id: generationIds[1], userId: userIds[0], status: "queued", createdAt: now + 1 },
