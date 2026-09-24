@@ -108,10 +108,10 @@ test("createVideoTask: generate task defaults generate_audio to false", async ()
   );
   assert.equal(body.generate_audio, false);
   assert.equal("draft" in body, false);
-  assert.equal("bitrate_mode" in body, false);
+  assert.equal(body.bitrate_mode, "high");
 });
 
-test("createVideoTask: unsupported draft and bitrate fields are omitted while ratio/duration remain", async () => {
+test("createVideoTask: 2.0 omits Draft but sends bitrate with ratio/duration", async () => {
   const { body } = await withFakeArkResponse("task-render-controls", () =>
     createVideoTask({
       prompt: "A sample Seedance 2.0 shot",
@@ -123,7 +123,7 @@ test("createVideoTask: unsupported draft and bitrate fields are omitted while ra
     })
   );
   assert.equal("draft" in body, false);
-  assert.equal("bitrate_mode" in body, false);
+  assert.equal(body.bitrate_mode, "standard");
   assert.equal(body.ratio, "16:9");
   assert.equal(body.duration, 10);
 });
@@ -134,17 +134,17 @@ test("createVideoTask: Seedance 2.5 sends explicit Draft true or false", async (
       createVideoTask({ prompt: "a scene", modelDisplay: "Seedance 2.5", draftMode })
     );
     assert.equal(body.draft, draftMode);
-    assert.equal("bitrate_mode" in body, false);
+    assert.equal(body.bitrate_mode, "high");
   }
 });
 
-test("createVideoTask: never sends either bitrate value to current Seedance models", async () => {
+test("createVideoTask: sends either bitrate value to direct Seedance models", async () => {
   for (const bitrateMode of ["standard", "high"]) {
     const { body } = await withFakeArkResponse(`task-${bitrateMode}`, () =>
       createVideoTask({ prompt: "a scene", modelDisplay: "Seedance 2.5", draftMode: false, bitrateMode })
     );
     assert.equal(body.draft, false);
-    assert.equal("bitrate_mode" in body, false);
+    assert.equal(body.bitrate_mode, bitrateMode);
   }
 });
 

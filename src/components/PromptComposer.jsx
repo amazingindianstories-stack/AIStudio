@@ -877,7 +877,7 @@ export function PromptComposer() {
                 <>
                   <span className="composer-secondary-setting text-white/35">·</span>
                   <span className="composer-secondary-setting">
-                    {s.bitrateMode === "standard" ? "Standard" : "High"}
+                    {s.bitrateMode === "standard" ? "Low" : "High"}
                   </span>
                 </>
               )}
@@ -1003,9 +1003,9 @@ export function PromptComposer() {
               {bitrateApplies && (
                   <Segment
                     label="Bitrate"
-                    options={["Standard", "High"]}
-                    value={s.bitrateMode === "standard" ? "Standard" : "High"}
-                    onChange={(v) => s.setBitrateMode(v.toLowerCase())}
+                    options={["Low", "High"]}
+                    value={s.bitrateMode === "standard" ? "Low" : "High"}
+                    onChange={(v) => s.setBitrateMode(v === "Low" ? "standard" : "high")}
                   />
               )}
             </div>

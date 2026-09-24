@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveSeedanceRenderControls } from "./seedance-render-controls";
 
-test("Seedance 2.0 variants discard unsupported render controls", () => {
+test("Seedance 2.0 variants retain bitrate but discard Draft", () => {
   for (const model of ["Seedance 2.0", "Seedance 2.0 Mini"]) {
-    assert.deepEqual(resolveSeedanceRenderControls(model, {}), {});
+    assert.deepEqual(resolveSeedanceRenderControls(model, {}), { bitrateMode: "high" });
   }
 });
 
-test("Seedance 2.5 keeps Draft independently and discards unsupported bitrate", () => {
-  assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.5", {}), { draftMode: false });
-  assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.5", { draftMode: true, bitrateMode: "high" }), { draftMode: true });
-  assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.0", { draftMode: false, bitrateMode: "standard" }), {});
+test("Seedance render controls retain Draft and bitrate independently", () => {
+  assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.5", {}), { draftMode: false, bitrateMode: "high" });
+  assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.5", { draftMode: true, bitrateMode: "high" }), { draftMode: true, bitrateMode: "high" });
+  assert.deepEqual(resolveSeedanceRenderControls("Seedance 2.0", { draftMode: false, bitrateMode: "standard" }), { bitrateMode: "standard" });
 });
 
 test("unsupported providers discard both render controls", () => {
