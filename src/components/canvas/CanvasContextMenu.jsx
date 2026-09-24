@@ -12,6 +12,7 @@ import {
   Group,
   Ungroup,
   Trash2,
+  Scissors,
 } from "lucide-react";
 import { MenuItem } from "@/components/Dropdown";
 
@@ -121,6 +122,11 @@ export function CanvasContextMenu({
             <Copy className="h-4 w-4 text-white/50" />
             <span className="flex-1">Copy</span>
             <span className="ml-auto pl-6 text-xs text-white/40">⌘C</span>
+          </MenuItem>
+          <MenuItem onClick={() => onAction("cut")}>
+            <Scissors className="h-4 w-4 text-white/50" />
+            <span className="flex-1">Cut</span>
+            <span className="ml-auto pl-6 text-xs text-white/40">⌘X</span>
           </MenuItem>
           <MenuItem disabled={!flags.canPaste} onClick={() => onAction("paste")}>
             <ClipboardPaste className="h-4 w-4 text-white/50" />

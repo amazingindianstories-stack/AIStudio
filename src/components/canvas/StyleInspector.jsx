@@ -13,6 +13,7 @@ import {
   Check,
   Minus,
   Square,
+  Crop,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
@@ -45,6 +46,7 @@ export function StyleInspector({ hidden }) {
   const sendToBack = useCanvasStore((s) => s.sendToBack);
   const duplicateSelected = useCanvasStore((s) => s.duplicateSelected);
   const deleteSelected = useCanvasStore((s) => s.deleteSelected);
+  const beginCrop = useCanvasStore((s) => s.beginCrop);
 
   const selectedNodes = present.nodes.filter((n) => selection.includes(n.id));
   const selectedConnectors = present.connectors.filter((c) => selectedConnectorIds.includes(c.id));
@@ -182,6 +184,10 @@ export function StyleInspector({ hidden }) {
           placeholder="Frame label"
           className="h-8 w-32 rounded-lg border border-line bg-ink-800 px-2 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
         />
+      )}
+
+      {selection.length === 1 && soleType === "image" && (
+        <button type="button" onClick={() => beginCrop(selection[0])} className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white" title="Crop image" aria-label="Crop image"><Crop className="h-4 w-4" /></button>
       )}
 
       {/* opacity — applies to every node type */}
