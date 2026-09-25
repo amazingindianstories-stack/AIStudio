@@ -33,7 +33,7 @@ export function middleware(req) {
   // data, so the edge cookie-presence gate must let that token reach it.
   // /api/webhooks/seedance is invoked by BytePlus without a browser session;
   // the Node route verifies its callback token before accepting the payload.
-  // /api/queue/execute is invoked by the persistent generation worker without
+  // /api/queue/execute and /api/worker/exports/* are invoked by the persistent generation worker without
   // a browser session; the Node route verifies x-generation-worker-secret
   // before accepting the job. Keeping this route behind the cookie gate makes
   // every server-owned generation fail with 401 before its own auth runs.
@@ -43,6 +43,7 @@ export function middleware(req) {
     pathname === "/api/admin/migrate-schema" ||
     pathname === "/api/media-grant" ||
     pathname.startsWith("/api/worker/depth/") ||
+    pathname.startsWith("/api/worker/exports/") ||
     pathname.startsWith("/api/cron/") ||
     pathname === "/api/webhooks/seedance" ||
     pathname === "/api/queue/execute" ||

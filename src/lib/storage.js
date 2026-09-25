@@ -221,6 +221,17 @@ export async function getSignedReadUrl(
   return signReadUrl(key, now, now + ttlSeconds * 1000);
 }
 
+/** Create a GCS resumable session. The caller receives only this scoped,
+ * short-lived upload capability; it never receives a cloud credential. */
+export async function createResumableUploadSession(key) {
+  if (!primaryIsGcs()) throw new Error("Media exports require the GCS backend.");
+  if (!key.startsWith("exports/")) throw new Error("Invalid export object key.");
+  const [url] = await storage().bucket(getBucketName()).file(key).createResumableUpload({
+    metadata: { contentType: "application/zip", contentDisposition: "attachment; filename=veevee-assets.zip", cacheControl: "private, max-age=0, no-store" },
+  });
+  return url;
+}
+
 /** How long a presigned upload URL stays valid. Longer than the read TTL —
  *  a large video PUT over a home upload link can legitimately take minutes,
  *  and an expired-mid-upload URL fails as a confusing generic network error

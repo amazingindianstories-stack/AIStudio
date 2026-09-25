@@ -3,6 +3,7 @@ import { advanceVideoStatus } from "../lib/video-status-advancement.js";
 import { claimGeneration, releaseGeneration, scheduleGeneration, selectDueGenerations } from "../lib/generation-coordinator.js";
 import { getItem } from "../lib/store-db.js";
 import { publishGenerationUpdate } from "../lib/generation-realtime.js";
+import { runMediaExportWorker } from "./media-export-worker.js";
 
 const MIN_DELAY_MS = 5_000;
 const MAX_DELAY_MS = 60_000;
@@ -128,5 +129,6 @@ export async function runGenerationWorker({
 }
 
 if (process.argv[1]?.endsWith("generation-worker.js")) {
-  runGenerationWorker().catch((error) => { console.error(safeWorkerError(error)); process.exitCode = 1; });
+  Promise.all([runGenerationWorker(), runMediaExportWorker()])
+    .catch((error) => { console.error(safeWorkerError(error)); process.exitCode = 1; });
 }

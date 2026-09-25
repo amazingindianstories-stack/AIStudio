@@ -459,3 +459,38 @@ export const loginAttempts = pgTable("login_attempts", {
 }, (table) => [
   index("login_attempts_identifier_created_idx").on(table.identifier, table.createdAt),
 ]);
+
+// Asynchronous, restart-safe library exports. The web process only creates and
+// observes these rows; the Railway worker owns archive construction.
+export const mediaExports = pgTable("media_exports", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").notNull(),
+  status: text("status").notNull().default("draft"),
+  totalItems: integer("total_items").notNull().default(0),
+  processedItems: integer("processed_items").notNull().default(0),
+  skippedItems: integer("skipped_items").notNull().default(0),
+  warnings: jsonb("warnings").$type().notNull().default([]),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  leaseOwner: text("lease_owner"),
+  leaseUntil: bigint("lease_until", { mode: "number" }),
+  outputKey: text("output_key"),
+  outputBytes: bigint("output_bytes", { mode: "number" }),
+  error: text("error"),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }),
+}, (table) => [
+  index("media_exports_user_created_idx").on(table.userId, table.createdAt.desc()),
+  index("media_exports_worker_due_idx").on(table.status, table.leaseUntil, table.createdAt),
+]);
+
+export const mediaExportItems = pgTable("media_export_items", {
+  exportId: uuid("export_id").notNull().references(() => mediaExports.id, { onDelete: "cascade" }),
+  generationId: uuid("generation_id").notNull(),
+  position: integer("position").notNull(),
+  sourceKey: text("source_key").notNull(),
+  filename: text("filename").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.exportId, table.generationId] }),
+  index("media_export_items_order_idx").on(table.exportId, table.position),
+]);
