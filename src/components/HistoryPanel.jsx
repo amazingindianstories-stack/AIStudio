@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import {
   Search,
@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 const ZOOM_KEY = "veevee-asset-zoom-v1";
 const ZOOM_MIN = 120;
 const ZOOM_MAX = 260;
+const ACTIVE_EXPORT_KEY = "veevee-active-media-export-v1";
 
 export function HistoryPanel() {
   const items = useStore((s) => s.items);
@@ -50,6 +51,30 @@ export function HistoryPanel() {
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
+  const [activeExport, setActiveExport] = useState(null);
+  const autoDownloaded = useRef(null);
+
+  useEffect(() => {
+    try { const id = localStorage.getItem(ACTIVE_EXPORT_KEY); if (id) setActiveExport({ id, status: "queued", totalItems: 0, processedItems: 0, skippedItems: 0 }); } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    if (!activeExport?.id || !["queued", "running"].includes(activeExport.status)) return;
+    let cancelled = false;
+    const poll = async () => {
+      const response = await apiFetch(`/api/history/exports/${activeExport.id}`);
+      if (!response.ok) { if (response.status === 404) { try { localStorage.removeItem(ACTIVE_EXPORT_KEY); } catch {} } return; }
+      const next = await response.json();
+      if (!cancelled) setActiveExport(next);
+      if (next.status === "ready" && autoDownloaded.current !== next.id) {
+        autoDownloaded.current = next.id;
+        window.location.assign(`/api/history/exports/${next.id}/download`);
+        try { localStorage.removeItem(ACTIVE_EXPORT_KEY); } catch { /* ignore */ }
+      }
+    };
+    poll(); const timer = setInterval(poll, 2000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [activeExport?.id, activeExport?.status]);
 
   // Thumbnail size is a workspace preference, not session state — losing it on
   // every reload made the control feel like it did not work.
@@ -101,29 +126,34 @@ export function HistoryPanel() {
     if (!selectedImageIds.length || isDownloadingZip) return;
     setIsDownloadingZip(true);
     try {
-      const res = await apiFetch("/api/history/download-zip", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: selectedImageIds }),
-      });
+      const res = await apiFetch("/api/history/exports", { method: "POST" });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        throw new Error(json.error || "Failed to build ZIP.");
+        throw new Error(json.error || "Failed to create export.");
       }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `assets-${new Date().toISOString().slice(0, 10)}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const job = await res.json();
+      try { localStorage.setItem(ACTIVE_EXPORT_KEY, job.id); } catch { /* ignore */ }
+      let rejected = 0;
+      for (let offset = 0; offset < selectedImageIds.length; offset += 500) {
+        const chunkResponse = await apiFetch(`/api/history/exports/${job.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: selectedImageIds.slice(offset, offset + 500) }) });
+        const body = await chunkResponse.json().catch(() => ({}));
+        if (!chunkResponse.ok) throw new Error(body.error || "Failed to add images to export.");
+        rejected += body.rejected?.length || 0;
+      }
+      const finalize = await apiFetch(`/api/history/exports/${job.id}/finalize`, { method: "POST" });
+      if (!finalize.ok) throw new Error("Failed to queue export.");
+      setActiveExport({ id: job.id, status: "queued", totalItems: selectedImageIds.length - rejected, processedItems: 0, skippedItems: rejected });
     } catch (error) {
       alert(error?.message || "Failed to download ZIP.");
     } finally {
       setIsDownloadingZip(false);
     }
+  };
+
+  const retryExport = async () => {
+    if (!activeExport?.id) return;
+    const response = await apiFetch(`/api/history/exports/${activeExport.id}/finalize`, { method: "POST" });
+    if (response.ok) { try { localStorage.setItem(ACTIVE_EXPORT_KEY, activeExport.id); } catch {} setActiveExport((value) => ({ ...value, status: "queued", error: null })); }
   };
 
   return (
@@ -381,6 +411,20 @@ export function HistoryPanel() {
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {activeExport && (
+        <div className="flex items-center gap-2 border-b border-line bg-ink-800/60 px-4 py-2 text-xs text-white/60">
+          {["queued", "running"].includes(activeExport.status) && (
+            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {activeExport.status === "queued" ? "ZIP queued" : `Building ZIP ${activeExport.processedItems}/${activeExport.totalItems}`}{activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""}</>
+          )}
+          {activeExport.status === "ready" && (
+            <><span>ZIP ready{activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""}</span><a className="font-semibold text-brand hover:underline" href={`/api/history/exports/${activeExport.id}/download`}>Download ZIP</a></>
+          )}
+          {activeExport.status === "failed" && (
+            <><span>{activeExport.error || "ZIP export failed."}</span><button className="font-semibold text-red-300 hover:underline" onClick={retryExport}>Retry</button></>
+          )}
         </div>
       )}
 

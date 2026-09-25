@@ -54,9 +54,8 @@ certificates are tied to that hostname.
 
 ## Storage lifecycle
 
-The lifecycle file deletes database migration snapshots after 30 days. It does
-not expire user media because the product does not yet have an explicit media
-retention policy.
+The lifecycle file deletes database migration snapshots after 30 days and
+temporary ZIP exports after seven days. It does not expire permanent user media.
 
 ```bash
 gcloud storage buckets update gs://aistudio-media-bucket \

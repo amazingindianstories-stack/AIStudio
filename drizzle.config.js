@@ -25,6 +25,8 @@ const DRIZZLE_OWNED_TABLES = [
   "agent_conversation_messages",
   "activity_logs",
   "login_attempts",
+  "media_exports",
+  "media_export_items",
 ];
 
 const config = {

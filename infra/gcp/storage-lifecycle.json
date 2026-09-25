@@ -6,6 +6,13 @@
         "age": 30,
         "matchesPrefix": ["migrations/"]
       }
+    },
+    {
+      "action": { "type": "Delete" },
+      "condition": {
+        "age": 7,
+        "matchesPrefix": ["exports/"]
+      }
     }
   ]
 }
