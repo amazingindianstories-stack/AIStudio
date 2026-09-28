@@ -14,6 +14,15 @@ test("both composer settings surfaces gate Render and Bitrate independently", ()
   }
 });
 
+test("both composer settings surfaces expose First frame toggle", () => {
+  for (const file of ["src/components/ComposerControls.jsx", "src/components/PromptComposer.jsx"]) {
+    const source = readFileSync(file, "utf8");
+    assert.match(source, /label="First frame"/);
+    assert.match(source, /firstLastFrameApplies/);
+    assert.match(source, /s\.setFirstFrameMode/);
+  }
+});
+
 test("detail labels are conditional so legacy rows remain unlabeled", () => {
   const source = readFileSync("src/components/DetailModal.jsx", "utf8");
   assert.match(source, /item\.draftMode != null/);

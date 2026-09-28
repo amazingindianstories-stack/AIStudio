@@ -182,9 +182,10 @@ export const generations = pgTable("generations", {
   // Persisted for the usual structural reason: /api/generate/video only
   // enqueues, /api/queue/execute is what actually calls the provider, so the
   // row is the only thing carrying it between the two requests. Null means
-  // "an ordinary generation, not a continuation" — the overwhelmingly common
-  // case, so this is nullable rather than an empty-string sentinel.
   continuationFrameUrl: text("continuation_frame_url"),
+  // Optional ending frame for first-to-last-frame video generation (BytePlus
+  // content role "last_frame"). Null when not provided or in standard generation.
+  lastFrameUrl: text("last_frame_url"),
   // Lightweight quality feedback signal (Phase 3.5) — deliberately separate
   // from isFavorite: favourite means "good, keep it visible"; flagged means
   // "wrong in a way worth reviewing" (identity drift, style break, a broken

@@ -383,9 +383,12 @@ async function submitVideo(base, signal) {
     const [firstFrameDataUrl] = base.continuationFrameUrl
       ? await toProviderDataUrls([base.continuationFrameUrl], signal)
       : [];
+    const [lastFrameDataUrl] = base.lastFrameUrl
+      ? await toProviderDataUrls([base.lastFrameUrl], signal)
+      : [];
     console.log(
       `[video] BytePlus seedance with ${inlined.length} reference image(s), ` +
-        `bestOf=${videoBestOf ?? 1}, continuation=${!!firstFrameDataUrl}`
+        `bestOf=${videoBestOf ?? 1}, firstFrame=${!!firstFrameDataUrl}, lastFrame=${!!lastFrameDataUrl}`
     );
     const taskInput = (candidateSeed) => ({
       prompt,
@@ -412,9 +415,9 @@ async function submitVideo(base, signal) {
       // never generates one for Omni/Higgsfield, so this is null on those paths
       // and createVideoTask's own typeof guard omits it from the request body.
       seed: candidateSeed,
-      // Multi-shot chaining (Phase 3.3) — see createVideoTask's own header
-      // for the evidence caveat (third-party tutorial, not official docs).
+      // First frame & optional last frame (Phase 3.3 & BytePlus ModelArk):
       firstFrame: firstFrameDataUrl ? { dataUrl: firstFrameDataUrl } : undefined,
+      lastFrame: lastFrameDataUrl ? { dataUrl: lastFrameDataUrl } : undefined,
       callbackUrl,
       signal,
     });

@@ -30,6 +30,7 @@ import {
   Sparkles,
   Volume2,
   SkipForward,
+  ArrowRight,
 } from "lucide-react";
 import { useStore, restoreComposerDraft } from "@/lib/store";
 import { parseMentionIndices } from "@/lib/mentions";
@@ -51,6 +52,8 @@ import {
   supportsAudio,
   supportsDraftMode,
   supportsBitrateMode,
+  supportsFirstFrameContinuation,
+  supportsFirstLastFrame,
   supportsVideoReference,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
@@ -97,6 +100,7 @@ export function PromptComposer() {
   // "match the source" — see the videoTaskMode branches on the Aspect
   // ratio/Duration segments below.
   const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
+  const firstLastFrameApplies = s.mode === "video" && supportsFirstLastFrame(s.model);
   const videoTaskMode = editExtendApplies ? s.videoTaskMode : "generate";
   // Seedance 2.0/2.5 take any integer duration within a bounded range rather
   // than a fixed enum (see durationRangeForModel) — non-null here switches
@@ -117,6 +121,8 @@ export function PromptComposer() {
     setDragRefs(s.referenceImages);
   }, [s.referenceImages]);
   const fileRef = useRef(null);
+  const firstFrameFileRef = useRef(null);
+  const lastFrameFileRef = useRef(null);
   const mentionRef = useRef(null);
   const toolbarMeasureRef = useRef(null);
   const [dragging, setDragging] = useState(false);
@@ -125,6 +131,30 @@ export function PromptComposer() {
   const [extractingFrames, setExtractingFrames] = useState(0);
   const [pickingClips, setPickingClips] = useState(false);
   const [preferredWidth, setPreferredWidth] = useState(768);
+
+  const handleFrameUpload = async (file, target) => {
+    if (!file) return;
+    try {
+      let dataUrl;
+      if (isVideoFile(file)) {
+        const extracted = await extractFrame(file);
+        dataUrl = extracted.dataUrl;
+      } else if (file.type.startsWith("image/")) {
+        dataUrl = await downscaleBlob(file, 2048, 0.85);
+      } else {
+        alert("Please select an image or video file.");
+        return;
+      }
+      if (target === "first") {
+        s.setFirstFrame(dataUrl);
+      } else if (target === "last") {
+        s.setLastFrame(dataUrl);
+      }
+    } catch (e) {
+      console.error(`Failed to process ${target} frame:`, e);
+      alert(e?.message || `Failed to process ${file.name}`);
+    }
+  };
 
   // Bring back the locally cached draft (prompt + reference images) after a
   // refresh. Runs after mount so SSR markup stays consistent.
@@ -591,33 +621,108 @@ export function PromptComposer() {
           </div>
         )}
 
-      {/* Multi-shot chaining (Phase 3.3) — set by continueShot (DetailModal's
-          "Continue this shot" button), not a standing preference. Shown so
-          the user isn't puzzled why an otherwise-ordinary video request is
-          actually starting from a specific frame; dismissible without
-          discarding the rest of the composer's state. */}
-      {s.continuationFrame && (
-        <div className="mb-2 flex items-center gap-2 rounded-lg border border-brand/30 bg-brand/10 px-2.5 py-1.5 text-[11px] leading-snug text-brand/90">
-          <img
-            src={s.continuationFrame}
-            alt="Continuation starting frame"
-            className="h-8 w-8 shrink-0 rounded object-cover"
-          />
-          <SkipForward className="h-3.5 w-3.5 shrink-0" />
-          <span className="flex-1">
-            Continuing from this frame — write what happens next.
-          </span>
-          <button
-            type="button"
-            onClick={() => s.setContinuationFrame(null)}
-            className="shrink-0 rounded p-0.5 text-brand/70 hover:bg-brand/20 hover:text-brand"
-            aria-label="Remove continuation frame"
-            title="Remove continuation frame"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
+      {/* First Frame & Optional Last Frame Staging */}
+      {(s.firstFrameMode || s.firstFrame || s.continuationFrame || s.lastFrame) &&
+        s.mode === "video" &&
+        supportsFirstLastFrame(s.model) && (
+          <div className="mb-2 flex flex-wrap items-center gap-2 rounded-xl border border-brand/30 bg-brand/10 p-2 text-[11px] leading-snug text-brand/90">
+            {/* First Frame */}
+            {(s.firstFrame || s.continuationFrame) ? (
+              <div className="flex items-center gap-1.5 rounded-lg bg-black/40 px-2 py-1 border border-brand/30">
+                <img
+                  src={s.firstFrame || s.continuationFrame}
+                  alt="First frame"
+                  className="h-8 w-8 shrink-0 rounded object-cover"
+                />
+                <div className="flex flex-col">
+                  <span className="font-semibold text-white/95 text-[10px]">First Frame</span>
+                  <span className="text-[9px] text-white/50">Start of video</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    s.setFirstFrame(null);
+                    s.setContinuationFrame(null);
+                  }}
+                  className="ml-1 rounded p-0.5 text-brand/70 hover:bg-brand/20 hover:text-brand"
+                  title="Remove first frame"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => firstFrameFileRef.current?.click()}
+                className="flex items-center gap-1.5 rounded-lg border border-dashed border-brand/40 bg-black/20 px-2.5 py-1 text-brand/80 hover:bg-brand/20 hover:text-brand"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span className="text-[10px] font-medium">Add First Frame</span>
+              </button>
+            )}
+
+            {/* Flow indicator */}
+            <div className="flex items-center text-brand/60 px-0.5">
+              <ArrowRight className="h-3.5 w-3.5" />
+            </div>
+
+            {/* Last Frame */}
+            {s.lastFrame ? (
+              <div className="flex items-center gap-1.5 rounded-lg bg-black/40 px-2 py-1 border border-brand/30">
+                <img
+                  src={s.lastFrame}
+                  alt="Last frame"
+                  className="h-8 w-8 shrink-0 rounded object-cover"
+                />
+                <div className="flex flex-col">
+                  <span className="font-semibold text-white/95 text-[10px]">Last Frame</span>
+                  <span className="text-[9px] text-white/50">End of video</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => s.setLastFrame(null)}
+                  className="ml-1 rounded p-0.5 text-brand/70 hover:bg-brand/20 hover:text-brand"
+                  title="Remove last frame"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!s.firstFrame && !s.continuationFrame) {
+                    alert("Please select a first frame first.");
+                    return;
+                  }
+                  lastFrameFileRef.current?.click();
+                }}
+                className="flex items-center gap-1.5 rounded-lg border border-dashed border-white/20 bg-black/20 px-2.5 py-1 text-white/60 hover:border-brand/40 hover:text-brand"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span className="text-[10px] font-medium">+ Last Frame (optional)</span>
+              </button>
+            )}
+
+            <div className="ml-auto flex items-center gap-2">
+              <span className="text-[10px] text-brand/70 hidden sm:block">
+                {s.lastFrame
+                  ? "Interpolates from first to last frame"
+                  : s.firstFrame || s.continuationFrame
+                  ? "Starts from first frame (adaptive ratio)"
+                  : "Add a first frame to start"}
+              </span>
+              <button
+                type="button"
+                onClick={() => s.setFirstFrameMode(false)}
+                className="rounded p-0.5 text-brand/60 hover:bg-brand/20 hover:text-brand"
+                title="Turn off first frame mode"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
       {/* input row */}
       <div className="flex items-start gap-2">
@@ -648,6 +753,26 @@ export function PromptComposer() {
               >
                 <Upload className="h-4 w-4 text-white/60" /> Local upload
               </MenuItem>
+              {s.mode === "video" && (supportsFirstLastFrame(s.model) || supportsFirstFrameContinuation(s.model)) && (
+                <>
+                  <MenuItem
+                    onClick={() => {
+                      firstFrameFileRef.current?.click();
+                      close();
+                    }}
+                  >
+                    <SkipForward className="h-4 w-4 text-brand" /> Set First Frame
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      lastFrameFileRef.current?.click();
+                      close();
+                    }}
+                  >
+                    <ArrowRight className="h-4 w-4 text-brand" /> Set Last Frame (optional)
+                  </MenuItem>
+                </>
+              )}
               {/* The entry point that was missing: without it the only way to
                   attach a clip was a button inside the detail modal, so the
                   @vid tags the composer advertises had no way to exist. */}
@@ -698,6 +823,28 @@ export function PromptComposer() {
           multiple
           hidden
           onChange={onFiles}
+        />
+        <input
+          ref={firstFrameFileRef}
+          type="file"
+          accept="image/*,video/*"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleFrameUpload(file, "first");
+            e.target.value = "";
+          }}
+        />
+        <input
+          ref={lastFrameFileRef}
+          type="file"
+          accept="image/*,video/*"
+          hidden
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleFrameUpload(file, "last");
+            e.target.value = "";
+          }}
         />
 
         <MentionTextarea
@@ -838,7 +985,9 @@ export function PromptComposer() {
                 </>
               )}
               <span className="composer-setting-value font-medium">
-                {videoTaskMode === "generate" ? s.aspectRatio : "Adaptive"}
+                {videoTaskMode === "generate" && !s.firstFrameMode && !s.firstFrame && !s.continuationFrame
+                  ? s.aspectRatio
+                  : "Adaptive"}
               </span>
               <span className="composer-setting-separator text-white/35">·</span>
               <span className="composer-secondary-setting">{s.resolution}</span>
@@ -848,6 +997,12 @@ export function PromptComposer() {
                   <span className="composer-secondary-setting">
                     {videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}
                   </span>
+                </>
+              )}
+              {firstLastFrameApplies && (s.firstFrameMode || s.firstFrame || s.continuationFrame) && (
+                <>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting font-medium text-brand">1st Frame</span>
                 </>
               )}
               {s.batchCount > 1 && (
@@ -906,7 +1061,20 @@ export function PromptComposer() {
                   )}
                 </div>
               )}
-              {videoTaskMode === "generate" ? (
+              {firstLastFrameApplies && videoTaskMode === "generate" && (
+                <div>
+                  <Segment
+                    label="First frame"
+                    options={["Off", "On"]}
+                    value={s.firstFrameMode || s.firstFrame || s.continuationFrame ? "On" : "Off"}
+                    onChange={(v) => s.setFirstFrameMode(v === "On")}
+                  />
+                  <p className="mt-1 text-[11px] leading-snug text-white/35">
+                    Start video from a keyframe with optional last frame interpolation.
+                  </p>
+                </div>
+              )}
+              {videoTaskMode === "generate" && !(s.mode === "video" && (s.firstFrame || s.continuationFrame || s.firstFrameMode)) ? (
                 <Segment
                   label="Aspect ratio"
                   options={aspectRatiosForModel(s.model, s.mode)}
@@ -919,7 +1087,9 @@ export function PromptComposer() {
                     Aspect ratio
                   </p>
                   <p className="text-xs text-white/50">
-                    Adaptive — matches the reference clip
+                    {s.firstFrame || s.continuationFrame || s.firstFrameMode
+                      ? "Adaptive — matches first frame"
+                      : "Adaptive — matches the reference clip"}
                   </p>
                 </div>
               )}

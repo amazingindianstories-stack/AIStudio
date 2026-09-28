@@ -14,6 +14,7 @@ import {
   supportsDraftMode,
   supportsBitrateMode,
   supportsFirstFrameContinuation,
+  supportsFirstLastFrame,
   supportsVideoReference,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
@@ -259,9 +260,10 @@ export const useStore = create((set, get) => ({
   // action, below). A single data URL, not part of referenceImages/@imgN:
   // it's not a tagged reference the user chose to include, it's the exact
   // starting frame of THIS generation, submitted with BytePlus's
-  // "first_frame" content role. One-shot like seed — cleared after every
-  // successful submit, see generate() below.
   continuationFrame: null,
+  firstFrame: null,
+  lastFrame: null,
+  firstFrameMode: false,
   prompt: "",
   referenceImages: [],
   // Parallel to referenceImages, same length/order — "image" | "video",
@@ -334,7 +336,35 @@ export const useStore = create((set, get) => ({
   setView: (view) => set({ view }),
 
   setSeed: (seed) => set({ seed }),
-  setContinuationFrame: (continuationFrame) => set({ continuationFrame }),
+  setFirstFrameMode: (firstFrameMode) =>
+    set({
+      firstFrameMode,
+      ...(firstFrameMode ? {} : { firstFrame: null, continuationFrame: null, lastFrame: null }),
+    }),
+  setContinuationFrame: (continuationFrame) =>
+    set({
+      continuationFrame,
+      firstFrame: continuationFrame,
+      firstFrameMode: Boolean(continuationFrame),
+    }),
+  setFirstFrame: (firstFrame) =>
+    set({
+      firstFrame,
+      continuationFrame: firstFrame,
+      firstFrameMode: Boolean(firstFrame),
+    }),
+  setLastFrame: (lastFrame) =>
+    set({
+      lastFrame,
+      firstFrameMode: true,
+    }),
+  clearFrames: () =>
+    set({
+      firstFrame: null,
+      continuationFrame: null,
+      lastFrame: null,
+      firstFrameMode: false,
+    }),
   setReferenceLabel: (index, label) => set((s) => {
     const labels = Array.isArray(s.referenceLabels) ? [...s.referenceLabels] : [];
     labels[index] = String(label ?? "");
@@ -353,6 +383,7 @@ export const useStore = create((set, get) => ({
       generateAudio: mode === "video" && supportsAudio(d.model),
       draftMode: supportsDraftMode(d.model) ? get().draftMode : false,
       bitrateMode: supportsBitrateMode(d.model) ? get().bitrateMode : "high",
+      ...(mode !== "video" ? { firstFrame: null, lastFrame: null, continuationFrame: null, firstFrameMode: false } : {}),
     });
   },
   setModel: (model) =>
@@ -406,7 +437,9 @@ export const useStore = create((set, get) => ({
       // away must not leave the composer claiming a mode the new model has
       // no such task type for.
       const videoTaskMode = supportsVideoEditExtend(model) ? s.videoTaskMode : "generate";
-      return { model, duration, resolution, aspectRatio, generateAudio, draftMode, bitrateMode, referenceVideos, videoTaskMode };
+      const retainsFrames = supportsFirstLastFrame(model) || supportsFirstFrameContinuation(model);
+      const frames = retainsFrames ? {} : { firstFrame: null, lastFrame: null, continuationFrame: null, firstFrameMode: false };
+      return { model, duration, resolution, aspectRatio, generateAudio, draftMode, bitrateMode, referenceVideos, videoTaskMode, ...frames };
     }),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set((s) => ({
@@ -756,6 +789,10 @@ export const useStore = create((set, get) => ({
     const s = get();
     const prompt = s.prompt.trim();
     if (!prompt || s.generating) return [];
+    if (s.mode === "video" && s.firstFrameMode && !s.firstFrame && !s.continuationFrame) {
+      alert("Please select a first frame or toggle First Frame off.");
+      return [];
+    }
 
     set({ generating: true });
     const endpoint =
@@ -792,7 +829,9 @@ export const useStore = create((set, get) => ({
       // config.supportsFirstFrameContinuation itself and drops it silently
       // for a model that doesn't support it, same convention as seed/
       // generateAudio above.
-      continuationFrame: s.continuationFrame ?? undefined,
+      continuationFrame: s.firstFrame ?? s.continuationFrame ?? undefined,
+      firstFrame: s.firstFrame ?? s.continuationFrame ?? undefined,
+      lastFrame: s.lastFrame ?? undefined,
       projectId: s.activeProjectId ?? undefined,
       folderId: s.activeFolderId ?? undefined,
     };
@@ -822,11 +861,9 @@ export const useStore = create((set, get) => ({
           // every submit yanked them out of the project they were working in,
           // which is also the scope the new item was generated into.
           insertNewItem(set, item);
-          // Clear seed/continuationFrame here, not just prompt: both are
-          // one-shot flags (set by regenerateWithSameSeed / continueShot),
-          // not standing composer preferences — left set, the NEXT ordinary
-          // "Generate" click would silently reuse them.
-          set({ prompt: "", seed: null, continuationFrame: null });
+          // Clear seed/continuationFrame/firstFrame/lastFrame here, not just prompt:
+          // these are one-shot flags, not standing composer preferences.
+          set({ prompt: "", seed: null, continuationFrame: null, firstFrame: null, lastFrame: null, firstFrameMode: false });
           // The server coordinator owns execution. The live feed/history
           // resync is the only client-side recovery path.
           startPolling(item, set, get);
@@ -1175,6 +1212,9 @@ export const useStore = create((set, get) => ({
         aspectRatio: item.aspectRatio,
         resolution: item.resolution ?? get().resolution,
         continuationFrame: dataUrl,
+        firstFrame: dataUrl,
+        lastFrame: null,
+        firstFrameMode: true,
         productionContext: { sourceGenerationId: item.id, relation: "continuation", frame: "last" },
         destinationProjectId: item.projectId,
         destinationFolderId: item.folderId ?? null,
@@ -1223,6 +1263,92 @@ export const useStore = create((set, get) => ({
     } catch (e) {
       console.error("Failed to take a frame from video:", e);
       alert(e?.message || "Could not read a frame from this video.");
+    }
+  },
+
+  setAsFirstFrame: async (url) => {
+    try {
+      let dataUrl;
+      if (typeof url === "string" && url.startsWith("data:")) {
+        dataUrl = url;
+      } else {
+        const res = await fetch(inlineMediaUrl(url));
+        const blob = await res.blob();
+        dataUrl = await encodeBlobWithBudget(blob);
+      }
+      const targetModel = supportsFirstLastFrame(get().model) ? get().model : "Seedance 2.5";
+      set({
+        mode: "video",
+        model: targetModel,
+        firstFrame: dataUrl,
+        continuationFrame: dataUrl,
+        firstFrameMode: true,
+      });
+      return { ok: true };
+    } catch (e) {
+      console.error("Failed to set first frame from URL:", e);
+      return { ok: false, error: e?.message || "Failed to load frame." };
+    }
+  },
+
+  setAsLastFrame: async (url) => {
+    try {
+      let dataUrl;
+      if (typeof url === "string" && url.startsWith("data:")) {
+        dataUrl = url;
+      } else {
+        const res = await fetch(inlineMediaUrl(url));
+        const blob = await res.blob();
+        dataUrl = await encodeBlobWithBudget(blob);
+      }
+      const targetModel = supportsFirstLastFrame(get().model) ? get().model : "Seedance 2.5";
+      set({
+        mode: "video",
+        model: targetModel,
+        lastFrame: dataUrl,
+        firstFrameMode: true,
+      });
+      return { ok: true };
+    } catch (e) {
+      console.error("Failed to set last frame from URL:", e);
+      return { ok: false, error: e?.message || "Failed to load frame." };
+    }
+  },
+
+  setVideoFrameAsFirstFrame: async (url, atSeconds) => {
+    try {
+      const { extractFrame } = await import("./video-frame");
+      const { dataUrl } = await extractFrame(inlineMediaUrl(url), atSeconds);
+      const targetModel = supportsFirstLastFrame(get().model) ? get().model : "Seedance 2.5";
+      set({
+        mode: "video",
+        model: targetModel,
+        firstFrame: dataUrl,
+        continuationFrame: dataUrl,
+        firstFrameMode: true,
+      });
+      return { ok: true };
+    } catch (e) {
+      console.error("Failed to use video frame as first frame:", e);
+      return { ok: false, error: e?.message || "Could not read frame from this video." };
+    }
+  },
+
+  setVideoFrameAsLastFrame: async (url, atSeconds) => {
+    try {
+      const { extractFrame } = await import("./video-frame");
+      const { dataUrl } = await extractFrame(inlineMediaUrl(url), atSeconds);
+      const targetModel = supportsFirstLastFrame(get().model) ? get().model : "Seedance 2.5";
+      set({
+        mode: "video",
+        model: targetModel,
+        lastFrame: dataUrl,
+        firstFrameMode: true,
+      });
+      return { ok: true };
+    } catch (e) {
+      console.error("Failed to use video frame as last frame:", e);
+      return { ok: false, error: e?.message || "Could not read frame from this video." };
     }
   },
 

@@ -20,6 +20,7 @@ import {
   supportsDraftMode,
   supportsBitrateMode,
   supportsFirstFrameContinuation,
+  supportsFirstLastFrame,
   supportsSeed,
   supportsVideoBestOf,
   supportsVideoEditExtend,
@@ -203,6 +204,25 @@ test("every model in the picker resolves supportsFirstFrameContinuation without 
   for (const m of MODELS) {
     assert.equal(typeof supportsFirstFrameContinuation(m.name), "boolean", m.name);
   }
+});
+
+// ── first and last frame video generation ───────────────────────────────────
+
+test("native BytePlus Seedance supports first-last frame generation", () => {
+  assert.equal(supportsFirstLastFrame("Seedance 2.5"), true);
+  assert.equal(supportsFirstLastFrame("Seedance 2.0"), true);
+  assert.equal(supportsFirstLastFrame("Seedance 2.0 Mini"), true);
+});
+
+test("Higgsfield, Omni, and image models are excluded from first-last frame generation", () => {
+  assert.equal(supportsFirstLastFrame("Higgsfield Seedance 2.0"), false);
+  assert.equal(supportsFirstLastFrame("Gemini Omni Flash"), false);
+  assert.equal(supportsFirstLastFrame("Nano Banana Pro"), false);
+  assert.equal(supportsFirstLastFrame("Seedream 5.0 Pro"), false);
+});
+
+test("Seedream 5.0 Pro offers 1K, 1.5K, and 2K resolutions", () => {
+  assert.deepEqual(resolutionsForModel("Seedream 5.0 Pro", "image"), ["1K", "1.5K", "2K"]);
 });
 
 // ── video-to-video gating ───────────────────────────────────────────────────

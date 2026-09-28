@@ -9,7 +9,15 @@ import { computeSeedreamCostCents, SEEDREAM_PRICING } from "./pricing";
 test("Pro uses documented dimensions, rejects 4K and unknown aspects", () => {
   assert.equal(seedreamSize(), "2048x2048");
   assert.equal(seedreamSize("2K", "16:9"), "2816x1584");
-  for (const sizes of Object.values(SEEDREAM_SIZES)) assert.equal(Object.keys(sizes).length, 6);
+  assert.equal(seedreamSize("1.5K", "1:1"), "1536x1536");
+  assert.equal(seedreamSize("1.5K", "16:9"), "2048x1152");
+  assert.equal(seedreamSize("1.5K", "4:3"), "1792x1344");
+  assert.equal(seedreamSize("1.5K", "3:4"), "1344x1792");
+  assert.equal(seedreamSize("1.5K", "9:16"), "1152x2048");
+  assert.equal(seedreamSize("1.5K", "3:2"), "1872x1248");
+  assert.equal(seedreamSize("1.5K", "2:3"), "1248x1872");
+  assert.equal(seedreamSize("1.5K", "21:9"), "2352x1008");
+  for (const sizes of Object.values(SEEDREAM_SIZES)) assert.equal(Object.keys(sizes).length, 8);
   assert.throws(() => seedreamSize("4K"));
   assert.throws(() => seedreamSize("2K", "7:5"));
 });
