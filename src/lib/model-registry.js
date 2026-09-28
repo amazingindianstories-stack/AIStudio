@@ -14,9 +14,9 @@ export const MODEL_REGISTRY = [
   {
     id: "seedream-5-pro", name: "Seedream 5.0 Pro", kind: "image", provider: "seedream",
     providerModelId: "dola-seedream-5-0-pro-260628", providerModelEnv: "SEEDREAM_MODEL",
-    offered: true, badge: "NEW", hint: "Precise editing with up to 10 original references · 1K/2K PNG",
+    offered: true, badge: "NEW", hint: "Precise editing with up to 10 original references · 1K/1.5K/2K PNG",
     pricingKey: "Seedream 5.0 Pro",
-    capabilities: { aspectRatios: IMAGE_ASPECTS, resolutions: ["1K", "2K"], maxReferenceImages: 10, seed: false, imagePriceScalesWithResolution: false },
+    capabilities: { aspectRatios: IMAGE_ASPECTS, resolutions: ["1K", "1.5K", "2K"], maxReferenceImages: 10, seed: false, imagePriceScalesWithResolution: false },
   },
   {
     id: "nano-banana-pro",
@@ -99,6 +99,7 @@ export const MODEL_REGISTRY = [
       seed: true,
       videoBestOf: true,
       firstFrameContinuation: true,
+      firstLastFrame: true,
     },
   },
   {
@@ -124,6 +125,7 @@ export const MODEL_REGISTRY = [
       seed: true,
       videoBestOf: true,
       firstFrameContinuation: true,
+      firstLastFrame: true,
     },
   },
   {
@@ -155,6 +157,7 @@ export const MODEL_REGISTRY = [
       seed: true,
       videoBestOf: true,
       firstFrameContinuation: true,
+      firstLastFrame: true,
     },
   },
   {

@@ -27,6 +27,7 @@ import {
   supportsAudio,
   supportsDraftMode,
   supportsBitrateMode,
+  supportsFirstLastFrame,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
 } from "@/lib/config";
@@ -170,6 +171,7 @@ export function SettingsToolbar() {
   const draftApplies = s.mode === "video" && supportsDraftMode(s.model);
   const bitrateApplies = s.mode === "video" && supportsBitrateMode(s.model);
   const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
+  const firstLastFrameApplies = s.mode === "video" && supportsFirstLastFrame(s.model);
   // A stale draft or an older server row can omit this field. Keep the
   // toolbar render-safe because the edit/extend label is computed before any
   // enqueue validation runs.
@@ -243,13 +245,23 @@ export function SettingsToolbar() {
                   <span className="text-white/35">·</span>
                 </>
               )}
-              <span className="font-medium">{videoTaskMode === "generate" ? s.aspectRatio : "Adaptive"}</span>
+              <span className="font-medium">
+                {videoTaskMode === "generate" && !s.firstFrameMode && !s.firstFrame && !s.continuationFrame
+                  ? s.aspectRatio
+                  : "Adaptive"}
+              </span>
               <span className="text-white/35">·</span>
               <span>{s.resolution}</span>
               {s.mode === "video" && (
                 <>
                   <span className="text-white/35">·</span>
                   <span>{videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}</span>
+                </>
+              )}
+              {firstLastFrameApplies && (s.firstFrameMode || s.firstFrame || s.continuationFrame) && (
+                <>
+                  <span className="text-white/35">·</span>
+                  <span className="font-medium text-brand">1st Frame</span>
                 </>
               )}
               {s.batchCount > 1 && (
@@ -296,7 +308,20 @@ export function SettingsToolbar() {
                   )}
                 </div>
               )}
-              {videoTaskMode === "generate" ? (
+              {firstLastFrameApplies && videoTaskMode === "generate" && (
+                <div>
+                  <Segment
+                    label="First frame"
+                    options={["Off", "On"]}
+                    value={s.firstFrameMode || s.firstFrame || s.continuationFrame ? "On" : "Off"}
+                    onChange={(v) => s.setFirstFrameMode(v === "On")}
+                  />
+                  <p className="mt-1 text-[11px] leading-snug text-white/35">
+                    Start video from a keyframe with optional last frame interpolation.
+                  </p>
+                </div>
+              )}
+              {videoTaskMode === "generate" && !(s.mode === "video" && (s.firstFrame || s.continuationFrame || s.firstFrameMode)) ? (
                 <Segment
                   label="Aspect ratio"
                   options={aspectRatiosForModel(s.model, s.mode)}
@@ -308,7 +333,11 @@ export function SettingsToolbar() {
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
                     Aspect ratio
                   </p>
-                  <p className="text-xs text-white/50">Adaptive — matches the reference clip</p>
+                  <p className="text-xs text-white/50">
+                    {s.firstFrame || s.continuationFrame || s.firstFrameMode
+                      ? "Adaptive — matches first frame"
+                      : "Adaptive — matches the reference clip"}
+                  </p>
                 </div>
               )}
               <Segment

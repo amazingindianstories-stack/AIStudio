@@ -415,3 +415,60 @@ test("createVideoTask: translates named material slugs and ad-hoc @img tags to [
   assert.equal(imageItems[1].image_url.url, "data:image/jpeg;base64,SCENE_BASE64");
   assert.equal(imageItems[2].image_url.url, "data:image/jpeg;base64,ADHOC_BASE64");
 });
+
+test("createVideoTask: firstFrame sets role first_frame and forces ratio adaptive", async () => {
+  const { body } = await withFakeArkResponse("task-first-frame", () =>
+    createVideoTask({
+      prompt: "A drone flying over mountains",
+      modelDisplay: "Seedance 2.5",
+      firstFrame: { dataUrl: "data:image/jpeg;base64,FIRST_FRAME_DATA" },
+      ratio: "16:9",
+      duration: 8,
+    })
+  );
+  assert.equal(body.ratio, "adaptive");
+  assert.equal(body.duration, 8);
+  const firstFrameItem = body.content.find((c) => c.role === "first_frame");
+  assert.ok(firstFrameItem, "first_frame item must exist");
+  assert.equal(firstFrameItem.type, "image_url");
+  assert.equal(firstFrameItem.image_url.url, "data:image/jpeg;base64,FIRST_FRAME_DATA");
+});
+
+test("createVideoTask: firstFrame and lastFrame sets both roles with adaptive ratio", async () => {
+  const { body } = await withFakeArkResponse("task-first-last", () =>
+    createVideoTask({
+      prompt: "A camera morphing between two positions",
+      modelDisplay: "Seedance 2.5",
+      firstFrame: { dataUrl: "data:image/jpeg;base64,FIRST_DATA" },
+      lastFrame: { dataUrl: "data:image/jpeg;base64,LAST_DATA" },
+      ratio: "16:9",
+      duration: 5,
+    })
+  );
+  assert.equal(body.ratio, "adaptive");
+  assert.equal(body.duration, 5);
+  const first = body.content.find((c) => c.role === "first_frame");
+  const last = body.content.find((c) => c.role === "last_frame");
+  assert.ok(first, "first_frame role must exist");
+  assert.ok(last, "last_frame role must exist");
+  assert.equal(first.image_url.url, "data:image/jpeg;base64,FIRST_DATA");
+  assert.equal(last.image_url.url, "data:image/jpeg;base64,LAST_DATA");
+});
+
+test("createVideoTask: lastFrame without firstFrame throws missing_first_frame", async () => {
+  await assert.rejects(
+    () =>
+      createVideoTask({
+        prompt: "Invalid interpolation",
+        modelDisplay: "Seedance 2.5",
+        lastFrame: { dataUrl: "data:image/jpeg;base64,LAST_DATA" },
+      }),
+    (err) => {
+      assert.ok(err instanceof SeedanceError);
+      assert.equal(err.code, "missing_first_frame");
+      assert.equal(err.status, 400);
+      return true;
+    }
+  );
+});
+

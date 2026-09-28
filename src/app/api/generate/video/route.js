@@ -13,6 +13,7 @@ import {
   resolutionsForModel,
   supportsAudio,
   supportsFirstFrameContinuation,
+  supportsFirstLastFrame,
   supportsSeed,
   supportsVideoReference,
   supportsVideoEditExtend,
@@ -97,15 +98,28 @@ export async function POST(req) {
   // Dropped silently for unsupported models, same convention generateAudio
   // uses just above.
   const seed = supportsSeed(model) && Number.isInteger(body.seed) ? body.seed : undefined;
-  // Multi-shot chaining (Phase 3.3) — "Continue this shot" hands over a data
-  // URL of a frame extracted from a previous generation. Same gate/drop
-  // convention as generateAudio/seed above: honoured only where
-  // config.supportsFirstFrameContinuation confirms the model has the field,
-  // silently ignored everywhere else rather than stored and never acted on.
-  const continuationFrame =
-    supportsFirstFrameContinuation(model) && typeof body.continuationFrame === "string"
-      ? body.continuationFrame
-      : undefined;
+  // First frame & optional last frame (Phase 3.3 & BytePlus ModelArk):
+  // "Continue this shot" or custom first/last frame video generation.
+  const supportsFrames =
+    supportsFirstLastFrame(model) || supportsFirstFrameContinuation(model);
+  const firstFrameInput =
+    typeof body.firstFrame === "string"
+      ? body.firstFrame
+      : typeof body.continuationFrame === "string"
+        ? body.continuationFrame
+        : undefined;
+  const continuationFrame = supportsFrames ? firstFrameInput : undefined;
+
+  const lastFrameInput =
+    typeof body.lastFrame === "string" ? body.lastFrame : undefined;
+  const lastFrame = supportsFrames ? lastFrameInput : undefined;
+
+  if (lastFrame && !continuationFrame) {
+    return NextResponse.json(
+      { error: "A first frame is required when providing a last frame." },
+      { status: 400 }
+    );
+  }
 
   if (!prompt) {
     return NextResponse.json({ error: "Prompt is required." }, { status: 400 });
@@ -234,6 +248,7 @@ export async function POST(req) {
   let costCents;
   let savedRefs;
   let continuationFrameUrl;
+  let lastFrameUrl;
   try {
     costCents = computeCostCents(
       { kind: "video", model, resolution, duration, generateAudio },
@@ -247,7 +262,10 @@ export async function POST(req) {
     // collide with referenceImages' own references/${id}-0.ext when both are
     // present on the same request.
     continuationFrameUrl = continuationFrame
-      ? (await saveReferenceImages([continuationFrame], `${id}-continuation`))[0]
+      ? (await saveReferenceImages([continuationFrame], `${id}-firstframe`))[0]
+      : undefined;
+    lastFrameUrl = lastFrame
+      ? (await saveReferenceImages([lastFrame], `${id}-lastframe`))[0]
       : undefined;
   } catch (e) {
     return NextResponse.json(
@@ -268,6 +286,7 @@ export async function POST(req) {
     referenceVideos: referenceVideos.length ? referenceVideos : undefined,
     referenceAudios: referenceAudios.length ? referenceAudios : undefined,
     continuationFrameUrl,
+    lastFrameUrl,
     generateAudio,
     draftMode,
     bitrateMode,

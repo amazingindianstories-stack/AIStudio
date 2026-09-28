@@ -26,7 +26,11 @@ import {
 import { useStore } from "@/lib/store";
 import { cn, inlineMediaUrl, thumbUrl, referenceDisplayUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
-import { supportsFirstFrameContinuation, supportsVideoReference } from "@/lib/config";
+import {
+  supportsFirstFrameContinuation,
+  supportsFirstLastFrame,
+  supportsVideoReference,
+} from "@/lib/config";
 import { canFinalizeDraft } from "@/lib/seedance-finalization";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
@@ -193,6 +197,10 @@ export function DetailModal() {
   const addReferenceFromUrl = useStore((s) => s.addReferenceFromUrl);
   const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
   const addReferenceVideo = useStore((s) => s.addReferenceVideo);
+  const setAsFirstFrame = useStore((s) => s.setAsFirstFrame);
+  const setAsLastFrame = useStore((s) => s.setAsLastFrame);
+  const setVideoFrameAsFirstFrame = useStore((s) => s.setVideoFrameAsFirstFrame);
+  const setVideoFrameAsLastFrame = useStore((s) => s.setVideoFrameAsLastFrame);
   const model = useStore((s) => s.model);
   const setMode = useStore((s) => s.setMode);
   const removeItem = useStore((s) => s.removeItem);
@@ -542,17 +550,41 @@ export function DetailModal() {
                   </button>
                 )}
                 {item.kind === "image" && item.url && (
-                  <button
-                    onClick={() => {
-                      addReferenceFromUrl(item.url);
-                      setMode("image");
-                      setActiveId(null);
-                    }}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
-                    title="Add this image as a reference — generate a clean hero, then place them in a crowd"
-                  >
-                    <ImagePlus className="h-4 w-4" /> Use as reference
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        addReferenceFromUrl(item.url);
+                        setMode("image");
+                        setActiveId(null);
+                      }}
+                      className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
+                      title="Add this image as a reference — generate a clean hero, then place them in a crowd"
+                    >
+                      <ImagePlus className="h-4 w-4" /> Use as reference
+                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={async () => {
+                          await setAsFirstFrame(item.url);
+                          setActiveId(null);
+                        }}
+                        className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-white/[0.06] py-2 text-xs font-semibold text-white/85 hover:bg-white/[0.1]"
+                        title="Set this image as the first frame for video generation"
+                      >
+                        <Play className="h-3.5 w-3.5 text-brand" /> Use as first frame
+                      </button>
+                      <button
+                        onClick={async () => {
+                          await setAsLastFrame(item.url);
+                          setActiveId(null);
+                        }}
+                        className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-white/[0.06] py-2 text-xs font-semibold text-white/85 hover:bg-white/[0.1]"
+                        title="Set this image as the optional last frame for video generation"
+                      >
+                        <Flag className="h-3.5 w-3.5 text-amber-400" /> Use as last frame
+                      </button>
+                    </div>
+                  </>
                 )}
                 {/* Videos get the same affordance via a still frame. No
                     provider here accepts a video as input, but the frame the
@@ -560,21 +592,49 @@ export function DetailModal() {
                     which every model does accept — so this is how a clip feeds
                     back into the next generation. */}
                 {item.kind === "video" && item.url && (
-                  <button
-                    onClick={() => {
-                      const video = document.querySelector(
-                        "[data-detail-video]"
-                      );
-                      // Take the frame the user is actually looking at; fall
-                      // back to the library default if the element is gone.
-                      addReferenceFromVideo(item.url, video?.currentTime);
-                      setActiveId(null);
-                    }}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
-                    title="Grab the current frame and add it to the composer as a reference image"
-                  >
-                    <ImagePlus className="h-4 w-4" /> Use this frame as reference
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        const video = document.querySelector(
+                          "[data-detail-video]"
+                        );
+                        // Take the frame the user is actually looking at; fall
+                        // back to the library default if the element is gone.
+                        addReferenceFromVideo(item.url, video?.currentTime);
+                        setActiveId(null);
+                      }}
+                      className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
+                      title="Grab the current frame and add it to the composer as a reference image"
+                    >
+                      <ImagePlus className="h-4 w-4" /> Use this frame as reference
+                    </button>
+                    {(supportsFirstLastFrame(item.model) || supportsFirstLastFrame(model)) && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          onClick={async () => {
+                            const video = document.querySelector("[data-detail-video]");
+                            await setVideoFrameAsFirstFrame(item.url, video?.currentTime);
+                            setActiveId(null);
+                          }}
+                          className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-white/[0.06] py-2 text-xs font-semibold text-white/85 hover:bg-white/[0.1]"
+                          title="Use the current paused video frame as the first frame for video generation"
+                        >
+                          <Play className="h-3.5 w-3.5 text-brand" /> First frame
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const video = document.querySelector("[data-detail-video]");
+                            await setVideoFrameAsLastFrame(item.url, video?.currentTime);
+                            setActiveId(null);
+                          }}
+                          className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-white/[0.06] py-2 text-xs font-semibold text-white/85 hover:bg-white/[0.1]"
+                          title="Use the current paused video frame as the last frame for video generation"
+                        >
+                          <Flag className="h-3.5 w-3.5 text-amber-400" /> Last frame
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
                 {/* Multi-shot chaining (Phase 3.3) — extracts the LAST frame
                     (not "the frame you're paused on", unlike the button

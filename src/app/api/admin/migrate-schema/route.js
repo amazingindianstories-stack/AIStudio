@@ -21,6 +21,9 @@ const COORDINATOR_STATEMENTS = [
   "alter table generations add column if not exists worker_lease_until bigint",
   "alter table generations add column if not exists source_generation_id uuid",
   "alter table generations add column if not exists draft_task_id text",
+  "alter table generations add column if not exists draft_mode boolean",
+  "alter table generations add column if not exists bitrate_mode text",
+  "alter table generations add column if not exists last_frame_url text",
   "create index if not exists generations_coordinator_due_idx on generations (status, next_poll_at, created_at) where kind in ('video', 'image') and status in ('queued', 'running')",
 ];
 
@@ -50,6 +53,45 @@ const PORTRAIT_STATEMENTS = [
     updated_at BIGINT NOT NULL
   )`,
   "CREATE INDEX IF NOT EXISTS idx_portrait_assets_group_id ON portrait_assets(group_id)",
+];
+
+const PROJECT_BINDING_STATEMENTS = [
+  "ALTER TABLE assets ADD COLUMN IF NOT EXISTS project_id UUID",
+  "CREATE INDEX IF NOT EXISTS assets_project_id_idx ON assets (project_id)",
+  "ALTER TABLE portrait_groups ADD COLUMN IF NOT EXISTS project_id UUID",
+  "CREATE INDEX IF NOT EXISTS portrait_groups_project_id_idx ON portrait_groups (project_id)",
+];
+
+const MEDIA_EXPORT_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS media_exports (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    total_items INTEGER NOT NULL DEFAULT 0,
+    processed_items INTEGER NOT NULL DEFAULT 0,
+    skipped_items INTEGER NOT NULL DEFAULT 0,
+    warnings JSONB NOT NULL DEFAULT '[]'::jsonb,
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    lease_owner TEXT,
+    lease_until BIGINT,
+    output_key TEXT,
+    output_bytes BIGINT,
+    error TEXT,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    expires_at BIGINT
+  )`,
+  `CREATE TABLE IF NOT EXISTS media_export_items (
+    export_id UUID NOT NULL REFERENCES media_exports(id) ON DELETE CASCADE,
+    generation_id UUID NOT NULL,
+    position INTEGER NOT NULL,
+    source_key TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    PRIMARY KEY (export_id, generation_id)
+  )`,
+  "CREATE INDEX IF NOT EXISTS media_exports_user_created_idx ON media_exports(user_id, created_at DESC)",
+  "CREATE INDEX IF NOT EXISTS media_exports_worker_due_idx ON media_exports(status, lease_until, created_at)",
+  "CREATE INDEX IF NOT EXISTS media_export_items_order_idx ON media_export_items(export_id, position)",
 ];
 
 /**
@@ -82,7 +124,17 @@ export async function POST(request) {
       await db.execute(sql.raw(stmt));
     }
 
-    // 3. Verify schema state
+    // 3. Apply project binding columns and indexes
+    for (const stmt of PROJECT_BINDING_STATEMENTS) {
+      await db.execute(sql.raw(stmt));
+    }
+
+    // 4. Apply media export tables and indexes
+    for (const stmt of MEDIA_EXPORT_STATEMENTS) {
+      await db.execute(sql.raw(stmt));
+    }
+
+    // 5. Verify schema state
     const coordinatorVerification = await db.execute(sql`
       select count(*)::int as count
       from information_schema.columns
@@ -91,7 +143,8 @@ export async function POST(request) {
           'provider_responses',
           'submitted_at', 'provider_created_at', 'provider_updated_at',
           'completed_at', 'last_poll_at', 'next_poll_at', 'poll_attempts',
-          'callback_received_at', 'provider_status', 'worker_lease_id', 'worker_lease_until'
+          'callback_received_at', 'provider_status', 'worker_lease_id', 'worker_lease_until',
+          'source_generation_id', 'draft_task_id', 'draft_mode', 'bitrate_mode', 'last_frame_url'
         );
     `);
 
@@ -101,14 +154,22 @@ export async function POST(request) {
       where table_name in ('portrait_groups', 'portrait_assets');
     `);
 
+    const mediaExportTablesVerification = await db.execute(sql`
+      select count(*)::int as count
+      from information_schema.tables
+      where table_name in ('media_exports', 'media_export_items');
+    `);
+
     const coordCount = Number((coordinatorVerification.rows ?? coordinatorVerification)[0]?.count || 0);
     const portCount = Number((portraitTablesVerification.rows ?? portraitTablesVerification)[0]?.count || 0);
+    const mediaExportCount = Number((mediaExportTablesVerification.rows ?? mediaExportTablesVerification)[0]?.count || 0);
 
     return NextResponse.json({
       success: true,
       coordinatorColumns: coordCount,
       portraitTables: portCount,
-      verified: coordCount === 12 && portCount === 2,
+      mediaExportTables: mediaExportCount,
+      verified: coordCount === 17 && portCount === 2 && mediaExportCount === 2,
     });
   } catch (error) {
     console.error("[migrate-schema] Error applying migration:", error);

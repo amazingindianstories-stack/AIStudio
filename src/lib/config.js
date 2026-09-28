@@ -285,6 +285,14 @@ export function supportsFirstFrameContinuation(model) {
   return capability(model, "firstFrameContinuation", false);
 }
 
+/**
+ * Can this model generate video from first frame and optional last frame?
+ * Supported by native BytePlus Seedance (2.0 and 2.5 series).
+ */
+export function supportsFirstLastFrame(model) {
+  return capability(model, "firstLastFrame", false);
+}
+
 export const DEFAULTS = {
   image: {
     model: "Nano Banana Pro",

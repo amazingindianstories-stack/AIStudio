@@ -266,12 +266,27 @@ export async function createVideoTask(
   // resolution probes), since nothing about first_frame validates
   // synchronously the way an out-of-range n or an unsupported resolution
   // does; confirming it actually constrains the output needs a real,
-  // billed generation.
   if (input.firstFrame) {
+    const url = input.firstFrame.dataUrl || input.firstFrame.url;
     content.push({
       type: "image_url",
-      image_url: { url: input.firstFrame.dataUrl },
+      image_url: { url },
       role: "first_frame",
+    });
+  }
+  if (input.lastFrame) {
+    if (!input.firstFrame) {
+      throw new SeedanceError(
+        "A first frame is required when providing a last frame.",
+        "missing_first_frame",
+        400
+      );
+    }
+    const url = input.lastFrame.dataUrl || input.lastFrame.url;
+    content.push({
+      type: "image_url",
+      image_url: { url },
+      role: "last_frame",
     });
   }
   // `role` is required here, unlike on image items — see the header. Capped at
@@ -320,6 +335,12 @@ export async function createVideoTask(
     // duration if the caller gave one.
     body.ratio = "adaptive";
     body.duration = taskMode === "edit" ? -1 : input.duration || -1;
+  } else if (input.firstFrame) {
+    // In first-frame / first-last-frame video generation, Seedance automatically
+    // keeps the output aspect ratio consistent with the first_frame image
+    // (ratio defaults to and only supports "adaptive" per official docs).
+    body.ratio = "adaptive";
+    if (input.duration) body.duration = input.duration;
   } else {
     if (input.ratio) body.ratio = input.ratio;
     if (input.duration) body.duration = input.duration;

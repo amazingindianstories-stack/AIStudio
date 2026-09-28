@@ -1,12 +1,13 @@
 // BytePlus Pro dimensions, verified 2026-09-07 against ModelArk/1824121.
 import { parseAssetSlugs, parseMentionIndices, TAG_REGEX } from "./mentions";
 export const SEEDREAM_SIZES = {
-  "1K": { "1:1": "1024x1024", "4:3": "1152x864", "3:4": "864x1152", "16:9": "1424x800", "9:16": "800x1424", "21:9": "1568x672" },
-  "2K": { "1:1": "2048x2048", "4:3": "2368x1776", "3:4": "1776x2368", "16:9": "2816x1584", "9:16": "1584x2816", "21:9": "3136x1344" },
+  "1K": { "1:1": "1024x1024", "4:3": "1152x864", "3:4": "864x1152", "16:9": "1424x800", "9:16": "800x1424", "3:2": "1248x832", "2:3": "832x1248", "21:9": "1568x672" },
+  "1.5K": { "1:1": "1536x1536", "4:3": "1792x1344", "3:4": "1344x1792", "16:9": "2048x1152", "9:16": "1152x2048", "3:2": "1872x1248", "2:3": "1248x1872", "21:9": "2352x1008" },
+  "2K": { "1:1": "2048x2048", "4:3": "2368x1776", "3:4": "1776x2368", "16:9": "2816x1584", "9:16": "1584x2816", "3:2": "2496x1664", "2:3": "1664x2496", "21:9": "3136x1344" },
 };
 export function seedreamSize(resolution = "2K", aspectRatio = "1:1") {
   const size = SEEDREAM_SIZES[resolution]?.[aspectRatio];
-  if (!size) throw new Error("Seedream 5.0 Pro requires 1K or 2K and a supported aspect ratio.");
+  if (!size) throw new Error("Seedream 5.0 Pro requires 1K, 1.5K, or 2K and a supported aspect ratio.");
   return size;
 }
 

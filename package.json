@@ -25,6 +25,7 @@
     "db:migrate:generation-coordinator": "tsx scripts/migrate-generation-coordinator.js",
     "db:migrate:seedance-render-controls": "tsx scripts/migrate-seedance-render-controls.js",
     "db:migrate:seedance-finalization": "tsx scripts/migrate-seedance-finalization.js",
+    "db:migrate:seedance-first-last-frame": "tsx scripts/migrate-seedance-first-last-frame.js",
     "db:migrate:depth-claim-fencing": "tsx scripts/migrate-depth-claim-fencing.js",
     "db:migrate:media-exports": "tsx scripts/migrate-media-exports.js",
     "db:seed": "tsx scripts/seed.js",
