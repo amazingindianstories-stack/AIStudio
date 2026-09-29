@@ -20,7 +20,7 @@ import {
   VIDEO_TASK_MODES,
   MAX_REFERENCE_VIDEOS,
   maxReferenceImagesForVideoModel,
-
+  maxReferenceVideosForVideoModel,
 } from "@/lib/config";
 import { isOmniModel } from "@/lib/providers/omni";
 import { resolveSeedanceRenderControls } from "@/lib/seedance-render-controls";
@@ -69,12 +69,13 @@ export async function POST(req) {
       { status: 400 }
     );
   }
+  const maxRefVideos = maxReferenceVideosForVideoModel(model) ?? MAX_REFERENCE_VIDEOS;
   // Clips already in the library, referenced by their stored path. Dropped for
   // models with no video-reference field rather than persisted and ignored.
   const referenceVideos = supportsVideoReference(model)
     ? (Array.isArray(body.referenceVideos) ? body.referenceVideos : [])
         .filter((v) => typeof v === "string" && v.length > 0)
-        .slice(0, MAX_REFERENCE_VIDEOS)
+        .slice(0, maxRefVideos)
     : [];
   const referenceAudios = supportsAudio(model)
     ? (Array.isArray(body.referenceAudios) ? body.referenceAudios : [])
@@ -150,12 +151,12 @@ export async function POST(req) {
   // those clips and would otherwise get a result that ignored some of them.
   if (
     Array.isArray(body.referenceVideos) &&
-    body.referenceVideos.length > MAX_REFERENCE_VIDEOS &&
+    body.referenceVideos.length > maxRefVideos &&
     supportsVideoReference(model)
   ) {
     return NextResponse.json(
       {
-        error: `${model} accepts at most ${MAX_REFERENCE_VIDEOS} reference clips (got ${body.referenceVideos.length}).`,
+        error: `${model} accepts at most ${maxRefVideos} reference clips (got ${body.referenceVideos.length}).`,
       },
       { status: 400 }
     );

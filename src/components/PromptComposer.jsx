@@ -48,6 +48,7 @@ import {
   durationsForModel,
   durationRangeForModel,
   maxReferenceImagesForVideoModel,
+  maxReferenceVideosForVideoModel,
   resolutionsForModel,
   supportsAudio,
   supportsDraftMode,
@@ -57,6 +58,7 @@ import {
   supportsVideoReference,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
+  MAX_REFERENCE_VIDEOS,
 } from "@/lib/config";
 import { cn, referenceDisplayUrl } from "@/lib/utils";
 import { isProviderModel } from "@/lib/model-registry";
@@ -221,48 +223,50 @@ export function PromptComposer() {
   // cropped from — while the last step (1024px/q0.8, today's behavior) is a
   // guaranteed-to-fit floor.
   const prepareImageFiles = async (files) => {
-    const referenceFiles = files.filter(
-      (file) => isVideoFile(file) || file.type.startsWith("image/")
-    );
-    const maxReferences =
-      isProviderModel(s.model, "seedream") ? 10 : s.mode === "video" ? maxReferenceImagesForVideoModel(s.model) : null;
-    const available =
-      maxReferences === null
-        ? referenceFiles.length
-        : Math.max(0, maxReferences - s.referenceImages.length);
-    const acceptedReferenceFiles = referenceFiles.slice(0, available);
-    if (acceptedReferenceFiles.length < referenceFiles.length) {
-      alert(
-        `${s.model} accepts at most ${maxReferences} reference images. ` +
-          `Only the first ${acceptedReferenceFiles.length} new reference${acceptedReferenceFiles.length === 1 ? " was" : "s were"} added.`
-      );
-    }
-    // Videos are accepted by pulling a still frame out of them in the browser.
-    // No provider here takes an uploaded video (and a video could not survive
-    // Vercel's 4.5MB body limit anyway), but every one of them takes an image —
-    // so a frame turns "video → image" and "video → video" into paths that
-    // already work. See lib/video-frame.ts.
-    const videos = acceptedReferenceFiles.filter(isVideoFile);
-    if (videos.length) {
-      setExtractingFrames(videos.length);
-      for (const file of videos) {
-        try {
-          const { dataUrl } = await extractFrame(file);
-          s.addReference(dataUrl, "video");
-        } catch (e) {
-          console.error("Frame extraction failed", e);
+    // 1. Video files handling:
+    // If the active model supports video references (Seedance 2.0 & 2.5), upload the video directly
+    // to storage so the model receives full motion, camera path, and temporal dynamics.
+    // Otherwise, fallback to browser-side frame extraction for image generation or image-only models.
+    const videoFiles = files.filter(isVideoFile);
+    if (videoFiles.length) {
+      if (s.mode === "video" && supportsVideoReference(s.model)) {
+        const maxVideos = maxReferenceVideosForVideoModel(s.model) ?? MAX_REFERENCE_VIDEOS;
+        const availableSlots = Math.max(0, maxVideos - s.referenceVideos.length);
+        const toUpload = videoFiles.slice(0, availableSlots);
+        if (toUpload.length < videoFiles.length) {
           alert(
-            e?.message ||
-              `Could not read a frame from ${file.name}. Try a different format (MP4/WebM).`
+            `${s.model} accepts at most ${maxVideos} reference clips. ` +
+            `Only ${toUpload.length} new clip${toUpload.length === 1 ? " was" : "s were"} added.`
           );
         }
+        for (const file of toUpload) {
+          try {
+            const uploaded = await uploadFileDirect(file, "video-reference");
+            s.addReferenceVideo(uploaded.ref, file.name);
+          } catch (e) {
+            console.error("Video reference upload failed", e);
+            alert(e?.message || `Could not upload ${file.name}.`);
+          }
+        }
+      } else {
+        setExtractingFrames(videoFiles.length);
+        for (const file of videoFiles) {
+          try {
+            const { dataUrl } = await extractFrame(file);
+            s.addReference(dataUrl, "video");
+          } catch (e) {
+            console.error("Frame extraction failed", e);
+            alert(
+              e?.message ||
+                `Could not read a frame from ${file.name}. Try a different format (MP4/WebM).`
+            );
+          }
+        }
+        setExtractingFrames(0);
       }
-      setExtractingFrames(0);
     }
 
-    // Audio is a first-class Seedance reference. Upload directly to storage so
-    // large files never travel through the generation request, then retain the
-    // stable media URL behind the @audioN chip.
+    // 2. Audio files handling:
     for (const file of files.filter((f) => f.type.startsWith("audio/"))) {
       if (!supportsAudio(s.model)) continue;
       try {
@@ -273,8 +277,26 @@ export function PromptComposer() {
       }
     }
 
-    const valid = acceptedReferenceFiles.filter((f) => f.type.startsWith("image/"));
-    if (!valid.length) return;
+    // 3. Image files handling:
+    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
+    if (!imageFiles.length) return;
+
+    const maxReferences =
+      isProviderModel(s.model, "seedream") ? 10 : s.mode === "video" ? maxReferenceImagesForVideoModel(s.model) : null;
+    const available =
+      maxReferences === null
+        ? imageFiles.length
+        : Math.max(0, maxReferences - s.referenceImages.length);
+    const acceptedReferenceFiles = imageFiles.slice(0, available);
+    if (acceptedReferenceFiles.length < imageFiles.length) {
+      alert(
+        `${s.model} accepts at most ${maxReferences} reference images. ` +
+          `Only the first ${acceptedReferenceFiles.length} new reference${acceptedReferenceFiles.length === 1 ? " was" : "s were"} added.`
+      );
+    }
+    if (!acceptedReferenceFiles.length) return;
+
+    const valid = acceptedReferenceFiles;
 
     if (isProviderModel(s.model, "seedream")) {
       for (const file of valid) {
@@ -414,23 +436,30 @@ export function PromptComposer() {
       {/* attached reference clips (video-to-video) */}
       {s.referenceVideos.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2 px-1">
-          {s.referenceVideos.map((ref, i) => (
-            <span
-              key={ref}
-              className="flex items-center gap-1.5 rounded-lg bg-ink-750 py-1 pl-2 pr-1 text-xs text-white/75 ring-1 ring-line"
-              title={`Reference clip ${i + 1} — type @vid${i + 1} to point at it`}
-            >
-              <Clapperboard className="h-3.5 w-3.5 text-brand" />
-              @vid{i + 1}
-              <button
-                onClick={() => s.removeReferenceVideo(i)}
-                className="grid h-4 w-4 place-items-center rounded text-white/40 hover:bg-white/10 hover:text-white"
-                aria-label={`Remove reference clip ${i + 1}`}
+          {s.referenceVideos.map((ref, i) => {
+            const noteName = s.videoNotes?.[i]?.name;
+            return (
+              <span
+                key={ref + i}
+                className="flex items-center gap-1.5 rounded-lg bg-ink-750 py-1 pl-2 pr-1 text-xs text-white/75 ring-1 ring-line transition hover:ring-brand/40"
+                title={`Reference clip ${i + 1}${noteName ? ` (${noteName})` : ""} — use @vid${i + 1} for motion or camera reference`}
               >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
+                <Clapperboard className="h-3.5 w-3.5 text-brand" />
+                <span className="font-semibold text-brand">@vid{i + 1}</span>
+                {noteName && noteName !== `Clip ${i + 1}` && (
+                  <span className="max-w-[120px] truncate text-[11px] text-white/50">{noteName}</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => s.removeReferenceVideo(i)}
+                  className="grid h-4 w-4 place-items-center rounded text-white/40 hover:bg-white/10 hover:text-white"
+                  aria-label={`Remove reference clip ${i + 1}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            );
+          })}
         </div>
       )}
 

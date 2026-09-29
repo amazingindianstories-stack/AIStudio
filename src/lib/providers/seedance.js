@@ -2,7 +2,7 @@
 
 import { buildVideoDirective } from "../video-directive.js";
 import { parseRefRoles } from "../shot-spec.js";
-import { maxReferenceImagesForVideoModel, supportsBitrateMode, supportsDraftMode } from "../config.js";
+import { maxReferenceImagesForVideoModel, maxReferenceVideosForVideoModel, supportsBitrateMode, supportsDraftMode } from "../config.js";
 import { isProviderModel, providerModelId } from "../model-registry.js";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
@@ -290,8 +290,11 @@ export async function createVideoTask(
     });
   }
   // `role` is required here, unlike on image items — see the header. Capped at
-  // the documented 3 rather than letting the provider reject the whole request.
-  for (const url of (input.referenceVideoUrls ?? []).slice(0, 3)) {
+  // the documented model limit rather than letting the provider reject the whole request.
+  const maxVideos = input.modelDisplay
+    ? maxReferenceVideosForVideoModel(input.modelDisplay) ?? 10
+    : 10;
+  for (const url of (input.referenceVideoUrls ?? []).slice(0, maxVideos)) {
     content.push({
       type: "video_url",
       video_url: { url },

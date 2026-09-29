@@ -5,6 +5,7 @@ import { createUploadPresign } from "./upload-presign.js";
 const cases = [
   ["image-reference", "image/png", "uploads/image-reference"],
   ["audio-reference", "audio/mpeg", "uploads/audio-reference"],
+  ["video-reference", "video/mp4", "uploads/video-reference"],
   ["depth-input", "video/mp4", "uploads/depth-input"],
 ];
 

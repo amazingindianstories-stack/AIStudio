@@ -148,7 +148,7 @@ export const MODEL_REGISTRY = [
       durations: [4, 5, 8, 10, 15, 20, 25, 30],
       durationRange: { min: 4, max: 30, step: 1 },
       maxReferenceImages: 30,
-      maxReferenceVideos: 3,
+      maxReferenceVideos: 10,
       videoReference: true,
       audio: true,
       draft: true,

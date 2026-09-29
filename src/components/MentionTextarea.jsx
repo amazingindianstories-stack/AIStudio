@@ -415,7 +415,7 @@ function renderHighlighted(
 export function attachedMediaSuggestions(query, videoCount, audioCount) {
   const q = query.toLowerCase();
   return [
-    { prefix: "vid", count: videoCount, sub: "attached clip" },
+    { prefix: "vid", count: videoCount, sub: "video ref · motion / camera" },
     { prefix: "audio", count: audioCount, sub: "attached audio" },
   ].flatMap(({ prefix, count, sub }) =>
     Array.from({ length: count }, (_, i) => `${prefix}${i + 1}`)

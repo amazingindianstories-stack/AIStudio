@@ -163,8 +163,16 @@ export function supportsVideoReference(model) {
   return capability(model, "videoReference", false);
 }
 
-/** ModelArk accepts at most 3 reference clips per request. */
-export const MAX_REFERENCE_VIDEOS = 3;
+export const SEEDANCE_20_MAX_REFERENCE_VIDEOS = 3;
+export const SEEDANCE_25_MAX_REFERENCE_VIDEOS = 10;
+/** Maximum reference clips accepted across supported models. */
+export const MAX_REFERENCE_VIDEOS = 10;
+
+/** Maximum reference clips accepted by a video model, or null when
+ * this model does not accept video references. */
+export function maxReferenceVideosForVideoModel(model) {
+  return capability(model, "maxReferenceVideos", null);
+}
 
 /**
  * Can this model generate an audio track with the video?

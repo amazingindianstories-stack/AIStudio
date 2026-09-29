@@ -7,6 +7,8 @@ import {
   MAX_REFERENCE_VIDEOS,
   SEEDANCE_20_MAX_REFERENCE_IMAGES,
   SEEDANCE_25_MAX_REFERENCE_IMAGES,
+  SEEDANCE_20_MAX_REFERENCE_VIDEOS,
+  SEEDANCE_25_MAX_REFERENCE_VIDEOS,
   MODELS,
   MODES,
   VIDEO_TASK_MODES,
@@ -15,6 +17,7 @@ import {
   durationRangeForModel,
   isKlingImageModel,
   maxReferenceImagesForVideoModel,
+  maxReferenceVideosForVideoModel,
   resolutionsForModel,
   supportsAudio,
   supportsDraftMode,
@@ -257,8 +260,15 @@ test("audio and video-reference support agree on which models are native", () =>
   }
 });
 
-test("the reference-clip cap matches ModelArk's documented limit", () => {
-  assert.equal(MAX_REFERENCE_VIDEOS, 3);
+test("the reference-clip caps match ModelArk's documented limits", () => {
+  assert.equal(SEEDANCE_20_MAX_REFERENCE_VIDEOS, 3);
+  assert.equal(SEEDANCE_25_MAX_REFERENCE_VIDEOS, 10);
+  assert.equal(MAX_REFERENCE_VIDEOS, 10);
+  assert.equal(maxReferenceVideosForVideoModel("Seedance 2.0"), 3);
+  assert.equal(maxReferenceVideosForVideoModel("Seedance 2.0 Mini"), 3);
+  assert.equal(maxReferenceVideosForVideoModel("Higgsfield Seedance 2.0"), null);
+  assert.equal(maxReferenceVideosForVideoModel("Seedance 2.5"), 10);
+  assert.equal(maxReferenceVideosForVideoModel("Gemini Omni Flash"), null);
 });
 
 test("Seedance reference-image caps match the ModelArk API", () => {

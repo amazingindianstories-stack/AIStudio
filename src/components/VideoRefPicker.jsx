@@ -1,14 +1,16 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Clapperboard, Loader2, X } from "lucide-react";
+import { Check, Clapperboard, Loader2, Upload, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { useHistoryQuery } from "@/lib/use-history-query";
-import { MAX_REFERENCE_VIDEOS } from "@/lib/config";
+import { MAX_REFERENCE_VIDEOS, maxReferenceVideosForVideoModel } from "@/lib/config";
+import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { cn, thumbUrl } from "@/lib/utils";
 
 /**
- * Pick clips from the library to use as video references.
+ * Pick clips from the library or upload a local video to use as video references.
  *
  * Attaching a clip was originally only possible from the detail modal, which
  * meant the feature was effectively undiscoverable: the composer showed a
@@ -19,18 +21,43 @@ import { cn, thumbUrl } from "@/lib/utils";
  * not disturb whatever the assets panel is showing.
  */
 export function VideoRefPicker({ onClose }) {
+  const model = useStore((s) => s.model);
   const referenceVideos = useStore((s) => s.referenceVideos);
   const addReferenceVideo = useStore((s) => s.addReferenceVideo);
   const removeReferenceVideo = useStore((s) => s.removeReferenceVideo);
 
+  const fileInputRef = useRef(null);
+  const [uploading, setUploading] = useState(false);
+
+  const maxVideos = maxReferenceVideosForVideoModel(model) ?? MAX_REFERENCE_VIDEOS;
   const { items, loading } = useHistoryQuery({ kind: "video" });
   const usable = items.filter((i) => i.status === "succeeded" && i.url);
-  const full = referenceVideos.length >= MAX_REFERENCE_VIDEOS;
+  const full = referenceVideos.length >= maxVideos;
 
-  const toggle = (url) => {
+  const toggle = (url, name) => {
     const at = referenceVideos.indexOf(url);
     if (at >= 0) removeReferenceVideo(at);
-    else if (!full) addReferenceVideo(url);
+    else if (!full) addReferenceVideo(url, name);
+  };
+
+  const handleLocalUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (full) {
+      alert(`${model || "Seedance"} accepts at most ${maxVideos} reference clips.`);
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploaded = await uploadFileDirect(file, "video-reference");
+      addReferenceVideo(uploaded.ref, file.name);
+    } catch (err) {
+      console.error("Local video reference upload failed:", err);
+      alert(err?.message || `Could not upload ${file.name}.`);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   return (
@@ -54,8 +81,33 @@ export function VideoRefPicker({ onClose }) {
             <p className="flex-1 text-sm font-semibold text-white/90">
               Attach reference clips
             </p>
+            <button
+              type="button"
+              disabled={full || uploading}
+              onClick={() => fileInputRef.current?.click()}
+              className={cn(
+                "flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium transition",
+                full
+                  ? "cursor-not-allowed bg-white/5 text-white/30"
+                  : "bg-brand/15 text-brand hover:bg-brand/25"
+              )}
+            >
+              {uploading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              <span>Upload clip</span>
+            </button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="video/mp4,video/quicktime,video/x-m4v,video/webm"
+              className="hidden"
+              onChange={handleLocalUpload}
+            />
             <span className="text-xs text-white/40">
-              {referenceVideos.length}/{MAX_REFERENCE_VIDEOS} selected
+              {referenceVideos.length}/{maxVideos} selected
             </span>
             <button
               onClick={onClose}
@@ -67,11 +119,11 @@ export function VideoRefPicker({ onClose }) {
           </div>
 
           <p className="border-b border-line px-4 py-2 text-[12px] leading-snug text-white/45">
-            Seedance 2.0 takes up to {MAX_REFERENCE_VIDEOS} clips of 2–15s. Once
-            attached, refer to them in the prompt as{" "}
+            {model || "Seedance"} accepts up to {maxVideos} reference clips (MP4/MOV). Once
+            attached, refer to them in your prompt as{" "}
             <span className="text-brand">@vid1</span>,{" "}
-            <span className="text-brand">@vid2</span> — the same way{" "}
-            <span className="text-white/70">@img1</span> works for images.
+            <span className="text-brand">@vid2</span> for motion transfer, camera trajectory,
+            or choreography guidance.
           </p>
 
           <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-4">
