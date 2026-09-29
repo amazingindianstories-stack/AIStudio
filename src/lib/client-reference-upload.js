@@ -70,3 +70,7 @@ export async function uploadFileDirect(file, purpose, { attempts = 3, fetchImpl 
 export async function uploadOriginalReference(file) {
   return (await uploadFileDirect(file, "image-reference")).ref;
 }
+
+export async function uploadVideoReference(file) {
+  return uploadFileDirect(file, "video-reference");
+}

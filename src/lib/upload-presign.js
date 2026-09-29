@@ -9,6 +9,10 @@ export const UPLOAD_PURPOSES = Object.freeze({
     prefix: "uploads/audio-reference",
     contentTypes: /^audio\/(mpeg|mp3|wav|x-wav|wave|ogg|webm|mp4|x-m4a|aac|flac)$/,
   },
+  "video-reference": {
+    prefix: "uploads/video-reference",
+    contentTypes: /^video\/(mp4|quicktime|x-m4v|webm)$/,
+  },
   "depth-input": {
     prefix: "uploads/depth-input",
     contentTypes: /^video\//,

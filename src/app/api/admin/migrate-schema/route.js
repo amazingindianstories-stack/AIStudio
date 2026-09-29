@@ -24,6 +24,9 @@ const COORDINATOR_STATEMENTS = [
   "alter table generations add column if not exists draft_mode boolean",
   "alter table generations add column if not exists bitrate_mode text",
   "alter table generations add column if not exists last_frame_url text",
+  "alter table generations add column if not exists reference_videos jsonb",
+  "alter table generations add column if not exists reference_audios jsonb",
+  "alter table generations add column if not exists video_task_mode text default 'generate'",
   "create index if not exists generations_coordinator_due_idx on generations (status, next_poll_at, created_at) where kind in ('video', 'image') and status in ('queued', 'running')",
 ];
 

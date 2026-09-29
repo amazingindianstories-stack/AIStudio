@@ -74,3 +74,26 @@ test("composer renders empty staging slots when firstFrameMode is toggled on", (
   }
 });
 
+test("composer renders attached video references with @vid chips and motion transfer tooltip", () => {
+  const previousReact = globalThis.React;
+  globalThis.React = React;
+  const initial = useStore.getInitialState();
+  const before = { ...initial };
+  try {
+    Object.assign(initial, {
+      mode: "video",
+      model: "Seedance 2.5",
+      referenceVideos: ["/api/media/dance-motion.mp4"],
+      videoNotes: [{ name: "dance-motion.mp4", ref: "/api/media/dance-motion.mp4" }],
+      prompt: "samurai dancing according to @vid1",
+    });
+    const html = renderToString(React.createElement(PromptComposer));
+    assert.match(html, /@vid1/);
+    assert.match(html, /dance-motion\.mp4/);
+    assert.match(html, /motion or camera reference/);
+  } finally {
+    Object.assign(initial, before);
+    globalThis.React = previousReact;
+  }
+});
+

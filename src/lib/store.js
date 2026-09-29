@@ -19,7 +19,7 @@ import {
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
   MAX_REFERENCE_VIDEOS,
-
+  maxReferenceVideosForVideoModel,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
 import { renumberImgMentions } from "./mentions";
@@ -278,6 +278,8 @@ export const useStore = create((set, get) => ({
   referenceAudios: [],
   // Display metadata for uploaded audio references. Each entry is {name, ref}.
   audioNotes: [],
+  // Display metadata for attached/uploaded video references. Each entry is {name, ref}.
+  videoNotes: [],
 
   items: [],
   hasMoreHistory: true,
@@ -515,16 +517,25 @@ export const useStore = create((set, get) => ({
         prompt: renumberImgMentions(s.prompt, mapping),
       };
     }),
-  addReferenceVideo: (ref) =>
-    set((s) =>
-      s.referenceVideos.includes(ref) ||
-      s.referenceVideos.length >= MAX_REFERENCE_VIDEOS
-        ? {}
-        : { referenceVideos: [...s.referenceVideos, ref] }
-    ),
+  addReferenceVideo: (ref, note) =>
+    set((s) => {
+      const maxAllowed = maxReferenceVideosForVideoModel(s.model) ?? MAX_REFERENCE_VIDEOS;
+      if (s.referenceVideos.includes(ref) || s.referenceVideos.length >= maxAllowed) {
+        return {};
+      }
+      const noteEntry =
+        typeof note === "string"
+          ? { name: note, ref }
+          : note || { name: `Clip ${s.referenceVideos.length + 1}`, ref };
+      return {
+        referenceVideos: [...s.referenceVideos, ref],
+        videoNotes: [...(s.videoNotes || []), noteEntry],
+      };
+    }),
   removeReferenceVideo: (index) =>
     set((s) => ({
       referenceVideos: s.referenceVideos.filter((_, i) => i !== index),
+      videoNotes: (s.videoNotes || []).filter((_, i) => i !== index),
     })),
 
   // See audioNotes' comment above — filename only, no real attachment.
@@ -1219,6 +1230,7 @@ export const useStore = create((set, get) => ({
         destinationProjectId: item.projectId,
         destinationFolderId: item.folderId ?? null,
         referenceVideos: [],
+        videoNotes: [],
         referenceAudios: [],
         stagedReferenceVideos: [],
         stagedContinuationFrame: null,
