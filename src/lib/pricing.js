@@ -183,6 +183,24 @@ export const DEFAULT_PRICING = [
     notes:
       "gemini-omni-flash-preview (Interactions API); ~$0.10/s 720p output; duration prompt-driven, billed by requested seconds",
   },
+  {
+    model: "Magnific Creative",
+    unitCostCents: 20,
+    unit: "per_image",
+    notes: "Magnific Upscaler Creative — base rate (~€0.20 / $0.20)",
+  },
+  {
+    model: "Magnific Precision V2",
+    unitCostCents: 20,
+    unit: "per_image",
+    notes: "Magnific Upscaler Precision V2 — base rate (~€0.20 / $0.20)",
+  },
+  {
+    model: "Magnific Precision V1",
+    unitCostCents: 10,
+    unit: "per_image",
+    notes: "Magnific Upscaler Precision V1 — base rate (~€0.10 / $0.10)",
+  },
 ];
 
 const RESOLUTION_FACTOR = {

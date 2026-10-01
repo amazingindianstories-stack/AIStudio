@@ -271,7 +271,7 @@ export const generations = pgTable("generations", {
     .where(sql`${table.kind} = 'video' and ${table.status} in ('queued', 'running') and ${table.taskId} is not null`),
   index("generations_coordinator_due_idx")
     .on(table.status, table.nextPollAt, table.createdAt)
-    .where(sql`(${table.kind} = 'video' and ${table.status} in ('queued', 'running')) or (${table.kind} = 'image' and ${table.status} = 'queued')`),
+    .where(sql`(${table.kind} = 'video' and ${table.status} in ('queued', 'running')) or (${table.kind} = 'image' and (${table.status} = 'queued' or (${table.status} = 'running' and ${table.model} like 'Magnific %')))`),
 ]);
 
 /**

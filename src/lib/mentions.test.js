@@ -13,8 +13,9 @@ import {
   resolveReferences,
   resolveVideoReferences,
   resolveAllReferences,
+  normalizePromptMentions,
+  syncMentionTagCorrection,
 } from "./mentions";
-
 /**
  * @vidN shipped as a provider-side token with nothing on the client producing
  * or recognising it. The parser treated it as a saved-asset slug named "vid1",
@@ -172,4 +173,89 @@ test("resolveAllReferences resolves named materials and ad-hoc uploads together"
   assert.equal(resolved.images.length, 1);
   assert.equal(resolved.images[0].tag, "@img2");
   assert.equal(resolved.images[0].dataUrl, "data:image/jpeg;base64,upload2");
+});
+
+test("normalizePromptMentions standardizes informal tags across modalities", () => {
+  const input = "make @image1 green and @image 2 shiny, @img_3 blue, @video 1 camera and @audio 2 sound";
+  const expected = "make @img1 green and @img2 shiny, @img3 blue, @vid1 camera and @audio2 sound";
+  assert.equal(normalizePromptMentions(input), expected);
+});
+
+test("parseMentionIndices parses non-canonical @image1 and @image 1 tags", () => {
+  assert.deepEqual(parseMentionIndices("use @image 1 and @image2 with @img_3"), [1, 2, 3]);
+  assert.deepEqual(parseMentionIndices("use @image-10 and @IMAGE 2"), [2, 10]);
+});
+
+test("syncMentionTagCorrection: correcting first occurrence updates all matching occurrences", () => {
+  const prev = "make @image 1 green and then make @image 1 shiny";
+  const next = "make @img1 green and then make @image 1 shiny";
+  const result = syncMentionTagCorrection(prev, next, 10);
+
+  assert.equal(result.changed, true);
+  assert.equal(result.text, "make @img1 green and then make @img1 shiny");
+  assert.equal(result.caret, 10);
+});
+
+test("syncMentionTagCorrection: correcting second occurrence adjusts caret backwards", () => {
+  const prev = "make @image 1 green and then make @image 1 shiny";
+  const next = "make @image 1 green and then make @img1 shiny";
+  // "@image 1" (8 chars) -> "@img1" (5 chars). Delta is -3 for the earlier match.
+  // Original caret was at 39 (end of second @img1 in "make @image 1 green and then make @img1")
+  const result = syncMentionTagCorrection(prev, next, 39);
+
+  assert.equal(result.changed, true);
+  assert.equal(result.text, "make @img1 green and then make @img1 shiny");
+  assert.equal(result.caret, 36);
+});
+
+test("syncMentionTagCorrection: updates multiple occurrences (3+) cleanly", () => {
+  const prev = "shot of @image 1, close-up of @image 1, and wide of @image 1";
+  const next = "shot of @img1, close-up of @image 1, and wide of @image 1";
+  const result = syncMentionTagCorrection(prev, next, 13);
+
+  assert.equal(result.changed, true);
+  assert.equal(result.text, "shot of @img1, close-up of @img1, and wide of @img1");
+  assert.equal(result.caret, 13);
+});
+
+test("syncMentionTagCorrection: isolates different indices without cross-contamination", () => {
+  const prev = "blend @image 1 with @image 2 and then more @image 1";
+  const next = "blend @img1 with @image 2 and then more @image 1";
+  const result = syncMentionTagCorrection(prev, next, 11);
+
+  assert.equal(result.changed, true);
+  assert.equal(result.text, "blend @img1 with @image 2 and then more @img1");
+  assert.equal(result.caret, 11);
+});
+
+test("syncMentionTagCorrection: supports re-targeting reference index across prompt", () => {
+  const prev = "style @image 1 like @image 1";
+  const next = "style @img2 like @image 1";
+  const result = syncMentionTagCorrection(prev, next, 10);
+
+  assert.equal(result.changed, true);
+  assert.equal(result.text, "style @img2 like @img2");
+});
+
+test("syncMentionTagCorrection: handles video and audio tag corrections", () => {
+  const vidPrev = "follow @video 1 and cut to @video 1";
+  const vidNext = "follow @vid1 and cut to @video 1";
+  const vidResult = syncMentionTagCorrection(vidPrev, vidNext, 12);
+  assert.equal(vidResult.changed, true);
+  assert.equal(vidResult.text, "follow @vid1 and cut to @vid1");
+
+  const audioPrev = "sync @audio 1 with beat in @audio 1";
+  const audioNext = "sync @audio1 with beat in @audio 1";
+  const audioResult = syncMentionTagCorrection(audioPrev, audioNext, 12);
+  assert.equal(audioResult.changed, true);
+  assert.equal(audioResult.text, "sync @audio1 with beat in @audio1");
+});
+
+test("syncMentionTagCorrection: does not mutate normal typing or already canonical prompts", () => {
+  const prev = "make @img1 green";
+  const next = "make @img1 green and bright";
+  const result = syncMentionTagCorrection(prev, next, next.length);
+  assert.equal(result.changed, false);
+  assert.equal(result.text, next);
+  assert.equal(result.caret, next.length);
 });

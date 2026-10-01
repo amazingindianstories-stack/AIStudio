@@ -474,7 +474,18 @@ export function HistoryPanel() {
               // Same "text/itemId" drag payload ProjectPanel already uses for
               // drag-to-folder — StudioChat's composer reads it too, so an
               // asset dragged out of here becomes a reference there.
-              <div draggable onDragStart={(e) => e.dataTransfer.setData("text/itemId", item.id)}>
+              <div
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("text/itemId", item.id);
+                  e.dataTransfer.setData("text/plain", item.url || "");
+                  e.dataTransfer.effectAllowed = "copy";
+                  useStore.getState().setDraggedItem(item);
+                }}
+                onDragEnd={() => {
+                  useStore.getState().setDraggedItem(null);
+                }}
+              >
                 <MediaCard item={item} selectable />
               </div>
             )}

@@ -6,7 +6,7 @@ config({ path: process.env.ENV_FILE || ".env.local" });
 
 const INDEX_NAME = "generations_coordinator_due_idx";
 const REPLACEMENT_NAME = "generations_coordinator_due_replacement_idx";
-const INDEX_PREDICATE = "(kind = 'video' and status in ('queued', 'running')) or (kind = 'image' and status = 'queued')";
+const INDEX_PREDICATE = "(kind = 'video' and status in ('queued', 'running')) or (kind = 'image' and (status = 'queued' or (status = 'running' and model like 'Magnific %')))";
 
 async function getIndex(db, name) {
   const result = await db.execute(sql`
@@ -24,7 +24,8 @@ function hasDesiredPredicate(index) {
   return index?.valid === true &&
     predicate.includes("kind = 'video'") &&
     predicate.includes("kind = 'image'") &&
-    predicate.includes("status = 'queued'");
+    predicate.includes("status = 'queued'") &&
+    predicate.includes("Magnific %");
 }
 
 // Online/idempotent migration for the server-owned generation coordinator.

@@ -28,6 +28,7 @@
     "db:migrate:seedance-first-last-frame": "tsx scripts/migrate-seedance-first-last-frame.js",
     "db:migrate:depth-claim-fencing": "tsx scripts/migrate-depth-claim-fencing.js",
     "db:migrate:media-exports": "tsx scripts/migrate-media-exports.js",
+    "db:verify:production-schema": "tsx scripts/verify-production-schema.js",
     "db:seed": "tsx scripts/seed.js",
     "db:optimize": "tsx scripts/optimize-history-indexes.js",
     "migrate:postgres:gcp": "tsx scripts/migrate-postgres-to-cloud-sql.js",

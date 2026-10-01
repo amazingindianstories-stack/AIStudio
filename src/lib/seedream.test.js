@@ -94,7 +94,8 @@ test("reference preparation preserves originals, signs only for provider, reads 
   assert.equal(maxActive, 1);
   assert.equal(uploads, 0);
   await assert.rejects(prepareSeedreamReferences(["/api/media/references/missing.png"], "job", { read: async () => { throw new Error("expired URL secret"); } }), e => /Upload it again/.test(e.message) && !e.message.includes("secret"));
-  await assert.rejects(prepareSeedreamReferences(["/api/media/uploads/image-reference/other-uuid"], "job", { userId: "me" }), /another user/);
+  const crossUserResult = await prepareSeedreamReferences(["/api/media/uploads/image-reference/other-uuid"], "job", { userId: "me", read: async () => ({ data: bytes.toString("base64") }) });
+  assert.deepEqual(crossUserResult.stable, ["/api/media/uploads/image-reference/other-uuid"]);
   await assert.rejects(prepareSeedreamReferences(["https://external/image?token=secret"], "job"), /stored original/);
 });
 

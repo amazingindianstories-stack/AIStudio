@@ -174,7 +174,8 @@ function FeedBlock({ item, index }) {
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const regenerate = useStore((s) => s.regenerate);
   const confirmation = useConfirmedAction();
-  const label = item.kind === "image" ? "Image" : "Video";
+  const isUpscale = item.model?.toLowerCase().includes("magnific") || item.model?.toLowerCase().includes("upscaler");
+  const label = isUpscale ? "Upscale" : item.kind === "image" ? "Image" : "Video";
   const pending = item.status === "running" || item.status === "queued";
 
   return (
@@ -205,6 +206,16 @@ function FeedBlock({ item, index }) {
 
       <div
         onClick={() => item.status === "succeeded" && setActiveId(item.id)}
+        draggable={item.status === "succeeded" && Boolean(item.url)}
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/itemId", item.id);
+          e.dataTransfer.setData("text/plain", item.url || "");
+          e.dataTransfer.effectAllowed = "copy";
+          useStore.getState().setDraggedItem(item);
+        }}
+        onDragEnd={() => {
+          useStore.getState().setDraggedItem(null);
+        }}
         // Without the cap, a 9:16 result is 177% of the column's width — around
         // 1370px tall in a ~770px column — so the thread showed a slice of the
         // image and the user had to scroll a screen and a half past every one.
@@ -213,7 +224,7 @@ function FeedBlock({ item, index }) {
         style={{ maxWidth: aspectMaxWidth(item.aspectRatio) }}
         className={cn(
           "group/media relative mx-auto w-full overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] focus-within:ring-white/25",
-          item.status === "succeeded" && "cursor-pointer"
+          item.status === "succeeded" && "cursor-pointer cursor-grab active:cursor-grabbing"
         )}
       >
         <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">

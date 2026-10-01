@@ -42,5 +42,5 @@ export const GENERATION_INDEX_STATEMENTS = Object.freeze([
   `create index concurrently if not exists generations_coordinator_due_idx
      on generations (status, next_poll_at, created_at)
      where (kind = 'video' and status in ('queued', 'running'))
-        or (kind = 'image' and status = 'queued')`,
+        or (kind = 'image' and (status = 'queued' or (status = 'running' and model like 'Magnific %')))`,
 ]);
