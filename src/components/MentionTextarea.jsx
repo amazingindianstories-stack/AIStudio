@@ -9,7 +9,7 @@ import {
 
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { TAG_REGEX, isImgTag, isVidTag, isAudioTag } from "@/lib/mentions";
+import { syncMentionTagCorrection } from "@/lib/mentions";
 import { cn, referenceDisplayUrl } from "@/lib/utils";
 
 
@@ -103,7 +103,7 @@ export const MentionTextarea = forwardRef(
       { length: tagCount },
       (_, i) => i + 1
     )
-      .filter((n) => `img${n}`.startsWith(q))
+      .filter((n) => matchesImgQuery(n, q))
       .map((n) => ({
         tag: `@img${n}`,
         label: `@img${n}`,
@@ -178,7 +178,7 @@ export const MentionTextarea = forwardRef(
 
     const detectMention = (text, caret) => {
       const slice = text.slice(0, caret);
-      const m = slice.match(/(^|\s)@([\w-]*)$/);
+      const m = slice.match(/(^|\s)@([a-z0-9_-]*(?:\s+\d*)?)$/i);
       if (m && hasSuggestions) {
         setQuery(m[2] || "");
         setActiveIdx(0);
@@ -190,8 +190,22 @@ export const MentionTextarea = forwardRef(
 
     const handleChange = (e) => {
       const v = e.target.value;
-      onChange(v);
-      detectMention(v, e.target.selectionStart);
+      const caret = e.target.selectionStart;
+      const { text: synced, caret: nextCaret, changed } = syncMentionTagCorrection(
+        value,
+        v,
+        caret
+      );
+      if (changed) {
+        onChange(synced);
+        detectMention(synced, nextCaret);
+        requestAnimationFrame(() => {
+          taRef.current?.setSelectionRange(nextCaret, nextCaret);
+        });
+      } else {
+        onChange(v);
+        detectMention(v, caret);
+      }
     };
 
     const selectTag = (tag) => {
@@ -202,10 +216,15 @@ export const MentionTextarea = forwardRef(
       const at = slice.lastIndexOf("@");
       if (at < 0) return;
       const next = value.slice(0, at) + tag + " " + value.slice(caret);
-      onChange(next);
+      const { text: syncedText, caret: syncedCaret } = syncMentionTagCorrection(
+        value,
+        next,
+        at + tag.length + 1
+      );
+      onChange(syncedText);
       setMenuOpen(false);
       requestAnimationFrame(() => {
-        const pos = at + tag.length + 1;
+        const pos = syncedCaret;
         ta.focus();
         ta.setSelectionRange(pos, pos);
         autosize();
@@ -368,9 +387,79 @@ export const MentionTextarea = forwardRef(
   }
 );
 
+function matchesImgQuery(n, q) {
+  if (!q) return true;
+  const canonical = `img${n}`;
+  if (canonical.startsWith(q)) return true;
+  if ("image".startsWith(q) || q.startsWith("image")) {
+    const numPart = q.replace(/^image\s*[-_]?/, "");
+    if (!numPart) return true;
+    return String(n).startsWith(numPart);
+  }
+  if ("picture".startsWith(q) || q.startsWith("pic")) {
+    const numPart = q.replace(/^(?:picture|pic)\s*[-_]?/, "");
+    if (!numPart) return true;
+    return String(n).startsWith(numPart);
+  }
+  return false;
+}
+
+function classifyMentionToken(raw) {
+  // Canonical: @img1, @vid1, @audio1
+  const canonicalMatch = raw.match(/^@(img|vid|audio)(\d+)$/i);
+  if (canonicalMatch) {
+    return {
+      type: canonicalMatch[1].toLowerCase(),
+      index: parseInt(canonicalMatch[2], 10),
+      isCanonical: true,
+    };
+  }
+
+  // Informal: @image 1, @image1, @img 1, @video 1, @audio 1, etc.
+  const informalImg =
+    raw.match(/^@(image|pic)[\s_-]*(\d+)$/i) || raw.match(/^@img[\s_-]+(\d+)$/i);
+  if (informalImg) {
+    return {
+      type: "img",
+      index: parseInt(informalImg[2] || informalImg[1], 10),
+      isCanonical: false,
+    };
+  }
+  const informalVid =
+    raw.match(/^@video[\s_-]*(\d+)$/i) || raw.match(/^@vid[\s_-]+(\d+)$/i);
+  if (informalVid) {
+    return {
+      type: "vid",
+      index: parseInt(informalVid[2] || informalVid[1], 10),
+      isCanonical: false,
+    };
+  }
+  const informalAudio = raw.match(/^@audio[\s_-]+(\d+)$/i);
+  if (informalAudio) {
+    return {
+      type: "audio",
+      index: parseInt(informalAudio[1], 10),
+      isCanonical: false,
+    };
+  }
+
+  // Slug: @sati, @scene1
+  const slugMatch = raw.match(/^@([a-z][a-z0-9_-]*)$/i);
+  if (slugMatch) {
+    return {
+      slug: slugMatch[1].toLowerCase(),
+      isAsset: true,
+    };
+  }
+
+  return null;
+}
+
+const HIGHLIGHT_TOKEN_REGEX =
+  /@(?:image|pic|img|video|vid|audio)[\s_-]*\d+|@([a-z][a-z0-9_-]*)/gi;
+
 /** Split text into plain runs and @tag tokens; valid tags get a brand highlight,
- *  unknown ones go red. A tag is valid if it's an in-range @imgN or a known
- *  asset slug. */
+ *  unknown ones go red, recognized non-canonical tags get an amber hint. */
 function renderHighlighted(
   text,
   tagCount,
@@ -379,33 +468,47 @@ function renderHighlighted(
   audioCount = 0
 ) {
   const out = [];
-  const re = new RegExp(TAG_REGEX);
+  const re = new RegExp(HIGHLIGHT_TOKEN_REGEX);
   let last = 0;
   let m;
   let key = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
-    const slug = m[1].toLowerCase();
-    const n = parseInt(slug.slice(3), 10);
-    const valid = isImgTag(slug)
-      ? n >= 1 && n <= tagCount
-      : isVidTag(slug)
-      ? n >= 1 && n <= videoCount
-      : isAudioTag(slug)
-      ? Number(slug.slice(5)) >= 1 && Number(slug.slice(5)) <= audioCount
-      : assetSlugs.has(slug);
+    const raw = m[0];
+    const info = classifyMentionToken(raw);
+
+    let isValid = false;
+    let isInformal = false;
+
+    if (info?.isCanonical) {
+      if (info.type === "img") isValid = info.index >= 1 && info.index <= tagCount;
+      else if (info.type === "vid") isValid = info.index >= 1 && info.index <= videoCount;
+      else if (info.type === "audio") isValid = info.index >= 1 && info.index <= audioCount;
+    } else if (info && !info.isAsset) {
+      isInformal = true;
+      if (info.type === "img") isValid = info.index >= 1 && info.index <= tagCount;
+      else if (info.type === "vid") isValid = info.index >= 1 && info.index <= videoCount;
+      else if (info.type === "audio") isValid = info.index >= 1 && info.index <= audioCount;
+    } else if (info?.isAsset) {
+      isValid = assetSlugs.has(info.slug);
+    }
+
     out.push(
       <span
         key={key++}
         className={cn(
           "rounded-sm",
-          valid ? "bg-brand/25 text-brand" : "bg-red-500/20 text-red-300"
+          isValid
+            ? isInformal
+              ? "bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/40"
+              : "bg-brand/25 text-brand"
+            : "bg-red-500/20 text-red-300"
         )}
       >
-        {m[0]}
+        {raw}
       </span>
     );
-    last = m.index + m[0].length;
+    last = m.index + raw.length;
   }
   if (last < text.length) out.push(text.slice(last));
   return out;
@@ -414,12 +517,36 @@ function renderHighlighted(
 /** Attached media share the same autocomplete and keyboard selection path. */
 export function attachedMediaSuggestions(query, videoCount, audioCount) {
   const q = query.toLowerCase();
-  return [
-    { prefix: "vid", count: videoCount, sub: "video ref · motion / camera" },
-    { prefix: "audio", count: audioCount, sub: "attached audio" },
-  ].flatMap(({ prefix, count, sub }) =>
-    Array.from({ length: count }, (_, i) => `${prefix}${i + 1}`)
-      .filter((tag) => tag.startsWith(q))
-      .map((tag) => ({ tag: `@${tag}`, label: `@${tag}`, sub }))
-  );
+  const vids = Array.from({ length: videoCount }, (_, i) => i + 1)
+    .filter((n) => {
+      if (!q) return true;
+      if (`vid${n}`.startsWith(q)) return true;
+      if ("video".startsWith(q) || q.startsWith("video")) {
+        const numPart = q.replace(/^video\s*[-_]?/, "");
+        if (!numPart) return true;
+        return String(n).startsWith(numPart);
+      }
+      return false;
+    })
+    .map((n) => ({
+      tag: `@vid${n}`,
+      label: `@vid${n}`,
+      sub: "video ref · motion / camera",
+    }));
+
+  const audios = Array.from({ length: audioCount }, (_, i) => i + 1)
+    .filter((n) => {
+      if (!q) return true;
+      if (`audio${n}`.startsWith(q)) return true;
+      const numPart = q.replace(/^audio\s*[-_]?/, "");
+      if (!numPart) return true;
+      return String(n).startsWith(numPart);
+    })
+    .map((n) => ({
+      tag: `@audio${n}`,
+      label: `@audio${n}`,
+      sub: "attached audio",
+    }));
+
+  return [...vids, ...audios];
 }

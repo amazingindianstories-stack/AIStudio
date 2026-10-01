@@ -147,7 +147,8 @@ export async function POST(request) {
           'submitted_at', 'provider_created_at', 'provider_updated_at',
           'completed_at', 'last_poll_at', 'next_poll_at', 'poll_attempts',
           'callback_received_at', 'provider_status', 'worker_lease_id', 'worker_lease_until',
-          'source_generation_id', 'draft_task_id', 'draft_mode', 'bitrate_mode', 'last_frame_url'
+          'source_generation_id', 'draft_task_id', 'draft_mode', 'bitrate_mode', 'last_frame_url',
+          'reference_videos', 'reference_audios', 'video_task_mode'
         );
     `);
 
@@ -172,7 +173,7 @@ export async function POST(request) {
       coordinatorColumns: coordCount,
       portraitTables: portCount,
       mediaExportTables: mediaExportCount,
-      verified: coordCount === 17 && portCount === 2 && mediaExportCount === 2,
+      verified: coordCount === 20 && portCount === 2 && mediaExportCount === 2,
     });
   } catch (error) {
     console.error("[migrate-schema] Error applying migration:", error);

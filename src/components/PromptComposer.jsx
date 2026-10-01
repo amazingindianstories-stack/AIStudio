@@ -7,10 +7,12 @@ import {
   useState,
 
 } from "react";
-import { motion, Reorder } from "framer-motion";
+import { motion, Reorder, AnimatePresence } from "framer-motion";
 import {
   Plus,
   Image as ImageIcon,
+  ImagePlus,
+  AlertCircle,
   Clapperboard,
   MessageSquare,
   UserRound,
@@ -32,12 +34,14 @@ import {
   SkipForward,
   ArrowRight,
 } from "lucide-react";
-import { useStore, restoreComposerDraft } from "@/lib/store";
+import { useStore, restoreComposerDraft, findItem } from "@/lib/store";
+import { validateGenerationReference } from "@/lib/generation-reference-drag";
 import { parseMentionIndices } from "@/lib/mentions";
 import { limitDefinition } from "@/lib/limits";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { VideoRefPicker } from "./VideoRefPicker";
 import { DepthComposer } from "./DepthComposer";
+import { UpscalerComposer } from "./UpscalerComposer";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, } from "./MentionTextarea";
 import {
@@ -133,6 +137,23 @@ export function PromptComposer() {
   const [extractingFrames, setExtractingFrames] = useState(0);
   const [pickingClips, setPickingClips] = useState(false);
   const [preferredWidth, setPreferredWidth] = useState(768);
+  const [dragNotice, setDragNotice] = useState(null);
+  const dragNoticeTimerRef = useRef(null);
+
+  const showDragNotice = (type, message) => {
+    if (dragNoticeTimerRef.current) clearTimeout(dragNoticeTimerRef.current);
+    setDragNotice({ type, message });
+    dragNoticeTimerRef.current = setTimeout(() => {
+      setDragNotice(null);
+      dragNoticeTimerRef.current = null;
+    }, 4500);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (dragNoticeTimerRef.current) clearTimeout(dragNoticeTimerRef.current);
+    };
+  }, []);
 
   const handleFrameUpload = async (file, target) => {
     if (!file) return;
@@ -362,14 +383,20 @@ export function PromptComposer() {
     }
   };
 
-  // Drag & drop image files from the OS file manager. Ignore internal drags
-  // (e.g. moving cards between folders) which carry no files.
+  // Drag & drop image files from the OS file manager or generations from library/chat.
   const isFileDrag = (e) =>
     Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
+  const isAssetDrag = (e) =>
+    Array.from(e.dataTransfer?.types ?? []).includes("text/itemid") ||
+    Boolean(s.draggedItem);
+
   const onDragOver = (e) => {
-    if (!isFileDrag(e)) return;
+    const isFiles = isFileDrag(e);
+    const isAsset = isAssetDrag(e);
+    if (!isFiles && !isAsset) return;
     e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
     setDragging(true);
   };
 
@@ -377,8 +404,35 @@ export function PromptComposer() {
     if (!e.currentTarget.contains(e.relatedTarget )) setDragging(false);
   };
 
-  const onDrop = (e) => {
+  const onDrop = async (e) => {
     setDragging(false);
+    const itemId = e.dataTransfer.getData("text/itemId");
+    const item = (itemId ? findItem(s, itemId) : null) || s.draggedItem;
+
+    if (item) {
+      e.preventDefault();
+      const validation = validateGenerationReference(item, {
+        mode: s.mode,
+        model: s.model,
+        referenceImages: s.referenceImages,
+        referenceVideos: s.referenceVideos,
+      });
+
+      if (!validation.valid) {
+        showDragNotice("error", validation.reason);
+        return;
+      }
+
+      if (validation.action === "add-image-ref") {
+        showDragNotice("success", `Added reference image for ${s.model}.`);
+        await s.addReferenceFromUrl(item.url);
+      } else if (validation.action === "add-video-ref") {
+        showDragNotice("success", `Added reference clip for ${s.model}.`);
+        s.addReferenceVideo(item.url, item.prompt || "Video reference");
+      }
+      return;
+    }
+
     if (!isFileDrag(e)) return;
     e.preventDefault();
     addImageFiles(Array.from(e.dataTransfer.files));
@@ -390,6 +444,9 @@ export function PromptComposer() {
   // call order stays identical across a mode switch (rules of hooks).
   if (s.mode === "depth") {
     return <DepthComposer />;
+  }
+  if (s.mode === "upscale") {
+    return <UpscalerComposer />;
   }
 
   return (
@@ -406,14 +463,97 @@ export function PromptComposer() {
       className="composer-shell relative mx-auto max-w-full rounded-2xl border border-line bg-ink-800/90 p-2.5 shadow-panel backdrop-blur-xl"
     >
       {/* drop overlay */}
-      {dragging && (
-        <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-brand/60 bg-ink-900/85 backdrop-blur-sm">
-          <Upload className="h-6 w-6 text-brand" />
-          <p className="text-sm font-medium text-white/90">
-            Drop images, video or audio to add as references
-          </p>
-        </div>
-      )}
+      {dragging && (() => {
+        const dragValidation = s.draggedItem
+          ? validateGenerationReference(s.draggedItem, {
+              mode: s.mode,
+              model: s.model,
+              referenceImages: s.referenceImages,
+              referenceVideos: s.referenceVideos,
+            })
+          : null;
+
+        if (dragValidation) {
+          return (
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed p-4 text-center backdrop-blur-md shadow-panel transition-colors duration-200",
+                dragValidation.valid
+                  ? "border-brand/70 bg-ink-900/90 text-brand"
+                  : "border-amber-500/70 bg-amber-950/85 text-amber-300"
+              )}
+            >
+              {dragValidation.valid ? (
+                dragValidation.action === "add-video-ref" ? (
+                  <Clapperboard className="h-7 w-7 text-brand" />
+                ) : (
+                  <ImagePlus className="h-7 w-7 text-brand" />
+                )
+              ) : (
+                <AlertCircle className="h-7 w-7 text-amber-400" />
+              )}
+              <p className="text-sm font-semibold text-white/95">
+                {dragValidation.valid
+                  ? `Drop to use as ${dragValidation.action === "add-video-ref" ? "video" : "image"} reference for ${s.model}`
+                  : "Cannot add reference"}
+              </p>
+              {!dragValidation.valid && (
+                <p className="max-w-md text-xs leading-relaxed text-amber-200/90">
+                  {dragValidation.reason}
+                </p>
+              )}
+              {dragValidation.valid && s.draggedItem?.prompt && (
+                <p className="max-w-md truncate text-xs text-white/60">
+                  &ldquo;{s.draggedItem.prompt}&rdquo;
+                </p>
+              )}
+            </div>
+          );
+        }
+
+        return (
+          <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-1.5 rounded-2xl border-2 border-dashed border-brand/60 bg-ink-900/85 backdrop-blur-sm">
+            <Upload className="h-6 w-6 text-brand" />
+            <p className="text-sm font-medium text-white/90">
+              Drop images, video or audio to add as references
+            </p>
+          </div>
+        );
+      })()}
+
+      {/* drag feedback banner */}
+      <AnimatePresence>
+        {dragNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            className={cn(
+              "mb-2 flex items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs font-medium shadow-lg backdrop-blur-md",
+              dragNotice.type === "error"
+                ? "border border-amber-500/40 bg-amber-950/90 text-amber-200"
+                : "border border-brand/40 bg-brand/15 text-brand"
+            )}
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              {dragNotice.type === "error" ? (
+                <AlertCircle className="h-4 w-4 shrink-0 text-amber-400" />
+              ) : (
+                <Check className="h-4 w-4 shrink-0 text-brand" />
+              )}
+              <span className="truncate">{dragNotice.message}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDragNotice(null)}
+              className="rounded p-0.5 opacity-70 hover:bg-white/10 hover:opacity-100"
+              title="Dismiss notification"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {pickingClips && <VideoRefPicker onClose={() => setPickingClips(false)} />}
 
       <div role="status" aria-live="polite" aria-atomic="true">
@@ -935,7 +1075,7 @@ export function PromptComposer() {
                   active={m.id === s.mode}
                   disabled={!m.enabled}
                   onClick={() => {
-                    if (m.id === "image" || m.id === "video" || m.id === "depth") s.setMode(m.id);
+                    if (m.id === "image" || m.id === "video" || m.id === "depth" || m.id === "upscale") s.setMode(m.id);
                     close();
                   }}
                 >

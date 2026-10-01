@@ -22,7 +22,7 @@ import {
   maxReferenceVideosForVideoModel,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
-import { renumberImgMentions } from "./mentions";
+import { renumberImgMentions, normalizePromptMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch } from "./api";
@@ -52,6 +52,7 @@ import {
   storeRuntime,
 } from "./store-runtime";
 import { videoPollClientDecision } from "./video-poll-backoff";
+import { magnificParamsForModel } from "./providers/magnific";
 import {
   clearMaterialCache,
   dedupeMaterialRequest,
@@ -311,6 +312,25 @@ export const useStore = create((set, get) => ({
   search: "",
   filterKind: "all",
   selectedIds: [],
+  draggedItem: null,
+
+  upscalerImage: null,
+  upscalerParams: {
+    model: "Magnific Creative",
+    scaleFactor: "2x",
+    prompt: "",
+    optimizedFor: "standard",
+    engine: "automatic",
+    creativity: 0,
+    hdr: 0,
+    resemblance: 0,
+    fractality: 0,
+    flavor: "photo",
+    sharpen: 7,
+    smartGrain: 7,
+    ultraDetail: 30,
+    filterNsfw: false,
+  },
 
   assets: [],
   assetsLoading: false,
@@ -553,6 +573,10 @@ export const useStore = create((set, get) => ({
     set({ gridColumns: columns.map((col) => col.map((item) => item.id)) }),
   setSearch: (search) => set({ search }),
   setFilterKind: (filterKind) => set({ filterKind }),
+  setDraggedItem: (draggedItem) => set({ draggedItem }),
+  setUpscalerImage: (upscalerImage) => set({ upscalerImage }),
+  setUpscalerParam: (key, value) =>
+    set((s) => ({ upscalerParams: { ...s.upscalerParams, [key]: value } })),
 
   loadHistory: async () => {
     // Everything the first paint needs: the right panel's feed, its counts,
@@ -798,7 +822,7 @@ export const useStore = create((set, get) => ({
 
   generate: async () => {
     const s = get();
-    const prompt = s.prompt.trim();
+    const prompt = normalizePromptMentions(s.prompt.trim());
     if (!prompt || s.generating) return [];
     if (s.mode === "video" && s.firstFrameMode && !s.firstFrame && !s.continuationFrame) {
       alert("Please select a first frame or toggle First Frame off.");
@@ -944,6 +968,60 @@ export const useStore = create((set, get) => ({
     } catch (e) {
       console.error("Depth-map request failed:", e);
       alert(e.message || "Failed to start depth-map generation.");
+      return null;
+    } finally {
+      void get().loadCounts();
+      set({ generating: false });
+    }
+  },
+
+  /**
+   * Magnific AI Upscaler submit path.
+   * Sends the source image, model variant, and model parameters to /api/generate/upscale.
+   */
+  generateUpscale: async () => {
+    const s = get();
+    if (!s.upscalerImage) {
+      alert("Please select or drop an image to upscale.");
+      return null;
+    }
+    if (s.generating) return null;
+    set({ generating: true });
+
+    try {
+      const rawImage =
+        typeof s.upscalerImage === "string"
+          ? s.upscalerImage
+          : s.upscalerImage.url || s.upscalerImage.data;
+
+      const res = await apiFetch("/api/generate/upscale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          image: rawImage,
+          model: s.upscalerParams.model,
+          params: magnificParamsForModel(s.upscalerParams.model, s.upscalerParams),
+          projectId: s.activeProjectId ?? undefined,
+          folderId: s.activeFolderId ?? undefined,
+        }),
+      });
+
+      let item;
+      try {
+        item = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): invalid response.`);
+      }
+      if (!res.ok) throw new Error(item.error || `Server error: ${res.status}`);
+
+      if (item?.id) {
+        insertNewItem(set, item);
+        startPolling(item, set, get);
+      }
+      return item;
+    } catch (e) {
+      console.error("Upscale request failed:", e);
+      alert(e.message || "Failed to start upscale.");
       return null;
     } finally {
       void get().loadCounts();
@@ -2290,9 +2368,13 @@ function scheduleLive(
  *  videos are already submitted remotely and just need status polling. */
 function startPolling(
   item,
-  _set,
-  _get
+  set,
+  get
 ) {
+  if (item?.model?.startsWith("Magnific") && item?.status === "running") {
+    _pollUpscaleStatus(item.id, set, get);
+    return;
+  }
   // Kept as a compatibility shim for callers from older store actions. It
   // intentionally does not call a provider/status endpoint or schedule a
   // repeating timer: the server worker advances the row and liveTick is only
@@ -2300,6 +2382,39 @@ function startPolling(
   if (item?.status === "queued" && item?.updatedAt === 0) {
     setStoreTimeout(() => {}, 0);
   }
+}
+
+/** Magnific upscale poller — polls /api/generate/upscale/status?id=... until completed/failed */
+function _pollUpscaleStatus(
+  id,
+  set,
+  get
+) {
+  if (polling.has(id)) return;
+  polling.add(id);
+
+  const tick = async () => {
+    try {
+      const res = await apiFetch(`/api/generate/upscale/status?id=${encodeURIComponent(id)}`, {
+        cache: "no-store",
+      });
+      const item = await res.json();
+      if (!polling.has(id)) return;
+      if (item?.id) {
+        patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
+        if (item.status === "succeeded" || item.status === "failed") {
+          polling.delete(id);
+          void get().loadCounts();
+          return;
+        }
+      }
+    } catch {
+      /* keep trying */
+    }
+    if (polling.has(id)) setStoreTimeout(tick, 2500);
+  };
+
+  setStoreTimeout(tick, 2000);
 }
 
 /** Depth jobs' own poller — a plain read (see generate/depth/status/route.js's

@@ -8,7 +8,7 @@ export const MAX_COORDINATOR_BATCH = 25;
 
 export function isCoordinatorEligible(item) {
   return (item?.status === "queued" && ["image", "video"].includes(item?.kind)) ||
-    (item?.status === "running" && item?.kind === "video");
+    (item?.status === "running" && (item?.kind === "video" || item?.model?.startsWith("Magnific ")));
 }
 
 export function normalizeProviderTimestamp(value) {
@@ -54,7 +54,7 @@ export async function claimGeneration(id, owner, {
     eq(generations.id, id),
     or(
       and(eq(generations.status, "queued"), inArray(generations.kind, ["image", "video"])),
-      and(eq(generations.status, "running"), eq(generations.kind, "video")),
+      and(eq(generations.status, "running"), or(eq(generations.kind, "video"), sql`${generations.model} like 'Magnific %'`)),
     ),
     or(isNull(generations.workerLeaseUntil), lte(generations.workerLeaseUntil, now), eq(generations.workerLeaseId, owner)),
   )).returning();
@@ -76,7 +76,7 @@ export async function selectDueGenerations({ now = Date.now(), limit = MAX_COORD
   const rows = await db.select().from(generations).where(and(
     or(
       and(eq(generations.status, "queued"), inArray(generations.kind, ["image", "video"])),
-      and(eq(generations.status, "running"), eq(generations.kind, "video")),
+      and(eq(generations.status, "running"), or(eq(generations.kind, "video"), sql`${generations.model} like 'Magnific %'`)),
     ),
     or(isNull(generations.nextPollAt), lte(generations.nextPollAt, now)),
     or(isNull(generations.workerLeaseUntil), lte(generations.workerLeaseUntil, now)),

@@ -16,6 +16,13 @@ test("image/video defaults are 21:9 and supported video audio defaults on", () =
   assert.equal(useStore.getState().generateAudio, true);
 });
 
+test("upscale mode has defaults and is navigable", () => {
+  useStore.getState().setMode("upscale");
+  const state = useStore.getState();
+  assert.equal(state.mode, "upscale");
+  assert.equal(state.upscalerParams.model, "Magnific Creative");
+});
+
 test("returning from a constrained video provider restores 21:9 and audio on", () => {
   useStore.setState({ mode: "video", model: "Gemini Omni Flash", aspectRatio: "16:9", generateAudio: false });
   useStore.getState().setModel("Seedance 2.0");

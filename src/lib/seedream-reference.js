@@ -28,13 +28,12 @@ export async function normalizeSeedreamReference(bytes) {
   }
   throw new Error("Reference could not fit the 30 MB limit. Export a smaller PNG or JPEG.");
 }
-export async function prepareSeedreamReferences(references, id, { signal, userId, sign = true, persist = true, read = readImageAsBase64, upload = uploadBuffer, signRef = signStoredRef } = {}) {
+export async function prepareSeedreamReferences(references, id, { signal, sign = true, persist = true, read = readImageAsBase64, upload = uploadBuffer, signRef = signStoredRef } = {}) {
   const stable = [], urls = [];
   for (const [index, ref] of references.entries()) {
     signal?.throwIfAborted();
     const key = typeof ref === "string" ? mediaKeyFromRef(ref) : null;
     if (!key || isProtectedMediaKey(key) || key.includes("..") || /[?#]/.test(key)) throw new Error("Use an uploaded or stored original image as the reference.");
-    if (userId && key.startsWith("uploads/image-reference/") && !key.startsWith(`uploads/image-reference/${userId}-`)) throw new Error("This uploaded reference belongs to another user.");
     let raw;
     try { raw = await read(ref, signal); }
     catch { throw new Error(`Reference ${index + 1} could not be read. Upload it again.`); }

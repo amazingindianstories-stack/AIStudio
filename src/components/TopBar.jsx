@@ -25,9 +25,10 @@ import { AudioTranscriptionModal } from "./AudioTranscriptionModal";
 const DESTINATIONS = [
   { id: "image", icon: ImageIcon, label: "Image" },
   { id: "video", icon: Clapperboard, label: "Video" },
+  { id: "upscale", icon: Sparkles, label: "Upscale" },
   { id: "depth", icon: Layers, label: "Depth" },
   { id: "board", icon: Shapes, label: "Board" },
-] ;
+];
 
 /** How often the top bar refreshes the depth-worker status dot. This is the
  *  one always-mounted place that owns the poll loop; DepthComposer.jsx just

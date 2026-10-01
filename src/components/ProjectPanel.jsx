@@ -233,7 +233,15 @@ export function ProjectPanel({ cardWidth = 160 }) {
               renderItem={(item) => (
                 <div
                   draggable
-                  onDragStart={(e) => e.dataTransfer.setData("text/itemId", item.id)}
+                  onDragStart={(e) => {
+                    e.dataTransfer.setData("text/itemId", item.id);
+                    e.dataTransfer.setData("text/plain", item.url || "");
+                    e.dataTransfer.effectAllowed = "copy";
+                    useStore.getState().setDraggedItem(item);
+                  }}
+                  onDragEnd={() => {
+                    useStore.getState().setDraggedItem(null);
+                  }}
                 >
                   <MediaCard item={item} selectable />
                 </div>

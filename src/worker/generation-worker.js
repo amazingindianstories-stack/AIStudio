@@ -4,6 +4,8 @@ import { claimGeneration, releaseGeneration, scheduleGeneration, selectDueGenera
 import { getItem } from "../lib/store-db.js";
 import { publishGenerationUpdate } from "../lib/generation-realtime.js";
 import { runMediaExportWorker } from "./media-export-worker.js";
+import { advanceMagnificStatus } from "../lib/magnific-status-advancement.js";
+import { isMagnificModel } from "../lib/providers/magnific.js";
 
 const MIN_DELAY_MS = 5_000;
 const MAX_DELAY_MS = 60_000;
@@ -62,7 +64,9 @@ export async function runCoordinatorOnce({
           counts.submitted += 1;
         }
       } else {
-        const outcome = await advance(claimed, { source: "worker" });
+        const outcome = isMagnificModel(claimed.model)
+          ? await advanceMagnificStatus(claimed, { source: "worker" })
+          : await advance(claimed, { source: "worker" });
         if (outcome.kind === "poll_error") {
           await schedule(claimed, { now, delayMs: boundedRetryDelay(outcome.retryAfterMs) }).catch(() => {});
         }

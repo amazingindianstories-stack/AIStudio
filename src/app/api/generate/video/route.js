@@ -312,8 +312,9 @@ export async function POST(req) {
     });
     return NextResponse.json(base);
   } catch (e) {
+    console.error("[generate/video] Failed to persist queued generation:", e);
     return NextResponse.json(
-      { error: e?.message || "Failed to save the generation request." },
+      { error: "Failed to save the generation request. Please try again or contact an administrator." },
       { status: 500 }
     );
   }

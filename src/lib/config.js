@@ -43,26 +43,24 @@ export const MODELS = offeredModels();
 export const MODES = [
   { id: "image", label: "AI Image", icon: "Image", enabled: true },
   { id: "video", label: "AI Video", icon: "Clapperboard", enabled: true },
+  { id: "upscale", label: "Upscale", icon: "Sparkles", enabled: true },
   { id: "depth", label: "Depth Map", icon: "Layers", enabled: true },
 ];
 
-// depth: [] on both — the depth composer has no aspect-ratio or resolution
-// picker (aspect ratio is measured from the output after the fact, same as
-// Kling image-to-image; DEPTH_ENCODERS is the closest depth analogue to
-// "resolution" and is a separate list, not folded in here). Present as empty
-// rather than omitted so aspectRatiosForModel/resolutionsForModel and
-// restoreComposerDraft's `.includes()` validation degrade to "nothing
-// restored" instead of a TypeError on `undefined.includes`.
+// depth: [] and upscale: [] on both — neither uses the standard aspect-ratio
+// or resolution pickers.
 export const ASPECT_RATIOS = {
   image: ["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"],
   video: ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"],
   depth: [],
+  upscale: [],
 };
 
 export const RESOLUTIONS = {
   image: ["1K", "2K", "4K"],
   video: ["480p", "720p", "1080p"],
   depth: [],
+  upscale: [],
 };
 
 export const DURATIONS = [4, 5, 8, 10, 15]; // seconds (video)
@@ -318,6 +316,11 @@ export const DEFAULTS = {
     aspectRatio: "21:9",
     resolution: "1080p",
     duration: 5,
+  },
+  upscale: {
+    model: "Magnific Creative",
+    aspectRatio: "1:1",
+    resolution: "2x",
   },
   depth: {
     model: DEPTH_MODEL_NAME,
