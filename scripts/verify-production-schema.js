@@ -41,7 +41,43 @@ async function main() {
     );
   }
 
-  console.log("production schema matches all Drizzle-owned tables");
+  // Hierarchy-critical invariants and index verification (Phase 6.4)
+  const expectedIndexes = [
+    "folders_project_id_idx",
+    "folders_parent_id_idx",
+    "folders_global_root_unique_idx",
+    "folders_project_root_unique_idx",
+    "folders_subfolder_unique_idx",
+  ];
+
+  const indexResult = await db.execute(sql`
+    select indexname
+    from pg_indexes
+    where schemaname = current_schema() and tablename = 'folders'
+  `);
+  const liveIndexes = new Set((indexResult.rows ?? indexResult).map((r) => r.indexname));
+
+  const missingIndexes = expectedIndexes.filter((idx) => !liveIndexes.has(idx));
+  if (missingIndexes.length > 0) {
+    throw new Error(
+      `Production schema is missing hierarchy-critical indexes:\n- ${missingIndexes.join("\n- ")}`
+    );
+  }
+
+  // Verify folders.project_id is nullable (to permit global folders)
+  const projColNullability = await db.execute(sql`
+    select is_nullable
+    from information_schema.columns
+    where table_schema = current_schema()
+      and table_name = 'folders'
+      and column_name = 'project_id'
+  `);
+  const isNullable = (projColNullability.rows ?? projColNullability)[0]?.is_nullable;
+  if (isNullable !== "YES") {
+    throw new Error("folders.project_id must be nullable to support global library folders.");
+  }
+
+  console.log("production schema matches all Drizzle-owned tables and hierarchy invariants");
   process.exit(0);
 }
 

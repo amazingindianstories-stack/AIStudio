@@ -1,7 +1,12 @@
 import { eq, asc, sql } from "drizzle-orm";
 import { getDb } from "./db";
 import { projects, folders } from "./schema";
-import { clearProjectRefs, clearFolderRefs } from "./store-db";
+import { clearProjectRefs } from "./store-db";
+import {
+  createFolder as engineCreateFolder,
+  renameFolder as engineRenameFolder,
+  deleteFolder as engineDeleteFolder,
+} from "./folder-engine";
 
 /** Project + folder persistence — Postgres (was projects.json). */
 
@@ -95,35 +100,37 @@ export async function createFolder(
   projectId,
   name
 ) {
-  const db = await getDb();
-  const now = Date.now();
-  const [row] = await db
-    .insert(folders)
-    .values({ projectId, name, createdAt: now })
-    .returning();
-  await db.update(projects).set({ updatedAt: now }).where(eq(projects.id, projectId));
+  const folder = await engineCreateFolder({
+    name,
+    projectId: projectId || null,
+    parentId: null,
+  });
   return {
     projects: await readProjects(),
-    folder: { id: row.id, name: row.name, createdAt: row.createdAt },
+    folder: { id: folder.id, name: folder.name, createdAt: folder.createdAt },
   };
 }
 
 export async function renameFolder(
-  _projectId,
+  projectId,
   folderId,
   name
 ) {
-  const db = await getDb();
-  await db.update(folders).set({ name }).where(eq(folders.id, folderId));
+  await engineRenameFolder({
+    folderId,
+    projectId,
+    name,
+  });
   return readProjects();
 }
 
 export async function deleteFolder(
-  _projectId,
+  projectId,
   folderId
 ) {
-  const db = await getDb();
-  await db.delete(folders).where(eq(folders.id, folderId));
-  await clearFolderRefs(folderId);
+  await engineDeleteFolder({
+    folderId,
+    projectId,
+  });
   return readProjects();
 }

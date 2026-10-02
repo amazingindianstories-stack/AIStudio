@@ -31,7 +31,7 @@ import {
   saveFromUrlWithMetadata,
 } from "@/lib/generated-media-persistence";
 import { signStoredRef } from "@/lib/storage";
-import { upsertItem, lockJob, getItem, getQueuePosition } from "@/lib/store-db";
+import { upsertItem, completeGenerationItem, lockJob, getItem, getQueuePosition } from "@/lib/store-db";
 import { publishGenerationUpdate } from "@/lib/generation-realtime";
 import { isMock, mockPlaceholder } from "@/lib/mock";
 import { crispen, prepReference } from "@/lib/middleware/image-prep";
@@ -872,8 +872,9 @@ export async function POST(req) {
     return done;
     },
     onSuccess: async (done) => {
-      await upsertItem(done);
-      return NextResponse.json(done);
+      await completeGenerationItem(done);
+      const saved = await getItem(done.id);
+      return NextResponse.json(saved ?? done);
     },
     onFailure: async (e) => {
       const failed = {

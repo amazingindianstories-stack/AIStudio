@@ -29,6 +29,19 @@ export function ProjectMenu({ close }) {
 
   return (
     <>
+      <MenuItem
+        active={activeProjectId === null}
+        onClick={() => {
+          setActiveProject(null);
+          setRightTab("project");
+          close();
+        }}
+      >
+        <Layers className="h-4 w-4 text-white/45" />
+        <span className="flex-1 truncate">Global Library</span>
+        {activeProjectId === null && <Check className="h-4 w-4 text-brand" />}
+      </MenuItem>
+      <div className="my-1 h-px bg-line" />
       {projects.map((p) => (
         <MenuItem
           key={p.id}

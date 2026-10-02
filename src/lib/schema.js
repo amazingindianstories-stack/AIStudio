@@ -14,6 +14,7 @@ import {
   jsonb,
   uuid,
   index,
+  uniqueIndex,
   primaryKey,
 } from "drizzle-orm/pg-core";
 
@@ -42,10 +43,20 @@ export const projects = pgTable("projects", {
 
 export const folders = pgTable("folders", {
   id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id").notNull(),
+  projectId: uuid("project_id"),
+  parentId: uuid("parent_id"),
   name: text("name").notNull(),
+  nameNormalized: text("name_normalized").notNull().default(""),
+  version: integer("version").notNull().default(1),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
-});
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull().default(0),
+}, (table) => [
+  index("folders_project_id_idx").on(table.projectId),
+  index("folders_parent_id_idx").on(table.parentId),
+  uniqueIndex("folders_global_root_unique_idx").on(table.nameNormalized).where(sql`${table.parentId} is null and ${table.projectId} is null`),
+  uniqueIndex("folders_project_root_unique_idx").on(table.projectId, table.nameNormalized).where(sql`${table.parentId} is null and ${table.projectId} is not null`),
+  uniqueIndex("folders_subfolder_unique_idx").on(table.parentId, table.nameNormalized).where(sql`${table.parentId} is not null`),
+]);
 
 export const generations = pgTable("generations", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -214,6 +225,7 @@ export const generations = pgTable("generations", {
   // TODO — no re-judging happens at flag or export time, the row already
   // carries what the judge said when the image was made.
   judgeScore: jsonb("judge_score").$type(),
+  locationVersion: integer("location_version").notNull().default(1),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 }, (table) => [

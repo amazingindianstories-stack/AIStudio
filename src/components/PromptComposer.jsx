@@ -29,12 +29,14 @@ import {
   Box,
   FolderClosed,
   Layers,
+  Inbox,
   Sparkles,
   Volume2,
   SkipForward,
   ArrowRight,
 } from "lucide-react";
 import { useStore, restoreComposerDraft, findItem } from "@/lib/store";
+import { UNSORTED } from "@/lib/feed-scope";
 import { validateGenerationReference } from "@/lib/generation-reference-drag";
 import { parseMentionIndices } from "@/lib/mentions";
 import { limitDefinition } from "@/lib/limits";
@@ -1360,16 +1362,31 @@ export function PromptComposer() {
           panelClassName="min-w-[210px]"
           trigger={(open) => {
             const proj = s.projects.find((p) => p.id === s.activeProjectId);
-            const folder = proj?.folders.find((f) => f.id === s.activeFolderId);
+            function findFolder(nodes, id) {
+              for (const n of nodes) {
+                if (n.id === id) return n;
+                if (n.children?.length) {
+                  const res = findFolder(n.children, id);
+                  if (res) return res;
+                }
+              }
+              return null;
+            }
+            const allFolders = [
+              ...(s.libraryTree?.globalFolders ?? []),
+              ...(proj ? (s.libraryTree?.projects?.find((p) => p.id === proj.id)?.folders ?? proj.folders ?? []) : [])
+            ];
+            const folder = findFolder(allFolders, s.activeFolderId);
+            const folderLabel = s.activeFolderId === UNSORTED ? "Unsorted" : (folder ? folder.name : "All");
             return (
               <Chip open={open}>
                 <FolderClosed className="h-4 w-4 text-white/55" />
                 <span className="composer-project-label max-w-[110px] truncate font-medium">
-                  {proj ? proj.name : "No project"}
+                  {proj ? proj.name : "Global Library"}
                 </span>
                 <span className="composer-folder-separator text-white/35">/</span>
                 <span className="composer-folder-label max-w-[80px] truncate">
-                  {folder ? folder.name : "All"}
+                  {folderLabel}
                 </span>
                 <ChevronDown
                   className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
@@ -1380,16 +1397,50 @@ export function PromptComposer() {
         >
           {() => {
             const proj = s.projects.find((p) => p.id === s.activeProjectId);
+            const foldersToDisplay = proj
+              ? (s.libraryTree?.projects?.find((p) => p.id === proj.id)?.folders ?? proj.folders ?? [])
+              : (s.libraryTree?.globalFolders ?? []);
+
+            const renderFolderMenuItems = (folders, depth = 0) =>
+              folders.map((f) => (
+                <div key={f.id}>
+                  <MenuItem
+                    active={s.activeFolderId === f.id}
+                    onClick={() => s.setActiveFolder(f.id)}
+                    style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
+                  >
+                    <FolderClosed className="h-4 w-4 text-white/45" />
+                    <span className="flex-1 truncate">{f.name}</span>
+                    {s.activeFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
+                  </MenuItem>
+                  {f.children?.length > 0 && renderFolderMenuItems(f.children, depth + 1)}
+                </div>
+              ));
+
             return (
-              <div>
+              <div className="max-h-[340px] overflow-y-auto scroll-thin py-1">
                 <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
-                  Project
+                  Scope
                 </p>
+                <MenuItem
+                  active={s.activeProjectId === null}
+                  onClick={() => {
+                    s.setActiveProject(null);
+                    s.setActiveFolder(null);
+                  }}
+                >
+                  <Layers className="h-4 w-4 text-white/45" />
+                  <span className="flex-1 truncate">Global Library</span>
+                  {s.activeProjectId === null && <Check className="h-4 w-4 text-brand" />}
+                </MenuItem>
                 {s.projects.map((p) => (
                   <MenuItem
                     key={p.id}
                     active={p.id === s.activeProjectId}
-                    onClick={() => s.setActiveProject(p.id)}
+                    onClick={() => {
+                      s.setActiveProject(p.id);
+                      s.setActiveFolder(null);
+                    }}
                   >
                     <Layers className="h-4 w-4 text-white/45" />
                     <span className="flex-1 truncate">{p.name}</span>
@@ -1405,33 +1456,31 @@ export function PromptComposer() {
                   <Plus className="h-4 w-4 text-white/60" />
                   <span className="flex-1">New project</span>
                 </MenuItem>
-                {proj && (
-                  <>
-                    <div className="my-1 h-px bg-line" />
-                    <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
-                      Folder
-                    </p>
-                    <MenuItem
-                      active={s.activeFolderId === null}
-                      onClick={() => s.setActiveFolder(null)}
-                    >
-                      <Layers className="h-4 w-4 text-white/45" />
-                      <span className="flex-1">All assets</span>
-                      {s.activeFolderId === null && <Check className="h-4 w-4 text-brand" />}
-                    </MenuItem>
-                    {proj.folders.map((f) => (
-                      <MenuItem
-                        key={f.id}
-                        active={s.activeFolderId === f.id}
-                        onClick={() => s.setActiveFolder(f.id)}
-                      >
-                        <FolderClosed className="h-4 w-4 text-white/45" />
-                        <span className="flex-1 truncate">{f.name}</span>
-                        {s.activeFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
-                      </MenuItem>
-                    ))}
-                  </>
-                )}
+
+                <div className="my-1 h-px bg-line" />
+                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
+                  Folder in {proj ? proj.name : "Global Library"}
+                </p>
+                <MenuItem
+                  active={s.activeFolderId === null}
+                  onClick={() => s.setActiveFolder(null)}
+                >
+                  <Layers className="h-4 w-4 text-white/45" />
+                  <span className="flex-1">
+                    {proj ? "All in project" : "Global Root"}
+                  </span>
+                  {s.activeFolderId === null && <Check className="h-4 w-4 text-brand" />}
+                </MenuItem>
+                <MenuItem
+                  active={s.activeFolderId === UNSORTED}
+                  onClick={() => s.setActiveFolder(UNSORTED)}
+                >
+                  <Inbox className="h-4 w-4 text-white/45" />
+                  <span className="flex-1">Unsorted</span>
+                  {s.activeFolderId === UNSORTED && <Check className="h-4 w-4 text-brand" />}
+                </MenuItem>
+
+                {renderFolderMenuItems(foldersToDisplay)}
               </div>
             );
           }}

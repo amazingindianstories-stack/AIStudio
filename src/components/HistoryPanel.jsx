@@ -15,6 +15,7 @@ import {
   ZoomOut,
   Download,
   Loader2,
+  Move,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
@@ -23,6 +24,7 @@ import { ProjectPanel, EmptyState } from "./ProjectPanel";
 import { AssetGrid } from "./AssetGrid";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { ProjectMenu } from "./ProjectMenu";
+import { DestinationPickerModal } from "./DestinationPickerModal";
 import { cn } from "@/lib/utils";
 
 const ZOOM_KEY = "veevee-asset-zoom-v1";
@@ -52,6 +54,7 @@ export function HistoryPanel() {
 
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [activeExport, setActiveExport] = useState(null);
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
   const autoDownloaded = useRef(null);
 
   useEffect(() => {
@@ -190,11 +193,13 @@ export function HistoryPanel() {
             <button
               onClick={() => setRightTab("project")}
               title={
-                project
+                activeProjectId === null
+                  ? "Global Library"
+                  : project
                   ? rightTab === "project"
                     ? `Project: ${project.name}`
                     : `Back to ${project.name}`
-                  : "No project yet"
+                  : "Global Library"
               }
               className={cn(
                 "flex items-center gap-1.5 whitespace-nowrap rounded-l-full py-1.5 pl-3 pr-1.5 text-sm font-medium transition",
@@ -205,10 +210,13 @@ export function HistoryPanel() {
             >
               <Layers className="h-4 w-4 shrink-0" />
               <span className="scope-project-name max-w-[9rem] truncate">
-                {project ? project.name : "Project"}
+                {activeProjectId === null ? "Global Library" : project ? project.name : "Global Library"}
               </span>
-              {counts.project.total > 0 && (
-                <ScopeCount n={counts.project.total} active={rightTab === "project"} />
+              {(activeProjectId === null ? (counts.globalLibrary?.total ?? 0) : counts.project.total) > 0 && (
+                <ScopeCount
+                  n={activeProjectId === null ? (counts.globalLibrary?.total ?? 0) : counts.project.total}
+                  active={rightTab === "project"}
+                />
               )}
             </button>
 
@@ -368,6 +376,15 @@ export function HistoryPanel() {
             )}
           </button>
 
+          <button
+            type="button"
+            onClick={() => setMoveModalOpen(true)}
+            className="flex items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30"
+            title="Move selected items to any folder or project"
+          >
+            <Move className="h-3.5 w-3.5" /> Move
+          </button>
+
           <Dropdown
             align="right"
             trigger={(open) => (
@@ -492,6 +509,16 @@ export function HistoryPanel() {
           />
         </div>
       )}
+
+      {/* Atomic Destination Picker for Bulk Moves */}
+      <DestinationPickerModal
+        open={moveModalOpen}
+        onClose={() => setMoveModalOpen(false)}
+        title={`Move ${selectedIds.length} ${selectedIds.length === 1 ? "item" : "items"}`}
+        onConfirm={async (destination) => {
+          await useStore.getState().moveGenerationsToDestination(selectedIds, destination);
+        }}
+      />
     </div>
   );
 }

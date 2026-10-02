@@ -41,7 +41,7 @@ import {
   matchesScope,
   scopeKey,
   scopeToQuery,
-
+  UNSORTED,
 } from "./feed-scope";
 import {
   clearStoreTimeout,
@@ -66,6 +66,7 @@ import {
 
 const EMPTY_COUNTS = {
   project: { total: 0, unsorted: 0, byFolder: {} },
+  globalLibrary: { total: 0, unsorted: 0, byFolder: {} },
   allAssets: 0,
   favorites: 0,
 };
@@ -93,8 +94,12 @@ const THREAD_PAGE_SIZE = 60;
 
 /** The scope the right panel is currently showing. */
 function currentScope(s) {
+  let tab = s.rightTab;
+  if (tab === "project" && !s.activeProjectId) {
+    tab = "library";
+  }
   return {
-    tab: s.rightTab,
+    tab,
     projectId: s.activeProjectId,
     folderId: s.activeFolderId,
     kind: s.filterKind,
@@ -352,6 +357,8 @@ export const useStore = create((set, get) => ({
   limits: {},
 
   projects: [],
+  globalFolders: [],
+  libraryTree: { globalFolders: [], projects: [] },
   activeProjectId: null,
   activeFolderId: null,
 
@@ -723,6 +730,7 @@ export const useStore = create((set, get) => ({
       set({
         counts: {
           project: json.project ?? EMPTY_COUNTS.project,
+          globalLibrary: json.globalLibrary ?? EMPTY_COUNTS.globalLibrary,
           allAssets: Number(json.allAssets ?? 0),
           favorites: Number(json.favorites ?? 0),
         },
@@ -868,7 +876,7 @@ export const useStore = create((set, get) => ({
       firstFrame: s.firstFrame ?? s.continuationFrame ?? undefined,
       lastFrame: s.lastFrame ?? undefined,
       projectId: s.activeProjectId ?? undefined,
-      folderId: s.activeFolderId ?? undefined,
+      folderId: (s.activeFolderId && s.activeFolderId !== UNSORTED) ? s.activeFolderId : undefined,
     };
 
     const created = [];
@@ -950,7 +958,7 @@ export const useStore = create((set, get) => ({
           trackCharacters,
           originalName,
           projectId: get().activeProjectId ?? undefined,
-          folderId: get().activeFolderId ?? undefined,
+          folderId: (get().activeFolderId && get().activeFolderId !== UNSORTED) ? get().activeFolderId : undefined,
         }),
       });
       let item;
@@ -1002,7 +1010,7 @@ export const useStore = create((set, get) => ({
           model: s.upscalerParams.model,
           params: magnificParamsForModel(s.upscalerParams.model, s.upscalerParams),
           projectId: s.activeProjectId ?? undefined,
-          folderId: s.activeFolderId ?? undefined,
+          folderId: (s.activeFolderId && s.activeFolderId !== UNSORTED) ? s.activeFolderId : undefined,
         }),
       });
 
@@ -1899,6 +1907,8 @@ export const useStore = create((set, get) => ({
       const nextProjectId =
         currentActiveId && projects.some((p) => p.id === currentActiveId)
           ? currentActiveId
+          : currentActiveId === null && get().projects.length > 0
+          ? null
           : projects[0]?.id ?? null;
       set({
         projects,
@@ -1908,6 +1918,24 @@ export const useStore = create((set, get) => ({
         void get().loadAssets(nextProjectId);
         void get().loadAllPortraitAssets(nextProjectId);
       }
+      void get().loadLibraryTree();
+    } catch {
+      /* ignore */
+    }
+  },
+
+  loadLibraryTree: async () => {
+    try {
+      const res = await apiFetch("/api/folders?tree=1", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      set({
+        libraryTree: {
+          globalFolders: data.globalFolders ?? [],
+          projects: data.projects ?? [],
+        },
+        globalFolders: data.globalFolders ?? [],
+      });
     } catch {
       /* ignore */
     }
@@ -1932,6 +1960,7 @@ export const useStore = create((set, get) => ({
         activeProjectId: json.project?.id ?? get().activeProjectId,
         activeFolderId: null,
       });
+      void get().loadLibraryTree();
     }
   },
 
@@ -1942,7 +1971,10 @@ export const useStore = create((set, get) => ({
       body: JSON.stringify({ op: "renameProject", projectId: id, name }),
     });
     const json = await res.json();
-    if (json.projects) set({ projects: json.projects });
+    if (json.projects) {
+      set({ projects: json.projects });
+      void get().loadLibraryTree();
+    }
   },
 
   deleteProject: async (id) => {
@@ -1967,83 +1999,148 @@ export const useStore = create((set, get) => ({
       void get().loadFeed({ force: true });
       void get().loadCounts();
       void get().loadThread();
+      void get().loadLibraryTree();
     }
   },
 
-  createFolder: async (projectId, name) => {
-    const res = await apiFetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "createFolder", projectId, name }),
-    });
-    const json = await res.json();
-    if (json.projects) {
-      set({ projects: json.projects });
-      if (json.folder?.id) set({ activeFolderId: json.folder.id });
+  createFolder: async (arg1, arg2, arg3) => {
+    let name, projectId, parentId;
+    if (typeof arg1 === "object" && arg1 !== null) {
+      ({ name, projectId = null, parentId = null } = arg1);
+    } else {
+      projectId = arg1 || null;
+      name = arg2;
+      parentId = arg3 || null;
     }
-  },
-
-  renameFolder: async (projectId, folderId, name) => {
-    const res = await apiFetch("/api/projects", {
+    const res = await apiFetch("/api/folders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "renameFolder", projectId, folderId, name }),
+      body: JSON.stringify({ name, projectId, parentId }),
     });
-    const json = await res.json();
-    if (json.projects) set({ projects: json.projects });
-  },
-
-  deleteFolder: async (projectId, folderId) => {
-    const res = await apiFetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "deleteFolder", projectId, folderId }),
-    });
-    const json = await res.json();
-    if (json.projects) {
-      set((s) => ({
-        projects: json.projects,
-        activeFolderId: s.activeFolderId === folderId ? null : s.activeFolderId,
-      }));
-      // Its items became unsorted — a membership change for both the folder's
-      // own scope and the project's unsorted scope.
-      invalidateFeedCache();
-      void get().loadFeed({ force: true });
-      void get().loadCounts();
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to create folder");
     }
+    const json = await res.json();
+    if (json.folder?.id) {
+      set({ activeFolderId: json.folder.id });
+    }
+    await Promise.all([get().loadProjects(), get().loadLibraryTree(), get().loadCounts()]);
+    return json.folder;
   },
 
-  moveItem: async (itemId, folderId) => {
-    const projectId = get().activeProjectId ?? undefined;
-    patchEverywhere(set, itemId, (i) => ({
-      ...i,
-      projectId: projectId ?? i.projectId,
-      folderId: folderId ?? undefined,
+  renameFolder: async (arg1, arg2, arg3) => {
+    let folderId, name, projectId;
+    if (arg3 !== undefined) {
+      projectId = arg1;
+      folderId = arg2;
+      name = arg3;
+    } else {
+      folderId = arg1;
+      name = arg2;
+    }
+    const res = await apiFetch("/api/folders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: folderId, name, projectId }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to rename folder");
+    }
+    await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
+  },
+
+  deleteFolder: async (arg1, arg2) => {
+    let folderId, projectId;
+    if (arg2 !== undefined) {
+      projectId = arg1;
+      folderId = arg2;
+    } else {
+      folderId = arg1;
+    }
+    const params = new URLSearchParams({ id: folderId });
+    if (projectId) params.set("projectId", projectId);
+    const res = await apiFetch(`/api/folders?${params}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to delete folder");
+    }
+    set((s) => ({
+      activeFolderId: s.activeFolderId === folderId ? null : s.activeFolderId,
     }));
-    // Dragging an item into a folder means it leaves whichever folder view is
-    // on screen, so remove it from the current feed if it no longer qualifies.
-    set((s) => {
-      const scope = currentScope(s);
-      const moved = s.items.find((i) => i.id === itemId);
-      if (!moved || matchesScope(moved, scope)) return {};
-      const items = s.items.filter((i) => i.id !== itemId);
-      writeCachedItems(scopeKey(scope), items);
-      return { items };
+    invalidateFeedCache();
+    await Promise.all([
+      get().loadProjects(),
+      get().loadLibraryTree(),
+      get().loadFeed({ force: true }),
+      get().loadCounts(),
+    ]);
+  },
+
+  moveFolder: async (folderId, destination) => {
+    const res = await apiFetch("/api/folders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: folderId, destination }),
     });
-    void get().loadCounts();
-    try {
-      await apiFetch("/api/history", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: itemId, projectId, folderId }),
-      });
-    } catch {
-      // The optimistic move may have been wrong — resync rather than leaving
-      // the item shown somewhere the server disagrees with.
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Failed to move folder");
+    }
+    invalidateFeedCache();
+    await Promise.all([
+      get().loadProjects(),
+      get().loadLibraryTree(),
+      get().loadFeed({ force: true }),
+      get().loadCounts(),
+    ]);
+    return await res.json();
+  },
+
+  moveGenerationsToDestination: async (ids, destination) => {
+    if (!Array.isArray(ids) || ids.length === 0 || !destination) return false;
+    const res = await apiFetch("/api/history/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, destination }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
       invalidateFeedCache();
       void get().loadFeed({ force: true });
       void get().loadCounts();
+      throw new Error(err.error || "Failed to move items.");
     }
+    invalidateFeedCache();
+    set({ selectedIds: [] });
+    await Promise.all([
+      get().loadFeed({ force: true }),
+      get().loadCounts(),
+    ]);
+    return true;
+  },
+
+  moveItem: async (itemId, destinationOrFolderId) => {
+    let destination;
+    if (typeof destinationOrFolderId === "object" && destinationOrFolderId !== null) {
+      destination = destinationOrFolderId;
+    } else {
+      const folderId = destinationOrFolderId ?? null;
+      const projectId = get().activeProjectId ?? null;
+      if (projectId) {
+        destination = folderId
+          ? { type: "folder", folderId, projectId }
+          : { type: "project_unsorted", projectId };
+      } else {
+        destination = folderId
+          ? { type: "folder", folderId }
+          : { type: "global_unsorted" };
+      }
+    }
+    return get().moveGenerationsToDestination([itemId], destination);
   },
 
   toggleSelect: (id) =>
@@ -2056,37 +2153,11 @@ export const useStore = create((set, get) => ({
   clearSelection: () => set({ selectedIds: [] }),
 
   moveItemsToProject: async (ids, projectId, folderId = null) => {
-    if (!ids.length) return;
-    for (const id of ids) {
-      patchEverywhere(set, id, (i) => ({
-        ...i,
-        projectId,
-        folderId: folderId ?? undefined,
-      }));
-    }
-    set({ selectedIds: [] });
-    try {
-      await Promise.all(
-        ids.map((id) =>
-          apiFetch("/api/history", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id, projectId, folderId }),
-          })
-        )
-      );
-    } catch {
-      /* fall through to the resync below */
-    }
-    // A bulk move changes membership in several scopes at once (source project,
-    // destination project, every folder view under both). Cheaper and more
-    // honest to re-ask the server than to reconcile each cached scope.
-    invalidateFeedCache();
-    await Promise.all([
-      get().loadFeed({ force: true }),
-      get().loadCounts(),
-      get().loadThread(),
-    ]);
+    if (!ids?.length) return;
+    const destination = folderId
+      ? { type: "folder", folderId, projectId }
+      : { type: "project_root", projectId };
+    return get().moveGenerationsToDestination(ids, destination);
   },
 
   loadMe: async () => {

@@ -30,16 +30,18 @@ export async function GET(req) {
   // the surrounding scope rather than one row of the rail.
   const { folderId: _folder, favorite: _favorite, ...filter } = parseHistoryFilter(params);
 
-  const [project, allAssets, favorites] = await Promise.all([
-    // Per-folder breakdown, only meaningful inside a project.
+  const [project, globalLibrary, allAssets, favorites] = await Promise.all([
+    // Per-folder breakdown for project
     filter.projectId
       ? countHistory(filter)
       : Promise.resolve({ total: 0, unsorted: 0, byFolder: {} }),
+    // Per-folder and unsorted breakdown for global library
+    countHistory({ ...filter, projectId: null }),
     // The two global scopes carry the kind/search filters but no project, so
     // their tab counts describe the same thing their grids will show.
     countScope({ kind: filter.kind, q: filter.q }),
     countScope({ kind: filter.kind, q: filter.q, favorite: true }),
   ]);
 
-  return NextResponse.json({ project, allAssets, favorites });
+  return NextResponse.json({ project, globalLibrary, allAssets, favorites });
 }

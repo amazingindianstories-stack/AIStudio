@@ -97,6 +97,36 @@ const MEDIA_EXPORT_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS media_export_items_order_idx ON media_export_items(export_id, position)",
 ];
 
+const HIERARCHICAL_FOLDER_STATEMENTS = [
+  "ALTER TABLE folders ALTER COLUMN project_id DROP NOT NULL",
+  "ALTER TABLE folders ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES folders(id) ON DELETE RESTRICT",
+  "ALTER TABLE folders ADD COLUMN IF NOT EXISTS name_normalized TEXT",
+  "ALTER TABLE folders ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
+  "ALTER TABLE folders ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0",
+  "ALTER TABLE generations ADD COLUMN IF NOT EXISTS location_version INTEGER NOT NULL DEFAULT 1",
+  "UPDATE folders SET name_normalized = LOWER(TRIM(name)) WHERE name_normalized IS NULL OR name_normalized = ''",
+  "ALTER TABLE folders ALTER COLUMN name_normalized SET DEFAULT ''",
+  "ALTER TABLE folders ALTER COLUMN name_normalized SET NOT NULL",
+  "UPDATE folders SET updated_at = created_at WHERE updated_at = 0 OR updated_at IS NULL",
+  "ALTER TABLE folders ALTER COLUMN updated_at SET DEFAULT 0",
+  "CREATE INDEX IF NOT EXISTS folders_project_id_idx ON folders(project_id)",
+  "CREATE INDEX IF NOT EXISTS folders_parent_id_idx ON folders(parent_id)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS folders_global_root_unique_idx ON folders(name_normalized) WHERE parent_id IS NULL AND project_id IS NULL",
+  "CREATE UNIQUE INDEX IF NOT EXISTS folders_project_root_unique_idx ON folders(project_id, name_normalized) WHERE parent_id IS NULL AND project_id IS NOT NULL",
+  "CREATE UNIQUE INDEX IF NOT EXISTS folders_subfolder_unique_idx ON folders(parent_id, name_normalized) WHERE parent_id IS NOT NULL",
+  `CREATE OR REPLACE FUNCTION sync_folder_name_normalized()
+   RETURNS TRIGGER AS $$
+   BEGIN
+     IF NEW.name IS NOT NULL AND (NEW.name_normalized IS NULL OR NEW.name_normalized = '') THEN
+       NEW.name_normalized := lower(trim(NEW.name));
+     END IF;
+     RETURN NEW;
+   END;
+   $$ LANGUAGE plpgsql`,
+  "DROP TRIGGER IF EXISTS trg_sync_folder_name_normalized ON folders",
+  "CREATE TRIGGER trg_sync_folder_name_normalized BEFORE INSERT OR UPDATE OF name ON folders FOR EACH ROW EXECUTE FUNCTION sync_folder_name_normalized()",
+];
+
 /**
  * POST /api/admin/migrate-schema
  * One-time online schema migration endpoint for production deployments.
@@ -137,7 +167,12 @@ export async function POST(request) {
       await db.execute(sql.raw(stmt));
     }
 
-    // 5. Verify schema state
+    // 5. Apply hierarchical folder statements and indexes
+    for (const stmt of HIERARCHICAL_FOLDER_STATEMENTS) {
+      await db.execute(sql.raw(stmt));
+    }
+
+    // 6. Verify schema state
     const coordinatorVerification = await db.execute(sql`
       select count(*)::int as count
       from information_schema.columns
@@ -148,7 +183,7 @@ export async function POST(request) {
           'completed_at', 'last_poll_at', 'next_poll_at', 'poll_attempts',
           'callback_received_at', 'provider_status', 'worker_lease_id', 'worker_lease_until',
           'source_generation_id', 'draft_task_id', 'draft_mode', 'bitrate_mode', 'last_frame_url',
-          'reference_videos', 'reference_audios', 'video_task_mode'
+          'reference_videos', 'reference_audios', 'video_task_mode', 'location_version'
         );
     `);
 
@@ -164,16 +199,25 @@ export async function POST(request) {
       where table_name in ('media_exports', 'media_export_items');
     `);
 
+    const hierarchicalFolderColumnsVerification = await db.execute(sql`
+      select count(*)::int as count
+      from information_schema.columns
+      where table_name = 'folders'
+        and column_name in ('parent_id', 'name_normalized', 'version', 'updated_at');
+    `);
+
     const coordCount = Number((coordinatorVerification.rows ?? coordinatorVerification)[0]?.count || 0);
     const portCount = Number((portraitTablesVerification.rows ?? portraitTablesVerification)[0]?.count || 0);
     const mediaExportCount = Number((mediaExportTablesVerification.rows ?? mediaExportTablesVerification)[0]?.count || 0);
+    const folderColCount = Number((hierarchicalFolderColumnsVerification.rows ?? hierarchicalFolderColumnsVerification)[0]?.count || 0);
 
     return NextResponse.json({
       success: true,
       coordinatorColumns: coordCount,
       portraitTables: portCount,
       mediaExportTables: mediaExportCount,
-      verified: coordCount === 20 && portCount === 2 && mediaExportCount === 2,
+      hierarchicalFolderColumns: folderColCount,
+      verified: coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 4,
     });
   } catch (error) {
     console.error("[migrate-schema] Error applying migration:", error);

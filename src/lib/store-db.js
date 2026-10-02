@@ -1,7 +1,8 @@
 import { ne, eq, desc, lt, or, gt, inArray, isNull, and, sql, } from "drizzle-orm";
 import { getDb } from "./db";
-import { generations } from "./schema";
+import { generations, folders } from "./schema";
 import { isProviderModel } from "./model-registry";
+import { moveGenerations } from "./folder-engine";
 import { MAX_CONCURRENT, MAX_CONCURRENT_PER_USER } from "./queue-limits";
 export { MAX_CONCURRENT, MAX_CONCURRENT_PER_USER } from "./queue-limits";
 
@@ -69,6 +70,7 @@ export function rowToItem(r) {
     flaggedAt: r.flaggedAt ?? undefined,
     flagReason: r.flagReason ?? undefined,
     judgeScore: r.judgeScore ?? undefined,
+    locationVersion: r.locationVersion ?? 1,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -133,6 +135,7 @@ export function itemToValues(item) {
     depthClaimId: item.depthClaimId ?? null,
     depthClaimWorkerId: item.depthClaimWorkerId ?? null,
     depthReapAttempts: item.depthReapAttempts ?? 0,
+    locationVersion: item.locationVersion ?? 1,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt,
   };
@@ -191,7 +194,8 @@ export function likePattern(q) {
  *  in the number next to it. */
 function filterConditions(filter) {
   const conds = filter.kind === "audio" ? [] : [ne(generations.kind, "audio")];
-  if (filter.projectId) conds.push(eq(generations.projectId, filter.projectId));
+  if (filter.projectId === null) conds.push(isNull(generations.projectId));
+  else if (filter.projectId) conds.push(eq(generations.projectId, filter.projectId));
   if (filter.folderId === null) conds.push(isNull(generations.folderId));
   else if (filter.folderId) conds.push(eq(generations.folderId, filter.folderId));
   if (filter.kind) conds.push(eq(generations.kind, filter.kind));
@@ -307,6 +311,41 @@ export async function upsertItem(item) {
     .onConflictDoUpdate({ target: generations.id, set: values });
 }
 
+/**
+ * Persists lifecycle completion (or failure) for a generation.
+ * Crucially, this deliberately omits projectId, folderId, and locationVersion,
+ * ensuring that user-initiated moves during generation execution are never
+ * overwritten by stale in-memory records.
+ */
+export async function completeGenerationItem(item) {
+  const db = await getDb();
+  const setValues = {
+    status: item.status,
+    url: item.url ?? null,
+    poster: item.poster ?? null,
+    aspectRatio: item.aspectRatio,
+    resolution: item.resolution ?? null,
+    duration: item.duration ?? null,
+    error: item.error ?? null,
+    ...(item.providerResponses !== undefined ? { providerResponses: item.providerResponses } : {}),
+    moderationBlocked: item.moderationBlocked ?? null,
+    costCents: item.costCents ?? 0,
+    costBasis: item.costBasis === "reconciled" ? "reconciled" : "estimated",
+    seed: item.seed ?? null,
+    judgeScore: item.judgeScore ?? null,
+    completedAt: item.completedAt ?? Date.now(),
+    updatedAt: Date.now(),
+  };
+
+  const rows = await db
+    .update(generations)
+    .set(setValues)
+    .where(eq(generations.id, item.id))
+    .returning();
+
+  return rows[0] ? rowToItem(rows[0]) : undefined;
+}
+
 export async function getItem(id) {
   const db = await getDb();
   const rows = await db
@@ -361,17 +400,28 @@ export async function setItemFolder(
   projectId,
   folderId
 ) {
-  const db = await getDb();
-  const rows = await db
-    .update(generations)
-    .set({
-      projectId: projectId ?? null,
-      folderId: folderId ?? null,
-      updatedAt: Date.now(),
-    })
-    .where(eq(generations.id, id))
-    .returning();
-  return rows[0] ? rowToItem(rows[0]) : undefined;
+  const destination = folderId
+    ? { type: "folder", folderId }
+    : projectId
+    ? { type: "project_unsorted", projectId }
+    : { type: "global_unsorted" };
+
+  // If both projectId and folderId are provided, check consistency
+  if (folderId && projectId) {
+    const db = await getDb();
+    const [f] = await db
+      .select({ projectId: folders.projectId })
+      .from(folders)
+      .where(eq(folders.id, folderId))
+      .limit(1);
+    if (!f) throw new Error("Folder not found.");
+    if (f.projectId !== projectId) {
+      throw new Error("Project mismatch: folder belongs to a different project.");
+    }
+  }
+
+  await moveGenerations({ ids: [id], destination });
+  return getItem(id);
 }
 
 /** Star/unstar a generation for the shared Favourites view. */

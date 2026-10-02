@@ -26,7 +26,8 @@ export function parseHistoryFilter(params) {
   const filter = {};
 
   const projectId = params.get("projectId");
-  if (projectId) filter.projectId = projectId;
+  if (projectId === "none") filter.projectId = null;
+  else if (projectId) filter.projectId = projectId;
 
   const folderId = params.get("folderId");
   if (folderId === "none") filter.folderId = null;
@@ -46,10 +47,10 @@ export function parseHistoryFilter(params) {
 /** The client half of the same contract: a filter → querystring. Kept next to
  *  the parser so the two cannot drift. */
 export function historyFilterToParams(filter
-
 ) {
   const params = new URLSearchParams();
-  if (filter.projectId) params.set("projectId", filter.projectId);
+  if (filter.projectId === null) params.set("projectId", "none");
+  else if (filter.projectId) params.set("projectId", filter.projectId);
   if (filter.folderId === null) params.set("folderId", "none");
   else if (filter.folderId) params.set("folderId", filter.folderId);
   if (filter.kind && filter.kind !== "all") params.set("kind", filter.kind);
