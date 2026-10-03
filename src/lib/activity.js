@@ -5,11 +5,12 @@ import { activityLogs } from "./schema";
 export async function logActivity(
   userId,
   action,
-  detail
+  detail,
+  tx = null
 ) {
   try {
-    const db = await getDb();
-    await db.insert(activityLogs).values({
+    const runner = tx || (await getDb());
+    await runner.insert(activityLogs).values({
       userId: userId ?? null,
       action,
       detail: detail ?? null,

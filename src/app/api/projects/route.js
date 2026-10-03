@@ -10,7 +10,6 @@ import {
   deleteFolder,
 } from "@/lib/projects-db";
 import { getSession } from "@/lib/auth";
-import { logActivity } from "@/lib/activity";
 
 export const runtime = "nodejs";
 
@@ -53,10 +52,7 @@ export async function POST(req) {
           projects: await setBrief(b.projectId, b.brief ?? ""),
         });
       case "deleteProject": {
-        await logActivity(user.id, "delete_project", {
-          projectId: b.projectId,
-        });
-        return NextResponse.json({ projects: await deleteProject(b.projectId) });
+        return NextResponse.json({ projects: await deleteProject(b.projectId, user.id) });
       }
       case "createFolder": {
         const name = (b.name || "").trim();
@@ -70,12 +66,8 @@ export async function POST(req) {
           projects: await renameFolder(b.projectId, b.folderId, (b.name || "").trim()),
         });
       case "deleteFolder": {
-        await logActivity(user.id, "delete_folder", {
-          projectId: b.projectId,
-          folderId: b.folderId,
-        });
         return NextResponse.json({
-          projects: await deleteFolder(b.projectId, b.folderId),
+          projects: await deleteFolder(b.projectId, b.folderId, user.id),
         });
       }
       default:

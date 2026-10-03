@@ -6,6 +6,7 @@ import {
   renameFolder as engineRenameFolder,
   deleteFolder as engineDeleteFolder,
 } from "./folder-engine";
+import { logActivity } from "./activity";
 
 /** Project + folder persistence — Postgres (was projects.json). */
 
@@ -87,9 +88,13 @@ export async function setBrief(id, brief) {
   return readProjects();
 }
 
-export async function deleteProject(id) {
+export async function deleteProject(id, actorId = null) {
   const db = await getDb();
   await db.transaction(async (tx) => {
+    // 1. Acquire scope lock FIRST (unified lock ordering)
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'project:' + id}))`);
+
+    // 2. Select project row FOR UPDATE SECOND
     const [project] = await tx
       .select({ id: projects.id })
       .from(projects)
@@ -130,6 +135,10 @@ export async function deleteProject(id) {
     }
 
     await tx.delete(projects).where(eq(projects.id, id));
+
+    if (actorId) {
+      await logActivity(actorId, "delete_project", { projectId: id }, tx);
+    }
   });
   return readProjects();
 }
@@ -164,11 +173,13 @@ export async function renameFolder(
 
 export async function deleteFolder(
   projectId,
-  folderId
+  folderId,
+  actorId = null
 ) {
   await engineDeleteFolder({
     folderId,
     projectId,
+    actorId,
   });
   return readProjects();
 }

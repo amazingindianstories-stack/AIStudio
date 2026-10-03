@@ -2003,16 +2003,19 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  createFolder: async (arg1, arg2, arg3) => {
-    let name, projectId, parentId;
+  createFolder: async (arg1, arg2, arg3, customIdempotencyKey) => {
+    let name, projectId, parentId, idempotencyKey;
     if (typeof arg1 === "object" && arg1 !== null) {
-      ({ name, projectId = null, parentId = null } = arg1);
+      ({ name, projectId = null, parentId = null, idempotencyKey } = arg1);
     } else {
       projectId = arg1 || null;
       name = arg2;
       parentId = arg3 || null;
+      idempotencyKey = customIdempotencyKey;
     }
-    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    if (!idempotencyKey) {
+      idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    }
     const res = await apiFetch("/api/folders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -2030,17 +2033,21 @@ export const useStore = create((set, get) => ({
     return json.folder;
   },
 
-  renameFolder: async (arg1, arg2, arg3, arg4) => {
-    let folderId, name, projectId, expectedVersion;
-    if (arg3 !== undefined && typeof arg3 === "string") {
+  renameFolder: async (arg1, arg2, arg3, arg4, customIdempotencyKey) => {
+    let folderId, name, projectId, expectedVersion, idempotencyKey;
+    if (typeof arg1 === "object" && arg1 !== null) {
+      ({ id: folderId, name, projectId, expectedVersion, idempotencyKey } = arg1);
+    } else if (arg3 !== undefined && typeof arg3 === "string") {
       projectId = arg1;
       folderId = arg2;
       name = arg3;
       expectedVersion = arg4;
+      idempotencyKey = customIdempotencyKey;
     } else {
       folderId = arg1;
       name = arg2;
       expectedVersion = arg3;
+      idempotencyKey = typeof arg4 === "string" ? arg4 : undefined;
     }
     if (expectedVersion === undefined) {
       const tree = get().libraryTree;
@@ -2056,7 +2063,9 @@ export const useStore = create((set, get) => ({
       const found = findNode(tree?.globalFolders) || findNode(tree?.projects);
       if (found?.version) expectedVersion = found.version;
     }
-    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    if (!idempotencyKey) {
+      idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    }
     const res = await apiFetch("/api/folders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -2069,15 +2078,21 @@ export const useStore = create((set, get) => ({
     await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
   },
 
-  deleteFolder: async (arg1, arg2) => {
-    let folderId, projectId;
-    if (arg2 !== undefined) {
+  deleteFolder: async (arg1, arg2, customIdempotencyKey) => {
+    let folderId, projectId, idempotencyKey;
+    if (typeof arg1 === "object" && arg1 !== null) {
+      ({ folderId, projectId, idempotencyKey } = arg1);
+    } else if (arg2 !== undefined && typeof arg2 === "string") {
       projectId = arg1;
       folderId = arg2;
+      idempotencyKey = customIdempotencyKey;
     } else {
       folderId = arg1;
+      idempotencyKey = typeof arg2 === "string" ? arg2 : undefined;
     }
-    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    if (!idempotencyKey) {
+      idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    }
     const params = new URLSearchParams({ id: folderId });
     if (projectId) params.set("projectId", projectId);
     if (idempotencyKey) params.set("idempotencyKey", idempotencyKey);
@@ -2100,7 +2115,7 @@ export const useStore = create((set, get) => ({
     ]);
   },
 
-  moveFolder: async (folderId, destination, expectedVersion = undefined) => {
+  moveFolder: async (folderId, destination, expectedVersion = undefined, customIdempotencyKey = undefined) => {
     if (expectedVersion === undefined) {
       const tree = get().libraryTree;
       const findNode = (nodes) => {
@@ -2115,7 +2130,7 @@ export const useStore = create((set, get) => ({
       const found = findNode(tree?.globalFolders) || findNode(tree?.projects);
       if (found?.version) expectedVersion = found.version;
     }
-    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    const idempotencyKey = customIdempotencyKey || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined);
     const res = await apiFetch("/api/folders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -2135,7 +2150,7 @@ export const useStore = create((set, get) => ({
     return await res.json();
   },
 
-  moveGenerationsToDestination: async (ids, destination, expectedVersions = undefined) => {
+  moveGenerationsToDestination: async (ids, destination, expectedVersions = undefined, customIdempotencyKey = undefined) => {
     if (!Array.isArray(ids) || ids.length === 0 || !destination) return false;
     const expVers = expectedVersions ? { ...expectedVersions } : {};
     if (!expectedVersions) {
@@ -2147,7 +2162,7 @@ export const useStore = create((set, get) => ({
         }
       }
     }
-    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    const idempotencyKey = customIdempotencyKey || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined);
     const res = await apiFetch("/api/history/move", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

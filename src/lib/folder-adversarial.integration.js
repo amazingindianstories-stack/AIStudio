@@ -8,11 +8,15 @@ import {
   renameFolder,
   moveFolder,
   moveGenerations,
+  getLibraryTree,
   OrganizationError,
   MAX_NESTING_DEPTH,
   MAX_GENERATION_BATCH,
 } from "./folder-engine.js";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
+
+const TEST_SEED = process.env.TEST_SEED || randomUUID();
+console.log(`[folder-adversarial] Running with TEST_SEED=${TEST_SEED}`);
 
 test("ADVERSARIAL: Folder cycle prevention rejects moving into self or descendant", async () => {
   const db = await getDb();
@@ -564,3 +568,243 @@ test("ADVERSARIAL: Deep subtree move is rejected when targetDepth + subtreeHeigh
     }
   }
 });
+
+test("ADVERSARIAL: Batch generation move fails atomically if any requested ID is missing", async () => {
+  const db = await getDb();
+  const actorId = randomUUID();
+  const now = Date.now();
+
+  const g1Id = randomUUID();
+  const g2Id = randomUUID();
+  const missingId = randomUUID();
+
+  const folder = await createFolder({
+    name: `BatchMissingTarget-${randomUUID().slice(0, 6)}`,
+    actorId,
+  });
+
+  await db.insert(generations).values([
+    {
+      id: g1Id,
+      kind: "image",
+      status: "succeeded",
+      prompt: "g1",
+      model: "flux",
+      aspectRatio: "1:1",
+      projectId: null,
+      folderId: null,
+      locationVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: g2Id,
+      kind: "image",
+      status: "succeeded",
+      prompt: "g2",
+      model: "flux",
+      aspectRatio: "1:1",
+      projectId: null,
+      folderId: null,
+      locationVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+
+  try {
+    await assert.rejects(
+      moveGenerations({
+        ids: [g1Id, missingId, g2Id],
+        destination: { type: "folder", folderId: folder.id },
+        actorId,
+      }),
+      (err) => {
+        assert.ok(err instanceof OrganizationError);
+        assert.equal(err.code, "GENERATION_NOT_FOUND");
+        assert.equal(err.status, 404);
+        return true;
+      }
+    );
+
+    // Atomicity check: NEITHER g1 nor g2 must have been moved!
+    const rows = await db
+      .select()
+      .from(generations)
+      .where(inArray(generations.id, [g1Id, g2Id]));
+
+    for (const r of rows) {
+      assert.equal(r.folderId, null, "Unmoved generation folderId must remain null");
+      assert.equal(r.locationVersion, 1, "Location version must remain untouched");
+    }
+  } finally {
+    await db.delete(generations).where(inArray(generations.id, [g1Id, g2Id]));
+    await db.delete(folders).where(eq(folders.id, folder.id));
+  }
+});
+
+test("ADVERSARIAL: Batch generation move fails atomically on version conflict", async () => {
+  const db = await getDb();
+  const actorId = randomUUID();
+  const now = Date.now();
+
+  const g1Id = randomUUID();
+  const g2Id = randomUUID();
+
+  const folder = await createFolder({
+    name: `BatchVerTarget-${randomUUID().slice(0, 6)}`,
+    actorId,
+  });
+
+  await db.insert(generations).values([
+    {
+      id: g1Id,
+      kind: "image",
+      status: "succeeded",
+      prompt: "g1",
+      model: "flux",
+      aspectRatio: "1:1",
+      projectId: null,
+      folderId: null,
+      locationVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: g2Id,
+      kind: "image",
+      status: "succeeded",
+      prompt: "g2",
+      model: "flux",
+      aspectRatio: "1:1",
+      projectId: null,
+      folderId: null,
+      locationVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+
+  try {
+    await assert.rejects(
+      moveGenerations({
+        ids: [g1Id, g2Id],
+        destination: { type: "folder", folderId: folder.id },
+        expectedVersions: {
+          [g1Id]: 1,
+          [g2Id]: 999, // Intentional mismatch
+        },
+        actorId,
+      }),
+      (err) => {
+        assert.ok(err instanceof OrganizationError);
+        assert.equal(err.code, "VERSION_CONFLICT");
+        assert.equal(err.status, 409);
+        return true;
+      }
+    );
+
+    // Atomicity check: g1 was valid, but because g2 failed, NEITHER must have moved!
+    const rows = await db
+      .select()
+      .from(generations)
+      .where(inArray(generations.id, [g1Id, g2Id]));
+
+    for (const r of rows) {
+      assert.equal(r.folderId, null, "Generations must not have moved");
+      assert.equal(r.locationVersion, 1, "Location version must remain untouched");
+    }
+  } finally {
+    await db.delete(generations).where(inArray(generations.id, [g1Id, g2Id]));
+    await db.delete(folders).where(eq(folders.id, folder.id));
+  }
+});
+
+test("ADVERSARIAL: Cross-scope subtree move bumps descendant folder versions", async () => {
+  const db = await getDb();
+  const actorId = randomUUID();
+  const now = Date.now();
+
+  const projId = randomUUID();
+  await db.insert(projects).values({
+    id: projId,
+    name: "Scope Bump Target Project",
+    createdAt: now,
+    updatedAt: now,
+  });
+
+  // Global chain: Root -> Child -> Grandchild
+  const root = await createFolder({ name: `ScopeBumpRoot-${randomUUID().slice(0, 6)}`, actorId });
+  const child = await createFolder({ name: "Child", parentId: root.id, actorId });
+  const grandchild = await createFolder({ name: "Grandchild", parentId: child.id, actorId });
+
+  assert.equal(root.version, 1);
+  assert.equal(child.version, 1);
+  assert.equal(grandchild.version, 1);
+
+  // Move root into Project
+  await moveFolder({
+    folderId: root.id,
+    destination: { type: "project_root", projectId: projId },
+    actorId,
+  });
+
+  // Verify all 3 folders have updated projectId AND incremented version to 2
+  const updatedFolders = await db
+    .select()
+    .from(folders)
+    .where(inArray(folders.id, [root.id, child.id, grandchild.id]));
+
+  for (const f of updatedFolders) {
+    assert.equal(f.projectId, projId, "Folder projectId must be updated to target project");
+    assert.equal(f.version, 2, `Folder ${f.name} version must be bumped to 2 on cross-scope move`);
+  }
+});
+
+test("ADVERSARIAL: Tree building terminates and guards against corrupt cycles", async () => {
+  const db = await getDb();
+  const now = Date.now();
+
+  const fAId = randomUUID();
+  const fBId = randomUUID();
+
+  // Inject a direct cycle into the database (A -> B -> A)
+  await db.insert(folders).values([
+    {
+      id: fAId,
+      name: `CycleA-${randomUUID().slice(0, 4)}`,
+      nameNormalized: "cycle-a",
+      projectId: null,
+      parentId: null,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: fBId,
+      name: `CycleB-${randomUUID().slice(0, 4)}`,
+      nameNormalized: "cycle-b",
+      projectId: null,
+      parentId: fAId,
+      version: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+  ]);
+
+  // Turn A into child of B directly via SQL bypassing triggers
+  await db.execute(sql`ALTER TABLE folders DISABLE TRIGGER trg_check_folder_scope`);
+  await db.execute(sql`UPDATE folders SET parent_id = ${fBId} WHERE id = ${fAId}`);
+  await db.execute(sql`ALTER TABLE folders ENABLE TRIGGER trg_check_folder_scope`);
+
+  try {
+    // getLibraryTree MUST NOT crash with RangeError: Maximum call stack size exceeded
+    const tree = await getLibraryTree();
+    assert.ok(tree, "getLibraryTree must complete without error despite cycle in database");
+    assert.ok(Array.isArray(tree.globalFolders));
+    assert.ok(Array.isArray(tree.projects));
+  } finally {
+    await db.delete(folders).where(inArray(folders.id, [fAId, fBId]));
+  }
+});
+

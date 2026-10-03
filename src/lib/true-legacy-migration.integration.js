@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { sql } from "drizzle-orm";
 import { HIERARCHICAL_FOLDER_STATEMENTS } from "../../scripts/migrate-hierarchical-folders.js";
 import { auditFolderMigration } from "../../scripts/audit-folder-migration.js";
 import { verifyProductionSchema } from "../../scripts/verify-production-schema.js";
