@@ -51,7 +51,11 @@ Execute the additive idempotent migration. This:
 **Execution Options**:
 - **CLI (Recommended)**:
   ```bash
+  # Step 2A: Hierarchical library structure & normalized keys
   npm run db:migrate:hierarchical-folders
+
+  # Step 2B: Generation naming tables, sequence counters & trigger functions
+  npm run db:migrate:generation-naming
   ```
 - **Online Admin Route (Alternative)**:
   Authenticated POST request with bearer admin session to `/api/admin/migrate-schema`.
@@ -75,19 +79,24 @@ npm run db:verify:production-schema
 
 ### Phase 4: Non-Billed Generation Verification
 
-As specified in `AGENTS.md`, `itemToValues()` in `src/lib/store-db.js` writes wide rows. To prove that `generations.location_version` does not break generation insertion paths:
+As specified in `AGENTS.md`, `itemToValues()` in `src/lib/store-db.js` writes wide rows. To prove that `generations.location_version` and naming triggers do not break generation insertion paths:
 1. Trigger one non-billed enqueue (e.g. test image or dry-run evaluation) for affected generation kinds (`image`, `video`, `depth`).
-2. Verify row inserts with default `location_version = 1`.
+2. Verify row inserts with default `location_version = 1` and corresponding `generation_naming` assignment.
 
 ---
 
-### Phase 5: Application Code Deployment
+### Phase 5: Worker and Application Code Deployment
 
-Deploy the application code from branch `feat/freeform-hierarchical-library` to production hosting (e.g., Vercel / Cloud Run).
+#### 5.1 Deploy Railway Media Export Worker (FIRST)
+Deploy the media export worker on Railway before updating the web application.
+- The new worker is fully backward-compatible with legacy `manifest_version: 1` jobs (and includes double-extension guards preventing `.png.png` anomalies).
+- It natively processes `manifest_version: 2` jobs using frozen verbatim filenames.
+- Deploying the worker first guarantees that when the Vercel application starts submitting version-2 manifests, the live worker will process them correctly.
 
-Because all schema changes were additive and nullable/defaulted:
-- Old application instances running concurrently during deployment can continue reading/writing without error.
-- New application instances immediately leverage hierarchical folders, breadcrumbs, Finder cards, and atomic moves.
+#### 5.2 Deploy Vercel Web Application (SECOND)
+Deploy the web application from branch `feat/freeform-hierarchical-library-naming` to Vercel.
+- Because all schema changes are additive and supported by backward-compatible constraint triggers, older application instances continue reading and writing normally during rollout.
+- Newly deployed application instances immediately activate hierarchical library folders, breadcrumbs, Finder cards, atomic moves, container-scoped serial naming, direct downloads, and frozen ZIP exports.
 
 ---
 
@@ -105,41 +114,24 @@ Perform the following smoke tests in a live browser session:
 
 ---
 
-## 3. Rollback Runbook
+## 3. Data-Preserving Rollback Runbook
 
-If application code issues arise post-deployment:
+If application code issues arise post-deployment, execute the following data-preserving rollback:
 
-### Immediate Application Rollback
-1. Redeploy the previous stable application commit / release in Vercel or your hosting provider.
-2. The database schema **does not need to be rolled back**.
-   - The added columns (`parent_id`, `name_normalized`, `version`, `updated_at` on `folders`, and `location_version` on `generations`) are nullable or defaulted.
-   - The loosened constraint (`folders.project_id` being nullable) does not break previous application code because old application code only queried project-scoped folders (`WHERE project_id = ?`).
-   - Legacy application versions will function completely normally against the expanded schema.
+### 3.1 Immediate Application & Worker Rollback (Zero Data Loss)
+1. **Redeploy Previous Application Release on Vercel**:
+   - Revert deployment to the previous stable production commit.
+2. **Redeploy Previous Worker Release on Railway**:
+   - Revert Railway export worker deployment to the previous stable production release.
+3. **Database Schema Remains Intact and Inert**:
+   - The expanded schema is strictly additive and backward-compatible.
+   - The trigger `trg_check_generation_location_naming` automatically maintains `generation_naming` when the rolled-back application executes moves or inserts, preventing any check violations.
+   - The columns `parent_id`, `name_normalized`, `version`, `updated_at`, `location_version`, `manifest_version`, and tables `generation_naming` and `naming_counters` remain inert to the old application without breaking queries.
+   - **No destructive SQL (`DELETE` or `DROP TABLE`) should ever be executed on production.**
 
-### Optional Schema Rollback (Only if explicitly required by DBA)
-If database administrators require full reversal of the schema expansion:
-
-```sql
--- 1. Remove added indexes
-DROP INDEX IF EXISTS folders_subfolder_unique_idx;
-DROP INDEX IF EXISTS folders_project_root_unique_idx;
-DROP INDEX IF EXISTS folders_global_root_unique_idx;
-DROP INDEX IF EXISTS folders_parent_id_idx;
-
--- 2. Clean up any global folders created during deployment before restoring NOT NULL
-DELETE FROM generations WHERE folder_id IN (SELECT id FROM folders WHERE project_id IS NULL);
-DELETE FROM folders WHERE project_id IS NULL;
-
--- 3. Restore original columns and constraints
-ALTER TABLE folders DROP CONSTRAINT IF EXISTS folders_parent_id_fkey;
-ALTER TABLE folders DROP COLUMN IF EXISTS parent_id;
-ALTER TABLE folders DROP COLUMN IF EXISTS name_normalized;
-ALTER TABLE folders DROP COLUMN IF EXISTS version;
-ALTER TABLE folders DROP COLUMN IF EXISTS updated_at;
-ALTER TABLE folders ALTER COLUMN project_id SET NOT NULL;
-
-ALTER TABLE generations DROP COLUMN IF EXISTS location_version;
-
--- 4. Re-create legacy unique index
-CREATE UNIQUE INDEX IF NOT EXISTS folders_project_name_idx ON folders (project_id, name);
-```
+### 3.2 Emergency Disaster Recovery (Catastrophic Scenario Only)
+If a catastrophic operational failure occurs that cannot be resolved via application rollback:
+1. **Never execute manual `DELETE` or `DROP` statements on live production data.**
+2. Provision an isolated recovery database from the pre-migration Point-In-Time (PITR) snapshot.
+3. Verify data integrity and checksums on the recovery database.
+4. Update application connection strings during an authorized, scheduled maintenance window.

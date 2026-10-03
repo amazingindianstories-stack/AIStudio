@@ -81,13 +81,68 @@ function encodeKey(key) {
 }
 
 export function mediaKeyFromRef(ref) {
-  if (typeof ref !== "string") return null;
-  const cleanRef = ref.split("?")[0].split("#")[0];
-  if (cleanRef.startsWith("/api/media/")) return cleanRef.slice("/api/media/".length);
+  if (typeof ref !== "string" || !ref.trim()) return null;
+  const cleanRef = ref.split("?")[0].split("#")[0].trim();
+
+  // 1. Direct local API media route
+  if (cleanRef.startsWith("/api/media/")) {
+    return decodeURIComponent(cleanRef.slice("/api/media/".length));
+  }
+
+  // 2. Custom CDN URL
   const cdn = process.env.GCP_MEDIA_CDN_URL?.replace(/\/$/, "");
   if (cdn && cleanRef.startsWith(`${cdn}/`)) {
     return decodeURIComponent(cleanRef.slice(cdn.length + 1));
   }
+
+  // 3. Absolute URL parsing (GCS, S3, custom domain)
+  if (/^https?:\/\//i.test(cleanRef)) {
+    try {
+      const parsed = new URL(cleanRef);
+      const pathname = decodeURIComponent(parsed.pathname.replace(/^\/+/, ""));
+      const hostname = parsed.hostname.toLowerCase();
+
+      // GCS path-style: storage.googleapis.com/<bucket>/<key>
+      if (hostname === "storage.googleapis.com") {
+        const parts = pathname.split("/");
+        return parts.length > 1 ? parts.slice(1).join("/") : null;
+      }
+
+      // GCS virtual-hosted: <bucket>.storage.googleapis.com/<key>
+      if (hostname.endsWith(".storage.googleapis.com")) {
+        return pathname || null;
+      }
+
+      // S3 path-style: s3.amazonaws.com/<bucket>/<key> or s3.<region>.amazonaws.com/<bucket>/<key>
+      if (hostname === "s3.amazonaws.com" || /^s3[.-][a-z0-9-]+\.amazonaws\.com$/.test(hostname)) {
+        const parts = pathname.split("/");
+        return parts.length > 1 ? parts.slice(1).join("/") : null;
+      }
+
+      // S3 virtual-hosted: <bucket>.s3.amazonaws.com/<key> or <bucket>.s3.<region>.amazonaws.com/<key>
+      if (/\.s3([.-][a-z0-9-]+)?\.amazonaws\.com$/.test(hostname)) {
+        return pathname || null;
+      }
+
+      // Path on application host: /api/media/<key>
+      if (pathname.startsWith("api/media/")) {
+        return pathname.slice("api/media/".length);
+      }
+
+      // Known storage key prefixes
+      if (/^(generated|assets|thumbs|uploads)\//.test(pathname)) {
+        return pathname;
+      }
+    } catch {
+      return null;
+    }
+  }
+
+  // 4. Raw key matching known storage prefixes
+  if (/^(generated|assets|thumbs|uploads)\//.test(cleanRef)) {
+    return cleanRef;
+  }
+
   return null;
 }
 

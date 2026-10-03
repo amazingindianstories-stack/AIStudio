@@ -82,6 +82,59 @@ test("mediaKeyFromRef: cleanly strips query params and fragments", async () => {
   assert.equal(mediaKeyFromRef("/api/media/assets/photo.png#bp-asset=asset-123"), "assets/photo.png");
 });
 
+test("mediaKeyFromRef: supports every production-backed URL class", async () => {
+  const { mediaKeyFromRef } = await import("@/lib/storage.js");
+
+  // GCS path-style
+  assert.equal(
+    mediaKeyFromRef("https://storage.googleapis.com/aistudio-media-bucket/generated/item-1.png"),
+    "generated/item-1.png"
+  );
+  // GCS virtual-hosted style
+  assert.equal(
+    mediaKeyFromRef("https://aistudio-media-bucket.storage.googleapis.com/generated/item-2.mp4?alt=media"),
+    "generated/item-2.mp4"
+  );
+  // S3 virtual-hosted style (standard and regional)
+  assert.equal(
+    mediaKeyFromRef("https://aistudio-media-bucket.s3.amazonaws.com/generated/item-3.png"),
+    "generated/item-3.png"
+  );
+  assert.equal(
+    mediaKeyFromRef("https://aistudio-media-bucket.s3.us-east-1.amazonaws.com/generated/item-4.png#frag"),
+    "generated/item-4.png"
+  );
+  // S3 path-style (standard and regional)
+  assert.equal(
+    mediaKeyFromRef("https://s3.amazonaws.com/aistudio-media-bucket/generated/item-5.mov"),
+    "generated/item-5.mov"
+  );
+  assert.equal(
+    mediaKeyFromRef("https://s3.us-east-1.amazonaws.com/aistudio-media-bucket/generated/item-6.png"),
+    "generated/item-6.png"
+  );
+  // CDN URL
+  const prevCdn = process.env.GCP_MEDIA_CDN_URL;
+  process.env.GCP_MEDIA_CDN_URL = "https://cdn.veevee.ai";
+  try {
+    assert.equal(
+      mediaKeyFromRef("https://cdn.veevee.ai/generated/item-7.png"),
+      "generated/item-7.png"
+    );
+  } finally {
+    process.env.GCP_MEDIA_CDN_URL = prevCdn;
+  }
+  // Raw storage keys
+  assert.equal(mediaKeyFromRef("generated/item-8.png"), "generated/item-8.png");
+  assert.equal(mediaKeyFromRef("assets/character.png"), "assets/character.png");
+  assert.equal(mediaKeyFromRef("thumbs/512/generated/item-9.png.webp"), "thumbs/512/generated/item-9.png.webp");
+
+  // Invalid / non-media URLs
+  assert.equal(mediaKeyFromRef("https://evil.com/malicious.png"), null);
+  assert.equal(mediaKeyFromRef(""), null);
+  assert.equal(mediaKeyFromRef(null), null);
+});
+
 test("toProviderDataUrls: fast-paths asset:// and bp_asset_id query parameters or fragments", async () => {
   const { toProviderDataUrls } = await import("@/app/api/queue/execute/route.js");
   const refs = [

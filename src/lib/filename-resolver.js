@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { eq, inArray, sql } from "drizzle-orm";
-import { generationNaming, generations, projects } from "./schema.js";
+import { eq, inArray } from "drizzle-orm";
+import { folders, generationNaming, generations, projects } from "./schema.js";
 import { namespaceFor } from "./generation-naming.js";
 
 const WINDOWS_RESERVED_NAMES = new Set([
@@ -73,12 +73,24 @@ export function formatSerial(sequence) {
 
 /**
  * Computes a deterministic short namespace suffix for disambiguating colliding slugs.
+ * Guarantees distinctness among all colliding namespaces in the authoritative library.
  */
-export function getNamespaceDisambiguator(namespace) {
+export function getNamespaceDisambiguator(namespace, collidingNamespaces = []) {
   if (!namespace || namespace === "global_unsorted") return null;
   const parts = namespace.split(":");
   if (parts.length < 2) return null;
-  return parts[1].replace(/-/g, "").slice(0, 4);
+  const rawId = parts[1].replace(/-/g, "").toLowerCase();
+
+  const otherIds = (collidingNamespaces || [])
+    .filter((ns) => ns !== namespace)
+    .map((ns) => ns.split(":")[1]?.replace(/-/g, "").toLowerCase())
+    .filter(Boolean);
+
+  let len = 4;
+  while (len < rawId.length && otherIds.some((other) => other.slice(0, len) === rawId.slice(0, len))) {
+    len += 2;
+  }
+  return rawId.slice(0, len);
 }
 
 /**
@@ -168,7 +180,9 @@ export function resolveGenerationFilename({
 
 /**
  * Batched database filename resolver for arbitrary generation IDs.
- * Queries ancestry in a single recursive CTE and resolves filenames deterministically.
+ * Canonical and strictly batch-independent: collision detection evaluates against the
+ * authoritative database library, guaranteeing that any generation resolves to the EXACT
+ * same filename whether queried individually, in a feed page subset, or in a bulk ZIP.
  */
 export async function batchResolveGenerationFilenames(db, generationIds) {
   if (!Array.isArray(generationIds) || generationIds.length === 0) {
@@ -195,92 +209,105 @@ export async function batchResolveGenerationFilenames(db, generationIds) {
 
   if (!genRows.length) return new Map();
 
-  // 2. Collect referenced projects and folders
-  const projectIds = [...new Set(genRows.map((r) => r.projectId).filter(Boolean))];
-  const folderIds = [...new Set(genRows.map((r) => r.folderId).filter(Boolean))];
+  // 2. Query ALL folders and projects to build the authoritative library hierarchy
+  const [allFoldersRes, allProjectsRes] = await Promise.all([
+    db.select({
+      id: folders.id,
+      parentId: folders.parentId,
+      projectId: folders.projectId,
+      name: folders.name,
+    }).from(folders),
+    db.select({
+      id: projects.id,
+      name: projects.name,
+    }).from(projects),
+  ]);
 
-  // 3. Query projects
-  const projectMap = new Map();
-  if (projectIds.length > 0) {
-    const projRows = await db
-      .select({ id: projects.id, name: projects.name })
-      .from(projects)
-      .where(inArray(projects.id, projectIds));
-    for (const p of projRows) projectMap.set(p.id, p);
-  }
+  const foldersById = new Map();
+  for (const f of allFoldersRes) foldersById.set(f.id, f);
 
-  // 4. Query full ancestry for all referenced folders via single recursive CTE
-  const ancestryByFolderId = new Map();
-  if (folderIds.length > 0) {
-    const ancestryRes = await db.execute(sql`
-      WITH RECURSIVE folder_ancestry AS (
-        SELECT id, parent_id, name, id AS leaf_id, 0 AS depth
-        FROM folders
-        WHERE id IN (${sql.join(folderIds.map((id) => sql`${id}`), sql`, `)})
+  const projectsById = new Map();
+  for (const p of allProjectsRes) projectsById.set(p.id, p);
 
-        UNION ALL
-
-        SELECT f.id, f.parent_id, f.name, fa.leaf_id, fa.depth + 1
-        FROM folders f
-        JOIN folder_ancestry fa ON f.id = fa.parent_id
-      )
-      SELECT leaf_id, id, name, depth
-      FROM folder_ancestry
-      ORDER BY leaf_id, depth DESC;
-    `);
-
-    const rows = ancestryRes.rows ?? ancestryRes;
-    for (const row of rows) {
-      const leafId = row.leaf_id;
-      if (!ancestryByFolderId.has(leafId)) {
-        ancestryByFolderId.set(leafId, []);
-      }
-      ancestryByFolderId.get(leafId).push({ id: row.id, name: row.name });
+  // Helper to get ancestry chain from root to leaf
+  function getAncestryChain(folderId) {
+    const ancestry = [];
+    let curr = foldersById.get(folderId);
+    const visited = new Set();
+    while (curr && !visited.has(curr.id)) {
+      visited.add(curr.id);
+      ancestry.unshift({ id: curr.id, name: curr.name });
+      curr = curr.parentId ? foldersById.get(curr.parentId) : null;
     }
+    return ancestry;
   }
 
-  // 5. Detect potential namespace slug collisions across the batch to ensure uniqueness
-  const namespaceSlugs = new Map();
-  for (const gen of genRows) {
-    const ns = gen.namingNamespace || namespaceFor({ folderId: gen.folderId, projectId: gen.projectId });
-    if (!namespaceSlugs.has(ns)) {
-      const proj = gen.projectId ? projectMap.get(gen.projectId) : null;
-      const ancestry = gen.folderId ? ancestryByFolderId.get(gen.folderId) || [] : [];
-      // Compute un-disambiguated slug
-      const rawTokens = [];
-      if (ns === "global_unsorted") {
-        rawTokens.push("library", "unsorted");
-      } else if (ns.startsWith("project_unsorted:")) {
-        rawTokens.push(slugifyToken(proj?.name || "project", "project"), "unsorted");
-      } else if (ns.startsWith("folder:")) {
-        if (proj) rawTokens.push(slugifyToken(proj.name, "project"));
-        if (ancestry.length > 0) {
-          for (const f of ancestry) rawTokens.push(slugifyToken(f.name, "folder"));
-        } else {
-          rawTokens.push("folder");
-        }
-      }
-      const slugKey = rawTokens.join("_");
-      namespaceSlugs.set(ns, slugKey);
+  // Compute base slug for any folder in the authoritative library
+  function computeFolderBaseSlug(folder) {
+    const proj = folder.projectId ? projectsById.get(folder.projectId) : null;
+    const ancestry = getAncestryChain(folder.id);
+    const tokens = [];
+    if (proj) {
+      tokens.push(slugifyToken(proj.name, "project"));
     }
+    if (ancestry.length > 0) {
+      for (const f of ancestry) {
+        tokens.push(slugifyToken(f.name, "folder"));
+      }
+    } else {
+      tokens.push("folder");
+    }
+    return tokens.join("_");
   }
 
-  const slugCounts = new Map();
-  for (const [, slug] of namespaceSlugs.entries()) {
-    slugCounts.set(slug, (slugCounts.get(slug) || 0) + 1);
+  // Compute base slug for any project unsorted in the authoritative library
+  function computeProjectUnsortedBaseSlug(proj) {
+    return `${slugifyToken(proj.name, "project")}_unsorted`;
   }
 
-  // 6. Build resolved filenames map
+  // Build authoritative library slug collision map
+  const slugToNamespaces = new Map();
+
+  // Global unsorted is always unique to itself
+  slugToNamespaces.set("library_unsorted", new Set(["global_unsorted"]));
+
+  // Map all project unsorted namespaces
+  for (const [projId, proj] of projectsById.entries()) {
+    const slug = computeProjectUnsortedBaseSlug(proj);
+    if (!slugToNamespaces.has(slug)) slugToNamespaces.set(slug, new Set());
+    slugToNamespaces.get(slug).add(`project_unsorted:${projId}`);
+  }
+
+  // Map all folder namespaces
+  for (const [folderId, folder] of foldersById.entries()) {
+    const slug = computeFolderBaseSlug(folder);
+    if (!slugToNamespaces.has(slug)) slugToNamespaces.set(slug, new Set());
+    slugToNamespaces.get(slug).add(`folder:${folderId}`);
+  }
+
+  // 3. Build resolved filenames map for the requested generations
   const resultMap = new Map();
   for (const gen of genRows) {
     const ns = gen.namingNamespace || namespaceFor({ folderId: gen.folderId, projectId: gen.projectId });
-    const proj = gen.projectId ? projectMap.get(gen.projectId) : null;
-    const ancestry = gen.folderId ? ancestryByFolderId.get(gen.folderId) || [] : [];
+    const proj = gen.projectId ? projectsById.get(gen.projectId) : null;
+    const ancestry = gen.folderId ? getAncestryChain(gen.folderId) : [];
     const seq = gen.namingSequence || 1;
 
-    const baseSlug = namespaceSlugs.get(ns);
-    const hasCollision = (slugCounts.get(baseSlug) || 0) > 1;
-    const disambiguator = hasCollision ? getNamespaceDisambiguator(ns) : null;
+    let baseSlug;
+    if (ns === "global_unsorted") {
+      baseSlug = "library_unsorted";
+    } else if (ns.startsWith("project_unsorted:")) {
+      baseSlug = computeProjectUnsortedBaseSlug(proj || { name: "project" });
+    } else if (ns.startsWith("folder:")) {
+      const folder = gen.folderId ? foldersById.get(gen.folderId) : null;
+      baseSlug = folder ? computeFolderBaseSlug(folder) : (proj ? `${slugifyToken(proj.name, "project")}_folder` : "folder");
+    } else {
+      baseSlug = "library_unsorted";
+    }
+
+    const collidingNamespaces = slugToNamespaces.get(baseSlug) || new Set();
+    const hasCollision = collidingNamespaces.size > 1;
+    const disambiguator = hasCollision ? getNamespaceDisambiguator(ns, [...collidingNamespaces]) : null;
 
     const filename = resolveGenerationFilename({
       project: proj,

@@ -271,6 +271,8 @@ const GENERATION_NAMING_STATEMENTS = [
      gen_folder UUID;
      gen_project UUID;
      expected_ns TEXT;
+     allocated_seq BIGINT;
+     now_ts BIGINT;
    BEGIN
      IF TG_TABLE_NAME = 'generation_naming' THEN
        SELECT folder_id, project_id INTO gen_folder, gen_project
@@ -294,21 +296,59 @@ const GENERATION_NAMING_STATEMENTS = [
        RETURN NEW;
 
      ELSIF TG_TABLE_NAME = 'generations' THEN
-       IF TG_OP = 'UPDATE' AND (NEW.folder_id IS DISTINCT FROM OLD.folder_id OR NEW.project_id IS DISTINCT FROM OLD.project_id) THEN
-         IF NEW.folder_id IS NOT NULL THEN
-           expected_ns := 'folder:' || NEW.folder_id::text;
-         ELSIF NEW.project_id IS NOT NULL THEN
-           expected_ns := 'project_unsorted:' || NEW.project_id::text;
-         ELSE
-           expected_ns := 'global_unsorted';
-         END IF;
+       now_ts := ROUND(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint;
 
-         IF EXISTS (
+       IF NEW.folder_id IS NOT NULL THEN
+         expected_ns := 'folder:' || NEW.folder_id::text;
+       ELSIF NEW.project_id IS NOT NULL THEN
+         expected_ns := 'project_unsorted:' || NEW.project_id::text;
+       ELSE
+         expected_ns := 'global_unsorted';
+       END IF;
+
+       IF TG_OP = 'INSERT' THEN
+         -- Auto-assign naming row if omitted (supports old application inserts)
+         IF NOT EXISTS (SELECT 1 FROM generation_naming WHERE generation_id = NEW.id) THEN
+           INSERT INTO naming_counters (namespace, next_sequence, updated_at)
+           VALUES (expected_ns, 2, now_ts)
+           ON CONFLICT (namespace) DO UPDATE SET
+             next_sequence = naming_counters.next_sequence + 1,
+             updated_at = EXCLUDED.updated_at
+           RETURNING next_sequence - 1 INTO allocated_seq;
+
+           INSERT INTO generation_naming (generation_id, namespace, sequence, assigned_at)
+           VALUES (NEW.id, expected_ns, allocated_seq, now_ts)
+           ON CONFLICT (generation_id) DO NOTHING;
+         END IF;
+         RETURN NEW;
+
+       ELSIF TG_OP = 'UPDATE' AND (NEW.folder_id IS DISTINCT FROM OLD.folder_id OR NEW.project_id IS DISTINCT FROM OLD.project_id) THEN
+         -- Auto-reassign naming row if omitted or mismatched (supports old application moves, code rollback, and direct SQL)
+         IF NOT EXISTS (SELECT 1 FROM generation_naming WHERE generation_id = NEW.id) THEN
+           INSERT INTO naming_counters (namespace, next_sequence, updated_at)
+           VALUES (expected_ns, 2, now_ts)
+           ON CONFLICT (namespace) DO UPDATE SET
+             next_sequence = naming_counters.next_sequence + 1,
+             updated_at = EXCLUDED.updated_at
+           RETURNING next_sequence - 1 INTO allocated_seq;
+
+           INSERT INTO generation_naming (generation_id, namespace, sequence, assigned_at)
+           VALUES (NEW.id, expected_ns, allocated_seq, now_ts)
+           ON CONFLICT (generation_id) DO NOTHING;
+         ELSIF EXISTS (
            SELECT 1 FROM generation_naming
            WHERE generation_id = NEW.id AND namespace IS DISTINCT FROM expected_ns
          ) THEN
-           RAISE EXCEPTION 'Direct generation move violates naming assignment: generation (%) moved to (%) but naming assignment is in another namespace',
-             NEW.id, expected_ns USING ERRCODE = 'check_violation';
+           INSERT INTO naming_counters (namespace, next_sequence, updated_at)
+           VALUES (expected_ns, 2, now_ts)
+           ON CONFLICT (namespace) DO UPDATE SET
+             next_sequence = naming_counters.next_sequence + 1,
+             updated_at = EXCLUDED.updated_at
+           RETURNING next_sequence - 1 INTO allocated_seq;
+
+           UPDATE generation_naming
+           SET namespace = expected_ns, sequence = allocated_seq, assigned_at = now_ts
+           WHERE generation_id = NEW.id;
          END IF;
        END IF;
        RETURN NEW;
@@ -325,7 +365,7 @@ const GENERATION_NAMING_STATEMENTS = [
    EXECUTE FUNCTION check_generation_naming_scope_integrity()`,
   "DROP TRIGGER IF EXISTS trg_check_generation_location_naming ON generations",
   `CREATE CONSTRAINT TRIGGER trg_check_generation_location_naming
-   AFTER UPDATE OF folder_id, project_id ON generations
+   AFTER INSERT OR UPDATE OF folder_id, project_id ON generations
    DEFERRABLE INITIALLY DEFERRED
    FOR EACH ROW
    EXECUTE FUNCTION check_generation_naming_scope_integrity()`,

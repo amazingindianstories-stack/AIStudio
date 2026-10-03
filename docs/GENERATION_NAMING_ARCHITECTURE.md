@@ -31,9 +31,9 @@ Tracks the next sequence to assign in each container namespace.
 ```sql
 CREATE TABLE naming_counters (
   namespace TEXT PRIMARY KEY,
-  last_sequence INTEGER NOT NULL DEFAULT 0,
+  next_sequence BIGINT NOT NULL DEFAULT 1,
   updated_at BIGINT NOT NULL,
-  CONSTRAINT naming_counters_last_sequence_check CHECK (last_sequence >= 0)
+  CONSTRAINT naming_counters_next_sequence_check CHECK (next_sequence >= 1)
 );
 ```
 
@@ -43,10 +43,9 @@ Materializes the container namespace and sequence number allocated to each gener
 CREATE TABLE generation_naming (
   generation_id UUID PRIMARY KEY REFERENCES generations(id) ON DELETE CASCADE,
   namespace TEXT NOT NULL,
-  sequence INTEGER NOT NULL,
-  created_at BIGINT NOT NULL,
-  updated_at BIGINT NOT NULL,
-  CONSTRAINT generation_naming_namespace_sequence_unique UNIQUE (namespace, sequence),
+  sequence BIGINT NOT NULL,
+  assigned_at BIGINT NOT NULL,
+  CONSTRAINT generation_naming_namespace_seq_idx UNIQUE (namespace, sequence),
   CONSTRAINT generation_naming_sequence_check CHECK (sequence > 0)
 );
 
@@ -77,13 +76,13 @@ PostgreSQL triggers enforce that `generation_naming.namespace` always matches th
 ### 3.2 Atomic Allocation
 Sequences are allocated inside the same database transaction as the generation creation or relocation:
 ```sql
-INSERT INTO naming_counters (namespace, last_sequence, updated_at)
-VALUES ($1, 1, $now)
+INSERT INTO naming_counters (namespace, next_sequence, updated_at)
+VALUES ($1, 2, $now)
 ON CONFLICT (namespace)
 DO UPDATE SET
-  last_sequence = naming_counters.last_sequence + 1,
+  next_sequence = naming_counters.next_sequence + 1,
   updated_at = EXCLUDED.updated_at
-RETURNING last_sequence;
+RETURNING (next_sequence - 1) AS allocated_sequence;
 ```
 Because PostgreSQL row locks on `naming_counters` serialize updates per namespace, concurrent generation creations within the same folder receive monotonically increasing numbers without collision.
 
@@ -108,8 +107,8 @@ Because PostgreSQL row locks on `naming_counters` serialize updates per namespac
 
 ### 4.2 Length Bounding & Entropy Preservation
 - Maximum filename length: **255 UTF-8 bytes** (standard limit for APFS, NTFS, and ext4).
-- If the resolved name exceeds 255 bytes, the base slug is truncated to allow room for `_<hash8>_<serial>.<ext>`.
-- The hash is an 8-character hex digest of the full un-truncated ancestry slug via SHA-256.
+- If the resolved name exceeds 255 bytes, the base slug is truncated to allow room for `_<hash6>_<serial>.<ext>`.
+- The hash is a 6-character hex digest of the full un-truncated ancestry slug via SHA-256.
 
 ### 4.3 Windows Device Name Guard
 Filenames whose base slug matches Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`..`COM9`, `LPT1`..`LPT9`) are suffixed with `_file` before attaching the serial (e.g. `con_file_0001.png`).
@@ -162,6 +161,11 @@ When an export job is finalized:
 ### 6.2 Verbatim Streaming (`src/worker/media-export-worker.js`)
 When `manifest_version >= 2`, the export worker reads `item.filename` directly from the database row and passes it verbatim to `writeZip64`. Subsequent library reorganizations, folder renames, or item relocations do not affect the finalized archive.
 
+#### 6.2.1 Worker Rollout Order & Backward Compatibility
+- **Deployment Sequence**: The Railway media export worker MUST be deployed FIRST, before deploying the Vercel web application.
+- **Manifest Compatibility**: The export worker supports both `manifest_version: 1` (legacy jobs) and `manifest_version: 2` (frozen naming jobs).
+- **Double Extension Guard**: When processing `manifest_version: 1`, the worker checks whether `item.filename` already ends with the extension before appending it, preventing `.png.png` anomalies during transition windows.
+
 ### 6.3 Large Archive Support (`src/lib/zip64-stream.js`)
 - Full Zip64 format support (extra field tag `0x0001`, 64-bit size records, Zip64 end-of-central-directory locator).
 - Supports archives with >65,535 files and >4 GB payload.
@@ -197,17 +201,19 @@ npm run db:verify:production-schema
 ```
 Verifies table existence, column nullability, check constraints, foreign keys, and trigger attachments.
 
-### 7.4 Rollback Procedure
-If rollback is necessary prior to dependent code deployment:
-```sql
-DROP TRIGGER IF EXISTS trg_check_generation_location_naming ON generations;
-DROP TRIGGER IF EXISTS trg_check_generation_naming_scope ON generation_naming;
-DROP FUNCTION IF EXISTS check_generation_naming_scope_integrity();
-DROP TABLE IF EXISTS generation_naming;
-DROP TABLE IF EXISTS naming_counters;
-ALTER TABLE media_export_items DROP COLUMN IF EXISTS filename;
-ALTER TABLE media_exports DROP COLUMN IF EXISTS manifest_version;
-```
+### 7.4 Data-Preserving Rollback Procedure
+If issues are discovered after deployment, execute a zero-data-loss rollback:
+1. **Redeploy Previous Application on Vercel**:
+   - Revert deployment to the previous stable release.
+2. **Redeploy Previous Export Worker on Railway**:
+   - Revert export worker deployment on Railway to the previous stable release.
+3. **Database Schema Remains Intact and Inert**:
+   - Schema additions are non-breaking and additive.
+   - The trigger `trg_check_generation_location_naming` automatically maintains `generation_naming` when the rolled-back application executes moves or inserts, preventing any check violations.
+   - Existing serials and namespace counters remain preserved and harmlessly inert to the rolled-back application.
+   - **Never run destructive SQL (`DROP TABLE`, `DELETE FROM generations`) on production.**
+4. **Emergency Disaster Recovery (Catastrophic Scenario Only)**:
+   - In the event of catastrophic operational corruption, restore from a verified pre-migration Point-In-Time (PITR) backup onto an isolated database instance.
 
 ---
 

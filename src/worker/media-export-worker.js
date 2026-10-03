@@ -38,7 +38,9 @@ export async function runExportOnce({
         let name = item.filename;
         if ((job.manifestVersion ?? 1) < 2) {
           const ext = extensionFromContentType(head.headers.get("content-type"), item.sourceKey);
-          name = `${item.filename}.${ext}`;
+          if (ext && !name.toLowerCase().endsWith(`.${ext.toLowerCase()}`)) {
+            name = `${item.filename}.${ext}`;
+          }
         }
         const response = await fetchImpl(access.url);
         if (!response.ok || !response.body) throw new Error(`source read failed (${response.status})`);
