@@ -231,6 +231,159 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS organization_idempotency_keys_actor_op_idx ON organization_idempotency_keys(actor_id, operation)",
 ];
 
+const GENERATION_NAMING_STATEMENTS = [
+  `CREATE TABLE IF NOT EXISTS naming_counters (
+    namespace TEXT PRIMARY KEY,
+    next_sequence BIGINT NOT NULL DEFAULT 1,
+    updated_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS generation_naming (
+    generation_id UUID PRIMARY KEY REFERENCES generations(id) ON DELETE CASCADE,
+    namespace TEXT NOT NULL,
+    sequence BIGINT NOT NULL,
+    assigned_at BIGINT NOT NULL
+  )`,
+  "CREATE UNIQUE INDEX IF NOT EXISTS generation_naming_namespace_seq_idx ON generation_naming(namespace, sequence)",
+  "CREATE INDEX IF NOT EXISTS generation_naming_namespace_idx ON generation_naming(namespace)",
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'generation_naming'::regclass
+        AND conname = 'generation_naming_sequence_check'
+    ) THEN
+      ALTER TABLE generation_naming ADD CONSTRAINT generation_naming_sequence_check CHECK (sequence > 0);
+    END IF;
+  END $$;`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'generation_naming'::regclass
+        AND conname = 'generation_naming_generation_id_fkey'
+    ) THEN
+      ALTER TABLE generation_naming ADD CONSTRAINT generation_naming_generation_id_fkey
+        FOREIGN KEY (generation_id) REFERENCES generations(id) ON DELETE CASCADE;
+    END IF;
+  END $$;`,
+  `CREATE OR REPLACE FUNCTION check_generation_naming_scope_integrity()
+   RETURNS TRIGGER AS $$
+   DECLARE
+     gen_folder UUID;
+     gen_project UUID;
+     expected_ns TEXT;
+   BEGIN
+     IF TG_TABLE_NAME = 'generation_naming' THEN
+       SELECT folder_id, project_id INTO gen_folder, gen_project
+       FROM generations WHERE id = NEW.generation_id;
+       IF NOT FOUND THEN
+         RETURN NEW;
+       END IF;
+
+       IF gen_folder IS NOT NULL THEN
+         expected_ns := 'folder:' || gen_folder::text;
+       ELSIF gen_project IS NOT NULL THEN
+         expected_ns := 'project_unsorted:' || gen_project::text;
+       ELSE
+         expected_ns := 'global_unsorted';
+       END IF;
+
+       IF NEW.namespace IS DISTINCT FROM expected_ns THEN
+         RAISE EXCEPTION 'Naming namespace mismatch: namespace (%) does not match generation (%) location (%)',
+           NEW.namespace, NEW.generation_id, expected_ns USING ERRCODE = 'check_violation';
+       END IF;
+       RETURN NEW;
+
+     ELSIF TG_TABLE_NAME = 'generations' THEN
+       IF TG_OP = 'UPDATE' AND (NEW.folder_id IS DISTINCT FROM OLD.folder_id OR NEW.project_id IS DISTINCT FROM OLD.project_id) THEN
+         IF NEW.folder_id IS NOT NULL THEN
+           expected_ns := 'folder:' || NEW.folder_id::text;
+         ELSIF NEW.project_id IS NOT NULL THEN
+           expected_ns := 'project_unsorted:' || NEW.project_id::text;
+         ELSE
+           expected_ns := 'global_unsorted';
+         END IF;
+
+         IF EXISTS (
+           SELECT 1 FROM generation_naming
+           WHERE generation_id = NEW.id AND namespace IS DISTINCT FROM expected_ns
+         ) THEN
+           RAISE EXCEPTION 'Direct generation move violates naming assignment: generation (%) moved to (%) but naming assignment is in another namespace',
+             NEW.id, expected_ns USING ERRCODE = 'check_violation';
+         END IF;
+       END IF;
+       RETURN NEW;
+     END IF;
+
+     RETURN NEW;
+   END;
+   $$ LANGUAGE plpgsql`,
+  "DROP TRIGGER IF EXISTS trg_check_generation_naming_scope ON generation_naming",
+  `CREATE CONSTRAINT TRIGGER trg_check_generation_naming_scope
+   AFTER INSERT OR UPDATE ON generation_naming
+   DEFERRABLE INITIALLY DEFERRED
+   FOR EACH ROW
+   EXECUTE FUNCTION check_generation_naming_scope_integrity()`,
+  "DROP TRIGGER IF EXISTS trg_check_generation_location_naming ON generations",
+  `CREATE CONSTRAINT TRIGGER trg_check_generation_location_naming
+   AFTER UPDATE OF folder_id, project_id ON generations
+   DEFERRABLE INITIALLY DEFERRED
+   FOR EACH ROW
+   EXECUTE FUNCTION check_generation_naming_scope_integrity()`,
+  `WITH unassigned AS (
+    SELECT
+      g.id AS generation_id,
+      CASE
+        WHEN g.folder_id IS NOT NULL THEN 'folder:' || g.folder_id::text
+        WHEN g.project_id IS NOT NULL THEN 'project_unsorted:' || g.project_id::text
+        ELSE 'global_unsorted'
+      END AS namespace,
+      g.created_at
+    FROM generations g
+    LEFT JOIN generation_naming gn ON g.id = gn.generation_id
+    WHERE gn.generation_id IS NULL
+  ),
+  allocated AS (
+    SELECT
+      u.generation_id,
+      u.namespace,
+      COALESCE(c.max_seq, 0) + ROW_NUMBER() OVER (
+        PARTITION BY u.namespace
+        ORDER BY u.created_at ASC, u.generation_id ASC
+      ) AS sequence,
+      ROUND(EXTRACT(EPOCH FROM NOW()) * 1000)::bigint AS assigned_at
+    FROM unassigned u
+    LEFT JOIN (
+      SELECT namespace, MAX(sequence) AS max_seq
+      FROM generation_naming
+      GROUP BY namespace
+    ) c ON u.namespace = c.namespace
+  )
+  INSERT INTO generation_naming (generation_id, namespace, sequence, assigned_at)
+  SELECT generation_id, namespace, sequence, assigned_at
+  FROM allocated
+  ON CONFLICT (generation_id) DO NOTHING`,
+  `INSERT INTO naming_counters (namespace, next_sequence, updated_at)
+   SELECT
+     namespace,
+     COALESCE(MAX(sequence), 0) + 1 AS next_sequence,
+     ROUND(EXTRACT(EPOCH FROM NOW()) * 1000)::bigint AS updated_at
+   FROM generation_naming
+   GROUP BY namespace
+   ON CONFLICT (namespace) DO UPDATE
+   SET next_sequence = GREATEST(naming_counters.next_sequence, EXCLUDED.next_sequence),
+       updated_at = EXCLUDED.updated_at`,
+  `INSERT INTO naming_counters (namespace, next_sequence, updated_at)
+   SELECT 'folder:' || id::text, 1, ROUND(EXTRACT(EPOCH FROM NOW()) * 1000)::bigint
+   FROM folders
+   ON CONFLICT (namespace) DO NOTHING`,
+  `INSERT INTO naming_counters (namespace, next_sequence, updated_at)
+   SELECT 'project_unsorted:' || id::text, 1, ROUND(EXTRACT(EPOCH FROM NOW()) * 1000)::bigint
+   FROM projects
+   ON CONFLICT (namespace) DO NOTHING`,
+  `INSERT INTO naming_counters (namespace, next_sequence, updated_at)
+   VALUES ('global_unsorted', 1, ROUND(EXTRACT(EPOCH FROM NOW()) * 1000)::bigint)
+   ON CONFLICT (namespace) DO NOTHING`,
+];
+
 /**
  * POST /api/admin/migrate-schema
  * One-time online schema migration endpoint for production deployments.
@@ -276,7 +429,12 @@ export async function POST(request) {
       await db.execute(sql.raw(stmt));
     }
 
-    // 6. Verify schema state
+    // 6. Apply generation naming statements and indexes
+    for (const stmt of GENERATION_NAMING_STATEMENTS) {
+      await db.execute(sql.raw(stmt));
+    }
+
+    // 7. Verify schema state
     const coordinatorVerification = await db.execute(sql`
       select count(*)::int as count
       from information_schema.columns
@@ -310,10 +468,17 @@ export async function POST(request) {
         and column_name in ('parent_id', 'name_normalized', 'version', 'updated_at');
     `);
 
+    const generationNamingTablesVerification = await db.execute(sql`
+      select count(*)::int as count
+      from information_schema.tables
+      where table_name in ('naming_counters', 'generation_naming');
+    `);
+
     const coordCount = Number((coordinatorVerification.rows ?? coordinatorVerification)[0]?.count || 0);
     const portCount = Number((portraitTablesVerification.rows ?? portraitTablesVerification)[0]?.count || 0);
     const mediaExportCount = Number((mediaExportTablesVerification.rows ?? mediaExportTablesVerification)[0]?.count || 0);
     const folderColCount = Number((hierarchicalFolderColumnsVerification.rows ?? hierarchicalFolderColumnsVerification)[0]?.count || 0);
+    const namingCount = Number((generationNamingTablesVerification.rows ?? generationNamingTablesVerification)[0]?.count || 0);
 
     return NextResponse.json({
       success: true,
@@ -321,7 +486,8 @@ export async function POST(request) {
       portraitTables: portCount,
       mediaExportTables: mediaExportCount,
       hierarchicalFolderColumns: folderColCount,
-      verified: coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 4,
+      generationNamingTables: namingCount,
+      verified: coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 4 && namingCount === 2,
     });
   } catch (error) {
     console.error("[migrate-schema] Error applying migration:", error);

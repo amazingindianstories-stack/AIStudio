@@ -522,3 +522,20 @@ export const organizationIdempotencyKeys = pgTable("organization_idempotency_key
   index("organization_idempotency_keys_expires_idx").on(table.expiresAt),
   index("organization_idempotency_keys_actor_op_idx").on(table.actorId, table.operation),
 ]);
+
+export const namingCounters = pgTable("naming_counters", {
+  namespace: text("namespace").primaryKey(),
+  nextSequence: bigint("next_sequence", { mode: "number" }).notNull().default(1),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
+});
+
+export const generationNaming = pgTable("generation_naming", {
+  generationId: uuid("generation_id").primaryKey().references(() => generations.id, { onDelete: "cascade" }),
+  namespace: text("namespace").notNull(),
+  sequence: bigint("sequence", { mode: "number" }).notNull(),
+  assignedAt: bigint("assigned_at", { mode: "number" }).notNull(),
+}, (table) => [
+  uniqueIndex("generation_naming_namespace_seq_idx").on(table.namespace, table.sequence),
+  index("generation_naming_namespace_idx").on(table.namespace),
+]);
+

@@ -30,6 +30,8 @@
     "db:migrate:media-exports": "tsx scripts/migrate-media-exports.js",
     "db:audit:hierarchical-folders": "tsx scripts/audit-folder-migration.js",
     "db:migrate:hierarchical-folders": "tsx scripts/migrate-hierarchical-folders.js",
+    "db:audit:generation-naming": "tsx scripts/audit-generation-naming.js",
+    "db:migrate:generation-naming": "tsx scripts/migrate-generation-naming.js",
     "db:verify:production-schema": "tsx scripts/verify-production-schema.js",
     "db:seed": "tsx scripts/seed.js",
     "db:optimize": "tsx scripts/optimize-history-indexes.js",

@@ -64,6 +64,23 @@ export async function verifyProductionSchema(customDb = null) {
     );
   }
 
+  const expectedNamingIndexes = [
+    "generation_naming_namespace_seq_idx",
+    "generation_naming_namespace_idx",
+  ];
+  const namingIndexResult = await db.execute(sql`
+    select indexname
+    from pg_indexes
+    where schemaname = current_schema() and tablename = 'generation_naming'
+  `);
+  const liveNamingIndexes = new Set((namingIndexResult.rows ?? namingIndexResult).map((r) => r.indexname));
+  const missingNamingIndexes = expectedNamingIndexes.filter((idx) => !liveNamingIndexes.has(idx));
+  if (missingNamingIndexes.length > 0) {
+    throw new Error(
+      `Production schema is missing generation naming indexes:\n- ${missingNamingIndexes.join("\n- ")}`
+    );
+  }
+
   // Verify folders.project_id is nullable (to permit global folders)
   const projColNullability = await db.execute(sql`
     select is_nullable
@@ -83,12 +100,13 @@ export async function verifyProductionSchema(customDb = null) {
     "folders_parent_id_fkey",
     "generations_project_id_fkey",
     "generations_folder_id_fkey",
+    "generation_naming_generation_id_fkey",
   ];
   const fkResult = await db.execute(sql`
     select conname
     from pg_constraint
     where contype = 'f'
-      and conname in ('folders_project_id_fkey', 'folders_parent_id_fkey', 'generations_project_id_fkey', 'generations_folder_id_fkey');
+      and conname in ('folders_project_id_fkey', 'folders_parent_id_fkey', 'generations_project_id_fkey', 'generations_folder_id_fkey', 'generation_naming_generation_id_fkey');
   `);
   const liveFks = new Set((fkResult.rows ?? fkResult).map((r) => r.conname));
   const missingFks = expectedForeignKeys.filter((fk) => !liveFks.has(fk));
@@ -98,17 +116,43 @@ export async function verifyProductionSchema(customDb = null) {
     );
   }
 
+  // Verify check constraints
+  const expectedCheckConstraints = [
+    "generation_naming_sequence_check",
+  ];
+  const checkResult = await db.execute(sql`
+    select conname
+    from pg_constraint
+    where contype = 'c'
+      and conname in ('generation_naming_sequence_check');
+  `);
+  const liveChecks = new Set((checkResult.rows ?? checkResult).map((r) => r.conname));
+  const missingChecks = expectedCheckConstraints.filter((c) => !liveChecks.has(c));
+  if (missingChecks.length > 0) {
+    throw new Error(
+      `Production schema is missing required check constraints:\n- ${missingChecks.join("\n- ")}`
+    );
+  }
+
   // Verify triggers
   const expectedTriggers = [
     "trg_sync_folder_name_normalized",
     "trg_check_folder_scope",
     "trg_check_generation_scope",
+    "trg_check_generation_naming_scope",
+    "trg_check_generation_location_naming",
   ];
   const trgResult = await db.execute(sql`
     select trigger_name
     from information_schema.triggers
     where trigger_schema = current_schema()
-      and trigger_name in ('trg_sync_folder_name_normalized', 'trg_check_folder_scope', 'trg_check_generation_scope');
+      and trigger_name in (
+        'trg_sync_folder_name_normalized',
+        'trg_check_folder_scope',
+        'trg_check_generation_scope',
+        'trg_check_generation_naming_scope',
+        'trg_check_generation_location_naming'
+      );
   `);
   const liveTrgs = new Set((trgResult.rows ?? trgResult).map((r) => r.trigger_name));
   const missingTrgs = expectedTriggers.filter((trg) => !liveTrgs.has(trg));
@@ -150,6 +194,64 @@ export async function verifyProductionSchema(customDb = null) {
   const genScopeMismatch = (genScopeMismatchRes.rows ?? genScopeMismatchRes)[0]?.count;
   if (Number(genScopeMismatch || 0) > 0) {
     throw new Error(`Data invariant violation: found ${genScopeMismatch} generations with mismatched project_id from their folder.`);
+  }
+
+  // Live naming invariant checks
+  const unassignedNamingRes = await db.execute(sql`
+    SELECT count(*)::int as count
+    FROM generations g
+    LEFT JOIN generation_naming gn ON g.id = gn.generation_id
+    WHERE gn.generation_id IS NULL;
+  `);
+  const unassignedNamingCount = (unassignedNamingRes.rows ?? unassignedNamingRes)[0]?.count;
+  if (Number(unassignedNamingCount || 0) > 0) {
+    throw new Error(`Data invariant violation: found ${unassignedNamingCount} generations missing naming assignments.`);
+  }
+
+  const duplicateNamingRes = await db.execute(sql`
+    SELECT count(*)::int as count
+    FROM (
+      SELECT namespace, sequence
+      FROM generation_naming
+      GROUP BY namespace, sequence
+      HAVING count(*) > 1
+    ) sub;
+  `);
+  const duplicateNamingCount = (duplicateNamingRes.rows ?? duplicateNamingRes)[0]?.count;
+  if (Number(duplicateNamingCount || 0) > 0) {
+    throw new Error(`Data invariant violation: found duplicate sequence assignments in generation_naming.`);
+  }
+
+  const counterLagRes = await db.execute(sql`
+    SELECT count(*)::int as count
+    FROM (
+      SELECT gn.namespace
+      FROM generation_naming gn
+      JOIN naming_counters nc ON gn.namespace = nc.namespace
+      GROUP BY gn.namespace, nc.next_sequence
+      HAVING nc.next_sequence <= MAX(gn.sequence)
+    ) sub;
+  `);
+  const counterLagCount = (counterLagRes.rows ?? counterLagRes)[0]?.count;
+  if (Number(counterLagCount || 0) > 0) {
+    throw new Error(`Data invariant violation: found ${counterLagCount} naming counters lagging behind max assigned sequence.`);
+  }
+
+  const namingScopeMismatchRes = await db.execute(sql`
+    SELECT count(*)::int as count
+    FROM generations g
+    JOIN generation_naming gn ON g.id = gn.generation_id
+    WHERE gn.namespace IS DISTINCT FROM (
+      CASE
+        WHEN g.folder_id IS NOT NULL THEN 'folder:' || g.folder_id::text
+        WHEN g.project_id IS NOT NULL THEN 'project_unsorted:' || g.project_id::text
+        ELSE 'global_unsorted'
+      END
+    );
+  `);
+  const namingScopeMismatch = (namingScopeMismatchRes.rows ?? namingScopeMismatchRes)[0]?.count;
+  if (Number(namingScopeMismatch || 0) > 0) {
+    throw new Error(`Data invariant violation: found ${namingScopeMismatch} generations whose naming namespace does not match location.`);
   }
 
   console.log("production schema matches all Drizzle-owned tables, foreign keys, triggers, and live invariants");

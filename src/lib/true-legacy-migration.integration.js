@@ -5,6 +5,8 @@ import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { HIERARCHICAL_FOLDER_STATEMENTS } from "../../scripts/migrate-hierarchical-folders.js";
 import { auditFolderMigration } from "../../scripts/audit-folder-migration.js";
+import { GENERATION_NAMING_STATEMENTS } from "../../scripts/migrate-generation-naming.js";
+import { auditGenerationNaming } from "../../scripts/audit-generation-naming.js";
 import { verifyProductionSchema } from "../../scripts/verify-production-schema.js";
 
 /**
@@ -414,9 +416,12 @@ test("True legacy PostgreSQL schema fixture: preflight, migration, second migrat
     const fSpaces = migratedFolders.find((f) => f.id === fSpacesId);
     assert.equal(fSpaces.name_normalized, "folder with spaces", "Whitespace must be trimmed in name_normalized");
 
-    // Run official post-upgrade verifier on this migrated schema!
-    const verified = await verifyProductionSchema(fixtureDb);
-    assert.equal(verified, true, "verifyProductionSchema must pass on migrated database");
+    // Prior to generation naming migration, verifyProductionSchema must report that naming tables are missing
+    await assert.rejects(
+      async () => verifyProductionSchema(fixtureDb),
+      /table is missing/i,
+      "verifyProductionSchema must identify that naming tables are missing prior to generation naming migration"
+    );
 
     // 7. Test New Hierarchical Functionality on Migrated Database
     // Global root folder
@@ -458,8 +463,75 @@ test("True legacy PostgreSQL schema fixture: preflight, migration, second migrat
     `);
     const [renamedF2] = await fixtureSql.unsafe(`SELECT name_normalized FROM folders WHERE id = '${f2Id}';`);
     assert.equal(renamedF2.name_normalized, "renamed café é", "Trigger must automatically update name_normalized on rename");
+
+    // 8. Test Generation Naming Preflight Audit
+    const namingAuditReport = await auditGenerationNaming(fixtureDb);
+    assert.equal(namingAuditReport.issuesCount, 0, "Naming preflight audit must report 0 issues before migration");
+    assert.equal(namingAuditReport.namingTablesExist, false, "Naming tables should not exist yet");
+    assert.equal(namingAuditReport.totalGenerations, 4, "Should find 4 generations (3 legacy + 1 nested)");
+
+    // 9. Apply Generation Naming Migration (Pass 1)
+    for (const statement of GENERATION_NAMING_STATEMENTS) {
+      await fixtureSql.unsafe(statement);
+    }
+
+    // 10. Test Generation Naming Migration Idempotency (Pass 2)
+    for (const statement of GENERATION_NAMING_STATEMENTS) {
+      await fixtureSql.unsafe(statement);
+    }
+
+    // 11. Run official production schema verifier on fully upgraded schema
+    const fullyVerified = await verifyProductionSchema(fixtureDb);
+    assert.equal(fullyVerified, true, "verifyProductionSchema must pass on fully upgraded database with naming tables");
+
+    // 12. Assert naming assignments and counters
+    const namingRows = await fixtureSql.unsafe(`
+      SELECT generation_id, namespace, sequence
+      FROM generation_naming;
+    `);
+    assert.equal(namingRows.length, 4, "All 4 generations must have assigned naming records");
+
+    // Check each generation's assigned namespace
+    const g1Naming = namingRows.find((r) => r.generation_id === g1Id);
+    assert.equal(g1Naming.namespace, `folder:${f1Id}`);
+    assert.equal(Number(g1Naming.sequence), 1);
+
+    const gUnsorted1Naming = namingRows.find((r) => r.generation_id === gUnsorted1Id);
+    assert.equal(gUnsorted1Naming.namespace, `project_unsorted:${p1Id}`);
+    assert.equal(Number(gUnsorted1Naming.sequence), 1);
+
+    const gGlobalNaming = namingRows.find((r) => r.generation_id === gGlobalId);
+    assert.equal(gGlobalNaming.namespace, "global_unsorted");
+    assert.equal(Number(gGlobalNaming.sequence), 1);
+
+    const subGenNaming = namingRows.find((r) => r.generation_id === subGenId);
+    assert.equal(subGenNaming.namespace, `folder:${subFolderId}`);
+    assert.equal(Number(subGenNaming.sequence), 1);
+
+    // Verify naming counter values are strictly greater than max sequence
+    const counterRows = await fixtureSql.unsafe(`
+      SELECT namespace, next_sequence
+      FROM naming_counters;
+    `);
+    const counterMap = new Map(counterRows.map((r) => [r.namespace, Number(r.next_sequence)]));
+    assert.equal(counterMap.get(`folder:${f1Id}`), 2, "Counter must be advanced to 2");
+    assert.equal(counterMap.get(`project_unsorted:${p1Id}`), 2, "Counter must be advanced to 2");
+    assert.equal(counterMap.get("global_unsorted"), 2, "Counter must be advanced to 2");
+    assert.equal(counterMap.get(`folder:${subFolderId}`), 2, "Counter must be advanced to 2");
+
+    // Verify deferred trigger rejects naming namespace mismatch
+    await assert.rejects(
+      async () => {
+        await fixtureSql.unsafe(`
+          INSERT INTO generation_naming (generation_id, namespace, sequence, assigned_at)
+          VALUES ('${g1Id}', 'global_unsorted', 99, ${now});
+        `);
+      },
+      /Naming namespace mismatch|check_generation_naming_scope|duplicate key|check_violation/i,
+      "Must reject inserting mismatched namespace for generation in folder"
+    );
   } finally {
-    // 8. Clean up
+    // Clean up
     await fixtureSql.end({ timeout: 5 });
     await rootSql.unsafe(`DROP SCHEMA IF EXISTS ${fixtureSchema} CASCADE;`);
     await rootSql.end({ timeout: 5 });
