@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 
 import { useStore } from "@/lib/store";
-import { aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
+import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
 import { useNearViewport } from "@/lib/use-near-viewport";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
@@ -441,12 +441,12 @@ export function MediaCard({
 
         {done && item.url && (
           <a
-            href={inlineMediaUrl(item.url)}
-            download
+            href={`/api/generations/${item.id}/download`}
+            download={item.filename || true}
             onClick={(e) => e.stopPropagation()}
             className="absolute right-10 top-2 z-30 grid h-7 w-7 place-items-center rounded-md bg-black/55 text-white/70 opacity-0 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35 group-hover:opacity-100"
-            aria-label="Download"
-            title="Download"
+            aria-label={item.filename ? `Download ${item.filename}` : "Download"}
+            title={item.filename ? `Download ${item.filename}` : "Download"}
           >
             <Download className="h-3.5 w-3.5" />
           </a>

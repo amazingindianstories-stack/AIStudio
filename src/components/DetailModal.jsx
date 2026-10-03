@@ -24,7 +24,7 @@ import {
   Flag,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { cn, inlineMediaUrl, thumbUrl, referenceDisplayUrl } from "@/lib/utils";
+import { cn, thumbUrl, referenceDisplayUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
 import {
   supportsFirstFrameContinuation,
@@ -717,8 +717,9 @@ export function DetailModal() {
                 <div className="flex gap-2">
                   {item.url && (
                     <a
-                      href={inlineMediaUrl(item.url)}
-                      download
+                      href={`/api/generations/${item.id}/download`}
+                      download={item.filename || true}
+                      title={item.filename ? `Download ${item.filename}` : "Download"}
                       className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-ink-700 py-2.5 text-sm text-white/80 hover:text-white"
                     >
                       <Download className="h-4 w-4" /> Download

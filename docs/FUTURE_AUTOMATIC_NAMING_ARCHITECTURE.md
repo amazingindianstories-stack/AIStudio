@@ -1,8 +1,17 @@
 # Future Automatic Naming Architecture: Technical Design Specification
 
+> [!WARNING] SUPERSEDED SPECIFICATION NOTICE
+> The dynamic serial numbering schemes in Section 4 (`COUNT(created_at <= ...)` and `ROW_NUMBER() OVER (...)`) and the runtime ZIP seen-set deduplication in Section 5.3 **ARE SUPERSEDED AND MUST NOT BE IMPLEMENTED**.
+> Dynamic timestamp counting and export window rankings cause filename instability, collisions when items share timestamps or are moved/deleted, and non-deterministic differences depending on which records are selected for export.
+> **The authoritative production architecture is documented in `docs/GENERATION_NAMING_ARCHITECTURE.md`**, utilizing:
+> 1. Materialized, monotonic sequences per direct folder namespace (`folder:<uuid>`, `project_unsorted:<uuid>`, `global_unsorted`).
+> 2. Zero sequence reuse on deletion and atomic allocation during initial insert and cross-namespace relocation.
+> 3. Zero-reallocation on lifecycle status transitions (pending -> completed), retries, project renames, and folder subtree moves.
+> 4. Export manifest freezing (`manifest_version: 2`) capturing exact resolved filenames at finalize time.
+
 ## 1. Executive Summary & Design Principles
 
-This document specifies the technical architecture for a future automatic naming and download-derivation system in Veevee V1. 
+This document specifies the background design and technical architecture for automatic naming and download derivation in Veevee V1. 
 
 The primary objective is to allow users to download or export generations with deterministic, human-readable, and context-aware filenames derived from their free-form organizational structure (e.g., `anime_characters_character_a_0001.png` or `projects_client_a_storyboard_0012.mp4`) without compromising data integrity, physical storage stability, or query performance.
 

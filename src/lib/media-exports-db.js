@@ -3,6 +3,7 @@ import { and, asc, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { generations, mediaExportItems, mediaExports } from "./schema.js";
 import { mediaKeyFromRef } from "./storage.js";
+import { batchResolveGenerationFilenames } from "./filename-resolver.js";
 
 export const EXPORT_CHUNK_LIMIT = 500;
 export const EXPORT_TTL_MS = 7 * 24 * 60 * 60_000;
@@ -43,7 +44,8 @@ export async function appendMediaExportItems(id, userId, rawIds, now = Date.now(
     const rejected = [];
     for (const generationId of ids) {
       const row = byId.get(generationId);
-      const sourceKey = row?.kind === "image" ? mediaKeyFromRef(row.url) : null;
+      const isExportable = (row?.kind === "image" || row?.kind === "video" || row?.kind === "depth") && row?.url;
+      const sourceKey = isExportable ? mediaKeyFromRef(row.url) : null;
       if (!row || !sourceKey) { rejected.push({ id: generationId, reason: !row ? "not_found" : "not_downloadable" }); continue; }
       if (seen.has(generationId)) continue;
       position += 1;
@@ -58,11 +60,67 @@ export async function appendMediaExportItems(id, userId, rawIds, now = Date.now(
 
 export async function finalizeMediaExport(id, userId, now = Date.now()) {
   const db = await getDb();
-  const rows = await db.update(mediaExports).set({ status: "queued", updatedAt: now, error: null, attemptCount: 0 })
-    .where(and(eq(mediaExports.id, id), eq(mediaExports.userId, userId), or(eq(mediaExports.status, "draft"), eq(mediaExports.status, "failed")), sql`${mediaExports.totalItems} > 0`))
-    .returning();
-  if (!rows[0]) throw new Error("EXPORT_NOT_FINALIZABLE");
-  return rows[0];
+  return db.transaction(async (tx) => {
+    const [job] = await tx
+      .select()
+      .from(mediaExports)
+      .where(and(eq(mediaExports.id, id), eq(mediaExports.userId, userId)))
+      .for("update")
+      .limit(1);
+
+    if (!job || (job.status !== "draft" && job.status !== "failed") || job.totalItems <= 0) {
+      throw new Error("EXPORT_NOT_FINALIZABLE");
+    }
+
+    // 1. Fetch all items for this export
+    const items = await tx
+      .select()
+      .from(mediaExportItems)
+      .where(eq(mediaExportItems.exportId, id))
+      .orderBy(asc(mediaExportItems.position));
+
+    // 2. Batch resolve hierarchical filenames for all generation IDs
+    const genIds = items.map((it) => it.generationId);
+    const resolvedMap = await batchResolveGenerationFilenames(tx, genIds);
+
+    // 3. Enforce case-insensitive and normalization-aware uniqueness for ZIP archive
+    const seenLower = new Set();
+    for (const it of items) {
+      const resolved = resolvedMap.get(it.generationId);
+      let filename = resolved?.filename || `${it.generationId}.bin`;
+
+      // If collision occurs within the archive, disambiguate deterministically
+      const normKey = filename.normalize("NFC").toLowerCase();
+      if (seenLower.has(normKey)) {
+        const lastDot = filename.lastIndexOf(".");
+        const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
+        const ext = lastDot !== -1 ? filename.slice(lastDot) : ".bin";
+        filename = `${base}_${it.position}${ext}`;
+      }
+      seenLower.add(filename.normalize("NFC").toLowerCase());
+
+      // Update frozen filename on media_export_items
+      await tx
+        .update(mediaExportItems)
+        .set({ filename })
+        .where(and(eq(mediaExportItems.exportId, id), eq(mediaExportItems.generationId, it.generationId)));
+    }
+
+    // 4. Update media_exports with manifestVersion: 2 and status: "queued"
+    const [updated] = await tx
+      .update(mediaExports)
+      .set({
+        status: "queued",
+        manifestVersion: 2,
+        updatedAt: now,
+        error: null,
+        attemptCount: 0,
+      })
+      .where(eq(mediaExports.id, id))
+      .returning();
+
+    return updated;
+  });
 }
 
 export async function claimMediaExport(owner, now = Date.now()) {

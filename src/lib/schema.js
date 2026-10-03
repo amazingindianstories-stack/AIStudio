@@ -16,6 +16,7 @@ import {
   index,
   uniqueIndex,
   primaryKey,
+  check,
 } from "drizzle-orm/pg-core";
 
 export const users = pgTable("users", {
@@ -489,6 +490,7 @@ export const mediaExports = pgTable("media_exports", {
   outputKey: text("output_key"),
   outputBytes: bigint("output_bytes", { mode: "number" }),
   error: text("error"),
+  manifestVersion: integer("manifest_version").notNull().default(1),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
   expiresAt: bigint("expires_at", { mode: "number" }),
@@ -537,5 +539,6 @@ export const generationNaming = pgTable("generation_naming", {
 }, (table) => [
   uniqueIndex("generation_naming_namespace_seq_idx").on(table.namespace, table.sequence),
   index("generation_naming_namespace_idx").on(table.namespace),
+  check("generation_naming_sequence_check", sql`${table.sequence} > 0`),
 ]);
 

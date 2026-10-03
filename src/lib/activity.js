@@ -1,6 +1,8 @@
 import { getDb } from "./db";
 import { activityLogs } from "./schema";
 
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 /** Append an admin audit-trail event. Best-effort (never throws to caller). */
 export async function logActivity(
   userId,
@@ -9,11 +11,13 @@ export async function logActivity(
   tx = null
 ) {
   try {
+    const validUserId = typeof userId === "string" && UUID_REGEX.test(userId) ? userId : null;
+    const finalDetail = !validUserId && userId ? { ...(detail || {}), nonUuidActor: String(userId) } : (detail ?? null);
     const runner = tx || (await getDb());
     await runner.insert(activityLogs).values({
-      userId: userId ?? null,
+      userId: validUserId,
       action,
-      detail: detail ?? null,
+      detail: finalDetail,
       createdAt: Date.now(),
     });
   } catch {

@@ -8,6 +8,7 @@ import {
   executeWithIdempotency,
   DEFAULT_IDEMPOTENCY_TTL_MS,
 } from "./idempotency.js";
+import { namespaceFor, reassignNamingForMove } from "./generation-naming.js";
 
 export { OrganizationError };
 export const IDEMPOTENCY_TTL_MS = DEFAULT_IDEMPOTENCY_TTL_MS;
@@ -1115,6 +1116,9 @@ export async function moveGenerations({
         .where(inArray(generations.id, sortedIds))
         .returning();
 
+      const targetNamespace = namespaceFor({ folderId: resolvedFolderId, projectId: resolvedProjectId });
+      const namingResult = await reassignNamingForMove(tx, lockedRows, targetNamespace, now);
+
       if (actorId) {
         await logActivity(
           actorId,
@@ -1134,6 +1138,9 @@ export async function moveGenerations({
         projectId: resolvedProjectId,
         folderId: resolvedFolderId,
         updatedIds: updatedRows.map((r) => r.id),
+        reallocatedNamingCount: namingResult.reallocatedCount,
+        preservedNamingCount: namingResult.preservedCount,
+        assignments: namingResult.assignments,
       };
     }
   );

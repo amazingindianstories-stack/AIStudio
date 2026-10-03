@@ -114,10 +114,10 @@ export function HistoryPanel() {
   const itemIds = useMemo(() => items.map((i) => i.id), [items]);
   const allSelected =
     itemIds.length > 0 && itemIds.every((id) => selectedIds.includes(id));
-  const selectedImageIds = useMemo(
+  const selectedExportableIds = useMemo(
     () =>
       items
-        .filter((item) => selectedIds.includes(item.id) && item.kind === "image" && item.url)
+        .filter((item) => selectedIds.includes(item.id) && ["image", "video", "depth"].includes(item.kind) && item.url)
         .map((item) => item.id),
     [items, selectedIds]
   );
@@ -126,7 +126,7 @@ export function HistoryPanel() {
     filterKind === "all" ? "All types" : filterKind === "image" ? "Images" : "Videos";
 
   const downloadSelectedZip = async () => {
-    if (!selectedImageIds.length || isDownloadingZip) return;
+    if (!selectedExportableIds.length || isDownloadingZip) return;
     setIsDownloadingZip(true);
     try {
       const res = await apiFetch("/api/history/exports", { method: "POST" });
@@ -137,15 +137,15 @@ export function HistoryPanel() {
       const job = await res.json();
       try { localStorage.setItem(ACTIVE_EXPORT_KEY, job.id); } catch { /* ignore */ }
       let rejected = 0;
-      for (let offset = 0; offset < selectedImageIds.length; offset += 500) {
-        const chunkResponse = await apiFetch(`/api/history/exports/${job.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: selectedImageIds.slice(offset, offset + 500) }) });
+      for (let offset = 0; offset < selectedExportableIds.length; offset += 500) {
+        const chunkResponse = await apiFetch(`/api/history/exports/${job.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: selectedExportableIds.slice(offset, offset + 500) }) });
         const body = await chunkResponse.json().catch(() => ({}));
-        if (!chunkResponse.ok) throw new Error(body.error || "Failed to add images to export.");
+        if (!chunkResponse.ok) throw new Error(body.error || "Failed to add items to export.");
         rejected += body.rejected?.length || 0;
       }
       const finalize = await apiFetch(`/api/history/exports/${job.id}/finalize`, { method: "POST" });
       if (!finalize.ok) throw new Error("Failed to queue export.");
-      setActiveExport({ id: job.id, status: "queued", totalItems: selectedImageIds.length - rejected, processedItems: 0, skippedItems: rejected });
+      setActiveExport({ id: job.id, status: "queued", totalItems: selectedExportableIds.length - rejected, processedItems: 0, skippedItems: rejected });
     } catch (error) {
       alert(error?.message || "Failed to download ZIP.");
     } finally {
@@ -359,12 +359,12 @@ export function HistoryPanel() {
 
           <button
             onClick={downloadSelectedZip}
-            disabled={!selectedImageIds.length || isDownloadingZip}
+            disabled={!selectedExportableIds.length || isDownloadingZip}
             className="flex items-center gap-2 rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
             title={
-              selectedImageIds.length
-                ? "Download selected images as a ZIP"
-                : "Select at least one image to download as a ZIP"
+              selectedExportableIds.length
+                ? `Download ${selectedExportableIds.length} selected items as a ZIP (filenames frozen at queue time)`
+                : "Select at least one item to download as a ZIP"
             }
           >
             {isDownloadingZip ? (
@@ -434,7 +434,7 @@ export function HistoryPanel() {
       {activeExport && (
         <div className="flex items-center gap-2 border-b border-line bg-ink-800/60 px-4 py-2 text-xs text-white/60">
           {["queued", "running"].includes(activeExport.status) && (
-            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {activeExport.status === "queued" ? "ZIP queued" : `Building ZIP ${activeExport.processedItems}/${activeExport.totalItems}`}{activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""}</>
+            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {activeExport.status === "queued" ? "ZIP queued" : `Building ZIP ${activeExport.processedItems}/${activeExport.totalItems}`}{activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""} · Filenames frozen at queue time</>
           )}
           {activeExport.status === "ready" && (
             <><span>ZIP ready{activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""}</span><a className="font-semibold text-brand hover:underline" href={`/api/history/exports/${activeExport.id}/download`}>Download ZIP</a></>

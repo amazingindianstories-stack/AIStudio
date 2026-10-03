@@ -3,6 +3,8 @@ import { getDb } from "./db";
 import { generations, folders } from "./schema";
 import { isProviderModel } from "./model-registry";
 import { moveGenerations } from "./folder-engine";
+import { assignGenerationNaming } from "./generation-naming.js";
+import { batchResolveGenerationFilenames } from "./filename-resolver.js";
 import { MAX_CONCURRENT, MAX_CONCURRENT_PER_USER } from "./queue-limits";
 export { MAX_CONCURRENT, MAX_CONCURRENT_PER_USER } from "./queue-limits";
 
@@ -243,6 +245,13 @@ export async function queryHistory(
   const hasMore = rows.length > limitN;
   const page = hasMore ? rows.slice(0, limitN) : rows;
   const items = page.map(rowToItem);
+  if (items.length > 0) {
+    const filenames = await batchResolveGenerationFilenames(db, items.map((i) => i.id));
+    for (const item of items) {
+      const resolved = filenames.get(item.id);
+      if (resolved) item.filename = resolved.filename;
+    }
+  }
   const last = page[page.length - 1];
   const nextCursor =
     hasMore && last
@@ -313,10 +322,19 @@ export async function upsertItem(item) {
     createdAt: _createdAt,
     ...conflictUpdateValues
   } = values;
-  await db
-    .insert(generations)
-    .values(values)
-    .onConflictDoUpdate({ target: generations.id, set: conflictUpdateValues });
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(generations)
+      .values(values)
+      .onConflictDoUpdate({ target: generations.id, set: conflictUpdateValues });
+
+    await assignGenerationNaming(tx, {
+      generationId: values.id,
+      folderId: values.folderId,
+      projectId: values.projectId,
+      now: values.createdAt || Date.now(),
+    });
+  });
 }
 
 /**
@@ -361,7 +379,12 @@ export async function getItem(id) {
     .from(generations)
     .where(eq(generations.id, id))
     .limit(1);
-  return rows[0] ? rowToItem(rows[0]) : undefined;
+  if (!rows[0]) return undefined;
+  const item = rowToItem(rows[0]);
+  const filenames = await batchResolveGenerationFilenames(db, [id]);
+  const resolved = filenames.get(id);
+  if (resolved) item.filename = resolved.filename;
+  return item;
 }
 
 /** Find a video by the provider task id used in a BytePlus callback. */
@@ -477,19 +500,32 @@ export async function setItemFlagged(
 /** Unsort every item in a folder (used when a folder is deleted). */
 export async function clearFolderRefs(folderId) {
   const db = await getDb();
-  await db
-    .update(generations)
-    .set({ folderId: null })
+  const rows = await db
+    .select({ id: generations.id, projectId: generations.projectId })
+    .from(generations)
     .where(eq(generations.folderId, folderId));
+  if (!rows.length) return;
+  const ids = rows.map((r) => r.id);
+  const projectId = rows[0]?.projectId ?? null;
+  await moveGenerations({
+    ids,
+    destination: projectId ? { type: "project_unsorted", projectId } : { type: "global_unsorted" },
+  });
 }
 
 /** Orphan every item in a project back to global history (project deleted). */
 export async function clearProjectRefs(projectId) {
   const db = await getDb();
-  await db
-    .update(generations)
-    .set({ projectId: null, folderId: null })
+  const rows = await db
+    .select({ id: generations.id })
+    .from(generations)
     .where(eq(generations.projectId, projectId));
+  if (!rows.length) return;
+  const ids = rows.map((r) => r.id);
+  await moveGenerations({
+    ids,
+    destination: { type: "global_unsorted" },
+  });
 }
 
 // ---- QUEUE HELPERS ----

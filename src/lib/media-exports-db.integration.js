@@ -20,13 +20,17 @@ test("media export ownership, validation, deduplication, order, and finalization
     exportId = (await createMediaExport(userId, now)).id;
     assert.equal(await getOwnedMediaExport(exportId, otherUserId), undefined);
     const first = await appendMediaExportItems(exportId, userId, [ids[2], ids[1], ids[2], randomUUID()]);
-    assert.equal(first.accepted, 1); assert.equal(first.rejected.length, 2);
+    assert.equal(first.accepted, 2); assert.equal(first.rejected.length, 1);
     const second = await appendMediaExportItems(exportId, userId, [ids[0], ids[2]]);
-    assert.equal(second.accepted, 1); assert.equal(second.totalItems, 2);
+    assert.equal(second.accepted, 1); assert.equal(second.totalItems, 3);
     const items = await db.select().from(mediaExportItems).where(eq(mediaExportItems.exportId, exportId)).orderBy(asc(mediaExportItems.position));
-    assert.deepEqual(items.map((item) => item.generationId), [ids[2], ids[0]]);
+    assert.deepEqual(items.map((item) => item.generationId), [ids[2], ids[1], ids[0]]);
     await assert.rejects(finalizeMediaExport(exportId, otherUserId), /EXPORT_NOT_FINALIZABLE/);
-    assert.equal((await finalizeMediaExport(exportId, userId)).status, "queued");
+    const finalized = await finalizeMediaExport(exportId, userId);
+    assert.equal(finalized.status, "queued");
+    assert.equal(finalized.manifestVersion, 2);
+    const finalizedItems = await db.select().from(mediaExportItems).where(eq(mediaExportItems.exportId, exportId)).orderBy(asc(mediaExportItems.position));
+    assert.ok(finalizedItems.every((it) => it.filename && it.filename.includes(".")));
     await assert.rejects(appendMediaExportItems(exportId, userId, [ids[0]]), /EXPORT_NOT_DRAFT/);
   } finally {
     if (exportId) await db.delete(mediaExports).where(eq(mediaExports.id, exportId));

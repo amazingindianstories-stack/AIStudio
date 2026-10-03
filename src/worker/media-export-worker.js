@@ -35,10 +35,14 @@ export async function runExportOnce({
         }
         const size = Number(head.headers.get("content-length"));
         if (!Number.isSafeInteger(size) || size < 0) throw new Error(`source length unavailable for ${item.generationId}`);
-        const ext = extensionFromContentType(head.headers.get("content-type"), item.sourceKey);
+        let name = item.filename;
+        if ((job.manifestVersion ?? 1) < 2) {
+          const ext = extensionFromContentType(head.headers.get("content-type"), item.sourceKey);
+          name = `${item.filename}.${ext}`;
+        }
         const response = await fetchImpl(access.url);
         if (!response.ok || !response.body) throw new Error(`source read failed (${response.status})`);
-        yield { name: `${item.filename}.${ext}`, size, stream: response.body };
+        yield { name, size, stream: response.body };
       }
     }
     const result = await writeZip64(sources(), async (bytes) => {

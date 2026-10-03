@@ -3,8 +3,10 @@ import { sql } from "drizzle-orm";
 import { getDb } from "../src/lib/db.js";
 
 config({ path: process.env.ENV_FILE || ".env.local" });
-
 export const GENERATION_NAMING_STATEMENTS = [
+  // 0. Ensure media_exports has manifest_version
+  "ALTER TABLE media_exports ADD COLUMN IF NOT EXISTS manifest_version INTEGER NOT NULL DEFAULT 1",
+
   // 1. Create naming_counters table for durable sequence tracking per namespace
   `CREATE TABLE IF NOT EXISTS naming_counters (
     namespace TEXT PRIMARY KEY,
