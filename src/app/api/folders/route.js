@@ -76,12 +76,18 @@ export async function POST(req) {
 
   const body = await req.json().catch(() => ({}));
   const { name, projectId, parentId } = body;
+  const idempotencyKey =
+    body.idempotencyKey ||
+    req.headers.get("x-idempotency-key") ||
+    req.headers.get("idempotency-key") ||
+    null;
 
   try {
     const folder = await createFolder({
       name,
       projectId: projectId || null,
       parentId: parentId || null,
+      idempotencyKey,
       actorId: user.id,
     });
     return NextResponse.json({ folder }, { status: 201 });
@@ -115,6 +121,11 @@ export async function PATCH(req) {
 
   const body = await req.json().catch(() => ({}));
   const folderId = body.id || body.folderId;
+  const idempotencyKey =
+    body.idempotencyKey ||
+    req.headers.get("x-idempotency-key") ||
+    req.headers.get("idempotency-key") ||
+    null;
 
   if (!folderId) {
     return NextResponse.json({ error: "Folder ID is required." }, { status: 400 });
@@ -127,6 +138,7 @@ export async function PATCH(req) {
         projectId: body.projectId,
         name: body.name,
         expectedVersion: body.expectedVersion,
+        idempotencyKey,
         actorId: user.id,
       });
       return NextResponse.json({ folder });
@@ -137,6 +149,7 @@ export async function PATCH(req) {
         folderId,
         destination: body.destination,
         expectedVersion: body.expectedVersion,
+        idempotencyKey,
         actorId: user.id,
       });
       return NextResponse.json(result);
@@ -175,6 +188,11 @@ export async function DELETE(req) {
   const { searchParams } = req.nextUrl;
   const folderId = searchParams.get("id") || searchParams.get("folderId");
   const projectId = searchParams.get("projectId") || undefined;
+  const idempotencyKey =
+    searchParams.get("idempotencyKey") ||
+    req.headers.get("x-idempotency-key") ||
+    req.headers.get("idempotency-key") ||
+    null;
 
   if (!folderId) {
     return NextResponse.json({ error: "Folder ID is required." }, { status: 400 });
@@ -184,6 +202,7 @@ export async function DELETE(req) {
     const result = await deleteFolder({
       folderId,
       projectId,
+      idempotencyKey,
       actorId: user.id,
     });
     return NextResponse.json(result);

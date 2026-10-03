@@ -229,26 +229,24 @@ export function ProjectPanel({ cardWidth = 160 }) {
             )}
 
             {/* Global Unsorted */}
-            {(counts.globalLibrary?.unsorted > 0 || (activeProjectId === null && activeFolderId === UNSORTED)) && (
-              <FolderRow
-                label="Unsorted"
-                count={counts.globalLibrary?.unsorted ?? 0}
-                icon={<Inbox className="h-4 w-4" />}
-                active={!briefView && activeProjectId === null && activeFolderId === UNSORTED}
-                dragOver={dragOverRoot === "global_unsorted"}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOverRoot("global_unsorted");
-                }}
-                onDragLeave={() => setDragOverRoot(null)}
-                onDrop={handleDropOnRoot({ type: "global_unsorted" })}
-                onClick={() => {
-                  setBriefView(false);
-                  setActiveProject(null);
-                  setActiveFolder(UNSORTED);
-                }}
-              />
-            )}
+            <FolderRow
+              label="Unsorted"
+              count={counts.globalLibrary?.unsorted ?? 0}
+              icon={<Inbox className="h-4 w-4" />}
+              active={!briefView && activeProjectId === null && activeFolderId === UNSORTED}
+              dragOver={dragOverRoot === "global_unsorted"}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOverRoot("global_unsorted");
+              }}
+              onDragLeave={() => setDragOverRoot(null)}
+              onDrop={handleDropOnRoot({ type: "global_unsorted" })}
+              onClick={() => {
+                setBriefView(false);
+                setActiveProject(null);
+                setActiveFolder(UNSORTED);
+              }}
+            />
           </div>
 
           {/* ── PROJECTS SECTION ── */}
@@ -403,26 +401,24 @@ export function ProjectPanel({ cardWidth = 160 }) {
                 )}
 
                 {/* Project Unsorted */}
-                {(counts.project?.unsorted > 0 || (activeProjectId === project.id && activeFolderId === UNSORTED)) && (
-                  <FolderRow
-                    label="Unsorted"
-                    count={counts.project?.unsorted ?? 0}
-                    icon={<Inbox className="h-4 w-4" />}
-                    active={!briefView && activeProjectId === project.id && activeFolderId === UNSORTED}
-                    dragOver={dragOverRoot === "project_unsorted"}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setDragOverRoot("project_unsorted");
-                    }}
-                    onDragLeave={() => setDragOverRoot(null)}
-                    onDrop={handleDropOnRoot({ type: "project_unsorted", projectId: project.id })}
-                    onClick={() => {
-                      setBriefView(false);
-                      setActiveProject(project.id);
-                      setActiveFolder(UNSORTED);
-                    }}
-                  />
-                )}
+                <FolderRow
+                  label="Unsorted"
+                  count={counts.project?.unsorted ?? 0}
+                  icon={<Inbox className="h-4 w-4" />}
+                  active={!briefView && activeProjectId === project.id && activeFolderId === UNSORTED}
+                  dragOver={dragOverRoot === "project_unsorted"}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setDragOverRoot("project_unsorted");
+                  }}
+                  onDragLeave={() => setDragOverRoot(null)}
+                  onDrop={handleDropOnRoot({ type: "project_unsorted", projectId: project.id })}
+                  onClick={() => {
+                    setBriefView(false);
+                    setActiveProject(project.id);
+                    setActiveFolder(UNSORTED);
+                  }}
+                />
               </div>
             )}
           </div>
@@ -447,18 +443,20 @@ export function ProjectPanel({ cardWidth = 160 }) {
                 }
               />
 
-              {/* Immediate Child Folders (Finder-style Coexistence) */}
-              <ChildFolderList
-                parentId={activeFolderId === UNSORTED ? null : activeFolderId}
-                projectId={activeProjectId}
-                onOpenMoveModal={openMoveModalForFolder}
-                onOpenNewFolderModal={() =>
-                  setAddingScope({
-                    projectId: activeProjectId,
-                    parentId: activeFolderId === UNSORTED ? null : activeFolderId,
-                  })
-                }
-              />
+              {/* Immediate Child Folders (Finder-style Coexistence, hidden when in Unsorted) */}
+              {activeFolderId !== UNSORTED && (
+                <ChildFolderList
+                  parentId={activeFolderId}
+                  projectId={activeProjectId}
+                  onOpenMoveModal={openMoveModalForFolder}
+                  onOpenNewFolderModal={() =>
+                    setAddingScope({
+                      projectId: activeProjectId,
+                      parentId: activeFolderId,
+                    })
+                  }
+                />
+              )}
 
               {/* Directly Contained Generations Grid */}
               <AssetGrid

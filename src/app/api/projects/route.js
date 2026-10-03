@@ -35,49 +35,57 @@ export async function POST(req) {
   const b = await req.json().catch(() => ({}));
   const op = b.op;
 
-  switch (op) {
-    case "createProject": {
-      const name = (b.name || "").trim();
-      if (!name)
-        return NextResponse.json({ error: "Name required." }, { status: 400 });
-      const { projects, project } = await createProject(name, user.id);
-      return NextResponse.json({ projects, project });
+  try {
+    switch (op) {
+      case "createProject": {
+        const name = (b.name || "").trim();
+        if (!name)
+          return NextResponse.json({ error: "Name required." }, { status: 400 });
+        const { projects, project } = await createProject(name, user.id);
+        return NextResponse.json({ projects, project });
+      }
+      case "renameProject":
+        return NextResponse.json({
+          projects: await renameProject(b.projectId, (b.name || "").trim()),
+        });
+      case "setBrief":
+        return NextResponse.json({
+          projects: await setBrief(b.projectId, b.brief ?? ""),
+        });
+      case "deleteProject": {
+        await logActivity(user.id, "delete_project", {
+          projectId: b.projectId,
+        });
+        return NextResponse.json({ projects: await deleteProject(b.projectId) });
+      }
+      case "createFolder": {
+        const name = (b.name || "").trim();
+        if (!name)
+          return NextResponse.json({ error: "Name required." }, { status: 400 });
+        const { projects, folder } = await createFolder(b.projectId, name);
+        return NextResponse.json({ projects, folder });
+      }
+      case "renameFolder":
+        return NextResponse.json({
+          projects: await renameFolder(b.projectId, b.folderId, (b.name || "").trim()),
+        });
+      case "deleteFolder": {
+        await logActivity(user.id, "delete_folder", {
+          projectId: b.projectId,
+          folderId: b.folderId,
+        });
+        return NextResponse.json({
+          projects: await deleteFolder(b.projectId, b.folderId),
+        });
+      }
+      default:
+        return NextResponse.json({ error: "Unknown op." }, { status: 400 });
     }
-    case "renameProject":
-      return NextResponse.json({
-        projects: await renameProject(b.projectId, (b.name || "").trim()),
-      });
-    case "setBrief":
-      return NextResponse.json({
-        projects: await setBrief(b.projectId, b.brief ?? ""),
-      });
-    case "deleteProject": {
-      await logActivity(user.id, "delete_project", {
-        projectId: b.projectId,
-      });
-      return NextResponse.json({ projects: await deleteProject(b.projectId) });
-    }
-    case "createFolder": {
-      const name = (b.name || "").trim();
-      if (!name)
-        return NextResponse.json({ error: "Name required." }, { status: 400 });
-      const { projects, folder } = await createFolder(b.projectId, name);
-      return NextResponse.json({ projects, folder });
-    }
-    case "renameFolder":
-      return NextResponse.json({
-        projects: await renameFolder(b.projectId, b.folderId, (b.name || "").trim()),
-      });
-    case "deleteFolder": {
-      await logActivity(user.id, "delete_folder", {
-        projectId: b.projectId,
-        folderId: b.folderId,
-      });
-      return NextResponse.json({
-        projects: await deleteFolder(b.projectId, b.folderId),
-      });
-    }
-    default:
-      return NextResponse.json({ error: "Unknown op." }, { status: 400 });
+  } catch (err) {
+    const status = err.status || (err.code === "PROJECT_NOT_EMPTY" ? 400 : 500);
+    return NextResponse.json(
+      { error: err.message || "Failed to process project operation.", code: err.code },
+      { status: typeof status === "number" ? status : 500 }
+    );
   }
 }

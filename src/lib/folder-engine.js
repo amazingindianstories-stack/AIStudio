@@ -1,12 +1,62 @@
 import { eq, and, isNull, inArray, sql, asc } from "drizzle-orm";
 import { getDb } from "./db.js";
-import { folders, projects, generations } from "./schema.js";
+import { folders, projects, generations, organizationIdempotencyKeys } from "./schema.js";
 import { validateAndNormalizeFolderName } from "./folder-normalization.js";
 import { logActivity } from "./activity.js";
+
+export function getMaxNestingDepth() {
+  const envVal = Number(process.env.MAX_NESTING_DEPTH);
+  return Number.isInteger(envVal) && envVal > 0 ? envVal : 20;
+}
+export function getMaxSubtreeFolders() {
+  const envVal = Number(process.env.MAX_SUBTREE_FOLDERS);
+  return Number.isInteger(envVal) && envVal > 0 ? envVal : 500;
+}
+export function getMaxGenerationBatch() {
+  const envVal = Number(process.env.MAX_GENERATION_BATCH);
+  return Number.isInteger(envVal) && envVal > 0 ? envVal : 1000;
+}
+export const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export const MAX_NESTING_DEPTH = 20;
 export const MAX_SUBTREE_FOLDERS = 500;
 export const MAX_GENERATION_BATCH = 1000;
+
+export function getScopeKey(projectId) {
+  return projectId ? `project:${projectId}` : "global";
+}
+
+/**
+ * Deterministically locks scopes in sorted order using transaction-level advisory locks.
+ * Guarantees that concurrent structural mutations across the same or related scopes
+ * execute serially and cannot form cycles or race conditions.
+ */
+export async function acquireScopeLocks(tx, ...scopeKeys) {
+  const uniqueSorted = Array.from(new Set(scopeKeys.filter(Boolean))).sort();
+  for (const key of uniqueSorted) {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${key}))`);
+  }
+}
+
+/**
+ * Calculates the height of a subtree (number of levels from root down to deepest descendant).
+ * Root alone has height 1.
+ */
+export function computeSubtreeHeight(rootId, descendants) {
+  if (!descendants || descendants.length === 0) return 1;
+  const depthMap = new Map();
+  depthMap.set(rootId, 1);
+  let maxHeight = 1;
+  for (const d of descendants) {
+    const parentDepth = depthMap.get(d.parentId) || 1;
+    const currentDepth = parentDepth + 1;
+    depthMap.set(d.id, currentDepth);
+    if (currentDepth > maxHeight) {
+      maxHeight = currentDepth;
+    }
+  }
+  return maxHeight;
+}
 
 export class OrganizationError extends Error {
   /**
@@ -65,6 +115,7 @@ async function computeAncestry(tx, folderId) {
   const visited = new Set();
   let depth = 0;
   let rootProjectId = null;
+  const maxDepth = getMaxNestingDepth();
 
   while (currentId) {
     if (visited.has(currentId)) {
@@ -74,8 +125,8 @@ async function computeAncestry(tx, folderId) {
     ancestorIds.push(currentId);
     depth += 1;
 
-    if (depth > MAX_NESTING_DEPTH) {
-      throw new OrganizationError("EXCEEDS_MAX_DEPTH", `Folder nesting exceeds maximum depth of ${MAX_NESTING_DEPTH}.`, 400);
+    if (depth > maxDepth) {
+      throw new OrganizationError("EXCEEDS_MAX_DEPTH", `Folder nesting exceeds maximum depth of ${maxDepth}.`, 400);
     }
 
     const [row] = await tx
@@ -110,6 +161,7 @@ async function getDescendants(tx, rootFolderId) {
   const result = [];
   const queue = [rootFolderId];
   const visited = new Set([rootFolderId]);
+  const maxSubtree = getMaxSubtreeFolders();
 
   while (queue.length > 0) {
     const parentId = queue.shift();
@@ -131,8 +183,8 @@ async function getDescendants(tx, rootFolderId) {
       result.push(child);
       queue.push(child.id);
 
-      if (result.length > MAX_SUBTREE_FOLDERS) {
-        throw new OrganizationError("SUBTREE_TOO_LARGE", `Subtree exceeds limit of ${MAX_SUBTREE_FOLDERS} folders.`, 400);
+      if (result.length > maxSubtree) {
+        throw new OrganizationError("SUBTREE_TOO_LARGE", `Subtree exceeds limit of ${maxSubtree} folders.`, 400);
       }
     }
   }
@@ -148,6 +200,7 @@ export async function createFolder({
   projectId = null,
   parentId = null,
   actorId = null,
+  idempotencyKey = null,
 }) {
   const norm = validateAndNormalizeFolderName(name);
   if (!norm.valid) {
@@ -171,13 +224,31 @@ export async function createFolder({
         throw new OrganizationError("FOLDER_NOT_FOUND", "Parent folder does not exist.", 404);
       }
 
+      resolvedProjectId = parent.projectId ?? null;
+    }
+
+    // Deterministic scope locking
+    const scopeKey = getScopeKey(resolvedProjectId);
+    await acquireScopeLocks(tx, scopeKey);
+
+    if (idempotencyKey) {
+      const [existingKey] = await tx
+        .select()
+        .from(organizationIdempotencyKeys)
+        .where(eq(organizationIdempotencyKeys.key, idempotencyKey))
+        .limit(1);
+      if (existingKey && Date.now() - existingKey.createdAt < IDEMPOTENCY_TTL_MS) {
+        return existingKey.result;
+      }
+    }
+
+    if (resolvedParentId) {
       // Check depth limit
       const { depth } = await computeAncestry(tx, resolvedParentId);
-      if (depth >= MAX_NESTING_DEPTH) {
-        throw new OrganizationError("EXCEEDS_MAX_DEPTH", `Cannot exceed maximum folder depth of ${MAX_NESTING_DEPTH}.`, 400);
+      const maxDepth = getMaxNestingDepth();
+      if (depth >= maxDepth) {
+        throw new OrganizationError("EXCEEDS_MAX_DEPTH", `Cannot exceed maximum folder depth of ${maxDepth}.`, 400);
       }
-
-      resolvedProjectId = parent.projectId ?? null;
 
       // Check sibling uniqueness under this parent
       const [existingSibling] = await tx
@@ -270,7 +341,7 @@ export async function createFolder({
       });
     }
 
-    return {
+    const result = {
       id: inserted.id,
       name: inserted.name,
       projectId: inserted.projectId,
@@ -279,6 +350,22 @@ export async function createFolder({
       createdAt: inserted.createdAt,
       updatedAt: inserted.updatedAt,
     };
+
+    if (idempotencyKey) {
+      await tx
+        .insert(organizationIdempotencyKeys)
+        .values({
+          key: idempotencyKey,
+          result,
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: organizationIdempotencyKeys.key,
+          set: { result, createdAt: now },
+        });
+    }
+
+    return result;
   });
 }
 
@@ -291,6 +378,7 @@ export async function renameFolder({
   name,
   expectedVersion = undefined,
   actorId = null,
+  idempotencyKey = null,
 }) {
   const norm = validateAndNormalizeFolderName(name);
   if (!norm.valid) {
@@ -303,10 +391,25 @@ export async function renameFolder({
       .select()
       .from(folders)
       .where(eq(folders.id, folderId))
+      .for("update")
       .limit(1);
 
     if (!folder) {
       throw new OrganizationError("FOLDER_NOT_FOUND", "Folder not found.", 404);
+    }
+
+    const scopeKey = getScopeKey(folder.projectId);
+    await acquireScopeLocks(tx, scopeKey);
+
+    if (idempotencyKey) {
+      const [existingKey] = await tx
+        .select()
+        .from(organizationIdempotencyKeys)
+        .where(eq(organizationIdempotencyKeys.key, idempotencyKey))
+        .limit(1);
+      if (existingKey && Date.now() - existingKey.createdAt < IDEMPOTENCY_TTL_MS) {
+        return existingKey.result;
+      }
     }
 
     if (projectId !== undefined) {
@@ -368,6 +471,11 @@ export async function renameFolder({
     }
 
     const now = Date.now();
+    const updateConds = [eq(folders.id, folderId)];
+    if (expectedVersion !== undefined) {
+      updateConds.push(eq(folders.version, expectedVersion));
+    }
+
     const [updated] = await tx
       .update(folders)
       .set({
@@ -376,8 +484,12 @@ export async function renameFolder({
         version: sql`${folders.version} + 1`,
         updatedAt: now,
       })
-      .where(eq(folders.id, folderId))
+      .where(and(...updateConds))
       .returning();
+
+    if (!updated) {
+      throw new OrganizationError("VERSION_CONFLICT", "Folder has been modified by another operation.", 409);
+    }
 
     if (actorId) {
       await logActivity(actorId, "rename_folder", {
@@ -387,7 +499,7 @@ export async function renameFolder({
       });
     }
 
-    return {
+    const result = {
       id: updated.id,
       name: updated.name,
       projectId: updated.projectId,
@@ -396,6 +508,22 @@ export async function renameFolder({
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     };
+
+    if (idempotencyKey) {
+      await tx
+        .insert(organizationIdempotencyKeys)
+        .values({
+          key: idempotencyKey,
+          result,
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: organizationIdempotencyKeys.key,
+          set: { result, createdAt: now },
+        });
+    }
+
+    return result;
   });
 }
 
@@ -409,20 +537,94 @@ export async function moveFolder({
   destination,
   expectedVersion = undefined,
   actorId = null,
+  idempotencyKey = null,
 }) {
   const dest = normalizeDestination(destination);
   const db = await getDb();
 
   return db.transaction(async (tx) => {
-    // Lock source folder
-    const [source] = await tx
-      .select()
+    // 1. Peek at source and destination to discover scopes for advisory lock ordering
+    const [sourcePeek] = await tx
+      .select({ projectId: folders.projectId })
       .from(folders)
       .where(eq(folders.id, folderId))
       .limit(1);
 
-    if (!source) {
+    if (!sourcePeek) {
       throw new OrganizationError("FOLDER_NOT_FOUND", "Folder not found.", 404);
+    }
+
+    let targetProjectIdPeek = null;
+    if (dest.type === "folder") {
+      const [targetPeek] = await tx
+        .select({ projectId: folders.projectId })
+        .from(folders)
+        .where(eq(folders.id, dest.folderId))
+        .limit(1);
+      if (!targetPeek) {
+        throw new OrganizationError("DESTINATION_NOT_FOUND", "Target destination folder not found.", 404);
+      }
+      targetProjectIdPeek = targetPeek.projectId ?? null;
+    } else if (dest.type === "project_root") {
+      targetProjectIdPeek = dest.projectId;
+    }
+
+    const sourceScope = getScopeKey(sourcePeek.projectId);
+    const targetScope = getScopeKey(targetProjectIdPeek);
+
+    // Acquire transaction-scoped advisory locks on affected scopes in deterministic sorted order
+    await acquireScopeLocks(tx, sourceScope, targetScope);
+
+    if (idempotencyKey) {
+      const [existingKey] = await tx
+        .select()
+        .from(organizationIdempotencyKeys)
+        .where(eq(organizationIdempotencyKeys.key, idempotencyKey))
+        .limit(1);
+      if (existingKey && Date.now() - existingKey.createdAt < IDEMPOTENCY_TTL_MS) {
+        return existingKey.result;
+      }
+    }
+
+    // 2. Lock rows FOR UPDATE in deterministic alphabetical order
+    let source;
+    let targetFolder = null;
+
+    if (dest.type === "folder") {
+      const targetFolderId = dest.folderId;
+      if (targetFolderId === folderId) {
+        throw new OrganizationError("CANNOT_MOVE_INTO_SELF", "Cannot move a folder into itself.", 400);
+      }
+
+      const rowIds = [folderId, targetFolderId].sort();
+      const rows = await tx
+        .select()
+        .from(folders)
+        .where(inArray(folders.id, rowIds))
+        .orderBy(asc(folders.id))
+        .for("update");
+
+      source = rows.find((r) => r.id === folderId);
+      targetFolder = rows.find((r) => r.id === targetFolderId);
+
+      if (!source) {
+        throw new OrganizationError("FOLDER_NOT_FOUND", "Folder not found.", 404);
+      }
+      if (!targetFolder) {
+        throw new OrganizationError("DESTINATION_NOT_FOUND", "Target destination folder not found.", 404);
+      }
+    } else {
+      const [srcRow] = await tx
+        .select()
+        .from(folders)
+        .where(eq(folders.id, folderId))
+        .for("update")
+        .limit(1);
+
+      if (!srcRow) {
+        throw new OrganizationError("FOLDER_NOT_FOUND", "Folder not found.", 404);
+      }
+      source = srcRow;
     }
 
     if (expectedVersion !== undefined && source.version !== expectedVersion) {
@@ -431,36 +633,20 @@ export async function moveFolder({
 
     let targetParentId = null;
     let targetProjectId = null;
+    let targetDepth = 0;
 
     if (dest.type === "folder") {
       const targetFolderId = dest.folderId;
-      if (targetFolderId === folderId) {
-        throw new OrganizationError("CANNOT_MOVE_INTO_SELF", "Cannot move a folder into itself.", 400);
-      }
 
       // Check if targetFolder is a descendant of source (cycle prevention)
-      const { ancestorIds, depth: targetDepth } = await computeAncestry(tx, targetFolderId);
+      const { ancestorIds, depth } = await computeAncestry(tx, targetFolderId);
       if (ancestorIds.includes(folderId)) {
         throw new OrganizationError("CYCLE_DETECTED", "Cannot move a folder into one of its descendants.", 400);
       }
 
-      const [targetFolder] = await tx
-        .select()
-        .from(folders)
-        .where(eq(folders.id, targetFolderId))
-        .limit(1);
-
-      if (!targetFolder) {
-        throw new OrganizationError("DESTINATION_NOT_FOUND", "Target destination folder not found.", 404);
-      }
-
       targetParentId = targetFolder.id;
       targetProjectId = targetFolder.projectId ?? null;
-
-      // Check total depth: rough upper bound on new depth
-      if (targetDepth + 1 > MAX_NESTING_DEPTH) {
-        throw new OrganizationError("EXCEEDS_MAX_DEPTH", `Moving this folder would exceed maximum depth of ${MAX_NESTING_DEPTH}.`, 400);
-      }
+      targetDepth = depth;
 
       // Sibling uniqueness check
       const [existingSibling] = await tx
@@ -536,6 +722,38 @@ export async function moveFolder({
     const descendants = await getDescendants(tx, folderId);
     const allSubtreeFolderIds = [folderId, ...descendants.map((d) => d.id)];
 
+    // Enforce total depth limit: target depth + subtree height <= MAX_NESTING_DEPTH
+    const subtreeHeight = computeSubtreeHeight(folderId, descendants);
+    const maxDepth = getMaxNestingDepth();
+    if (targetDepth + subtreeHeight > maxDepth) {
+      throw new OrganizationError(
+        "EXCEEDS_MAX_DEPTH",
+        `Moving this folder subtree would exceed maximum depth of ${maxDepth}.`,
+        400
+      );
+    }
+
+    // Move source folder with atomic conditional predicate
+    const updateConds = [eq(folders.id, folderId)];
+    if (expectedVersion !== undefined) {
+      updateConds.push(eq(folders.version, expectedVersion));
+    }
+
+    const [moved] = await tx
+      .update(folders)
+      .set({
+        parentId: targetParentId,
+        projectId: targetProjectId,
+        version: sql`${folders.version} + 1`,
+        updatedAt: now,
+      })
+      .where(and(...updateConds))
+      .returning();
+
+    if (!moved) {
+      throw new OrganizationError("VERSION_CONFLICT", "Folder has been modified by another operation.", 409);
+    }
+
     // Check if scope (projectId) changed
     const scopeChanged = (source.projectId ?? null) !== targetProjectId;
 
@@ -559,18 +777,6 @@ export async function moveFolder({
         .where(inArray(generations.folderId, allSubtreeFolderIds));
     }
 
-    // Move source folder
-    const [moved] = await tx
-      .update(folders)
-      .set({
-        parentId: targetParentId,
-        projectId: targetProjectId,
-        version: sql`${folders.version} + 1`,
-        updatedAt: now,
-      })
-      .where(eq(folders.id, folderId))
-      .returning();
-
     if (actorId) {
       await logActivity(actorId, "move_folder", {
         folderId,
@@ -581,7 +787,7 @@ export async function moveFolder({
       });
     }
 
-    return {
+    const result = {
       folder: {
         id: moved.id,
         name: moved.name,
@@ -594,6 +800,22 @@ export async function moveFolder({
       subtreeFolderCount: allSubtreeFolderIds.length,
       scopeChanged,
     };
+
+    if (idempotencyKey) {
+      await tx
+        .insert(organizationIdempotencyKeys)
+        .values({
+          key: idempotencyKey,
+          result,
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: organizationIdempotencyKeys.key,
+          set: { result, createdAt: now },
+        });
+    }
+
+    return result;
   });
 }
 
@@ -605,6 +827,7 @@ export async function deleteFolder({
   folderId,
   projectId = undefined,
   actorId = null,
+  idempotencyKey = null,
 }) {
   const db = await getDb();
   return db.transaction(async (tx) => {
@@ -612,10 +835,25 @@ export async function deleteFolder({
       .select()
       .from(folders)
       .where(eq(folders.id, folderId))
+      .for("update")
       .limit(1);
 
     if (!folder) {
       throw new OrganizationError("FOLDER_NOT_FOUND", "Folder not found.", 404);
+    }
+
+    const scopeKey = getScopeKey(folder.projectId);
+    await acquireScopeLocks(tx, scopeKey);
+
+    if (idempotencyKey) {
+      const [existingKey] = await tx
+        .select()
+        .from(organizationIdempotencyKeys)
+        .where(eq(organizationIdempotencyKeys.key, idempotencyKey))
+        .limit(1);
+      if (existingKey && Date.now() - existingKey.createdAt < IDEMPOTENCY_TTL_MS) {
+        return existingKey.result;
+      }
     }
 
     if (projectId !== undefined) {
@@ -666,7 +904,24 @@ export async function deleteFolder({
       });
     }
 
-    return { success: true, deletedFolderId: folderId };
+    const result = { success: true, deletedFolderId: folderId };
+
+    if (idempotencyKey) {
+      const now = Date.now();
+      await tx
+        .insert(organizationIdempotencyKeys)
+        .values({
+          key: idempotencyKey,
+          result,
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: organizationIdempotencyKeys.key,
+          set: { result, createdAt: now },
+        });
+    }
+
+    return result;
   });
 }
 
@@ -677,23 +932,47 @@ export async function deleteFolder({
 export async function moveGenerations({
   ids,
   destination,
+  expectedVersions = undefined,
   actorId = null,
+  idempotencyKey = null,
 }) {
   if (!Array.isArray(ids) || ids.length === 0) {
     return { movedCount: 0, items: [] };
   }
 
-  // Deduplicate IDs and preserve ordering
-  const uniqueIds = Array.from(new Set(ids));
+  // Reject duplicate input IDs explicitly
+  const idSet = new Set();
+  for (const id of ids) {
+    if (idSet.has(id)) {
+      throw new OrganizationError(
+        "DUPLICATE_GENERATION_IDS",
+        `Duplicate generation ID detected in batch: ${id}`,
+        400
+      );
+    }
+    idSet.add(id);
+  }
 
-  if (uniqueIds.length > MAX_GENERATION_BATCH) {
-    throw new OrganizationError("BATCH_TOO_LARGE", `Cannot move more than ${MAX_GENERATION_BATCH} generations in a single batch.`, 400);
+  const maxBatch = getMaxGenerationBatch();
+  if (ids.length > maxBatch) {
+    throw new OrganizationError("BATCH_TOO_LARGE", `Cannot move more than ${maxBatch} generations in a single batch.`, 400);
   }
 
   const dest = normalizeDestination(destination);
   const db = await getDb();
 
   return db.transaction(async (tx) => {
+    if (idempotencyKey) {
+      const [existingKey] = await tx
+        .select()
+        .from(organizationIdempotencyKeys)
+        .where(eq(organizationIdempotencyKeys.key, idempotencyKey))
+        .limit(1);
+      if (existingKey && Date.now() - existingKey.createdAt < IDEMPOTENCY_TTL_MS) {
+        return existingKey.result;
+      }
+    }
+
     let resolvedProjectId = null;
     let resolvedFolderId = null;
 
@@ -732,7 +1011,7 @@ export async function moveGenerations({
     }
 
     // Deterministic lock acquisition by sorting IDs alphabetically to prevent deadlocks
-    const sortedIds = [...uniqueIds].sort();
+    const sortedIds = [...ids].sort();
     const lockedRows = await tx
       .select({
         id: generations.id,
@@ -751,6 +1030,20 @@ export async function moveGenerations({
       throw new OrganizationError("GENERATION_NOT_FOUND", `Generation ${missing} not found.`, 404);
     }
 
+    // Enforce optimistic concurrency per generation when expectedVersions is supplied
+    if (expectedVersions) {
+      for (const row of lockedRows) {
+        const expVer = typeof expectedVersions === "object" ? expectedVersions[row.id] : undefined;
+        if (expVer !== undefined && row.locationVersion !== expVer) {
+          throw new OrganizationError(
+            "VERSION_CONFLICT",
+            `Generation ${row.id} has locationVersion ${row.locationVersion} but expected ${expVer}.`,
+            409
+          );
+        }
+      }
+    }
+
     const now = Date.now();
     const updatedRows = await tx
       .update(generations)
@@ -760,24 +1053,40 @@ export async function moveGenerations({
         locationVersion: sql`${generations.locationVersion} + 1`,
         updatedAt: now,
       })
-      .where(inArray(generations.id, uniqueIds))
+      .where(inArray(generations.id, sortedIds))
       .returning();
 
     if (actorId) {
       await logActivity(actorId, "move_generations", {
-        count: uniqueIds.length,
+        count: ids.length,
         destinationType: dest.type,
         projectId: resolvedProjectId,
         folderId: resolvedFolderId,
       });
     }
 
-    return {
+    const result = {
       movedCount: updatedRows.length,
       projectId: resolvedProjectId,
       folderId: resolvedFolderId,
       updatedIds: updatedRows.map((r) => r.id),
     };
+
+    if (idempotencyKey) {
+      await tx
+        .insert(organizationIdempotencyKeys)
+        .values({
+          key: idempotencyKey,
+          result,
+          createdAt: now,
+        })
+        .onConflictDoUpdate({
+          target: organizationIdempotencyKeys.key,
+          set: { result, createdAt: now },
+        });
+    }
+
+    return result;
   });
 }
 

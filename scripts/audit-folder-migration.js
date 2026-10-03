@@ -94,15 +94,33 @@ export async function auditFolderMigration() {
   }));
   report.issuesCount += report.orphanedProjectFolders.length;
 
-  // 8. Sibling duplicate folder names within the same project (case-insensitive / normalized)
-  const dupFolders = await db.execute(sql`
-    SELECT project_id, lower(trim(name)) as norm_name, count(*)::int as count
-    FROM folders
-    GROUP BY project_id, lower(trim(name))
-    HAVING count(*) > 1;
+  // 8. Sibling duplicate folder names (NFKC-normalized)
+  const parentCol = await db.execute(sql`
+    SELECT column_name
+    FROM information_schema.columns
+    WHERE table_name = 'folders' AND column_name = 'parent_id';
   `);
+  const hasParentCol = (parentCol.rows ?? parentCol).length > 0;
+
+  let dupFolders;
+  if (hasParentCol) {
+    dupFolders = await db.execute(sql`
+      SELECT project_id, parent_id, lower(trim(normalize(name, NFKC))) as norm_name, count(*)::int as count
+      FROM folders
+      GROUP BY project_id, parent_id, lower(trim(normalize(name, NFKC)))
+      HAVING count(*) > 1;
+    `);
+  } else {
+    dupFolders = await db.execute(sql`
+      SELECT project_id, lower(trim(normalize(name, NFKC))) as norm_name, count(*)::int as count
+      FROM folders
+      GROUP BY project_id, lower(trim(normalize(name, NFKC)))
+      HAVING count(*) > 1;
+    `);
+  }
   report.duplicateFolderNames = (dupFolders.rows ?? dupFolders).map((r) => ({
     projectId: r.project_id,
+    parentId: r.parent_id ?? null,
     normalizedName: r.norm_name,
     count: Number(r.count),
   }));
@@ -122,6 +140,40 @@ export async function auditFolderMigration() {
     folderProjectId: r.folder_project_id,
   }));
   report.issuesCount += report.inconsistentGenerations.length;
+
+  // 10. If parent_id exists, check child/parent scope consistency and dangling parents
+  if (hasParentCol) {
+    const orphanParentFolds = await db.execute(sql`
+      SELECT c.id, c.name, c.parent_id
+      FROM folders c
+      LEFT JOIN folders p ON c.parent_id = p.id
+      WHERE c.parent_id IS NOT NULL AND p.id IS NULL
+      LIMIT 50;
+    `);
+    const orphanParents = (orphanParentFolds.rows ?? orphanParentFolds).map((r) => ({
+      folderId: r.id,
+      folderName: r.name,
+      parentId: r.parent_id,
+    }));
+    report.orphanedParentFolders = orphanParents;
+    report.issuesCount += orphanParents.length;
+
+    const inconsistentFolders = await db.execute(sql`
+      SELECT c.id, c.name, c.project_id as child_proj, p.project_id as parent_proj
+      FROM folders c
+      JOIN folders p ON c.parent_id = p.id
+      WHERE (c.project_id IS DISTINCT FROM p.project_id)
+      LIMIT 50;
+    `);
+    const scopeInconsistentFolders = (inconsistentFolders.rows ?? inconsistentFolders).map((r) => ({
+      folderId: r.id,
+      folderName: r.name,
+      childProjectId: r.child_proj,
+      parentProjectId: r.parent_proj,
+    }));
+    report.inconsistentFolders = scopeInconsistentFolders;
+    report.issuesCount += scopeInconsistentFolders.length;
+  }
 
   return report;
 }

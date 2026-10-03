@@ -63,5 +63,7 @@ jobs:
       - run: npm ci
       - run: npm run test:db:setup
       - run: npm run db:migrate:cost-basis
+      - run: npm run db:migrate:hierarchical-folders
+      - run: npm run db:verify:production-schema
       - run: npm run db:optimize
       - run: npm run test:db

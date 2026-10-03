@@ -27,11 +27,16 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
 
   const [ancestry, setAncestry] = useState([]);
   const [, setLoadingAncestry] = useState(false);
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState(null);
 
   const currentProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
   // Fetch authoritative ancestry trail from server whenever activeFolderId changes
   useEffect(() => {
+    setIsRenaming(false);
+    setRenameError(null);
     if (!activeFolderId || activeFolderId === UNSORTED) {
       setAncestry([]);
       return;
@@ -61,10 +66,9 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
 
   const handleRename = () => {
     if (!currentFolder) return;
-    const name = window.prompt("Rename folder", currentFolder.name);
-    if (name?.trim()) {
-      renameFolder(currentFolder.projectId, currentFolder.id, name.trim());
-    }
+    setIsRenaming(true);
+    setRenameValue(currentFolder.name);
+    setRenameError(null);
   };
 
   const handleDelete = () => {
@@ -123,10 +127,70 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
             <div key={crumb.id} className="flex shrink-0 items-center gap-1.5">
               <ChevronRight className="h-3 w-3 text-white/30" />
               {isLast ? (
-                <div className="flex items-center gap-1 rounded-md bg-white/5 px-2 py-1 font-semibold text-white">
-                  <FolderClosed className="h-3.5 w-3.5 text-amber-400/90" />
-                  <span className="truncate max-w-[160px]">{crumb.name}</span>
-                </div>
+                isRenaming ? (
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const trimmed = renameValue.trim();
+                      if (!trimmed || trimmed === crumb.name) {
+                        setIsRenaming(false);
+                        return;
+                      }
+                      try {
+                        await renameFolder(crumb.projectId, crumb.id, trimmed);
+                        setIsRenaming(false);
+                        setAncestry((prev) =>
+                          prev.map((c) => (c.id === crumb.id ? { ...c, name: trimmed } : c))
+                        );
+                      } catch (err) {
+                        setRenameError(err.message || "Failed to rename folder");
+                      }
+                    }}
+                    className="flex items-center gap-1"
+                  >
+                    <FolderClosed className="h-3.5 w-3.5 text-amber-400/90 shrink-0" />
+                    <input
+                      type="text"
+                      value={renameValue}
+                      autoFocus
+                      onChange={(e) => {
+                        setRenameValue(e.target.value);
+                        setRenameError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setIsRenaming(false);
+                          setRenameError(null);
+                        }
+                      }}
+                      onBlur={async () => {
+                        const trimmed = renameValue.trim();
+                        if (!trimmed || trimmed === crumb.name) {
+                          setIsRenaming(false);
+                          return;
+                        }
+                        try {
+                          await renameFolder(crumb.projectId, crumb.id, trimmed);
+                          setIsRenaming(false);
+                          setAncestry((prev) =>
+                            prev.map((c) => (c.id === crumb.id ? { ...c, name: trimmed } : c))
+                          );
+                        } catch (err) {
+                          setRenameError(err.message || "Failed to rename folder");
+                        }
+                      }}
+                      className="rounded border border-brand/60 bg-ink-900 px-1 py-0.5 text-xs text-white outline-none focus:border-brand"
+                    />
+                    {renameError && (
+                      <span className="text-[10px] text-red-400 ml-1">{renameError}</span>
+                    )}
+                  </form>
+                ) : (
+                  <div className="flex items-center gap-1 rounded-md bg-white/5 px-2 py-1 font-semibold text-white">
+                    <FolderClosed className="h-3.5 w-3.5 text-amber-400/90" />
+                    <span className="truncate max-w-[160px]">{crumb.name}</span>
+                  </div>
+                )
               ) : (
                 <button
                   type="button"

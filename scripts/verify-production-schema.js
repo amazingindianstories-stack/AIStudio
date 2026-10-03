@@ -77,7 +77,80 @@ async function main() {
     throw new Error("folders.project_id must be nullable to support global library folders.");
   }
 
-  console.log("production schema matches all Drizzle-owned tables and hierarchy invariants");
+  // Verify foreign key constraints
+  const expectedForeignKeys = [
+    "folders_project_id_fkey",
+    "folders_parent_id_fkey",
+  ];
+  const fkResult = await db.execute(sql`
+    select conname
+    from pg_constraint
+    where contype = 'f'
+      and conname in ('folders_project_id_fkey', 'folders_parent_id_fkey');
+  `);
+  const liveFks = new Set((fkResult.rows ?? fkResult).map((r) => r.conname));
+  const missingFks = expectedForeignKeys.filter((fk) => !liveFks.has(fk));
+  if (missingFks.length > 0) {
+    throw new Error(
+      `Production schema is missing required foreign keys:\n- ${missingFks.join("\n- ")}`
+    );
+  }
+
+  // Verify triggers
+  const expectedTriggers = [
+    "trg_sync_folder_name_normalized",
+    "trg_check_folder_scope",
+    "trg_check_generation_scope",
+  ];
+  const trgResult = await db.execute(sql`
+    select trigger_name
+    from information_schema.triggers
+    where trigger_schema = current_schema()
+      and trigger_name in ('trg_sync_folder_name_normalized', 'trg_check_folder_scope', 'trg_check_generation_scope');
+  `);
+  const liveTrgs = new Set((trgResult.rows ?? trgResult).map((r) => r.trigger_name));
+  const missingTrgs = expectedTriggers.filter((trg) => !liveTrgs.has(trg));
+  if (missingTrgs.length > 0) {
+    throw new Error(
+      `Production schema is missing required triggers:\n- ${missingTrgs.join("\n- ")}`
+    );
+  }
+
+  // Live invariant checks
+  const orphanFolderRes = await db.execute(sql`
+    SELECT count(*)::int as count
+    FROM generations g
+    LEFT JOIN folders f ON g.folder_id = f.id
+    WHERE g.folder_id IS NOT NULL AND f.id IS NULL;
+  `);
+  const orphanFolderCount = (orphanFolderRes.rows ?? orphanFolderRes)[0]?.count;
+  if (Number(orphanFolderCount || 0) > 0) {
+    throw new Error(`Data invariant violation: found ${orphanFolderCount} generations referencing nonexistent folders.`);
+  }
+
+  const folderScopeMismatchRes = await db.execute(sql`
+    SELECT count(*)::int as count
+    FROM folders c
+    JOIN folders p ON c.parent_id = p.id
+    WHERE (c.project_id IS DISTINCT FROM p.project_id);
+  `);
+  const folderScopeMismatch = (folderScopeMismatchRes.rows ?? folderScopeMismatchRes)[0]?.count;
+  if (Number(folderScopeMismatch || 0) > 0) {
+    throw new Error(`Data invariant violation: found ${folderScopeMismatch} child folders with mismatched project_id from their parent.`);
+  }
+
+  const genScopeMismatchRes = await db.execute(sql`
+    SELECT count(*)::int as count
+    FROM generations g
+    JOIN folders f ON g.folder_id = f.id
+    WHERE (g.project_id IS DISTINCT FROM f.project_id);
+  `);
+  const genScopeMismatch = (genScopeMismatchRes.rows ?? genScopeMismatchRes)[0]?.count;
+  if (Number(genScopeMismatch || 0) > 0) {
+    throw new Error(`Data invariant violation: found ${genScopeMismatch} generations with mismatched project_id from their folder.`);
+  }
+
+  console.log("production schema matches all Drizzle-owned tables, foreign keys, triggers, and live invariants");
   process.exit(0);
 }
 

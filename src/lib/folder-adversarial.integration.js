@@ -419,3 +419,148 @@ test("RANDOMIZED: Property-based random tree operations maintain acyclicity and 
     }
   }
 });
+
+test("ADVERSARIAL: Simultaneous opposing moves cannot form a cycle", async () => {
+  const db = await getDb();
+  const actorId = randomUUID();
+  const fA = await createFolder({ name: `A-${randomUUID().slice(0, 6)}`, actorId });
+  const fB = await createFolder({ name: `B-${randomUUID().slice(0, 6)}`, actorId });
+
+  try {
+    // Tx 1 tries to move A into B, Tx 2 tries to move B into A at the exact same moment
+    const results = await Promise.allSettled([
+      moveFolder({ folderId: fA.id, destination: { type: "folder", folderId: fB.id }, actorId }),
+      moveFolder({ folderId: fB.id, destination: { type: "folder", folderId: fA.id }, actorId }),
+    ]);
+
+    // Exactly one move can succeed, and the opposing move must be rejected with CYCLE_DETECTED
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+
+    assert.equal(fulfilled.length, 1, "Exactly one opposing move should succeed");
+    assert.equal(rejected.length, 1, "The opposing move must be rejected");
+    assert.ok(
+      rejected[0].reason instanceof OrganizationError,
+      `Expected OrganizationError, got: ${rejected[0].reason}`
+    );
+    assert.equal(rejected[0].reason.code, "CYCLE_DETECTED");
+
+    // Verify database state: no cycles
+    const [rowA] = await db.select().from(folders).where(eq(folders.id, fA.id));
+    const [rowB] = await db.select().from(folders).where(eq(folders.id, fB.id));
+    assert.ok(
+      !(rowA.parentId === fB.id && rowB.parentId === fA.id),
+      "Tree must not contain a cycle"
+    );
+  } finally {
+    await db.delete(folders).where(inArray(folders.id, [fA.id, fB.id]));
+  }
+});
+
+test("ADVERSARIAL: moveGenerations rejects duplicate generation IDs in batch", async () => {
+  const gId = randomUUID();
+  await assert.rejects(
+    moveGenerations({
+      ids: [gId, gId],
+      destination: { type: "global_unsorted" },
+    }),
+    (err) => {
+      assert.ok(err instanceof OrganizationError);
+      assert.equal(err.code, "DUPLICATE_GENERATION_IDS");
+      return true;
+    }
+  );
+});
+
+test("ADVERSARIAL: Organization idempotency keys prevent duplicate operations on replay", async () => {
+  const db = await getDb();
+  const actorId = randomUUID();
+  const folder = await createFolder({ name: `Idem-${randomUUID().slice(0, 6)}`, actorId });
+  const gId = randomUUID();
+  const now = Date.now();
+
+  try {
+    await db.insert(generations).values({
+      id: gId,
+      kind: "image",
+      status: "succeeded",
+      prompt: "idempotency test",
+      model: "flux",
+      aspectRatio: "1:1",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const idempotencyKey = `test-key-${randomUUID()}`;
+
+    // Pass 1: move generation into folder
+    const res1 = await moveGenerations({
+      ids: [gId],
+      destination: { type: "folder", folderId: folder.id },
+      idempotencyKey,
+      actorId,
+    });
+    assert.equal(res1.movedCount, 1);
+    assert.equal(res1.folderId, folder.id);
+
+    // Pass 2: Replay identical request with same idempotencyKey
+    const res2 = await moveGenerations({
+      ids: [gId],
+      destination: { type: "folder", folderId: folder.id },
+      idempotencyKey,
+      actorId,
+    });
+    // Must return identical cached result without error
+    assert.deepEqual(res1, res2);
+
+    const [genRow] = await db.select().from(generations).where(eq(generations.id, gId));
+    assert.equal(genRow.locationVersion, 2, "locationVersion must only increment once despite replay");
+  } finally {
+    await db.delete(generations).where(eq(generations.id, gId));
+    await db.delete(folders).where(eq(folders.id, folder.id));
+  }
+});
+
+test("ADVERSARIAL: Deep subtree move is rejected when targetDepth + subtreeHeight > MAX_NESTING_DEPTH", async () => {
+  const db = await getDb();
+  const actorId = randomUUID();
+
+  // Temporarily configure a small depth limit for deterministic testing
+  const originalLimit = process.env.MAX_NESTING_DEPTH;
+  process.env.MAX_NESTING_DEPTH = "3";
+
+  let createdIds = [];
+  try {
+    // Branch 1: Folder A (depth 1) -> Folder B (depth 2) [subtree height of A is 2]
+    const fA = await createFolder({ name: `A-${randomUUID().slice(0, 6)}`, actorId });
+    const fB = await createFolder({ name: "B", parentId: fA.id, actorId });
+
+    // Branch 2: Folder C (depth 1) -> Folder D (depth 2)
+    const fC = await createFolder({ name: `C-${randomUUID().slice(0, 6)}`, actorId });
+    const fD = await createFolder({ name: "D", parentId: fC.id, actorId });
+
+    createdIds = [fA.id, fB.id, fC.id, fD.id];
+
+    // Attempt to move A (subtree height 2) into D (target depth 2).
+    // Target depth 2 + subtree height 2 = 4 > MAX_NESTING_DEPTH (3).
+    // This MUST reject with EXCEEDS_MAX_DEPTH even though D + 1 <= 3!
+    await assert.rejects(
+      moveFolder({
+        folderId: fA.id,
+        destination: { type: "folder", folderId: fD.id },
+        actorId,
+      }),
+      (err) => {
+        assert.ok(err instanceof OrganizationError);
+        assert.equal(err.code, "EXCEEDS_MAX_DEPTH");
+        return true;
+      },
+      "Subtree move exceeding total depth limit must be rejected"
+    );
+  } finally {
+    process.env.MAX_NESTING_DEPTH = originalLimit;
+    if (createdIds.length) {
+      await db.delete(folders).where(inArray(folders.id, createdIds));
+    }
+  }
+});

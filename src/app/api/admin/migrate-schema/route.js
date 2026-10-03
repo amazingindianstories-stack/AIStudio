@@ -104,7 +104,27 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
   "ALTER TABLE folders ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
   "ALTER TABLE folders ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0",
   "ALTER TABLE generations ADD COLUMN IF NOT EXISTS location_version INTEGER NOT NULL DEFAULT 1",
-  "UPDATE folders SET name_normalized = LOWER(TRIM(name)) WHERE name_normalized IS NULL OR name_normalized = ''",
+  `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'folders_project_id_fkey') THEN
+      ALTER TABLE folders ADD CONSTRAINT folders_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT;
+    END IF;
+  END $$;`,
+  `DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'folders_parent_id_fkey') THEN
+      ALTER TABLE folders ADD CONSTRAINT folders_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE RESTRICT;
+    END IF;
+  END $$;`,
+  `DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'generations_project_id_fkey') THEN
+      ALTER TABLE generations DROP CONSTRAINT generations_project_id_fkey;
+    END IF;
+  END $$;`,
+  `DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'generations_folder_id_fkey') THEN
+      ALTER TABLE generations DROP CONSTRAINT generations_folder_id_fkey;
+    END IF;
+  END $$;`,
+  "UPDATE folders SET name_normalized = LOWER(TRIM(NORMALIZE(name, NFKC))) WHERE name_normalized IS NULL OR name_normalized = ''",
   "ALTER TABLE folders ALTER COLUMN name_normalized SET DEFAULT ''",
   "ALTER TABLE folders ALTER COLUMN name_normalized SET NOT NULL",
   "UPDATE folders SET updated_at = created_at WHERE updated_at = 0 OR updated_at IS NULL",
@@ -117,14 +137,57 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
   `CREATE OR REPLACE FUNCTION sync_folder_name_normalized()
    RETURNS TRIGGER AS $$
    BEGIN
-     IF NEW.name IS NOT NULL AND (NEW.name_normalized IS NULL OR NEW.name_normalized = '') THEN
-       NEW.name_normalized := lower(trim(NEW.name));
+     IF NEW.name IS NOT NULL THEN
+       NEW.name_normalized := LOWER(TRIM(NORMALIZE(NEW.name, NFKC)));
      END IF;
      RETURN NEW;
    END;
    $$ LANGUAGE plpgsql`,
   "DROP TRIGGER IF EXISTS trg_sync_folder_name_normalized ON folders",
   "CREATE TRIGGER trg_sync_folder_name_normalized BEFORE INSERT OR UPDATE OF name ON folders FOR EACH ROW EXECUTE FUNCTION sync_folder_name_normalized()",
+  `CREATE OR REPLACE FUNCTION check_folder_scope_integrity()
+   RETURNS TRIGGER AS $$
+   DECLARE
+     parent_proj UUID;
+   BEGIN
+     IF NEW.parent_id IS NOT NULL THEN
+       SELECT project_id INTO parent_proj FROM folders WHERE id = NEW.parent_id;
+       IF NOT FOUND THEN
+         RAISE EXCEPTION 'Parent folder % does not exist', NEW.parent_id USING ERRCODE = 'foreign_key_violation';
+       END IF;
+       IF NEW.project_id IS DISTINCT FROM parent_proj THEN
+         RAISE EXCEPTION 'Folder scope mismatch: child project_id (%) does not match parent project_id (%)',
+           NEW.project_id, parent_proj USING ERRCODE = 'check_violation';
+       END IF;
+     END IF;
+     RETURN NEW;
+   END;
+   $$ LANGUAGE plpgsql`,
+  "DROP TRIGGER IF EXISTS trg_check_folder_scope ON folders",
+  "CREATE CONSTRAINT TRIGGER trg_check_folder_scope AFTER INSERT OR UPDATE OF parent_id, project_id ON folders DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_folder_scope_integrity()",
+  `CREATE OR REPLACE FUNCTION check_generation_scope_integrity()
+   RETURNS TRIGGER AS $$
+   DECLARE
+     folder_proj UUID;
+   BEGIN
+     IF NEW.folder_id IS NOT NULL THEN
+       SELECT project_id INTO folder_proj FROM folders WHERE id = NEW.folder_id;
+       IF FOUND AND NEW.project_id IS DISTINCT FROM folder_proj THEN
+         RAISE EXCEPTION 'Generation scope mismatch: generation project_id (%) does not match folder project_id (%)',
+           NEW.project_id, folder_proj USING ERRCODE = 'check_violation';
+       END IF;
+     END IF;
+     RETURN NEW;
+   END;
+   $$ LANGUAGE plpgsql`,
+  "DROP TRIGGER IF EXISTS trg_check_generation_scope ON generations",
+  "CREATE CONSTRAINT TRIGGER trg_check_generation_scope AFTER INSERT OR UPDATE OF folder_id, project_id ON generations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_generation_scope_integrity()",
+  `CREATE TABLE IF NOT EXISTS organization_idempotency_keys (
+     key TEXT PRIMARY KEY,
+     result JSONB NOT NULL,
+     created_at BIGINT NOT NULL
+   )`,
+  "CREATE INDEX IF NOT EXISTS organization_idempotency_keys_created_idx ON organization_idempotency_keys(created_at)",
 ];
 
 /**

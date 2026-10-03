@@ -2012,10 +2012,11 @@ export const useStore = create((set, get) => ({
       name = arg2;
       parentId = arg3 || null;
     }
+    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
     const res = await apiFetch("/api/folders", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, projectId, parentId }),
+      body: JSON.stringify({ name, projectId, parentId, idempotencyKey }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -2029,20 +2030,37 @@ export const useStore = create((set, get) => ({
     return json.folder;
   },
 
-  renameFolder: async (arg1, arg2, arg3) => {
-    let folderId, name, projectId;
-    if (arg3 !== undefined) {
+  renameFolder: async (arg1, arg2, arg3, arg4) => {
+    let folderId, name, projectId, expectedVersion;
+    if (arg3 !== undefined && typeof arg3 === "string") {
       projectId = arg1;
       folderId = arg2;
       name = arg3;
+      expectedVersion = arg4;
     } else {
       folderId = arg1;
       name = arg2;
+      expectedVersion = arg3;
     }
+    if (expectedVersion === undefined) {
+      const tree = get().libraryTree;
+      const findNode = (nodes) => {
+        if (!Array.isArray(nodes)) return null;
+        for (const n of nodes) {
+          if (n.id === folderId) return n;
+          const found = findNode(n.children || n.folders);
+          if (found) return found;
+        }
+        return null;
+      };
+      const found = findNode(tree?.globalFolders) || findNode(tree?.projects);
+      if (found?.version) expectedVersion = found.version;
+    }
+    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
     const res = await apiFetch("/api/folders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: folderId, name, projectId }),
+      body: JSON.stringify({ id: folderId, name, projectId, expectedVersion, idempotencyKey }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -2059,8 +2077,10 @@ export const useStore = create((set, get) => ({
     } else {
       folderId = arg1;
     }
+    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
     const params = new URLSearchParams({ id: folderId });
     if (projectId) params.set("projectId", projectId);
+    if (idempotencyKey) params.set("idempotencyKey", idempotencyKey);
     const res = await apiFetch(`/api/folders?${params}`, {
       method: "DELETE",
     });
@@ -2080,11 +2100,26 @@ export const useStore = create((set, get) => ({
     ]);
   },
 
-  moveFolder: async (folderId, destination) => {
+  moveFolder: async (folderId, destination, expectedVersion = undefined) => {
+    if (expectedVersion === undefined) {
+      const tree = get().libraryTree;
+      const findNode = (nodes) => {
+        if (!Array.isArray(nodes)) return null;
+        for (const n of nodes) {
+          if (n.id === folderId) return n;
+          const found = findNode(n.children || n.folders);
+          if (found) return found;
+        }
+        return null;
+      };
+      const found = findNode(tree?.globalFolders) || findNode(tree?.projects);
+      if (found?.version) expectedVersion = found.version;
+    }
+    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
     const res = await apiFetch("/api/folders", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: folderId, destination }),
+      body: JSON.stringify({ id: folderId, destination, expectedVersion, idempotencyKey }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -2100,12 +2135,28 @@ export const useStore = create((set, get) => ({
     return await res.json();
   },
 
-  moveGenerationsToDestination: async (ids, destination) => {
+  moveGenerationsToDestination: async (ids, destination, expectedVersions = undefined) => {
     if (!Array.isArray(ids) || ids.length === 0 || !destination) return false;
+    const expVers = expectedVersions ? { ...expectedVersions } : {};
+    if (!expectedVersions) {
+      const items = get().items || [];
+      for (const id of ids) {
+        const it = items.find((x) => x.id === id);
+        if (it && typeof it.locationVersion === "number") {
+          expVers[id] = it.locationVersion;
+        }
+      }
+    }
+    const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
     const res = await apiFetch("/api/history/move", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids, destination }),
+      body: JSON.stringify({
+        ids,
+        destination,
+        expectedVersions: Object.keys(expVers).length > 0 ? expVers : undefined,
+        idempotencyKey,
+      }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));

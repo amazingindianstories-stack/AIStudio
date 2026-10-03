@@ -28,6 +28,9 @@ export function ChildFolderList({
   const moveFolder = useStore((s) => s.moveFolder);
 
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
+  const [renamingFolderId, setRenamingFolderId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState(null);
 
   // Find immediate child folders from libraryTree
   const childFolders = useMemo(() => {
@@ -158,8 +161,9 @@ export function ChildFolderList({
                         <MenuItem
                           onClick={() => {
                             close();
-                            const name = window.prompt("Rename folder", folder.name);
-                            if (name?.trim()) renameFolder(folder.projectId, folder.id, name.trim());
+                            setRenamingFolderId(folder.id);
+                            setRenameValue(folder.name);
+                            setRenameError(null);
                           }}
                         >
                           <Pencil className="h-3.5 w-3.5 text-white/50" />
@@ -198,9 +202,64 @@ export function ChildFolderList({
               </div>
 
               <div className="mt-2 min-w-0">
-                <p className="truncate text-xs font-semibold text-white/90 group-hover:text-white">
-                  {folder.name}
-                </p>
+                {renamingFolderId === folder.id ? (
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const trimmed = renameValue.trim();
+                      if (!trimmed || trimmed === folder.name) {
+                        setRenamingFolderId(null);
+                        return;
+                      }
+                      try {
+                        await renameFolder(folder.projectId, folder.id, trimmed);
+                        setRenamingFolderId(null);
+                      } catch (err) {
+                        setRenameError(err.message || "Failed to rename folder");
+                      }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="w-full"
+                  >
+                    <input
+                      type="text"
+                      value={renameValue}
+                      autoFocus
+                      onChange={(e) => {
+                        setRenameValue(e.target.value);
+                        setRenameError(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.stopPropagation();
+                          setRenamingFolderId(null);
+                          setRenameError(null);
+                        }
+                      }}
+                      onBlur={async () => {
+                        const trimmed = renameValue.trim();
+                        if (!trimmed || trimmed === folder.name) {
+                          setRenamingFolderId(null);
+                          return;
+                        }
+                        try {
+                          await renameFolder(folder.projectId, folder.id, trimmed);
+                          setRenamingFolderId(null);
+                        } catch (err) {
+                          setRenameError(err.message || "Failed to rename folder");
+                        }
+                      }}
+                      className="w-full rounded border border-brand/60 bg-ink-900 px-1 py-0.5 text-xs text-white outline-none focus:border-brand"
+                    />
+                    {renameError && (
+                      <span className="block text-[10px] text-red-400 mt-0.5">{renameError}</span>
+                    )}
+                  </form>
+                ) : (
+                  <p className="truncate text-xs font-semibold text-white/90 group-hover:text-white">
+                    {folder.name}
+                  </p>
+                )}
                 <p className="mt-0.5 text-[11px] text-white/40">
                   {count} {count === 1 ? "asset" : "assets"}
                   {folder.children?.length > 0 && ` · ${folder.children.length} sub`}

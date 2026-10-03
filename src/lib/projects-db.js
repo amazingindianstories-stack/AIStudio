@@ -1,7 +1,6 @@
 import { eq, asc, sql } from "drizzle-orm";
 import { getDb } from "./db";
-import { projects, folders } from "./schema";
-import { clearProjectRefs } from "./store-db";
+import { projects, folders, generations } from "./schema";
 import {
   createFolder as engineCreateFolder,
   renameFolder as engineRenameFolder,
@@ -90,9 +89,48 @@ export async function setBrief(id, brief) {
 
 export async function deleteProject(id) {
   const db = await getDb();
-  await db.delete(folders).where(eq(folders.projectId, id));
-  await db.delete(projects).where(eq(projects.id, id));
-  await clearProjectRefs(id);
+  await db.transaction(async (tx) => {
+    const [project] = await tx
+      .select({ id: projects.id })
+      .from(projects)
+      .where(eq(projects.id, id))
+      .for("update");
+
+    if (!project) {
+      const err = new Error("Project not found.");
+      err.code = "PROJECT_NOT_FOUND";
+      err.status = 404;
+      throw err;
+    }
+
+    const [childFolder] = await tx
+      .select({ id: folders.id })
+      .from(folders)
+      .where(eq(folders.projectId, id))
+      .limit(1);
+
+    if (childFolder) {
+      const err = new Error("Cannot delete project: project contains folders. Remove or move folders first.");
+      err.code = "PROJECT_NOT_EMPTY";
+      err.status = 400;
+      throw err;
+    }
+
+    const [childGen] = await tx
+      .select({ id: generations.id })
+      .from(generations)
+      .where(eq(generations.projectId, id))
+      .limit(1);
+
+    if (childGen) {
+      const err = new Error("Cannot delete project: project contains generations. Remove or move items first.");
+      err.code = "PROJECT_NOT_EMPTY";
+      err.status = 400;
+      throw err;
+    }
+
+    await tx.delete(projects).where(eq(projects.id, id));
+  });
   return readProjects();
 }
 

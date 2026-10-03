@@ -27,6 +27,9 @@ export function FolderTree({
 }) {
   const [expanded, setExpanded] = useState({});
   const [dragOverId, setDragOverId] = useState(null);
+  const [renamingFolderId, setRenamingFolderId] = useState(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState(null);
   const renameFolder = useStore((s) => s.renameFolder);
   const deleteFolder = useStore((s) => s.deleteFolder);
   const moveItem = useStore((s) => s.moveItem);
@@ -97,6 +100,14 @@ export function FolderTree({
             : Math.max(0, currentIndex - 1);
         items[nextIndex]?.focus();
       }
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      const items = Array.from(treeRef.current?.querySelectorAll('[role="treeitem"]') ?? []);
+      items[0]?.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      const items = Array.from(treeRef.current?.querySelectorAll('[role="treeitem"]') ?? []);
+      items[items.length - 1]?.focus();
     }
   };
 
@@ -106,6 +117,7 @@ export function FolderTree({
     const isSelected = activeFolderId === folder.id;
     const isDragOver = dragOverId === folder.id;
     const count = countsByFolder[folder.id] ?? 0;
+    const isEditing = renamingFolderId === folder.id;
 
     return (
       <div key={folder.id} className="flex flex-col">
@@ -115,7 +127,7 @@ export function FolderTree({
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-selected={isSelected}
           onKeyDown={(e) => onKeyDown(folder, hasChildren, isExpanded, e)}
-          draggable
+          draggable={!isEditing}
           onDragStart={(e) => {
             e.dataTransfer.setData("text/folderId", folder.id);
             e.dataTransfer.effectAllowed = "move";
@@ -168,11 +180,66 @@ export function FolderTree({
             />
           )}
 
-          {/* Folder Name */}
-          <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+          {/* Folder Name / Inline Rename */}
+          {isEditing ? (
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const trimmed = renameValue.trim();
+                if (!trimmed || trimmed === folder.name) {
+                  setRenamingFolderId(null);
+                  return;
+                }
+                try {
+                  await renameFolder(folder.projectId, folder.id, trimmed);
+                  setRenamingFolderId(null);
+                } catch (err) {
+                  setRenameError(err.message || "Failed to rename folder");
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
+              className="flex-1 min-w-0"
+            >
+              <input
+                type="text"
+                value={renameValue}
+                autoFocus
+                onChange={(e) => {
+                  setRenameValue(e.target.value);
+                  setRenameError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    e.stopPropagation();
+                    setRenamingFolderId(null);
+                    setRenameError(null);
+                  }
+                }}
+                onBlur={async () => {
+                  const trimmed = renameValue.trim();
+                  if (!trimmed || trimmed === folder.name) {
+                    setRenamingFolderId(null);
+                    return;
+                  }
+                  try {
+                    await renameFolder(folder.projectId, folder.id, trimmed);
+                    setRenamingFolderId(null);
+                  } catch (err) {
+                    setRenameError(err.message || "Failed to rename folder");
+                  }
+                }}
+                className="w-full rounded border border-brand/60 bg-ink-900 px-1 py-0.5 text-xs text-white outline-none focus:border-brand"
+              />
+              {renameError && (
+                <span className="block text-[10px] text-red-400 mt-0.5">{renameError}</span>
+              )}
+            </form>
+          ) : (
+            <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+          )}
 
           {/* Count Badge */}
-          {count > 0 && (
+          {count > 0 && !isEditing && (
             <span
               className={cn(
                 "ml-auto text-[10px] tabular-nums text-white/40 group-hover:text-white/60",
@@ -214,8 +281,9 @@ export function FolderTree({
                   <MenuItem
                     onClick={() => {
                       close();
-                      const name = window.prompt("Rename folder", folder.name);
-                      if (name?.trim()) renameFolder(folder.projectId, folder.id, name.trim());
+                      setRenamingFolderId(folder.id);
+                      setRenameValue(folder.name);
+                      setRenameError(null);
                     }}
                   >
                     <Pencil className="h-3.5 w-3.5 text-white/50" />

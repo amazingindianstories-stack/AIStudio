@@ -305,10 +305,18 @@ export async function countScope(filter = {}) {
 export async function upsertItem(item) {
   const db = await getDb();
   const values = itemToValues(item);
+  const {
+    id: _id,
+    projectId: _projectId,
+    folderId: _folderId,
+    locationVersion: _locationVersion,
+    createdAt: _createdAt,
+    ...conflictUpdateValues
+  } = values;
   await db
     .insert(generations)
     .values(values)
-    .onConflictDoUpdate({ target: generations.id, set: values });
+    .onConflictDoUpdate({ target: generations.id, set: conflictUpdateValues });
 }
 
 /**

@@ -43,8 +43,8 @@ export const projects = pgTable("projects", {
 
 export const folders = pgTable("folders", {
   id: uuid("id").primaryKey().defaultRandom(),
-  projectId: uuid("project_id"),
-  parentId: uuid("parent_id"),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "restrict" }),
+  parentId: uuid("parent_id").references(() => folders.id, { onDelete: "restrict" }),
   name: text("name").notNull(),
   nameNormalized: text("name_normalized").notNull().default(""),
   version: integer("version").notNull().default(1),
@@ -506,4 +506,12 @@ export const mediaExportItems = pgTable("media_export_items", {
 }, (table) => [
   primaryKey({ columns: [table.exportId, table.generationId] }),
   index("media_export_items_order_idx").on(table.exportId, table.position),
+]);
+
+export const organizationIdempotencyKeys = pgTable("organization_idempotency_keys", {
+  key: text("key").primaryKey(),
+  result: jsonb("result").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull(),
+}, (table) => [
+  index("organization_idempotency_keys_created_idx").on(table.createdAt),
 ]);

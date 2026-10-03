@@ -23,7 +23,12 @@ export async function POST(req) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { ids, destination } = body;
+  const { ids, destination, expectedVersions } = body;
+  const idempotencyKey =
+    body.idempotencyKey ||
+    req.headers.get("x-idempotency-key") ||
+    req.headers.get("idempotency-key") ||
+    null;
 
   if (!Array.isArray(ids) || ids.length === 0) {
     return NextResponse.json(
@@ -43,6 +48,8 @@ export async function POST(req) {
     const result = await moveGenerations({
       ids,
       destination,
+      expectedVersions,
+      idempotencyKey,
       actorId: user.id,
     });
     return NextResponse.json({ success: true, ...result });
