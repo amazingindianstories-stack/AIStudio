@@ -8,8 +8,8 @@ config({ path: process.env.ENV_FILE || ".env.local" });
  * Read-only preflight auditor for hierarchical folder migration (Phase 6.1).
  * Checks schema prerequisites and existing data anomalies without mutating anything.
  */
-export async function auditFolderMigration() {
-  const db = await getDb();
+export async function auditFolderMigration(customDb = null) {
+  const db = customDb || (await getDb());
   const report = {
     timestamp: new Date().toISOString(),
     projectsCount: 0,
@@ -98,7 +98,7 @@ export async function auditFolderMigration() {
   const parentCol = await db.execute(sql`
     SELECT column_name
     FROM information_schema.columns
-    WHERE table_name = 'folders' AND column_name = 'parent_id';
+    WHERE table_schema = current_schema() AND table_name = 'folders' AND column_name = 'parent_id';
   `);
   const hasParentCol = (parentCol.rows ?? parentCol).length > 0;
 

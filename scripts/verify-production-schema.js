@@ -8,8 +8,8 @@ config({ path: process.env.ENV_FILE || ".env.local" });
 // Read-only release gate. This deliberately compares the live database with
 // every Drizzle-owned table instead of maintaining another hand-written list
 // that can drift at the same time as a migration.
-async function main() {
-  const db = await getDb();
+export async function verifyProductionSchema(customDb = null) {
+  const db = customDb || (await getDb());
   const missing = [];
 
   for (const [exportName, table] of Object.entries(schema)) {
@@ -81,12 +81,14 @@ async function main() {
   const expectedForeignKeys = [
     "folders_project_id_fkey",
     "folders_parent_id_fkey",
+    "generations_project_id_fkey",
+    "generations_folder_id_fkey",
   ];
   const fkResult = await db.execute(sql`
     select conname
     from pg_constraint
     where contype = 'f'
-      and conname in ('folders_project_id_fkey', 'folders_parent_id_fkey');
+      and conname in ('folders_project_id_fkey', 'folders_parent_id_fkey', 'generations_project_id_fkey', 'generations_folder_id_fkey');
   `);
   const liveFks = new Set((fkResult.rows ?? fkResult).map((r) => r.conname));
   const missingFks = expectedForeignKeys.filter((fk) => !liveFks.has(fk));
@@ -151,10 +153,14 @@ async function main() {
   }
 
   console.log("production schema matches all Drizzle-owned tables, foreign keys, triggers, and live invariants");
-  process.exit(0);
+  return true;
 }
 
-main().catch((error) => {
-  console.error(error?.message || error);
-  process.exit(1);
-});
+if (process.argv[1] && process.argv[1].endsWith("verify-production-schema.js")) {
+  verifyProductionSchema()
+    .then(() => process.exit(0))
+    .catch((error) => {
+      console.error(error?.message || error);
+      process.exit(1);
+    });
+}

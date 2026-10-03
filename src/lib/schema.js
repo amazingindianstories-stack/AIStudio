@@ -80,8 +80,8 @@ export const generations = pgTable("generations", {
   // short-lived presigned URLs (see queue/execute).
   referenceVideos: jsonb("reference_videos").$type(),
   referenceAudios: jsonb("reference_audios").$type(),
-  projectId: uuid("project_id"),
-  folderId: uuid("folder_id"),
+  projectId: uuid("project_id").references(() => projects.id, { onDelete: "restrict" }),
+  folderId: uuid("folder_id").references(() => folders.id, { onDelete: "restrict" }),
   userId: uuid("user_id"),
   costCents: integer("cost_cents").notNull().default(0),
   // Whether costCents still comes from the configured price estimate or was
@@ -510,8 +510,15 @@ export const mediaExportItems = pgTable("media_export_items", {
 
 export const organizationIdempotencyKeys = pgTable("organization_idempotency_keys", {
   key: text("key").primaryKey(),
-  result: jsonb("result").notNull(),
+  actorId: text("actor_id"),
+  operation: text("operation").notNull(),
+  fingerprint: text("fingerprint").notNull(),
+  status: text("status").notNull().default("completed"),
+  result: jsonb("result"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
+  expiresAt: bigint("expires_at", { mode: "number" }).notNull(),
 }, (table) => [
   index("organization_idempotency_keys_created_idx").on(table.createdAt),
+  index("organization_idempotency_keys_expires_idx").on(table.expiresAt),
+  index("organization_idempotency_keys_actor_op_idx").on(table.actorId, table.operation),
 ]);

@@ -325,6 +325,141 @@ test("REGRESSION: Database scope integrity triggers prevent direct SQL violation
       },
       "Trigger trg_check_generation_scope must reject generation with different project_id than folder"
     );
+
+    // 3. Direct SQL attempting to insert folder with unknown project_id
+    const unknownProjId = randomUUID();
+    await assert.rejects(
+      async () => {
+        await db.execute(sql`
+          INSERT INTO folders (id, project_id, name, created_at, updated_at)
+          VALUES (${randomUUID()}::uuid, ${unknownProjId}::uuid, 'Unknown Project Child', ${now}, ${now})
+        `);
+      },
+      (err) => {
+        const fullMsg = `${err?.message || ""} ${err?.cause?.message || ""}`;
+        return /folders_project_id_fkey|foreign key/i.test(fullMsg);
+      },
+      "Must reject folder with unknown project_id via foreign key"
+    );
+
+    // 4. Direct SQL attempting to insert folder with unknown parent_id
+    const unknownParentId = randomUUID();
+    await assert.rejects(
+      async () => {
+        await db.execute(sql`
+          INSERT INTO folders (id, project_id, parent_id, name, created_at, updated_at)
+          VALUES (${randomUUID()}::uuid, ${p1Id}::uuid, ${unknownParentId}::uuid, 'Unknown Parent Child', ${now}, ${now})
+        `);
+      },
+      (err) => {
+        const fullMsg = `${err?.message || ""} ${err?.cause?.message || ""}`;
+        return /folders_parent_id_fkey|Parent folder.*does not exist|foreign key/i.test(fullMsg);
+      },
+      "Must reject folder with unknown parent_id via foreign key or trigger"
+    );
+
+    // 5. Direct SQL attempting to insert generation with unknown project_id
+    await assert.rejects(
+      async () => {
+        await db.execute(sql`
+          INSERT INTO generations (id, kind, status, prompt, model, aspect_ratio, project_id, created_at, updated_at)
+          VALUES (${randomUUID()}::uuid, 'image', 'succeeded', 'Unknown Proj Gen', 'flux', '1:1', ${unknownProjId}::uuid, ${now}, ${now})
+        `);
+      },
+      (err) => {
+        const fullMsg = `${err?.message || ""} ${err?.cause?.message || ""}`;
+        return /generations_project_id_fkey|foreign key/i.test(fullMsg);
+      },
+      "Must reject generation with unknown project_id via foreign key"
+    );
+
+    // 6. Direct SQL attempting to insert generation with unknown folder_id
+    await assert.rejects(
+      async () => {
+        await db.execute(sql`
+          INSERT INTO generations (id, kind, status, prompt, model, aspect_ratio, project_id, folder_id, created_at, updated_at)
+          VALUES (${randomUUID()}::uuid, 'image', 'succeeded', 'Unknown Folder Gen', 'flux', '1:1', ${p1Id}::uuid, ${unknownParentId}::uuid, ${now}, ${now})
+        `);
+      },
+      (err) => {
+        const fullMsg = `${err?.message || ""} ${err?.cause?.message || ""}`;
+        return /generations_folder_id_fkey|Referenced folder.*does not exist|foreign key/i.test(fullMsg);
+      },
+      "Must reject generation with unknown folder_id via foreign key or trigger"
+    );
+
+    // 7. Direct SQL parent-scope mutation: updating parent folder project_id directly must reject when it leaves child folders or generations mismatched
+    // Seed valid child folder and valid generation under f1Id in p1Id
+    await db.insert(folders).values({
+      id: f2Id,
+      projectId: p1Id,
+      parentId: f1Id,
+      name: "Valid Child Under F1",
+      createdAt: now,
+    });
+    await db.insert(generations).values({
+      id: genId,
+      projectId: p1Id,
+      folderId: f1Id,
+      prompt: "Valid Gen in F1",
+      kind: "image",
+      status: "succeeded",
+      model: "flux",
+      aspectRatio: "1:1",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await assert.rejects(
+      async () => {
+        await db.execute(sql`
+          UPDATE folders SET project_id = ${p2Id}::uuid WHERE id = ${f1Id}::uuid
+        `);
+      },
+      (err) => {
+        const fullMsg = `${err?.message || ""} ${err?.cause?.message || ""}`;
+        return /Folder scope mismatch|Generation scope mismatch|scope integrity/i.test(fullMsg);
+      },
+      "Updating parent folder project_id directly must reject when leaving child folders or generations mismatched"
+    );
+
+    // 8. Direct SQL folder deletion must be rejected by RESTRICT foreign keys when it has child folders or generations
+    await assert.rejects(
+      async () => {
+        await db.execute(sql`
+          DELETE FROM folders WHERE id = ${f1Id}::uuid
+        `);
+      },
+      (err) => {
+        const fullMsg = `${err?.message || ""} ${err?.cause?.message || ""}`;
+        return /folders_parent_id_fkey|generations_folder_id_fkey|foreign key/i.test(fullMsg);
+      },
+      "Deleting parent folder directly must be rejected by RESTRICT when it has child folders or generations"
+    );
+
+    // 9. Transaction rollback preserves state on failed scope mutation
+    const rollbackFolderId = randomUUID();
+    let txFailed = false;
+    try {
+      await db.transaction(async (tx) => {
+        await tx.insert(folders).values({
+          id: rollbackFolderId,
+          projectId: p1Id,
+          name: "Rollback Candidate",
+          createdAt: now,
+        });
+        // Intentionally violate scope inside the transaction
+        await tx.execute(sql`
+          INSERT INTO folders (id, project_id, parent_id, name, created_at, updated_at)
+          VALUES (${randomUUID()}::uuid, ${p2Id}::uuid, ${rollbackFolderId}::uuid, 'Mismatched Child', ${now}, ${now})
+        `);
+      });
+    } catch {
+      txFailed = true;
+    }
+    assert.equal(txFailed, true, "Transaction must fail and roll back");
+    const [survivingFolder] = await db.select().from(folders).where(eq(folders.id, rollbackFolderId));
+    assert.equal(survivingFolder, undefined, "Rollback candidate folder must not persist after aborted transaction");
   } finally {
     await db.delete(generations).where(eq(generations.id, genId));
     await db.delete(folders).where(eq(folders.id, f2Id));

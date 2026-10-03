@@ -105,26 +105,26 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
   "ALTER TABLE folders ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0",
   "ALTER TABLE generations ADD COLUMN IF NOT EXISTS location_version INTEGER NOT NULL DEFAULT 1",
   `DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'folders_project_id_fkey') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'folders'::regclass AND conname = 'folders_project_id_fkey') THEN
       ALTER TABLE folders ADD CONSTRAINT folders_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT;
     END IF;
   END $$;`,
   `DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'folders_parent_id_fkey') THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'folders'::regclass AND conname = 'folders_parent_id_fkey') THEN
       ALTER TABLE folders ADD CONSTRAINT folders_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE RESTRICT;
     END IF;
   END $$;`,
   `DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'generations_project_id_fkey') THEN
-      ALTER TABLE generations DROP CONSTRAINT generations_project_id_fkey;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'generations'::regclass AND conname = 'generations_project_id_fkey') THEN
+      ALTER TABLE generations ADD CONSTRAINT generations_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT;
     END IF;
   END $$;`,
   `DO $$ BEGIN
-    IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'generations_folder_id_fkey') THEN
-      ALTER TABLE generations DROP CONSTRAINT generations_folder_id_fkey;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'generations'::regclass AND conname = 'generations_folder_id_fkey') THEN
+      ALTER TABLE generations ADD CONSTRAINT generations_folder_id_fkey FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE RESTRICT;
     END IF;
   END $$;`,
-  "UPDATE folders SET name_normalized = LOWER(TRIM(NORMALIZE(name, NFKC))) WHERE name_normalized IS NULL OR name_normalized = ''",
+  "UPDATE folders SET name_normalized = LOWER(TRIM(NORMALIZE(name, NFKC))) WHERE name_normalized IS DISTINCT FROM LOWER(TRIM(NORMALIZE(name, NFKC)))",
   "ALTER TABLE folders ALTER COLUMN name_normalized SET DEFAULT ''",
   "ALTER TABLE folders ALTER COLUMN name_normalized SET NOT NULL",
   "UPDATE folders SET updated_at = created_at WHERE updated_at = 0 OR updated_at IS NULL",
@@ -149,7 +149,10 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
    RETURNS TRIGGER AS $$
    DECLARE
      parent_proj UUID;
+     child_count INT;
+     gen_count INT;
    BEGIN
+     -- 1. If child folder has parent, verify child's project matches parent's project
      IF NEW.parent_id IS NOT NULL THEN
        SELECT project_id INTO parent_proj FROM folders WHERE id = NEW.parent_id;
        IF NOT FOUND THEN
@@ -160,6 +163,29 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
            NEW.project_id, parent_proj USING ERRCODE = 'check_violation';
        END IF;
      END IF;
+
+     -- 2. If folder project_id was updated directly, verify all child folders match NEW.project_id
+     IF TG_OP = 'UPDATE' AND NEW.project_id IS DISTINCT FROM OLD.project_id THEN
+       SELECT count(*)::int INTO child_count
+       FROM folders
+       WHERE parent_id = NEW.id AND project_id IS DISTINCT FROM NEW.project_id;
+
+       IF child_count > 0 THEN
+         RAISE EXCEPTION 'Folder scope mismatch: parent project_id (%) update leaves % child folders with mismatched scope',
+           NEW.project_id, child_count USING ERRCODE = 'check_violation';
+       END IF;
+
+       -- Also verify any generations in this folder match NEW.project_id
+       SELECT count(*)::int INTO gen_count
+       FROM generations
+       WHERE folder_id = NEW.id AND project_id IS DISTINCT FROM NEW.project_id;
+
+       IF gen_count > 0 THEN
+         RAISE EXCEPTION 'Generation scope mismatch: folder project_id (%) update leaves % generations with mismatched scope',
+           NEW.project_id, gen_count USING ERRCODE = 'check_violation';
+       END IF;
+     END IF;
+
      RETURN NEW;
    END;
    $$ LANGUAGE plpgsql`,
@@ -172,7 +198,10 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
    BEGIN
      IF NEW.folder_id IS NOT NULL THEN
        SELECT project_id INTO folder_proj FROM folders WHERE id = NEW.folder_id;
-       IF FOUND AND NEW.project_id IS DISTINCT FROM folder_proj THEN
+       IF NOT FOUND THEN
+         RAISE EXCEPTION 'Referenced folder % does not exist', NEW.folder_id USING ERRCODE = 'foreign_key_violation';
+       END IF;
+       IF NEW.project_id IS DISTINCT FROM folder_proj THEN
          RAISE EXCEPTION 'Generation scope mismatch: generation project_id (%) does not match folder project_id (%)',
            NEW.project_id, folder_proj USING ERRCODE = 'check_violation';
        END IF;
@@ -184,10 +213,22 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
   "CREATE CONSTRAINT TRIGGER trg_check_generation_scope AFTER INSERT OR UPDATE OF folder_id, project_id ON generations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_generation_scope_integrity()",
   `CREATE TABLE IF NOT EXISTS organization_idempotency_keys (
      key TEXT PRIMARY KEY,
-     result JSONB NOT NULL,
-     created_at BIGINT NOT NULL
+     actor_id TEXT,
+     operation TEXT NOT NULL DEFAULT 'unknown',
+     fingerprint TEXT NOT NULL DEFAULT '',
+     status TEXT NOT NULL DEFAULT 'completed',
+     result JSONB,
+     created_at BIGINT NOT NULL,
+     expires_at BIGINT NOT NULL DEFAULT 0
    )`,
+  "ALTER TABLE organization_idempotency_keys ADD COLUMN IF NOT EXISTS actor_id TEXT",
+  "ALTER TABLE organization_idempotency_keys ADD COLUMN IF NOT EXISTS operation TEXT NOT NULL DEFAULT 'unknown'",
+  "ALTER TABLE organization_idempotency_keys ADD COLUMN IF NOT EXISTS fingerprint TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE organization_idempotency_keys ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'completed'",
+  "ALTER TABLE organization_idempotency_keys ADD COLUMN IF NOT EXISTS expires_at BIGINT NOT NULL DEFAULT 0",
   "CREATE INDEX IF NOT EXISTS organization_idempotency_keys_created_idx ON organization_idempotency_keys(created_at)",
+  "CREATE INDEX IF NOT EXISTS organization_idempotency_keys_expires_idx ON organization_idempotency_keys(expires_at)",
+  "CREATE INDEX IF NOT EXISTS organization_idempotency_keys_actor_op_idx ON organization_idempotency_keys(actor_id, operation)",
 ];
 
 /**

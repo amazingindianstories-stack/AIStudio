@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 
+import { inArray } from "drizzle-orm";
+import { getDb } from "@/lib/db";
+import { folders, projects } from "@/lib/schema";
 import { UNSORTED, compareInScope, matchesScope, scopeToQuery } from "@/lib/feed-scope";
 import { historyFilterToParams, parseHistoryFilter } from "@/lib/history-query";
 import { decodeCursor, deleteItem, queryHistory, upsertItem, countScope, readGenerationUpdates } from "@/lib/store-db";
@@ -11,6 +14,7 @@ const projectA = randomUUID();
 const projectB = randomUUID();
 const folderA = randomUUID();
 const folderB = randomUUID();
+const folderC = randomUUID();
 const t = 1_800_000_000_000;
 
 function row(patch) {
@@ -36,7 +40,7 @@ const rows = [
   row({ projectId: projectA, createdAt: t + 2, isFavorite: true, favoritedAt: t + 20 }),
   row({ kind: "video", projectId: projectA, createdAt: t + 2, isFavorite: true, favoritedAt: t + 20 }),
   row({ projectId: projectA, folderId: folderB, createdAt: t + 1 }),
-  row({ kind: "video", projectId: projectB, folderId: folderA, createdAt: t }),
+  row({ kind: "video", projectId: projectB, folderId: folderC, createdAt: t }),
   row({ prompt: `${marker} 100%_done\\path`, createdAt: t - 1 }),
   row({ prompt: `${marker} 100XXdone/path`, createdAt: t - 2 }),
 ];
@@ -74,7 +78,18 @@ async function readAllPages(viewScope) {
 
 test("PostgreSQL history queries match client scope membership, ordering, and keyset pagination", async () => {
   assert.ok(process.env.DATABASE_URL, "test:db requires DATABASE_URL for a disposable PostgreSQL database");
+  const db = await getDb();
   try {
+    await db.insert(projects).values([
+      { id: projectA, name: "Scope Test Project A", createdAt: t, updatedAt: t },
+      { id: projectB, name: "Scope Test Project B", createdAt: t, updatedAt: t },
+    ]);
+    await db.insert(folders).values([
+      { id: folderA, projectId: projectA, name: "Scope Folder A", createdAt: t, updatedAt: t },
+      { id: folderB, projectId: projectA, name: "Scope Folder B", createdAt: t, updatedAt: t },
+      { id: folderC, projectId: projectB, name: "Scope Folder C", createdAt: t, updatedAt: t },
+    ]);
+
     for (const item of rows) await upsertItem(item);
 
     for (const viewScope of scopes) {
@@ -91,5 +106,7 @@ test("PostgreSQL history queries match client scope membership, ordering, and ke
     assert.equal(updates.some((item) => item.kind === "audio"), false);
   } finally {
     await Promise.all(rows.map((item) => deleteItem(item.id)));
+    await db.delete(folders).where(inArray(folders.id, [folderA, folderB, folderC]));
+    await db.delete(projects).where(inArray(projects.id, [projectA, projectB]));
   }
 });
