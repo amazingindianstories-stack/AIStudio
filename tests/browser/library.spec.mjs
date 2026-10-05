@@ -69,6 +69,26 @@ async function settleFocus(page, input) {
   await expect(input).toBeFocused();
 }
 
+test("a delayed initial project load preserves the user's explicit global scope", async ({ page, library }) => {
+  let release; let held = 0; let delivered = 0;
+  const barrier = new Promise((resolve) => { release = resolve; });
+  await page.route("**/api/projects", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    const response = await route.fetch(); held++; await barrier;
+    await route.fulfill({ response }); delivered++;
+  });
+  await page.reload();
+  if (await page.getByRole("button", { name: "Show assets panel", exact: true }).count()) {
+    await page.getByRole("button", { name: "Show assets panel", exact: true }).first().click();
+  }
+  await expect.poll(() => held).toBeGreaterThan(0);
+  await library.panel.getByText("All Global", { exact: true }).click();
+  release();
+  await expect.poll(() => delivered).toBeGreaterThan(0);
+  await expect(library.panel.getByRole("navigation", { name: "Breadcrumb" })).toContainText("Global Library");
+  await expect(library.panel.getByRole("button", { name: `Card folder actions: ${library.globalRoot.name}`, exact: true })).toBeVisible();
+});
+
 for (const scope of ["global", "project"]) {
   for (const entry of ["tree", "card", "breadcrumb"]) {
     for (const depth of ["root", "subfolder"]) {

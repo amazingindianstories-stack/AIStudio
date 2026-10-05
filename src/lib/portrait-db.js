@@ -6,8 +6,12 @@ import { portraitGroups, portraitAssets } from "./schema.js";
 export async function withPortraitReconciliation(work) {
   const db = await getDb();
   return db.transaction(async (tx) => {
-    await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(746833219)`);
+    // Waiting sync transactions can exhaust the pool while the lock owner needs
+    // another connection for durable identity writes. Never occupy a waiter slot.
+    const result = await tx.execute(sql`SELECT pg_try_advisory_xact_lock(746833219) AS locked`);
+    if (!(result.rows ?? result)[0]?.locked) {
+      throw Object.assign(new Error("Portrait reconciliation already running."), { code: "PORTRAIT_SYNC_BUSY" });
+    }
     // Keep successful remote identities committed even if a later provider call fails.
     return work();
   });
@@ -350,4 +354,3 @@ export async function updatePortraitAssetName(id, name) {
     .where(eq(portraitAssets.id, id));
   return getPortraitAsset(id);
 }
-

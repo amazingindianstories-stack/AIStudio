@@ -160,8 +160,8 @@ Deploy the web application from the exact qualified repair commit to Vercel:
 ### Step 17: Run Production Smoke Tests
 Perform live browser smoke verification:
 1. **Hierarchical Folders**: Create a test global root folder, create a child subfolder, verify breadcrumb navigation, move a generation into the subfolder, move to Global Unsorted, and clean up test folders.
-2. **Direct Signed Downloads**: Click Download on an image and video card. Verify download URL requests signed mode (`/api/generations/<id>/download?signed=1`), streams directly from cloud storage, and yields canonical container-scoped filename of the shape `<readable_prefix>--<namespace_token>_<serial>.<ext>` (e.g. `foldername--<namespace_token>_0001.png`, where `<namespace_token>` is 32 lowercase hex characters).
-3. **ZIP Exports**: Select multiple generations across different folders and export as ZIP. Verify export completes via Railway worker and extracted filenames match canonical assignments without duplicates or double extensions.
+2. **Direct Signed Downloads**: Click Download on an image and video card. Verify download URL requests signed mode (`/api/generations/<id>/download?signed=1`), streams directly from cloud storage, and yields a folder-path filename such as `R01_SC001_0001.png`. Project names and internal ID tokens must be absent; serials remain stable and padded to four digits.
+3. **ZIP Exports**: Select multiple generations across different folders and export as ZIP. Verify export completes via Railway worker and extracted filenames match canonical assignments without duplicates or double extensions. Identical compact filenames across scopes must be rejected before enqueue; already-finalized manifests retain their original frozen names.
 
 ### Step 18: Exit Write Freeze
 Once all smoke tests pass, deactivate the maintenance window / write freeze and return to normal operations.

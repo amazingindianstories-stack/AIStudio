@@ -37,12 +37,27 @@ export async function inventoryByteplusPortraits() {
  * If BytePlus AK/SK is configured, it fetches remote groups and assets from BytePlus
  * and reconciles them into the local store.
  */
+let activeReconciliation;
+
 export async function syncByteplusPortraits(projectId) {
   if (getByteplusConfig().isMock) return reconcilePortraits(projectId);
   try {
-    return await withPortraitReconciliation(() => reconcilePortraits(projectId));
-  } catch {
+    // All scopes share the same remote inventory. Coalesce concurrent loads and
+    // project the result without reparenting groups or duplicating remote work.
+    if (!activeReconciliation) {
+      activeReconciliation = withPortraitReconciliation(() => reconcilePortraits())
+        .finally(() => { activeReconciliation = undefined; });
+    }
+    const result = await activeReconciliation;
+    if (!projectId) return result;
+    const groups = result.groups.filter((g) => !g.projectId || g.projectId === projectId);
+    const groupIds = new Set(groups.map((g) => g.id));
+    return { ...result, groups, assets: result.assets.filter((a) => groupIds.has(a.groupId)) };
+  } catch (error) {
     const [groups, assets] = await Promise.all([listPortraitGroups(projectId), listAllPortraitAssets(projectId)]);
+    if (error?.code === "PORTRAIT_SYNC_BUSY") {
+      return { groups, assets, syncedWithByteplus: false, syncInProgress: true };
+    }
     return { groups, assets, syncedWithByteplus: false, syncError: "Portrait synchronization busy or incomplete; local records preserved." };
   }
 }

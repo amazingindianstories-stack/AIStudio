@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { claimMediaExport, completeMediaExport, failMediaExport, heartbeatMediaExport } from "../lib/media-exports-db.js";
 import { createResumableWriter } from "../lib/gcs-resumable-writer.js";
 import { extensionFromContentType, writeZip64 } from "../lib/zip64-stream.js";
+import { workerRequestHeaders } from "../lib/worker-request-headers.js";
 
 async function control(baseUrl, secret, payload, fetchImpl) {
-  const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/api/worker/exports/access`, { method: "POST", headers: { "Content-Type": "application/json", "x-generation-worker-secret": secret }, body: JSON.stringify(payload) });
+  const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/api/worker/exports/access`, { method: "POST", headers: workerRequestHeaders(secret), body: JSON.stringify(payload) });
   if (!response.ok) throw new Error(`export access failed (${response.status})`);
   return response.json();
 }

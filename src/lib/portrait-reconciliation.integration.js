@@ -5,7 +5,7 @@ import { eq, inArray } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { projects, portraitGroups } from "./schema.js";
 import { upsertPortraitGroup, upsertPortraitAsset, getPortraitAsset, getPortraitGroup,
-  listPortraitGroups, listAllPortraitAssets, ensureDefaultPortraitGroup } from "./portrait-db.js";
+  listPortraitGroups, listAllPortraitAssets, ensureDefaultPortraitGroup, withPortraitReconciliation } from "./portrait-db.js";
 import { byteplusAssetClient } from "./byteplus-assets.js";
 import { syncByteplusPortraits, inventoryByteplusPortraits } from "./portrait-sync.js";
 
@@ -76,7 +76,10 @@ test("real sync exhausts remote pages, preserves identities and durable URLs, an
     for (const key of ["deleteAsset", "deleteAssetGroup", "createAsset", "createAssetGroup"]) {
       byteplusAssetClient[key] = async () => { throw new Error(`Unexpected remote mutation: ${key}`); };
     }
-    const first = await syncByteplusPortraits(projectId);
+    const concurrent = await Promise.all(Array.from({ length: 8 }, (_, i) => syncByteplusPortraits(i % 2 ? undefined : projectId)));
+    const first = concurrent[0];
+    assert.equal(groupCalls, 3, "Concurrent scopes share one complete remote inventory");
+    assert.equal(assetCalls, 3);
     assert.equal(first.syncedWithByteplus, true);
     assert.equal(first.inventory.assetPages, 3);
     const firstIds = first.assets.filter((a) => a.byteplusAssetId?.startsWith(tag)).map((a) => a.id).sort();
@@ -86,6 +89,12 @@ test("real sync exhausts remote pages, preserves identities and durable URLs, an
     const second = await syncByteplusPortraits(projectId);
     assert.deepEqual(second.assets.filter((a) => a.byteplusAssetId?.startsWith(tag)).map((a) => a.id).sort(), firstIds);
     assert.equal(groupCalls, 6); assert.equal(assetCalls, 6);
+    await withPortraitReconciliation(async () => {
+      const busy = await syncByteplusPortraits(projectId);
+      assert.equal(busy.syncInProgress, true);
+      assert.equal(busy.syncError, undefined, "Normal cross-instance contention is not a sync failure");
+      assert.ok(busy.assets.some((a) => a.id === durableId));
+    });
     const inventory = await inventoryByteplusPortraits();
     assert.equal(inventory.remote.assetPages, 3);
     assert.deepEqual(inventory.localAssetsMissingRemotely.filter((id) => id.startsWith(tag)), [`${tag}-absent`]);

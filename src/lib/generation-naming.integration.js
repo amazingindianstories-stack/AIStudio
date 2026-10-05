@@ -324,9 +324,8 @@ test("Category 4: Out-and-back gets new serial; folder subtree move preserves se
     assert.equal(initialNaming.namespace, `folder:${subFolder.id}`);
 
     // Check filename before subtree move
-    const folderToken = subFolder.id.replace(/-/g, "");
     const filenames1 = await batchResolveGenerationFilenames(db, [genA.id]);
-    assert.equal(filenames1.get(genA.id).filename, `${slugifyToken(p1Name)}_${slugifyToken(subName)}--${folderToken}_0001.mp4`);
+    assert.equal(filenames1.get(genA.id).filename, `${slugifyToken(p1Name)}_${slugifyToken(subName)}_0001.mp4`);
 
     // Move subFolder from parent1 to parent2
     await moveFolder({
@@ -341,7 +340,7 @@ test("Category 4: Out-and-back gets new serial; folder subtree move preserves se
 
     // But the resolved filename reflects the new parent2 prefix!
     const filenames2 = await batchResolveGenerationFilenames(db, [genA.id]);
-    assert.equal(filenames2.get(genA.id).filename, `${slugifyToken(p2Name)}_${slugifyToken(subName)}--${folderToken}_0001.mp4`);
+    assert.equal(filenames2.get(genA.id).filename, `${slugifyToken(p2Name)}_${slugifyToken(subName)}_0001.mp4`);
 
     // Out-and-back move for generation: move to parent1, then back to subFolder
     await moveGenerations({
@@ -400,7 +399,7 @@ test("Category 5: Global Unsorted, Project Unsorted, nested folders, cross-scope
     assert.equal(globalNaming.namespace, "global_unsorted");
 
     const filenames1 = await batchResolveGenerationFilenames(db, [globalGen.id]);
-    assert.match(filenames1.get(globalGen.id).filename, /^library_unsorted--00000000000000000000000000000000_\d{4}\.png$/);
+    assert.match(filenames1.get(globalGen.id).filename, /^unsorted_\d{4}\.png$/);
 
     // Move to Project Unsorted
     await moveGenerations({
@@ -412,7 +411,7 @@ test("Category 5: Global Unsorted, Project Unsorted, nested folders, cross-scope
     assert.equal(projNaming.namespace, `project_unsorted:${proj.id}`);
 
     const filenames2 = await batchResolveGenerationFilenames(db, [globalGen.id]);
-    assert.match(filenames2.get(globalGen.id).filename, new RegExp(`^alpha_project_unsorted--${proj.id.replace(/-/g, "")}_\\d{4}\\.png$`));
+    assert.match(filenames2.get(globalGen.id).filename, new RegExp(`^unsorted_\\d{4}\\.png$`));
 
     await db.delete(generations).where(eq(generations.id, globalGen.id));
   } finally {
@@ -443,16 +442,15 @@ test("Category 6: Project and folder renames update filename without reallocatin
   await upsertItem(gen);
 
   try {
-    const f1FolderToken = folder.id.replace(/-/g, "");
     const f1 = await batchResolveGenerationFilenames(db, [gen.id]);
-    assert.equal(f1.get(gen.id).filename, `${slugifyToken(initName)}--${f1FolderToken}_0001.png`);
+    assert.equal(f1.get(gen.id).filename, `${slugifyToken(initName)}_0001.png`);
 
     // Rename folder to renamedName
     await renameFolder({ folderId: folder.id, name: renamedName });
 
     // Serial is preserved (1), filename dynamically reflects renamedName
     const f2 = await batchResolveGenerationFilenames(db, [gen.id]);
-    assert.equal(f2.get(gen.id).filename, `${slugifyToken(renamedName)}--${f1FolderToken}_0001.png`);
+    assert.equal(f2.get(gen.id).filename, `${slugifyToken(renamedName)}_0001.png`);
   } finally {
     await db.delete(generations).where(eq(generations.id, gen.id)).catch(() => {});
     await db.delete(folders).where(eq(folders.id, folder.id)).catch(() => {});
@@ -512,7 +510,7 @@ test("Category 7: ZIP manifest freeze at finalize; later moves do not alter arch
       .orderBy(asc(mediaExportItems.position));
 
     assert.equal(frozenItems.length, entryCount);
-    assert.ok(frozenItems[0].filename.startsWith(`exportfoldera_${tag}--${folderA.id.replace(/-/g, "")}_0001.`));
+    assert.ok(frozenItems[0].filename.startsWith(`exportfoldera_${tag}_0001.`));
 
     // NOW MOVE all items from folderA to folderB in the database!
     await moveGenerations({
@@ -709,8 +707,7 @@ test("Category 8: Direct download route streaming, Range/HEAD headers, 401/403/4
       { params: Promise.resolve({ id: completedGen.id }) },
       { openMediaObject: mockOpenMediaObject }
     );
-    const folderToken = folder.id.replace(/-/g, "");
-    const expectedFilename = `downloadtestfolder--${folderToken}_0001.png`;
+    const expectedFilename = `downloadtestfolder_0001.png`;
     assert.equal(successRes.status, 200);
     assert.equal(successRes.headers.get("x-content-type-options"), "nosniff");
     assert.equal(successRes.headers.get("accept-ranges"), "bytes");

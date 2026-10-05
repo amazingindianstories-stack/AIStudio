@@ -102,8 +102,7 @@ test("Stage 5.1: Large video streaming, Range seeking, and exact Content-Disposi
     assert.equal(fullRes.headers.get("content-length"), String(simulatedSize));
     assert.equal(fullRes.headers.get("accept-ranges"), "bytes");
 
-    const folderToken = folder.id.replace(/-/g, "");
-    const expectedFilename = `videoproject_${folderTag}--${folderToken}_0001.mp4`;
+    const expectedFilename = `videoproject_${folderTag}_0001.mp4`;
     assert.ok(
       fullRes.headers.get("content-disposition").includes(`attachment; filename="${expectedFilename}"`),
       "Must have exact ASCII Content-Disposition"

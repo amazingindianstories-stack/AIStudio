@@ -1756,7 +1756,7 @@ export const useStore = create((set, get) => ({
   loadAllPortraitAssets: async (projectId) => {
     const pid = projectId !== undefined ? projectId : get().activeProjectId;
     const requestId = (get().portraitRequestId || 0) + 1;
-    set({ portraitRequestId: requestId, portraitAssetsLoading: true, portraitSyncError: null,
+    set({ portraitRequestId: requestId, portraitAssetsLoading: true, portraitSyncError: null, portraitSyncInProgress: false,
       ...(get().portraitScope !== pid ? { portraitScope: pid, portraitAssets: [], portraitGroups: [] } : {}) });
     try {
       const url = pid ? `/api/assets/portraits?projectId=${encodeURIComponent(pid)}` : "/api/assets/portraits";
@@ -1766,7 +1766,7 @@ export const useStore = create((set, get) => ({
       if (get().portraitRequestId !== requestId || get().activeProjectId !== pid) return [];
       const assets = json.assets ?? [];
       set({ portraitAssets: assets, portraitGroups: json.groups ?? [],
-        portraitAssetsLoading: false, portraitSyncError: json.syncError || null });
+        portraitAssetsLoading: false, portraitSyncError: json.syncError || null, portraitSyncInProgress: Boolean(json.syncInProgress) });
       return assets;
     } catch (err) {
       if (get().portraitRequestId === requestId) {
@@ -1909,7 +1909,7 @@ export const useStore = create((set, get) => ({
       const nextProjectId =
         currentActiveId && projects.some((p) => p.id === currentActiveId)
           ? currentActiveId
-          : currentActiveId === null && get().projects.length > 0
+          : currentActiveId === null && (get().projects.length > 0 || get().projectScopeSelected)
           ? null
           : projects[0]?.id ?? null;
       set({
@@ -1946,7 +1946,7 @@ export const useStore = create((set, get) => ({
   // The subscription at the bottom of this file watches these and refetches the
   // feed, counts and thread — so switching project or folder is one state write
   // here, not a fetch every caller has to remember to make.
-  setActiveProject: (id) => set({ activeProjectId: id, activeFolderId: null }),
+  setActiveProject: (id) => set({ activeProjectId: id, activeFolderId: null, projectScopeSelected: true }),
   setActiveFolder: (id) => set({ activeFolderId: id }),
 
   createProject: async (name) => {
@@ -2029,7 +2029,7 @@ export const useStore = create((set, get) => ({
     }
     const json = await res.json();
     if (json.folder?.id) {
-      set({ activeProjectId: json.folder.projectId ?? null, activeFolderId: json.folder.id });
+      set({ activeProjectId: json.folder.projectId ?? null, activeFolderId: json.folder.id, projectScopeSelected: true });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree(), get().loadCounts()]);
     return json.folder;

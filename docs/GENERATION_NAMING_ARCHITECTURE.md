@@ -96,32 +96,32 @@ Because PostgreSQL row locks on `naming_counters` serialize updates per namespac
 
 ## 4. Pure Filename Resolver (`src/lib/filename-resolver.js`)
 
-### 4.1 Slugification & Sanitization
-1. **Unicode NFKD Decomposition**: Accented and special characters are decomposed into ASCII base forms (e.g. `é` $\to$ `e`, `ö` $\to$ `o`).
-2. **Token Normalization**: All characters converted to lowercase; illegal characters replaced with underscores; consecutive underscores collapsed; leading and trailing underscores trimmed. Empty tokens default to `folder`.
-3. **Ancestry Path Building**:
-   - Global Unsorted: `library_unsorted`
-   - Project Unsorted: `<project_name>_unsorted`
-   - Folders: Full ancestor chain `<project_name>_<parent>_<child>_<leaf>` or `<root_folder>_<child>_<leaf>`.
-4. **Serial Formatting**: Zero-padded to at least 4 digits (`0001`, `0042`, `9999`, `10000`).
+### 4.1 Filename presentation (updated by user request)
 
-### 4.2 Canonical Filename Shape
-Every resolved filename has the form:
+Only the folder ancestry and stable container serial appear in download names.
+Project names and internal UUID/namespace tokens are omitted. For example,
+`R01` containing `Sc001` produces `R01_SC001_0001.png` (or `.mp4`). Reel and
+scene codes are uppercased; other folder tokens retain portable lowercase ASCII
+slugification. Unsorted assets use `unsorted_0001.<ext>`.
 
-```
-<readable_prefix>--<namespace_token>_<serial>.<ext>
-```
+The serial remains allocated by the existing naming counters. Sorting, lifecycle
+updates, retries, and project renames do not renumber assets. Moving an asset to
+another folder allocates its next destination serial; moving a whole folder
+preserves serials and changes only the readable ancestry.
 
-Example: `foldername--3f2a9c1e5b7d4e8fa0c1b2d3e4f5a6b7_0001.png`
+### 4.2 Collisions and frozen archives
 
-- `<namespace_token>` is a fixed-width, 32-character lowercase hex token derived from the direct container: the folder UUID (folders), the project UUID (project Unsorted), or 32 zeros (Global Unsorted).
-- Slugified user text only ever contains `[a-z0-9_]` with single underscores, so the `--` delimiter cannot be impersonated by any folder or project name. This makes filenames unique across namespaces regardless of how the readable prefix normalizes, and independent of which batch requested them.
+Compact filenames are scoped to their folders, not globally unique across
+projects. Identical folder paths or normalized names can yield identical
+filenames. ZIP finalization rejects duplicate case-normalized filenames before
+queueing rather than silently overwriting entries or adding IDs. Existing
+finalized manifests retain their frozen names, including older decorated names.
 
-### 4.3 Length Bounding & Entropy Preservation
-- Maximum filename length: **255 UTF-8 bytes** (standard limit for APFS, NTFS, and ext4).
-- The tail `--<namespace_token>_<serial>.<ext>` is invariant and never truncated.
-- If the full name would exceed 255 bytes, only the readable prefix is truncated, and a 6-character hex SHA-256 digest of the un-truncated prefix is inserted before the token:
-  `<truncated_prefix>_<hash6>--<namespace_token>_<serial>.<ext>`
+### 4.3 Length bounding
+
+Names remain bounded to 255 UTF-8 bytes. Only paths exceeding that limit receive
+a deterministic 16-character SHA-256 truncation hash; normal reel/scene names
+contain no hash or ID suffix. The serial and extension are never truncated.
 
 ### 4.4 Windows Device Name Guard
 If the readable prefix equals a Windows reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`..`COM9`, `LPT1`..`LPT9`), it is prefixed with an underscore (e.g. `_con--<namespace_token>_0001.png`).
@@ -239,8 +239,8 @@ If issues are discovered after deployment, execute a zero-data-loss rollback:
 | **Category 3** | Simultaneous moves, idempotency replay, payload mismatch 409, same-location no-op, rollback safety | **VERIFIED** | `src/lib/generation-naming.integration.js` (Cat 3 pass) |
 | **Category 4** | Out-and-back gets new serial; folder subtree move preserves serials & dynamically updates path prefix | **VERIFIED** | `src/lib/generation-naming.integration.js` (Cat 4 pass) |
 | **Category 5** | Global Unsorted, Project Unsorted, nested folders, cross-scope moves | **VERIFIED** | `src/lib/generation-naming.integration.js` (Cat 5 pass) |
-| **Category 6** | Project and folder renames update filename dynamically without reallocating serial | **VERIFIED** | `src/lib/generation-naming.integration.js` (Cat 6 pass) |
+| **Category 6** | Folder renames update filename; project renames do not affect filename or serial | **VERIFIED** | `src/lib/generation-naming.integration.js` (Cat 6 pass) |
 | **Category 7** | ZIP manifest freeze at finalize; later moves do not alter archive; Python `zipfile.testzip()` on 257+ entries | **VERIFIED** | `src/lib/generation-naming.integration.js` (Cat 7 pass) |
 | **Category 8** | Direct download route streaming, Range/HEAD headers, 401/403/404/409 error handling | **VERIFIED** | `src/lib/generation-naming.integration.js` (Cat 8 pass) |
 | **Category 9** | Migration preflight audit, idempotent rerun, upgrade from prior release schema, invariant enforcement | **VERIFIED** | `src/lib/true-legacy-migration.integration.js` pass |
-| **Category 10** | Pure resolver unit tests: slugification, Windows reserved names, collision suffix, length bounding | **VERIFIED** | `src/lib/filename-resolver.test.js` (8 unit tests pass) |
+| **Category 10** | Pure resolver unit tests: slugification, Windows reserved names, compact reel/scene names, length bounding | **VERIFIED** | `src/lib/filename-resolver.test.js` (8 unit tests pass) |

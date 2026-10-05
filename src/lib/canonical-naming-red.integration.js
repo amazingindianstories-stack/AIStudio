@@ -1,4 +1,5 @@
 import test from "node:test";
+import { randomUUID } from "node:crypto";
 import assert from "node:assert/strict";
 import { inArray, eq } from "drizzle-orm";
 import { getDb } from "./db.js";
@@ -16,15 +17,15 @@ import {
   finalizeMediaExport,
 } from "./media-exports-db.js";
 
-test("RED Test 1: Secondary collision with Café, Cafe, and cafe_aaaa", async () => {
+test("Compact naming rejects ZIP collisions with Café and Cafe without decorating downloads", async () => {
   const db = await getDb();
-  const f1Id = "aaaa0000-0000-0000-0000-000000000001";
-  const f2Id = "bbbb0000-0000-0000-0000-000000000002";
-  const f3Id = "cccc0000-0000-0000-0000-000000000003";
+  const f1Id = randomUUID();
+  const f2Id = randomUUID();
+  const f3Id = randomUUID();
 
-  const g1Id = "11111111-0000-0000-0000-000000000001";
-  const g2Id = "22222222-0000-0000-0000-000000000002";
-  const g3Id = "33333333-0000-0000-0000-000000000003";
+  const g1Id = randomUUID();
+  const g2Id = randomUUID();
+  const g3Id = randomUUID();
 
   await db.delete(generationNaming).where(inArray(generationNaming.generationId, [g1Id, g2Id, g3Id])).catch(() => {});
   await db.delete(generations).where(inArray(generations.id, [g1Id, g2Id, g3Id])).catch(() => {});
@@ -55,8 +56,19 @@ test("RED Test 1: Secondary collision with Café, Cafe, and cafe_aaaa", async ()
       fn3,
       `Secondary collision detected: Folder Café and folder cafe_aaaa both resolved to '${fn1}'`
     );
-    assert.notEqual(fn1, fn2, "Café and Cafe must not collide");
+    assert.equal(fn1, fn2, "Compact names omit internal namespace IDs");
     assert.notEqual(fn2, fn3, "Cafe and cafe_aaaa must not collide");
+    const ownerId = randomUUID();
+    const exp = await createMediaExport(ownerId, now);
+    try {
+      await appendMediaExportItems(exp.id, ownerId, [g1Id, g2Id], now);
+      await assert.rejects(finalizeMediaExport(exp.id, ownerId, now), /EXPORT_FILENAME_COLLISION/);
+      const [row] = await db.select().from(mediaExports).where(eq(mediaExports.id, exp.id));
+      assert.equal(row.status, "draft", "Duplicate names must never reach the ZIP worker");
+    } finally {
+      await db.delete(mediaExportItems).where(eq(mediaExportItems.exportId, exp.id));
+      await db.delete(mediaExports).where(eq(mediaExports.id, exp.id));
+    }
   } finally {
     await db.delete(generationNaming).where(inArray(generationNaming.generationId, [g1Id, g2Id, g3Id])).catch(() => {});
     await db.delete(generations).where(inArray(generations.id, [g1Id, g2Id, g3Id])).catch(() => {});
@@ -66,9 +78,9 @@ test("RED Test 1: Secondary collision with Café, Cafe, and cafe_aaaa", async ()
 
 test("RED Test 2: Unrelated folder creation must not retroactively rename existing generations", async () => {
   const db = await getDb();
-  const f1Id = "11110000-0000-0000-0000-000000000001";
-  const f2Id = "22220000-0000-0000-0000-000000000002";
-  const g1Id = "99990000-0000-0000-0000-000000000001";
+  const f1Id = randomUUID();
+  const f2Id = randomUUID();
+  const g1Id = randomUUID();
 
   await db.delete(generationNaming).where(inArray(generationNaming.generationId, [g1Id])).catch(() => {});
   await db.delete(generations).where(inArray(generations.id, [g1Id])).catch(() => {});
@@ -109,11 +121,11 @@ test("RED Test 2: Unrelated folder creation must not retroactively rename existi
 
 test("RED Test 3: Truncation hash collision & ZIP silent rename position suffix", async () => {
   const db = await getDb();
-  const f1Id = "33330000-0000-0000-0000-000000000001";
-  const f2Id = "44440000-0000-0000-0000-000000000002";
-  const g1Id = "77770000-0000-0000-0000-000000000001";
-  const g2Id = "88880000-0000-0000-0000-000000000002";
-  const userId = "55550000-0000-0000-0000-000000000001";
+  const f1Id = randomUUID();
+  const f2Id = randomUUID();
+  const g1Id = randomUUID();
+  const g2Id = randomUUID();
+  const userId = randomUUID();
 
   const p1 = "long".repeat(62) + "_505";
   const p2 = "long".repeat(62) + "_4265";
@@ -164,9 +176,9 @@ test("RED Test 3: Truncation hash collision & ZIP silent rename position suffix"
 
 test("RED Test 4: Finalized export retry must preserve frozen filenames across folder rename", async () => {
   const db = await getDb();
-  const fId = "f0000000-0000-0000-0000-000000000001";
-  const gId = "10000000-0000-0000-0000-000000000001";
-  const userId = "20000000-0000-0000-0000-000000000001";
+  const fId = randomUUID();
+  const gId = randomUUID();
+  const userId = randomUUID();
 
   await db.delete(mediaExportItems).where(eq(mediaExportItems.generationId, gId)).catch(() => {});
   await db.delete(generationNaming).where(eq(generationNaming.generationId, gId)).catch(() => {});
@@ -215,17 +227,17 @@ test("RED Test 4: Finalized export retry must preserve frozen filenames across f
   }
 });
 
-test("RED Test 5: Project Unsorted and folders matching decorated namespaces must not collide", async () => {
+test("Compact names omit project names while preserving explicit folder names", async () => {
   const db = await getDb();
-  const p1Id = "aaaa0000-0000-0000-0000-000000000001";
-  const p2Id = "bbbb0000-0000-0000-0000-000000000002";
-  const f1Id = "cccc0000-0000-0000-0000-000000000003";
-  const f2Id = "dddd0000-0000-0000-0000-000000000004";
+  const p1Id = randomUUID();
+  const p2Id = randomUUID();
+  const f1Id = randomUUID();
+  const f2Id = randomUUID();
 
-  const gAId = "11110000-0000-0000-0000-000000000001";
-  const gBId = "22220000-0000-0000-0000-000000000002";
-  const gCId = "33330000-0000-0000-0000-000000000003";
-  const gDId = "44440000-0000-0000-0000-000000000004";
+  const gAId = randomUUID();
+  const gBId = randomUUID();
+  const gCId = randomUUID();
+  const gDId = randomUUID();
 
   await db.delete(generationNaming).where(inArray(generationNaming.generationId, [gAId, gBId, gCId, gDId])).catch(() => {});
   await db.delete(generations).where(inArray(generations.id, [gAId, gBId, gCId, gDId])).catch(() => {});
@@ -263,9 +275,13 @@ test("RED Test 5: Project Unsorted and folders matching decorated namespaces mus
 
     assert.equal(
       uniqueNames.size,
-      4,
-      `Collision across project unsorted and decorated folder: expected 4 unique filenames, got: ${JSON.stringify(allNames)}`
+      3,
+      `Both project-unsorted assets share a readable filename without project decoration`
     );
+    assert.equal(fnA, "unsorted_0001.png");
+    assert.equal(fnB, fnA);
+    assert.equal(fnC, "alpha_beta_unsorted_aaaa_0001.png");
+    assert.equal(fnD, "alpha_beta_unsorted_0001.png");
   } finally {
     await db.delete(generationNaming).where(inArray(generationNaming.generationId, [gAId, gBId, gCId, gDId])).catch(() => {});
     await db.delete(generations).where(inArray(generations.id, [gAId, gBId, gCId, gDId])).catch(() => {});

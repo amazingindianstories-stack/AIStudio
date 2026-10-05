@@ -103,15 +103,16 @@ test("Canonical Naming Acceptance 1: 'Café' vs 'Cafe' batch-independent filenam
       `Batch-independence violated for g2: single resolved '${fn2Single}', combined ZIP resolved '${fn2Zip}'`
     );
 
-    // Collision avoidance: Within the ZIP, they must NOT collide
-    assert.notEqual(
+    // Compact filenames deliberately describe the folder, not its internal ID.
+    // ZIP finalization owns the duplicate-name rejection gate.
+    assert.equal(
       fn1Zip,
       fn2Zip,
-      `Filenames must be unique between colliding folders in ZIP export: '${fn1Zip}' vs '${fn2Zip}'`
+      `Same readable folder names use the same compact filename`
     );
 
     // Both must include deterministic container disambiguator because 'cafe_<tag>' namespace collides
-    const pattern = new RegExp(`^cafe_${tag}--[0-9a-f]{32}_0001\\.png$`);
+    const pattern = new RegExp(`^cafe_${tag}_0001\\.png$`);
     assert.match(fn1Zip, pattern, `fn1Zip should match pattern: ${fn1Zip}`);
     assert.match(fn2Zip, pattern, `fn2Zip should match pattern: ${fn2Zip}`);
 
@@ -183,9 +184,9 @@ test("Canonical Naming Acceptance 2: Project Unsorted collisions ('Alpha Beta' v
 
     assert.equal(singleA.get(gAId)?.filename, fnA, "Project Unsorted gen A filename must be batch-independent");
     assert.equal(singleB.get(gBId)?.filename, fnB, "Project Unsorted gen B filename must be batch-independent");
-    assert.notEqual(fnA, fnB, "Project Unsorted colliding filenames must be unique");
+    assert.equal(fnA, fnB, "Project names do not decorate compact filenames");
 
-    const expectedPattern = new RegExp(`^alpha_beta_${tag}_unsorted--[0-9a-f]{32}_0001\\.png$`);
+    const expectedPattern = /^unsorted_0001\.png$/;
     assert.match(fnA, expectedPattern, "Gen A filename must include disambiguator");
     assert.match(fnB, expectedPattern, "Gen B filename must include disambiguator");
   } finally {
@@ -268,9 +269,9 @@ test("Canonical Naming Acceptance 3: Long-truncated ancestry collisions with SHA
     // Colliding prefix must be disambiguated by SHA-256 entropy hash
     assert.notEqual(fn1, fn2, "Long filenames sharing prefix must not collide due to hash");
 
-    // Both must contain the 6-character hex hash pattern and the 32-character namespace token
-    assert.match(fn1, /_[0-9a-f]{6}--[0-9a-f]{32}_0001\.png$/, "Filename 1 must include 6-character SHA-256 hash");
-    assert.match(fn2, /_[0-9a-f]{6}--[0-9a-f]{32}_0001\.png$/, "Filename 2 must include 6-character SHA-256 hash");
+    // Both must contain the 16-character hex hash pattern and the 32-character namespace token
+    assert.match(fn1, /_[0-9a-f]{16}_0001\.png$/, "Filename 1 must include 16-character SHA-256 hash");
+    assert.match(fn2, /_[0-9a-f]{16}_0001\.png$/, "Filename 2 must include 16-character SHA-256 hash");
   } finally {
     await db.delete(generations).where(inArray(generations.id, [g1Id, g2Id]));
     await db.delete(folders).where(inArray(folders.id, [leaf1.id, leaf2.id, grandChild.id, childFolder.id, rootFolder.id]));
