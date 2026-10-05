@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { aspectMaxWidth, aspectToPadding, inlineMediaUrl, thumbUrl, referenceDisplayUrl } from "./utils";
+import { aspectMaxWidth, aspectToPadding, inlineMediaUrl, thumbUrl, referenceDisplayUrl, generationDownloadUrl } from "./utils";
 
 test("thumbUrl and inlineMediaUrl only touch our own media route", () => {
   // Data URLs and provider URLs must pass through untouched — only
@@ -112,5 +112,33 @@ test("referenceDisplayUrl cleanly prepares references for browser <img> tags", (
   assert.equal(referenceDisplayUrl("data:image/png;base64,AAAA"), "data:image/png;base64,AAAA");
   assert.equal(referenceDisplayUrl(null), "");
   assert.equal(referenceDisplayUrl(undefined), "");
+});
+
+test("generationDownloadUrl constructs the canonical direct download path requesting signed mode", () => {
+  const genId = "0f25a7d3-7d23-455c-bfa8-04f76cc39904";
+
+  // String ID argument defaults to signed=1
+  assert.equal(
+    generationDownloadUrl(genId),
+    `/api/generations/${genId}/download?signed=1`
+  );
+
+  // Object item argument defaults to signed=1
+  assert.equal(
+    generationDownloadUrl({ id: genId, kind: "video" }),
+    `/api/generations/${genId}/download?signed=1`
+  );
+
+  // Explicit signed: false yields unsuffixed base path
+  assert.equal(
+    generationDownloadUrl(genId, { signed: false }),
+    `/api/generations/${genId}/download`
+  );
+
+  // Empty or invalid input returns empty string
+  assert.equal(generationDownloadUrl(null), "");
+  assert.equal(generationDownloadUrl(undefined), "");
+  assert.equal(generationDownloadUrl(""), "");
+  assert.equal(generationDownloadUrl({}), "");
 });
 

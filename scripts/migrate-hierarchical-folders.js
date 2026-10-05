@@ -170,25 +170,22 @@ export const HIERARCHICAL_FOLDER_STATEMENTS = [
   "CREATE INDEX IF NOT EXISTS organization_idempotency_keys_actor_op_idx ON organization_idempotency_keys(actor_id, operation)",
 ];
 
-async function main() {
-  const db = await getDb();
-  console.log("Applying hierarchical folders additive migration...");
-
-  for (const statement of HIERARCHICAL_FOLDER_STATEMENTS) {
-    await db.execute(sql.raw(statement));
-  }
-
-  // Verification queries
-  const folderCols = await db.execute(sql`
+/**
+ * Verifies post-migration columns and schema state for hierarchical folders.
+ */
+export async function verifyHierarchicalFolders(tx) {
+  const folderCols = await tx.execute(sql`
     SELECT column_name
     FROM information_schema.columns
     WHERE table_name = 'folders'
+      AND table_schema = current_schema()
       AND column_name IN ('parent_id', 'name_normalized', 'version', 'updated_at');
   `);
-  const genCols = await db.execute(sql`
+  const genCols = await tx.execute(sql`
     SELECT column_name
     FROM information_schema.columns
     WHERE table_name = 'generations'
+      AND table_schema = current_schema()
       AND column_name = 'location_version';
   `);
 
@@ -196,10 +193,40 @@ async function main() {
   const genCount = (genCols.rows ?? genCols).length;
 
   if (folderCount === 4 && genCount === 1) {
-    console.log("hierarchical folders migration successfully verified");
+    return { success: true, folderCount, genCount };
   } else {
     throw new Error(`Migration verification failed: folderCount=${folderCount}/4, genCount=${genCount}/1`);
   }
+}
+
+/**
+ * Executes the hierarchical folders additive migration atomically inside one db.transaction.
+ * All DDL statements and post-migration verification execute inside the same transaction.
+ * Any statement or verification failure rolls back the entire hierarchy migration.
+ */
+export async function migrateHierarchicalFolders(customDb = null) {
+  const db = customDb || (await getDb());
+  console.log("Applying hierarchical folders additive migration...");
+
+  const runner = async (tx) => {
+    for (const statement of HIERARCHICAL_FOLDER_STATEMENTS) {
+      await tx.execute(sql.raw(statement));
+    }
+    await verifyHierarchicalFolders(tx);
+  };
+
+  if (typeof db.transaction === "function") {
+    await db.transaction(runner);
+  } else {
+    await runner(db);
+  }
+
+  console.log("hierarchical folders migration successfully verified");
+  return { success: true };
+}
+
+async function main() {
+  await migrateHierarchicalFolders();
 }
 
 if (process.argv[1] && process.argv[1].endsWith("migrate-hierarchical-folders.js")) {

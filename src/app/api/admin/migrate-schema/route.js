@@ -568,6 +568,7 @@ export async function POST(request) {
         generationNamingTables: namingCount,
       };
 
+      // verified: coordCount === 21
       verified = coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 4 && namingCount === 2;
       if (!verified) {
         throw new Error(`Verification count mismatch: ${JSON.stringify(counts)}`);
@@ -577,7 +578,7 @@ export async function POST(request) {
     return NextResponse.json({
       success: true,
       ...counts,
-      verified: coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 4 && namingCount === 2,
+      verified,
     });
   } catch (error) {
     console.error("[migrate-schema] Error applying migration:", error);

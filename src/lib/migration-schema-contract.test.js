@@ -22,7 +22,9 @@ test("generation migration verifies every generation column it adds", () => {
     "COORDINATOR_STATEMENTS and coordinatorVerification must stay in sync"
   );
 
-  const expectedCount = Number(route.match(/verified: coordCount === (\d+)/)?.[1]);
+  const expectedCount = Number(
+    route.match(/(?:verified:|verified\s*=)\s*coordCount === (\d+)/)?.[1]
+  );
   assert.equal(expectedCount, new Set(verifiedColumns).size);
 });
 

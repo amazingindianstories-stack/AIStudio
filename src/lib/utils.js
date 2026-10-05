@@ -131,3 +131,19 @@ export function timeAgo(ts) {
   const d = Math.floor(h / 24);
   return `${d}d ago`;
 }
+
+/**
+ * Constructs the canonical direct-download URL for a generation.
+ * Requests signed mode (?signed=1) by default so browser downloads stream directly
+ * from cloud storage, bypassing Vercel serverless execution timeouts.
+ * If signed cloud download is unavailable, the backend route falls back to safe streaming.
+ */
+export function generationDownloadUrl(generationOrId, { signed = true } = {}) {
+  const id =
+    typeof generationOrId === "object" && generationOrId !== null
+      ? generationOrId.id
+      : generationOrId;
+  if (!id) return "";
+  const base = `/api/generations/${id}/download`;
+  return signed ? `${base}?signed=1` : base;
+}

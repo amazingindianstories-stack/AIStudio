@@ -22,7 +22,7 @@ import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { GenerationStatus } from "./GenerationStatus";
 import { useConfirmedAction } from "./useConfirmedAction";
-import { aspectMaxWidth, aspectToPadding, cn, thumbUrl } from "@/lib/utils";
+import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
 // under typical multi-megapixel originals while staying sharp at ~2x DPR.
@@ -317,7 +317,7 @@ function FeedBlock({ item, index }) {
               </button>
               {item.url && (
                 <a
-                  href={`/api/generations/${item.id}/download`}
+                  href={generationDownloadUrl(item.id)}
                   download={item.filename || true}
                   onClick={(e) => e.stopPropagation()}
                   className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
