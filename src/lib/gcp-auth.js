@@ -9,6 +9,23 @@ const CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform";
 
 let cachedAuth;
 
+/** Railway can inject a service-account key as a secret rather than a file. */
+export function serviceAccountCredentials(env = process.env) {
+  if (!env.GCP_SERVICE_ACCOUNT_JSON) return undefined;
+  let credentials;
+  try {
+    credentials = JSON.parse(env.GCP_SERVICE_ACCOUNT_JSON);
+  } catch {
+    throw new Error("GCP_SERVICE_ACCOUNT_JSON must contain a valid service-account JSON object");
+  }
+  if (credentials?.type !== "service_account" ||
+      typeof credentials.client_email !== "string" || !credentials.client_email ||
+      typeof credentials.private_key !== "string" || !credentials.private_key) {
+    throw new Error("GCP_SERVICE_ACCOUNT_JSON requires service_account, client_email and private_key");
+  }
+  return credentials;
+}
+
 function required(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required for Vercel GCP federation`);
@@ -50,6 +67,7 @@ export function getGoogleAuth() {
     cachedAuth = new GoogleAuth({
       projectId: process.env.GCP_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT,
       scopes: [CLOUD_PLATFORM_SCOPE],
+      credentials: serviceAccountCredentials(),
     });
     return cachedAuth;
   }
@@ -80,7 +98,7 @@ export function getGoogleAuth() {
  * instanceof check sees a class it actually recognizes.
  */
 export function getStorageCredentials() {
-  if (process.env.GCP_AUTH_MODE !== "wif") return undefined;
+  if (process.env.GCP_AUTH_MODE !== "wif") return serviceAccountCredentials();
   return externalAccountOptions();
 }
 
