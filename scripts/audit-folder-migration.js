@@ -199,7 +199,8 @@ async function main() {
     if (report.issuesCount === 0) {
       console.log("\n[SUCCESS] Preflight audit passed: Database is clean and ready for additive migration.");
     } else {
-      console.warn(`\n[WARNING] Found ${report.issuesCount} anomalies that require remediation before strict constraints.`);
+      console.error(`\n[ERROR] Audit detected ${report.issuesCount} blocking anomalies that require remediation before migration.`);
+      process.exitCode = 1;
     }
   } catch (error) {
     console.error("Preflight audit failed:", error);

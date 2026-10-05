@@ -9,6 +9,7 @@
 
 - **Target Branch**: `feat/freeform-hierarchical-library-naming`
 - **Pre-Migration Backup**: Cloud SQL / Managed PostgreSQL Point-In-Time Recovery (PITR) checkpoint
+- **Organization Snapshot Utility**: `scripts/snapshot-organization.js` (`npm run db:snapshot:organization`)
 - **Pre-Migration Audit Scripts**:
   - `scripts/audit-folder-migration.js` (`npm run db:audit:hierarchical-folders`)
   - `scripts/audit-generation-naming.js` (`npm run db:audit:generation-naming`)
@@ -20,117 +21,148 @@
 
 ---
 
-## 2. Step-by-Step Deployment Procedure
+## 2. Controlled Write-Freeze Protocol
 
-### Phase 1: Database Backup & PITR Snapshot
+The expanded hierarchy schema enforces bidirectional foreign key, sibling uniqueness, and trigger constraints. To prevent write skew or partial state while old and new components transition, the migration window requires a short **controlled organizational-write freeze**:
 
-Immediately prior to running migrations, establish a verified database restore point:
-1. In Cloud SQL or the managed database console, initiate an on-demand snapshot/backup.
-2. Confirm Point-In-Time Recovery (PITR) / transaction logging is active.
-3. Record the exact restore timestamp / snapshot ID before proceeding.
+### Prohibited Operations During Freeze Window:
+During the maintenance window (between Step 2 and Step 18 below), the following mutations are prohibited:
+1. **Project Deletion**: Do not delete any existing projects.
+2. **Folder Deletion**: Do not delete any existing folders.
+3. **Folder Creation**: Do not create new folders.
+4. **Folder Movement**: Do not move, reparent, or rename folders.
+5. **Generation Movement**: Do not move generations between folders, projects, or Unsorted.
+
+### Allowed Operations:
+- Read-only browsing and feed inspection remain fully available.
+- Enqueueing new image/video generations continues normally (triggers auto-assign naming rows without blocking).
+
+### Operational Procedure:
+Operators schedule a brief maintenance window (estimated < 5 minutes) during low-traffic periods. If an application maintenance banner or gateway write-lock is configured, activate it before Step 2 and deactivate it after Step 18.
 
 ---
 
-### Phase 2: Pre-Flight Database Audits (Read-Only)
+## 3. Step-by-Step Deployment Procedure (Strict Sequence)
 
-Run both read-only pre-flight audit scripts against the target database to check for existing anomalies, orphaned references, or legacy naming collisions:
+Execute the rollout following this exact 18-step checklist:
 
+### Step 1: Verify Production Backup / PITR Restore Point
+Confirm an immediate, valid restore point exists before touching the database:
+- Create an on-demand snapshot in the Cloud SQL / managed database console.
+- Confirm continuous transaction archiving / Point-In-Time Recovery (PITR) is active and note the exact timestamp.
+
+### Step 2: Enter Controlled Organizational-Write Freeze
+- Announce or activate the scheduled write freeze window.
+- Prohibit project/folder creation, deletion, and relocation.
+
+### Step 3: Run Organization BEFORE Snapshot
+Capture a deterministic pre-migration snapshot of all existing projects, folders, and generation assignments:
 ```bash
-# 1. Audit hierarchical folder tree invariants and legacy sibling names
-npm run db:audit:hierarchical-folders
+npm run db:snapshot:organization
+```
+Record the counts (total projects, total folders, total generations, project unsorted, global unsorted).
 
-# 2. Audit generation naming coverage, counter alignments, and sequence invariants
+### Step 4: Run Hierarchical-Folder Audit
+Execute the read-only preflight audit for folders:
+```bash
+npm run db:audit:hierarchical-folders
+```
+
+### Step 5: Require Zero Blockers on Folder Audit
+- The command must exit with code 0 and output: `[SUCCESS] Preflight audit passed: Database is clean and ready for additive migration.`
+- If exit code is non-zero or anomalies exist, **STOP** rollout immediately and resolve anomalies before proceeding.
+
+### Step 6: Run Generation-Naming Audit
+Execute the read-only preflight audit for generation naming:
+```bash
 npm run db:audit:generation-naming
 ```
 
-**Expected Result**:
-- Both scripts exit with code 0.
-- Confirms zero blocking integrity anomalies.
-- If sibling naming collisions or orphaned references exist, resolve them prior to proceeding.
+### Step 7: Require Zero Blockers on Naming Audit
+- The command must exit with code 0 and output: `Preflight audit passed with 0 blocking anomalies. Ready for migration.`
+- If exit code is non-zero or anomalies exist, **STOP** rollout immediately and resolve before proceeding.
 
----
-
-### Phase 3: Apply Additive Schema Migrations (Strict Ordering)
-
-Execute the additive migrations in the following strict order:
-
+### Step 8: Run Hierarchy Additive Migration
+Execute the atomic hierarchical folders schema migration:
 ```bash
-# Step 1: Hierarchical library structure, normalized keys, and atomic constraints
 npm run db:migrate:hierarchical-folders
+```
+*Note: All DDL statements and verification execute atomically in one transaction and roll back on any error.*
 
-# Step 2: Generation naming tables, sequence counters, and self-healing triggers
+### Step 9: Run Naming Additive Migration
+Execute the atomic generation naming schema migration:
+```bash
 npm run db:migrate:generation-naming
 ```
+*Note: All tables, counters, triggers, backfills, and verification execute atomically in one transaction.*
 
-*Note on Online Alternative*: If executing via the online coordinator endpoint, send an authenticated `POST` request to `/api/admin/migrate-schema` with the administrative secret header (`x-setup-secret` or `x-migration-token`). The endpoint executes the same migration steps atomically in one transaction.
-
----
-
-### Phase 4: Production Schema Verification (Deployment Blocker)
-
-Run the authoritative production schema verifier:
-
+### Step 10: Run Production Schema Verifier
+Execute the authoritative production schema verifier (Deployment Blocker):
 ```bash
 npm run db:verify:production-schema
 ```
-
-**Verification Gate**:
-- Must output: `"production schema matches all Drizzle-owned tables and hierarchy invariants"`.
-- Must exit with code 0.
+- Must output: `"production schema matches all Drizzle-owned tables and hierarchy invariants"` and exit 0.
 - **If this verifier fails, do NOT proceed to application code deployment.**
 
+### Step 11: Run Organization AFTER Snapshot
+Capture the post-migration organization snapshot:
+```bash
+npm run db:snapshot:organization
+```
+
+### Step 12: Compare Preservation Invariants
+Compare the before and after snapshots. The following invariants must hold with ZERO unexpected differences:
+- `projects lost = 0`
+- `folders lost = 0`
+- `generations lost = 0`
+- `existing project IDs changed = 0`
+- `existing folder IDs changed = 0`
+- `existing generation IDs changed = 0`
+- `generation project assignments changed = 0`
+- `generation folder assignments changed = 0`
+- `project-Unsorted membership changed = 0`
+- `global-Unsorted membership changed = 0`
+- `media/storage references changed = 0`
+- `legacy folders with non-null parent = 0` (all legacy folders retain `parent_id = NULL`)
+
+### Step 13: Hard Gate — STOP If Any Organizational Assignments Changed
+If any existing project, folder, or generation assignment changed unexpectedly:
+- **STOP immediately.**
+- Do not proceed to application or worker deployment.
+- Investigate diffs against pre-migration snapshot.
+
+### Step 14: Deploy Updated Railway Media Export Worker (FIRST)
+Deploy the media export worker on Railway before updating the web application:
+- Worker natively processes `manifest_version: 2` exports with frozen verbatim filenames.
+- Worker remains strictly backward-compatible with legacy `manifest_version: 1` jobs.
+- Deploying the worker first ensures that when the web application begins issuing version-2 manifests, the live worker will process them seamlessly.
+
+### Step 15: Deploy Vercel Application (SECOND)
+Deploy the web application from branch `feat/freeform-hierarchical-library-naming` to Vercel:
+- Schema changes are strictly additive and backward-compatible.
+- Older running instances continue functioning normally during the transition.
+- Newly deployed instances activate hierarchical navigation, container-scoped serial naming, signed downloads, and frozen ZIP exports.
+
+### Step 16: Verify Expected Vercel Release Is Serving
+- Check Vercel deployment dashboard and confirm the deployment from `feat/freeform-hierarchical-library-naming` is live.
+- Probe `/api/admin/status` or health endpoint to confirm response from the newly deployed commit.
+
+### Step 17: Run Production Smoke Tests
+Perform live browser smoke verification:
+1. **Hierarchical Folders**: Create a test global root folder, create a child subfolder, verify breadcrumb navigation, move a generation into the subfolder, move to Global Unsorted, and clean up test folders.
+2. **Direct Signed Downloads**: Click Download on an image and video card. Verify download URL requests signed mode (`/api/generations/<id>/download?signed=1`), streams directly from cloud storage, and yields canonical container-scoped filename (e.g. `foldername_0001.png`).
+3. **ZIP Exports**: Select multiple generations across different folders and export as ZIP. Verify export completes via Railway worker and extracted filenames match canonical assignments without duplicates or double extensions.
+
+### Step 18: Exit Write Freeze
+Once all smoke tests pass, deactivate the maintenance window / write freeze and return to normal operations.
+
 ---
 
-### Phase 5: Non-Billed Generation Smoke Verification
-
-Per `AGENTS.md`, `itemToValues()` in `src/lib/store-db.js` writes wide rows. Before deploying application code:
-1. Enqueue one non-billed generation for each affected kind (`image`, `video`, `depth`).
-2. Verify row inserts succeed with default `location_version = 1` and corresponding `generation_naming` assignment.
-
----
-
-### Phase 6: Worker and Application Code Deployment
-
-#### 6.1 Deploy Railway Media Export Worker (FIRST)
-Deploy the media export worker on Railway before updating the web application.
-- The new worker is fully backward-compatible with legacy `manifest_version: 1` jobs (and includes double-extension guards preventing `.png.png` anomalies).
-- It natively processes `manifest_version: 2` jobs using frozen verbatim filenames.
-- Deploying the worker first guarantees that when the Vercel application begins submitting version-2 manifests, the live worker will process them correctly.
-
-#### 6.2 Deploy Vercel Web Application (SECOND)
-Deploy the web application from branch `feat/freeform-hierarchical-library-naming` to Vercel.
-- Because all schema changes are additive and supported by backward-compatible constraint triggers, older application instances continue reading and writing normally during rollout.
-- Newly deployed application instances immediately activate hierarchical library folders, breadcrumbs, Finder cards, atomic moves, container-scoped serial naming, direct signed downloads, and frozen ZIP exports.
-
----
-
-### Phase 7: Post-Deployment Smoke Verification
-
-Perform the following smoke tests in a live browser session:
-1. **Hierarchical Folder Operations**:
-   - Create a global root folder (e.g. `"SmokeTest-Global"`).
-   - Create a child subfolder (e.g. `"Sub-1"`).
-   - Verify breadcrumb navigation (`Library > SmokeTest-Global > Sub-1`).
-   - Move an item between folders atomically and verify optimistic UI update.
-   - Move an item to Global Unsorted and verify it appears under the Unsorted filter.
-   - Clean up smoke test folders.
-2. **Direct Signed Downloads**:
-   - In Library and Feed, click the Download action on an image and video generation card.
-   - Verify the download URL requests signed mode (`/api/generations/<id>/download?signed=1`).
-   - Verify file downloads with canonical container-scoped filename (e.g. `foldername_0001.png` or `unsorted_0001.mp4`).
-   - Test DetailModal and ConversationPanel download buttons to ensure shared helper consistency.
-3. **ZIP Exports**:
-   - Select multiple generations across different folders and export as a ZIP archive.
-   - Verify media export completes successfully via Railway worker.
-   - Download the generated ZIP, extract files, and verify filenames match canonical assignments without duplicates or double extensions.
-
----
-
-## 3. Data-Preserving Rollback Runbook
+## 4. Data-Preserving Rollback Runbook
 
 If application code issues arise post-deployment, execute the following data-preserving rollback:
 
-### 3.1 Application Code Rollback (Zero Data Loss)
+### 4.1 Application Code Rollback (Zero Data Loss)
 1. **Revert Vercel Web Application**:
    - Roll back deployment in Vercel to the previous stable production release.
    - The legacy application will continue reading and writing normally.
@@ -142,14 +174,14 @@ If application code issues arise post-deployment, execute the following data-pre
    - The new worker code is strictly backward-compatible with version-1 manifests, so it is safe and recommended to keep the updated worker running even if web application code is rolled back.
    - Only roll back the worker if there is an explicit worker-internal bug, and only after confirming no version-2 export jobs are queued or running in `media_exports`.
 
-### 3.2 Non-Destructive Schema State
+### 4.2 Non-Destructive Schema State
 - **NEVER execute destructive drop-column or drop-table SQL (`DROP COLUMN`, `DROP TABLE`, `DELETE`) on production.**
 - The columns `parent_id`, `name_normalized`, `version`, `updated_at`, `location_version`, `manifest_version`, and tables `generation_naming`, `naming_counters`, and `media_exports` remain completely inert to the legacy application.
 - All legacy queries, inserts, and updates continue functioning without regression.
 
-### 3.3 Catastrophic Disaster Recovery (Emergency Fallback Only)
+### 4.3 Catastrophic Disaster Recovery (Emergency Fallback Only)
 In the event of an unrecoverable database corruption event (unrelated to standard rollback):
 1. Do not attempt ad-hoc manual SQL deletion.
-2. Restore an isolated recovery database from the pre-migration PITR snapshot taken in Phase 1.
+2. Restore an isolated recovery database from the pre-migration PITR snapshot taken in Step 1.
 3. Verify data integrity and checksums on the restored instance.
 4. Point application database connection strings to the restored instance during an authorized maintenance window.

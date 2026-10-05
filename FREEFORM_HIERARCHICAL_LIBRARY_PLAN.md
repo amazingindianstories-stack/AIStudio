@@ -36,7 +36,7 @@ Identify the current branch, uncommitted changes, untracked files, and relevant 
 
 Create and switch to a new branch:
 
-    feat/freeform-hierarchical-library
+    feat/freeform-hierarchical-library-naming
 
 Create it from the current intended development baseline, preserving existing work.
 
