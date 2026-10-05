@@ -17,7 +17,7 @@
     "worker:generation": "node --import tsx src/worker/generation-worker.js",
     "lint": "eslint . --max-warnings=0",
     "test": "node scripts/run-unit-tests.mjs",
-    "test:db": "tsx --tsconfig jsconfig.json --test --test-concurrency=1 src/lib/cost-basis-db.integration.js src/lib/depth-claim-db.integration.js src/lib/distributed-lease-db.integration.js src/lib/feed-scope-db.integration.js src/lib/generation-health-db.integration.js src/lib/login-throttle-db.integration.js src/lib/media-exports-db.integration.js src/lib/portrait-db.integration.js src/lib/queue-admission-db.integration.js src/lib/runtime-audit-db.integration.js src/lib/stuck-omni-db.integration.js src/lib/video-poll-db.integration.js src/lib/migration-compatibility.integration.js src/lib/existing-integrity-regression.integration.js src/lib/folder-adversarial.integration.js src/lib/true-legacy-migration.integration.js src/lib/idempotency-concurrency.integration.js src/lib/folder-concurrency-barriers.integration.js src/lib/audit-truthfulness.integration.js src/lib/generation-naming.integration.js src/lib/canonical-naming-acceptance.integration.js src/lib/canonical-naming-red.integration.js src/lib/download-qualification.integration.js src/lib/hierarchy-atomic-migration.integration.js src/lib/admin-migrate-endpoint.integration.js src/lib/legacy-preservation.integration.js src/lib/audit-tool-exit-code.integration.js",
+    "test:db": "tsx --tsconfig jsconfig.json --test --test-concurrency=1 src/lib/cost-basis-db.integration.js src/lib/depth-claim-db.integration.js src/lib/distributed-lease-db.integration.js src/lib/feed-scope-db.integration.js src/lib/generation-health-db.integration.js src/lib/login-throttle-db.integration.js src/lib/media-exports-db.integration.js src/lib/portrait-db.integration.js src/lib/portrait-reconciliation.integration.js src/lib/queue-admission-db.integration.js src/lib/runtime-audit-db.integration.js src/lib/stuck-omni-db.integration.js src/lib/video-poll-db.integration.js src/lib/migration-compatibility.integration.js src/lib/existing-integrity-regression.integration.js src/lib/folder-adversarial.integration.js src/lib/true-legacy-migration.integration.js src/lib/idempotency-concurrency.integration.js src/lib/folder-concurrency-barriers.integration.js src/lib/audit-truthfulness.integration.js src/lib/generation-naming.integration.js src/lib/canonical-naming-acceptance.integration.js src/lib/canonical-naming-red.integration.js src/lib/download-qualification.integration.js src/lib/hierarchy-atomic-migration.integration.js src/lib/admin-migrate-endpoint.integration.js src/lib/legacy-preservation.integration.js src/lib/audit-tool-exit-code.integration.js",
     "test:db:setup": "drizzle-kit push",
     "db:push": "drizzle-kit push",
     "db:migrate:cost-basis": "tsx scripts/migrate-cost-basis.js",
@@ -45,7 +45,9 @@
     "recover:videos": "tsx --tsconfig jsconfig.json scripts/recover-timed-out-videos.js",
     "reconcile:omni": "tsx --tsconfig jsconfig.json scripts/reconcile-stuck-omni.js",
     "eval:regression": "tsx --tsconfig jsconfig.json scripts/eval-regression.js",
-    "export:flagged-fixtures": "tsx --tsconfig jsconfig.json scripts/export-flagged-fixtures.js"
+    "export:flagged-fixtures": "tsx --tsconfig jsconfig.json scripts/export-flagged-fixtures.js",
+    "db:compare:organization": "tsx scripts/compare-organization.js",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1081.0",
@@ -70,6 +72,7 @@
     "zustand": "^5.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "autoprefixer": "^10.4.20",
     "dotenv": "^17.4.2",
     "drizzle-kit": "^0.31.10",

@@ -57,3 +57,7 @@ scripts/eval-fixtures/*
 !scripts/eval-fixtures/README.md
 !scripts/eval-fixtures/example.fixture.json
 scripts/eval-results/
+
+# Browser verification artifacts may contain session data.
+/playwright-report/
+/test-results/

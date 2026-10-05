@@ -1754,22 +1754,24 @@ export const useStore = create((set, get) => ({
   },
 
   loadAllPortraitAssets: async (projectId) => {
-    set({ portraitAssetsLoading: true });
+    const pid = projectId !== undefined ? projectId : get().activeProjectId;
+    const requestId = (get().portraitRequestId || 0) + 1;
+    set({ portraitRequestId: requestId, portraitAssetsLoading: true, portraitSyncError: null,
+      ...(get().portraitScope !== pid ? { portraitScope: pid, portraitAssets: [], portraitGroups: [] } : {}) });
     try {
-      const pid = projectId !== undefined ? projectId : get().activeProjectId;
       const url = pid ? `/api/assets/portraits?projectId=${encodeURIComponent(pid)}` : "/api/assets/portraits";
       const res = await apiFetch(url, { cache: "no-store" });
       const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || "Could not load portraits.");
+      if (get().portraitRequestId !== requestId || get().activeProjectId !== pid) return [];
       const assets = json.assets ?? [];
-      const groups = json.groups ?? [];
-      set({
-        portraitAssets: assets,
-        portraitGroups: groups,
-        portraitAssetsLoading: false,
-      });
+      set({ portraitAssets: assets, portraitGroups: json.groups ?? [],
+        portraitAssetsLoading: false, portraitSyncError: json.syncError || null });
       return assets;
-    } catch {
-      set({ portraitAssetsLoading: false });
+    } catch (err) {
+      if (get().portraitRequestId === requestId) {
+        set({ portraitAssetsLoading: false, portraitSyncError: err.message || "Could not load portraits." });
+      }
       return [];
     }
   },
@@ -2027,7 +2029,7 @@ export const useStore = create((set, get) => ({
     }
     const json = await res.json();
     if (json.folder?.id) {
-      set({ activeFolderId: json.folder.id });
+      set({ activeProjectId: json.folder.projectId ?? null, activeFolderId: json.folder.id });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree(), get().loadCounts()]);
     return json.folder;
@@ -2073,7 +2075,8 @@ export const useStore = create((set, get) => ({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "Failed to rename folder");
+      if (err.code === "VERSION_CONFLICT") await get().loadLibraryTree();
+      throw Object.assign(new Error(err.error || "Failed to rename folder"), { code: err.code });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
   },

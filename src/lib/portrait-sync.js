@@ -1,16 +1,36 @@
 import {
+  withPortraitReconciliation,
   listPortraitGroups,
   listAllPortraitAssets,
   upsertPortraitGroup,
   upsertPortraitAsset,
   getPortraitGroupByByteplusId,
   getPortraitAssetByByteplusId,
-  deletePortraitGroup,
 } from "./portrait-db.js";
-import { getDb } from "./db.js";
-import { portraitAssets } from "./schema.js";
-import { eq } from "drizzle-orm";
+import { listAllByteplusPages, unlinkedGlobalCandidate, portraitDisplayRef } from "./portrait-reconciliation.js";
 import { byteplusAssetClient, getByteplusConfig } from "./byteplus-assets.js";
+
+/** Diagnostic inventory never calls Create/Delete or local upserts. */
+export async function inventoryByteplusPortraits() {
+  const [groups, assets] = await Promise.all([listPortraitGroups(), listAllPortraitAssets()]);
+  const local = {
+    groups: groups.map((g) => ({ id: g.id, projectId: g.projectId ?? null, byteplusGroupId: g.byteplusGroupId ?? null })),
+    assets: assets.map((a) => ({ id: a.id, groupId: a.groupId, byteplusAssetId: a.byteplusAssetId ?? null })),
+  };
+  if (getByteplusConfig().isMock) return { local, remote: null, inventoryError: "Live BytePlus asset credentials unavailable." };
+  const signal = AbortSignal.timeout(45000);
+  const input = { groupType: "AIGC", projectName: "default" };
+  const remoteGroups = await listAllByteplusPages(byteplusAssetClient.listAssetGroups, input, { signal });
+  const remoteAssets = await listAllByteplusPages(byteplusAssetClient.listAssets, input, { signal });
+  const localAssetIds = new Set(assets.map((a) => a.byteplusAssetId).filter(Boolean));
+  const remoteAssetIds = new Set(remoteAssets.items.map((a) => a.Id));
+  return { local, remote: {
+    groups: remoteGroups.items.map((g) => ({ id: g.Id })),
+    assets: remoteAssets.items.map((a) => ({ id: a.Id, groupId: a.GroupId })),
+    groupPages: remoteGroups.pages, assetPages: remoteAssets.pages,
+  }, remoteAssetsMissingLocally: [...remoteAssetIds].filter((id) => !localAssetIds.has(id)),
+    localAssetsMissingRemotely: [...localAssetIds].filter((id) => !remoteAssetIds.has(id)) };
+}
 
 /**
  * Synchronizes portrait groups and assets between BytePlus ModelArk and the local database.
@@ -18,6 +38,16 @@ import { byteplusAssetClient, getByteplusConfig } from "./byteplus-assets.js";
  * and reconciles them into the local store.
  */
 export async function syncByteplusPortraits(projectId) {
+  if (getByteplusConfig().isMock) return reconcilePortraits(projectId);
+  try {
+    return await withPortraitReconciliation(() => reconcilePortraits(projectId));
+  } catch {
+    const [groups, assets] = await Promise.all([listPortraitGroups(projectId), listAllPortraitAssets(projectId)]);
+    return { groups, assets, syncedWithByteplus: false, syncError: "Portrait synchronization busy or incomplete; local records preserved." };
+  }
+}
+
+async function reconcilePortraits(projectId) {
   const config = getByteplusConfig();
 
   // If mock/no credentials configured, return local DB contents directly
@@ -34,13 +64,13 @@ export async function syncByteplusPortraits(projectId) {
   }
 
   try {
-    // 1. Fetch remote groups from BytePlus ModelArk
-    const bpGroupsRes = await byteplusAssetClient.listAssetGroups({
-      groupType: "AIGC",
-      projectName: "default",
-      maxResults: 100,
-    });
-    const bpGroups = bpGroupsRes?.Items || [];
+    const signal = AbortSignal.timeout(45000);
+    const input = { groupType: "AIGC", projectName: "default" };
+    const groupInventory = await listAllByteplusPages(byteplusAssetClient.listAssetGroups, input, { signal });
+    const assetInventory = await listAllByteplusPages(byteplusAssetClient.listAssets, input, { signal });
+    const bpGroups = groupInventory.items;
+    const bpAssets = assetInventory.items;
+    const pushErrors = [];
 
     // 2. Reconcile groups into local DB
     const bpGroupMap = new Map(); // byteplusGroupId -> localGroup
@@ -55,11 +85,7 @@ export async function syncByteplusPortraits(projectId) {
 
       if (!localGroup) {
         const groupsBefore = await listPortraitGroups();
-        const unlinked = groupsBefore.find(
-          (g) =>
-            !g.byteplusGroupId &&
-            g.name.trim().toLowerCase() === (remoteGroup.Name || "").trim().toLowerCase()
-        );
+        const unlinked = unlinkedGlobalCandidate(groupsBefore, remoteGroup, bpGroups);
         if (unlinked) {
           localGroup = await upsertPortraitGroup({
             ...unlinked,
@@ -88,14 +114,6 @@ export async function syncByteplusPortraits(projectId) {
       }
       bpGroupMap.set(remoteGroup.Id, localGroup);
     }
-
-    // 3. Fetch remote assets from BytePlus ModelArk
-    const bpAssetsRes = await byteplusAssetClient.listAssets({
-      groupType: "AIGC",
-      projectName: "default",
-      maxResults: 100,
-    });
-    const bpAssets = bpAssetsRes?.Items || [];
 
     // 4. Reconcile assets into local DB
     for (const remoteAsset of bpAssets) {
@@ -142,23 +160,10 @@ export async function syncByteplusPortraits(projectId) {
           updatedAt,
         });
       } else {
-        // Update URL or status if changed. Check base URL to avoid thrashing on dynamic query params.
-        const remoteClean = (remoteAsset.URL || "").split("?")[0];
-        const localClean = (localAsset.imageUrl || "").split("?")[0];
-        const urlBaseChanged = Boolean(remoteClean && localClean !== remoteClean);
-        const isRemoteTos = (localAsset.imageUrl || "").includes("tos-") || (remoteAsset.URL || "").includes("tos-");
-        const olderThanOneHour = Date.now() - (localAsset.updatedAt || 0) > 3600000;
-        if (
-          localAsset.status !== remoteAsset.Status ||
-          urlBaseChanged ||
-          (isRemoteTos && remoteAsset.URL && olderThanOneHour)
-        ) {
-          await upsertPortraitAsset({
-            ...localAsset,
-            imageUrl: remoteAsset.URL || localAsset.imageUrl,
-            status: remoteAsset.Status || localAsset.status,
-            updatedAt,
-          });
+        const imageUrl = portraitDisplayRef(localAsset.imageUrl, remoteAsset.URL);
+        if (localAsset.status !== remoteAsset.Status || imageUrl !== localAsset.imageUrl) {
+          await upsertPortraitAsset({ ...localAsset, imageUrl,
+            status: remoteAsset.Status || localAsset.status, updatedAt });
         }
       }
     }
@@ -175,61 +180,50 @@ export async function syncByteplusPortraits(projectId) {
     if (!config.isMock) {
       for (const localAsset of assets) {
         if (!localAsset.byteplusAssetId && localAsset.imageUrl) {
+          // A timed-out Create may already have succeeded remotely. Never replay it
+          // automatically without a stable identity; surface it for reconciliation.
+          if (localAsset.statusMessage === "registration_outcome_unknown" ||
+              assets.some((a) => a.groupId === localAsset.groupId && a.statusMessage === "group_registration_outcome_unknown")) {
+            pushErrors.push({ id: localAsset.id, code: "registration_outcome_unknown" });
+            continue;
+          }
           try {
             let parentGroup = groups.find((g) => g.id === localAsset.groupId);
             if (!parentGroup?.byteplusGroupId) {
               const targetName = parentGroup?.name || "General Portraits";
-              const existingBpGroup = bpGroups.find((g) => g.Name === targetName) || bpGroups[0];
-              if (existingBpGroup?.Id) {
-                const existingOwner = await getPortraitGroupByByteplusId(existingBpGroup.Id);
-                if (existingOwner) {
-                  if (existingOwner.id !== localAsset.groupId) {
-                    const db = await getDb();
-                    await db
-                      .update(portraitAssets)
-                      .set({ groupId: existingOwner.id })
-                      .where(eq(portraitAssets.id, localAsset.id));
-                    localAsset.groupId = existingOwner.id;
-                  }
-                  parentGroup = existingOwner;
-                } else if (parentGroup) {
-                  parentGroup = await upsertPortraitGroup({
-                    ...parentGroup,
-                    byteplusGroupId: existingBpGroup.Id,
-                    updatedAt: Date.now(),
-                  });
-                }
-              } else {
-                const bpGroupRes = await byteplusAssetClient.createAssetGroup({
-                  name: targetName,
-                  description: parentGroup?.description || "Virtual Portrait Group",
-                  groupType: "AIGC",
-                  projectName: "default",
-                });
-                if (bpGroupRes?.Id && parentGroup) {
-                  parentGroup = await upsertPortraitGroup({
-                    ...parentGroup,
-                    byteplusGroupId: bpGroupRes.Id,
-                    updatedAt: Date.now(),
-                  });
-                }
-              }
+              if (!parentGroup) throw new Error("Portrait parent group missing.");
+              localAsset.statusMessage = "group_registration_outcome_unknown";
+              await upsertPortraitAsset(localAsset);
+              // Never borrow a same-name or arbitrary remote group from another scope.
+              const bpGroupRes = await byteplusAssetClient.createAssetGroup({
+                name: targetName, description: parentGroup.description || "Virtual Portrait Group",
+                groupType: "AIGC", projectName: "default",
+              }, { signal });
+              if (!bpGroupRes?.Id) throw new Error("BytePlus did not return a group identity.");
+              parentGroup = await upsertPortraitGroup({ ...parentGroup,
+                byteplusGroupId: bpGroupRes.Id, updatedAt: Date.now() });
+              Object.assign(groups.find((g) => g.id === parentGroup.id), parentGroup);
+              localAsset.statusMessage = null;
+              await upsertPortraitAsset(localAsset);
             }
 
-            const targetGroupId = parentGroup?.byteplusGroupId || bpGroups[0]?.Id;
+            const targetGroupId = parentGroup?.byteplusGroupId;
             if (targetGroupId) {
               const { signStoredRef } = await import("./storage.js");
               const signedUrl = (await signStoredRef(localAsset.imageUrl)) || localAsset.imageUrl;
               if (signedUrl && !signedUrl.startsWith("data:")) {
+                localAsset.statusMessage = "registration_outcome_unknown";
+                await upsertPortraitAsset(localAsset);
                 const bpRes = await byteplusAssetClient.createAsset({
                   groupId: targetGroupId,
                   url: signedUrl,
                   name: localAsset.name || "Portrait",
                   assetType: "Image",
-                });
+                }, { signal });
                 if (bpRes?.Id) {
                   localAsset.byteplusAssetId = bpRes.Id;
                   localAsset.status = bpRes.Status || "Active";
+                  localAsset.statusMessage = null;
                   await upsertPortraitAsset({
                     ...localAsset,
                     byteplusAssetId: bpRes.Id,
@@ -239,37 +233,13 @@ export async function syncByteplusPortraits(projectId) {
                   if (bpRes.URL) {
                     bpUrlMap.set(bpRes.Id, bpRes.URL);
                   }
-                }
+                } else throw new Error("BytePlus did not return an asset identity.");
               }
             }
           } catch (pushErr) {
-            console.warn(`[portrait-sync] Auto-sync asset ${localAsset.id} to BytePlus:`, pushErr?.message);
+            pushErrors.push({ id: localAsset.id, code: pushErr.code || "registration_failed" });
           }
         }
-      }
-    }
-
-    // Deduplicate any groups that share the same name (e.g. duplicate "General Portraits")
-    const refreshedGroups = await listPortraitGroups();
-    const seenGroupNames = new Map();
-    const db = await getDb();
-    for (const g of refreshedGroups) {
-      const nameKey = (g.name || "").trim().toLowerCase();
-      const existing = seenGroupNames.get(nameKey);
-      if (existing) {
-        const keep = existing.byteplusGroupId ? existing : (g.byteplusGroupId ? g : (existing.assets.length >= g.assets.length ? existing : g));
-        const discard = keep.id === existing.id ? g : existing;
-
-        if (discard.assets.length > 0) {
-          await db
-            .update(portraitAssets)
-            .set({ groupId: keep.id })
-            .where(eq(portraitAssets.groupId, discard.id));
-        }
-        await deletePortraitGroup(discard.id);
-        seenGroupNames.set(nameKey, keep);
-      } else {
-        seenGroupNames.set(nameKey, g);
       }
     }
 
@@ -280,17 +250,22 @@ export async function syncByteplusPortraits(projectId) {
 
     const freshAssets = finalAssets.map((a) => {
       const freshUrl = a.byteplusAssetId ? bpUrlMap.get(a.byteplusAssetId) : null;
-      if (freshUrl) return { ...a, imageUrl: freshUrl };
+      if (freshUrl) return { ...a, imageUrl: portraitDisplayRef(a.imageUrl, freshUrl) };
       return a;
     });
 
-    return { groups: finalGroups, assets: freshAssets, syncedWithByteplus: true };
+    const displayAssets = new Map(freshAssets.map((a) => [a.id, a]));
+    return { groups: finalGroups.map((g) => ({ ...g, assets: g.assets.map((a) => displayAssets.get(a.id) || a) })),
+      assets: freshAssets, syncedWithByteplus: pushErrors.length === 0,
+      ...(pushErrors.length ? { syncError: "Some portraits could not be registered; local records preserved.", registrationErrors: pushErrors } : {}),
+      inventory: { groupPages: groupInventory.pages, assetPages: assetInventory.pages,
+        remoteGroups: bpGroups.length, remoteAssets: bpAssets.length } };
   } catch (syncErr) {
-    console.warn("[portrait-sync] Warning during BytePlus sync:", syncErr?.message);
+    console.warn("[portrait-sync] Sync incomplete:", syncErr?.code || syncErr?.name || "sync_failed");
     const [groups, assets] = await Promise.all([
       listPortraitGroups(projectId),
       listAllPortraitAssets(projectId),
     ]);
-    return { groups, assets, syncedWithByteplus: false, syncError: syncErr?.message };
+    return { groups, assets, syncedWithByteplus: false, syncError: "Portrait synchronization incomplete; local records preserved." };
   }
 }

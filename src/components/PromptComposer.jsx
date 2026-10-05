@@ -979,7 +979,7 @@ export function PromptComposer() {
               <MenuItem
                 onClick={() => {
                   s.setPortraitGalleryOpen(true);
-                  close();
+                  close({ restoreFocus: false });
                 }}
               >
                 <Images className="h-4 w-4 text-brand" /> Portrait Gallery

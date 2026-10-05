@@ -25,6 +25,7 @@ import { BreadcrumbBar } from "./BreadcrumbBar";
 import { ChildFolderList } from "./ChildFolderList";
 import { DestinationPickerModal } from "./DestinationPickerModal";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 
 export function ProjectPanel({ cardWidth = 160 }) {
   const projects = useStore((s) => s.projects);
@@ -45,7 +46,6 @@ export function ProjectPanel({ cardWidth = 160 }) {
 
   const [briefView, setBriefView] = useState(false);
   const [addingScope, setAddingScope] = useState(null); // { projectId, parentId } or null
-  const [newFolderName, setNewFolderName] = useState("");
   const [dragOverRoot, setDragOverRoot] = useState(null);
 
   // Move Modal State
@@ -59,26 +59,19 @@ export function ProjectPanel({ cardWidth = 160 }) {
     setBriefView(false);
   }, [activeProjectId]);
 
-  const onAddFolderSubmit = async () => {
-    const name = newFolderName.trim();
-    if (!name || !addingScope) {
-      setAddingScope(null);
-      setNewFolderName("");
-      return;
-    }
-    try {
-      await createFolder({
-        name,
-        projectId: addingScope.projectId || null,
-        parentId: addingScope.parentId || null,
-      });
-    } catch (err) {
-      alert(err.message || "Failed to create folder.");
-    } finally {
-      setNewFolderName("");
-      setAddingScope(null);
-    }
-  };
+  const openFolderEditor = (scope) => setAddingScope({
+    projectId: scope.projectId ?? null,
+    parentId: scope.parentId ?? null,
+  });
+  useEffect(() => setAddingScope(null), [activeProjectId]);
+  const folderEditor = addingScope && (
+    <InlineFolderNameEditor
+      key={`${addingScope.projectId}:${addingScope.parentId}`}
+      label={addingScope.parentId ? "Subfolder name" : "Folder name"}
+      onCommit={(name) => createFolder({ name, ...addingScope })}
+      onClose={() => setAddingScope(null)}
+    />
+  );
 
   const handleDropOnRoot = (dest) => (e) => {
     e.preventDefault();
@@ -152,7 +145,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
               </span>
               <button
                 type="button"
-                onClick={() => setAddingScope({ projectId: null, parentId: null })}
+                onClick={() => openFolderEditor({ projectId: null, parentId: null })}
                 className="grid h-5 w-5 place-items-center rounded text-white/40 transition hover:bg-white/10 hover:text-white"
                 title="New global folder"
                 aria-label="New global folder"
@@ -183,18 +176,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
 
             {/* Adding root global folder input */}
             {addingScope && addingScope.projectId === null && addingScope.parentId === null && (
-              <input
-                autoFocus
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") onAddFolderSubmit();
-                  if (e.key === "Escape") setAddingScope(null);
-                }}
-                onBlur={onAddFolderSubmit}
-                placeholder="Folder name"
-                className="my-1 w-full rounded-md border border-line bg-ink-800 px-2 py-1 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
-              />
+              folderEditor
             )}
 
             {/* Hierarchical Global Folders Tree */}
@@ -209,23 +191,12 @@ export function ProjectPanel({ cardWidth = 160 }) {
                 setActiveFolder(fId);
               }}
               onOpenMoveModal={openMoveModalForFolder}
-              onOpenNewFolderModal={(opts) => setAddingScope(opts)}
+              onOpenNewFolderModal={(opts) => openFolderEditor(opts)}
             />
 
             {/* Adding subfolder input */}
             {addingScope && addingScope.projectId === null && addingScope.parentId !== null && (
-              <input
-                autoFocus
-                value={newFolderName}
-                onChange={(e) => setNewFolderName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") onAddFolderSubmit();
-                  if (e.key === "Escape") setAddingScope(null);
-                }}
-                onBlur={onAddFolderSubmit}
-                placeholder="Subfolder name"
-                className="my-1 w-full rounded-md border border-line bg-ink-800 px-2 py-1 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
-              />
+              folderEditor
             )}
 
             {/* Global Unsorted */}
@@ -273,6 +244,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
             {projects.length > 0 && (
               <div className="mb-2">
                 <Dropdown
+                  label="Select library project"
                   align="left"
                   trigger={(_open) => (
                     <div
@@ -345,8 +317,9 @@ export function ProjectPanel({ cardWidth = 160 }) {
                   </span>
                   <button
                     type="button"
-                    onClick={() => setAddingScope({ projectId: project.id, parentId: null })}
+                    onClick={() => openFolderEditor({ projectId: project.id, parentId: null })}
                     className="grid h-5 w-5 place-items-center rounded text-white/45 transition hover:bg-white/10 hover:text-white"
+                    aria-label="New project folder"
                     title="New project folder"
                   >
                     <FolderPlus className="h-3.5 w-3.5" />
@@ -355,18 +328,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
 
                 {/* Adding root project folder input */}
                 {addingScope && addingScope.projectId === project.id && addingScope.parentId === null && (
-                  <input
-                    autoFocus
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") onAddFolderSubmit();
-                      if (e.key === "Escape") setAddingScope(null);
-                    }}
-                    onBlur={onAddFolderSubmit}
-                    placeholder="Folder name"
-                    className="my-1 w-full rounded-md border border-line bg-ink-800 px-2 py-1 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
-                  />
+                  folderEditor
                 )}
 
                 {/* Hierarchical Project Folders Tree */}
@@ -381,23 +343,12 @@ export function ProjectPanel({ cardWidth = 160 }) {
                     setActiveFolder(fId);
                   }}
                   onOpenMoveModal={openMoveModalForFolder}
-                  onOpenNewFolderModal={(opts) => setAddingScope(opts)}
+                  onOpenNewFolderModal={(opts) => openFolderEditor(opts)}
                 />
 
                 {/* Adding subfolder input */}
                 {addingScope && addingScope.projectId === project.id && addingScope.parentId !== null && (
-                  <input
-                    autoFocus
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") onAddFolderSubmit();
-                      if (e.key === "Escape") setAddingScope(null);
-                    }}
-                    onBlur={onAddFolderSubmit}
-                    placeholder="Subfolder name"
-                    className="my-1 w-full rounded-md border border-line bg-ink-800 px-2 py-1 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
-                  />
+                  folderEditor
                 )}
 
                 {/* Project Unsorted */}
@@ -431,12 +382,12 @@ export function ProjectPanel({ cardWidth = 160 }) {
               <BriefEditor projectId={project.id} brief={project.brief ?? ""} />
             </div>
           ) : (
-            <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {/* Dynamic Navigable Breadcrumb Bar */}
               <BreadcrumbBar
                 onOpenMoveModal={openMoveModalForFolder}
                 onOpenNewFolderModal={() =>
-                  setAddingScope({
+                  openFolderEditor({
                     projectId: activeProjectId,
                     parentId: activeFolderId === UNSORTED ? null : activeFolderId,
                   })
@@ -450,7 +401,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
                   projectId={activeProjectId}
                   onOpenMoveModal={openMoveModalForFolder}
                   onOpenNewFolderModal={() =>
-                    setAddingScope({
+                    openFolderEditor({
                       projectId: activeProjectId,
                       parentId: activeFolderId,
                     })

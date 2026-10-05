@@ -70,24 +70,6 @@ export async function POST(req) {
     const bpConfig = getByteplusConfig();
     try {
       if (!group.byteplusGroupId) {
-        // Try finding existing group on BytePlus first (e.g. "General Portraits")
-        try {
-          const bpGroupsRes = await byteplusAssetClient.listAssetGroups({
-            groupType: "AIGC",
-            projectName: "default",
-            maxResults: 50,
-          });
-          const existingBpGroup = bpGroupsRes?.Items?.find(
-            (g) => g.Name === (group.name || "General Portraits")
-          ) || bpGroupsRes?.Items?.[0];
-
-          if (existingBpGroup?.Id) {
-            group.byteplusGroupId = existingBpGroup.Id;
-          }
-        } catch {
-          // Fall through to create
-        }
-
         if (!group.byteplusGroupId) {
           const bpGroupRes = await byteplusAssetClient.createAssetGroup({
             name: group.name || "General Portraits",

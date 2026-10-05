@@ -27,6 +27,14 @@ function sanitizeMediaReference(urlOrKey) {
  */
 export async function snapshotOrganization(customDb = null) {
   const db = customDb || (await getDb());
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY`);
+    return captureOrganization(tx);
+  });
+}
+
+async function captureOrganization(customDb) {
+  const db = customDb || (await getDb());
 
   // 1. Check if folders has parent_id column in current search path / schema
   const parentColCheck = await db.execute(sql`
@@ -136,6 +144,17 @@ export async function snapshotOrganization(customDb = null) {
  * to verify strict preservation invariants.
  */
 export function compareOrganizationSnapshots(before, after) {
+  for (const snapshot of [before, after]) {
+    if (!snapshot || !["projects", "folders", "generations"].every((key) => {
+      const rows = snapshot[key];
+      return Array.isArray(rows) && rows.every((row) => row && typeof row.id === "string" && row.id &&
+        (key === "projects" ? typeof row.name === "string" :
+          (row.projectId === null || typeof row.projectId === "string") &&
+          (key === "folders" ? typeof row.name === "string" && (row.parentId === null || typeof row.parentId === "string") :
+            (row.folderId === null || typeof row.folderId === "string") && (row.mediaRef === null || typeof row.mediaRef === "string")))) &&
+        new Set(rows.map((row) => row.id)).size === rows.length;
+    })) return { isPreserved: false, differences: { invalidSnapshot: 1, details: ["Malformed snapshot or duplicate IDs."] } };
+  }
   const beforeProjects = new Map(before.projects.map((p) => [p.id, p]));
   const afterProjects = new Map(after.projects.map((p) => [p.id, p]));
 
@@ -146,6 +165,11 @@ export function compareOrganizationSnapshots(before, after) {
   const afterGens = new Map(after.generations.map((g) => [g.id, g]));
 
   const differences = {
+    projectsAdded: 0,
+    foldersAdded: 0,
+    generationsAdded: 0,
+    folderProjectAssignmentsChanged: 0,
+    folderParentAssignmentsChanged: 0,
     projectsLost: 0,
     foldersLost: 0,
     generationsLost: 0,
@@ -162,6 +186,15 @@ export function compareOrganizationSnapshots(before, after) {
     mediaReferencesChanged: 0,
     details: [],
   };
+
+  for (const [label, previous, current] of [
+    ["projects", beforeProjects, afterProjects], ["folders", beforeFolders, afterFolders], ["generations", beforeGens, afterGens],
+  ]) {
+    for (const id of current.keys()) if (!previous.has(id)) {
+      differences[`${label}Added`]++;
+      differences.details.push(`Unexpected ${label} ID: ${id}`);
+    }
+  }
 
   // 1. Projects comparison
   for (const [id, bProj] of beforeProjects.entries()) {
@@ -189,7 +222,12 @@ export function compareOrganizationSnapshots(before, after) {
         differences.details.push(`Folder name changed: ${id} from "${bFold.name}" to "${aFold.name}"`);
       }
       if (aFold.projectId !== bFold.projectId) {
+        differences.folderProjectAssignmentsChanged++;
         differences.details.push(`Folder projectId changed: ${id}`);
+      }
+      if (aFold.parentId !== bFold.parentId) {
+        differences.folderParentAssignmentsChanged++;
+        differences.details.push(`Folder parent changed: ${id}`);
       }
       // For legacy folders, parentId must be NULL
       if (aFold.parentId !== null && bFold.parentId === null) {
@@ -236,21 +274,8 @@ export function compareOrganizationSnapshots(before, after) {
     }
   }
 
-  const isPreserved =
-    differences.projectsLost === 0 &&
-    differences.foldersLost === 0 &&
-    differences.generationsLost === 0 &&
-    differences.existingProjectIdsChanged === 0 &&
-    differences.existingProjectNamesChanged === 0 &&
-    differences.existingFolderIdsChanged === 0 &&
-    differences.existingFolderNamesChanged === 0 &&
-    differences.legacyFoldersWithNonNullParent === 0 &&
-    differences.existingGenerationIdsChanged === 0 &&
-    differences.generationProjectAssignmentsChanged === 0 &&
-    differences.generationFolderAssignmentsChanged === 0 &&
-    differences.projectUnsortedMembershipDifferences === 0 &&
-    differences.globalUnsortedMembershipDifferences === 0 &&
-    differences.mediaReferencesChanged === 0;
+  const isPreserved = Object.entries(differences)
+    .every(([key, value]) => key === "details" || value === 0);
 
   return {
     isPreserved,
@@ -261,6 +286,12 @@ export function compareOrganizationSnapshots(before, after) {
 async function main() {
   try {
     const snapshot = await snapshotOrganization();
+    const outputIndex = process.argv.indexOf("--output");
+    if (outputIndex !== -1) {
+      const { writeFile } = await import("node:fs/promises");
+      if (!process.argv[outputIndex + 1]) throw new Error("--output requires a path");
+      await writeFile(process.argv[outputIndex + 1], JSON.stringify(snapshot, null, 2), { mode: 0o600, flag: "wx" });
+    }
     console.log("=== Veevee V1 — Organization Snapshot ===");
     console.log(`Timestamp: ${snapshot.timestamp}`);
     console.log(`- Total Projects: ${snapshot.counts.totalProjects}`);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   ChevronRight,
   ChevronDown,
@@ -15,6 +15,7 @@ import {
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 
 export function FolderTree({
   folders = [],
@@ -28,8 +29,6 @@ export function FolderTree({
   const [expanded, setExpanded] = useState({});
   const [dragOverId, setDragOverId] = useState(null);
   const [renamingFolderId, setRenamingFolderId] = useState(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [renameError, setRenameError] = useState(null);
   const renameFolder = useStore((s) => s.renameFolder);
   const deleteFolder = useStore((s) => s.deleteFolder);
   const moveItem = useStore((s) => s.moveItem);
@@ -37,6 +36,19 @@ export function FolderTree({
 
   const treeId = useId();
   const treeRef = useRef(null);
+
+  useEffect(() => {
+    const ancestors = (nodes, path = []) => {
+      for (const node of nodes) {
+        if (node.id === activeFolderId) return path;
+        const found = ancestors(node.children || [], [...path, node.id]);
+        if (found) return found;
+      }
+      return null;
+    };
+    const path = ancestors(folders);
+    if (path?.length) setExpanded((previous) => ({ ...previous, ...Object.fromEntries(path.map((id) => [id, true])) }));
+  }, [folders, activeFolderId]);
 
   const toggleExpand = (id, e) => {
     e?.stopPropagation();
@@ -76,6 +88,7 @@ export function FolderTree({
 
   // Keyboard navigation for accessible tree
   const onKeyDown = (folder, hasChildren, isExpanded, e) => {
+    if (e.target !== e.currentTarget) return;
     if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       onSelectFolder(folder.id);
@@ -182,58 +195,12 @@ export function FolderTree({
 
           {/* Folder Name / Inline Rename */}
           {isEditing ? (
-            <form
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const trimmed = renameValue.trim();
-                if (!trimmed || trimmed === folder.name) {
-                  setRenamingFolderId(null);
-                  return;
-                }
-                try {
-                  await renameFolder(folder.projectId, folder.id, trimmed);
-                  setRenamingFolderId(null);
-                } catch (err) {
-                  setRenameError(err.message || "Failed to rename folder");
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
-              className="flex-1 min-w-0"
-            >
-              <input
-                type="text"
-                value={renameValue}
-                autoFocus
-                onChange={(e) => {
-                  setRenameValue(e.target.value);
-                  setRenameError(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    e.stopPropagation();
-                    setRenamingFolderId(null);
-                    setRenameError(null);
-                  }
-                }}
-                onBlur={async () => {
-                  const trimmed = renameValue.trim();
-                  if (!trimmed || trimmed === folder.name) {
-                    setRenamingFolderId(null);
-                    return;
-                  }
-                  try {
-                    await renameFolder(folder.projectId, folder.id, trimmed);
-                    setRenamingFolderId(null);
-                  } catch (err) {
-                    setRenameError(err.message || "Failed to rename folder");
-                  }
-                }}
-                className="w-full rounded border border-brand/60 bg-ink-900 px-1 py-0.5 text-xs text-white outline-none focus:border-brand"
-              />
-              {renameError && (
-                <span className="block text-[10px] text-red-400 mt-0.5">{renameError}</span>
-              )}
-            </form>
+            <InlineFolderNameEditor
+              initialName={folder.name}
+              label="Rename folder"
+              onCommit={(name) => renameFolder(folder.projectId, folder.id, name)}
+              onClose={() => setRenamingFolderId(null)}
+            />
           ) : (
             <span className="min-w-0 flex-1 truncate">{folder.name}</span>
           )}
@@ -253,6 +220,7 @@ export function FolderTree({
           {/* Folder context menu */}
           <div onClick={(e) => e.stopPropagation()} className="shrink-0">
             <Dropdown
+              label={`Tree folder actions: ${folder.name}`}
               align="right"
               trigger={(open) => (
                 <span
@@ -270,7 +238,7 @@ export function FolderTree({
                   {onOpenNewFolderModal && (
                     <MenuItem
                       onClick={() => {
-                        close();
+                        close({ restoreFocus: false });
                         onOpenNewFolderModal({ parentId: folder.id, projectId: folder.projectId });
                       }}
                     >
@@ -280,10 +248,8 @@ export function FolderTree({
                   )}
                   <MenuItem
                     onClick={() => {
-                      close();
+                      close({ restoreFocus: false });
                       setRenamingFolderId(folder.id);
-                      setRenameValue(folder.name);
-                      setRenameError(null);
                     }}
                   >
                     <Pencil className="h-3.5 w-3.5 text-white/50" />
@@ -292,7 +258,7 @@ export function FolderTree({
                   {onOpenMoveModal && (
                     <MenuItem
                       onClick={() => {
-                        close();
+                        close({ restoreFocus: false });
                         onOpenMoveModal(folder);
                       }}
                     >

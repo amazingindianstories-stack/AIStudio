@@ -13,7 +13,7 @@ import {
 import { byteplusAssetClient, BytePlusAssetError } from "@/lib/byteplus-assets";
 import { deleteAssetImage } from "@/lib/save-media";
 
-import { syncByteplusPortraits } from "@/lib/portrait-sync";
+import { syncByteplusPortraits, inventoryByteplusPortraits } from "@/lib/portrait-sync";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -33,6 +33,10 @@ export async function GET(req) {
   const projectId = searchParams.get("projectId") || undefined;
 
   try {
+    if (searchParams.get("inventory") === "1") {
+      if (user.role !== "admin") return NextResponse.json({ error: "FORBIDDEN" }, { status: 403 });
+      return NextResponse.json(await inventoryByteplusPortraits());
+    }
     const result = await syncByteplusPortraits(projectId);
     return NextResponse.json(result);
   } catch (err) {
