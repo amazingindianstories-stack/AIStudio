@@ -1,0 +1,10 @@
+# Release-archive hygiene.
+#
+# `.council/` is tracked engineering/research history (MCP history dumps, raw
+# RPC responses, captured response headers, generated images). It is useful in
+# the developer repository but must never ship in a release artifact produced
+# by `git archive`. Both patterns are intentional: the first excludes the
+# directory entry itself, the second guarantees every nested path is excluded
+# (gitattributes does not treat a trailing-slash pattern as recursive).
+/.council export-ignore
+/.council/** export-ignore

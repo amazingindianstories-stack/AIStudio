@@ -105,15 +105,28 @@ Because PostgreSQL row locks on `naming_counters` serialize updates per namespac
    - Folders: Full ancestor chain `<project_name>_<parent>_<child>_<leaf>` or `<root_folder>_<child>_<leaf>`.
 4. **Serial Formatting**: Zero-padded to at least 4 digits (`0001`, `0042`, `9999`, `10000`).
 
-### 4.2 Length Bounding & Entropy Preservation
+### 4.2 Canonical Filename Shape
+Every resolved filename has the form:
+
+```
+<readable_prefix>--<namespace_token>_<serial>.<ext>
+```
+
+Example: `foldername--3f2a9c1e5b7d4e8fa0c1b2d3e4f5a6b7_0001.png`
+
+- `<namespace_token>` is a fixed-width, 32-character lowercase hex token derived from the direct container: the folder UUID (folders), the project UUID (project Unsorted), or 32 zeros (Global Unsorted).
+- Slugified user text only ever contains `[a-z0-9_]` with single underscores, so the `--` delimiter cannot be impersonated by any folder or project name. This makes filenames unique across namespaces regardless of how the readable prefix normalizes, and independent of which batch requested them.
+
+### 4.3 Length Bounding & Entropy Preservation
 - Maximum filename length: **255 UTF-8 bytes** (standard limit for APFS, NTFS, and ext4).
-- If the resolved name exceeds 255 bytes, the base slug is truncated to allow room for `_<hash6>_<serial>.<ext>`.
-- The hash is a 6-character hex digest of the full un-truncated ancestry slug via SHA-256.
+- The tail `--<namespace_token>_<serial>.<ext>` is invariant and never truncated.
+- If the full name would exceed 255 bytes, only the readable prefix is truncated, and a 6-character hex SHA-256 digest of the un-truncated prefix is inserted before the token:
+  `<truncated_prefix>_<hash6>--<namespace_token>_<serial>.<ext>`
 
-### 4.3 Windows Device Name Guard
-Filenames whose base slug matches Windows reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1`..`COM9`, `LPT1`..`LPT9`) are suffixed with `_file` before attaching the serial (e.g. `con_file_0001.png`).
+### 4.4 Windows Device Name Guard
+If the readable prefix equals a Windows reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM1`..`COM9`, `LPT1`..`LPT9`), it is prefixed with an underscore (e.g. `_con--<namespace_token>_0001.png`).
 
-### 4.4 Batch Recursive CTE Resolution
+### 4.5 Batch Recursive CTE Resolution
 Single recursive query resolves all ancestors in one database round-trip:
 ```sql
 WITH RECURSIVE folder_ancestry AS (

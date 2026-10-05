@@ -1,7 +1,9 @@
 # Free-Form Hierarchical Library & Internal Naming: Deployment & Rollback Runbook
 
 > **Strict Operational Notice (`AGENTS.md` Rule Adherence)**:  
-> Production deploys do **not** apply Drizzle schema changes automatically. Vercel builds and deploys application code only. Schema migrations must be applied and verified against the target database **before** releasing application code. All schema modifications in this release are strictly additive and 100% backward-compatible.
+> Production deploys do **not** apply Drizzle schema changes automatically. Vercel builds and deploys application code only. Schema migrations must be applied and verified against the target database **before** releasing application code.
+>
+> **Compatibility statement**: The migration is additive and read-compatible with the previous release. Some legacy organizational mutation paths, particularly destructive folder/project operations, are not guaranteed to remain compatible after the new constraints are installed. Therefore the controlled organizational-write freeze (Section 2) is mandatory until the new application release is confirmed serving.
 
 ---
 
@@ -139,8 +141,8 @@ Deploy the media export worker on Railway before updating the web application:
 
 ### Step 15: Deploy Vercel Application (SECOND)
 Deploy the web application from branch `feat/freeform-hierarchical-library-naming` to Vercel:
-- Schema changes are strictly additive and backward-compatible.
-- Older running instances continue functioning normally during the transition.
+- Schema changes are additive and read-compatible with the previous release.
+- Older running instances may continue serving reads during the transition; the organizational-write freeze remains in effect because legacy mutation paths are not guaranteed compatible with the new constraints.
 - Newly deployed instances activate hierarchical navigation, container-scoped serial naming, signed downloads, and frozen ZIP exports.
 
 ### Step 16: Verify Expected Vercel Release Is Serving
@@ -150,7 +152,7 @@ Deploy the web application from branch `feat/freeform-hierarchical-library-namin
 ### Step 17: Run Production Smoke Tests
 Perform live browser smoke verification:
 1. **Hierarchical Folders**: Create a test global root folder, create a child subfolder, verify breadcrumb navigation, move a generation into the subfolder, move to Global Unsorted, and clean up test folders.
-2. **Direct Signed Downloads**: Click Download on an image and video card. Verify download URL requests signed mode (`/api/generations/<id>/download?signed=1`), streams directly from cloud storage, and yields canonical container-scoped filename (e.g. `foldername_0001.png`).
+2. **Direct Signed Downloads**: Click Download on an image and video card. Verify download URL requests signed mode (`/api/generations/<id>/download?signed=1`), streams directly from cloud storage, and yields canonical container-scoped filename of the shape `<readable_prefix>--<namespace_token>_<serial>.<ext>` (e.g. `foldername--<namespace_token>_0001.png`, where `<namespace_token>` is 32 lowercase hex characters).
 3. **ZIP Exports**: Select multiple generations across different folders and export as ZIP. Verify export completes via Railway worker and extracted filenames match canonical assignments without duplicates or double extensions.
 
 ### Step 18: Exit Write Freeze
@@ -164,9 +166,11 @@ If application code issues arise post-deployment, execute the following data-pre
 
 ### 4.1 Application Code Rollback (Zero Data Loss)
 1. **Revert Vercel Web Application**:
-   - Roll back deployment in Vercel to the previous stable production release.
-   - The legacy application will continue reading and writing normally.
-   - The trigger `trg_check_generation_location_naming` automatically maintains `generation_naming` when the rolled-back application executes moves or inserts, preventing any check violations.
+   - Roll back deployment in Vercel to the previous stable production release as a temporary emergency measure.
+   - The migration is additive and read-compatible, so read traffic is safe under the rolled-back application.
+   - However, legacy organizational mutation operations (moving folders, deleting projects, reordering/migrating folders) are NOT guaranteed compatible with the new schema triggers, foreign keys, or naming invariants.
+   - Organizational mutation operations must remain frozen/restricted while running the rolled-back application until compatibility is explicitly evaluated or fixed.
+   - While the trigger `trg_check_generation_location_naming` automatically maintains `generation_naming` for single-generation inserts/moves, broader legacy batch mutations must not be executed without verification.
 
 2. **Railway Export Worker Consideration**:
    - **Do NOT roll back the Railway export worker to a pre-v2 image while `manifest_version >= 2` jobs exist or are draining.**
@@ -176,8 +180,8 @@ If application code issues arise post-deployment, execute the following data-pre
 
 ### 4.2 Non-Destructive Schema State
 - **NEVER execute destructive drop-column or drop-table SQL (`DROP COLUMN`, `DROP TABLE`, `DELETE`) on production.**
-- The columns `parent_id`, `name_normalized`, `version`, `updated_at`, `location_version`, `manifest_version`, and tables `generation_naming`, `naming_counters`, and `media_exports` remain completely inert to the legacy application.
-- All legacy queries, inserts, and updates continue functioning without regression.
+- The columns `parent_id`, `name_normalized`, `version`, `updated_at`, `location_version`, `manifest_version`, and tables `generation_naming`, `naming_counters`, and `media_exports` are additive and read-compatible with the legacy schema.
+- Because database constraints and triggers now enforce container-scoped integrity, do not attempt to revert database tables or drop migration artifacts. Keep the schema intact to preserve data and avoid corrupting container-scoped naming state.
 
 ### 4.3 Catastrophic Disaster Recovery (Emergency Fallback Only)
 In the event of an unrecoverable database corruption event (unrelated to standard rollback):
