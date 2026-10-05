@@ -276,6 +276,60 @@ export async function getSignedReadUrl(
   return signReadUrl(key, now, now + ttlSeconds * 1000);
 }
 
+/**
+ * Returns a short-lived authenticated download URL with exact Content-Disposition.
+ * Keeps media bytes off the serverless function, allowing direct cloud download
+ * for large video files without hitting Vercel's 120s serverless execution timeout.
+ */
+export async function getSignedDownloadUrl(
+  key,
+  { filename, disposition, ttlSeconds = 300 } = {}
+) {
+  if (!key || isProtectedMediaKey(key)) {
+    throw new Error(`Refusing to sign a download URL for protected or invalid key: ${key}`);
+  }
+
+  const effectiveFilename = filename || key.split("/").pop() || "download.bin";
+  const asciiFallback = effectiveFilename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "");
+  const contentDisposition =
+    disposition ||
+    `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(effectiveFilename)}`;
+
+  if (primaryIsGcs()) {
+    try {
+      const [url] = await storage()
+        .bucket(getBucketName())
+        .file(key)
+        .getSignedUrl({
+          version: "v4",
+          action: "read",
+          expires: Date.now() + ttlSeconds * 1000,
+          responseDisposition: contentDisposition,
+        });
+      return url;
+    } catch (e) {
+      console.warn(`getSignedDownloadUrl: GCS signing unavailable (${e?.message ?? e}), falling back.`);
+      return null;
+    }
+  }
+
+  try {
+    const { getSignedUrl } = await import("@aws-sdk/s3-request-presigner");
+    return await getSignedUrl(
+      legacyS3(),
+      new GetObjectCommand({
+        Bucket: legacyBucketName(),
+        Key: key,
+        ResponseContentDisposition: contentDisposition,
+      }),
+      { expiresIn: ttlSeconds }
+    );
+  } catch (e) {
+    console.warn(`getSignedDownloadUrl: S3 signing unavailable (${e?.message ?? e}), falling back.`);
+    return null;
+  }
+}
+
 /** Create a GCS resumable session. The caller receives only this scoped,
  * short-lived upload capability; it never receives a cloud credential. */
 export async function createResumableUploadSession(key) {

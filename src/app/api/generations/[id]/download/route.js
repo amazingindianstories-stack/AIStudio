@@ -8,6 +8,7 @@ import {
   openMediaObject,
   mediaKeyFromRef,
   isProtectedMediaKey,
+  getSignedDownloadUrl,
   MediaNotFoundError,
   InvalidMediaRangeError,
 } from "../../../../../lib/storage.js";
@@ -107,6 +108,17 @@ export async function handleDownload(request, rawParams, isHead = false, options
   // RFC 6266 Content-Disposition header with safe ASCII fallback and full UTF-8 specification
   const asciiFallback = filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "");
   const disposition = `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+
+  const urlObj = new URL(request.url, "http://localhost");
+  const preferSigned = urlObj.searchParams.get("signed") === "1" || urlObj.searchParams.get("redirect") === "1";
+
+  if (preferSigned && !request.headers.get("range")) {
+    const signFn = options.getSignedDownloadUrl || getSignedDownloadUrl;
+    const signedUrl = await signFn(key, { filename, disposition }).catch(() => null);
+    if (signedUrl) {
+      return NextResponse.redirect(signedUrl, { status: 307 });
+    }
+  }
 
   try {
     const openFn = options.openMediaObject || openMediaObject;

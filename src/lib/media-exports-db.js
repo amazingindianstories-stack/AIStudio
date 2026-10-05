@@ -72,6 +72,21 @@ export async function finalizeMediaExport(id, userId, now = Date.now()) {
       throw new Error("EXPORT_NOT_FINALIZABLE");
     }
 
+    // If export is already finalized (manifestVersion >= 2), retry must preserve frozen filenames!
+    if (job.manifestVersion >= 2) {
+      const [updated] = await tx
+        .update(mediaExports)
+        .set({
+          status: "queued",
+          updatedAt: now,
+          error: null,
+          attemptCount: 0,
+        })
+        .where(eq(mediaExports.id, id))
+        .returning();
+      return updated;
+    }
+
     // 1. Fetch all items for this export
     const items = await tx
       .select()
@@ -87,17 +102,14 @@ export async function finalizeMediaExport(id, userId, now = Date.now()) {
     const seenLower = new Set();
     for (const it of items) {
       const resolved = resolvedMap.get(it.generationId);
-      let filename = resolved?.filename || `${it.generationId}.bin`;
+      const filename = resolved?.filename || `${it.generationId}.bin`;
 
-      // If collision occurs within the archive, disambiguate deterministically
+      // If collision occurs within the archive, reject safely rather than silently mutating with position suffix
       const normKey = filename.normalize("NFC").toLowerCase();
       if (seenLower.has(normKey)) {
-        const lastDot = filename.lastIndexOf(".");
-        const base = lastDot !== -1 ? filename.slice(0, lastDot) : filename;
-        const ext = lastDot !== -1 ? filename.slice(lastDot) : ".bin";
-        filename = `${base}_${it.position}${ext}`;
+        throw new Error(`EXPORT_FILENAME_COLLISION: Archive contains duplicate filename '${filename}'`);
       }
-      seenLower.add(filename.normalize("NFC").toLowerCase());
+      seenLower.add(normKey);
 
       // Update frozen filename on media_export_items
       await tx

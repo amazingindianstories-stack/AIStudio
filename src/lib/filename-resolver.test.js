@@ -44,7 +44,7 @@ test("resolveExtension: resolves trusted extension across media types", () => {
 });
 
 test("resolveGenerationFilename: derives standard example names", () => {
-  // 1. Global folder hierarchy: anime_characters_0007.mp4
+  // 1. Global folder hierarchy: anime_characters--f2000..._0007.mp4
   const globalFolder = resolveGenerationFilename({
     project: null,
     ancestry: [{ id: "f1", name: "Anime" }, { id: "f2", name: "Characters" }],
@@ -53,9 +53,9 @@ test("resolveGenerationFilename: derives standard example names", () => {
     kind: "video",
     url: "/api/media/v.mp4",
   });
-  assert.equal(globalFolder, "anime_characters_0007.mp4");
+  assert.equal(globalFolder, "anime_characters--f2000000000000000000000000000000_0007.mp4");
 
-  // 2. Global Unsorted: library_unsorted_0001.png
+  // 2. Global Unsorted: library_unsorted--00000000..._0001.png
   const globalUnsorted = resolveGenerationFilename({
     project: null,
     ancestry: [],
@@ -64,9 +64,9 @@ test("resolveGenerationFilename: derives standard example names", () => {
     kind: "image",
     url: "/api/media/i.png",
   });
-  assert.equal(globalUnsorted, "library_unsorted_0001.png");
+  assert.equal(globalUnsorted, "library_unsorted--00000000000000000000000000000000_0001.png");
 
-  // 3. Project Unsorted: <project>_unsorted_0001.mp4
+  // 3. Project Unsorted: <project>_unsorted--p1000..._0001.mp4
   const projectUnsorted = resolveGenerationFilename({
     project: { id: "p1", name: "Commercial 2026" },
     ancestry: [],
@@ -75,9 +75,9 @@ test("resolveGenerationFilename: derives standard example names", () => {
     kind: "video",
     url: "/api/media/v.mp4",
   });
-  assert.equal(projectUnsorted, "commercial_2026_unsorted_0001.mp4");
+  assert.equal(projectUnsorted, "commercial_2026_unsorted--p1000000000000000000000000000000_0001.mp4");
 
-  // 4. Project Folder: <project>_<folder>_..._0042.png
+  // 4. Project Folder: <project>_<folder>_...--f1000..._0042.png
   const projectFolder = resolveGenerationFilename({
     project: { id: "p1", name: "Client A" },
     ancestry: [{ id: "f1", name: "Storyboard" }],
@@ -86,7 +86,7 @@ test("resolveGenerationFilename: derives standard example names", () => {
     kind: "image",
     url: "/api/media/i.png",
   });
-  assert.equal(projectFolder, "client_a_storyboard_0042.png");
+  assert.equal(projectFolder, "client_a_storyboard--f1000000000000000000000000000000_0042.png");
 });
 
 test("resolveGenerationFilename: guards Windows reserved device names", () => {
@@ -122,20 +122,19 @@ test("resolveGenerationFilename: bounds filename to 255 bytes and preserves entr
 
   const byteLength = Buffer.byteLength(result, "utf8");
   assert.ok(byteLength <= 255, `Byte length ${byteLength} exceeded 255 bytes`);
-  assert.match(result, /_[a-f0-9]{6}_0001\.png$/, "Must include 6-character entropy hash");
+  assert.match(result, /_[a-f0-9]{6}--f1[0-9a-f]{30}_0001\.png$/, "Must include 6-character entropy hash and namespace token");
 });
 
-test("resolveGenerationFilename: incorporates namespace disambiguator for slug collisions", () => {
-  const withDisambiguator = resolveGenerationFilename({
+test("resolveGenerationFilename: incorporates namespace token for unique identification", () => {
+  const withToken = resolveGenerationFilename({
     project: { id: "12345678-abcd-1111-2222-333344445555", name: "A&B" },
     ancestry: [],
     namespace: "project_unsorted:12345678-abcd-1111-2222-333344445555",
     sequence: 1,
     kind: "image",
-    disambiguator: "1234",
   });
 
-  assert.equal(withDisambiguator, "a_b_unsorted_1234_0001.png");
+  assert.equal(withToken, "a_b_unsorted--12345678abcd11112222333344445555_0001.png");
 });
 
 test("getNamespaceDisambiguator: extracts short deterministic ID", () => {

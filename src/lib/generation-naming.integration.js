@@ -324,8 +324,9 @@ test("Category 4: Out-and-back gets new serial; folder subtree move preserves se
     assert.equal(initialNaming.namespace, `folder:${subFolder.id}`);
 
     // Check filename before subtree move
+    const folderToken = subFolder.id.replace(/-/g, "");
     const filenames1 = await batchResolveGenerationFilenames(db, [genA.id]);
-    assert.equal(filenames1.get(genA.id).filename, `${slugifyToken(p1Name)}_${slugifyToken(subName)}_0001.mp4`);
+    assert.equal(filenames1.get(genA.id).filename, `${slugifyToken(p1Name)}_${slugifyToken(subName)}--${folderToken}_0001.mp4`);
 
     // Move subFolder from parent1 to parent2
     await moveFolder({
@@ -340,7 +341,7 @@ test("Category 4: Out-and-back gets new serial; folder subtree move preserves se
 
     // But the resolved filename reflects the new parent2 prefix!
     const filenames2 = await batchResolveGenerationFilenames(db, [genA.id]);
-    assert.equal(filenames2.get(genA.id).filename, `${slugifyToken(p2Name)}_${slugifyToken(subName)}_0001.mp4`);
+    assert.equal(filenames2.get(genA.id).filename, `${slugifyToken(p2Name)}_${slugifyToken(subName)}--${folderToken}_0001.mp4`);
 
     // Out-and-back move for generation: move to parent1, then back to subFolder
     await moveGenerations({
@@ -399,7 +400,7 @@ test("Category 5: Global Unsorted, Project Unsorted, nested folders, cross-scope
     assert.equal(globalNaming.namespace, "global_unsorted");
 
     const filenames1 = await batchResolveGenerationFilenames(db, [globalGen.id]);
-    assert.match(filenames1.get(globalGen.id).filename, /^library_unsorted_\d{4}\.png$/);
+    assert.match(filenames1.get(globalGen.id).filename, /^library_unsorted--00000000000000000000000000000000_\d{4}\.png$/);
 
     // Move to Project Unsorted
     await moveGenerations({
@@ -411,7 +412,7 @@ test("Category 5: Global Unsorted, Project Unsorted, nested folders, cross-scope
     assert.equal(projNaming.namespace, `project_unsorted:${proj.id}`);
 
     const filenames2 = await batchResolveGenerationFilenames(db, [globalGen.id]);
-    assert.match(filenames2.get(globalGen.id).filename, /^alpha_project_unsorted_\d{4}\.png$/);
+    assert.match(filenames2.get(globalGen.id).filename, new RegExp(`^alpha_project_unsorted--${proj.id.replace(/-/g, "")}_\\d{4}\\.png$`));
 
     await db.delete(generations).where(eq(generations.id, globalGen.id));
   } finally {
@@ -442,15 +443,16 @@ test("Category 6: Project and folder renames update filename without reallocatin
   await upsertItem(gen);
 
   try {
+    const f1FolderToken = folder.id.replace(/-/g, "");
     const f1 = await batchResolveGenerationFilenames(db, [gen.id]);
-    assert.equal(f1.get(gen.id).filename, `${slugifyToken(initName)}_0001.png`);
+    assert.equal(f1.get(gen.id).filename, `${slugifyToken(initName)}--${f1FolderToken}_0001.png`);
 
     // Rename folder to renamedName
     await renameFolder({ folderId: folder.id, name: renamedName });
 
     // Serial is preserved (1), filename dynamically reflects renamedName
     const f2 = await batchResolveGenerationFilenames(db, [gen.id]);
-    assert.equal(f2.get(gen.id).filename, `${slugifyToken(renamedName)}_0001.png`);
+    assert.equal(f2.get(gen.id).filename, `${slugifyToken(renamedName)}--${f1FolderToken}_0001.png`);
   } finally {
     await db.delete(generations).where(eq(generations.id, gen.id)).catch(() => {});
     await db.delete(folders).where(eq(folders.id, folder.id)).catch(() => {});
@@ -460,8 +462,9 @@ test("Category 6: Project and folder renames update filename without reallocatin
 
 test("Category 7: ZIP manifest freeze at finalize; later moves do not alter archive; Python zipfile testzip with 257+ entries", async () => {
   const db = await getDb();
-  const folderA = await createFolder({ name: "ExportFolderA" });
-  const folderB = await createFolder({ name: "ExportFolderB" });
+  const tag = randomUUID().slice(0, 6);
+  const folderA = await createFolder({ name: `ExportFolderA_${tag}` });
+  const folderB = await createFolder({ name: `ExportFolderB_${tag}` });
   const userId = randomUUID();
 
   const now = Date.now();
@@ -509,7 +512,7 @@ test("Category 7: ZIP manifest freeze at finalize; later moves do not alter arch
       .orderBy(asc(mediaExportItems.position));
 
     assert.equal(frozenItems.length, entryCount);
-    assert.ok(frozenItems[0].filename.startsWith("exportfoldera_0001."));
+    assert.ok(frozenItems[0].filename.startsWith(`exportfoldera_${tag}--${folderA.id.replace(/-/g, "")}_0001.`));
 
     // NOW MOVE all items from folderA to folderB in the database!
     await moveGenerations({
@@ -564,13 +567,12 @@ print("ZIP_OK")
     ], { encoding: "utf8" });
 
     assert.ok(pyOutput.includes("ZIP_OK"), "Python zipfile.testzip() must validate archive");
-
-    await db.delete(generations).where(inArray(generations.id, items.map((i) => i.id)));
   } finally {
     try { unlinkSync(tempZipPath); } catch {}
-    if (exportId) await db.delete(mediaExports).where(eq(mediaExports.id, exportId));
-    await db.delete(folders).where(inArray(folders.id, [folderA.id, folderB.id]));
-    await db.delete(namingCounters).where(inArray(namingCounters.namespace, [`folder:${folderA.id}`, `folder:${folderB.id}`]));
+    if (exportId) await db.delete(mediaExports).where(eq(mediaExports.id, exportId)).catch(() => {});
+    await db.delete(generations).where(inArray(generations.id, items.map((i) => i.id))).catch(() => {});
+    await db.delete(folders).where(inArray(folders.id, [folderA.id, folderB.id])).catch(() => {});
+    await db.delete(namingCounters).where(inArray(namingCounters.namespace, [`folder:${folderA.id}`, `folder:${folderB.id}`])).catch(() => {});
   }
 });
 
@@ -707,12 +709,14 @@ test("Category 8: Direct download route streaming, Range/HEAD headers, 401/403/4
       { params: Promise.resolve({ id: completedGen.id }) },
       { openMediaObject: mockOpenMediaObject }
     );
+    const folderToken = folder.id.replace(/-/g, "");
+    const expectedFilename = `downloadtestfolder--${folderToken}_0001.png`;
     assert.equal(successRes.status, 200);
     assert.equal(successRes.headers.get("x-content-type-options"), "nosniff");
     assert.equal(successRes.headers.get("accept-ranges"), "bytes");
     assert.ok(successRes.headers.get("cache-control").includes("private"));
-    assert.ok(successRes.headers.get("content-disposition").includes('attachment; filename="downloadtestfolder_0001.png"'));
-    assert.ok(successRes.headers.get("content-disposition").includes("filename*=UTF-8''downloadtestfolder_0001.png"));
+    assert.ok(successRes.headers.get("content-disposition").includes(`attachment; filename="${expectedFilename}"`));
+    assert.ok(successRes.headers.get("content-disposition").includes(`filename*=UTF-8''${expectedFilename}`));
 
     // 7. Successful HEAD request (status 200, headers match GET, empty body)
     const headReq = new Request(`http://localhost/api/generations/${completedGen.id}/download`, {
@@ -726,7 +730,7 @@ test("Category 8: Direct download route streaming, Range/HEAD headers, 401/403/4
     );
     assert.equal(headRes.status, 200);
     assert.equal(headRes.headers.get("content-length"), String(fakeData.length));
-    assert.ok(headRes.headers.get("content-disposition").includes('filename="downloadtestfolder_0001.png"'));
+    assert.ok(headRes.headers.get("content-disposition").includes(`filename="${expectedFilename}"`));
     const headBody = await headRes.text();
     assert.equal(headBody, "", "HEAD body must be empty");
 

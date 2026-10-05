@@ -111,7 +111,7 @@ test("Canonical Naming Acceptance 1: 'Café' vs 'Cafe' batch-independent filenam
     );
 
     // Both must include deterministic container disambiguator because 'cafe_<tag>' namespace collides
-    const pattern = new RegExp(`^cafe_${tag}_[0-9a-f]{4,}_0001\\.png$`);
+    const pattern = new RegExp(`^cafe_${tag}--[0-9a-f]{32}_0001\\.png$`);
     assert.match(fn1Zip, pattern, `fn1Zip should match pattern: ${fn1Zip}`);
     assert.match(fn2Zip, pattern, `fn2Zip should match pattern: ${fn2Zip}`);
 
@@ -185,7 +185,7 @@ test("Canonical Naming Acceptance 2: Project Unsorted collisions ('Alpha Beta' v
     assert.equal(singleB.get(gBId)?.filename, fnB, "Project Unsorted gen B filename must be batch-independent");
     assert.notEqual(fnA, fnB, "Project Unsorted colliding filenames must be unique");
 
-    const expectedPattern = new RegExp(`^alpha_beta_${tag}_unsorted_[0-9a-f]{4,}_0001\\.png$`);
+    const expectedPattern = new RegExp(`^alpha_beta_${tag}_unsorted--[0-9a-f]{32}_0001\\.png$`);
     assert.match(fnA, expectedPattern, "Gen A filename must include disambiguator");
     assert.match(fnB, expectedPattern, "Gen B filename must include disambiguator");
   } finally {
@@ -201,9 +201,9 @@ test("Canonical Naming Acceptance 3: Long-truncated ancestry collisions with SHA
   // Create deep hierarchy to exceed 255 bytes in joined path
   // Root: 70 chars, Child: 70 chars, Grandchild: 70 chars, Leaf: 60 chars -> Total > 270 chars
   const tag = randomUUID().slice(0, 6);
-  const rootName = `RootHierarchySegment_LongIdentifier_${tag}_A`;
-  const childName = `ChildHierarchySegment_LongIdentifier_${tag}_B`;
-  const grandChildName = `GrandChildHierarchySegment_LongIdentifier_${tag}_C`;
+  const rootName = "RootHierarchySegment_LongIdentifier_".padEnd(70, "X") + `_${tag}_A`;
+  const childName = "ChildHierarchySegment_LongIdentifier_".padEnd(70, "Y") + `_${tag}_B`;
+  const grandChildName = "GrandChildHierarchySegment_LongIdentifier_".padEnd(70, "Z") + `_${tag}_C`;
 
   const rootFolder = await createFolder({ name: rootName });
   const childFolder = await createFolder({ name: childName, parentId: rootFolder.id });
@@ -268,9 +268,9 @@ test("Canonical Naming Acceptance 3: Long-truncated ancestry collisions with SHA
     // Colliding prefix must be disambiguated by SHA-256 entropy hash
     assert.notEqual(fn1, fn2, "Long filenames sharing prefix must not collide due to hash");
 
-    // Both must contain the 6-character hex hash pattern `_[0-9a-f]{6}_`
-    assert.match(fn1, /_[0-9a-f]{6}_0001\.png$/, "Filename 1 must include 6-character SHA-256 hash");
-    assert.match(fn2, /_[0-9a-f]{6}_0001\.png$/, "Filename 2 must include 6-character SHA-256 hash");
+    // Both must contain the 6-character hex hash pattern and the 32-character namespace token
+    assert.match(fn1, /_[0-9a-f]{6}--[0-9a-f]{32}_0001\.png$/, "Filename 1 must include 6-character SHA-256 hash");
+    assert.match(fn2, /_[0-9a-f]{6}--[0-9a-f]{32}_0001\.png$/, "Filename 2 must include 6-character SHA-256 hash");
   } finally {
     await db.delete(generations).where(inArray(generations.id, [g1Id, g2Id]));
     await db.delete(folders).where(inArray(folders.id, [leaf1.id, leaf2.id, grandChild.id, childFolder.id, rootFolder.id]));

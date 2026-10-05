@@ -445,89 +445,138 @@ export async function POST(request) {
   try {
     const db = await getDb();
 
-    // 1. Apply coordinator columns and index
-    for (const stmt of COORDINATOR_STATEMENTS) {
-      await db.execute(sql.raw(stmt));
-    }
+    let verified = false;
+    let counts = {};
 
-    // 2. Apply portrait tables and index
-    for (const stmt of PORTRAIT_STATEMENTS) {
-      await db.execute(sql.raw(stmt));
-    }
+    await db.transaction(async (tx) => {
+      // 1. Apply coordinator columns and index
+      for (const stmt of COORDINATOR_STATEMENTS) {
+        await tx.execute(sql.raw(stmt));
+      }
 
-    // 3. Apply project binding columns and indexes
-    for (const stmt of PROJECT_BINDING_STATEMENTS) {
-      await db.execute(sql.raw(stmt));
-    }
+      // 2. Apply portrait tables and index
+      for (const stmt of PORTRAIT_STATEMENTS) {
+        await tx.execute(sql.raw(stmt));
+      }
 
-    // 4. Apply media export tables and indexes
-    for (const stmt of MEDIA_EXPORT_STATEMENTS) {
-      await db.execute(sql.raw(stmt));
-    }
+      // 3. Apply project binding columns and indexes
+      for (const stmt of PROJECT_BINDING_STATEMENTS) {
+        await tx.execute(sql.raw(stmt));
+      }
 
-    // 5. Apply hierarchical folder statements and indexes
-    for (const stmt of HIERARCHICAL_FOLDER_STATEMENTS) {
-      await db.execute(sql.raw(stmt));
-    }
+      // 4. Apply media export tables and indexes
+      for (const stmt of MEDIA_EXPORT_STATEMENTS) {
+        await tx.execute(sql.raw(stmt));
+      }
 
-    // 6. Apply generation naming statements and indexes
-    for (const stmt of GENERATION_NAMING_STATEMENTS) {
-      await db.execute(sql.raw(stmt));
-    }
+      // 5. Apply hierarchical folder statements and indexes
+      for (const stmt of HIERARCHICAL_FOLDER_STATEMENTS) {
+        await tx.execute(sql.raw(stmt));
+      }
 
-    // 7. Verify schema state
-    const coordinatorVerification = await db.execute(sql`
-      select count(*)::int as count
-      from information_schema.columns
-      where table_name = 'generations'
-        and column_name in (
-          'provider_responses',
-          'submitted_at', 'provider_created_at', 'provider_updated_at',
-          'completed_at', 'last_poll_at', 'next_poll_at', 'poll_attempts',
-          'callback_received_at', 'provider_status', 'worker_lease_id', 'worker_lease_until',
-          'source_generation_id', 'draft_task_id', 'draft_mode', 'bitrate_mode', 'last_frame_url',
-          'reference_videos', 'reference_audios', 'video_task_mode', 'location_version'
-        );
-    `);
+      // 6. Apply generation naming statements and indexes
+      for (const stmt of GENERATION_NAMING_STATEMENTS) {
+        await tx.execute(sql.raw(stmt));
+      }
 
-    const portraitTablesVerification = await db.execute(sql`
-      select count(*)::int as count
-      from information_schema.tables
-      where table_name in ('portrait_groups', 'portrait_assets');
-    `);
+      // 7. Verify schema state
+      const coordinatorVerification = await tx.execute(sql`
+        select count(*)::int as count
+        from information_schema.columns
+        where table_name = 'generations'
+          and column_name in (
+            'provider_responses',
+            'submitted_at', 'provider_created_at', 'provider_updated_at',
+            'completed_at', 'last_poll_at', 'next_poll_at', 'poll_attempts',
+            'callback_received_at', 'provider_status', 'worker_lease_id', 'worker_lease_until',
+            'source_generation_id', 'draft_task_id', 'draft_mode', 'bitrate_mode', 'last_frame_url',
+            'reference_videos', 'reference_audios', 'video_task_mode', 'location_version'
+          );
+      `);
 
-    const mediaExportTablesVerification = await db.execute(sql`
-      select count(*)::int as count
-      from information_schema.tables
-      where table_name in ('media_exports', 'media_export_items');
-    `);
+      const portraitTablesVerification = await tx.execute(sql`
+        select count(*)::int as count
+        from information_schema.tables
+        where table_name in ('portrait_groups', 'portrait_assets');
+      `);
 
-    const hierarchicalFolderColumnsVerification = await db.execute(sql`
-      select count(*)::int as count
-      from information_schema.columns
-      where table_name = 'folders'
-        and column_name in ('parent_id', 'name_normalized', 'version', 'updated_at');
-    `);
+      const mediaExportTablesVerification = await tx.execute(sql`
+        select count(*)::int as count
+        from information_schema.tables
+        where table_name in ('media_exports', 'media_export_items');
+      `);
 
-    const generationNamingTablesVerification = await db.execute(sql`
-      select count(*)::int as count
-      from information_schema.tables
-      where table_name in ('naming_counters', 'generation_naming');
-    `);
+      const hierarchicalFolderColumnsVerification = await tx.execute(sql`
+        select count(*)::int as count
+        from information_schema.columns
+        where table_name = 'folders'
+          and column_name in ('parent_id', 'name_normalized', 'version', 'updated_at');
+      `);
 
-    const coordCount = Number((coordinatorVerification.rows ?? coordinatorVerification)[0]?.count || 0);
-    const portCount = Number((portraitTablesVerification.rows ?? portraitTablesVerification)[0]?.count || 0);
-    const mediaExportCount = Number((mediaExportTablesVerification.rows ?? mediaExportTablesVerification)[0]?.count || 0);
-    const folderColCount = Number((hierarchicalFolderColumnsVerification.rows ?? hierarchicalFolderColumnsVerification)[0]?.count || 0);
-    const namingCount = Number((generationNamingTablesVerification.rows ?? generationNamingTablesVerification)[0]?.count || 0);
+      const generationNamingTablesVerification = await tx.execute(sql`
+        select count(*)::int as count
+        from information_schema.tables
+        where table_name in ('naming_counters', 'generation_naming');
+      `);
+
+      // Invariant checks: zero unassigned generations, zero duplicate sequences, zero lagging counters
+      const unassignedRes = await tx.execute(sql`
+        SELECT count(*)::int as count
+        FROM generations g
+        LEFT JOIN generation_naming gn ON g.id = gn.generation_id
+        WHERE gn.generation_id IS NULL;
+      `);
+      const unassignedCount = Number((unassignedRes.rows ?? unassignedRes)[0]?.count || 0);
+      if (unassignedCount > 0) {
+        throw new Error(`Migration verification failed: ${unassignedCount} generations remain unassigned in generation_naming.`);
+      }
+
+      const dupRes = await tx.execute(sql`
+        SELECT namespace, sequence, count(*)::int as count
+        FROM generation_naming
+        GROUP BY namespace, sequence
+        HAVING count(*) > 1;
+      `);
+      const dupCount = (dupRes.rows ?? dupRes).length;
+      if (dupCount > 0) {
+        throw new Error(`Migration verification failed: found ${dupCount} duplicate sequence assignments.`);
+      }
+
+      const counterLagRes = await tx.execute(sql`
+        SELECT gn.namespace, MAX(gn.sequence)::bigint as max_seq, nc.next_sequence
+        FROM generation_naming gn
+        JOIN naming_counters nc ON gn.namespace = nc.namespace
+        GROUP BY gn.namespace, nc.next_sequence
+        HAVING nc.next_sequence <= MAX(gn.sequence);
+      `);
+      const lagCount = (counterLagRes.rows ?? counterLagRes).length;
+      if (lagCount > 0) {
+        throw new Error(`Migration verification failed: ${lagCount} counters lag behind max assigned sequence.`);
+      }
+
+      const coordCount = Number((coordinatorVerification.rows ?? coordinatorVerification)[0]?.count || 0);
+      const portCount = Number((portraitTablesVerification.rows ?? portraitTablesVerification)[0]?.count || 0);
+      const mediaExportCount = Number((mediaExportTablesVerification.rows ?? mediaExportTablesVerification)[0]?.count || 0);
+      const folderColCount = Number((hierarchicalFolderColumnsVerification.rows ?? hierarchicalFolderColumnsVerification)[0]?.count || 0);
+      const namingCount = Number((generationNamingTablesVerification.rows ?? generationNamingTablesVerification)[0]?.count || 0);
+
+      counts = {
+        coordinatorColumns: coordCount,
+        portraitTables: portCount,
+        mediaExportTables: mediaExportCount,
+        hierarchicalFolderColumns: folderColCount,
+        generationNamingTables: namingCount,
+      };
+
+      verified = coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 4 && namingCount === 2;
+      if (!verified) {
+        throw new Error(`Verification count mismatch: ${JSON.stringify(counts)}`);
+      }
+    });
 
     return NextResponse.json({
       success: true,
-      coordinatorColumns: coordCount,
-      portraitTables: portCount,
-      mediaExportTables: mediaExportCount,
-      hierarchicalFolderColumns: folderColCount,
-      generationNamingTables: namingCount,
+      ...counts,
       verified: coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 4 && namingCount === 2,
     });
   } catch (error) {

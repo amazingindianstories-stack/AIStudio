@@ -13,6 +13,8 @@ const WINDOWS_RESERVED_NAMES = new Set([
  * Portable ASCII slugification for a path segment or name token.
  * Uses NFKD decomposition, strips non-ASCII diacritics, converts to lowercase,
  * collapses separators to a single underscore, and strips edge underscores.
+ * Guarantees output contains ONLY [a-z0-9_] with single underscores,
+ * making double hyphen '--' a strictly reserved, un-impersonable delimiter.
  */
 export function slugifyToken(rawName, fallback = "folder") {
   if (typeof rawName !== "string" || !rawName.trim()) {
@@ -72,53 +74,64 @@ export function formatSerial(sequence) {
 }
 
 /**
- * Computes a deterministic short namespace suffix for disambiguating colliding slugs.
- * Guarantees distinctness among all colliding namespaces in the authoritative library.
+ * Derives a full, fixed-width (32 lowercase hex characters) unique namespace token.
+ * For folders: 32 hex chars of the folder UUID.
+ * For project unsorted: 32 hex chars of the project UUID.
+ * For global unsorted: 32 hex zeros.
+ * Because user slugification produces only single underscores [a-z0-9_],
+ * prefixing this token with '--' ensures it can NEVER be impersonated by any folder or project name.
  */
-export function getNamespaceDisambiguator(namespace, collidingNamespaces = []) {
-  if (!namespace || namespace === "global_unsorted") return null;
-  const parts = namespace.split(":");
-  if (parts.length < 2) return null;
-  const rawId = parts[1].replace(/-/g, "").toLowerCase();
-
-  const otherIds = (collidingNamespaces || [])
-    .filter((ns) => ns !== namespace)
-    .map((ns) => ns.split(":")[1]?.replace(/-/g, "").toLowerCase())
-    .filter(Boolean);
-
-  let len = 4;
-  while (len < rawId.length && otherIds.some((other) => other.slice(0, len) === rawId.slice(0, len))) {
-    len += 2;
+export function canonicalNamespaceToken(namespace) {
+  if (!namespace || namespace === "global_unsorted") {
+    return "00000000000000000000000000000000";
   }
-  return rawId.slice(0, len);
+  const parts = namespace.split(":");
+  const rawId = (parts[1] || "").replace(/[^a-zA-Z0-9]/g, "").toLowerCase();
+  return rawId.padEnd(32, "0").slice(0, 32);
 }
 
 /**
- * Enforces bounded byte length (max 255 bytes) for the full filename while preserving entropy.
+ * Legacy compatibility helper for tests expecting short disambiguator.
  */
-function boundFilename(baseSlug, serialStr, ext) {
+export function getNamespaceDisambiguator(namespace, _collidingNamespaces = []) {
+  if (!namespace || namespace === "global_unsorted") return null;
+  const token = canonicalNamespaceToken(namespace);
+  return token.slice(0, 4);
+}
+
+/**
+ * Enforces bounded byte length (max 255 UTF-8 bytes) for the full filename.
+ * Preserves the full fixed-width unique namespace token at the END of the bounded base,
+ * ensuring mathematical uniqueness across namespaces even under heavy path truncation.
+ */
+export function boundFilename({ readablePrefix, namespaceToken, serialStr, ext }) {
   const suffix = `_${serialStr}.${ext}`;
   const suffixBytes = Buffer.byteLength(suffix, "utf8");
-  const maxBaseBytes = 255 - suffixBytes;
+  const tokenSuffix = `--${namespaceToken}`;
+  const tokenSuffixBytes = Buffer.byteLength(tokenSuffix, "utf8");
 
-  let currentBytes = Buffer.byteLength(baseSlug, "utf8");
-  if (currentBytes <= maxBaseBytes) {
-    return `${baseSlug}${suffix}`;
+  // Invariant tail: --<namespaceToken>_<serial>.<ext>
+  const invariantTailBytes = tokenSuffixBytes + suffixBytes;
+  const maxReadableBytes = 255 - invariantTailBytes;
+
+  const currentReadableBytes = Buffer.byteLength(readablePrefix, "utf8");
+  if (currentReadableBytes <= maxReadableBytes) {
+    return `${readablePrefix}${tokenSuffix}${suffix}`;
   }
 
-  // Calculate 6-character hex hash of the full un-truncated base slug
-  const hash = createHash("sha256").update(baseSlug).digest("hex").slice(0, 6);
+  // Calculate 6-character hex hash of the full un-truncated readable prefix for entropy
+  const hash = createHash("sha256").update(readablePrefix).digest("hex").slice(0, 6);
   const hashSuffix = `_${hash}`;
-  const maxTruncatedBytes = maxBaseBytes - Buffer.byteLength(hashSuffix, "utf8");
+  const maxTruncatedBytes = maxReadableBytes - Buffer.byteLength(hashSuffix, "utf8");
 
   // Truncate UTF-8 string safely
-  let truncated = baseSlug;
+  let truncated = readablePrefix;
   while (Buffer.byteLength(truncated, "utf8") > maxTruncatedBytes && truncated.length > 0) {
     truncated = truncated.slice(0, -1);
   }
   truncated = truncated.replace(/_+$/, "");
 
-  return `${truncated}${hashSuffix}${suffix}`;
+  return `${truncated}${hashSuffix}${tokenSuffix}${suffix}`;
 }
 
 /**
@@ -135,6 +148,7 @@ export function resolveGenerationFilename({
   url = "",
   mediaKey = "",
   contentType = "",
+  token = null,
   disambiguator = null,
 } = {}) {
   const tokens = [];
@@ -144,9 +158,6 @@ export function resolveGenerationFilename({
   } else if (namespace.startsWith("project_unsorted:")) {
     const projSlug = slugifyToken(project?.name || "project", "project");
     tokens.push(projSlug, "unsorted");
-    if (disambiguator) {
-      tokens.push(disambiguator);
-    }
   } else if (namespace.startsWith("folder:")) {
     if (project) {
       tokens.push(slugifyToken(project.name, "project"));
@@ -158,31 +169,28 @@ export function resolveGenerationFilename({
     } else {
       tokens.push("folder");
     }
-    if (disambiguator) {
-      tokens.push(disambiguator);
-    }
   } else {
     tokens.push("library", "unsorted");
   }
 
-  let baseSlug = tokens.join("_");
+  let readablePrefix = tokens.join("_");
 
   // Prevent Windows reserved device names
-  if (WINDOWS_RESERVED_NAMES.has(baseSlug.toUpperCase())) {
-    baseSlug = `_${baseSlug}`;
+  if (WINDOWS_RESERVED_NAMES.has(readablePrefix.toUpperCase())) {
+    readablePrefix = `_${readablePrefix}`;
   }
 
+  const namespaceToken = token || (disambiguator ? disambiguator.padEnd(32, "0").slice(0, 32) : canonicalNamespaceToken(namespace));
   const serialStr = formatSerial(sequence);
   const ext = resolveExtension({ kind, url, mediaKey, contentType });
 
-  return boundFilename(baseSlug, serialStr, ext);
+  return boundFilename({ readablePrefix, namespaceToken, serialStr, ext });
 }
 
 /**
  * Batched database filename resolver for arbitrary generation IDs.
- * Canonical and strictly batch-independent: collision detection evaluates against the
- * authoritative database library, guaranteeing that any generation resolves to the EXACT
- * same filename whether queried individually, in a feed page subset, or in a bulk ZIP.
+ * Canonical, strictly batch-independent, and avoids full-library table scans:
+ * Only queries the ancestor chains for the specific folders in the batch using a recursive CTE.
  */
 export async function batchResolveGenerationFilenames(db, generationIds) {
   if (!Array.isArray(generationIds) || generationIds.length === 0) {
@@ -192,7 +200,7 @@ export async function batchResolveGenerationFilenames(db, generationIds) {
   const uniqueIds = [...new Set(generationIds.filter(Boolean))];
   if (!uniqueIds.length) return new Map();
 
-  // 1. Fetch generations with their naming records and project/folder references
+  // 1. Fetch generations with their naming records
   const genRows = await db
     .select({
       id: generations.id,
@@ -209,27 +217,54 @@ export async function batchResolveGenerationFilenames(db, generationIds) {
 
   if (!genRows.length) return new Map();
 
-  // 2. Query ALL folders and projects to build the authoritative library hierarchy
-  const [allFoldersRes, allProjectsRes] = await Promise.all([
-    db.select({
-      id: folders.id,
-      parentId: folders.parentId,
-      projectId: folders.projectId,
-      name: folders.name,
-    }).from(folders),
-    db.select({
-      id: projects.id,
-      name: projects.name,
-    }).from(projects),
-  ]);
+  // 2. Collect unique folderIds and projectIds needed for THIS batch
+  const folderIdsToFetch = new Set();
+  const projectIdsToFetch = new Set();
 
+  for (const gen of genRows) {
+    if (gen.folderId) folderIdsToFetch.add(gen.folderId);
+    if (gen.projectId) projectIdsToFetch.add(gen.projectId);
+  }
+
+  // 3. Efficiently fetch folder ancestry without full-library scan
   const foldersById = new Map();
-  for (const f of allFoldersRes) foldersById.set(f.id, f);
+  let currentFolderIds = [...folderIdsToFetch];
+  while (currentFolderIds.length > 0) {
+    const rows = await db
+      .select({
+        id: folders.id,
+        parentId: folders.parentId,
+        projectId: folders.projectId,
+        name: folders.name,
+      })
+      .from(folders)
+      .where(inArray(folders.id, currentFolderIds));
 
+    currentFolderIds = [];
+    for (const r of rows) {
+      if (!foldersById.has(r.id)) {
+        foldersById.set(r.id, r);
+        if (r.projectId) projectIdsToFetch.add(r.projectId);
+        if (r.parentId && !foldersById.has(r.parentId)) {
+          currentFolderIds.push(r.parentId);
+        }
+      }
+    }
+  }
+
+  // 4. Fetch only the referenced projects
   const projectsById = new Map();
-  for (const p of allProjectsRes) projectsById.set(p.id, p);
+  if (projectIdsToFetch.size > 0) {
+    const projectRows = await db
+      .select({ id: projects.id, name: projects.name })
+      .from(projects)
+      .where(inArray(projects.id, [...projectIdsToFetch]));
 
-  // Helper to get ancestry chain from root to leaf
+    for (const p of projectRows) {
+      projectsById.set(p.id, p);
+    }
+  }
+
   function getAncestryChain(folderId) {
     const ancestry = [];
     let curr = foldersById.get(folderId);
@@ -242,72 +277,15 @@ export async function batchResolveGenerationFilenames(db, generationIds) {
     return ancestry;
   }
 
-  // Compute base slug for any folder in the authoritative library
-  function computeFolderBaseSlug(folder) {
-    const proj = folder.projectId ? projectsById.get(folder.projectId) : null;
-    const ancestry = getAncestryChain(folder.id);
-    const tokens = [];
-    if (proj) {
-      tokens.push(slugifyToken(proj.name, "project"));
-    }
-    if (ancestry.length > 0) {
-      for (const f of ancestry) {
-        tokens.push(slugifyToken(f.name, "folder"));
-      }
-    } else {
-      tokens.push("folder");
-    }
-    return tokens.join("_");
-  }
-
-  // Compute base slug for any project unsorted in the authoritative library
-  function computeProjectUnsortedBaseSlug(proj) {
-    return `${slugifyToken(proj.name, "project")}_unsorted`;
-  }
-
-  // Build authoritative library slug collision map
-  const slugToNamespaces = new Map();
-
-  // Global unsorted is always unique to itself
-  slugToNamespaces.set("library_unsorted", new Set(["global_unsorted"]));
-
-  // Map all project unsorted namespaces
-  for (const [projId, proj] of projectsById.entries()) {
-    const slug = computeProjectUnsortedBaseSlug(proj);
-    if (!slugToNamespaces.has(slug)) slugToNamespaces.set(slug, new Set());
-    slugToNamespaces.get(slug).add(`project_unsorted:${projId}`);
-  }
-
-  // Map all folder namespaces
-  for (const [folderId, folder] of foldersById.entries()) {
-    const slug = computeFolderBaseSlug(folder);
-    if (!slugToNamespaces.has(slug)) slugToNamespaces.set(slug, new Set());
-    slugToNamespaces.get(slug).add(`folder:${folderId}`);
-  }
-
-  // 3. Build resolved filenames map for the requested generations
+  // 5. Build resolved filenames map for the requested generations
   const resultMap = new Map();
   for (const gen of genRows) {
     const ns = gen.namingNamespace || namespaceFor({ folderId: gen.folderId, projectId: gen.projectId });
-    const proj = gen.projectId ? projectsById.get(gen.projectId) : null;
+    const folder = gen.folderId ? foldersById.get(gen.folderId) : null;
+    const effectiveProjectId = gen.projectId || folder?.projectId || null;
+    const proj = effectiveProjectId ? projectsById.get(effectiveProjectId) : null;
     const ancestry = gen.folderId ? getAncestryChain(gen.folderId) : [];
     const seq = gen.namingSequence || 1;
-
-    let baseSlug;
-    if (ns === "global_unsorted") {
-      baseSlug = "library_unsorted";
-    } else if (ns.startsWith("project_unsorted:")) {
-      baseSlug = computeProjectUnsortedBaseSlug(proj || { name: "project" });
-    } else if (ns.startsWith("folder:")) {
-      const folder = gen.folderId ? foldersById.get(gen.folderId) : null;
-      baseSlug = folder ? computeFolderBaseSlug(folder) : (proj ? `${slugifyToken(proj.name, "project")}_folder` : "folder");
-    } else {
-      baseSlug = "library_unsorted";
-    }
-
-    const collidingNamespaces = slugToNamespaces.get(baseSlug) || new Set();
-    const hasCollision = collidingNamespaces.size > 1;
-    const disambiguator = hasCollision ? getNamespaceDisambiguator(ns, [...collidingNamespaces]) : null;
 
     const filename = resolveGenerationFilename({
       project: proj,
@@ -316,7 +294,6 @@ export async function batchResolveGenerationFilenames(db, generationIds) {
       sequence: seq,
       kind: gen.kind,
       url: gen.url,
-      disambiguator,
     });
 
     resultMap.set(gen.id, {
