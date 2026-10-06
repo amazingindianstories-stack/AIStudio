@@ -44,6 +44,40 @@ test("pending provider response only clears poll health", async () => {
   assert.equal(cleared.updatedAt, 100);
 });
 
+test("MOV provider output is saved as MOV; old in-flight MP4 remains MP4", async () => {
+  for (const [result, extension] of [
+    [{ outputFormat: "mov", videoUrl: "https://provider/opaque" }, "mov"],
+    [{ videoUrl: "https://provider/native.mov?token=private" }, "mov"],
+    [{ outputFormat: "mp4", videoUrl: "https://provider/old.mp4" }, "mp4"],
+    [{ videoUrl: "https://provider/old.mp4" }, "mp4"],
+  ]) {
+    let savedExtension;
+    const outcome = await advanceVideoStatus(item({ model: "Seedance 2.5" }), { dependencies: dependencies({
+      getVideoTask: async () => ({ status: "succeeded", ...result }),
+      saveFromUrlWithMetadata: async (_url, ext) => {
+        savedExtension = ext;
+        return { url: `/api/media/generations/output.${ext}`, aspectRatio: "16:9" };
+      },
+    }) });
+    assert.equal(outcome.kind, "succeeded");
+    assert.equal(savedExtension, extension);
+    assert.match(outcome.item.url, new RegExp(`\\.${extension}$`));
+  }
+});
+
+test("best-of preserves the selected provider's native MOV format", async () => {
+  let savedExtension;
+  const outcome = await advanceVideoStatus(item({ model: "Seedance 2.5", candidateTaskIds: ["candidate"], referenceImages: [] }), { dependencies: dependencies({
+    getVideoTask: async () => ({ status: "succeeded", videoUrl: "https://provider/opaque", outputFormat: "mov" }),
+    saveFromUrlWithMetadata: async (_url, ext) => {
+      savedExtension = ext;
+      return { url: `/api/media/output.${ext}`, aspectRatio: "16:9" };
+    },
+  }) });
+  assert.equal(outcome.kind, "succeeded");
+  assert.equal(savedExtension, "mov");
+});
+
 test("transport, authentication, and timeout-like errors stay non-terminal", async () => {
   let terminalWrites = 0;
   let recorded;

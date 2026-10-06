@@ -198,8 +198,8 @@ export function supportsBitrateMode(model) {
   return capability(model, "bitrate", false);
 }
 
-/** The three task types Seedance 2.5's single endpoint supports, chosen by
- *  content role + prompt wording rather than a request field (see
+/** The three task types Seedance 2.5's single endpoint supports, chosen through
+ *  the explicit omni_reference_task_type request field (see
  *  providers/seedance.js createVideoTask). "generate" covers ordinary
  *  text/image/reference-to-video — the only mode every other model has. */
  

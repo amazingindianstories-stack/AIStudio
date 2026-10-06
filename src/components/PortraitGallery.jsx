@@ -31,6 +31,8 @@ export function PortraitGallery() {
   const setOpen = useStore((s) => s.setPortraitGalleryOpen);
   const assets = useStore((s) => s.portraitAssets);
   const groups = useStore((s) => s.portraitGroups);
+  const syncError = useStore((s) => s.portraitSyncError);
+  const syncInProgress = useStore((s) => s.portraitSyncInProgress);
   const loading = useStore((s) => s.portraitAssetsLoading);
   const loadAll = useStore((s) => s.loadAllPortraitAssets);
   const uploadDirect = useStore((s) => s.uploadPortraitImageDirect);
@@ -81,6 +83,23 @@ export function PortraitGallery() {
       setSelectedAssetForPreview(null);
     }
   }, [open, loadAll, activeProjectId]);
+
+  useEffect(() => {
+    if (!open || !syncInProgress) return;
+    const timer = setTimeout(() => { void loadAll(activeProjectId); }, 2000);
+    return () => clearTimeout(timer);
+  }, [open, syncInProgress, loadAll, activeProjectId]);
+
+  useEffect(() => {
+    setSelectedGroupId(null);
+    setSelectedAssetForPreview(null);
+  }, [activeProjectId]);
+
+  useEffect(() => {
+    if (!loading && selectedGroupId && !groups.some((g) => g.id === selectedGroupId)) {
+      setSelectedGroupId(null);
+    }
+  }, [groups, loading, selectedGroupId]);
 
   // Global Escape key support
   useEffect(() => {
@@ -324,12 +343,12 @@ export function PortraitGallery() {
                   <button
                     type="button"
                     onClick={handleSync}
-                    disabled={syncing || loading}
+                    disabled={syncing || loading || syncInProgress}
                     title="Sync and refresh portrait statuses with BytePlus ModelArk"
                     className="flex items-center gap-1.5 rounded-lg border border-line/60 bg-ink-800 px-2.5 py-1.5 text-xs text-white/80 transition hover:border-brand/40 hover:bg-ink-750 hover:text-white disabled:opacity-50"
                   >
-                    <RefreshCw className={`h-3.5 w-3.5 ${syncing || loading ? "animate-spin text-brand" : "text-white/60"}`} />
-                    <span className="hidden sm:inline">{syncing ? "Syncing…" : "Sync"}</span>
+                    <RefreshCw className={`h-3.5 w-3.5 ${syncing || loading || syncInProgress ? "animate-spin text-brand" : "text-white/60"}`} />
+                    <span className="hidden sm:inline">{syncing || syncInProgress ? "Syncing…" : "Sync"}</span>
                   </button>
 
                   <button
@@ -415,6 +434,7 @@ export function PortraitGallery() {
                           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium"
                         >
                           <span className={isSelected ? "font-semibold text-zinc-950" : ""}>{group.name}</span>
+                          <small className="opacity-60">{group.projectId ? projects.find((p) => p.id === group.projectId)?.name || "Project" : "Global"}</small>
                           <span
                             className={`rounded-full px-1.5 py-0.2 text-[10px] ${
                               isSelected ? "bg-black/15 text-zinc-950 font-bold" : "bg-ink-700 text-white/50"
@@ -556,10 +576,10 @@ export function PortraitGallery() {
                 </div>
 
                 {/* Error banner */}
-                {error && (
+                {(error || syncError) && (
                   <div className="mt-4 flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-2.5 text-xs text-red-300">
                     <AlertCircle className="h-4 w-4 shrink-0 text-red-400" />
-                    <span className="flex-1">{error}</span>
+                    <span className="flex-1">{error || syncError}</span>
                     <button
                       type="button"
                       onClick={() => setError("")}

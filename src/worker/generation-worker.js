@@ -6,6 +6,7 @@ import { publishGenerationUpdate } from "../lib/generation-realtime.js";
 import { runMediaExportWorker } from "./media-export-worker.js";
 import { advanceMagnificStatus } from "../lib/magnific-status-advancement.js";
 import { isMagnificModel } from "../lib/providers/magnific.js";
+import { workerRequestHeaders } from "../lib/worker-request-headers.js";
 
 const MIN_DELAY_MS = 5_000;
 const MAX_DELAY_MS = 60_000;
@@ -52,7 +53,7 @@ export async function runCoordinatorOnce({
         if (!baseUrl || !secret) throw new Error("generation worker configuration is incomplete");
         const response = await fetchImpl(`${baseUrl.replace(/\/$/, "")}/api/queue/execute`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-generation-worker-secret": secret },
+          headers: workerRequestHeaders(secret),
           body: JSON.stringify({ id: claimed.id }),
         });
         if (!response.ok) throw new Error(`queue submission failed (${response.status})`);

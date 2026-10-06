@@ -1,6 +1,21 @@
-import { eq, desc, asc, like, or, inArray } from "drizzle-orm";
+import { sql, eq, desc, asc, like, or, inArray, isNull } from "drizzle-orm";
 import { getDb } from "./db.js";
 import { portraitGroups, portraitAssets } from "./schema.js";
+
+/** Serialize reconciliation across app instances without changing schema. */
+export async function withPortraitReconciliation(work) {
+  const db = await getDb();
+  return db.transaction(async (tx) => {
+    // Waiting sync transactions can exhaust the pool while the lock owner needs
+    // another connection for durable identity writes. Never occupy a waiter slot.
+    const result = await tx.execute(sql`SELECT pg_try_advisory_xact_lock(746833219) AS locked`);
+    if (!(result.rows ?? result)[0]?.locked) {
+      throw Object.assign(new Error("Portrait reconciliation already running."), { code: "PORTRAIT_SYNC_BUSY" });
+    }
+    // Keep successful remote identities committed even if a later provider call fails.
+    return work();
+  });
+}
 
 function rowToGroup(r) {
   return {
@@ -37,8 +52,8 @@ export async function listPortraitGroups(projectId) {
   const db = await getDb();
   const groupsQuery = db.select().from(portraitGroups);
   const groups = projectId
-    ? await groupsQuery.where(eq(portraitGroups.projectId, projectId)).orderBy(desc(portraitGroups.createdAt))
-    : await groupsQuery.orderBy(desc(portraitGroups.createdAt));
+    ? await groupsQuery.where(or(eq(portraitGroups.projectId, projectId), isNull(portraitGroups.projectId))).orderBy(desc(portraitGroups.createdAt), asc(portraitGroups.id))
+    : await groupsQuery.orderBy(desc(portraitGroups.createdAt), asc(portraitGroups.id));
 
   if (groups.length === 0) return [];
 
@@ -47,7 +62,7 @@ export async function listPortraitGroups(projectId) {
     .select()
     .from(portraitAssets)
     .where(inArray(portraitAssets.groupId, groupIds))
-    .orderBy(asc(portraitAssets.createdAt));
+    .orderBy(asc(portraitAssets.createdAt), asc(portraitAssets.id));
 
   const assetsByGroup = new Map();
   for (const asset of assets) {
@@ -75,7 +90,7 @@ export async function getPortraitGroup(id) {
     .select()
     .from(portraitAssets)
     .where(eq(portraitAssets.groupId, id))
-    .orderBy(asc(portraitAssets.createdAt));
+    .orderBy(asc(portraitAssets.createdAt), asc(portraitAssets.id));
   const group = rowToGroup(rows[0]);
   return {
     ...group,
@@ -103,27 +118,9 @@ export async function upsertPortraitGroup(group) {
   if (group.byteplusGroupId) {
     const existingWithBpId = await getPortraitGroupByByteplusId(group.byteplusGroupId);
     if (existingWithBpId && existingWithBpId.id !== group.id) {
-      // Re-point all assets from group.id to existingWithBpId.id
-      await db
-        .update(portraitAssets)
-        .set({ groupId: existingWithBpId.id })
-        .where(eq(portraitAssets.groupId, group.id));
-
-      // Remove the redundant duplicate group row
-      await db.delete(portraitGroups).where(eq(portraitGroups.id, group.id));
-
-      // Update canonical group's metadata
-      const updateVals = {
-        name: group.name || existingWithBpId.name,
-        description: group.description ?? existingWithBpId.description,
-        updatedAt: now,
-      };
-      await db
-        .update(portraitGroups)
-        .set(updateVals)
-        .where(eq(portraitGroups.id, existingWithBpId.id));
-
-      return getPortraitGroup(existingWithBpId.id);
+      throw Object.assign(new Error("BytePlus group identity already belongs to another local group; reconciliation required."), {
+        code: "PORTRAIT_IDENTITY_CONFLICT",
+      });
     }
   }
 
@@ -160,7 +157,7 @@ export async function listPortraitAssets(groupId) {
     .select()
     .from(portraitAssets)
     .where(eq(portraitAssets.groupId, groupId))
-    .orderBy(asc(portraitAssets.createdAt));
+    .orderBy(asc(portraitAssets.createdAt), asc(portraitAssets.id));
   return rows.map(rowToAsset);
 }
 
@@ -299,20 +296,20 @@ export async function listAllPortraitAssets(projectId) {
     const groups = await db
       .select({ id: portraitGroups.id })
       .from(portraitGroups)
-      .where(eq(portraitGroups.projectId, projectId));
+      .where(or(eq(portraitGroups.projectId, projectId), isNull(portraitGroups.projectId)));
     const groupIds = groups.map((g) => g.id);
     if (groupIds.length === 0) return [];
     const rows = await db
       .select()
       .from(portraitAssets)
       .where(inArray(portraitAssets.groupId, groupIds))
-      .orderBy(desc(portraitAssets.createdAt));
+      .orderBy(desc(portraitAssets.createdAt), asc(portraitAssets.id));
     return rows.map(rowToAsset);
   }
   const rows = await db
     .select()
     .from(portraitAssets)
-    .orderBy(desc(portraitAssets.createdAt));
+    .orderBy(desc(portraitAssets.createdAt), asc(portraitAssets.id));
   return rows.map(rowToAsset);
 }
 
@@ -321,7 +318,7 @@ export async function ensureDefaultPortraitGroup(projectId) {
   const query = db.select().from(portraitGroups);
   const rows = projectId
     ? await query.where(eq(portraitGroups.projectId, projectId))
-    : await query;
+    : await query.where(isNull(portraitGroups.projectId));
   if (rows.length > 0) {
     const preferred =
       rows.find((r) => r.byteplusGroupId && /general|default/i.test(r.name)) ||
@@ -357,4 +354,3 @@ export async function updatePortraitAssetName(id, name) {
     .where(eq(portraitAssets.id, id));
   return getPortraitAsset(id);
 }
-

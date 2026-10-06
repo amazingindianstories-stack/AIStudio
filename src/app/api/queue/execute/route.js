@@ -13,6 +13,7 @@ import {
   mcpUploadImage,
 } from "@/lib/providers/higgsfield-mcp";
 import { createFinalVideoTask, createVideoTask } from "@/lib/providers/seedance";
+import { remapSubmittedMediaTags } from "@/lib/seedance-reference-tags";
 import {
   generateImageKling,
   isKlingModel,
@@ -391,7 +392,7 @@ async function submitVideo(base, signal) {
         `bestOf=${videoBestOf ?? 1}, firstFrame=${!!firstFrameDataUrl}, lastFrame=${!!lastFrameDataUrl}`
     );
     const taskInput = (candidateSeed) => ({
-      prompt,
+      prompt: remapSubmittedMediaTags(prompt, base.referenceVideos, base.referenceAudios),
       modelDisplay: model,
       ratio: aspectRatio,
       resolution,

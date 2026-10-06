@@ -25,6 +25,15 @@ import {
 import { retryAfterMsForPollErrors } from "./video-poll-backoff";
 import { providerTimestamps, scheduleGeneration } from "./generation-coordinator";
 import { publishGenerationUpdate } from "./generation-realtime";
+import { resolveExtension } from "./filename-resolver";
+
+function videoOutputExtension(result) {
+  // Trust the actual provider result, not the model's current default: old
+  // in-flight Seedance 2.5 tasks may still return MP4 after this deployment.
+  return ["mov", "mp4"].includes(result.outputFormat)
+    ? result.outputFormat
+    : resolveExtension({ kind: "video", url: result.url ?? result.videoUrl });
+}
 
 const defaults = {
   now: () => Date.now(),
@@ -197,7 +206,7 @@ async function resolveVideoBestOf(item, context) {
   let url = winner.videoUrl;
   let aspectRatio = item.aspectRatio;
   try {
-    const saved = await deps.saveFromUrlWithMetadata(url, "mp4", item.id, {
+    const saved = await deps.saveFromUrlWithMetadata(url, videoOutputExtension(winner), item.id, {
       kind: "video", model: item.model, requestedAspectRatio: item.aspectRatio,
     });
     url = saved.url;
@@ -264,7 +273,7 @@ async function advanceStandard(item, result, context) {
     let url = videoUrl;
     let aspectRatio = item.aspectRatio;
     try {
-      const saved = await deps.saveFromUrlWithMetadata(videoUrl, "mp4", item.id, {
+      const saved = await deps.saveFromUrlWithMetadata(videoUrl, videoOutputExtension(result), item.id, {
         kind: "video", model: item.model, requestedAspectRatio: item.aspectRatio,
       });
       url = saved.url;

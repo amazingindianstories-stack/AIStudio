@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronRight,
   FolderClosed,
@@ -16,10 +16,13 @@ import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
 import { UNSORTED } from "@/lib/feed-scope";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 
 export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeFolderId = useStore((s) => s.activeFolderId);
+  const libraryTree = useStore((s) => s.libraryTree);
+  const navRef = useRef(null);
   const projects = useStore((s) => s.projects);
   const setActiveFolder = useStore((s) => s.setActiveFolder);
   const renameFolder = useStore((s) => s.renameFolder);
@@ -28,15 +31,12 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   const [ancestry, setAncestry] = useState([]);
   const [, setLoadingAncestry] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState("");
-  const [renameError, setRenameError] = useState(null);
 
   const currentProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
   // Fetch authoritative ancestry trail from server whenever activeFolderId changes
   useEffect(() => {
-    setIsRenaming(false);
-    setRenameError(null);
+
     if (!activeFolderId || activeFolderId === UNSORTED) {
       setAncestry([]);
       return;
@@ -60,15 +60,33 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
     return () => {
       cancelled = true;
     };
-  }, [activeFolderId]);
+  }, [activeFolderId, libraryTree]);
+
+  useEffect(() => setIsRenaming(false), [activeFolderId, activeProjectId]);
+  useEffect(() => {
+    const nav = navRef.current;
+    if (nav) nav.scrollLeft = nav.scrollWidth;
+  }, [ancestry]);
+
+  useEffect(() => {
+    const nav = navRef.current;
+    const onWheel = (event) => {
+      if (event.shiftKey && !event.deltaX && nav.scrollWidth > nav.clientWidth) {
+        event.preventDefault();
+        nav.scrollLeft += event.deltaY;
+      }
+    };
+    nav.addEventListener("wheel", onWheel, { passive: false });
+    return () => nav.removeEventListener("wheel", onWheel);
+  }, []);
 
   const currentFolder = ancestry.length > 0 ? ancestry[ancestry.length - 1] : null;
 
   const handleRename = () => {
     if (!currentFolder) return;
     setIsRenaming(true);
-    setRenameValue(currentFolder.name);
-    setRenameError(null);
+
+
   };
 
   const handleDelete = () => {
@@ -85,9 +103,11 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   };
 
   return (
-    <div className="flex items-center justify-between border-b border-line bg-ink-850 px-4 py-2 text-xs">
+    <div className="flex min-w-0 items-center border-b border-line bg-ink-850 px-4 py-2 text-xs">
       {/* Breadcrumb list */}
-      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-1.5 overflow-x-auto scroll-thin py-0.5">
+      <nav ref={navRef} aria-label="Breadcrumb"
+        onFocusCapture={(e) => e.target.scrollIntoView({ block: "nearest", inline: "nearest" })}
+        className="flex flex-1 min-w-0 items-center gap-1.5 overflow-x-auto scroll-thin py-0.5">
         {/* Root crumb */}
         {currentProject ? (
           <button
@@ -128,63 +148,12 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
               <ChevronRight className="h-3 w-3 text-white/30" />
               {isLast ? (
                 isRenaming ? (
-                  <form
-                    onSubmit={async (e) => {
-                      e.preventDefault();
-                      const trimmed = renameValue.trim();
-                      if (!trimmed || trimmed === crumb.name) {
-                        setIsRenaming(false);
-                        return;
-                      }
-                      try {
-                        await renameFolder(crumb.projectId, crumb.id, trimmed);
-                        setIsRenaming(false);
-                        setAncestry((prev) =>
-                          prev.map((c) => (c.id === crumb.id ? { ...c, name: trimmed } : c))
-                        );
-                      } catch (err) {
-                        setRenameError(err.message || "Failed to rename folder");
-                      }
-                    }}
-                    className="flex items-center gap-1"
-                  >
-                    <FolderClosed className="h-3.5 w-3.5 text-amber-400/90 shrink-0" />
-                    <input
-                      type="text"
-                      value={renameValue}
-                      autoFocus
-                      onChange={(e) => {
-                        setRenameValue(e.target.value);
-                        setRenameError(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") {
-                          setIsRenaming(false);
-                          setRenameError(null);
-                        }
-                      }}
-                      onBlur={async () => {
-                        const trimmed = renameValue.trim();
-                        if (!trimmed || trimmed === crumb.name) {
-                          setIsRenaming(false);
-                          return;
-                        }
-                        try {
-                          await renameFolder(crumb.projectId, crumb.id, trimmed);
-                          setIsRenaming(false);
-                          setAncestry((prev) =>
-                            prev.map((c) => (c.id === crumb.id ? { ...c, name: trimmed } : c))
-                          );
-                        } catch (err) {
-                          setRenameError(err.message || "Failed to rename folder");
-                        }
-                      }}
-                      className="rounded border border-brand/60 bg-ink-900 px-1 py-0.5 text-xs text-white outline-none focus:border-brand"
-                    />
-                    {renameError && (
-                      <span className="text-[10px] text-red-400 ml-1">{renameError}</span>
-                    )}
-                  </form>
+                  <InlineFolderNameEditor
+                    initialName={crumb.name}
+                    label="Rename folder"
+                    onCommit={(name) => renameFolder(crumb.projectId, crumb.id, name)}
+                    onClose={() => setIsRenaming(false)}
+                  />
                 ) : (
                   <div className="flex items-center gap-1 rounded-md bg-white/5 px-2 py-1 font-semibold text-white">
                     <FolderClosed className="h-3.5 w-3.5 text-amber-400/90" />
@@ -224,6 +193,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
 
         {currentFolder && (
           <Dropdown
+            label="Current folder actions"
             align="right"
             trigger={(_open) => (
               <span
@@ -238,7 +208,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
               <div className="py-1">
                 <MenuItem
                   onClick={() => {
-                    close();
+                    close({ restoreFocus: false });
                     handleRename();
                   }}
                 >
@@ -248,7 +218,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
                 {onOpenMoveModal && (
                   <MenuItem
                     onClick={() => {
-                      close();
+                      close({ restoreFocus: false });
                       onOpenMoveModal(currentFolder);
                     }}
                   >

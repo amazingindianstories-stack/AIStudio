@@ -115,6 +115,9 @@ export async function POST(req) {
     typeof body.lastFrame === "string" ? body.lastFrame : undefined;
   const lastFrame = supportsFrames ? lastFrameInput : undefined;
 
+  if (videoTaskMode !== "generate" && (continuationFrame || lastFrame)) {
+    return NextResponse.json({ error: "Frame generation cannot be combined with Edit/Extend." }, { status: 400 });
+  }
   if (lastFrame && !continuationFrame) {
     return NextResponse.json(
       { error: "A first frame is required when providing a last frame." },

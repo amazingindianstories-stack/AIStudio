@@ -979,7 +979,7 @@ export function PromptComposer() {
               <MenuItem
                 onClick={() => {
                   s.setPortraitGalleryOpen(true);
-                  close();
+                  close({ restoreFocus: false });
                 }}
               >
                 <Images className="h-4 w-4 text-brand" /> Portrait Gallery
@@ -1212,9 +1212,8 @@ export function PromptComposer() {
         >
           {() => (
             <div className="space-y-3">
-              {/* Edit/Extend only exist on Seedance 2.5 — BytePlus infers the
-                  task type from this plus an attached reference clip, not a
-                  request field (see providers/seedance.js). */}
+              {/* Seedance 2.5 maps the selected mode to an explicit omni task
+                  type when references are attached (see providers/seedance.js). */}
               {editExtendApplies && (
                 <div>
                   <Segment

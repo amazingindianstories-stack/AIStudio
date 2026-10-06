@@ -26,6 +26,7 @@ import { renumberImgMentions, normalizePromptMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch } from "./api";
+import { apiErrorMessage } from "./api-error";
 import {
   clearFeedCache,
   dedupeFirstPage,
@@ -897,7 +898,7 @@ export const useStore = create((set, get) => ({
           throw new Error(`Server error (${res.status}): the server returned an empty or invalid response.`);
         }
         if (!res.ok) {
-          throw new Error(item.error || `Server error: ${res.status}`);
+          throw new Error(apiErrorMessage(item, res.status));
         }
         if (item?.id) {
           // Stay on the tab the user chose. Forcing "history" (All assets) on
@@ -967,7 +968,7 @@ export const useStore = create((set, get) => ({
       } catch {
         throw new Error(`Server error (${res.status}): the server returned an empty or invalid response.`);
       }
-      if (!res.ok) throw new Error(item.error || `Server error: ${res.status}`);
+      if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
       if (item?.id) {
         insertNewItem(set, item);
         startPolling(item, set, get);
@@ -1020,7 +1021,7 @@ export const useStore = create((set, get) => ({
       } catch {
         throw new Error(`Server error (${res.status}): invalid response.`);
       }
-      if (!res.ok) throw new Error(item.error || `Server error: ${res.status}`);
+      if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
 
       if (item?.id) {
         insertNewItem(set, item);
@@ -1754,22 +1755,24 @@ export const useStore = create((set, get) => ({
   },
 
   loadAllPortraitAssets: async (projectId) => {
-    set({ portraitAssetsLoading: true });
+    const pid = projectId !== undefined ? projectId : get().activeProjectId;
+    const requestId = (get().portraitRequestId || 0) + 1;
+    set({ portraitRequestId: requestId, portraitAssetsLoading: true, portraitSyncError: null, portraitSyncInProgress: false,
+      ...(get().portraitScope !== pid ? { portraitScope: pid, portraitAssets: [], portraitGroups: [] } : {}) });
     try {
-      const pid = projectId !== undefined ? projectId : get().activeProjectId;
       const url = pid ? `/api/assets/portraits?projectId=${encodeURIComponent(pid)}` : "/api/assets/portraits";
       const res = await apiFetch(url, { cache: "no-store" });
       const json = await res.json();
+      if (!res.ok || json.error) throw new Error(json.error || "Could not load portraits.");
+      if (get().portraitRequestId !== requestId || get().activeProjectId !== pid) return [];
       const assets = json.assets ?? [];
-      const groups = json.groups ?? [];
-      set({
-        portraitAssets: assets,
-        portraitGroups: groups,
-        portraitAssetsLoading: false,
-      });
+      set({ portraitAssets: assets, portraitGroups: json.groups ?? [],
+        portraitAssetsLoading: false, portraitSyncError: json.syncError || null, portraitSyncInProgress: Boolean(json.syncInProgress) });
       return assets;
-    } catch {
-      set({ portraitAssetsLoading: false });
+    } catch (err) {
+      if (get().portraitRequestId === requestId) {
+        set({ portraitAssetsLoading: false, portraitSyncError: err.message || "Could not load portraits." });
+      }
       return [];
     }
   },
@@ -1907,7 +1910,7 @@ export const useStore = create((set, get) => ({
       const nextProjectId =
         currentActiveId && projects.some((p) => p.id === currentActiveId)
           ? currentActiveId
-          : currentActiveId === null && get().projects.length > 0
+          : currentActiveId === null && (get().projects.length > 0 || get().projectScopeSelected)
           ? null
           : projects[0]?.id ?? null;
       set({
@@ -1944,7 +1947,7 @@ export const useStore = create((set, get) => ({
   // The subscription at the bottom of this file watches these and refetches the
   // feed, counts and thread — so switching project or folder is one state write
   // here, not a fetch every caller has to remember to make.
-  setActiveProject: (id) => set({ activeProjectId: id, activeFolderId: null }),
+  setActiveProject: (id) => set({ activeProjectId: id, activeFolderId: null, projectScopeSelected: true }),
   setActiveFolder: (id) => set({ activeFolderId: id }),
 
   createProject: async (name) => {
@@ -2027,7 +2030,7 @@ export const useStore = create((set, get) => ({
     }
     const json = await res.json();
     if (json.folder?.id) {
-      set({ activeFolderId: json.folder.id });
+      set({ activeProjectId: json.folder.projectId ?? null, activeFolderId: json.folder.id, projectScopeSelected: true });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree(), get().loadCounts()]);
     return json.folder;
@@ -2073,7 +2076,8 @@ export const useStore = create((set, get) => ({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "Failed to rename folder");
+      if (err.code === "VERSION_CONFLICT") await get().loadLibraryTree();
+      throw Object.assign(new Error(err.error || "Failed to rename folder"), { code: err.code });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
   },

@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { resolveGcsReadFile } from "./gcs-read-fallback.js";
 import { Storage, } from "@google-cloud/storage";
 import {
   DeleteObjectCommand,
@@ -47,6 +48,15 @@ function storage() {
   return storageClient;
 }
 
+function readGcsFile(key) {
+  return withOpenTimeout(resolveGcsReadFile(key, {
+    primaryBucket: getBucketName(),
+    fallbackBucket: process.env.GCP_MEDIA_READ_FALLBACK_BUCKET,
+    fileFor: (bucket, objectKey) => storage().bucket(bucket).file(objectKey),
+    isProtected: isProtectedMediaKey,
+  }), `GCS resolve read ${key}`);
+}
+
 function legacyS3() {
   legacyS3Client ??= new S3Client({
     region: process.env.AWS_REGION || "us-east-1",
@@ -64,6 +74,7 @@ function extToMime(ext) {
   const e = ext.toLowerCase();
   if (e === "jpg" || e === "jpeg") return "image/jpeg";
   if (e === "mp4") return "video/mp4";
+  if (e === "mov") return "video/quicktime";
   if (e === "webm") return "video/webm";
   if (e === "webp") return "image/webp";
   if (e === "gif") return "image/gif";
@@ -222,10 +233,8 @@ async function signReadUrl(
   }
   if (primaryIsGcs()) {
     try {
-      const [url] = await storage()
-        .bucket(getBucketName())
-        .file(key)
-        .getSignedUrl({
+      const file = await readGcsFile(key);
+      const [url] = await file.getSignedUrl({
           version: "v4",
           action: "read",
           accessibleAt: new Date(accessibleAtMs),
@@ -297,10 +306,8 @@ export async function getSignedDownloadUrl(
 
   if (primaryIsGcs()) {
     try {
-      const [url] = await storage()
-        .bucket(getBucketName())
-        .file(key)
-        .getSignedUrl({
+      const file = await readGcsFile(key);
+      const [url] = await file.getSignedUrl({
           version: "v4",
           action: "read",
           expires: Date.now() + ttlSeconds * 1000,
@@ -538,7 +545,7 @@ export async function signStoredRef(
 }
 
 export function getMediaRedirectUrl(key) {
-  if (!primaryIsGcs()) return null;
+  if (!primaryIsGcs() || process.env.GCP_MEDIA_READ_FALLBACK_BUCKET) return null;
   const base = process.env.GCP_MEDIA_CDN_URL?.replace(/\/$/, "");
   return base ? `${base}/${encodeKey(key)}` : null;
 }
@@ -701,7 +708,8 @@ async function readLegacyBuffer(key) {
 export async function readStoredBuffer(key) {
   if (!primaryIsGcs()) return readLegacyBuffer(key);
   try {
-    const [buffer] = await storage().bucket(getBucketName()).file(key).download();
+    const file = await readGcsFile(key);
+    const [buffer] = await file.download();
     return buffer;
   } catch (error) {
     if (isNotFound(error) && legacyReadsEnabled()) return readLegacyBuffer(key);
@@ -729,7 +737,7 @@ export async function readAsBase64(
       };
     }
     try {
-      const file = storage().bucket(getBucketName()).file(key);
+      const file = await readGcsFile(key);
       const [[buffer], [metadata]] = await Promise.all([
         file.download(),
         file.getMetadata(),
@@ -779,7 +787,7 @@ export async function objectExists(key) {
   try {
     if (primaryIsGcs()) {
       const [exists] = await withOpenTimeout(
-        storage().bucket(getBucketName()).file(key).exists(),
+        readGcsFile(key).then(file => file.exists()),
         `GCS exists ${key}`
       );
       found = exists;
@@ -899,7 +907,7 @@ export async function openMediaObject(
 ) {
   if (!primaryIsGcs()) return openLegacyMedia(key, range, signal);
   try {
-    const file = storage().bucket(getBucketName()).file(key);
+    const file = await readGcsFile(key);
     const [metadata] = await withOpenTimeout(
       file.getMetadata(),
       `GCS getMetadata ${key}`

@@ -2,7 +2,7 @@
 
 import { buildVideoDirective } from "../video-directive.js";
 import { parseRefRoles } from "../shot-spec.js";
-import { maxReferenceImagesForVideoModel, maxReferenceVideosForVideoModel, supportsBitrateMode, supportsDraftMode } from "../config.js";
+import { maxReferenceImagesForVideoModel, maxReferenceVideosForVideoModel, supportsBitrateMode, supportsDraftMode, supportsVideoEditExtend } from "../config.js";
 import { isProviderModel, providerModelId } from "../model-registry.js";
 
 /** Instant revert path: SEEDANCE_LEGACY_DIRECTIVE=1 restores the pre-2026-07-28
@@ -181,8 +181,7 @@ function friendlyError(status, body) {
 
 /**
  * Minimal task-type trigger sentences for Seedance 2.5's Edit/Extend modes
- * (see the file header — BytePlus classifies by content role + these exact
- * kinds of phrases, not a request field). Deliberately NOT run through
+ * alongside the explicit 2.5 omni_reference_task_type request field. Deliberately NOT run through
  * video-directive.js: that module's identity-lock/style-follow scaffolding is
  * built for GENERATING a new video from a reference, and this codebase
  * already learned once (video-directive.js's own header) that stacking
@@ -199,7 +198,8 @@ export async function createVideoTask(
   input
 ) {
   const model = pickModel(input.modelDisplay);
-  const refs = input.references ?? [];
+  const refs = (input.references ?? []).map((ref, i) => supportsVideoEditExtend(input.modelDisplay)
+    ? { ...ref, index: i + 1 } : ref);
   const maxReferenceImages = maxReferenceImagesForVideoModel(input.modelDisplay);
   if (maxReferenceImages !== null && refs.length > maxReferenceImages) {
     throw new SeedanceError(
@@ -210,6 +210,15 @@ export async function createVideoTask(
   }
   const refRole = process.env.SEEDANCE_IMAGE_ROLE || "reference_image";
   const taskMode = input.taskMode ?? "generate";
+  if (!["generate", "edit", "extend"].includes(taskMode)) {
+    throw new SeedanceError("Unsupported video task mode.", "invalid_task_mode", 400);
+  }
+  if (taskMode !== "generate" && (!supportsVideoEditExtend(input.modelDisplay) || !input.referenceVideoUrls?.length)) {
+    throw new SeedanceError("Edit/Extend require Seedance 2.5 and a source video.", "missing_source_video", 400);
+  }
+  if (taskMode !== "generate" && (input.firstFrame || input.lastFrame)) {
+    throw new SeedanceError("Frame generation cannot be combined with Edit/Extend.", "invalid_frame_task", 400);
+  }
 
   // Identity/style scaffolding now lives in lib/video-directive.js, shared with
   // the Higgsfield path so the two cannot drift apart again. It also assembles
@@ -234,6 +243,11 @@ export async function createVideoTask(
         });
   }
 
+  // Current 2.5 contract uses @Image/@Video/@Audio, indexed by submitted order.
+  if (supportsVideoEditExtend(input.modelDisplay)) {
+    text = text.replace(/\[(image|video|audio) (\d+)\]/gi,
+      (_, kind, number) => `@${kind[0].toUpperCase()}${kind.slice(1).toLowerCase()} ${number}`);
+  }
   const content = [{ type: "text", text }];
   refs.forEach((ref) => {
     content.push({
@@ -312,6 +326,14 @@ export async function createVideoTask(
     // nothing, so nothing starts paying for audio it did not ask for.
     generate_audio: input.generateAudio === true,
   };
+  // Native high-colour-precision masters are the production default for 2.5.
+  // Older models reject this field; never infer it from reference file types.
+  if (input.modelDisplay === "Seedance 2.5") body.output_format = "mov";
+  if (supportsVideoEditExtend(input.modelDisplay) && !input.firstFrame) {
+    const ordinaryReference = content.some((item) =>
+      ["reference_image", "reference_video", "reference_audio"].includes(item.role));
+    if (ordinaryReference) body.omni_reference_task_type = taskMode === "generate" ? "reference" : taskMode;
+  }
   // ModelArk documents this top-level field for Seedance 2.5 Draft mode.
   // It must be absent (not even false) for 2.0, whose API rejects `draft`.
   if (supportsDraftMode(input.modelDisplay)) {
@@ -386,13 +408,14 @@ export async function createVideoTask(
 }
 
 /** Convert a Seedance 2.5 draft task into its billable 1080p final. BytePlus
- * requires this deliberately tiny payload; never merge ordinary generation
- * options into it, because prompt/references/seed/etc. invalidate the contract. */
+ * requires this deliberately tiny payload; output_format is explicitly allowed
+ * again, while prompt/references/seed/etc. invalidate the contract. */
 export async function createFinalVideoTask(input) {
   const body = {
     model: pickModel(input.modelDisplay),
     content: [{ type: "draft_task", draft_task: { id: input.draftTaskId } }],
     resolution: "1080p",
+    output_format: "mov",
   };
   if (typeof input.callbackUrl === "string" && /^https:\/\//i.test(input.callbackUrl)) {
     body.callback_url = input.callbackUrl;
@@ -467,6 +490,8 @@ export function normalizeVideoTaskPayload(json = {}) {
   return {
     status,
     videoUrl,
+    outputFormat: source?.output_format === "mov" || source?.output_format === "mp4"
+      ? source.output_format : undefined,
     error,
     raw: json,
     totalTokens,

@@ -9,7 +9,7 @@
 
 ## 1. Release Inventory
 
-- **Target Branch**: `feat/freeform-hierarchical-library-naming`
+- **Repair Branch**: `fix/preview-regressions-codex`; deploy the exact commit qualified on the isolated preview, never a moving branch head.
 - **Pre-Migration Backup**: Cloud SQL / Managed PostgreSQL Point-In-Time Recovery (PITR) checkpoint
 - **Organization Snapshot Utility**: `scripts/snapshot-organization.js` (`npm run db:snapshot:organization`)
 - **Pre-Migration Audit Scripts**:
@@ -35,9 +35,12 @@ During the maintenance window (between Step 2 and Step 18 below), the following 
 4. **Folder Movement**: Do not move, reparent, or rename folders.
 5. **Generation Movement**: Do not move generations between folders, projects, or Unsorted.
 
-### Allowed Operations:
-- Read-only browsing and feed inspection remain fully available.
-- Enqueueing new image/video generations continues normally (triggers auto-assign naming rows without blocking).
+### Snapshot-window Generation Pause:
+- Before the BEFORE snapshot, block new enqueueing and drain generation/provider/polling/export/portrait-sync writes; then suspend worker and cron writers.
+- Verify enforcement covers old application instances and all write paths. A UI banner alone does not enforce the freeze. If an effective infrastructure maintenance restriction is unavailable, STOP before migration.
+- Gallery GET currently reconciles data; do not call it during the strict snapshot window. Admin `GET /api/assets/portraits?inventory=1` is read-only and excludes signed URLs.
+- Resume generation processing only after the strict snapshot comparison passes. Keep general-user organizational mutations restricted until production smoke checks pass; operator-only disposable smoke content is the documented exception.
+- No project, folder, or generation additions are allowed between the organization snapshots. There is no additions allowlist.
 
 ### Operational Procedure:
 Operators schedule a brief maintenance window (estimated < 5 minutes) during low-traffic periods. If an application maintenance banner or gateway write-lock is configured, activate it before Step 2 and deactivate it after Step 18.
@@ -63,6 +66,7 @@ Capture a deterministic pre-migration snapshot of all existing projects, folders
 npm run db:snapshot:organization
 ```
 Record the counts (total projects, total folders, total generations, project unsorted, global unsorted).
+Use `npm run db:snapshot:organization -- --output /secure/path/before.json` to retain machine-readable evidence. Output files are created exclusively with mode 0600. Capture a separate portrait group/asset ID and scope inventory; omit media URLs and credentials.
 
 ### Step 4: Run Hierarchical-Folder Audit
 Execute the read-only preflight audit for folders:
@@ -113,6 +117,7 @@ npm run db:snapshot:organization
 ```
 
 ### Step 12: Compare Preservation Invariants
+Run `npm run db:compare:organization -- /secure/path/before.json /secure/path/after.json`; require exit 0. The comparator rejects malformed snapshots, duplicate IDs, any added/lost IDs, folder project/parent changes, and the existing generation/name/media invariants. Counts alone are insufficient.
 Compare the before and after snapshots. The following invariants must hold with ZERO unexpected differences:
 - `projects lost = 0`
 - `folders lost = 0`
@@ -120,6 +125,9 @@ Compare the before and after snapshots. The following invariants must hold with 
 - `existing project IDs changed = 0`
 - `existing folder IDs changed = 0`
 - `existing generation IDs changed = 0`
+- `unexpected projects/folders/generations added = 0`
+- `folder project assignments changed = 0`
+- `folder parent assignments changed = 0`
 - `generation project assignments changed = 0`
 - `generation folder assignments changed = 0`
 - `project-Unsorted membership changed = 0`
@@ -140,23 +148,44 @@ Deploy the media export worker on Railway before updating the web application:
 - Deploying the worker first ensures that when the web application begins issuing version-2 manifests, the live worker will process them seamlessly.
 
 ### Step 15: Deploy Vercel Application (SECOND)
-Deploy the web application from branch `feat/freeform-hierarchical-library-naming` to Vercel:
+Deploy the web application from the exact qualified repair commit to Vercel:
 - Schema changes are additive and read-compatible with the previous release.
 - Older running instances may continue serving reads during the transition; the organizational-write freeze remains in effect because legacy mutation paths are not guaranteed compatible with the new constraints.
 - Newly deployed instances activate hierarchical navigation, container-scoped serial naming, signed downloads, and frozen ZIP exports.
 
 ### Step 16: Verify Expected Vercel Release Is Serving
-- Check Vercel deployment dashboard and confirm the deployment from `feat/freeform-hierarchical-library-naming` is live.
+- Check Vercel deployment identity and confirm the exact qualified repair commit is serving.
 - Probe `/api/admin/status` or health endpoint to confirm response from the newly deployed commit.
 
 ### Step 17: Run Production Smoke Tests
 Perform live browser smoke verification:
 1. **Hierarchical Folders**: Create a test global root folder, create a child subfolder, verify breadcrumb navigation, move a generation into the subfolder, move to Global Unsorted, and clean up test folders.
-2. **Direct Signed Downloads**: Click Download on an image and video card. Verify download URL requests signed mode (`/api/generations/<id>/download?signed=1`), streams directly from cloud storage, and yields canonical container-scoped filename of the shape `<readable_prefix>--<namespace_token>_<serial>.<ext>` (e.g. `foldername--<namespace_token>_0001.png`, where `<namespace_token>` is 32 lowercase hex characters).
-3. **ZIP Exports**: Select multiple generations across different folders and export as ZIP. Verify export completes via Railway worker and extracted filenames match canonical assignments without duplicates or double extensions.
+2. **Direct Signed Downloads**: Click Download on an image and video card. Verify download URL requests signed mode (`/api/generations/<id>/download?signed=1`), streams directly from cloud storage, and yields a folder-path filename such as `R01_SC001_0001.png`. Project names and internal ID tokens must be absent; serials remain stable and padded to four digits.
+3. **ZIP Exports**: Select multiple generations across different folders and export as ZIP. Verify export completes via Railway worker and extracted filenames match canonical assignments without duplicates or double extensions. Identical compact filenames across scopes must be rejected before enqueue; already-finalized manifests retain their original frozen names.
 
 ### Step 18: Exit Write Freeze
 Once all smoke tests pass, deactivate the maintenance window / write freeze and return to normal operations.
+
+## Updated preview qualification (mandatory before production)
+
+Production quality preference: Seedance 2.5 always requests native MOV, including
+draft finalization. Final/High remain normal defaults; explicit artist choices
+for resolution, Draft, bitrate and audio remain respected. Preserve native bytes,
+`.mov` names and `video/quicktime` metadata in individual and ZIP downloads.
+Some browsers cannot decode the provider's MOV codec; show a download fallback
+instead of recompressing the master. For a format-contract change, qualify a real
+provider MOV result before production, inspecting its container and colour format.
+
+The old acceptance checks were insufficient: server-rendered component tests cannot detect browser focus/blur/layout behavior; Seedance mocks accepted missing source videos and asserted the old unverified tag syntax; portrait checks covered CRUD/auth/mock fallback rather than project visibility or remote pagination; export checks replaced the deployed transport with mocks. None of those results establishes browser/provider/worker acceptance.
+
+1. Run `npm test`, `npm run test:db`, lint, and build on Node 22. Database tests require a disposable database and retain the true legacy-upgrade suites; `test:db:setup` is not migration coverage.
+2. Run `npm run test:browser` against a local server with `E2E_DATABASE_URL` pointing at a localhost `veevee_codex_regression` database and matching `AUTH_SECRET`; use mock providers. Set `E2E_START_SERVER=1` to let Playwright start the server. This fixture suite refuses remote databases/deployments and cleans only its disposable records.
+3. Verify the Vercel preview database and Railway worker both target the isolated preview environment before deploying. Never inherit an unverified shared preview database setting. Both must use the same dedicated `GCP_MEDIA_BUCKET`; the worker supports `GCP_SERVICE_ACCOUNT_JSON` while Vercel keeps its existing WIF identity. For a preview database containing historical media keys, set `GCP_MEDIA_READ_FALLBACK_BUCKET` only on the web app to the existing historical bucket. The fallback is read-only, excludes protected namespaces, and is used only after a primary miss. Uploads, thumbnails and deletes remain in the dedicated primary bucket. Give the web identity access to the preview bucket, without granting the worker historical-bucket access. Configure exact preview origins in the preview bucket CORS allowlist and prove a browser upload before running a provider probe.
+4. On the actual deployed preview, exercise tree/card/breadcrumb root and subfolder rename, every creation entry point, typing/spaces/Enter/Escape/blur, retained errors, genuine conflict recovery, and 15-level scrolling at 1024px and 1440px. Verify keyboard menu focus and focus restoration.
+5. Capture read-only local/remote portrait inventories before Sync. Open restored global portraits in multiple projects, switch with a selected group, reopen, Sync, and verify gallery/lightbox image loading. Compare local IDs, remote IDs, membership, ownership, and durable references afterward. No historical records may be deleted; ambiguous remote identities require reviewed reconciliation.
+6. Run the exact Seedance 2.5 Generate + motion video + character image flow once, at 4 seconds and the lowest supported resolution/draft setting. Require explicit `reference` classification and a terminal successful result. Do not repeat billable probes automatically. First-frame tasks omit the omni hint; 2.0 never receives it.
+7. Download real image/video/depth samples with canonical names. Create, download, open and integrity-check a real ZIP through the deployed preview worker; verify manifest-v2 frozen names.
+8. Review browser, Vercel, Railway and DB logs. Missing live evidence or unexplained errors means `PREVIEW_FAIL`; production remains untouched. Record exact commit, URLs, worker revision, provider task/result, counts/ID preservation and all test outcomes.
 
 ---
 

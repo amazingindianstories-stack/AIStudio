@@ -101,26 +101,21 @@ export function getNamespaceDisambiguator(namespace, _collidingNamespaces = []) 
 
 /**
  * Enforces bounded byte length (max 255 UTF-8 bytes) for the full filename.
- * Preserves the full fixed-width unique namespace token at the END of the bounded base,
- * ensuring mathematical uniqueness across namespaces even under heavy path truncation.
+ * Keep the folder path and stable serial; no project or internal ID decoration.
+ * A hash is used only when a path is too long to fit on the filesystem.
  */
-export function boundFilename({ readablePrefix, namespaceToken, serialStr, ext }) {
+export function boundFilename({ readablePrefix, serialStr, ext }) {
   const suffix = `_${serialStr}.${ext}`;
   const suffixBytes = Buffer.byteLength(suffix, "utf8");
-  const tokenSuffix = `--${namespaceToken}`;
-  const tokenSuffixBytes = Buffer.byteLength(tokenSuffix, "utf8");
-
-  // Invariant tail: --<namespaceToken>_<serial>.<ext>
-  const invariantTailBytes = tokenSuffixBytes + suffixBytes;
-  const maxReadableBytes = 255 - invariantTailBytes;
+  const maxReadableBytes = 255 - suffixBytes;
 
   const currentReadableBytes = Buffer.byteLength(readablePrefix, "utf8");
   if (currentReadableBytes <= maxReadableBytes) {
-    return `${readablePrefix}${tokenSuffix}${suffix}`;
+    return `${readablePrefix}${suffix}`;
   }
 
-  // Calculate 6-character hex hash of the full un-truncated readable prefix for entropy
-  const hash = createHash("sha256").update(readablePrefix).digest("hex").slice(0, 6);
+  // Calculate 16-character hex hash of the full un-truncated readable prefix for entropy
+  const hash = createHash("sha256").update(readablePrefix).digest("hex").slice(0, 16);
   const hashSuffix = `_${hash}`;
   const maxTruncatedBytes = maxReadableBytes - Buffer.byteLength(hashSuffix, "utf8");
 
@@ -131,16 +126,17 @@ export function boundFilename({ readablePrefix, namespaceToken, serialStr, ext }
   }
   truncated = truncated.replace(/_+$/, "");
 
-  return `${truncated}${hashSuffix}${tokenSuffix}${suffix}`;
+  return `${truncated}${hashSuffix}${suffix}`;
 }
 
 /**
  * Pure, deterministic filename resolver.
  * Accepts ancestry path, project name, namespace, sequence, kind, and media metadata.
- * Produces cross-platform safe, bounded, case- and normalization-safe filenames.
+ * Produces portable folder-path filenames. Names are unique within a naming
+ * namespace, rather than decorated with internal IDs across the whole library.
+ * ZIP finalization rejects duplicate names across namespaces before enqueueing.
  */
 export function resolveGenerationFilename({
-  project = null,
   ancestry = [],
   namespace = "global_unsorted",
   sequence = 1,
@@ -148,29 +144,24 @@ export function resolveGenerationFilename({
   url = "",
   mediaKey = "",
   contentType = "",
-  token = null,
-  disambiguator = null,
 } = {}) {
   const tokens = [];
 
   if (namespace === "global_unsorted") {
-    tokens.push("library", "unsorted");
+    tokens.push("unsorted");
   } else if (namespace.startsWith("project_unsorted:")) {
-    const projSlug = slugifyToken(project?.name || "project", "project");
-    tokens.push(projSlug, "unsorted");
+    tokens.push("unsorted");
   } else if (namespace.startsWith("folder:")) {
-    if (project) {
-      tokens.push(slugifyToken(project.name, "project"));
-    }
     if (Array.isArray(ancestry) && ancestry.length > 0) {
       for (const folder of ancestry) {
-        tokens.push(slugifyToken(folder.name, "folder"));
+        const token = slugifyToken(folder.name, "folder");
+        tokens.push(/^(?:r|sc)\d+$/i.test(token) ? token.toUpperCase() : token);
       }
     } else {
       tokens.push("folder");
     }
   } else {
-    tokens.push("library", "unsorted");
+    tokens.push("unsorted");
   }
 
   let readablePrefix = tokens.join("_");
@@ -180,11 +171,10 @@ export function resolveGenerationFilename({
     readablePrefix = `_${readablePrefix}`;
   }
 
-  const namespaceToken = token || (disambiguator ? disambiguator.padEnd(32, "0").slice(0, 32) : canonicalNamespaceToken(namespace));
   const serialStr = formatSerial(sequence);
   const ext = resolveExtension({ kind, url, mediaKey, contentType });
 
-  return boundFilename({ readablePrefix, namespaceToken, serialStr, ext });
+  return boundFilename({ readablePrefix, serialStr, ext });
 }
 
 /**

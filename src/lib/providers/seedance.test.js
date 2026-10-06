@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createFinalVideoTask, createVideoTask, isModerationMessage, SeedanceError } from "./seedance";
+import { createFinalVideoTask, createVideoTask, isModerationMessage, normalizeVideoTaskPayload, SeedanceError } from "./seedance";
 
 test("isModerationMessage: detects moderation keywords", () => {
   assert.equal(isModerationMessage("SensitiveContent detected"), true);
@@ -79,13 +79,39 @@ test("createFinalVideoTask sends only the draft contract and optional callback",
     model: "dreamina-seedance-2-5-260628",
     content: [{ type: "draft_task", draft_task: { id: "draft-task" } }],
     resolution: "1080p",
+    output_format: "mov",
     callback_url: "https://example.test/callback",
   });
 });
 
+test("all Seedance 2.5 task modes request native MOV, including Draft", async () => {
+  for (const taskMode of ["generate", "edit", "extend"]) {
+    for (const draftMode of [false, true]) {
+      const { body } = await withFakeArkResponse("mov-task", () => createVideoTask({
+        prompt: "a scene", modelDisplay: "Seedance 2.5", taskMode, draftMode,
+        referenceVideoUrls: ["https://example.test/motion.mp4"],
+      }));
+      assert.equal(body.output_format, "mov");
+    }
+  }
+  for (const modelDisplay of ["Seedance 2.0", "Seedance 2.0 Mini", undefined]) {
+    const { body } = await withFakeArkResponse("legacy-task", () => createVideoTask({ prompt: "a scene", modelDisplay }));
+    assert.equal(Object.hasOwn(body, "output_format"), false);
+  }
+});
+
+test("poll and callback normalization preserve actual output format", () => {
+  for (const output_format of ["mov", "mp4"]) {
+    const task = { status: "succeeded", output_format, content: { video_url: "https://example.test/opaque-output" } };
+    assert.equal(normalizeVideoTaskPayload(task).outputFormat, output_format);
+    assert.equal(normalizeVideoTaskPayload({ data: task }).outputFormat, output_format);
+  }
+  assert.equal(normalizeVideoTaskPayload({ output_format: "unknown" }).outputFormat, undefined);
+});
+
 test("createVideoTask: edit task forces adaptive ratio and duration -1", async () => {
   const { result, body } = await withFakeArkResponse("task123", () =>
-    createVideoTask({ prompt: "do the edit", taskMode: "edit", ratio: "16:9", duration: 10 })
+    createVideoTask({ prompt: "do the edit", modelDisplay: "Seedance 2.5", referenceVideoUrls: ["https://example.com/source.mp4"], taskMode: "edit", ratio: "16:9", duration: 10 })
   );
   assert.equal(result, "task123");
   assert.equal(body.ratio, "adaptive");
@@ -95,7 +121,7 @@ test("createVideoTask: edit task forces adaptive ratio and duration -1", async (
 
 test("createVideoTask: extend task keeps the requested duration", async () => {
   const { body } = await withFakeArkResponse("task456", () =>
-    createVideoTask({ prompt: "continue it", taskMode: "extend", duration: 12 })
+    createVideoTask({ prompt: "continue it", modelDisplay: "Seedance 2.5", referenceVideoUrls: ["https://example.com/source.mp4"], taskMode: "extend", duration: 12 })
   );
   assert.equal(body.ratio, "adaptive");
   assert.equal(body.duration, 12);
@@ -242,10 +268,10 @@ test("createVideoTask: firstFrame coexists with ordinary reference_image items",
 
 test("createVideoTask: @imgN/@vidN tags are translated to Seedance's bracket form", async () => {
   const { body } = await withFakeArkResponse("task791", () =>
-    createVideoTask({ prompt: "use @img1 and continue @vid2", taskMode: "edit" })
+    createVideoTask({ prompt: "use @img1 and continue @vid2", modelDisplay: "Seedance 2.5", referenceVideoUrls: ["https://example.com/source.mp4"], taskMode: "edit" })
   );
-  assert.match(body.content[0].text, /\[image 1\]/);
-  assert.match(body.content[0].text, /\[video 2\]/);
+  assert.match(body.content[0].text, /@Image 1/);
+  assert.match(body.content[0].text, /@Video 2/);
 });
 
 // ── per-reference role legend wiring (2026-08-17, Phase 1.3/1.4) ───────────
@@ -472,3 +498,46 @@ test("createVideoTask: lastFrame without firstFrame throws missing_first_frame",
   );
 });
 
+
+const image = (n) => ({ tag: `@img${n}`, index: n, dataUrl: `asset://character-${n}` });
+const video = "https://example.com/motion.mp4";
+const audio = "https://example.com/music.mp3";
+for (const [name, options, hint, ratio, duration, roles] of [
+  ["text-only", {}, undefined, "16:9", 4, []],
+  ["character", { references: [image(1)] }, "reference", "16:9", 4, ["reference_image"]],
+  ["motion", { referenceVideoUrls: [video] }, "reference", "16:9", 4, ["reference_video"]],
+  ["motion and characters", { referenceVideoUrls: [video], references: [image(1), image(2)] }, "reference", "16:9", 4, ["reference_image", "reference_image", "reference_video"]],
+  ["audio-only", { referenceAudioUrls: [audio] }, "reference", "16:9", 4, ["reference_audio"]],
+  ["edit", { taskMode: "edit", referenceVideoUrls: [video] }, "edit", "adaptive", -1, ["reference_video"]],
+  ["edit and character", { taskMode: "edit", referenceVideoUrls: [video], references: [image(1)] }, "edit", "adaptive", -1, ["reference_image", "reference_video"]],
+  ["extend", { taskMode: "extend", referenceVideoUrls: [video] }, "extend", "adaptive", 4, ["reference_video"]],
+  ["first frame", { firstFrame: image(1), references: [image(2)] }, undefined, "adaptive", 4, ["reference_image", "first_frame"]],
+  ["first and last frame", { firstFrame: image(1), lastFrame: image(2) }, undefined, "adaptive", 4, ["first_frame", "last_frame"]],
+  ["2.0 references", { modelDisplay: "Seedance 2.0", references: [image(1)], referenceVideoUrls: [video] }, undefined, "16:9", 4, ["reference_image", "reference_video"]],
+]) {
+  test(`Seedance request contract: ${name}`, async () => {
+    const input = { modelDisplay: "Seedance 2.5", taskMode: "generate", prompt: "New scene", ratio: "16:9", duration: 4, ...options };
+    const { body } = await withFakeArkResponse("contract-task", () => createVideoTask(input));
+    assert.equal(body.omni_reference_task_type, hint);
+    if (hint === undefined) assert.equal(Object.hasOwn(body, "omni_reference_task_type"), false);
+    assert.equal(body.model, input.modelDisplay === "Seedance 2.5" ? "dreamina-seedance-2-5-260628" : "dreamina-seedance-2-0-260128");
+    assert.equal(body.ratio, ratio); assert.equal(body.duration, duration);
+    assert.deepEqual(body.content.slice(1).map((c) => c.role), roles);
+  });
+}
+
+test("Seedance 2.5 uses official asset tags with named-image references", async () => {
+  const { body } = await withFakeArkResponse("tags", () => createVideoTask({
+    modelDisplay: "Seedance 2.5", prompt: "@hero follows motion @vid1 and music @audio1", references: [{ ...image(1), tag: "@hero" }],
+    referenceVideoUrls: [video], referenceAudioUrls: [audio],
+  }));
+  assert.match(body.content[0].text, /@Image 1 follows motion @Video 1 and music @Audio 1/);
+  assert.doesNotMatch(body.content[0].text, /\[(?:image|video|audio) \d+\]/);
+});
+
+test("Seedance rejects Edit/Extend without a source and frame-mode conflicts before fetch", async () => {
+  for (const taskMode of ["edit", "extend"]) {
+    await assert.rejects(createVideoTask({ modelDisplay: "Seedance 2.5", taskMode, prompt: "test" }), { code: "missing_source_video" });
+    await assert.rejects(createVideoTask({ modelDisplay: "Seedance 2.5", taskMode, prompt: "test", referenceVideoUrls: [video], firstFrame: image(1) }), { code: "invalid_frame_task" });
+  }
+});
