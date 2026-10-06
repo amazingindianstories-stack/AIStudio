@@ -26,6 +26,7 @@ import { renumberImgMentions, normalizePromptMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch } from "./api";
+import { apiErrorMessage } from "./api-error";
 import {
   clearFeedCache,
   dedupeFirstPage,
@@ -897,7 +898,7 @@ export const useStore = create((set, get) => ({
           throw new Error(`Server error (${res.status}): the server returned an empty or invalid response.`);
         }
         if (!res.ok) {
-          throw new Error(item.error || `Server error: ${res.status}`);
+          throw new Error(apiErrorMessage(item, res.status));
         }
         if (item?.id) {
           // Stay on the tab the user chose. Forcing "history" (All assets) on
@@ -967,7 +968,7 @@ export const useStore = create((set, get) => ({
       } catch {
         throw new Error(`Server error (${res.status}): the server returned an empty or invalid response.`);
       }
-      if (!res.ok) throw new Error(item.error || `Server error: ${res.status}`);
+      if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
       if (item?.id) {
         insertNewItem(set, item);
         startPolling(item, set, get);
@@ -1020,7 +1021,7 @@ export const useStore = create((set, get) => ({
       } catch {
         throw new Error(`Server error (${res.status}): invalid response.`);
       }
-      if (!res.ok) throw new Error(item.error || `Server error: ${res.status}`);
+      if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
 
       if (item?.id) {
         insertNewItem(set, item);
