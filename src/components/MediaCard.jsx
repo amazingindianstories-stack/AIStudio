@@ -90,6 +90,7 @@ export function MediaCard({
     item.userId ? s.usersById[item.userId] : undefined
   );
   const confirmation = useConfirmedAction();
+  const [unplayableUrl, setUnplayableUrl] = useState(null);
 
   const pending = item.status === "running" || item.status === "queued";
   const failed = item.status === "failed";
@@ -177,6 +178,9 @@ export function MediaCard({
         )}
         {done && item.kind === "video" && (
           <>
+            {unplayableUrl === item.url && (
+              <div className="absolute inset-0 flex items-center justify-center bg-ink-800 p-4 text-center text-xs text-white/70">Preview unavailable. Open to download the original.</div>
+            )}
             {item.poster && (
               <ProgressiveImage
                 src={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
@@ -195,6 +199,7 @@ export function MediaCard({
                 playsInline
                 preload="metadata"
                 onCanPlay={(e) => e.currentTarget.classList.remove("opacity-0")}
+                onError={() => setUnplayableUrl(item.url)}
                 onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
                 onMouseLeave={(e) => {
                   e.currentTarget.pause();

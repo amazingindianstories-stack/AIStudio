@@ -30,6 +30,11 @@ test("formatSerial: pads to at least 4 digits and expands past 9999", () => {
   assert.equal(formatSerial(-5), "0001");
 });
 
+test("native MOV masters retain their extension in compact download names", () => {
+  assert.equal(resolveExtension({ kind: "video", contentType: "video/quicktime" }), "mov");
+  assert.equal(resolveGenerationFilename({ ancestry: [{ name: "R01" }, { name: "Sc001" }], namespace: "folder:id", sequence: 1, kind: "video", url: "/api/media/generations/master.mov" }), "R01_SC001_0001.mov");
+});
+
 test("resolveExtension: resolves trusted extension across media types", () => {
   assert.equal(resolveExtension({ kind: "image", url: "/api/media/gen.png" }), "png");
   assert.equal(resolveExtension({ kind: "video", url: "https://storage.googleapis.com/b/v.mp4" }), "mp4");

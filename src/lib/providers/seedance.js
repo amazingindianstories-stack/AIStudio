@@ -326,6 +326,9 @@ export async function createVideoTask(
     // nothing, so nothing starts paying for audio it did not ask for.
     generate_audio: input.generateAudio === true,
   };
+  // Native high-colour-precision masters are the production default for 2.5.
+  // Older models reject this field; never infer it from reference file types.
+  if (input.modelDisplay === "Seedance 2.5") body.output_format = "mov";
   if (supportsVideoEditExtend(input.modelDisplay) && !input.firstFrame) {
     const ordinaryReference = content.some((item) =>
       ["reference_image", "reference_video", "reference_audio"].includes(item.role));
@@ -405,13 +408,14 @@ export async function createVideoTask(
 }
 
 /** Convert a Seedance 2.5 draft task into its billable 1080p final. BytePlus
- * requires this deliberately tiny payload; never merge ordinary generation
- * options into it, because prompt/references/seed/etc. invalidate the contract. */
+ * requires this deliberately tiny payload; output_format is explicitly allowed
+ * again, while prompt/references/seed/etc. invalidate the contract. */
 export async function createFinalVideoTask(input) {
   const body = {
     model: pickModel(input.modelDisplay),
     content: [{ type: "draft_task", draft_task: { id: input.draftTaskId } }],
     resolution: "1080p",
+    output_format: "mov",
   };
   if (typeof input.callbackUrl === "string" && /^https:\/\//i.test(input.callbackUrl)) {
     body.callback_url = input.callbackUrl;
@@ -486,6 +490,8 @@ export function normalizeVideoTaskPayload(json = {}) {
   return {
     status,
     videoUrl,
+    outputFormat: source?.output_format === "mov" || source?.output_format === "mp4"
+      ? source.output_format : undefined,
     error,
     raw: json,
     totalTokens,

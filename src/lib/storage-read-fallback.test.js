@@ -20,7 +20,7 @@ test("all GCS delivery paths resolve historical media, while uploads and deletes
         getMetadata: async () => [{ size: "5", contentType: "video/mp4" }],
         download: async () => { calls.push(["download", bucket, key]); return [Buffer.from("media")]; },
         createReadStream: () => { calls.push(["stream", bucket, key]); return Readable.from([Buffer.from("media")]); },
-        save: async () => { calls.push(["save", bucket, key]); },
+        save: async (_bytes, options) => { calls.push(["save", bucket, key, options.contentType]); },
         delete: async () => { calls.push(["delete", bucket, key]); },
       }) };
     };
@@ -35,9 +35,11 @@ test("all GCS delivery paths resolve historical media, while uploads and deletes
     await result.stream.cancel();
     assert.match(await getSignedUploadUrl(key, "video/mp4"), /preview\/generations/);
     await uploadBuffer(Buffer.from("media"), key, "mp4");
+    await uploadBuffer(Buffer.from("native MOV"), "generations/new.mov", "mov");
+    assert.deepEqual(calls.at(-1), ["save", "preview", "generations/new.mov", "video/quicktime"]);
     await deleteByUrls([`/api/media/${key}`]);
     assert.ok(calls.filter(([action]) => ["read", "download", "stream"].includes(action)).every(([, bucket]) => bucket === "historical"));
-    assert.deepEqual(calls.filter(([action]) => ["write", "save", "delete"].includes(action)).map(([action, bucket]) => [action, bucket]), [["write", "preview"], ["save", "preview"], ["delete", "preview"]]);
+    assert.deepEqual(calls.filter(([action]) => ["write", "save", "delete"].includes(action)).map(([action, bucket]) => [action, bucket]), [["write", "preview"], ["save", "preview"], ["save", "preview"], ["delete", "preview"]]);
     await assert.rejects(getSignedReadUrl("thumbs/512/settings/private.json.webp"), /protected/);
     await readStoredBuffer("settings/private.json");
     assert.deepEqual(calls.at(-1), ["download", "preview", "settings/private.json"]);

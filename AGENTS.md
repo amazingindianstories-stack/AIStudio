@@ -1,5 +1,16 @@
 # Repository operating rules
 
+## Output quality preference
+
+Prioritize the best supported output quality for production assets. Future
+Seedance 2.5 requests, including Generate, Edit, Extend, Draft and draft-to-final,
+must request native MOV (`output_format: "mov"`) and preserve the original bytes
+through storage and downloads. Keep Final and High bitrate as the normal defaults.
+Do not silently downgrade colour precision, recompress masters, or substitute a
+renamed MP4 for native MOV. Respect explicit user choices for resolution, Draft,
+bitrate and audio; ask before changing settings that materially increase cost.
+Browser preview compatibility must not reduce the quality of the master download.
+
 ## Database changes and deployments
 
 Production deploys do **not** apply Drizzle schema changes. Vercel builds and
@@ -33,4 +44,3 @@ Generation inserts are especially sensitive: `itemToValues()` in
 break only the generation kinds that exercise that path. Before releasing a
 generation feature, test one non-billed enqueue for every affected kind after
 the production-schema verifier passes.
-

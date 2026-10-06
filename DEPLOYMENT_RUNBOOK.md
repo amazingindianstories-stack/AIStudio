@@ -168,6 +168,14 @@ Once all smoke tests pass, deactivate the maintenance window / write freeze and 
 
 ## Updated preview qualification (mandatory before production)
 
+Production quality preference: Seedance 2.5 always requests native MOV, including
+draft finalization. Final/High remain normal defaults; explicit artist choices
+for resolution, Draft, bitrate and audio remain respected. Preserve native bytes,
+`.mov` names and `video/quicktime` metadata in individual and ZIP downloads.
+Some browsers cannot decode the provider's MOV codec; show a download fallback
+instead of recompressing the master. For a format-contract change, qualify a real
+provider MOV result before production, inspecting its container and colour format.
+
 The old acceptance checks were insufficient: server-rendered component tests cannot detect browser focus/blur/layout behavior; Seedance mocks accepted missing source videos and asserted the old unverified tag syntax; portrait checks covered CRUD/auth/mock fallback rather than project visibility or remote pagination; export checks replaced the deployed transport with mocks. None of those results establishes browser/provider/worker acceptance.
 
 1. Run `npm test`, `npm run test:db`, lint, and build on Node 22. Database tests require a disposable database and retain the true legacy-upgrade suites; `test:db:setup` is not migration coverage.

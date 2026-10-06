@@ -208,6 +208,7 @@ export function DetailModal() {
   const toggleFlag = useStore((s) => s.toggleFlag);
   const confirmation = useConfirmedAction();
   const [closing, setClosing] = useState(false);
+  const [unplayableUrl, setUnplayableUrl] = useState(null);
   const closingRef = useRef(false);
   const suppressNextNativeFullscreenEscapeRef = useRef(false);
   const escapeCloseTimerRef = useRef(null);
@@ -390,7 +391,13 @@ export function DetailModal() {
                     className="h-full w-full object-contain"
                   />
                 )}
-                {item.kind === "video" && (
+                {item.kind === "video" && unplayableUrl === item.url && (
+                  <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-white/80">
+                    <p>This browser cannot play this video. Download the original for full-quality playback.</p>
+                    <a href={generationDownloadUrl(item.id)} download={item.filename || true} className="rounded-lg bg-brand px-4 py-2 text-ink-900">Download original</a>
+                  </div>
+                )}
+                {item.kind === "video" && unplayableUrl !== item.url && (
                   <video
                     data-detail-video
                     src={item.url}
@@ -399,6 +406,7 @@ export function DetailModal() {
                     autoPlay
                     loop
                     playsInline
+                    onError={() => setUnplayableUrl(item.url)}
                     className="h-full w-full object-contain"
                   />
                 )}

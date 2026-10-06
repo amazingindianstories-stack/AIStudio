@@ -74,6 +74,7 @@ function extToMime(ext) {
   const e = ext.toLowerCase();
   if (e === "jpg" || e === "jpeg") return "image/jpeg";
   if (e === "mp4") return "video/mp4";
+  if (e === "mov") return "video/quicktime";
   if (e === "webm") return "video/webm";
   if (e === "webp") return "image/webp";
   if (e === "gif") return "image/gif";

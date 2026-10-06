@@ -11,7 +11,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createFinalVideoTask, createVideoTask, isModerationMessage, SeedanceError } from "./seedance";
+import { createFinalVideoTask, createVideoTask, isModerationMessage, normalizeVideoTaskPayload, SeedanceError } from "./seedance";
 
 test("isModerationMessage: detects moderation keywords", () => {
   assert.equal(isModerationMessage("SensitiveContent detected"), true);
@@ -79,8 +79,34 @@ test("createFinalVideoTask sends only the draft contract and optional callback",
     model: "dreamina-seedance-2-5-260628",
     content: [{ type: "draft_task", draft_task: { id: "draft-task" } }],
     resolution: "1080p",
+    output_format: "mov",
     callback_url: "https://example.test/callback",
   });
+});
+
+test("all Seedance 2.5 task modes request native MOV, including Draft", async () => {
+  for (const taskMode of ["generate", "edit", "extend"]) {
+    for (const draftMode of [false, true]) {
+      const { body } = await withFakeArkResponse("mov-task", () => createVideoTask({
+        prompt: "a scene", modelDisplay: "Seedance 2.5", taskMode, draftMode,
+        referenceVideoUrls: ["https://example.test/motion.mp4"],
+      }));
+      assert.equal(body.output_format, "mov");
+    }
+  }
+  for (const modelDisplay of ["Seedance 2.0", "Seedance 2.0 Mini", undefined]) {
+    const { body } = await withFakeArkResponse("legacy-task", () => createVideoTask({ prompt: "a scene", modelDisplay }));
+    assert.equal(Object.hasOwn(body, "output_format"), false);
+  }
+});
+
+test("poll and callback normalization preserve actual output format", () => {
+  for (const output_format of ["mov", "mp4"]) {
+    const task = { status: "succeeded", output_format, content: { video_url: "https://example.test/opaque-output" } };
+    assert.equal(normalizeVideoTaskPayload(task).outputFormat, output_format);
+    assert.equal(normalizeVideoTaskPayload({ data: task }).outputFormat, output_format);
+  }
+  assert.equal(normalizeVideoTaskPayload({ output_format: "unknown" }).outputFormat, undefined);
 });
 
 test("createVideoTask: edit task forces adaptive ratio and duration -1", async () => {
