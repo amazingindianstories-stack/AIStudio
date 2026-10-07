@@ -23,3 +23,17 @@ smoke checks and release verification. Migration failure blocks promotion.
 
 All live evidence, release identities, rollback checks and secret-removal evidence
 remain pending. See status.md and the original source-request.txt acceptance list.
+
+## Method routing prepared
+
+Server-only `DJANGO_API_METHODS` selects comma-separated `METHOD /api/path` keys;
+currently only `GET /api/settings` is implemented in the routing allowlist.
+`DJANGO_API_ORIGIN` must be a bare HTTPS origin. Explicit local qualification
+uses `DJANGO_API_ALLOW_LOCAL=1` with loopback HTTP. No browser API-base change.
+Unset method selection retains current routing. Invalid selected configuration
+fails closed with 503; it cannot silently execute the rollback Node owner.
+Production setting changes still require authorization and ownership evidence.
+
+Local real-server qualification proves the frontend-origin settings request
+reaches Django via Next rewrite, matching JSON and carrying Django request ID.
+Hosted forwarding, production cookies, browser and preview checks remain pending.

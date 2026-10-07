@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { djangoDestination } from "./lib/backend-routing";
 
 /**
  * Lightweight gate (runs on the edge — can't touch the DB/Node crypto).
@@ -13,6 +14,18 @@ const SESSION_COOKIE = "veevee_session";
 
 export function middleware(req) {
   const { pathname } = req.nextUrl;
+  try {
+    const destination = djangoDestination(req.url, req.method, {
+      methods: process.env.DJANGO_API_METHODS,
+      origin: process.env.DJANGO_API_ORIGIN,
+      allowLocal: process.env.DJANGO_API_ALLOW_LOCAL,
+    });
+    if (destination) return NextResponse.rewrite(destination);
+  } catch {
+    // A selected Django domain must fail closed, never silently execute its
+    // retained Node implementation when deployment configuration is invalid.
+    return NextResponse.json({ error: "BACKEND_ROUTING_UNAVAILABLE" }, { status: 503 });
+  }
 
   // Always allow auth endpoints and Next internals/static assets.
   // /api/admin/set-token is also exempt: it accepts either an admin session

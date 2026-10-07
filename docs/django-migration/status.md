@@ -62,3 +62,9 @@ registered Node routes require a base-relative, exact-content exception. Three
 rejection-path tests pass. Schema/provider/worker source hashes are recorded
 for future takeover checks; Python ownership rejects remaining Node execution
 modules. This does not transfer any domain or schema authority.
+
+Same-origin method routing prepared: explicit GET settings selection, HTTPS
+origin validation, fail-closed errors and disabled default. Three routing tests
+pass. Real Next middleware rewrite reached isolated Django with equal JSON and
+Django request ID. Seven direct HTTP parity cases still pass. No deployment or
+production routing configuration changed.

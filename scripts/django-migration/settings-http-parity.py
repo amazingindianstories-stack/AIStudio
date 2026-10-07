@@ -104,7 +104,31 @@ def main():
                             assert not followup[2].get('Set-Cookie')
                 assert before==snapshot(),name+' mutated database'
                 report.append({'case':name,'status':responses[0][0],'json_equal':True,'database_unchanged':True,'cookie_flags_equal':True})
-            print(json.dumps({'settings_http_parity':report},indent=2))
+            # Reuse the actual Next process after restarting with server-side
+            # method routing; its retained Node route must be bypassed.
+            next_process, next_log = processes[0]
+            next_process.terminate()
+            next_process.wait(timeout=10)
+            routed_env = dict(os.environ, DJANGO_API_METHODS='GET /api/settings',
+                              DJANGO_API_ORIGIN=f'http://127.0.0.1:{django_port}',
+                              DJANGO_API_ALLOW_LOCAL='1')
+            routed = subprocess.Popen(['node','node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port',str(next_port)], env=routed_env, stdout=next_log, stderr=subprocess.STDOUT)
+            processes.append((routed, open(os.devnull, 'w')))
+            with db.cursor() as c:
+                c.execute('UPDATE users SET is_active=true')
+            deadline = time.monotonic()+90
+            while True:
+                try:
+                    response = get(urls[0], token())
+                    if response[0] == 200: break
+                except OSError:
+                    pass
+                if routed.poll() is not None or time.monotonic()>deadline:
+                    raise RuntimeError('Routed Next readiness failed')
+                time.sleep(.2)
+            assert response[:2] == get(urls[1], token())[:2]
+            assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
+            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()
