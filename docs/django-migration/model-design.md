@@ -694,3 +694,9 @@ changes to defaults, constraints and indexes are detected. Trigger/function
 coverage, additional schemas/types/sequences and reviewed equivalence policy
 still need qualification before this can serve as the schema takeover gate.
 No Django-only full baseline or production catalog comparison exists yet.
+
+Collector extension: public sequence configuration (excluding mutable last-value
+state), enum labels/order and domain definitions are included. Real fixtures
+prove function-body, deferred-trigger enabled-state and sequence-increment changes
+are detected. Snapshot comparison rejects missing categories or malformed rows.
+Additional-schema scope and full baseline reproduction still require work.

@@ -94,3 +94,9 @@ indexes; ten Django tests pass. Collector also records custom triggers,
 functions and extensions, whose specialized fixtures remain pending. Complete
 Django baseline and production schema equivalence are still unimplemented;
 schema authority remains DRIZZLE.
+
+Catalog qualification extended: actual function-body changes, disabled deferred
+constraint triggers, sequence increments and enum definitions are detected.
+Sequence/enum/domain metadata is captured; incomplete or malformed category
+snapshots fail closed. Full ten-test suite passes, with focused comparator
+checks rerun after validation tightening. No schema equivalence claim is made.

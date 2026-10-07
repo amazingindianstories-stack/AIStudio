@@ -36,13 +36,32 @@ class CatalogEvidenceTests(TestCase):
             with db.cursor() as cursor:
                 cursor.execute('CREATE TABLE catalog_fixture (id integer PRIMARY KEY, value integer DEFAULT 1 CHECK(value > 0))')
                 cursor.execute('CREATE INDEX catalog_fixture_value ON catalog_fixture(value)')
+                cursor.execute("CREATE FUNCTION catalog_fixture_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$")
+                cursor.execute('CREATE CONSTRAINT TRIGGER catalog_fixture_trigger AFTER INSERT ON catalog_fixture DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION catalog_fixture_guard()')
+                cursor.execute('CREATE SEQUENCE catalog_fixture_seq INCREMENT BY 2')
+                cursor.execute("CREATE TYPE catalog_fixture_enum AS ENUM ('queued','ready')")
             try:
                 after = catalog.snapshot(db)
-                self.assertTrue({'tables','columns','constraints','indexes'} <= set(catalog.compare(before,after)))
+                self.assertTrue({'tables','columns','constraints','indexes','functions','triggers','sequences','enum_values'} <= set(catalog.compare(before,after)))
                 indexes = [entry for entry in after['indexes'] if entry['table_name']=='catalog_fixture']
                 self.assertEqual(len(indexes),2)
                 self.assertTrue(all('index_name' in entry for entry in indexes))
                 self.assertEqual(catalog.compare(after,after),[])
+                with self.assertRaises(ValueError):
+                    catalog.compare({}, {})
+                incomplete = dict(after)
+                incomplete.pop('triggers')
+                with self.assertRaises(ValueError):
+                    catalog.compare(after, incomplete)
+                with db.cursor() as cursor:
+                    cursor.execute("CREATE OR REPLACE FUNCTION catalog_fixture_guard() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.value := 2; RETURN NEW; END $$")
+                    cursor.execute('ALTER TABLE catalog_fixture DISABLE TRIGGER catalog_fixture_trigger')
+                    cursor.execute('ALTER SEQUENCE catalog_fixture_seq INCREMENT BY 3')
+                changed = catalog.snapshot(db)
+                self.assertTrue({'functions','triggers','sequences'} <= set(catalog.compare(after,changed)))
             finally:
                 with db.cursor() as cursor:
                     cursor.execute('DROP TABLE catalog_fixture')
+                    cursor.execute('DROP FUNCTION catalog_fixture_guard()')
+                    cursor.execute('DROP SEQUENCE catalog_fixture_seq')
+                    cursor.execute('DROP TYPE catalog_fixture_enum')
