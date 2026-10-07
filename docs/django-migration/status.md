@@ -6,7 +6,7 @@ Goal remains active. No production cutover or deployment has been performed.
 |---|---|
 | Django authoritative API methods | 0 / 85 |
 | Node business route files remaining | 65 |
-| ORM models implemented | 5 partial unmanaged read models / 21 declared application tables |
+| ORM models implemented | 6 partial unmanaged read models / 21 declared application tables |
 | Model design inventory | 21 / 21 declarations; live catalog audit pending |
 | Schema authority | DRIZZLE |
 | Auth authority | NEXT |
@@ -100,3 +100,10 @@ constraint triggers, sequence increments and enum definitions are detected.
 Sequence/enum/domain metadata is captured; incomplete or malformed category
 snapshots fail closed. Full ten-test suite passes, with focused comparator
 checks rerun after validation tightening. No schema equivalence claim is made.
+
+Material-library GET implemented in assets domain from current assets-db.js.
+Preserves all-assets unfiltered visibility, project-only filtering, descending
+createdAt order, omitted null description/projectId, and first repeated query
+value. Eleven Django tests pass. GET assets remains IMPLEMENTING/Next-owned;
+real HTTP parity, errors/browser/performance and storage qualification remain.
+No asset mutation or provider/storage side effect was implemented or invoked.
