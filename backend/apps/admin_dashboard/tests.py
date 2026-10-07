@@ -45,6 +45,24 @@ class SettingsTests(TransactionTestCase):
             c.execute('SELECT count(*) FROM settings')
             self.assertEqual(c.fetchone()[0],2)
 
+    def test_production_cookie_flags_and_structured_request_log(self):
+        from django.test import override_settings
+        self.cookie(age=172800000)
+        with override_settings(SESSION_COOKIE_SECURE=True):
+            with self.assertLogs('veevee.requests', level='INFO') as capture:
+                response = self.client.get('/api/settings?private=DO_NOT_LOG')
+        cookie = response.cookies['veevee_session']
+        self.assertTrue(cookie['secure'])
+        self.assertTrue(cookie['httponly'])
+        self.assertEqual(cookie['samesite'], 'Lax')
+        self.assertEqual(cookie['max-age'], 2592000)
+        event = json.loads(capture.records[0].getMessage())
+        self.assertEqual(event['request_id'], response['X-Request-ID'])
+        self.assertEqual(event['route'], 'api/settings')
+        self.assertEqual(event['status'], 200)
+        self.assertNotIn('DO_NOT_LOG', capture.records[0].getMessage())
+        self.assertNotIn(self.client.cookies['veevee_session'].value, capture.records[0].getMessage())
+
     def test_disabled_user(self):
         with connection.cursor() as c:
             c.execute('UPDATE users SET is_active=false')

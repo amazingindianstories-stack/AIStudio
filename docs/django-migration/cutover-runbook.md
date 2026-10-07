@@ -37,3 +37,20 @@ Production setting changes still require authorization and ownership evidence.
 Local real-server qualification proves the frontend-origin settings request
 reaches Django via Next rewrite, matching JSON and carrying Django request ID.
 Hosted forwarding, production cookies, browser and preview checks remain pending.
+
+## Railway service configuration review
+
+Prepare a separate API service using backend/railway.toml, without modifying
+root worker configuration. Required explicit values: DJANGO_SECRET_KEY,
+AUTH_SECRET (compatible during staged auth transfer), DATABASE_URL and a finite
+DJANGO_ALLOWED_HOSTS allowlist. No checkout dotenv files enter the container.
+Database URL libpq TLS options are preserved; unknown options block startup.
+Review sslmode and CA configuration against the actual database transport before
+deployment. Do not assume the existing Cloud SQL Node connector configuration
+translates directly into a PostgreSQL URL from Railway.
+
+Request logs emit sanitized JSON to stdout with request ID, matched route,
+status and duration; query strings and cookies are excluded. Gunicorn raw access
+logging is disabled because future media-grant queries can contain credentials.
+Secure renewal cookies have isolated API-test coverage. Hosted TLS, proxy host
+behavior, service connectivity and deployment health remain unverified.

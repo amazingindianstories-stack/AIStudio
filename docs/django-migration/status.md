@@ -68,3 +68,10 @@ origin validation, fail-closed errors and disabled default. Three routing tests
 pass. Real Next middleware rewrite reached isolated Django with equal JSON and
 Django request ID. Seven direct HTTP parity cases still pass. No deployment or
 production routing configuration changed.
+
+Production-setting qualification: seven Django tests pass, including Secure /
+HttpOnly / Lax 30-day renewal and request-log exclusion of cookie/query content.
+Structured INFO logs are enabled on stdout. Database URL TLS options are retained
+and unsupported options rejected; production allowed hosts must be explicit.
+Gunicorn raw access logs are disabled to avoid future signed-grant query leaks.
+No Railway service has been created or deployed.
