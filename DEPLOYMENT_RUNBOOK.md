@@ -218,3 +218,14 @@ In the event of an unrecoverable database corruption event (unrelated to standar
 2. Restore an isolated recovery database from the pre-migration PITR snapshot taken in Step 1.
 3. Verify data integrity and checksums on the restored instance.
 4. Point application database connection strings to the restored instance during an authorized maintenance window.
+
+## Django migration overlay — 2026-10-07
+
+The committed destination is Django/DRF API and Python workers on Railway,
+Next.js frontend on Vercel, existing PostgreSQL/GCS persistence. The hierarchy
+release procedure above still governs current Node authority. Ownership has not
+transferred yet. Follow docs/django-migration/cutover-runbook.md for staged gates;
+backend/railway.toml prepares a separate API service and must not replace the
+existing root worker service configuration. Service creation and production
+traffic require review at the documented authorization boundary. No production
+migration is part of a Vercel build or Django container startup.

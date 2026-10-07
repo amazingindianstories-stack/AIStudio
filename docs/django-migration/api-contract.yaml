@@ -1,0 +1,2011 @@
+{
+  "version": 1,
+  "format": "JSON-compatible YAML; static inventory is not behavioral qualification",
+  "routes": [
+    {
+      "path": "/api/admin/activity",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/admin/activity/route.js",
+      "source_sha256": "250fc038f31ff4c376c5dc94ba09b34cda318f235639085b5d8c5fb8fa2f9324",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/admin",
+        "@/lib/admin-activity"
+      ],
+      "query_keys_observed": [
+        "cursor",
+        "limit"
+      ],
+      "status_literals_observed": [
+        403
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 30
+    },
+    {
+      "path": "/api/admin/audit/runtime",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/admin/audit/runtime/route.js",
+      "source_sha256": "8329f8282ca2410cc26b3f590b78327e4938a38f5abfa2ff7c5674b68077543a",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "node:crypto",
+        "next/server",
+        "@/lib/admin",
+        "@/lib/auth",
+        "@/lib/distributed-lease",
+        "@/lib/runtime-audit"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        403,
+        429
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 36
+    },
+    {
+      "path": "/api/admin/data",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/admin/data/route.js",
+      "source_sha256": "02f594707bfa7e849664fd923530542c5b31da3c75a3bde87ae260ffa1f46a4a",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "drizzle-orm",
+        "@/lib/db",
+        "@/lib/schema",
+        "@/lib/admin",
+        "@/lib/admin-stats",
+        "@/lib/pricing-db",
+        "@/lib/limits-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        403
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 96
+    },
+    {
+      "path": "/api/admin/limits",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/admin/limits/route.js",
+      "source_sha256": "3b08c7c07861db0eb528d008e483202b1fa7fd34357f69441d23c81b12aabd03",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/admin",
+        "@/lib/limits",
+        "@/lib/limits-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        403
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 25
+    },
+    {
+      "path": "/api/admin/logs",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/admin/logs/route.js",
+      "source_sha256": "90008a7bd51df685daf1be3087b42eda3ad3a2fa16ce4a3b61504a7f1f19c6c0",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/db",
+        "@/lib/schema",
+        "@/lib/admin",
+        "@/lib/admin-logs"
+      ],
+      "query_keys_observed": [
+        "cursor",
+        "format",
+        "limit"
+      ],
+      "status_literals_observed": [
+        403
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 109
+    },
+    {
+      "path": "/api/admin/migrate-schema",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/admin/migrate-schema/route.js",
+      "source_sha256": "68149286b02272179b2748ca07b2ef7371c128d21b9e2c9e41d87dc3149c5751",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "drizzle-orm",
+        "@/lib/db",
+        "@/lib/admin",
+        "@/lib/cron-auth"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        403,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 591
+    },
+    {
+      "path": "/api/admin/pricing",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/admin/pricing/route.js",
+      "source_sha256": "dd81be0e24d4486ed37d7974a39f5b5ddccebcd85cc80f724bbae058ab203dcc",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/admin",
+        "@/lib/pricing-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        403
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 20
+    },
+    {
+      "path": "/api/admin/set-token",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/admin/set-token/route.js",
+      "source_sha256": "c31e0a62f2660ce5c0372e829f33da9f64d848eb1273bf5af494739a941eef70",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "node:crypto",
+        "@/lib/admin",
+        "@/lib/activity",
+        "@/lib/storage"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        403
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 66
+    },
+    {
+      "path": "/api/admin/status",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/admin/status/route.js",
+      "source_sha256": "8b4073506c613f23384db178546481145a5521f611f3d5d86cee25eed52c8e3d",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/admin",
+        "@/lib/status-checks"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        403
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 14
+    },
+    {
+      "path": "/api/admin/user-limits",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/admin/user-limits/route.js",
+      "source_sha256": "5937ff46db28380d22b4a166d380fa28e6a34b268d48c262d4e55a8d1ecea9af",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "drizzle-orm",
+        "@/lib/db",
+        "@/lib/schema",
+        "@/lib/admin",
+        "@/lib/limits",
+        "@/lib/limits-db",
+        "@/lib/activity"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        403,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 39
+    },
+    {
+      "path": "/api/admin/users",
+      "methods": [
+        "POST",
+        "PATCH",
+        "DELETE"
+      ],
+      "source": "src/app/api/admin/users/route.js",
+      "source_sha256": "e824b461ef4741326e9f1c11e05b83f7111e23d7c1fe75a47ce9c6156a8d0d69",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "drizzle-orm",
+        "@/lib/db",
+        "@/lib/schema",
+        "@/lib/admin",
+        "@/lib/password",
+        "@/lib/activity",
+        "@/lib/save-media"
+      ],
+      "query_keys_observed": [
+        "id"
+      ],
+      "status_literals_observed": [
+        400,
+        403,
+        404,
+        409
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 241
+    },
+    {
+      "path": "/api/agent-conversations/[id]/messages/[messageId]",
+      "methods": [
+        "PATCH"
+      ],
+      "source": "src/app/api/agent-conversations/[id]/messages/[messageId]/route.js",
+      "source_sha256": "8d6fae82b5de08a5f4e9a39c11759304c935ca3e918b6f9ec1b7ebaca1d0647f",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/agent-conversations-db",
+        "@/lib/admin"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        403,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 36
+    },
+    {
+      "path": "/api/agent-conversations/[id]/messages",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/agent-conversations/[id]/messages/route.js",
+      "source_sha256": "b81dbb2b3c90e15ec31124b6b77ec2cc17542fbd6f5d0921c7fe746e55f62372",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/agent-conversations-db",
+        "@/lib/admin",
+        "@/lib/agents/orchestrator/orchestrator",
+        "@/lib/save-media",
+        "@/lib/storage",
+        "@/lib/middleware/image-prep",
+        "@/lib/agents/orchestrator/images",
+        "@/lib/agents/orchestrator/validate-message"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        403,
+        404,
+        502
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 76
+    },
+    {
+      "path": "/api/agent-conversations/[id]",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/agent-conversations/[id]/route.js",
+      "source_sha256": "4c835f7aedb25f3145126eb1e4ea7c9cff9cb61d42426a54388b30220ba00f00",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/agent-conversations-db",
+        "@/lib/admin"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        403,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 22
+    },
+    {
+      "path": "/api/agent-conversations",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "source": "src/app/api/agent-conversations/route.js",
+      "source_sha256": "8abdac2810aa0e3f6ceedb99530f856544ec444c327539cde95f8a7e4e8672ae",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/agent-conversations-db",
+        "@/lib/admin"
+      ],
+      "query_keys_observed": [
+        "agentKind",
+        "projectId"
+      ],
+      "status_literals_observed": [
+        400,
+        403,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 96
+    },
+    {
+      "path": "/api/assets/portraits/[id]/assets",
+      "methods": [
+        "GET",
+        "POST",
+        "DELETE"
+      ],
+      "source": "src/app/api/assets/portraits/[id]/assets/route.js",
+      "source_sha256": "440dbad470395423fb8964ad58165fdac8fca20be4e251dc4213017eb47f55d9",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/activity",
+        "@/lib/portrait-db",
+        "@/lib/byteplus-assets",
+        "@/lib/save-media",
+        "@/lib/storage"
+      ],
+      "query_keys_observed": [
+        "assetId"
+      ],
+      "status_literals_observed": [
+        400,
+        401,
+        404,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 263
+    },
+    {
+      "path": "/api/assets/portraits",
+      "methods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ],
+      "source": "src/app/api/assets/portraits/route.js",
+      "source_sha256": "22deff77e7a3dfe8c4cc09f3001b8133a530e5806ac39aa6163b9d6b2d88fd90",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/activity",
+        "@/lib/portrait-db",
+        "@/lib/byteplus-assets",
+        "@/lib/save-media",
+        "@/lib/portrait-sync"
+      ],
+      "query_keys_observed": [
+        "assetId",
+        "id",
+        "inventory",
+        "projectId"
+      ],
+      "status_literals_observed": [
+        400,
+        401,
+        403,
+        404,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 249
+    },
+    {
+      "path": "/api/assets/portraits/upload",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/assets/portraits/upload/route.js",
+      "source_sha256": "e0dc885f087348aaddf2bc35ff4d43bd6cd8a6495b91a2949d9cf57280cba5cd",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/activity",
+        "@/lib/portrait-db",
+        "@/lib/byteplus-assets",
+        "@/lib/save-media",
+        "@/lib/storage"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 148
+    },
+    {
+      "path": "/api/assets",
+      "methods": [
+        "GET",
+        "POST",
+        "DELETE"
+      ],
+      "source": "src/app/api/assets/route.js",
+      "source_sha256": "e488ef2f81f17f69988df58c0ae47072ceedae61ccac7c8e6d10434a04f15e10",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/assets-db",
+        "@/lib/save-media",
+        "@/lib/types",
+        "@/lib/auth",
+        "@/lib/activity"
+      ],
+      "query_keys_observed": [
+        "id",
+        "projectId"
+      ],
+      "status_literals_observed": [
+        400,
+        401,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 144
+    },
+    {
+      "path": "/api/audio/transcribe",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/audio/transcribe/route.js",
+      "source_sha256": "e27748550c7d4b0ac56f476186c40456d34cc6f91b4f16e452a81803be10fbc7",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/storage",
+        "@/lib/store-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        413,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 68
+    },
+    {
+      "path": "/api/auth/login",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/auth/login/route.js",
+      "source_sha256": "3ce112262fa72a30b227b0f36be1e6ec115d4321c643e76b293db213616b49c1",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "drizzle-orm",
+        "@/lib/db",
+        "@/lib/schema",
+        "@/lib/auth",
+        "@/lib/activity",
+        "@/lib/login-throttle"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        429
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 81
+    },
+    {
+      "path": "/api/auth/logout",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/auth/logout/route.js",
+      "source_sha256": "527e45de3f8ae0f81538e58fbce037c30acaa8b2461ab370211b26dcfb1fd45e",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/activity"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 13
+    },
+    {
+      "path": "/api/auth/me",
+      "methods": [
+        "GET",
+        "PATCH"
+      ],
+      "source": "src/app/api/auth/me/route.js",
+      "source_sha256": "2255656383d9d1acee85a0de12a89cf4cf23a7e6228de849f521b61c9fee7754",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "drizzle-orm",
+        "@/lib/auth",
+        "@/lib/db",
+        "@/lib/schema",
+        "@/lib/activity",
+        "@/lib/save-media"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 229
+    },
+    {
+      "path": "/api/auth/password",
+      "methods": [
+        "PATCH"
+      ],
+      "source": "src/app/api/auth/password/route.js",
+      "source_sha256": "7519ec1b2db7cf95fcb7f8a9ffd9a4ec74d1f67a56e5d172301305b0b3cd5294",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "drizzle-orm",
+        "@/lib/auth",
+        "@/lib/db",
+        "@/lib/schema",
+        "@/lib/password",
+        "@/lib/activity"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        409
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 112
+    },
+    {
+      "path": "/api/canvas-boards/[id]",
+      "methods": [
+        "GET",
+        "PUT"
+      ],
+      "source": "src/app/api/canvas-boards/[id]/route.js",
+      "source_sha256": "33a2a7e434282719f807a8182e5685882f832b1a4e5dc12d0d2702aaf35eb2eb",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/canvas-db",
+        "@/lib/canvas/serialization",
+        "@/lib/auth"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        404,
+        413
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 57
+    },
+    {
+      "path": "/api/canvas-boards/[id]/upload",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/canvas-boards/[id]/upload/route.js",
+      "source_sha256": "6e99fe71ac51a81c78b0d84d22424c2acef60fb99bf8a98a16ad34482af2db48",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/save-media",
+        "@/lib/canvas-db",
+        "@/lib/auth"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 47
+    },
+    {
+      "path": "/api/canvas-boards",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "source": "src/app/api/canvas-boards/route.js",
+      "source_sha256": "be537948f6d44e5a0d5864f8279c11119c2535cf099edc8e520c9193d2788ab3",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/canvas-db",
+        "@/lib/auth"
+      ],
+      "query_keys_observed": [
+        "projectId"
+      ],
+      "status_literals_observed": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 77
+    },
+    {
+      "path": "/api/cron/depth-reconciliation",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/cron/depth-reconciliation/route.js",
+      "source_sha256": "3e7fb56cc49faa80ddc1f307c70ee43ee39ef11977027e3c09eb2dfd9796ec1e",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/cron-auth",
+        "@/lib/depth-jobs-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 15
+    },
+    {
+      "path": "/api/cron/login-attempts",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/cron/login-attempts/route.js",
+      "source_sha256": "403fb870cfec627f1b4ef63cbc68c6c7fbbb9ead7fedb5135cf709eafdf4a872",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/cron-auth",
+        "@/lib/login-throttle"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 20
+    },
+    {
+      "path": "/api/cron/video-reconciliation",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/cron/video-reconciliation/route.js",
+      "source_sha256": "8111e2fa6fcc1fb9f50a9f1e9646b258487e717ea8d43f7552dcd07a6b0a8a1a",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/cron-auth",
+        "@/lib/video-reconciliation"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 15
+    },
+    {
+      "path": "/api/folders",
+      "methods": [
+        "GET",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ],
+      "source": "src/app/api/folders/route.js",
+      "source_sha256": "14eddaef42676374393973c825b7a3cc784df720d9abcd168141cccbb37e235b",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/folder-engine"
+      ],
+      "query_keys_observed": [
+        "ancestry",
+        "folderId",
+        "id",
+        "idempotencyKey",
+        "parentId",
+        "projectId",
+        "tree"
+      ],
+      "status_literals_observed": [
+        201,
+        400,
+        401,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 235
+    },
+    {
+      "path": "/api/generate/depth",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/generate/depth/route.js",
+      "source_sha256": "0c7df935f3223404d0273841d29049a8a58098b7108d68ef297c6115e652770c",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/store-db",
+        "@/lib/auth",
+        "@/lib/activity",
+        "@/lib/config"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 72
+    },
+    {
+      "path": "/api/generate/depth/status",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/generate/depth/status/route.js",
+      "source_sha256": "5ae10ae5d491923a842f96801d3a4c4be38968700d09a89a72c3ba6b2923ffcc",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/store-db",
+        "@/lib/auth"
+      ],
+      "query_keys_observed": [
+        "id"
+      ],
+      "status_literals_observed": [
+        400,
+        401,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 28
+    },
+    {
+      "path": "/api/generate/image",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/generate/image/route.js",
+      "source_sha256": "1f352bca5feeff9277d2072d2ee75b4ab5c0ea1110b5246c42e5a075fc638da5",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "@/lib/model-registry",
+        "@/lib/seedream",
+        "@/lib/seedream-reference",
+        "@/lib/assets-db",
+        "next/server",
+        "@/lib/save-media",
+        "@/lib/store-db",
+        "@/lib/auth",
+        "@/lib/pricing-db",
+        "@/lib/pricing",
+        "@/lib/limits-db",
+        "@/lib/activity",
+        "@/lib/config"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 133
+    },
+    {
+      "path": "/api/generate/upscale",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/generate/upscale/route.js",
+      "source_sha256": "0db3a37c752d5b97f9540e030f47ef1980f7cd9630d643386238315c79333505",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/store-db",
+        "@/lib/activity",
+        "@/lib/save-media",
+        "@/lib/providers/magnific",
+        "@/lib/pricing-db",
+        "@/lib/magnific-validation"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 119
+    },
+    {
+      "path": "/api/generate/upscale/status",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/generate/upscale/status/route.js",
+      "source_sha256": "b3068a27a3b5ef7824e8c2c6c68c285bfbe812f557d6898074928ae931457659",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/store-db",
+        "@/lib/auth",
+        "@/lib/magnific-status-advancement"
+      ],
+      "query_keys_observed": [
+        "id"
+      ],
+      "status_literals_observed": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 45
+    },
+    {
+      "path": "/api/generate/video/finalize",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/generate/video/finalize/route.js",
+      "source_sha256": "2ad80176940f0369d2f7f786e3c6792ee4c8be72d18eb95aa0cbe480e1046368",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/store-db",
+        "@/lib/pricing-db",
+        "@/lib/pricing",
+        "@/lib/activity",
+        "@/lib/seedance-finalization"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 39
+    },
+    {
+      "path": "/api/generate/video",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/generate/video/route.js",
+      "source_sha256": "fef42761e30c7b0d0fb8312cf316ee9f16fbf7156629b9e374ad6350eceee8f9",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/save-media",
+        "@/lib/store-db",
+        "@/lib/auth",
+        "@/lib/pricing-db",
+        "@/lib/pricing",
+        "@/lib/limits-db",
+        "@/lib/activity",
+        "@/lib/config",
+        "@/lib/providers/omni",
+        "@/lib/seedance-render-controls"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 324
+    },
+    {
+      "path": "/api/generate/video/status",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/generate/video/status/route.js",
+      "source_sha256": "be05dac87ef74dc68f240579a1c72fe232767b07f56a25359514dfad9394ef87",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/store-db"
+      ],
+      "query_keys_observed": [
+        "id"
+      ],
+      "status_literals_observed": [
+        400,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 24
+    },
+    {
+      "path": "/api/generations/[id]/download",
+      "methods": [
+        "GET",
+        "HEAD"
+      ],
+      "source": "src/app/api/generations/[id]/download/route.js",
+      "source_sha256": "c03270aa35d0bdc8f28ca0b93cbad2f24eac04436dd9c7ebbcadf2dca6c92a74",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "drizzle-orm",
+        "../../../../../lib/auth.js",
+        "../../../../../lib/db.js",
+        "../../../../../lib/schema.js",
+        "../../../../../lib/filename-resolver.js",
+        "../../../../../lib/storage.js"
+      ],
+      "query_keys_observed": [
+        "redirect",
+        "signed"
+      ],
+      "status_literals_observed": [
+        307,
+        400,
+        401,
+        404,
+        409,
+        416,
+        499,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 162
+    },
+    {
+      "path": "/api/history/counts",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/history/counts/route.js",
+      "source_sha256": "257f35305f9864875cbf16551ad51512c5cb0b8800be9a45a257f9488ab835a0",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/store-db",
+        "@/lib/auth",
+        "@/lib/history-query"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 47
+    },
+    {
+      "path": "/api/history/exports/[id]/download",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/history/exports/[id]/download/route.js",
+      "source_sha256": "918a37b221c9babc9a73cb97a5caeb7eefd043dd377ad412eefe08939e7de928",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/media-exports-db",
+        "@/lib/storage"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401,
+        404,
+        409,
+        410
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 15
+    },
+    {
+      "path": "/api/history/exports/[id]/finalize",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/history/exports/[id]/finalize/route.js",
+      "source_sha256": "64652f0285c1238a34939584d4d4d22a733b040befab15b5b15557b4e645a89a",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/media-exports-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401,
+        409
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 16
+    },
+    {
+      "path": "/api/history/exports/[id]/items",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/history/exports/[id]/items/route.js",
+      "source_sha256": "f798f058e1e447294658a75d0848d757b3a95cef53312c30b35a90a65ac44f43",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/media-exports-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 17
+    },
+    {
+      "path": "/api/history/exports/[id]",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/history/exports/[id]/route.js",
+      "source_sha256": "f7bbb092c36e70d24788da62d4f431ddc204488449407f8b04a9c54fc1109744",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/media-exports-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 12
+    },
+    {
+      "path": "/api/history/exports",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/history/exports/route.js",
+      "source_sha256": "d3cec1802a936d9e617f102056b9267ef69c6cddbf3874954fcc6eaadd34cb74",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/media-exports-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        201,
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 10
+    },
+    {
+      "path": "/api/history/move",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/history/move/route.js",
+      "source_sha256": "f046b704813c16ca095495e42afa4d084c118499a37d2597100b5363bde2b566",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/folder-engine"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 69
+    },
+    {
+      "path": "/api/history",
+      "methods": [
+        "GET",
+        "PATCH",
+        "DELETE"
+      ],
+      "source": "src/app/api/history/route.js",
+      "source_sha256": "f62c2f38c6e9a5dbe31197c0e7fb9281003c9609381e0e722bd24d7c8393248a",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/store-db",
+        "@/lib/auth",
+        "@/lib/activity",
+        "@/lib/config",
+        "@/lib/history-query"
+      ],
+      "query_keys_observed": [
+        "cursor",
+        "id",
+        "limit"
+      ],
+      "status_literals_observed": [
+        400,
+        401,
+        403,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 96
+    },
+    {
+      "path": "/api/history/updates",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/history/updates/route.js",
+      "source_sha256": "90b8411d5bee2fa8b5827ba551b32802c50994791655ec06983771b4c6fcb47b",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/store-db",
+        "@/lib/auth"
+      ],
+      "query_keys_observed": [
+        "since"
+      ],
+      "status_literals_observed": [
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 41
+    },
+    {
+      "path": "/api/media/[...path]",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/media/[...path]/route.js",
+      "source_sha256": "7658c2ffb27285f3354c696898f2cb78ac1d5e092198c6770063492322e0cf2b",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "node:stream",
+        "sharp",
+        "@/lib/auth",
+        "@/lib/storage",
+        "@/lib/media-derivatives"
+      ],
+      "query_keys_observed": [
+        "inline",
+        "w"
+      ],
+      "status_literals_observed": [
+        200,
+        307,
+        401,
+        404,
+        416,
+        499,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 245
+    },
+    {
+      "path": "/api/media-grant",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/media-grant/route.js",
+      "source_sha256": "081b539197bc3206b0b7bfe3d0373d8e4c2b8e5e1ec4638261e8a2efcaede096",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/storage",
+        "@/lib/media-grant"
+      ],
+      "query_keys_observed": [
+        "t"
+      ],
+      "status_literals_observed": [
+        403,
+        404,
+        416,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 58
+    },
+    {
+      "path": "/api/projects",
+      "methods": [
+        "GET",
+        "POST"
+      ],
+      "source": "src/app/api/projects/route.js",
+      "source_sha256": "3943b06d8be6c920c14de682ded62047598dd76e90547ffb91307daeb92defb4",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/projects-db",
+        "@/lib/auth"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 83
+    },
+    {
+      "path": "/api/queue/execute",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/queue/execute/route.js",
+      "source_sha256": "9f7d46d811c72c0c6f8ee557e8dde9ba74ca9ed0b8d19d3b4cabb3fb7d6c1bbd",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/providers/seedream",
+        "@/lib/seedream",
+        "@/lib/seedream-reference",
+        "@/lib/pricing-db",
+        "@/lib/pricing",
+        "@/lib/providers/gemini",
+        "@/lib/providers/higgsfield-mcp",
+        "@/lib/providers/seedance",
+        "@/lib/seedance-reference-tags",
+        "@/lib/providers/kling",
+        "@/lib/providers/omni",
+        "@/lib/config",
+        "@/lib/kling-input",
+        "@/lib/mentions",
+        "@/lib/save-media",
+        "@/lib/generated-media-persistence",
+        "@/lib/storage",
+        "@/lib/store-db",
+        "@/lib/generation-realtime",
+        "@/lib/mock",
+        "@/lib/middleware/image-prep",
+        "@/lib/middleware/face-judge",
+        "@/lib/prompt-assembler",
+        "@/lib/assets-db",
+        "@/lib/portrait-db",
+        "@/lib/auth",
+        "@/lib/pricing",
+        "@/lib/model-registry",
+        "@/lib/best-of-spool",
+        "@/lib/video-submissions",
+        "@/lib/seedance-callback",
+        "@/lib/generation-telemetry",
+        "@/lib/queue-execution-deadline",
+        "sharp",
+        "node:fs/promises",
+        "node:os",
+        "node:path"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        404
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 895
+    },
+    {
+      "path": "/api/queue/status",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/queue/status/route.js",
+      "source_sha256": "b63f63f653024c2477a3a3fd5e91a0cb00db5108970cd1d1418f62ccb2d2a5d5",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/store-db"
+      ],
+      "query_keys_observed": [
+        "id"
+      ],
+      "status_literals_observed": [
+        400,
+        401,
+        404,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 23
+    },
+    {
+      "path": "/api/settings",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/settings/route.js",
+      "source_sha256": "d3f2a734702f015400f14eacc70a4059595ffd280aa4767b4710f9db4f7e36d9",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/limits-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 18,
+      "method_contracts": {
+        "GET": {
+          "request_body": null,
+          "query_params": {
+            "behavior": "ignored"
+          },
+          "authentication": "veevee_session HMAC-SHA256; active users row and matching auth_version; missing legacy ver means 0",
+          "authorization": "any authenticated teammate",
+          "success": {
+            "status": 200,
+            "json": {
+              "maxPromptLength": "effective integer >=1; fallback 30000",
+              "maxConcurrentJobs": "effective integer 1..4; fallback 4"
+            }
+          },
+          "failure": {
+            "unauthenticated": {
+              "status": 401,
+              "json": {
+                "error": "UNAUTHENTICATED"
+              }
+            }
+          },
+          "db_reads": [
+            "users session lookup",
+            "settings all rows",
+            "user_limits for actor"
+          ],
+          "db_mutations": [],
+          "storage_effects": [],
+          "provider_effects": [],
+          "worker_effects": [],
+          "idempotency": "read-only; no idempotency key",
+          "concurrency": "global and user-limit queries run independently; no snapshot transaction in Node",
+          "pagination": null,
+          "naming": null,
+          "headers": {
+            "content_type": "application/json",
+            "renewal": "Set-Cookie on valid session older than one day; 30-day HttpOnly SameSite=Lax host-only / cookie; Secure in production"
+          },
+          "parsing": "ECMAScript parseInt(raw,10), finite-number fallback, min fallback, optional max clamp; invalid personal override falls to registry default, not global value",
+          "evidence": [
+            "backend/apps/admin_dashboard/tests.py",
+            "scripts/django-migration/limits-oracle.mjs"
+          ],
+          "remaining_qualification": [
+            "real Node vs Django HTTP response and headers",
+            "DB state before/after for both runtimes",
+            "cookie interoperability and middleware denial",
+            "browser preview and deployed canary"
+          ]
+        }
+      }
+    },
+    {
+      "path": "/api/uploads/presign",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/uploads/presign/route.js",
+      "source_sha256": "b8332893f16459020646fdb1d353283ef495fd7cd46d55e6cfe5b490a6978004",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/storage",
+        "@/lib/upload-presign"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 28
+    },
+    {
+      "path": "/api/users",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/users/route.js",
+      "source_sha256": "97c60f63812edf3f24372af307a8e4652916e1c35427093c13c358cd81c1108f",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/db",
+        "@/lib/schema",
+        "@/lib/auth"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 23
+    },
+    {
+      "path": "/api/webhooks/seedance",
+      "methods": [],
+      "source": "src/app/api/webhooks/seedance/route.js",
+      "source_sha256": "d4e49b5e1abcd47b08b84041038d6c54a873d78a980cf6bdce474366509deb64",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/store-db",
+        "@/lib/video-status-advancement",
+        "@/lib/seedance-callback",
+        "@/lib/providers/seedance"
+      ],
+      "query_keys_observed": [
+        "token"
+      ],
+      "status_literals_observed": [
+        202,
+        400,
+        401,
+        503
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 77
+    },
+    {
+      "path": "/api/worker/depth/claim",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/worker/depth/claim/route.js",
+      "source_sha256": "208382ef85ecde7d60eeee34c0c233b3b3270269e43b89812ac428e5a10e862b",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/depth-worker-auth",
+        "@/lib/depth-jobs-db",
+        "@/lib/storage"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 82
+    },
+    {
+      "path": "/api/worker/depth/complete",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/worker/depth/complete/route.js",
+      "source_sha256": "76770cd567aa1c8e2e63185c7bd756484535fb616bff93861c27dbff9f4807a4",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/depth-worker-auth",
+        "@/lib/depth-jobs-db",
+        "@/lib/activity"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        409
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 50
+    },
+    {
+      "path": "/api/worker/depth/heartbeat",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/worker/depth/heartbeat/route.js",
+      "source_sha256": "9d19e3d2dc4597a661a264e973038df4a12aecdfb1c683e3ec14ea97100fa131",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/depth-worker-auth",
+        "@/lib/depth-jobs-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 34
+    },
+    {
+      "path": "/api/worker/depth/progress",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/worker/depth/progress/route.js",
+      "source_sha256": "979fd494a71b006ba523847c60916297cf7c5c429637d51d9b96b4979c622df8",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/depth-worker-auth",
+        "@/lib/depth-jobs-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        409
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 29
+    },
+    {
+      "path": "/api/worker/depth/status",
+      "methods": [
+        "GET"
+      ],
+      "source": "src/app/api/worker/depth/status/route.js",
+      "source_sha256": "3df1ff2e998de2b046a9c3382fd327f69041db2f461994e718f1609fc3f48e70",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/auth",
+        "@/lib/depth-jobs-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        401
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 17
+    },
+    {
+      "path": "/api/worker/depth/upload-url",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/worker/depth/upload-url/route.js",
+      "source_sha256": "c333ddda9680dbc1f49b6c1d72a3639847a82d7996af16da7a7295f3fa8e1750",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "@/lib/depth-worker-auth",
+        "@/lib/storage",
+        "@/lib/depth-jobs-db"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        401,
+        409,
+        500
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 40
+    },
+    {
+      "path": "/api/worker/exports/access",
+      "methods": [
+        "POST"
+      ],
+      "source": "src/app/api/worker/exports/access/route.js",
+      "source_sha256": "5e2ea022ca2855c06d776c2bdea2448c7daf75daf6a5555fd7c47b676fe7618f",
+      "qualification": "INVENTORIED_NOT_VERIFIED",
+      "imports": [
+        "next/server",
+        "node:crypto",
+        "drizzle-orm",
+        "@/lib/db",
+        "@/lib/schema",
+        "@/lib/storage"
+      ],
+      "query_keys_observed": [],
+      "status_literals_observed": [
+        400,
+        403,
+        404,
+        409
+      ],
+      "review_required": [
+        "method-specific body and response schemas",
+        "authentication and authorization including middleware",
+        "transitive DB reads/writes and storage/provider/worker effects",
+        "headers, idempotency, concurrency, pagination, naming"
+      ],
+      "source_lines": 31
+    }
+  ]
+}

@@ -1,0 +1,821 @@
+$ git branch -a
+  feat/freeform-hierarchical-library
+  feat/freeform-hierarchical-library-naming
+  feat/magnific-upscale-schema-guardrails
+* fix/preview-regressions-codex
+  main
+  wip/pre-main-consolidation-2026-09-22
+  remotes/origin/HEAD -> origin/main
+  remotes/origin/feat/aggregate-generation-concurrency
+  remotes/origin/feat/freeform-hierarchical-library-naming
+  remotes/origin/feat/magnific-upscale-schema-guardrails
+  remotes/origin/feat/seedance-video-references-and-ui
+  remotes/origin/feat/seedream-1-5k-and-seedance-frames
+  remotes/origin/fix/preview-regressions-codex
+  remotes/origin/fix/queue-creating-transition
+  remotes/origin/hotfix/large-zip-exports
+  remotes/origin/main
+
+$ git log --all --graph --decorate --oneline
+* a208e8a (HEAD -> fix/preview-regressions-codex, origin/fix/preview-regressions-codex) Request native MOV masters for all Seedance 2.5 tasks
+* cc44b4e Display structured generation errors without object coercion
+* f56380b Align isolated preview storage and preserve historical media reads
+* 7c87b44 Simplify folder filenames and prevent portrait synchronization contention
+* e2ae806 Repair folder focus, portrait reconciliation and Seedance task classification
+* 68c4e30 (origin/feat/freeform-hierarchical-library-naming, feat/freeform-hierarchical-library-naming) chore(release): sanitize preview archive and reconcile rollout docs
+* 8ebf9d5 chore(release): finalize hierarchical library and naming preview candidate
+* 580e43a fix(naming-ui): wire signed downloads into real UI, make hierarchy migration atomic, fix admin migrate endpoint, and update runbook
+* 06acddd fix(release-gate): canonical namespace token model, transactional admin migration, signed downloads, and qualification suites
+* 942a5c1 fix(naming): canonical batch-independent filenames, self-healing migration triggers, worker manifest compatibility, and acceptance suite
+* 685fab1 feat(naming): implement folder-scoped serials, exact downloads, and manifest-frozen exports
+* 9c9ed0e feat(naming): naming tables, additive migration, audit, verifier and legacy upgrade test
+* 2a6db1c (feat/freeform-hierarchical-library) feat(hierarchy): unified lock ordering, concurrency-safe shared idempotency, truthful audit logging, and barrier integration test suite
+* 2d44cd4 fix(db): enforce relational integrity, bidirectional scope triggers, and true legacy migration CI
+* 4376148 fix(hierarchy): resolve independent review findings for hierarchical library
+* 5c0e05c feat: implement free-form hierarchical library system
+*   6545e60 (origin/main, origin/HEAD, main) Add Magnific upscaling and schema deployment guardrails (#74)
+|\
+| * bbb46b9 (origin/feat/magnific-upscale-schema-guardrails, feat/magnific-upscale-schema-guardrails) Add Magnific upscaling and schema deployment guardrails
+|/
+*   141a923 Merge pull request #73 from amazingindianstories-stack/feat/seedance-video-references-and-ui
+|\
+| * d003de7 (origin/feat/seedance-video-references-and-ui) feat: Full Seedance 2.5 and 2.0 video reference support and UI abstraction
+|/
+*   298140d Merge pull request #72 from amazingindianstories-stack/feat/seedream-1-5k-and-seedance-frames
+|\
+| * 48b782d (origin/feat/seedream-1-5k-and-seedance-frames) feat: Add Seedream 1.5K and Seedance First & Last Frame generation
+|/
+*   9e0299f Merge pull request #71 from amazingindianstories-stack/hotfix/large-zip-exports
+|\
+| * ed10739 (origin/hotfix/large-zip-exports) Add reliable asynchronous media exports
+|/
+*   837489e Merge pull request #70 from amazingindianstories-stack/fix/queue-creating-transition
+|\
+| * bb8e8f0 (origin/fix/queue-creating-transition) fix: start admitted batch jobs promptly
+|/
+*   b628ebf Merge pull request #69 from amazingindianstories-stack/feat/aggregate-generation-concurrency
+|\
+| * b95068e (origin/feat/aggregate-generation-concurrency) test: use production kind in queue audit
+| * 83ea88f feat: enforce aggregate generation concurrency
+|/
+*   d9fa6f7 Merge pull request #68 from amazingindianstories-stack/fix/free-image-resize-restore-bitrate
+|\
+| * 70b418a fix: unlock image resizing and restore bitrate control
+|/
+*   f6964a4 Merge pull request #67 from amazingindianstories-stack/feat/canvas-image-crop-import-clipboard
+|\
+| * c3ef7fb feat: add canvas image cropping and batch imports
+|/
+* b2da410 feat: finalize Seedance drafts in 1080p (#66)
+*   2848974 Merge pull request #65 from amazingindianstories-stack/design/minimal-generation-loader
+|\
+| * 6c3b627 style: simplify generation loader
+|/
+*   5dca717 Merge pull request #64 from amazingindianstories-stack/fix/chat-live-generation
+|\
+| * a66ddaa fix: sync completed generations into chat
+|/
+*   399d90c Merge pull request #63 from amazingindianstories-stack/fix/progressive-image-cached-load
+|\
+| * 8073a08 fix: reveal cached progressive thumbnails
+|/
+*   defe13c Merge pull request #62 from amazingindianstories-stack/feat/smooth-asset-library-cache
+|\
+| * eb6e834 feat: smooth asset library loading and caching
+|/
+* a94b002 fix(seedance): scope draft mode to 2.5 (#61)
+*   6b418d8 Merge pull request #60 from amazingindianstories-stack/fix/seedance-unsupported-render-fields
+|\
+| * 47b8346 fix: omit unsupported Seedance render fields
+|/
+*   ef7c2f9 Merge pull request #59 from amazingindianstories-stack/feat/seedance-render-controls
+|\
+| * 8f0ff31 feat: add Seedance render controls
+|/
+*   3dcc085 Merge pull request #58 from amazingindianstories-stack/fix-intermittent-direct-uploads
+|\
+| * feaba19 fix: harden intermittent direct uploads
+|/
+*   53d006b Merge pull request #57 from amazingindianstories-stack/fast-mode-generation-concurrency
+|\
+| * 222a714 feat(queue): enable fast-mode generation concurrency
+|/
+*   9a74daa Merge pull request #56 from amazingindianstories-stack/fix/restore-production-upload-presign
+|\
+| * b5581af fix: restore authenticated upload presigning
+|/
+*   2f7e283 Merge pull request #55 from amazingindianstories-stack/integration/main-consolidation-2026-09-22
+|\
+| * fbc7630 Reconcile existing coordinator index predicate online
+| * 8cdae4c Fence stale depth worker claims and reconcile abandoned jobs
+| * ef17bcf Reconcile Seedance callbacks and generation worker with release coordinator
+| | *   546bf86 (tag: archive/wip-pre-main-consolidation-2026-09-22, refs/stash) On main: pre-main-consolidation-2026-09-22
+| |/|\
+| | | * 746723a untracked files on main: 18f3dc6 fix: pass activeProject into AssetList to prevent ReferenceError on empty project
+| | * 57e8947 index on main: 18f3dc6 fix: pass activeProject into AssetList to prevent ReferenceError on empty project
+| |/
+| * 18f3dc6 (wip/pre-main-consolidation-2026-09-22) fix: pass activeProject into AssetList to prevent ReferenceError on empty project
+| * 08c9518 feat: scope material library and portrait gallery to active project
+| * 2bbaab2 feat: rework material library, add uncropped lightboxes, and fix button contrast
+| * cf1b012 feat: improve portrait asset library UI, add full view lightbox, and fix button interactions
+| * 1df8283 fix(mentions, store): deduplicate mentions export and align store initial shape
+| *   45bf2c6 merge: merge origin/main into release/prod-rollout-coordinator-portrait
+| |\
+| |/
+|/|
+| * e0b2595 fix(composer): fix reference image and audio remove button z-index and click interception
+| * 1b5f12a fix(portraits): resolve unique constraint collision on byteplusGroupId and deduplicate groups
+| * accd967 fix(portraits): fix delete button clickability, upload route BytePlus sync, and two-way reconciliation
+| * 321b2e0 fix(portraits): resolve broken portrait previews when attached in prompt
+| * 2bd6d26 fix(portraits): fix delete portrait action confirmation modal and id lookup
+| * ac6a469 fix(portraits): resolve deepfake moderation rejection, BytePlus sync, and 413 upload ceiling
+| * 4301044 fix: include Filter and omit empty NextToken in BytePlus Asset API client
+| * c4835eb fix(lint): remove unused imports in portraits route
+| * 23ad7ef feat: bi-directional sync with BytePlus ModelArk Virtual Portrait assets and character group management
+| * 631922a feat: redesign Portrait Gallery to be image-first asset library with direct uploads and robust fallback
+| * b6d2038 fix: include provider_responses column in generations schema migration
+| * 7596a19 fix(middleware): exempt /api/admin/migrate-schema for setup secret authentication
+| * 56afa58 feat: allow setup secret for schema migration trigger
+| * f66b50d feat: consolidate generation coordinator and portrait gallery asset library
+| * ac73615 Add Seedance callbacks and slow browser polling
+| * 8859a3e Update transcription model label
+| * 958ee07 Scope audio transcription history to active project
+| * df500bb Remove one-time audio schema migration endpoint
+| | * ecfbb3a (tag: archive/2026-09-22/remote/release/seedance-coordinator-reconciliation, tag: archive/2026-09-22/local/release/seedance-coordinator-reconciliation) Update database index health expectation
+| | * 11bb9a5 Register coordinator index for health checks
+| | * f1e2136 Declare coordinator due index in schema
+| | * 377787d Reconcile Seedance callback and generation coordinator
+| |/
+|/|
+* | 3c70fc5 Show attachment upload status and wait before generation (#51)
+| | * 53d36ff (tag: archive/2026-09-22/remote/hotfix/attachment-upload-status, tag: archive/2026-09-22/local/hotfix/attachment-upload-status) Show attachment upload status and wait before generation
+| |/
+|/|
+* | d871e1f Fix audio reference mention autocomplete and validation (#50)
+| | * 536c491 (tag: archive/2026-09-22/remote/hotfix/audio-mentions, tag: archive/2026-09-22/local/hotfix/audio-mentions) Fix audio reference mention autocomplete and validation
+| |/
+|/|
+* | e76c9d6 Keep audio transcripts out of chat and asset feeds (#49)
+| | * 232e978 (tag: archive/2026-09-22/remote/hotfix/audio-history-visibility, tag: archive/2026-09-22/local/hotfix/audio-history-visibility) Keep audio transcripts out of chat and asset feeds
+| |/
+|/|
+* | d9dc69f Fix production composer crash when image references are attached (#48)
+| | * 5486652 (tag: archive/2026-09-22/remote/hotfix/reference-label-crash, tag: archive/2026-09-22/local/hotfix/reference-label-crash) Fix production composer crash when image references are attached
+| |/
+|/|
+| | * 727aab8 (tag: archive/2026-09-22/remote/migration/restore-django-cutover, tag: archive/2026-09-22/local/migration/restore-django-cutover) Record merged preview verification and browser login blocker
+| | * 3c6ae35 Allow dropping audio files into transcription panel
+| | * 4c98320 Preserve production audio and Seedream behavior in merged cutover preview
+| | * b2cceb6 Record UX preview release evidence and pause preview schedules
+| | * 7359956 Preserve Seedance 2.5 1080p support across Django cutover
+| | * 521fee9 Implement three-persona UX audit and safe incremental schema adoption
+| | * 04a542c Document Railway healthcheck host
+| | * 6f23ceb Adopt Railway infrastructure as code for preview
+| | * f3bce05 Prepare Django and Vite cutover release candidate
+| |/
+|/|
+* | 7539967 Add project-scoped audio transcription history panel (#47)
+* | 153cd38 Remove one-time audio schema migration endpoint (#46)
+|/
+* 696ef61 Allow one-time production schema migration token (#45)
+| * 8b3b8e8 (tag: archive/2026-09-22/local/fix/audio-schema-token) Remove one-time audio schema migration endpoint
+| * 04ee2cb (tag: archive/2026-09-22/remote/fix/audio-schema-token) Allow one-time production schema migration token
+|/
+* 4ff0ab9 Add idempotent audio reference schema migration (#44)
+| * 9c691bf (tag: archive/2026-09-22/local/fix/audio-schema) Allow one-time production schema migration token
+| * cb6c886 (tag: archive/2026-09-22/remote/fix/audio-schema) Add idempotent audio reference schema migration
+|/
+* 4a2e723 Use supported Gemini Flash model for transcription (#43)
+* d21a637 Enable audio uploads for transcription (#42)
+* 67b243d Add timestamped audio transcription popup (#41)
+* 592be71 Fix tagged audio references for Seedance (#40)
+* 6f15165 Add Seedream 5.0 Pro with original references and independent pricing (#38)
+| * b6724cf (tag: archive/2026-09-22/remote/migration/seedream-5-pro, tag: archive/2026-09-22/local/migration/seedream-5-pro) docs: record Seedream activation and live validation results
+| * 5b35d20 Preserve compound Seedream tags and record preview evidence
+| * 1ec5b50 Mirror Seedream 5.0 Pro in Django and migration interface
+| * 5c8279e Record UX preview release evidence and pause preview schedules
+| * a836d12 Preserve Seedance 2.5 1080p support across Django cutover
+| *   0b41352 Merge remote-tracking branch 'origin/main' into migration/restore-django-cutover
+| |\
+| |/
+|/|
+| * 1bdf647 Implement three-persona UX audit and safe incremental schema adoption
+| * 43fcfa9 Document Railway healthcheck host
+| * 5a69dae Adopt Railway infrastructure as code for preview
+| * 0d7d211 Prepare Django and Vite cutover release candidate
+| | * 3cd74de (tag: archive/2026-09-22/remote/feat/seedream-5-pro, tag: archive/2026-09-22/local/feat/seedream-5-pro) docs: record Seedream activation and live validation results
+| | * 1fb3329 Preserve compound reference tags and prepare bounded Seedream acceptance
+| | * b1b6409 Add Seedream 5.0 Pro with original references and independent pricing
+| |/
+|/|
+* | 960766e fix: enable Seedance 2.5 1080p output (#37)
+|/
+| * 8a33c2d (tag: archive/2026-09-22/remote/fix/seedance-25-1080p, tag: archive/2026-09-22/local/fix/seedance-25-1080p) fix: enable Seedance 2.5 1080p output
+|/
+| * 926837f (tag: archive/2026-09-22/local/refactor/api-envelope-auth) refactor auth API response envelope
+|/
+| * 8e4b76c (tag: archive/2026-09-22/local/fix/csp-report-only) Add report-only CSP telemetry
+|/
+| * e7274bb (tag: archive/2026-09-22/local/fix/depth-claim-fencing) Fence depth worker claims and reap abandoned jobs
+|/
+| * 77e7ea1 (tag: archive/2026-09-22/local/ops/s3-gcs-observation-through-2026-09-10) Record September 4 media observation checkpoint
+|/
+*   4840774 Merge pull request #35 from amazingindianstories-stack/ops/deactivate-legacy-s3-keys
+|\
+| * f6add69 Record legacy AWS key deactivation
+|/
+*   066f37f Merge pull request #34 from amazingindianstories-stack/ops/s3-gcs-migration-monitoring
+|\
+| * 4c1e444 Harden S3 migration and record zero-gap cutover
+|/
+*   76df060 Merge pull request #33 from amazingindianstories-stack/docs/close-runtime-audit-findings
+|\
+| * 6391a8e Close verified runtime audit findings
+|/
+*   ef9dbbe Merge pull request #32 from amazingindianstories-stack/fix/runtime-audit-closures
+|\
+| * 1730226 Add safe runtime closure diagnostics
+|/
+*   31a6a91 Merge pull request #31 from amazingindianstories-stack/docs/close-board-admin-ui-sweep
+|\
+| * b54594b docs: close Board and Admin UI findings
+|/
+*   b182f32 Merge pull request #30 from amazingindianstories-stack/codex/quick-board-admin-sweep
+|\
+| * 6c20ff5 Fix board recovery and responsive admin tables
+|/
+*   3bec78d Merge pull request #29 from amazingindianstories-stack/docs/quick-ui-sweep-tracker
+|\
+| * 3080e75 docs: record quick UI sweep verification
+|/
+*   95a9ca5 Merge pull request #28 from amazingindianstories-stack/fix/quick-ui-sweep
+|\
+| * 3b40081 Fix composer mode dropdown and mobile nav overlap
+|/
+* 5e99c6d docs: close verified local UI findings (#27)
+| * 66d809b (tag: archive/2026-09-22/remote/chore/update-ui-verification-tracker) docs: close verified local UI findings
+|/
+* ecea65f fix: make fullscreen viewer teardown reliable (#26)
+| * b5a9c3b (tag: archive/2026-09-22/remote/fix/ui-browser-verification) fix: make fullscreen viewer teardown reliable
+|/
+*   2330082 Merge pull request #25 from amazingindianstories-stack/fix/safe-remaining-bugs
+|\
+| * 0bfd33a update remaining bug audit evidence
+|/
+*   2fe85aa Merge pull request #24 from amazingindianstories-stack/fix/safe-remaining-bugs-diagnostic
+|\
+| * 7ec653a improve Kling runtime audit diagnostics
+|/
+*   c1e0512 Merge pull request #23 from amazingindianstories-stack/audit/reliability-final-evidence
+|\
+| * 67e7739 docs: record 24-hour reliability gate
+|/
+*   a20711a Merge pull request #22 from amazingindianstories-stack/audit/reliability-production-evidence
+|\
+| * 5b6b291 docs: record reliability rollout evidence
+|/
+*   7d42485 Merge pull request #20 from amazingindianstories-stack/fix/bulk-reliability-audit
+|\
+| *   2747882 Merge pull request #21 from amazingindianstories-stack/fix/audit-blocker-diagnostics
+| |\
+| | * 551f2db fix: verify reconciliation index validity
+| | * 61937e6 docs: record draft PR checks
+| | * 62f25c6 docs: record stacked audit diagnostics PR
+| | * c78e77e fix: separate runtime audit safety signals
+| |/
+| * 88a43bc feat: harden video polling reliability
+|/
+*   ab72c92 Merge pull request #19 from amazingindianstories-stack/fix/bulk-production-audit
+|\
+| * 3d79869 feat: add production audit diagnostics
+|/
+*   7fc3e9c Merge pull request #18 from amazingindianstories-stack/fix/audit-admin-status-close
+|\
+| * 01a5b81 docs: close production runtime health gates
+|/
+*   128b159 Merge pull request #17 from amazingindianstories-stack/fix/audit-runtime-closures
+|\
+| * 42ead3e docs: record runtime verification gates
+|/
+*   6577434 Merge pull request #16 from amazingindianstories-stack/fix/audit-accelerated-batch
+|\
+| * 51b3764 docs: record production batch evidence
+* | 46b3dd5 Merge pull request #15 from amazingindianstories-stack/fix/audit-accelerated-batch
+|\|
+| * ba33588 docs: record protected main ruleset
+| * f0ba8c7 fix: close accelerated no-bill audit batch
+|/
+*   33f510a Merge pull request #14 from amazingindianstories-stack/fix/audit-django-retirement
+|\
+| * 12eaf9a Retire unused Django backend
+|/
+*   a0114ce Merge pull request #13 from amazingindianstories-stack/fix/audit-next-safe-batch
+|\
+| * b6d52fb fix: close next safe audit batch
+|/
+*   97b0e9c Merge pull request #12 from amazingindianstories-stack/fix/audit-multi-batch
+|\
+| * 450dd0e feat: add audit review and runtime checks
+| * f4b72de fix: coordinate provider auth and model routing
+| * 7137b42 docs(audit): record cost basis migration
+| * 070e4d9 fix media action safety and viewer input teardown
+|/
+* d771810 docs(audit): record production release evidence
+* 8f216d9 fix: keep health checks compatible with current depth schema
+* b136ddb docs(audit): record safe release holds
+* e93391c test: guard canvas project context
+* 8fd46ea fix: preserve partial video submissions
+* 7930481 fix: reconcile stale Omni video jobs safely
+* 909edf3 fix: bound queue execution and terminal video polls
+* cc08a3f feat: monitor generation database health
+* 96e74c4 test: verify feed scope against postgres
+* 484d383 fix: enforce video directive parity
+* 1c93177 docs(audit): keep local fixes in progress until rollout
+* daf1c26 ci: gate both application runtimes
+* 3556d28 fix(images): bound best-of candidate memory
+* 6d18eca fix(queue): enforce fair per-user concurrency
+* 2ed1262 fix(audit): make GCS verification resumable
+* 927ddcb docs(audit): resolve Cloud SQL password finding
+* a422c4a docs(audit): record restored GCP access
+* 2d8cc23 docs(audit): add living remediation tracker
+* 904fca1 fix(scripts): fix two real bugs found running the S3->GCS media tooling
+| * 63abac2 (tag: archive/2026-09-22/local/fix/audit-p0) test: guard canvas project context
+| * 2c4577b fix: preserve partial video submissions
+| * a7bb638 fix: reconcile stale Omni video jobs safely
+| * 4a95642 fix: bound queue execution and terminal video polls
+| * 84f1633 feat: monitor generation database health
+| * 12c3898 test: verify feed scope against postgres
+| * 7b2465a fix: enforce video directive parity
+| * 11b4fab docs(audit): keep local fixes in progress until rollout
+| * 300a20c test(depth): keep recovery fixture patch-clean
+| * 11528f5 ci: gate both application runtimes
+| * 0c15e63 fix(images): bound best-of candidate memory
+| * 83b80d6 fix(queue): enforce fair per-user concurrency
+| * 4301601 fix(depth): fence stale worker claims
+| * d0129d9 fix(audit): make GCS verification resumable
+| * 163b50a docs(audit): resolve Cloud SQL password finding
+| * a0ee53b docs(audit): record restored GCP access
+| * be28840 docs(audit): add living remediation tracker
+| * ed720e8 fix(scripts): fix two real bugs found running the S3->GCS media tooling
+|/
+* 4bcb21e fix(seedance): enforce API reference image limits
+*   2b6446b Merge branch 'chore/remediation-safety-net' into main
+|\
+| * 823bd11 fix(build): exclude @ffmpeg-installer/ffmpeg from the server bundle
+| * b20042b fix(detail-modal): correct Up/Down arrow-key navigation and show all references
+| * 6fa858a test: add four guards for constraints that were comment-only
+| * 2929509 fix(canvas): validate the board id on the upload route
+| * 5c591a8 chore: delete finish_setup.sh and scratch.js
+| * dcdee04 chore: rename internal "Lumina Studio" naming to Veevee
+| * 9c28e9b fix(composer): don't send the prompt on bare Enter
+| * 3ca57c2 docs(db): warn that tablesFilter does not cover sequences
+| * 27d5a27 fix(db): add login_attempts to DRIZZLE_OWNED_TABLES so db:push works
+| * feda775 Phase 3.5: "flag this generation" feedback signal + judge-score persistence
+| * ed9d446 Phase 3.4: fixture-driven face-identity regression harness (local-only)
+| * d1dcde4 Phase 3.3: multi-shot chaining — "Continue this shot" (native BytePlus only)
+| * 8549b76 Phase 3.2: video best-of-N + frame-extracted judge scoring (flag-gated)
+| * 540a390 Phase 3.1: reproducibility seed for Gemini/NBP + native BytePlus Seedance
+| * 23581d5 research(video): 2.3 — Higgsfield/Seedance job-history probe + findings
+| * b6b94c9 feat(video): 2.2 — expanded in-prompt negative block (AVOID)
+| * f4e7e34 feat(video): 2.1 — temporal staging + camera-movement default vocabulary
+| * 0346476 test(video): 1.4 — wiring-level tests pinning Phase 1.3's refRoles integration
+| * 69cab8b fix(video): per-reference role legend for video-directive (Phase 1.3)
+| * e83197b Fix style drift from untagged mixed reference batches (Phase 1.1 + 1.2)
+|/
+* b7970ac security: stop tracking .higgsfield-mcp-token.json — this repo is public
+* 2ed6e86 feat(scripts): recover videos the age-based timeout wrongly failed
+* f02be27 fix(video): never fail a generation on age before asking the provider
+* e2bb3c5 fix(chat): stop tall results overrunning the conversation thread
+* 75cb4f9 perf(feed): lazy-load every poster, and collapse the duplicated fallback
+*   56ed5a5 Merge branch 'feature/depth-map-worker'
+|\
+| * 06a10d1 feat(diagnostics): record main-thread stalls so the next freeze has evidence
+| * 1648b86 perf(feed): stop the library grid accumulating one live <video> per row
+| * 0a5dfe3 feat(composer): make the Material library menu item open the asset library
+| * e31f33b fix(kling): scope the 2K restriction on 2.1 to references, not the whole model
+| * d35aa34 chore: add depth-worker launcher and the output-quality research notes
+| * a1f52cf docs: record that AWS is still a live production dependency, not a rollback
+| * 605513b fix(kling): stop offering 2K on Kling Image 2.1, which the endpoint rejects
+| * 844d9f2 feat(a11y): make Dropdown and the @tag suggestion list keyboard-navigable
+|/
+*   a81205b Merge branch 'feature/depth-map-worker'
+|\
+| * 94928be feat(composer): replace fixed Seedance duration buttons with a bounded slider
+| * fa2f8c0 feat(composer): distinguish video-derived and audio references without colliding with @vid1's existing meaning
+| * fd5d779 fix(depth-worker): keep depth generations out of the conversation thread
+* | 1a9f4c1 Merge branch 'feature/depth-map-worker'
+|\|
+| * f27686f feat(depth-worker): progress bar, step count and elapsed timer on the main conversation panel; fix trackCharacters' missing lap dependency
+* | 57bbaea Merge branch 'feature/depth-map-worker'
+|\|
+| * e708ab6 feat(depth-worker): render depth video previews and live progress on library cards
+* | d9e22d1 Merge branch 'feature/depth-map-worker'
+|\|
+| * b3220c3 fix(depth-worker): output plain grayscale depth maps, not the inferno colormap
+* | 04b41e4 Merge branch 'feature/depth-map-worker'
+|\|
+| * c17c9fb fix(depth-worker): add missing VDA runtime deps; force fp32 on MPS/CPU to avoid all-NaN depth output
+* | 1ff8c64 Merge branch 'feature/depth-map-worker'
+|\|
+| * e63f051 fix(depth-worker): claim route must sign the input video URL from its raw storage key, not via signStoredRef
+* | 2c4fbe7 Merge branch 'feature/depth-map-worker'
+|\|
+| * 0d7b4bc infra(gcp): add CORS config for the media bucket, needed by direct browser->GCS uploads
+* | db9ed4e Merge branch 'feature/depth-map-worker'
+|\|
+| * 41828bd fix(storage): build GCS signing client from Storage's own google-auth-library, not the aliased v9 package
+* | 09d7316 Merge branch 'feature/depth-map-worker'
+|\|
+| * bb235e4 fix(depth-worker): exempt worker routes from session middleware; scope db:push to Drizzle-owned tables
+| * 662d171 Add local depth-map worker (Video-Depth-Anything + YOLO character tracking)
+* |   bbdada4 Merge pull request #9 from amazingindianstories-stack/chore/security-audit-fixes
+|\ \
+| * | ee1e999 Security/reliability audit fixes, Django cleanup, repo hygiene, dependency updates
+* | | 480896e Merge pull request #8 from amazingindianstories-stack/chore/security-audit-fixes
+|\| |
+| |/
+|/|
+| * 307860b security: disable unused Next image optimizer, override vulnerable uuid, rate-limit login
+| * 7d374de chore(security): add baseline security headers, patch dependency vulnerabilities
+|/
+*   d2f3b1d Merge pull request #7 from amazingindianstories-stack/backend/django-migration-wip
+|\
+| * a83af49 fix: stage the PromptComposer.jsx TS-leak fix that missed the merge commit
+| *   e8b9d20 Merge origin/main into backend/django-migration-wip (limit-management-system)
+| |\
+| |/
+|/|
+* |   3ebac1a Merge pull request #6 from amazingindianstories-stack/feature/limit-management-system
+|\ \
+| * | 525a4a5 refactor(admin): generic limit-management system, replacing the ad-hoc column
+|/ /
+| *   619425d Merge main into backend/django-migration-wip
+| |\
+| |/
+|/|
+* |   e833fd1 Merge pull request #5 from amazingindianstories-stack/feature/spend-only-succeeded-generations
+|\ \
+| * | e3a9290 fix(admin): only count succeeded generations toward spend totals
+|/ /
+* |   0a4d794 Merge pull request #4 from amazingindianstories-stack/feature/per-user-prompt-length-limit
+|\ \
+| * | 4700050 feat(admin): per-user override for max prompt length
+|/ /
+* |   ac8bf5c Merge pull request #3 from amazingindianstories-stack/feature/admin-prompt-length-limit
+|\ \
+| * | cab9a71 feat(admin): admin-configurable max prompt length
+| * | 28bd851 fix(composer): fix cursor drift and mid-tag @ mention detection in MentionTextarea
+| * | d936eb0 chore(env): silence dotenv's self-promotional CLI tip line
+|/ /
+* |   a0931f1 Merge pull request #2 from amazingindianstories-stack/feature/agents-tab-admin-preview
+|\ \
+| * | 6dcdb73 feat(agents): admin-only Agents tab with the orchestrator chat; move nav into TopBar
+|/ /
+| * 34dc430 wip(backend): Django/DRF backend + frontend TS->JS conversion (uncommitted work recovered)
+| * da690f0 fix(chat): auto-create a project's first chat thread instead of loading forever
+| * c677586 fix(chat): stop spinning forever on old generate messages; add drag-from-library references
+| * 5555f93 fix(chat): persist generated-item id so results survive a refresh; move library toggle to an edge tab
+| * e4e752e fix(ui): dock the assets panel instead of overlaying chat; add a chat-list sidebar
+| * c5d9c09 fix(ui): restore the composer's floating-card look in StudioChat
+| * 059d3ab refactor(ui): move navigation from the left rail into the top bar
+| * 7c81130 fix(ui): restore tab persistence on refresh; assets panel as a retractable drawer
+| * f8262e1 fix(chat): show generation results inline; feat(auth): rolling session renewal
+| * 8c61d39 fix(agents): preserve thoughtSignature on functionCall parts in the tool loop
+| * 79bacbf feat(ui): merge composer+chat per tab, retractable nav rail, chat-triggered generation
+| * 19eccc5 feat(agents): add multi-thread orchestrator chat with a design_prompt subagent
+| * 242d862 feat(agents): add image/video/story chat assistants
+|/
+* ff4e91a fix(composer): buffer live drag-reorder in local state, not the store
+* b947415 docs(seedance): confirm Seedance 2.5 verified live on the real account
+* 9392767 fix(composer): drag-to-reorder was unreliable across mouse/trackpad
+* 922aee7 feat(video): integrate Seedance 2.5 (BytePlus ModelArk)
+* 2eed8c0 feat(composer): drag-to-reorder reference thumbnails
+* b2848a6 rebrand: Lumina Studio / Vivi → Veevee.ai
+* 00e4d68 docs: record the media fix deploy, the IAM grant, and what is left
+* 96c8bf8 fix(media): stop proxying media bytes through the function
+* 666db27 fix(video): time out jobs stranded before a taskId was ever stamped
+* 9c0aec1 fix(kling): give Kling the resolved references and a prompt without @tags
+* 36bf9e6 fix(admin): page the activity trail server-side, and stop paging a stale cursor
+* ef0799b feat(image): add Kling Image 3.0 and 2.1, and drop Higgsfield from the picker
+* 343354e fix(admin): aggregate dashboard totals in SQL instead of over a 500-row window
+* 4f129ea fix(video): serve reference clips to the provider via a signed grant route
+* b8530b4 fix(video): make reference-clip signing failures say what actually went wrong
+* e2a52ef fix(video): make @vid tags real, and give clips a way to be attached
+* c865f02 feat(video): true video-to-video on Seedance, via presigned reference clips
+* 1bb57b5 feat(video): accept video as input by extracting a frame in the browser
+* dc4e608 feat(ui): collapse the assets panel by default, with a chat-header shortcut
+* 861eb54 fix(library): stop the feed cache hanging the tab, and let the grid scroll
+* 8a05fbd chore(brand): trim the transparent border off the new logo
+* 047ad18 fix(ui): pack the asset grid as masonry so short cards leave no dead space
+* 53d0f01 feat(video): let Seedance 2.0 generate a synchronised audio track
+* f036589 fix(ui): stop the scope bar's clusters painting over each other
+* 659d79f perf(library): scope asset feeds to the server, and stop the grid reshuffling
+* c40e334 fix(ui): stop the scope bar overlapping itself when the project name is long
+* b935cfa fix: adopt queued generations whose originating tab is gone
+* 57399c1 feat: live generation updates, and a real loading state in the asset library
+* b2d11ac refactor(ui): collapse the asset panel's three header rows into one scope bar
+* c895b70 fix: stop the image path assuming every reference is photographic
+* b847863 feat: make the video directive follow the reference's style and yield to the user
+* ace908a feat: hold Gemini-billed jobs at the queue instead of letting them 429
+* e0e8a2e fix: stop image jobs dying at a self-imposed 60s cap and a useless 429 retry
+* c605368 chore: gitignore tsconfig.tsbuildinfo
+* a664182 feat: add the Shiv Sati storyboard sync script
+* 65bd3ee fix: rebuild the Cloud SQL connector before its client cert goes stale
+* 7fcbce3 feat: restore native BytePlus Seedance 2.0 to the video model picker
+* 9ec8d6e docs: post-mortem for the rolled-back Cloud SQL cutover
+* 6ee58cb fix: restore search_path before post-import SQL in Cloud SQL migration
+* 33b3a27 fix: reap image generations orphaned in "running" by a killed serverless invocation
+| * 87015bc (tag: archive/2026-09-22/local/feat/thumbnail-pipeline) perf: precompute image thumbnails + blur placeholder at write time
+|/
+* ea0d680 perf: on-the-fly image thumbnails via media proxy, fix oversized reference upload
+* 3a2f5a3 docs: media cutover done, prep Postgres cutover runbook for tomorrow
+* f2a07c8 chore: add .vercelignore, archive bug-report docs
+* 8969116 feat: quick favourite/download actions on grid and feed cards
+* 8a60da6 perf: viewport-cull and throttle image loads on large Canvas boards
+* 8a63758 perf: stop hitting Postgres on every media/thumbnail request
+* 18393e3 feat: copy-prompt button in the asset detail view
+* 163bdaa docs: GCP migration holdoff checkpoint — dry runs done, 1613 objects to copy
+* 0b2c02b fix: Canvas board-owning project was never explicit, easy to confuse with the asset panel's filter
+* 3102c4e fix: modal freeze on video-fullscreen close, image jobs stuck at running, download-zip crash, assets panel clipping
+* 5d3a794 docs: reflect shipped Admin Status Page, Canvas Board v2, and GCP dual-backend scaffolding
+* a010c1f feat: Canvas Board asset panel — pick any specific project, not just This/All
+* e657dfd feat: admin API status page; GCP Cloud SQL/GCS migration scaffolding; fix critical media-route auth gap
+* eed0d71 feat: Canvas Board v2 — project-scoped assets, Figma-like input, connector editing
+* b6f3aaf feat: add Canvas Board — FigJam-style whiteboard with asset library
+* 05cfd91 Revert storage.ts to the S3 backend — GCS/WIF setup needs more time
+* e91e29a Read WIF credential_source.file path from GCP_WIF_CONFIG instead of assuming it
+* 8fbafb7 Fix production 500s: refresh GCS Workload Identity Federation credentials per-request
+* 30f4fe6 Merge gcp-migration changes for production
+* d63ec4f feat: configure Next.js and storage.ts for Vercel Workload Identity Federation
+* 9d7371f chore: migrate to Google Cloud Platform (Cloud SQL, GCS, Cloud Run)
+* c5a3888 Optimize assets panel performance
+* 5dfec61 Finish Codex UI elements and admin tasks
+* 51650f8 Minimize the prompt in the generation details sidebar by default
+* 91132be Add batch generation with a capped queue for both images and videos
+* 9642741 Minimize sent prompts in the feed with a hover expand cue
+* 6ec884c Add explicit not-unlimited cue to Seedance Mini in the model picker
+* 39070ad Support Range requests in the media proxy; correct Mini pricing
+* 2c6f026 Persist composer settings and panel tabs across refresh
+* 8df574b Add Clone & try to failed items and persist composer drafts locally
+* 7f8905d Exempt /api/admin/set-token from the edge cookie gate
+* fd6637a Fix over-narrowing type guard in token freshness check
+* 207a580 Make Higgsfield token recovery self-service and race-tolerant
+* 06f85e4 Treat Higgsfield tokens of unknown age as stale
+* b66c42c Add Seedance 2.0 Mini, full log/project visibility, delete audit trail
+* e49aa3c Rebrand app to Vivi with the AIS logo
+* 207679d Remove decorative hardcoded credit chip from the composer
+* f48af9e Add flag-gated Higgsfield-parity levers for Nano Banana Pro generation
+* 10ddd20 Perfectly centralize the chat column with max-w-3xl
+* f558967 Adjust generation image size to a middle ground
+* c7c3382 Increase generation image size in chat panel for maximum visual impact
+* 9b8c992 Make image detail modal actions sticky at the bottom
+* 27f9cb8 Fix history card prompt text overlapping buttons
+* 849ef9d Implement client-driven generation queue and infinite scroll history pagination
+* 44a4b2b Downscale reference images on client to avoid Vercel 4.5MB payload limit
+* 1d768e9 Fix maxDuration for Vercel Hobby
+* e698cbd Remove temporary admin route and middleware bypass
+* 1557e25 Temporarily whitelist set-token endpoint
+* d630701 Add admin route to set token
+* 1df3280 Persist Higgsfield MCP token to S3 for serverless sync
+* 8632bb5 Surface poll errors
+* 4e0af0b Auto T2V fallback for Seedance
+* 3c460ef Remove temp DB route for security
+* 8be4221 Add temp route
+* 4802fd4 Add S3 migration script
+* d1c7771 Migrate media storage to AWS S3
+* 18fcd59 Update Blob keys
+* ad8a6f7 Add script to migrate local media to Vercel Blob
+* e0c8ebb Refactor storage to Vercel Blob
+*   eb8b456 Merge pull request #1 from amazingindianstories-stack/vercel/react-server-components-cve-vu-94uygq
+|\
+| * 6554aac Fix React Server Components CVE vulnerabilities
+|/
+* aa504cc Initial commit: AIStudio V1
+
+$ git log --all --oneline -- backend/
+546bf86 On main: pre-main-consolidation-2026-09-22
+57e8947 index on main: 18f3dc6 fix: pass activeProject into AssetList to prevent ReferenceError on empty project
+746723a untracked files on main: 18f3dc6 fix: pass activeProject into AssetList to prevent ReferenceError on empty project
+4c98320 Preserve production audio and Seedream behavior in merged cutover preview
+7359956 Preserve Seedance 2.5 1080p support across Django cutover
+521fee9 Implement three-persona UX audit and safe incremental schema adoption
+6f23ceb Adopt Railway infrastructure as code for preview
+f3bce05 Prepare Django and Vite cutover release candidate
+5b35d20 Preserve compound Seedream tags and record preview evidence
+1ec5b50 Mirror Seedream 5.0 Pro in Django and migration interface
+a836d12 Preserve Seedance 2.5 1080p support across Django cutover
+1bdf647 Implement three-persona UX audit and safe incremental schema adoption
+5a69dae Adopt Railway infrastructure as code for preview
+0d7d211 Prepare Django and Vite cutover release candidate
+12eaf9a Retire unused Django backend
+8f216d9 fix: keep health checks compatible with current depth schema
+7930481 fix: reconcile stale Omni video jobs safely
+909edf3 fix: bound queue execution and terminal video polls
+cc08a3f feat: monitor generation database health
+484d383 fix: enforce video directive parity
+3556d28 fix(images): bound best-of candidate memory
+6d18eca fix(queue): enforce fair per-user concurrency
+a7bb638 fix: reconcile stale Omni video jobs safely
+4a95642 fix: bound queue execution and terminal video polls
+84f1633 feat: monitor generation database health
+7b2465a fix: enforce video directive parity
+300a20c test(depth): keep recovery fixture patch-clean
+0c15e63 fix(images): bound best-of candidate memory
+83b80d6 fix(queue): enforce fair per-user concurrency
+4301601 fix(depth): fence stale worker claims
+4bcb21e fix(seedance): enforce API reference image limits
+2929509 fix(canvas): validate the board id on the upload route
+dcdee04 chore: rename internal "Lumina Studio" naming to Veevee
+feda775 Phase 3.5: "flag this generation" feedback signal + judge-score persistence
+d1dcde4 Phase 3.3: multi-shot chaining — "Continue this shot" (native BytePlus only)
+8549b76 Phase 3.2: video best-of-N + frame-extracted judge scoring (flag-gated)
+540a390 Phase 3.1: reproducibility seed for Gemini/NBP + native BytePlus Seedance
+f02be27 fix(video): never fail a generation on age before asking the provider
+e31f33b fix(kling): scope the 2K restriction on 2.1 to references, not the whole model
+605513b fix(kling): stop offering 2K on Kling Image 2.1, which the endpoint rejects
+a81205b Merge branch 'feature/depth-map-worker'
+94928be feat(composer): replace fixed Seedance duration buttons with a bounded slider
+09d7316 Merge branch 'feature/depth-map-worker'
+662d171 Add local depth-map worker (Video-Depth-Anything + YOLO character tracking)
+ee1e999 Security/reliability audit fixes, Django cleanup, repo hygiene, dependency updates
+34dc430 wip(backend): Django/DRF backend + frontend TS->JS conversion (uncommitted work recovered)
+
+$ git log --all --oneline -- src/app/api
+7c87b44 Simplify folder filenames and prevent portrait synchronization contention
+e2ae806 Repair folder focus, portrait reconciliation and Seedance task classification
+580e43a fix(naming-ui): wire signed downloads into real UI, make hierarchy migration atomic, fix admin migrate endpoint, and update runbook
+06acddd fix(release-gate): canonical namespace token model, transactional admin migration, signed downloads, and qualification suites
+942a5c1 fix(naming): canonical batch-independent filenames, self-healing migration triggers, worker manifest compatibility, and acceptance suite
+685fab1 feat(naming): implement folder-scoped serials, exact downloads, and manifest-frozen exports
+9c9ed0e feat(naming): naming tables, additive migration, audit, verifier and legacy upgrade test
+2a6db1c feat(hierarchy): unified lock ordering, concurrency-safe shared idempotency, truthful audit logging, and barrier integration test suite
+2d44cd4 fix(db): enforce relational integrity, bidirectional scope triggers, and true legacy migration CI
+4376148 fix(hierarchy): resolve independent review findings for hierarchical library
+5c0e05c feat: implement free-form hierarchical library system
+bbb46b9 Add Magnific upscaling and schema deployment guardrails
+d003de7 feat: Full Seedance 2.5 and 2.0 video reference support and UI abstraction
+48b782d feat: Add Seedream 1.5K and Seedance First & Last Frame generation
+ed10739 Add reliable asynchronous media exports
+bb8e8f0 fix: start admitted batch jobs promptly
+83ea88f feat: enforce aggregate generation concurrency
+b2da410 feat: finalize Seedance drafts in 1080p (#66)
+8f0ff31 feat: add Seedance render controls
+b5581af fix: restore authenticated upload presigning
+8cdae4c Fence stale depth worker claims and reconcile abandoned jobs
+ef17bcf Reconcile Seedance callbacks and generation worker with release coordinator
+546bf86 On main: pre-main-consolidation-2026-09-22
+746723a untracked files on main: 18f3dc6 fix: pass activeProject into AssetList to prevent ReferenceError on empty project
+08c9518 feat: scope material library and portrait gallery to active project
+2bbaab2 feat: rework material library, add uncropped lightboxes, and fix button contrast
+cf1b012 feat: improve portrait asset library UI, add full view lightbox, and fix button interactions
+1b5f12a fix(portraits): resolve unique constraint collision on byteplusGroupId and deduplicate groups
+accd967 fix(portraits): fix delete button clickability, upload route BytePlus sync, and two-way reconciliation
+321b2e0 fix(portraits): resolve broken portrait previews when attached in prompt
+2bd6d26 fix(portraits): fix delete portrait action confirmation modal and id lookup
+ac6a469 fix(portraits): resolve deepfake moderation rejection, BytePlus sync, and 413 upload ceiling
+c4835eb fix(lint): remove unused imports in portraits route
+23ad7ef feat: bi-directional sync with BytePlus ModelArk Virtual Portrait assets and character group management
+631922a feat: redesign Portrait Gallery to be image-first asset library with direct uploads and robust fallback
+b6d2038 fix: include provider_responses column in generations schema migration
+56afa58 feat: allow setup secret for schema migration trigger
+f66b50d feat: consolidate generation coordinator and portrait gallery asset library
+377787d Reconcile Seedance callback and generation coordinator
+ac73615 Add Seedance callbacks and slow browser polling
+7539967 Add project-scoped audio transcription history panel (#47)
+958ee07 Scope audio transcription history to active project
+153cd38 Remove one-time audio schema migration endpoint (#46)
+df500bb Remove one-time audio schema migration endpoint
+8b3b8e8 Remove one-time audio schema migration endpoint
+696ef61 Allow one-time production schema migration token (#45)
+04ee2cb Allow one-time production schema migration token
+9c691bf Allow one-time production schema migration token
+4ff0ab9 Add idempotent audio reference schema migration (#44)
+cb6c886 Add idempotent audio reference schema migration
+4a2e723 Use supported Gemini Flash model for transcription (#43)
+d21a637 Enable audio uploads for transcription (#42)
+67b243d Add timestamped audio transcription popup (#41)
+592be71 Fix tagged audio references for Seedance (#40)
+6f15165 Add Seedream 5.0 Pro with original references and independent pricing (#38)
+b1b6409 Add Seedream 5.0 Pro with original references and independent pricing
+926837f refactor auth API response envelope
+8e4b76c Add report-only CSP telemetry
+e7274bb Fence depth worker claims and reap abandoned jobs
+88a43bc feat: harden video polling reliability
+3d79869 feat: add production audit diagnostics
+f0ba8c7 fix: close accelerated no-bill audit batch
+b6d52fb fix: close next safe audit batch
+450dd0e feat: add audit review and runtime checks
+f4b72de fix: coordinate provider auth and model routing
+070e4d9 fix media action safety and viewer input teardown
+8fd46ea fix: preserve partial video submissions
+909edf3 fix: bound queue execution and terminal video polls
+3556d28 fix(images): bound best-of candidate memory
+2c4577b fix: preserve partial video submissions
+4a95642 fix: bound queue execution and terminal video polls
+0c15e63 fix(images): bound best-of candidate memory
+4301601 fix(depth): fence stale worker claims
+4bcb21e fix(seedance): enforce API reference image limits
+2929509 fix(canvas): validate the board id on the upload route
+feda775 Phase 3.5: "flag this generation" feedback signal + judge-score persistence
+d1dcde4 Phase 3.3: multi-shot chaining — "Continue this shot" (native BytePlus only)
+8549b76 Phase 3.2: video best-of-N + frame-extracted judge scoring (flag-gated)
+540a390 Phase 3.1: reproducibility seed for Gemini/NBP + native BytePlus Seedance
+f02be27 fix(video): never fail a generation on age before asking the provider
+a81205b Merge branch 'feature/depth-map-worker'
+94928be feat(composer): replace fixed Seedance duration buttons with a bounded slider
+1ff8c64 Merge branch 'feature/depth-map-worker'
+e63f051 fix(depth-worker): claim route must sign the input video URL from its raw storage key, not via signStoredRef
+09d7316 Merge branch 'feature/depth-map-worker'
+662d171 Add local depth-map worker (Video-Depth-Anything + YOLO character tracking)
+ee1e999 Security/reliability audit fixes, Django cleanup, repo hygiene, dependency updates
+307860b security: disable unused Next image optimizer, override vulnerable uuid, rate-limit login
+e8b9d20 Merge origin/main into backend/django-migration-wip (limit-management-system)
+619425d Merge main into backend/django-migration-wip
+34dc430 wip(backend): Django/DRF backend + frontend TS->JS conversion (uncommitted work recovered)
+525a4a5 refactor(admin): generic limit-management system, replacing the ad-hoc column
+e3a9290 fix(admin): only count succeeded generations toward spend totals
+4700050 feat(admin): per-user override for max prompt length
+cab9a71 feat(admin): admin-configurable max prompt length
+6dcdb73 feat(agents): admin-only Agents tab with the orchestrator chat; move nav into TopBar
+5555f93 fix(chat): persist generated-item id so results survive a refresh; move library toggle to an edge tab
+f8262e1 fix(chat): show generation results inline; feat(auth): rolling session renewal
+79bacbf feat(ui): merge composer+chat per tab, retractable nav rail, chat-triggered generation
+19eccc5 feat(agents): add multi-thread orchestrator chat with a design_prompt subagent
+242d862 feat(agents): add image/video/story chat assistants
+922aee7 feat(video): integrate Seedance 2.5 (BytePlus ModelArk)
+b2848a6 rebrand: Lumina Studio / Vivi → Veevee.ai
+96c8bf8 fix(media): stop proxying media bytes through the function
+666db27 fix(video): time out jobs stranded before a taskId was ever stamped
+9c0aec1 fix(kling): give Kling the resolved references and a prompt without @tags
+36bf9e6 fix(admin): page the activity trail server-side, and stop paging a stale cursor
+ef0799b feat(image): add Kling Image 3.0 and 2.1, and drop Higgsfield from the picker
+343354e fix(admin): aggregate dashboard totals in SQL instead of over a 500-row window
+4f129ea fix(video): serve reference clips to the provider via a signed grant route
+b8530b4 fix(video): make reference-clip signing failures say what actually went wrong
+e2a52ef fix(video): make @vid tags real, and give clips a way to be attached
+c865f02 feat(video): true video-to-video on Seedance, via presigned reference clips
+dc4e608 feat(ui): collapse the assets panel by default, with a chat-header shortcut
+53d0f01 feat(video): let Seedance 2.0 generate a synchronised audio track
+659d79f perf(library): scope asset feeds to the server, and stop the grid reshuffling
+57399c1 feat: live generation updates, and a real loading state in the asset library
+e0e8a2e fix: stop image jobs dying at a self-imposed 60s cap and a useless 429 retry
+7fcbce3 feat: restore native BytePlus Seedance 2.0 to the video model picker
+87015bc perf: precompute image thumbnails + blur placeholder at write time
+ea0d680 perf: on-the-fly image thumbnails via media proxy, fix oversized reference upload
+8a63758 perf: stop hitting Postgres on every media/thumbnail request
+3102c4e fix: modal freeze on video-fullscreen close, image jobs stuck at running, download-zip crash, assets panel clipping
+e657dfd feat: admin API status page; GCP Cloud SQL/GCS migration scaffolding; fix critical media-route auth gap
+b6f3aaf feat: add Canvas Board — FigJam-style whiteboard with asset library
+8fbafb7 Fix production 500s: refresh GCS Workload Identity Federation credentials per-request
+30f4fe6 Merge gcp-migration changes for production
+5dfec61 Finish Codex UI elements and admin tasks
+91132be Add batch generation with a capped queue for both images and videos
+39070ad Support Range requests in the media proxy; correct Mini pricing
+207a580 Make Higgsfield token recovery self-service and race-tolerant
+b66c42c Add Seedance 2.0 Mini, full log/project visibility, delete audit trail
+f48af9e Add flag-gated Higgsfield-parity levers for Nano Banana Pro generation
+849ef9d Implement client-driven generation queue and infinite scroll history pagination
+1d768e9 Fix maxDuration for Vercel Hobby
+e698cbd Remove temporary admin route and middleware bypass
+d630701 Add admin route to set token
+8632bb5 Surface poll errors
+4e0af0b Auto T2V fallback for Seedance
+3c460ef Remove temp DB route for security
+8be4221 Add temp route
+d1c7771 Migrate media storage to AWS S3
+aa504cc Initial commit: AIStudio V1
+
+$ git log --all --oneline -- src/lib/schema.js
+685fab1 feat(naming): implement folder-scoped serials, exact downloads, and manifest-frozen exports
+9c9ed0e feat(naming): naming tables, additive migration, audit, verifier and legacy upgrade test
+2d44cd4 fix(db): enforce relational integrity, bidirectional scope triggers, and true legacy migration CI
+4376148 fix(hierarchy): resolve independent review findings for hierarchical library
+5c0e05c feat: implement free-form hierarchical library system
+bbb46b9 Add Magnific upscaling and schema deployment guardrails
+48b782d feat: Add Seedream 1.5K and Seedance First & Last Frame generation
+ed10739 Add reliable asynchronous media exports
+b2da410 feat: finalize Seedance drafts in 1080p (#66)
+8f0ff31 feat: add Seedance render controls
+8cdae4c Fence stale depth worker claims and reconcile abandoned jobs
+ef17bcf Reconcile Seedance callbacks and generation worker with release coordinator
+08c9518 feat: scope material library and portrait gallery to active project
+f66b50d feat: consolidate generation coordinator and portrait gallery asset library
+f1e2136 Declare coordinator due index in schema
+377787d Reconcile Seedance callback and generation coordinator
+521fee9 Implement three-persona UX audit and safe incremental schema adoption
+592be71 Fix tagged audio references for Seedance (#40)
+1bdf647 Implement three-persona UX audit and safe incremental schema adoption
+e7274bb Fence depth worker claims and reap abandoned jobs
+88a43bc feat: harden video polling reliability
+070e4d9 fix media action safety and viewer input teardown
+4301601 fix(depth): fence stale worker claims
+feda775 Phase 3.5: "flag this generation" feedback signal + judge-score persistence
+d1dcde4 Phase 3.3: multi-shot chaining — "Continue this shot" (native BytePlus only)
+8549b76 Phase 3.2: video best-of-N + frame-extracted judge scoring (flag-gated)
+540a390 Phase 3.1: reproducibility seed for Gemini/NBP + native BytePlus Seedance
+09d7316 Merge branch 'feature/depth-map-worker'
+662d171 Add local depth-map worker (Video-Depth-Anything + YOLO character tracking)
+307860b security: disable unused Next image optimizer, override vulnerable uuid, rate-limit login
+e8b9d20 Merge origin/main into backend/django-migration-wip (limit-management-system)
+619425d Merge main into backend/django-migration-wip
+34dc430 wip(backend): Django/DRF backend + frontend TS->JS conversion (uncommitted work recovered)

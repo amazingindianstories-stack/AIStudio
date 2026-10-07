@@ -1,0 +1,116 @@
+"""Real Next/Django HTTP comparison, restricted to disposable local qualification."""
+import hashlib
+import hmac
+import base64
+import json
+import os
+from pathlib import Path
+import socket
+import subprocess
+import sys
+import time
+from http.cookies import SimpleCookie
+import urllib.request
+import urllib.error
+from urllib.parse import urlsplit
+import psycopg
+
+
+def port():
+    with socket.socket() as s:
+        s.bind(('127.0.0.1',0))
+        return s.getsockname()[1]
+
+
+def token(version=0, age=0):
+    def enc(v): return base64.urlsafe_b64encode(v).decode().rstrip('=')
+    payload=enc(json.dumps({'uid':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','ver':version,'exp':int(time.time()*1000)+2592000000-age}).encode())
+    return payload+'.'+enc(hmac.new(os.environ['AUTH_SECRET'].encode(),payload.encode(),hashlib.sha256).digest())
+
+
+def get(url,cookie):
+    request=urllib.request.Request(url,headers={'Cookie':'veevee_session='+cookie} if cookie else {})
+    try: response=urllib.request.urlopen(request,timeout=20)
+    except urllib.error.HTTPError as error: response=error
+    return response.status,json.loads(response.read()),response.headers
+
+
+def main():
+    target=urlsplit(os.environ.get('DATABASE_URL',''))
+    if os.environ.get('MIGRATION_TEST_ISOLATED')!='1' or target.hostname!='127.0.0.1' or target.path!='/veevee_django_migration':
+        raise SystemExit('Disposable loopback database required')
+    if any(Path('.').glob('.env*')):
+        raise SystemExit('Refusing checkout with dotenv files')
+    root=Path.cwd()
+    processes=[]
+    with psycopg.connect(os.environ['DATABASE_URL'],autocommit=True) as db:
+        with db.cursor() as c:
+            c.execute('CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY,email text,name text,role text,color text,avatar_url text,is_active boolean,auth_version integer)')
+            c.execute('CREATE TABLE IF NOT EXISTS settings (key text PRIMARY KEY,value text NOT NULL,updated_at bigint NOT NULL)')
+            c.execute('CREATE TABLE IF NOT EXISTS user_limits (user_id uuid,key text,value text NOT NULL,updated_at bigint NOT NULL,PRIMARY KEY(user_id,key))')
+            c.execute('TRUNCATE users,settings,user_limits')
+            c.execute("INSERT INTO users VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','fixture@example.invalid','Fixture','user',NULL,NULL,true,0)")
+        def snapshot():
+            with db.cursor() as c:
+                result=[]
+                for table in ('users','settings','user_limits'):
+                    c.execute('SELECT row_to_json(t)::text FROM '+table+' t ORDER BY 1')
+                    result.append(c.fetchall())
+                return result
+        try:
+            next_port,django_port=port(),port()
+            for command,name in [(['node','node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port',str(next_port)],'next'),([sys.executable,'backend/manage.py','runserver',f'127.0.0.1:{django_port}','--noreload'],'django')]:
+                log=open(root.parent/(name+'-settings-parity.log'),'w')
+                processes.append((subprocess.Popen(command,stdout=log,stderr=subprocess.STDOUT),log))
+            urls=[f'http://127.0.0.1:{p}/api/settings' for p in (next_port,django_port)]
+            for url in urls:
+                deadline=time.monotonic()+90
+                while True:
+                    try: get(url,'');break
+                    except (OSError,ValueError):
+                        if time.monotonic()>deadline: raise RuntimeError('Server readiness timed out')
+                        if any(p.poll() is not None for p,_ in processes): raise RuntimeError('Server exited')
+                        time.sleep(.2)
+            cases=[('anonymous',''),('bad-signature','invalid'),('defaults',token()),('wrong-version',token(1)),('renewal',token(age=172800000)),('overrides',token()),('disabled',token())]
+            report=[]
+            for name,cookie in cases:
+                with db.cursor() as c:
+                    if name == 'overrides':
+                        c.execute("INSERT INTO settings VALUES ('maxPromptLength','100',0),('maxConcurrentJobs','2',0)")
+                        c.execute("INSERT INTO user_limits VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','maxPromptLength','invalid',0),('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','maxConcurrentJobs','9tail',0)")
+                    if name == 'disabled':
+                        c.execute('UPDATE users SET is_active=false')
+                before=snapshot()
+                responses=[get(url,cookie) for url in urls]
+                assert responses[0][:2]==responses[1][:2],(name,responses[0][:2],responses[1][:2])
+                for status,body,headers in responses:
+                    assert headers.get_content_type()=='application/json'
+                    renewal=headers.get('Set-Cookie')
+                    assert bool(renewal)==(name=='renewal'),(name,renewal)
+                    if renewal:
+                        flags = renewal.lower()
+                        assert 'httponly' in flags and 'samesite=lax' in flags and 'path=/' in flags
+                if name == 'renewal':
+                    for issuer, (_, _, headers) in enumerate(responses):
+                        jar = SimpleCookie()
+                        jar.load(headers['Set-Cookie'])
+                        renewed = jar['veevee_session'].value
+                        assert jar['veevee_session']['max-age'] == '2592000'
+                        # Both runtimes must accept either runtime's renewed cookie.
+                        for destination in urls:
+                            followup = get(destination, renewed)
+                            assert followup[0] == 200
+                            assert followup[1] == responses[issuer][1]
+                            assert not followup[2].get('Set-Cookie')
+                assert before==snapshot(),name+' mutated database'
+                report.append({'case':name,'status':responses[0][0],'json_equal':True,'database_unchanged':True,'cookie_flags_equal':True})
+            print(json.dumps({'settings_http_parity':report},indent=2))
+        finally:
+            for process,log in processes:
+                process.terminate()
+            for process,log in processes:
+                try: process.wait(timeout=10)
+                except subprocess.TimeoutExpired: process.kill();process.wait()
+                log.close()
+
+if __name__=='__main__': main()

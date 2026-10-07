@@ -44,3 +44,20 @@ Generation inserts are especially sensitive: `itemToValues()` in
 break only the generation kinds that exercise that path. Before releasing a
 generation feature, test one non-billed enqueue for every affected kind after
 the production-schema verifier passes.
+
+## Django migration governance
+
+Django + DRF is the committed backend destination; see
+`docs/architecture/ADR-django-authoritative-backend.md`. Current traffic and
+schema ownership remain recorded in `docs/django-migration/route-ownership.yaml`.
+New backend functionality belongs in Django. Node business route changes require
+an explicit, issue-linked, exact-content migration exception. Do not retire
+Django to resolve parity failures or restore stale historical behavior.
+
+Before tests, Django commands, migrations, servers or workers, verify actual
+targets without printing credentials. Use disposable local PostgreSQL and mock
+storage/providers; never load shared checkout credentials for qualification.
+The isolated runner in `scripts/django-migration/isolated.py` creates a clean
+source copy and allowlisted environment. Schema authority remains Drizzle until
+the reviewed Django equivalence/baselining gate; existing migration rules above
+continue to apply during this transitional period.

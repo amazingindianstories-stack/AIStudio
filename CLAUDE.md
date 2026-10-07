@@ -392,3 +392,12 @@ Unit tests: **`npm test`** (Node built-in `node:test` + `node:assert`; no new de
 - No over-engineering and no quick hacks: when a provider limit bites (image caps, aspect-ratio rules), solve the root problem architecturally rather than silently filtering/dropping user inputs.
 - Back provider/payload changes with official docs or an empirical probe script (`scripts/` has many examples); several provider schemas here were deduced by testing because docs were wrong or missing.
 - `progress.md` holds session handoff notes; comments at the top of `gemini.js` and `prompt-assembler.js` record measured decisions — read them before changing generation behavior.
+
+## Authoritative Django migration decision — 2026-10-07
+
+The new accepted ADR supersedes historical retirement and cross-origin/Vite
+cutover guidance above. Django is the backend destination; Next.js remains the
+frontend. See docs/django-migration/status.md for verified current ownership.
+Historical advice that tests may target production Railway is invalid: all
+qualification uses an explicitly disposable local database and mock providers.
+No production route or schema ownership has transferred at this foundation stage.

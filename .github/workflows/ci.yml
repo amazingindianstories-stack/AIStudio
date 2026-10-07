@@ -104,3 +104,49 @@ jobs:
       - run: npm run db:migrate:hierarchical-folders
       - run: npm run db:migrate:generation-naming
       - run: npm run test:browser
+
+  django-foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: migration
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: veevee_django_migration
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U migration -d veevee_django_migration"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      MIGRATION_TEST_ISOLATED: "1"
+      AUTH_SECRET: disposable-ci-cookie-secret
+      DJANGO_SECRET_KEY: disposable-ci-framework-secret
+      DATABASE_URL: postgresql://migration:disposable-ci-only@127.0.0.1:5432/veevee_django_migration
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pip install -r backend/requirements.txt
+      - run: node scripts/check-backend-ownership.mjs
+        env:
+          BACKEND_OWNERSHIP_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      - run: python backend/manage.py check
+      - run: python backend/manage.py makemigrations --check --dry-run
+      - run: python backend/manage.py migrate --noinput
+      - run: python backend/manage.py test apps.common apps.admin_dashboard
+      - run: npm ci
+      - run: python scripts/django-migration/settings-http-parity.py

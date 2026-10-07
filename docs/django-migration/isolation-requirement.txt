@@ -1,0 +1,28 @@
+==================================================
+PRODUCTION ISOLATION PRECHECK
+==================================================
+
+Before running ANY test, migration, Django command, worker, development server,
+or database utility, inspect the environment and determine whether any configured
+credential points to production or a shared remote environment.
+
+Do not print secret values.
+
+If DATABASE_URL, storage credentials, worker endpoints, provider credentials,
+or any other configuration could target production/shared infrastructure:
+
+- do not use them;
+- do not run the command;
+- substitute an explicitly disposable local/test configuration.
+
+All migration/database tests must use a disposable local PostgreSQL database
+created specifically for this migration work.
+
+All storage/provider interactions must use mocks, fixtures, or explicitly
+disposable test resources.
+
+Never infer that an environment is safe merely because NODE_ENV,
+DJANGO_SETTINGS_MODULE, or another environment label says "development" or
+"test". Verify the actual target category before use.
+
+If production isolation cannot be proven, STOP that operation and report it.
