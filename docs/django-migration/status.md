@@ -4,7 +4,7 @@ Goal remains active. No production cutover or deployment has been performed.
 
 | Measure | Current evidence |
 |---|---|
-| Django authoritative API methods | 0 / 84 |
+| Django authoritative API methods | 0 / 85 |
 | Node business route files remaining | 65 |
 | ORM models implemented | 3 partial unmanaged read models / 21 declared application tables |
 | Model design inventory | 21 / 21 declarations; live catalog audit pending |
@@ -29,7 +29,7 @@ are preserved. Do not claim schema takeover or production parity from this stage
 Foundation verification: Django check passed; makemigrations --check --dry-run
 reported no changes; 2 health/database-failure API tests passed against the
 verified disposable PostgreSQL 18 cluster. Ownership guard passed: 65 files,
-84 methods, 0 Django traffic owners. PostgreSQL 16 CI job is configured but has
+85 methods, 0 Django traffic owners. PostgreSQL 16 CI job is configured but has
 not run remotely. Health-only Docker/Railway configuration is prepared; no service
 has been deployed. Full model/schema, contract, browser and worker gates remain.
 

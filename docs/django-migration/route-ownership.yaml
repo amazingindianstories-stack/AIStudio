@@ -901,7 +901,15 @@
     "/api/webhooks/seedance": {
       "source": "src/app/api/webhooks/seedance/route.js",
       "baseline_sha256": "d4e49b5e1abcd47b08b84041038d6c54a873d78a980cf6bdce474366509deb64",
-      "methods": {}
+      "methods": {
+        "POST": {
+          "owner": "next",
+          "next_status": "active",
+          "state": "NOT_STARTED",
+          "issue": "DJANGO-WEBHOOK-SEEDANCE",
+          "evidence": []
+        }
+      }
     },
     "/api/worker/depth/claim": {
       "source": "src/app/api/worker/depth/claim/route.js",

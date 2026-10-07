@@ -1786,7 +1786,9 @@
     },
     {
       "path": "/api/webhooks/seedance",
-      "methods": [],
+      "methods": [
+        "POST"
+      ],
       "source": "src/app/api/webhooks/seedance/route.js",
       "source_sha256": "d4e49b5e1abcd47b08b84041038d6c54a873d78a980cf6bdce474366509deb64",
       "qualification": "INVENTORIED_NOT_VERIFIED",

@@ -19,7 +19,7 @@ Inspected AGENTS.md, CLAUDE.md, progress.md, BACKEND_AUDIT.md,
 DEPLOYMENT_RUNBOOK.md, package/config/CI files, current schema and migration
 scripts, API inventory, auth and project/settings/folder services, worker
 entrypoints, storage and naming/invariant implementation. The API inventory
-covers all 65 route files / 84 explicit method handlers. Its static extractions
+covers all 65 route files / 85 explicit method handlers. Its static extractions
 are **not** completed per-method behavioral contracts; those remain explicit
 qualification work before each transfer. Older prose frequently describes an
 obsolete implementation and is reference material only.

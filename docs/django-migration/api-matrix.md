@@ -61,7 +61,7 @@ Source-derived initial inventory. Each method requires behavioral qualification 
 | `/api/settings` | GET | `src/app/api/settings/route.js` | Pending |
 | `/api/uploads/presign` | POST | `src/app/api/uploads/presign/route.js` | Pending |
 | `/api/users` | GET | `src/app/api/users/route.js` | Pending |
-| `/api/webhooks/seedance` |  | `src/app/api/webhooks/seedance/route.js` | Pending |
+| `/api/webhooks/seedance` | POST | `src/app/api/webhooks/seedance/route.js` | Pending |
 | `/api/worker/depth/claim` | POST | `src/app/api/worker/depth/claim/route.js` | Pending |
 | `/api/worker/depth/complete` | POST | `src/app/api/worker/depth/complete/route.js` | Pending |
 | `/api/worker/depth/heartbeat` | POST | `src/app/api/worker/depth/heartbeat/route.js` | Pending |
