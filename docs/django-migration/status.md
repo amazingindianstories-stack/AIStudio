@@ -82,3 +82,8 @@ ancestry, colors, tree precedence and response shape. GET folders remains
 IMPLEMENTING/Next-owned; malformed-ID/error behavior, live HTTP parity,
 performance and browser qualification remain. Routing allowlist still contains
 only GET settings. No folder mutations or schema authority transferred.
+
+Folder real HTTP comparison passes nine scenarios with equal status/JSON and
+unchanged database snapshots. Repeated query parameters now use first-value
+semantics matching current Next. See folder-read-qualification.md for coverage
+and remaining cases. Settings HTTP parity and same-origin rewrite still pass.

@@ -43,7 +43,8 @@ def tree():
 def folder_reads(request):
     if lookup(request) is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
-    params = request.query_params
+    # URLSearchParams.get in current Next reads the first repeated value.
+    params = {key: values[0] for key, values in request.query_params.lists()}
     if params.get('tree') in ('1', 'true'):
         result = tree()
     elif params.get('ancestry'):
