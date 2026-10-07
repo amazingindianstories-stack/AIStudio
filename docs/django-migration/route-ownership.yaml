@@ -995,5 +995,34 @@
       }
     }
   },
-  "exceptions": []
+  "exceptions": [],
+  "frozen_backend_files": {
+    "src/lib/schema.js": "3ab6a50a89404fea11ac0253491f26e2775b5beb51887ff0d2f0d0ddf5d04bfb",
+    "drizzle.config.js": "5878a68864a2b9b32c5384957d36b774d6bcc869dcd340f6913668e71e22dc03",
+    "scripts/migrate-reference-audios.js": "a8111311629491b1c9e9d129ef51f4312bf45ca8f4d00f79d9df204ed2ef014f",
+    "scripts/migrate-folder-color.js": "16695b12bf36c4a1548c632fb59a7291629a3962ba886981aa7a30822033cfb8",
+    "scripts/migrate-seedance-finalization.js": "1d1a921c29a6b70709569b7a1a891452fa13ecad9afff2a9a086dbf343fdec23",
+    "scripts/migrate-cost-basis.js": "48066765e961716d303111cf20ded731eb7775a80168f61f0aa9a488792b06c8",
+    "scripts/migrate-s3-to-gcs.js": "d109870e3bb032311ce10f8bdc91b0742aca201bebf880087948f332ce72e696",
+    "scripts/migrate-generation-naming.js": "944bf8fd192c63a8dc8131355f0a937d401eac6ce84fb0fbbd87c90678ee3b38",
+    "scripts/migrate-video-poll-health.js": "3139163e14adae2ac36ba68b9f49147f1bf115d25e835bd56276b7c1d80acd04",
+    "scripts/migrate-depth-claim-fencing.js": "b79386307e4cc9ce879a108d945a85ae1c5021df7b50701a1e91bbe7eccaa2cc",
+    "scripts/migrate-seedance-render-controls.js": "25e52ac6ba3f85c0fbb16ef00e16bafc86b7a0c9044b556100bb6a9dcc69e580",
+    "scripts/migrate-generation-coordinator.js": "ddd49f1e7a0c84c52e04bfb146ce7a4e51158a51718cd67976951635f9e27469",
+    "scripts/migrate-media-exports.js": "c0f73f44775ffd8bcddf297f452442b56080b92349c7e2791884d2b04bdca2b4",
+    "scripts/migrate-hierarchical-folders.js": "5acc6d0f495080948e26f4a833fe65f6e335d42f5c8ce9c1fa61b5b638afa786",
+    "scripts/migrate-project-bound-assets.js": "8cbfee4151c6ffd7e0fd5dbcad35f9d0a8508268e0fd14fc7473746ffb76d88c",
+    "scripts/migrate-postgres-to-cloud-sql.js": "90dc1bbd14aa727e4f772cedf1753de69e820668a8a1fe5c5676fcd327a4ed4e",
+    "scripts/migrate-seedance-first-last-frame.js": "bcbde0f7610f01f8b792d9b7ff82f9b6dbefd913a632fcf0b6f654f50c32a80e",
+    "scripts/migrate-portrait-gallery.js": "fca960e7ebc9edfbfe99930c52f1804b87dc9b7d6145f5d8cdac89740eba4c85",
+    "src/lib/providers/gemini.js": "915ea092d15e832bb0ef3cb38b1cce4036c0deff3e9323451bcaaa36acdaf662",
+    "src/lib/providers/kling.js": "ca467ababa7b7a49298e7cef954b25f2fbf995b3aa385f165e5bbbf5ccbeccf9",
+    "src/lib/providers/omni.js": "9043a672eecbb1dd9d22fc0a62be277a14f99b3878dff1aa353219c1481bf65d",
+    "src/lib/providers/higgsfield-mcp.js": "350068b38ac0a9ffb0b3e6673ba28868d81f44ec9ad40c4849db8b7dd80b76c5",
+    "src/lib/providers/magnific.js": "30efb6b71f59c24420f53a4b4297b06c704c0dd9facac303c4e283dd22425af3",
+    "src/lib/providers/seedream.js": "a3ae82ef150f3a92073ace5426ef86ee491c90a0eb2cffa3dfc38bb36dece300",
+    "src/lib/providers/seedance.js": "6c161159cccb5e234728b7994e41c4b035e828c5a86e443e481afc97022643f3",
+    "src/worker/media-export-worker.js": "63c8cecf0c831d31eadcad767f8e0743fb729d63e28b52fdbb7ec8be04cd9b3c",
+    "src/worker/generation-worker.js": "356a02de43b0ffe6081a74fe95e6baaec51d097a9d3f2002432c357af08a7dce"
+  }
 }

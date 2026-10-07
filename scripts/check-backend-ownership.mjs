@@ -24,7 +24,13 @@ export function checkOwnership(root, manifest) {
   for (const [url, route] of Object.entries(manifest.routes)) {
     const present = existsSync(path.join(root, route.source));
     const source = present ? readFileSync(path.join(root, route.source), 'utf8') : '';
-    const methods = [...source.matchAll(/export\s+(?:async\s+)?function\s+(GET|POST|PATCH|PUT|DELETE|HEAD|OPTIONS)\b/g)].map(m => m[1]);
+    const methods = [...source.matchAll(/export\s+(?:(?:async\s+)?function|const|let|var)\s+(GET|POST|PATCH|PUT|DELETE|HEAD|OPTIONS)\b/g)].map(m => m[1]);
+    for (const match of source.matchAll(/export\s*\{([^}]+)\}/g)) {
+      for (const entry of match[1].split(',')) {
+        const name = entry.trim().split(/\s+as\s+/).at(-1);
+        if (/^(GET|POST|PATCH|PUT|DELETE|HEAD|OPTIONS)$/.test(name)) methods.push(name);
+      }
+    }
     for (const method of methods) if (!route.methods[method]) errors.push(`Unregistered Node method: ${method} ${url}`);
     for (const [method, item] of Object.entries(route.methods)) {
       if (!states.has(item.state) || !['next', 'django'].includes(item.owner) || !['active', 'rollback', 'removed'].includes(item.next_status)) errors.push(`Invalid ownership: ${method} ${url}`);
@@ -47,6 +53,14 @@ export function checkOwnership(root, manifest) {
     const frozen = group === 'schema' ? manifest.schema_authority === 'DJANGO' : manifest.workers.generation === 'PYTHON';
     if (frozen && existsSync(path.join(root, file)) && createHash('sha256').update(readFileSync(path.join(root, file))).digest('hex') !== hash) errors.push(`Retired ${group} authority modified: ${file}`);
   }
+  if (manifest.workers.generation === 'PYTHON') {
+    for (const directory of ['src/lib/providers', 'src/worker']) {
+      if (!existsSync(path.join(root, directory))) continue;
+      for (const file of readdirSync(path.join(root, directory))) {
+        if (/\.[cm]?[jt]s$/.test(file) && !file.includes('.test.') && !file.includes('.integration.')) errors.push(`Node worker/provider implementation remains after transfer: ${directory}/${file}`);
+      }
+    }
+  }
   if (manifest.schema_authority === 'DJANGO') {
     const pkg = JSON.parse(readFileSync(path.join(root, 'package.json')));
     for (const [name, command] of Object.entries(pkg.scripts)) if (/drizzle-kit\s+push|(?:tsx|node).*migrate-/.test(command)) errors.push(`Node schema command remains after takeover: ${name}`);
@@ -64,6 +78,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     // CI passes the PR base SHA. Changing a baseline must not bless new Node code.
     let old;
     try { old = JSON.parse(execFileSync('git', ['show', `${base}:docs/django-migration/route-ownership.yaml`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })); } catch { /* First introduction has no prior manifest. */ }
+    if (old) for (const [url, route] of Object.entries(manifest.routes)) {
+      if (!old.routes[url]) {
+        const exception = manifest.exceptions?.find(e => e.path === route.source && e.sha256 === route.baseline_sha256 && e.reason && e.issue);
+        if (!exception) errors.push(`New Node route requires an explicit migration exception: ${url}`);
+      }
+    }
     if (old) for (const [url, route] of Object.entries(old.routes)) {
       const current = manifest.routes[url];
       if (!current) errors.push(`Historical route removed from manifest: ${url}`);

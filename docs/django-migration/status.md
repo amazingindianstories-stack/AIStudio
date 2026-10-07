@@ -56,3 +56,9 @@ headers, browser preview and performance remain open; ownership stays Next.
 Renewed-cookie interoperability passes all four issuer/consumer combinations,
 with equal 30-day max-age and no immediate re-renewal. Real HTTP parity is now
 wired into the PostgreSQL 16 CI job; remote execution remains pending.
+
+Ownership guard hardening: arrow/aliased method exports are inventoried; new
+registered Node routes require a base-relative, exact-content exception. Three
+rejection-path tests pass. Schema/provider/worker source hashes are recorded
+for future takeover checks; Python ownership rejects remaining Node execution
+modules. This does not transfer any domain or schema authority.
