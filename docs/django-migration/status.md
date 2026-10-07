@@ -6,7 +6,7 @@ Goal remains active. No production cutover or deployment has been performed.
 |---|---|
 | Django authoritative API methods | 0 / 85 |
 | Node business route files remaining | 65 |
-| ORM models implemented | 3 partial unmanaged read models / 21 declared application tables |
+| ORM models implemented | 5 partial unmanaged read models / 21 declared application tables |
 | Model design inventory | 21 / 21 declarations; live catalog audit pending |
 | Schema authority | DRIZZLE |
 | Auth authority | NEXT |
@@ -75,3 +75,10 @@ Structured INFO logs are enabled on stdout. Database URL TLS options are retaine
 and unsupported options rejected; production allowed hosts must be explicit.
 Gunicorn raw access logs are disabled to avoid future signed-grant query leaks.
 No Railway service has been created or deployed.
+
+Current hierarchy GET implementation added to library/projects domain apps, with
+unmanaged model state. Nine Django tests pass, covering root/parent scope,
+ancestry, colors, tree precedence and response shape. GET folders remains
+IMPLEMENTING/Next-owned; malformed-ID/error behavior, live HTTP parity,
+performance and browser qualification remain. Routing allowlist still contains
+only GET settings. No folder mutations or schema authority transferred.
