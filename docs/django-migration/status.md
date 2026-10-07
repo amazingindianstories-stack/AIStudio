@@ -87,3 +87,10 @@ Folder real HTTP comparison passes nine scenarios with equal status/JSON and
 unchanged database snapshots. Repeated query parameters now use first-value
 semantics matching current Next. See folder-read-qualification.md for coverage
 and remaining cases. Settings HTTP parity and same-origin rewrite still pass.
+
+Schema evidence collector added and qualified against disposable PostgreSQL.
+Real DDL comparison detects changed tables, columns/defaults, constraints and
+indexes; ten Django tests pass. Collector also records custom triggers,
+functions and extensions, whose specialized fixtures remain pending. Complete
+Django baseline and production schema equivalence are still unimplemented;
+schema authority remains DRIZZLE.

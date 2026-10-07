@@ -680,3 +680,17 @@ export const generationNaming = pgTable("generation_naming", {
 ## Gate still open
 
 Audit the actual PostgreSQL catalog, including residual Django tables, auxiliary tables, functions, trigger definitions, validation/deferrability, index expressions/opclasses, defaults, collation and extensions. Every unexpected object needs an explicit preserve/exclude/migrate decision. Reproduce an empty PostgreSQL 16 DB solely with Django migrations and compare semantic catalog snapshots. Existing production baseline requires backup/PITR and exact acceptable equivalence; fake-initial alone is insufficient. No production DB has been accessed.
+
+## Catalog evidence tooling
+
+`scripts/django-migration/schema-catalog.py` captures public tables/columns,
+defaults/nullability/collation/identity, physical FK/check deferrability and
+validation, full index expressions/validity, custom trigger definitions, function
+bodies and extension versions in a read-only repeatable-read transaction.
+It accepts only the explicitly disposable loopback migration target. `compare`
+compares saved JSON locally and exits nonzero for any differing category; it does
+not normalize away SQL or naming differences. Real DDL qualification proves
+changes to defaults, constraints and indexes are detected. Trigger/function
+coverage, additional schemas/types/sequences and reviewed equivalence policy
+still need qualification before this can serve as the schema takeover gate.
+No Django-only full baseline or production catalog comparison exists yet.
