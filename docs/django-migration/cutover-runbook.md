@@ -27,7 +27,9 @@ remain pending. See status.md and the original source-request.txt acceptance lis
 ## Method routing prepared
 
 Server-only `DJANGO_API_METHODS` selects comma-separated `METHOD /api/path` keys;
-currently only `GET /api/settings` is implemented in the routing allowlist.
+the routing allowlist includes `GET /api/settings` and `GET /api/canvas-boards`.
+This enables explicit qualification selection; it does not authorize production
+selection or assert complete domain qualification. Canvas POST remains Node.
 `DJANGO_API_ORIGIN` must be a bare HTTPS origin. Explicit local qualification
 uses `DJANGO_API_ALLOW_LOCAL=1` with loopback HTTP. No browser API-base change.
 Unset method selection retains current routing. Invalid selected configuration

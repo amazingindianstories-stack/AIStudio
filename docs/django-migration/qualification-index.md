@@ -247,3 +247,16 @@ pass after correction. This run uses development Next/runserver and local PG18
 with narrow fixtures, not full-schema PG16, browser or hosted evidence. Invalid
 UUID/uncaught-error body parity and complete headers remain pending. Ownership
 remains Node; Canvas stays IMPLEMENTING rather than claiming full parity.
+
+Canvas GET is now selectable in the server-only method routing allowlist, with
+unset/default routing unchanged and POST retained by Node. A controlled local
+Chromium browser run passes settings 200, Canvas metadata 200 and required-project
+400 through the real Next-to-Django same-origin proxy. Each response carries a
+Django request ID, matches expected JSON and renews the aged HttpOnly/Lax cookie;
+response URLs retain the frontend origin. The harness installed Chromium only
+in its disposable credential home after the initial missing-browser failure.
+Four method-routing unit tests pass. The complete existing HTTP suite plus eight
+Canvas cases also pass in this browser run. This is not an Asset Library/full
+application browser suite, HTTPS Secure-cookie proof, production Next build,
+full-schema PG16 or hosted deployment. No production routing selection or
+ownership transfer occurred; authorization for hosted preview remains pending.

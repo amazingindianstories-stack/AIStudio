@@ -17,3 +17,12 @@ test('local qualification requires explicit loopback permission',()=>{
   assert.throws(()=>djangoDestination(request,'GET',{...configured,origin:'http://127.0.0.1:8000'}));
   assert.equal(djangoDestination(request,'GET',{...configured,origin:'http://127.0.0.1:8000',allowLocal:'1'}).port,'8000');
 });
+
+test('Canvas metadata selection preserves repeated parameters and retains mutations',()=>{
+  const url='https://frontend.example/api/canvas-boards?projectId=first&projectId=second';
+  const config={...configured,methods:'GET /api/settings, GET /api/canvas-boards'};
+  assert.equal(djangoDestination(url,'GET',config).href,'https://django.example/api/canvas-boards?projectId=first&projectId=second');
+  assert.equal(djangoDestination(url,'POST',config),null);
+  assert.equal(djangoDestination(url,'GET',configured),null);
+  assert.throws(()=>djangoDestination(url,'POST',{...config,methods:'POST /api/canvas-boards'}));
+});
