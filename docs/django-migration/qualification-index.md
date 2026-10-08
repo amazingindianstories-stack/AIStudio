@@ -376,3 +376,21 @@ remain pending. Image revision 8e4fe8d9d6df14b85f1453264770b9514cbaa7e7,
 API fingerprint 5d902e9b47f0201a507f5747e1ca7d0e4529e2b0c1299102f432c989d1795983,
 image sha256:342532eb8062cd1557641ede6a3f245b58340a1f3c5ddd07b9d19e4c59a28514.
 This is local ARM64 evidence, not a hosted deployment or schema authority gate.
+
+Real update polling HTTP comparison now passes nine cases against current Next
+and Django, both runserver and production-settings two-worker Gunicorn, on the
+verified disposable PostgreSQL 18 loopback cluster. Cases cover anonymous 401,
+missing/junk fallback, positive and strict-boundary values, hex/binary input,
+future watermark retaining in-flight rows, repeated-query first-value behavior
+and aged-session renewal. Returned items match exactly; server now timestamps
+are bounded by request start/end rather than compared for equality. Reads leave
+fixture snapshots unchanged and exclude audio/provider diagnostics. Existing
+settings/auth/project/folder/assets/Canvas/counts and same-origin checks pass.
+
+The local HTTP fixture now adds all currently declared generation column types
+from metadata before populating six synthetic rows. It does not recreate all
+production constraints/defaults/indexes, prove an old-schema upgrade, or replace
+the separately qualified full-schema PG16 container probe. Fractional/overflow
+HTTP error bodies/cookies, browser polling, hosted qualification and performance
+remain pending. Node owns traffic; updates remain IMPLEMENTING and are absent
+from the routing allowlist. No production resources or providers were accessed.

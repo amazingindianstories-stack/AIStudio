@@ -1793,10 +1793,11 @@
           "evidence": [
             "backend/apps/generation/updates.py",
             "backend/apps/generation/test_update_endpoint.py",
-            "scripts/django-migration/watermark-parity.py"
+            "scripts/django-migration/watermark-parity.py",
+            "scripts/django-migration/settings-http-parity.py: nine update polling cases under runserver and production Gunicorn"
           ],
           "remaining_qualification": [
-            "Real Node/Django HTTP comparison including fractional/out-of-range DB operands",
+            "Fractional/out-of-range HTTP error body and cookie comparison",
             "Full application browser and hosted preview",
             "Performance plans and authorized canary/rollback"
           ]

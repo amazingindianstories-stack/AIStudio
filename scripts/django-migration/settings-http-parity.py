@@ -14,6 +14,7 @@ import urllib.request
 import urllib.error
 from urllib.parse import urlsplit, urlencode
 import psycopg
+from psycopg import sql
 
 
 def port():
@@ -56,6 +57,9 @@ def main():
             c.execute('CREATE TABLE IF NOT EXISTS projects (id uuid PRIMARY KEY,name text,brief text,created_by uuid,created_at bigint,updated_at bigint)')
             c.execute('CREATE TABLE IF NOT EXISTS folders (id uuid PRIMARY KEY,project_id uuid,parent_id uuid,name text,name_normalized text,version integer,color text,created_at bigint,updated_at bigint)')
             c.execute('CREATE TABLE IF NOT EXISTS generations (id uuid PRIMARY KEY,kind text NOT NULL,prompt text NOT NULL,project_id uuid,folder_id uuid,is_favorite boolean NOT NULL)')
+            declared = json.loads(subprocess.run(['node','scripts/django-migration/declared-columns.mjs'],check=True,capture_output=True,text=True).stdout)
+            for name, column in declared['generations']['columns'].items():
+                c.execute(sql.SQL('ALTER TABLE generations ADD COLUMN IF NOT EXISTS {} {}').format(sql.Identifier(name),sql.SQL(column['type'])))
             c.execute('TRUNCATE generations')
             for index, (kind,prompt,project,folder,favorite) in enumerate([
                 ('image','100%_fixture\\ref','dddddddd-dddd-4ddd-8ddd-dddddddddddd','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',True),
@@ -65,7 +69,8 @@ def main():
                 ('image','Global fixture',None,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',False),
                 ('image','a'*199+'�',None,None,False),
             ]):
-                c.execute('INSERT INTO generations VALUES (%s,%s,%s,%s,%s,%s)',[f'aaaaaaaa-aaaa-4aaa-8aaa-{index:012d}',kind,prompt,project,folder,favorite])
+                c.execute('INSERT INTO generations (id,kind,prompt,project_id,folder_id,is_favorite) VALUES (%s,%s,%s,%s,%s,%s)',[f'aaaaaaaa-aaaa-4aaa-8aaa-{index:012d}',kind,prompt,project,folder,favorite])
+            c.execute("UPDATE generations SET status=CASE WHEN kind='depth' THEN 'running' WHEN prompt LIKE '100%%' AND kind='image' THEN 'queued' ELSE 'completed' END,model='fixture-only',aspect_ratio='16:9',created_at=1,updated_at=right(id::text,1)::bigint+1,depth_reap_attempts=0,flagged=false,provider_responses='{\"private\":true}'::jsonb")
             c.execute('CREATE TABLE IF NOT EXISTS canvas_boards (id uuid PRIMARY KEY,project_id uuid NOT NULL,name text NOT NULL,data jsonb NOT NULL,created_by uuid,created_at bigint NOT NULL,updated_at bigint NOT NULL)')
             c.execute('TRUNCATE canvas_boards')
             c.execute("INSERT INTO canvas_boards VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','dddddddd-dddd-4ddd-8ddd-dddddddddddd','दृश्य','{\"private_graph\":\"fixture\"}',NULL,1,2)")
@@ -270,6 +275,28 @@ def main():
                 assert bool(jars[0]) == bool(jars[1]), ('history count renewal',query)
                 assert before == snapshot(), 'history counts mutated DB'
                 history_count_report.append({'query':query,'status':responses[0][0],'json_equal':True,'renewal_presence_equal':True,'database_unchanged':True})
+            update_report = []
+            for query,cookie in [('', ''),('', token()),('?since=1',token()),
+                    ('?since=2',token(age=172800000)),('?since=0x2',token()),
+                    ('?since=9999999999999',token()),('?since=junk',token()),
+                    ('?since=2&since=1',token()),('?since=0b10',token())]:
+                before = snapshot()
+                started = int(time.time()*1000)
+                responses = [get(url.replace('/api/settings','/api/history/updates')+query,cookie) for url in urls]
+                finished = int(time.time()*1000)
+                assert responses[0][0] == responses[1][0], ('updates status',query)
+                if responses[0][0] == 200:
+                    assert responses[0][1]['items'] == responses[1][1]['items'], ('updates items',query,responses[0][1],responses[1][1])
+                    for response in responses:
+                        assert set(response[1]) == {'items','now'}
+                        assert started <= response[1]['now'] <= finished, ('server watermark',query)
+                        assert all(item['kind'] != 'audio' and 'providerResponses' not in item for item in response[1]['items'])
+                else:
+                    assert responses[0][1] == responses[1][1]
+                jars = [SimpleCookie(response[2].get('Set-Cookie','')) for response in responses]
+                assert bool(jars[0]) == bool(jars[1]), ('updates renewal',query)
+                assert before == snapshot(), 'updates read mutated DB'
+                update_report.append({'query':query,'authenticated':bool(cookie),'status':responses[0][0],'items_equal':True,'server_watermark_bounded':responses[0][0]==200,'renewal_presence_equal':True,'database_unchanged':True})
             origin_report=[]
             before=snapshot()
             with db.cursor() as c:
@@ -407,7 +434,7 @@ def main():
                 if result.returncode:
                     raise RuntimeError(result.stderr[-4000:])
                 browser_report=json.loads(result.stdout)
-            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_counts_http_parity':history_count_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()
