@@ -225,3 +225,13 @@ constraint names, physical null-distinctness and full catalog equivalence remain
 separate baseline work. The previously qualified release remains pinned to
 8f70339; this new model revision is not silently substituted into that artifact.
 No production schema, deployment or route authority changed.
+
+Canvas metadata GET is now IMPLEMENTING in Django. Two isolated API tests pass
+for authentication before required-project validation, missing/empty/first
+repeated query value, empty unknown-project results, project scope, nullable
+createdBy and Unicode names, aged-session renewal and unchanged graph data.
+Query capture verifies one metadata SELECT excluding the graph column. Current
+Node source is documented in method-specific contract dimensions; POST and
+board graph/upload routes remain unimplemented in Django. Actual Node/Django
+HTTP comparison, error/header parity, PG16 full-schema/browser/hosted gates and
+traffic transfer remain pending. Node retains authority; no routing change.

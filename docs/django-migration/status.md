@@ -7,7 +7,7 @@ Implementation counts do not prove qualification or deployment.
 |---|---|
 | Django traffic-owned API methods | 0 / 85 |
 | Node route files with retained implementations | 65 |
-| Methods started | 8 / 85 |
+| Methods started | 9 / 85 |
 | Tables with Django model declarations | 21 / 21; partial/unmanaged, not schema acceptance |
 | Schema authority | DRIZZLE |
 | Auth authority | NEXT |
@@ -25,6 +25,7 @@ Implementation counts do not prove qualification or deployment.
 | POST | /api/auth/logout | IMPLEMENTING | next |
 | GET | /api/auth/me | IMPLEMENTING | next |
 | PATCH | /api/auth/password | IMPLEMENTING | next |
+| GET | /api/canvas-boards | IMPLEMENTING | next |
 | GET | /api/folders | IMPLEMENTING | next |
 | GET | /api/projects | IMPLEMENTING | next |
 | GET | /api/settings | IMPLEMENTING | next |

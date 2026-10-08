@@ -446,9 +446,12 @@
         "GET": {
           "owner": "next",
           "next_status": "active",
-          "state": "NOT_STARTED",
+          "state": "IMPLEMENTING",
           "issue": "DJANGO-027",
-          "evidence": []
+          "evidence": [
+            "backend/apps/canvas/views.py",
+            "backend/apps/canvas/tests.py"
+          ]
         },
         "POST": {
           "owner": "next",

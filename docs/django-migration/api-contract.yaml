@@ -926,7 +926,56 @@
         "transitive DB reads/writes and storage/provider/worker effects",
         "headers, idempotency, concurrency, pagination, naming"
       ],
-      "source_lines": 77
+      "source_lines": 77,
+      "method_contracts": {
+        "GET": {
+          "request_body": null,
+          "authentication": "Active compatible veevee_session user with matching auth_version; authentication checked before query validation",
+          "authorization": "All authenticated users may list project metadata; no project membership or existence check in current route",
+          "query_params": {
+            "projectId": "Required nonempty first URLSearchParams value; repeated later values ignored; invalid UUID currently causes uncaught error"
+          },
+          "success": {
+            "status": 200,
+            "json": {
+              "boards": "Array of {id,projectId,name,createdBy UUID|null,createdAt bigint-ms,updatedAt bigint-ms}; data excluded"
+            }
+          },
+          "failure": {
+            "401": {
+              "error": "UNAUTHENTICATED"
+            },
+            "400": {
+              "error": "projectId required."
+            },
+            "500": "Uncaught invalid UUID/database errors; exact body parity pending"
+          },
+          "headers": {
+            "content_type": "application/json",
+            "renewal": "Valid aged session renewed as host-only 30-day HttpOnly SameSite=Lax cookie; Secure in production"
+          },
+          "db_reads": [
+            "users session lookup",
+            "canvas_boards metadata projection filtered by project_id; excludes graph data"
+          ],
+          "db_mutations": [],
+          "storage_effects": [],
+          "provider_effects": [],
+          "worker_effects": [],
+          "idempotency": "Read only; no key",
+          "concurrency": "No explicit ordering or transaction; independent session and metadata queries",
+          "pagination": null,
+          "naming": "Stored board name returned verbatim",
+          "evidence": [
+            "backend/apps/canvas/tests.py"
+          ],
+          "remaining_qualification": [
+            "Actual Node/Django HTTP comparison including error and header parity",
+            "PG16 full-schema and full application browser tests",
+            "Hosted preview and authorized canary/rollback lifecycle"
+          ]
+        }
+      }
     },
     {
       "path": "/api/cron/depth-reconciliation",
