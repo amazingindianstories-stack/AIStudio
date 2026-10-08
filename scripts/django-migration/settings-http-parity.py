@@ -294,6 +294,47 @@ def main():
                 assert bool(responses[0][2].get('Set-Cookie')) == bool(responses[1][2].get('Set-Cookie'))
                 assert before == snapshot(), 'history read mutated DB'
                 history_report.append({'query':query,'status':responses[0][0],'json_equal':True,'database_unchanged':True})
+            pagination_report = []
+            with db.cursor() as c:
+                c.execute("UPDATE generations SET favorited_at=CASE WHEN kind='depth' THEN 20 ELSE 10 END WHERE is_favorite=true")
+            def history_pair(query):
+                before = snapshot()
+                pair = [get(url.replace('/api/settings','/api/history')+query,token()) for url in urls]
+                assert pair[0][:2] == pair[1][:2], ('history pagination',query)
+                assert pair[0][0] == 200 and before == snapshot()
+                return pair[0][1]
+            favorite_first = history_pair('?favorite=1&limit=1')
+            assert [item['id'] for item in favorite_first['items']] == [ids[2]]
+            assert favorite_first['nextCursor'] == '20.'+ids[2]
+            favorite_last = history_pair('?'+urlencode({'favorite':'1','limit':'1','cursor':favorite_first['nextCursor']}))
+            assert [item['id'] for item in favorite_last['items']] == [ids[0]]
+            assert favorite_last['nextCursor'] is None, 'Exact page-size multiple produced phantom cursor'
+            pagination_report.append({'case':'favorite_timestamps_exact_multiple','json_equal':True,'terminal_cursor_null':True})
+            first_page = history_pair('?limit=2')
+            assert [item['id'] for item in first_page['items']] == [ids[5],ids[4]]
+            inserted = 'aaaaaaaa-aaaa-4aaa-8aaa-000000000999'
+            columns = list(declared['generations']['columns'])
+            with db.cursor() as c:
+                expressions = [sql.SQL('%s::uuid') if name=='id' else sql.SQL('2::bigint') if name=='created_at' else sql.Identifier(name) for name in columns]
+                c.execute(sql.SQL('INSERT INTO generations ({}) SELECT {} FROM generations WHERE id=%s').format(
+                    sql.SQL(',').join(map(sql.Identifier,columns)),sql.SQL(',').join(expressions)),[inserted,ids[0]])
+            try:
+                seen = [item['id'] for item in first_page['items']]
+                cursor = first_page['nextCursor']
+                pages = 1
+                while cursor:
+                    page = history_pair('?'+urlencode({'limit':'2','cursor':cursor}))
+                    seen.extend(item['id'] for item in page['items'])
+                    cursor = page['nextCursor']
+                    pages += 1
+                    assert pages <= 4, 'Pagination did not terminate'
+                assert seen == [ids[index] for index in (5,4,2,1,0)], ('Inserted row shifted keyset',seen)
+                assert len(set(seen)) == len(seen) and inserted not in seen
+                pagination_report.append({'case':'insert_between_requests','json_equal':True,'original_rows_once':True,'newer_insert_excluded':True,'pages':pages})
+            finally:
+                with db.cursor() as c:
+                    c.execute('DELETE FROM generations WHERE id=%s',[inserted])
+                    c.execute('UPDATE generations SET favorited_at=NULL')
             history_count_report = []
             for query,cookie in [('', ''),('', token()),
                     ('?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd&folderId=none&favorite=1', token(age=172800000)),
@@ -484,7 +525,7 @@ def main():
                 if result.returncode:
                     raise RuntimeError(result.stderr[-4000:])
                 browser_report=json.loads(result.stdout)
-            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'batch_filename_parity':{'cases':len(batches),'node_equal':True,'database_unchanged':True},'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_http_parity':history_report,'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'batch_filename_parity':{'cases':len(batches),'node_equal':True,'database_unchanged':True},'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_pagination_http_parity':pagination_report,'history_http_parity':history_report,'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

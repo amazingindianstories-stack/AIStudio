@@ -505,3 +505,17 @@ do not establish full-schema PG16/production performance, concurrent insert
 pagination, populated favorite timestamp ordering, malformed UUID/operand errors
 or full application/browser/hosted acceptance; those gates remain pending.
 No production deployment, provider/storage call or schema authority change.
+
+History pagination HTTP qualification now includes production-settings two-worker
+Gunicorn. Populated favorite timestamps prove star-time ordering and a two-row
+exact page-size multiple ends with nextCursor=null. A controlled newer insert
+committed between first and subsequent reads proves the strict composite cursor
+returns all five original non-audio rows exactly once across three pages,
+excluding the newer insert. Each request matches Node/Django JSON and leaves
+snapshots unchanged; intentional fixture mutations are confined to disposable
+PG18 and cleaned afterward. Existing ten history cases and all prior HTTP
+comparisons pass. The machine-readable GET history contract now records query,
+ordering, lookahead, naming, effects, evidence and remaining gates separately
+from PATCH/DELETE. This is sequential inter-request insertion evidence, not a
+concurrent stress test or full-schema/index-plan acceptance. Browser/hosted,
+performance, error parity and production ownership remain pending.

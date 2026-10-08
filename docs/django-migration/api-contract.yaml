@@ -1725,7 +1725,40 @@
         "transitive DB reads/writes and storage/provider/worker effects",
         "headers, idempotency, concurrency, pagination, naming"
       ],
-      "source_lines": 96
+      "source_lines": 96,
+      "method_contracts": {
+        "GET": {
+          "request_body": null,
+          "authentication": "Active compatible session and auth_version; otherwise 401 UNAUTHENTICATED",
+          "authorization": "Team-wide history; current filters do not limit by user",
+          "query": "First values of projectId/folderId (none means NULL), kind image/video/audio, favorite=1, q trimmed/sliced to 200 UTF16 units; limit parseInt decimal prefix clamped 1..100 default20; cursor first-dot Number plus UUID or first-page fallback",
+          "success": "200 {items:[public generation fields plus canonical filename],nextCursor:string|null}",
+          "ordering": "favorite uses favorited_at DESC otherwise created_at DESC, then id DESC; strict composite bigint/UUID cursor predicate",
+          "pagination": "limit+1 proves next page; no phantom cursor for exact multiples; newer insert before cursor excluded",
+          "headers": "Compatible aged-session renewal on successful response",
+          "db_reads": [
+            "users",
+            "generations",
+            "generation_naming",
+            "referenced folder ancestors"
+          ],
+          "db_mutations": [],
+          "storage_effects": [],
+          "provider_effects": [],
+          "worker_effects": [],
+          "naming": "Persisted namespace/sequence with legacy fallback; current folder ancestry formatter",
+          "evidence": [
+            "backend/apps/generation/history.py",
+            "scripts/django-migration/settings-http-parity.py: ten HTTP cases plus populated favorite ordering/exact multiple and insertion between requests under Gunicorn"
+          ],
+          "remaining_qualification": [
+            "Malformed UUID/operand error responses",
+            "Full-schema PG16 invariants and query performance",
+            "Browser/full application and hosted preview",
+            "Authorized canary and rollback"
+          ]
+        }
+      }
     },
     {
       "path": "/api/history/updates",
@@ -1797,7 +1830,7 @@
             "scripts/django-migration/settings-http-parity.py: nine update polling cases; two invalid-operand empty-500 cases under production Gunicorn"
           ],
           "remaining_qualification": [
-                        "Full application browser polling/store merge and hosted HTTPS preview",
+            "Full application browser polling/store merge and hosted HTTPS preview",
             "Performance plans and authorized canary/rollback"
           ]
         }
