@@ -745,3 +745,15 @@ current Drizzle metadata, including compound worker predicates. Static RawSQL
 preserves their grouping and LIKE condition; its percent literal is escaped for
 Django SQL formatting. Physical/default/constraint/trigger baselining and complete
 catalog proof remain pending. Worker ownership remains Node.
+
+The generation declaration comparison now also checks NULL ordering in compiled
+CREATE INDEX SQL. The previous field shorthand used PostgreSQL DESC NULLS FIRST,
+whereas current Drizzle declares DESC NULLS LAST. State-only migration 0004
+replaces five keyset index declarations with explicit OrderBy expressions; it
+emits no physical DDL. All twelve declarations now match including NULL ordering.
+A CI probe creates indexes on transactional temporary tables for both runtime
+and disk state, then reads pg_index ordering flags: 24 checks pass. Two negative
+controls reproduce and reject the previous DESC NULLS FIRST behavior. All
+temporary objects are rolled back and verified absent. This proves exercised
+index column ordering, not full physical catalog equivalence, defaults, unique
+constraints or baseline readiness. Production schema and ownership are unchanged.

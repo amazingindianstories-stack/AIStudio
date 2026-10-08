@@ -35,7 +35,16 @@ for registry in [apps,MigrationLoader(None).project_state().apps]:
     assert set(indexes)==set(expected), 'Index inventory differs'
     with connection.schema_editor(collect_sql=True,atomic=False) as editor:
         for name,index in indexes.items():
-            columns=[{'name':model._meta.get_field(field).column,'order':order.lower() or 'asc'} for field,order in index.fields_orders]
+            # Inspect compiled CREATE INDEX, including explicit/default NULL ordering.
+            ddl=str(index.create_sql(model,editor))
+            match=re.search(r' ON "generations"(?: USING btree)? \((.*?)\)(?: WHERE |$)',ddl)
+            assert match, (name,'Unsupported index SQL')
+            columns=[]
+            for part in match[1].split(','):
+                column=re.fullmatch(r'\s*"([^"\n]+)"(?: (ASC|DESC))?(?: NULLS (FIRST|LAST))?\s*',part)
+                assert column, (name,'Unsupported index expression')
+                order=(column[2] or 'ASC').lower()
+                columns.append({'name':column[1],'order':order,'nulls':(column[3] or ('FIRST' if order=='desc' else 'LAST')).lower()})
             assert columns==expected[name]['columns'], (name,columns,expected[name]['columns'])
             predicate=index._get_condition_sql(model,editor)
             assert normalize(predicate)==normalize(expected[name]['predicate']), name
