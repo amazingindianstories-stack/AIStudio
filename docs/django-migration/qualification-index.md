@@ -566,3 +566,14 @@ This local ARM64 image evidence is not hosted deployment, production-catalog
 equivalence, old-schema upgrade or complete invariant acceptance. Performance,
 full application, hosted and production transfer gates remain pending. No shared
 credentials, provider requests or output-media transformations were used.
+
+Regression checkpoint after the history integration: all 42 existing Django
+domain-suite tests pass on the verified disposable loopback PG18 configuration;
+makemigrations --check reports no changes. Current declared column/type/null/
+unique/PK/FK metadata matches 21 tables/205 columns in runtime and disk migration
+state. This does not establish physical defaults/indexes/functions/triggers or
+production catalog equivalence. Existing domain-suite tests do not exercise
+history query integration; the separate HTTP/Chromium/full-schema PG16 service
+evidence above covers that scope. regression-checkpoint.json records this
+boundary and the remaining gates against source a55419d. Ownership remains
+0/85 Django traffic, 12 methods started; no deployment or provider activity.
