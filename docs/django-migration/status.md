@@ -178,3 +178,9 @@ Three focused DB/API tests pass: success invalidates old token; incorrect curren
 password leaves version unchanged; concurrent version change returns 409, clears
 cookie and preserves hash without audit. Actual Node/Django password HTTP parity,
 security/browser/hosted gates remain. Production auth remains Next-owned.
+
+Password real HTTP qualification passes for both current runtimes: wrong-password
+nonmutation, successful hash/version/audit effects, and cross-runtime old-cookie
+rejection/new-cookie acceptance. Full HTTP harness passes again. See
+password-change-qualification.md for unqualified security/concurrency/browser
+cases. Production auth and all business traffic remain Next-owned.

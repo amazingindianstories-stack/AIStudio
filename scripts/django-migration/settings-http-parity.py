@@ -28,10 +28,10 @@ def token(version=0, age=0):
     return payload+'.'+enc(hmac.new(os.environ['AUTH_SECRET'].encode(),payload.encode(),hashlib.sha256).digest())
 
 
-def get(url,cookie,body=None):
+def get(url,cookie,body=None,method=None):
     headers={'Cookie':'veevee_session='+cookie} if cookie else {}
     if body is not None: headers['Content-Type']='application/json'
-    request=urllib.request.Request(url,data=json.dumps(body).encode() if body is not None else None,headers=headers)
+    request=urllib.request.Request(url,data=json.dumps(body).encode() if body is not None else None,headers=headers,method=method)
     try: response=urllib.request.urlopen(request,timeout=20)
     except urllib.error.HTTPError as error: response=error
     return response.status,json.loads(response.read()),response.headers
@@ -205,6 +205,37 @@ def main():
                 assert responses[0][:2] == responses[1][:2], ('assets',query,responses[0][:2],responses[1][:2])
                 assert before == snapshot(), 'asset read mutated DB'
                 asset_report.append({'query':query,'authenticated':bool(cookie),'status':responses[0][0],'json_equal':True,'database_unchanged':True})
+            password_report=[]
+            for runtime,url in zip(('next','django'),urls):
+                with db.cursor() as c:
+                    c.execute('UPDATE users SET password_hash=%s,password_salt=%s,auth_version=0,is_active=true',[password_hash,salt])
+                    c.execute('TRUNCATE activity_logs')
+                endpoint=url.replace('/api/settings','/api/auth/password')
+                old_cookie=token()
+                wrong=get(endpoint,old_cookie,{'currentPassword':'wrong','newPassword':'changed-fixture-password'},method='PATCH')
+                assert wrong[:2]==(401,{'error':'Current password is incorrect.'})
+                with db.cursor() as c:
+                    c.execute('SELECT auth_version,password_hash FROM users')
+                    assert c.fetchone()==(0,password_hash)
+                changed=get(endpoint,old_cookie,{'currentPassword':'fixture-password','newPassword':'changed-fixture-password'},method='PATCH')
+                assert changed[:2]==(200,{'ok':True})
+                jar=SimpleCookie();jar.load(changed[2]['Set-Cookie'])
+                assert str(jar['veevee_session']['max-age'])=='2592000'
+                assert jar['veevee_session']['httponly'] and jar['veevee_session']['samesite'].lower()=='lax'
+                for target_url in urls:
+                    assert get(target_url,old_cookie)[0]==401
+                    assert get(target_url,jar['veevee_session'].value)[0]==200
+                with db.cursor() as c:
+                    c.execute('SELECT auth_version,password_hash,password_salt FROM users')
+                    version,stored_hash,stored_salt=c.fetchone()
+                    assert version==1
+                    candidate=hashlib.scrypt(b'changed-fixture-password',salt=stored_salt.encode(),n=16384,r=8,p=1,dklen=64,maxmem=32*1024*1024).hex()
+                    assert candidate==stored_hash
+                    c.execute('SELECT user_id::text,action,detail FROM activity_logs')
+                    assert c.fetchall()==[('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','password_changed',None)]
+                password_report.append({'runtime':runtime,'old_token_rejected_by_both':True,'new_token_accepted_by_both':True,'hash_version_audit_contract':True})
+            with db.cursor() as c:
+                c.execute('UPDATE users SET auth_version=0')
             default_project_report=[]
             for runtime,url in zip(('next','django'),urls):
                 with db.cursor() as c:
@@ -263,7 +294,7 @@ def main():
                 time.sleep(.2)
             assert response[:2] == get(urls[1], token())[:2]
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
-            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report},indent=2))
+            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()
