@@ -51,6 +51,7 @@ def main():
             c.execute('CREATE TABLE IF NOT EXISTS projects (id uuid PRIMARY KEY,name text,brief text,created_by uuid,created_at bigint,updated_at bigint)')
             c.execute('CREATE TABLE IF NOT EXISTS folders (id uuid PRIMARY KEY,project_id uuid,parent_id uuid,name text,name_normalized text,version integer,color text,created_at bigint,updated_at bigint)')
             c.execute('CREATE TABLE IF NOT EXISTS assets (id uuid PRIMARY KEY,kind text,name text,slug text,description text,images jsonb,project_id uuid,created_at bigint,updated_at bigint)')
+            c.execute('ALTER TABLE projects ALTER COLUMN id SET DEFAULT gen_random_uuid()')
             c.execute('TRUNCATE users,settings,user_limits,folders,projects,assets')
             c.execute("INSERT INTO assets VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','character','Global','global',NULL,'[]',NULL,1,1),('cccccccc-cccc-4ccc-8ccc-cccccccccccc','character','Project','project','Description','[\"/media/fixture.png\"]','dddddddd-dddd-4ddd-8ddd-dddddddddddd',2,2)")
             c.execute("INSERT INTO projects VALUES ('dddddddd-dddd-4ddd-8ddd-dddddddddddd','Project',NULL,NULL,1,2)")
@@ -112,6 +113,8 @@ def main():
                 report.append({'case':name,'status':responses[0][0],'json_equal':True,'database_unchanged':True,'cookie_flags_equal':True})
             with db.cursor() as c:
                 c.execute('UPDATE users SET is_active=true')
+            with db.cursor() as c:
+                c.execute("INSERT INTO folders VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff','dddddddd-dddd-4ddd-8ddd-dddddddddddd',NULL,'Project root','project root',1,'red',5,6)")
             project_report = []
             for name,cookie in [('anonymous',''),('authenticated',token())]:
                 before=snapshot()
@@ -152,6 +155,40 @@ def main():
                 assert responses[0][:2] == responses[1][:2], ('assets',query,responses[0][:2],responses[1][:2])
                 assert before == snapshot(), 'asset read mutated DB'
                 asset_report.append({'query':query,'authenticated':bool(cookie),'status':responses[0][0],'json_equal':True,'database_unchanged':True})
+            default_project_report=[]
+            for runtime,url in zip(('next','django'),urls):
+                with db.cursor() as c:
+                    c.execute('TRUNCATE folders,projects')
+                response=get(url.replace('/api/settings','/api/projects'),token())
+                assert response[0]==200
+                created=response[1]['projects']
+                assert len(created)==1 and created[0]['name']=='My Project'
+                assert created[0]['folders']==[] and 'brief' not in created[0]
+                assert created[0]['createdAt']==created[0]['updatedAt']
+                from uuid import UUID
+                UUID(created[0]['id'])
+                with db.cursor() as c:
+                    c.execute('SELECT id::text,name,brief,created_by,created_at,updated_at FROM projects')
+                    rows=c.fetchall()
+                assert len(rows)==1 and rows[0][0]==created[0]['id']
+                assert rows[0][2:4]==(None,None)
+                before=snapshot()
+                assert get(url.replace('/api/settings','/api/projects'),token())[:2]==response[:2]
+                assert before==snapshot()
+                default_project_report.append({'runtime':runtime,'one_default':True,'repeat_read_unchanged':True})
+            with db.cursor() as c:
+                c.execute('TRUNCATE folders,projects')
+            from concurrent.futures import ThreadPoolExecutor
+            def mixed_read(index):
+                response=get(urls[index % 2].replace('/api/settings','/api/projects'),token())
+                assert response[0]==200 and len(response[1]['projects'])==1
+                return response[1]['projects'][0]['id']
+            with ThreadPoolExecutor(max_workers=6) as pool:
+                ids=list(pool.map(mixed_read,range(12)))
+            assert len(set(ids))==1, 'cross-runtime duplicate default projects'
+            with db.cursor() as c:
+                c.execute('SELECT count(*) FROM projects')
+                assert c.fetchone()[0]==1
             # Reuse the actual Next process after restarting with server-side
             # method routing; its retained Node route must be bypassed.
             next_process, next_log = processes[0]
@@ -176,7 +213,7 @@ def main():
                 time.sleep(.2)
             assert response[:2] == get(urls[1], token())[:2]
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
-            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report},indent=2))
+            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

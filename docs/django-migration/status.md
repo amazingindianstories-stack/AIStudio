@@ -126,3 +126,9 @@ calls producing exactly one default. Two populated-fixture HTTP comparisons
 match Next status/JSON with unchanged DB. Empty-database cross-runtime parity,
 project-folder association coverage, browser and production remain pending.
 Project mutations remain Next-owned; no route selection changed.
+
+Project GET qualification extended: populated HTTP parity includes project folder
+association; independent empty-table creation and stable repeat reads pass for
+both runtimes. Twelve mixed Next/Django concurrent HTTP requests return one
+shared default project ID and one DB row. See project-read-qualification.md.
+All other HTTP comparisons and same-origin rewrite still pass. No cutover.
