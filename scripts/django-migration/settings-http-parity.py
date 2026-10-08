@@ -338,7 +338,11 @@ def main():
                 time.sleep(.2)
             assert response[:2] == get(urls[1], token())[:2]
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
-            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            browser_report = 'not_run'
+            if '--browser' in sys.argv:
+                result=subprocess.run(['node','scripts/django-migration/settings-browser.mjs'],input=json.dumps({'url':urls[0],'cookie':token(age=172800000),'expected':response[1]}),text=True,capture_output=True,check=True)
+                browser_report=json.loads(result.stdout)
+            print(json.dumps({'browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

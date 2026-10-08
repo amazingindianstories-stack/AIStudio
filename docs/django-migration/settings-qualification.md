@@ -26,3 +26,11 @@ renewed cookie (four real follow-up HTTP requests), returns the same limits, and
 does not immediately renew again. Both max-age values are 2592000 seconds.
 CI now installs Node dependencies and runs this real HTTP harness using the
 dedicated PostgreSQL 16 service. Remote CI execution is still pending.
+
+Local Chromium contract passes: a controlled same-origin document performs
+fetch('/api/settings') through the real Next middleware rewrite, sees matching
+limits and Django request ID, and receives a replaced HttpOnly/Lax renewal
+cookie. Browser was installed under the disposable HOME; no personal profile
+is used. This proves the tested browser transport, not the Asset Library UI,
+HTTPS hosted forwarding, Secure-cookie behavior or the full existing suite.
+The PostgreSQL 16 CI job now runs this browser contract; remote CI is pending.

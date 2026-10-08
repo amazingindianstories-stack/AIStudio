@@ -24,3 +24,7 @@ Original complete scope and acceptance criteria remain in source-request.txt.
 Mixed-runtime password race qualification passes one concurrent run with exactly
 one winning hash/version/audit mutation. Barrier-controlled cross-runtime stress
 coverage remains pending; see password-change-qualification.md for exact scope.
+
+Local real Chromium settings transport passes through the Next/Django rewrite,
+including HttpOnly/Lax renewal receipt. This controlled-page contract does not
+replace the full application browser suite or hosted preview qualification.
