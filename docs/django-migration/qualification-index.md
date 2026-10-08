@@ -102,3 +102,12 @@ sessions do not contribute an actor. Email, cookies and query values remain
 excluded. The full 28-test Django suite passed after adding actor/privacy tests
 in the fresh verified disposable session (Python 3.14/local PostgreSQL 18).
 Production-image Python 3.12 and hosted observability remain separate evidence.
+
+Three current-schema library persistence models are added: organizational
+idempotency keys, naming counters and generation naming. An isolated ORM test
+passes UUID/text PK, nullable Unicode JSON and exact bigint roundtrips. The
+library test label passed nine discovered tests (including imported settings
+tests); this is not nine new library cases. Model-state drift check passes and
+SQL inspection confirms migration 0002 emits no application DDL. Declaration
+coverage is now 11/21, still partial/unmanaged; FK/default/index/trigger baseline
+and schema takeover remain incomplete. Runtime/traffic ownership is unchanged.

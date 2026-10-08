@@ -8,7 +8,7 @@ Implementation counts do not prove qualification or deployment.
 | Django traffic-owned API methods | 0 / 85 |
 | Node route files with retained implementations | 65 |
 | Methods started | 8 / 85 |
-| Tables with Django model declarations | 8 / 21; partial/unmanaged, not schema acceptance |
+| Tables with Django model declarations | 11 / 21; partial/unmanaged, not schema acceptance |
 | Schema authority | DRIZZLE |
 | Auth authority | NEXT |
 | Export worker | NODE |
@@ -38,6 +38,9 @@ Implementation counts do not prove qualification or deployment.
 - authentication.LoginAttempt: login_attempts
 - common.ActivityLog: activity_logs
 - library.Folder: folders
+- library.OrganizationIdempotencyKey: organization_idempotency_keys
+- library.NamingCounter: naming_counters
+- library.GenerationNaming: generation_naming
 - projects.Project: projects
 
 ## Verification and remaining gates

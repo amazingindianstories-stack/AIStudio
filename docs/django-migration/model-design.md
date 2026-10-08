@@ -670,6 +670,18 @@ export const generationNaming = pgTable("generation_naming", {
 
 ## Invariants beyond the ORM declaration
 
+Current implementation addition: OrganizationIdempotencyKey, NamingCounter and
+GenerationNaming now have unmanaged Django declarations and library migration
+0002 state. All current columns, nullability and nonstandard primary keys are
+represented; Python defaults mirror completed status and initial counter 1.
+Those Python defaults do not establish SQL-default equivalence. GenerationNaming
+currently stores the UUID directly; the generation relationship/CASCADE, indexes,
+checks and deferred naming triggers remain physical-baseline work. No schema
+authority transfers through these declarations. Isolated ORM roundtrips verify
+nullable Unicode JSON, UUID keys and bigint values above JavaScript's safe integer
+range. `makemigrations --check --dry-run` detects no drift; `sqlmigrate library
+0002` emits only transaction/comments/no-ops, no application DDL.
+
 - `scripts/migrate-hierarchical-folders.js`: normalization function/trigger; deferred folder scope/cycle and generation scope constraint triggers; relational RESTRICT constraints and idempotency table. `src/lib/folder-engine.js` owns sorted advisory/row locks, scope revalidation, batch atomicity and optimistic versions.
 - `scripts/migrate-generation-naming.js`: positive sequences; deferred naming/location triggers and custom functions; allocation/backfill rules. `generation-naming.js` atomically advances counters; `filename-resolver.js` defines names.
 - `scripts/migrate-folder-color.js`: additive color column and check; pending user work is part of baseline.
