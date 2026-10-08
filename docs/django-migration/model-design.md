@@ -712,3 +712,17 @@ state), enum labels/order and domain definitions are included. Real fixtures
 prove function-body, deferred-trigger enabled-state and sequence-increment changes
 are detected. Snapshot comparison rejects missing categories or malformed rows.
 Additional-schema scope and full baseline reproduction still require work.
+
+## Current unmanaged declaration inventory (2026-10-08)
+
+All 21 current Drizzle tables now have domain model declarations. The last four
+are generation.Generation (60 columns), workers.DepthWorker (12 columns),
+exports.MediaExport (17 columns) and exports.MediaExportItem (five physical
+columns, composite key). The generation project/folder relations use RESTRICT;
+export items use CASCADE for export_id and a plain generation_id UUID, matching
+current declarations. Model-state migrations retain these relationships but
+emit no physical DDL while managed=False. This inventory is a starting point for
+complete physical equivalence; it does not close the baseline gate. SQL UUID
+and other defaults, complete indexes, functions, triggers, constraint behavior,
+and production catalog comparison must still be represented and verified before
+Django becomes schema authority. Runtime/API/provider/worker ownership is unchanged.

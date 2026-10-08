@@ -148,7 +148,7 @@ jobs:
       - run: python backend/manage.py check
       - run: python backend/manage.py makemigrations --check --dry-run
       - run: python backend/manage.py migrate --noinput
-      - run: python backend/manage.py test apps.common apps.admin_dashboard apps.library apps.assets apps.authentication apps.projects
+      - run: python backend/manage.py test apps.common apps.admin_dashboard apps.library apps.assets apps.authentication apps.projects apps.canvas apps.agents apps.generation apps.exports apps.workers
       - run: npm ci
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - run: python scripts/django-migration/settings-http-parity.py --browser

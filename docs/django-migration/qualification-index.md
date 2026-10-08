@@ -142,3 +142,21 @@ model operations, with no application DDL. Declaration coverage is 17/21.
 Physical UUID defaults, conversation indexes (including names longer than
 Django's normal index-name limit), schema equivalence, persistence/API behavior
 and traffic qualification remain pending. No schema or traffic authority changes.
+
+Generation, DepthWorker, MediaExport and MediaExportItem now complete table-level
+unmanaged declaration coverage (21/21). Generation keeps nullable project/folder
+relations with RESTRICT semantics and the current 60 columns; exports retain the
+(export_id,generation_id) composite key and export CASCADE relation. Relations
+are explicitly present in migration state because unmanaged autodetection omits
+them. Model-state drift check passes, and SQL inspection of all three initial
+migrations confirms no application DDL. Physical defaults/indexes/triggers,
+complete constraint equivalence and Django-only schema creation remain pending.
+
+The full isolated Django suite passes 34 discovered tests on Python 3.14/local
+PostgreSQL 18. Three new export/depth persistence cases cover composite lookup,
+unique keys, SQL export deletion cascade, Unicode .mov filenames, independent
+JSON defaults, exact bigint values and persisted claim UUIDs. Fixtures create
+current-shaped disposable tables; these are not schema baseline or worker
+execution proofs. CI labels now include all newly registered domain apps;
+remote CI/PostgreSQL 16 evidence remains pending. No external providers, storage,
+GPU workers, production schema or routing were invoked.
