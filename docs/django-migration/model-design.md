@@ -967,3 +967,22 @@ Django migration baseline. Production catalog audit, baseline review and schema
 ownership transfer remain outstanding. Drizzle retains schema authority and
 Django owns no production routes. Clean-checkout qualification still depends on
 integration of the separate Asset Library folder-color migration work.
+
+### Full diagnostic catalog agreement
+
+Six state-only migrations now freeze the current declared column order for
+future baseline creation. They emit no DDL and never reorder or rebuild an
+existing database table. The operation rejects missing, duplicate or unknown
+fields. PostgreSQL 18 reconstruction now matches every catalog category:
+21 tables, 205 columns including ordinal positions, 167 constraints, 58 indexes,
+four functions and five triggers. Both invariant fixtures pass and both scratch
+schemas roll back. CI now requires full diagnostic equivalence.
+
+`makemigrations --check --dry-run` reports no changes. All six ordering migrations
+were checked for zero emitted DDL and three invalid orders were rejected.
+This removes the previous column-order gap, but does not establish schema
+ownership: an executable Django baseline, actual production catalog comparison,
+reviewed baselining and the deployment gates are still required. The separate
+untracked folder-color migration remains a clean-checkout qualification dependency.
+
+The isolated Django regression suite also passed all 42 tests.
