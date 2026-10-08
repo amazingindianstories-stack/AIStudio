@@ -132,3 +132,13 @@ integer unit_cost_cents, unit and nullable notes. Model-state drift check passes
 SQL inspection confirms its state migration is a no-op for application DDL.
 Declaration coverage is 14/21. Pricing admission/business behavior and physical
 schema baseline remain pending; no pricing HTTP route or authority transferred.
+
+CanvasBoard, AgentConversation and AgentConversationMessage now have unmanaged
+current-column declarations in their own domain apps. Conversation messages
+retain a plain conversation_id UUID because current Drizzle declares no FK;
+legacy kind and nullable agent_kind/tool_trace remain represented. Isolated
+model-state drift check passes, and both initial migrations emit only no-op
+model operations, with no application DDL. Declaration coverage is 17/21.
+Physical UUID defaults, conversation indexes (including names longer than
+Django's normal index-name limit), schema equivalence, persistence/API behavior
+and traffic qualification remain pending. No schema or traffic authority changes.
