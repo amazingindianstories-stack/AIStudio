@@ -1,3 +1,5 @@
+from apps.common.indexes import PostgreSQLIndex, PostgreSQLUniqueIndex
+from django.db.models.expressions import RawSQL
 from django.db import models
 
 class Folder(models.Model):
@@ -13,6 +15,13 @@ class Folder(models.Model):
     class Meta:
         managed = False
         db_table = 'folders'
+        indexes = [
+            PostgreSQLIndex(models.F('project').asc(nulls_last=True), name='folders_project_id_idx'),
+            PostgreSQLIndex(models.F('parent').asc(nulls_last=True), name='folders_parent_id_idx'),
+            PostgreSQLUniqueIndex(models.F('name_normalized').asc(nulls_last=True), name='folders_global_root_unique_idx', condition=models.Q(RawSQL('"parent_id" is null and "project_id" is null', [], output_field=models.BooleanField()))),
+            PostgreSQLUniqueIndex(models.F('project').asc(nulls_last=True), models.F('name_normalized').asc(nulls_last=True), name='folders_project_root_unique_idx', condition=models.Q(RawSQL('"parent_id" is null and "project_id" is not null', [], output_field=models.BooleanField()))),
+            PostgreSQLUniqueIndex(models.F('parent').asc(nulls_last=True), models.F('name_normalized').asc(nulls_last=True), name='folders_subfolder_unique_idx', condition=models.Q(RawSQL('"parent_id" is not null', [], output_field=models.BooleanField()))),
+        ]
 
 
 class OrganizationIdempotencyKey(models.Model):
@@ -28,6 +37,11 @@ class OrganizationIdempotencyKey(models.Model):
     class Meta:
         managed = False
         db_table = 'organization_idempotency_keys'
+        indexes = [
+            PostgreSQLIndex(models.F('created_at').asc(nulls_last=True), name='organization_idempotency_keys_created_idx'),
+            PostgreSQLIndex(models.F('expires_at').asc(nulls_last=True), name='organization_idempotency_keys_expires_idx'),
+            PostgreSQLIndex(models.F('actor_id').asc(nulls_last=True), models.F('operation').asc(nulls_last=True), name='organization_idempotency_keys_actor_op_idx'),
+        ]
 
 
 class NamingCounter(models.Model):
@@ -49,3 +63,7 @@ class GenerationNaming(models.Model):
     class Meta:
         managed = False
         db_table = 'generation_naming'
+        indexes = [
+            PostgreSQLUniqueIndex(models.F('namespace').asc(nulls_last=True), models.F('sequence').asc(nulls_last=True), name='generation_naming_namespace_seq_idx'),
+            PostgreSQLIndex(models.F('namespace').asc(nulls_last=True), name='generation_naming_namespace_idx'),
+        ]

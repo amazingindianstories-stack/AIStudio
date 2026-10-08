@@ -1,3 +1,4 @@
+from apps.common.indexes import PostgreSQLIndex
 from django.db import models
 
 class User(models.Model):
@@ -24,3 +25,6 @@ class LoginAttempt(models.Model):
     class Meta:
         managed = False
         db_table = 'login_attempts'
+        indexes = [
+            PostgreSQLIndex(models.F('identifier').asc(nulls_last=True), models.F('created_at').asc(nulls_last=True), name='login_attempts_identifier_created_idx'),
+        ]

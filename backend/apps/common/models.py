@@ -1,3 +1,4 @@
+from apps.common.indexes import PostgreSQLIndex
 from django.db import models
 
 class ActivityLog(models.Model):
@@ -9,3 +10,6 @@ class ActivityLog(models.Model):
     class Meta:
         managed = False
         db_table = 'activity_logs'
+        indexes = [
+            PostgreSQLIndex(models.F('created_at').asc(nulls_last=True), name='activity_logs_created_at_idx'),
+        ]

@@ -151,6 +151,8 @@ jobs:
       - run: python backend/manage.py test apps.common apps.admin_dashboard apps.library apps.assets apps.authentication apps.projects apps.canvas apps.agents apps.generation apps.exports apps.workers
       - run: npm ci
       - run: python scripts/django-migration/model-columns.py
+      - run: python scripts/django-migration/index-state.py
+      - run: python scripts/django-migration/index-ddl-probe.py
       - run: python scripts/django-migration/generation-index-state.py
       - run: python scripts/django-migration/generation-index-ddl-probe.py
       - run: python scripts/django-migration/generation-serialization-parity.py

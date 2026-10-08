@@ -757,3 +757,27 @@ controls reproduce and reject the previous DESC NULLS FIRST behavior. All
 temporary objects are rolled back and verified absent. This proves exercised
 index column ordering, not full physical catalog equivalence, defaults, unique
 constraints or baseline readiness. Production schema and ownership are unchanged.
+
+All current Drizzle-declared indexes are now represented in Django runtime and
+disk state: 33 across the 21-table inventory. The remaining declarations include
+folder partial uniqueness, generation namespace/sequence uniqueness, export
+ordering and due-work indexes, organizational idempotency, agents, assets, login
+attempts and activity logs. PostgreSQLUniqueIndex preserves a unique index's
+catalog object form rather than replacing it with an unconditional unique
+constraint. Seven new migrations use empty database operations; sqlmigrate
+confirms each emits no physical DDL. Existing Canvas and portrait-group indexes
+were present at runtime but missing from initial unmanaged migration state;
+explicit state operations correct that gap.
+
+The new CI index-state guard compares inventory, uniqueness, columns, direction,
+NULL ordering and predicates against current metadata. The physical temporary
+table probe verifies 66 indexes across runtime/disk states, including catalog
+uniqueness and partial-index presence. Twenty-four insert checks exercise folder
+root/child collision scopes and namespace/sequence collisions, including allowed
+different scopes/sequences. All temporary objects are rolled back and verified
+absent. The 42 Django regression tests, 205-column guard, system checks and
+makemigrations consistency pass. This is declared-index preparation and isolated
+behavior evidence, not production catalog equivalence: migration-script-only
+objects, defaults, constraints, functions, triggers and Django-only baseline
+reproduction still require the takeover gate. Drizzle remains schema authority;
+no runtime, provider, worker or production traffic ownership transferred.

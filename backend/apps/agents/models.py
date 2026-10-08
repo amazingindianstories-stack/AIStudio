@@ -1,3 +1,4 @@
+from apps.common.indexes import PostgreSQLIndex
 from django.db import models
 
 
@@ -14,6 +15,10 @@ class AgentConversation(models.Model):
     class Meta:
         managed = False
         db_table = 'agent_conversations'
+        indexes = [
+            PostgreSQLIndex(models.F('project_id').asc(nulls_last=True), name='agent_conversations_project_id_idx'),
+            PostgreSQLIndex(models.F('project_id').asc(nulls_last=True), models.F('agent_kind').asc(nulls_last=True), name='agent_conversations_project_kind_idx'),
+        ]
 
 
 class AgentConversationMessage(models.Model):
@@ -28,3 +33,6 @@ class AgentConversationMessage(models.Model):
     class Meta:
         managed = False
         db_table = 'agent_conversation_messages'
+        indexes = [
+            PostgreSQLIndex(models.F('conversation_id').asc(nulls_last=True), name='agent_conversation_messages_conversation_id_idx'),
+        ]

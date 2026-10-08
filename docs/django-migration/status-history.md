@@ -204,3 +204,8 @@ logout and password changes pass; trusted frontend Origin reaches validation.
 Application snapshots plus attempts/audit counts are unchanged after denials.
 Full HTTP harness still passes. See origin-security-qualification.md; hosted
 browser/proxy behavior remains pending. No production routing or secrets changed.
+
+2026-10-08: Declared index coverage expanded to all 33 current Drizzle indexes
+in runtime/disk Django state. Isolated qualification: 66 physical index checks,
+24 scoped uniqueness insert checks, seven no-op migration SQL checks and 42
+Django tests pass. Full schema equivalence remains open; authority unchanged.

@@ -1,3 +1,4 @@
+from apps.common.indexes import PostgreSQLIndex
 from django.db import models
 
 class Asset(models.Model):
@@ -13,6 +14,9 @@ class Asset(models.Model):
     class Meta:
         managed = False
         db_table = 'assets'
+        indexes = [
+            PostgreSQLIndex(models.F('project_id').asc(nulls_last=True), name='assets_project_id_idx'),
+        ]
 
 
 class PortraitGroup(models.Model):
