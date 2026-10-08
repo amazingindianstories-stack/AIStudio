@@ -17,4 +17,6 @@ from apps.generation.history_counts import history_counts
 
 from apps.generation.updates import generation_updates
 
-urlpatterns = [path('api/history/updates', generation_updates), path('api/history/counts', history_counts), path('api/canvas-boards', board_metadata_reads), path('api/health', health), path('api/settings', effective_settings), path('api/folders', folder_reads), path('api/assets', asset_reads), path('api/auth/me', current_user), path('api/auth/login', login), path('api/auth/logout', logout), path('api/auth/password', change_password), path('api/projects', project_reads)]
+from apps.generation.history import history_reads
+
+urlpatterns = [path('api/history', history_reads), path('api/history/updates', generation_updates), path('api/history/counts', history_counts), path('api/canvas-boards', board_metadata_reads), path('api/health', health), path('api/settings', effective_settings), path('api/folders', folder_reads), path('api/assets', asset_reads), path('api/auth/me', current_user), path('api/auth/login', login), path('api/auth/logout', logout), path('api/auth/password', change_password), path('api/projects', project_reads)]

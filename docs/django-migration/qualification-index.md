@@ -486,3 +486,22 @@ include generation_naming and remain unchanged. Existing real HTTP comparisons
 pass. This uses narrow qualification fixtures, not full-schema PG16 naming
 invariant/rename/move/concurrency acceptance. History HTTP integration and those
 gates remain pending; no ownership, schema authority or deployment changes.
+
+GET history is now IMPLEMENTING in Django: active-session authentication, current
+project/folder/kind/favorite/literal-search filters, parsed page limit/cursor,
+created_at or favorited_at plus descending UUID ordering, strict composite
+PostgreSQL row comparison, limit+1 lookahead, explicit nextCursor, public
+generation serialization and canonical database filename resolution. No
+PATCH/DELETE history behavior is introduced. The route is absent from the
+routing allowlist and Next remains its traffic owner.
+
+Ten real Node/Django HTTP comparisons pass on disposable local PG18 fixtures:
+anonymous 401, defaults, aged renewal/page size, equal-timestamp UUID cursor,
+project/global/folder-none filtering, explicit audio, favorite pagination, junk
+cursor and decimal-prefix limit, literal wildcard/backslash search. Status/JSON
+(including filename and nextCursor), renewal presence and unchanged database
+snapshots match. Existing HTTP and batch naming checks pass. Narrow fixtures
+do not establish full-schema PG16/production performance, concurrent insert
+pagination, populated favorite timestamp ordering, malformed UUID/operand errors
+or full application/browser/hosted acceptance; those gates remain pending.
+No production deployment, provider/storage call or schema authority change.

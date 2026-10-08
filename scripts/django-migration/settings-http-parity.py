@@ -281,6 +281,19 @@ def main():
                         assert value['max-age']=='2592000' and value['httponly'] and value['samesite'].lower()=='lax' and value['path']=='/'
                 assert before == snapshot(), 'canvas read mutated DB'
                 canvas_report.append({'query':query,'status':responses[0][0],'json_equal':True,'cookie_contract_equal':True,'database_unchanged':True})
+            history_report = []
+            for query,cookie in [('', ''),('',token()),('?limit=2',token(age=172800000)),
+                    ('?limit=2&cursor=1.aaaaaaaa-aaaa-4aaa-8aaa-000000000004',token()),
+                    ('?projectId=none&folderId=none',token()),('?kind=audio',token()),
+                    ('?favorite=1&limit=1',token()),('?cursor=junk&limit=2tail',token()),
+                    ('?'+urlencode({'q':'100%_fixture\\ref'}),token()),
+                    ('?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd',token())]:
+                before = snapshot()
+                responses = [get(url.replace('/api/settings','/api/history')+query,cookie) for url in urls]
+                assert responses[0][:2] == responses[1][:2], ('history',query,responses[0][:2],responses[1][:2])
+                assert bool(responses[0][2].get('Set-Cookie')) == bool(responses[1][2].get('Set-Cookie'))
+                assert before == snapshot(), 'history read mutated DB'
+                history_report.append({'query':query,'status':responses[0][0],'json_equal':True,'database_unchanged':True})
             history_count_report = []
             for query,cookie in [('', ''),('', token()),
                     ('?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd&folderId=none&favorite=1', token(age=172800000)),
@@ -471,7 +484,7 @@ def main():
                 if result.returncode:
                     raise RuntimeError(result.stderr[-4000:])
                 browser_report=json.loads(result.stdout)
-            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'batch_filename_parity':{'cases':len(batches),'node_equal':True,'database_unchanged':True},'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'batch_filename_parity':{'cases':len(batches),'node_equal':True,'database_unchanged':True},'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_http_parity':history_report,'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()
