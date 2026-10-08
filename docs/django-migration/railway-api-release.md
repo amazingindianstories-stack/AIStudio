@@ -184,3 +184,23 @@ qualification. It does not test schema migrations, business APIs against a
 complete PG16 schema, amd64 images, hosted proxy/TLS or Railway connectivity.
 The earlier container-runtime-pending statements are superseded only for this
 explicit readiness scope. No shared database or production service was accessed.
+
+## Local image provenance
+
+The isolated build harness now attaches and verifies
+`org.opencontainers.image.revision` and `io.veevee.api-source-sha256`. The runner
+supplies the real source checkout HEAD; the API fingerprint hashes sorted paths
+and file-content hashes for actual allowed Python/requirements/build inputs.
+This captures local API changes even when a revision label alone would not.
+The harness prints the inspected image ID, revision and fingerprint as release
+evidence. It does not copy Git metadata or credentials into the image.
+
+Verified build: revision `7a47de80eb31bf213b80da9f8f16db61b0707c01`, API fingerprint
+`7a1ae899e6ed3a3324093d87b5b8c7155b238c9b6c4a5ee241742ebb2464f392`, image ID
+`sha256:9bf7c4bc95bf855d3fdebac98ce02328004401c56a13493522e172abf40fd0dc`.
+File/import inspection passed for the updated actor-logging image. This build
+did not rerun container HTTP checks. Labels are provenance metadata, not signed
+attestations. Railway's source-build path does not automatically run this local
+harness: the eventual release must explicitly preserve/verify these labels or
+provide equivalent committed-source/image evidence. Existing deployments remain
+unreconciled; no live service was changed.

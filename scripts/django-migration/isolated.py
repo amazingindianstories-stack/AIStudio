@@ -61,6 +61,7 @@ def environment(session, port):
         'MOCK_GENERATION': '1', 'MOCK_ASSET_PROVIDER': '1',
         'AWS_EC2_METADATA_DISABLED': 'true', 'NEXT_TELEMETRY_DISABLED': '1',
         'ENV_FILE': str(session / 'empty.env'), 'CI': '1',
+        'VEEVEE_SOURCE_REVISION': subprocess.check_output(['git','rev-parse','HEAD'],cwd=ROOT,text=True).strip(),
     }
 
 

@@ -7,6 +7,8 @@ import tempfile
 import time
 import uuid
 import sys
+import hashlib
+import re
 
 root = Path.cwd()
 home = Path(os.environ['HOME'])
@@ -15,12 +17,31 @@ if os.environ.get('MIGRATION_TEST_ISOLATED') != '1' or root.parent.name != home.
 socket = 'unix:///Users/ais4/.docker/run/docker.sock'
 plugins = '/Applications/Docker.app/Contents/Resources/cli-plugins'
 image = 'veevee-django-qualification:local'
+revision = os.environ['VEEVEE_SOURCE_REVISION']
+if not re.fullmatch(r'[0-9a-f]{40}', revision):
+    raise SystemExit('Explicit source revision required')
+# Fingerprint actual API inputs, including local changes, rather than implying
+# a revision label attests to an unchanged checkout.
+digest = hashlib.sha256()
+for source in sorted(Path('backend').rglob('*')):
+    if not source.is_file() or source.is_symlink() or any(part in {'__pycache__','.venv','venv'} for part in source.parts):
+        continue
+    if source.suffix != '.py' and source.name not in {'requirements.txt','Dockerfile','Dockerfile.dockerignore'}:
+        continue
+    digest.update(source.as_posix().encode() + b'\0' + hashlib.sha256(source.read_bytes()).digest())
+fingerprint = digest.hexdigest()
 with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'], prefix='docker-config-') as config:
     # No personal registry credentials; explicitly discover bundled BuildKit.
     Path(config, 'config.json').write_text(json.dumps({'cliPluginsExtraDirs': [plugins]}))
     docker = ['docker', '--config', config, '--host', socket]
     env = dict(os.environ, DOCKER_BUILDKIT='1')
-    subprocess.run(docker + ['buildx', 'build', '--load', '--file', 'backend/Dockerfile', '--tag', image, '.'], env=env, check=True)
+    subprocess.run(docker + ['buildx', 'build', '--load', '--file', 'backend/Dockerfile', '--tag', image,
+                            '--label',f'org.opencontainers.image.revision={revision}',
+                            '--label',f'io.veevee.api-source-sha256={fingerprint}', '.'], env=env, check=True)
+    metadata = json.loads(subprocess.check_output(docker + ['image','inspect',image], env=env, text=True))[0]
+    assert metadata['Config']['Labels']['org.opencontainers.image.revision'] == revision
+    assert metadata['Config']['Labels']['io.veevee.api-source-sha256'] == fingerprint
+    print(json.dumps({'source_revision':revision,'api_source_sha256':fingerprint,'image_id':metadata['Id']}))
     inspection = '''import json, pathlib, django, rest_framework, gunicorn
 files=[p.relative_to('/app').as_posix() for p in pathlib.Path('/app').rglob('*') if p.is_file()]
 allowed={'requirements.txt','Dockerfile','Dockerfile.dockerignore'}
