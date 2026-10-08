@@ -51,3 +51,9 @@ Local API BuildKit image build and network-disabled file/import inspection pass:
 56 application files, no unexpected files, Django 5.2.18 / DRF 3.18.3 /
 Gunicorn 23.0.0. The check corrected a broad Docker ignore exception. Container
 HTTP/database qualification and hosted deployment remain pending.
+
+Container health/database qualification now passes against disposable tmpfs
+PostgreSQL 16.15 on an internal Docker network: readiness 200, DB outage 503,
+recovery 200, no-store/request IDs and sanitized structured logs. Cleanup was
+verified. This supersedes the preceding container-HTTP-pending statement for
+health only; business/schema/hosted qualification remains incomplete.

@@ -160,3 +160,27 @@ This is a local ARM64 build/import/file-inventory check. Container HTTP startup,
 disposable PG16 connectivity, failure/readiness behavior, Railway architecture
 and hosted TLS remain unqualified. Earlier daemon-unavailable statements above
 describe the initial observation and are superseded by this build evidence.
+
+### Container readiness and PostgreSQL 16 — 2026-10-08
+
+`container-build.py --runtime`, invoked through the verified isolated runner,
+passes with a new internal-only Docker network, no published ports, and a
+PostgreSQL 16 container whose data directory is tmpfs. The script inspects the
+actual image, network and mount category before running database utilities.
+Only synthetic secrets are explicitly passed to the API container; no host
+credentials or checkout files are mounted. Server version is
+`16.15 (Debian 16.15-1.pgdg13+2)`.
+
+The image's default production WSGI startup serves `/api/health` with 200,
+database-ready JSON, no-store and a request ID. Stopping that exact disposable
+database yields sanitized 503/database-unavailable JSON. Restarting the same
+database restores 200. JSON stdout request logs include both 200 and 503 and
+exclude the probe's private query marker and synthetic DB password. The script
+removes its API/database containers and network in a finally block; a subsequent
+Docker inventory confirmed no matching qualification containers or networks.
+
+This completes local ARM64 container health/connectivity/failure/recovery
+qualification. It does not test schema migrations, business APIs against a
+complete PG16 schema, amd64 images, hosted proxy/TLS or Railway connectivity.
+The earlier container-runtime-pending statements are superseded only for this
+explicit readiness scope. No shared database or production service was accessed.
