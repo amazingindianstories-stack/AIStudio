@@ -79,3 +79,54 @@ def logout(request):
     # Match the current logout cookie exactly; do not carry renewal through.
     response.set_cookie('veevee_session','',max_age=0,httponly=True,path='/',samesite=None)
     return response
+
+@api_view(['PATCH'])
+@authentication_classes([])
+@permission_classes([])
+def change_password(request):
+    import json
+    import time
+    import uuid
+    from django.db.models import F
+    from .models import User
+    from .password import validate_password, verify_password, hash_password
+    from .session import sign_session
+    from apps.common.models import ActivityLog
+    def cleared(message,status):
+        response=Response({'error':message},status=status)
+        response.set_cookie('veevee_session','',max_age=0,httponly=True,samesite='Lax',secure=settings.SESSION_COOKIE_SECURE,path='/')
+        return response
+    session=lookup(request)
+    if session is None:
+        return cleared('UNAUTHENTICATED',401)
+    try:
+        body=json.loads(request.body)
+    except (ValueError,UnicodeError):
+        body={}
+    if not isinstance(body,dict):
+        body={}
+    current,new=body.get('currentPassword'),body.get('newPassword')
+    if not isinstance(current,str) or not current or len(current.encode('utf-16-le',errors='surrogatepass'))//2>1024:
+        return Response({'error':'Current password is required.'},status=400)
+    error=validate_password(new)
+    if error:
+        return Response({'error':error},status=400)
+    account=User.objects.filter(id=session.id).first()
+    if account is None or not account.is_active or account.auth_version!=session.auth_version:
+        return cleared('UNAUTHENTICATED',401)
+    if not verify_password(current,account.password_hash,account.password_salt):
+        return Response({'error':'Current password is incorrect.'},status=401)
+    credentials=hash_password(new)
+    updated=User.objects.filter(id=account.id,is_active=True,auth_version=account.auth_version).update(
+        password_hash=credentials['hash'],password_salt=credentials['salt'],auth_version=F('auth_version')+1)
+    if not updated:
+        return cleared('Your session changed. Sign in and try again.',409)
+    session.auth_version=account.auth_version+1
+    response=Response({'ok':True})
+    response.set_cookie('veevee_session',sign_session(session),max_age=2592000,
+                        httponly=True,samesite='Lax',secure=settings.SESSION_COOKIE_SECURE,path='/')
+    try:
+        ActivityLog.objects.create(id=uuid.uuid4(),user_id=session.id,action='password_changed',detail=None,created_at=int(time.time()*1000))
+    except Exception:
+        pass
+    return response

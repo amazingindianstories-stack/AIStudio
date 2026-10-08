@@ -143,3 +143,51 @@ class LogoutApiTests(TransactionTestCase):
         self.assertEqual(response.cookies['veevee_session']['max-age'],0)
         self.assertEqual(response.cookies['veevee_session'].value,'')
         self.assertEqual(ActivityLog.objects.filter(action='logout').count(),1)
+
+class PasswordChangeApiTests(TransactionTestCase):
+    cookie=SettingsTests.cookie
+    setUp=LoginApiTests.setUp
+
+    def test_password_change_invalidates_old_cookie_and_reissues(self):
+        from .models import User
+        from .password import verify_password
+        from apps.common.models import ActivityLog
+        self.cookie()
+        old=self.client.cookies['veevee_session'].value
+        response=self.client.patch('/api/auth/password',{'currentPassword':'fixture-password','newPassword':'changed-fixture-password'},content_type='application/json')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json(),{'ok':True})
+        account=User.objects.get()
+        self.assertEqual(account.auth_version,1)
+        self.assertTrue(verify_password('changed-fixture-password',account.password_hash,account.password_salt))
+        self.assertEqual(ActivityLog.objects.filter(action='password_changed').count(),1)
+        self.client.cookies['veevee_session']=response.cookies['veevee_session'].value
+        self.assertIsNotNone(self.client.get('/api/auth/me').json()['user'])
+        self.client.cookies['veevee_session']=old
+        self.assertEqual(self.client.get('/api/auth/me').json(),{'user':None})
+
+    def test_wrong_current_password_does_not_mutate_account(self):
+        from .models import User
+        self.cookie()
+        response=self.client.patch('/api/auth/password',{'currentPassword':'wrong','newPassword':'changed-fixture-password'},content_type='application/json')
+        self.assertEqual(response.status_code,401)
+        self.assertEqual(response.json(),{'error':'Current password is incorrect.'})
+        self.assertEqual(User.objects.get().auth_version,0)
+
+    def test_concurrent_auth_version_change_returns_conflict(self):
+        from unittest.mock import patch
+        from .models import User
+        from .password import hash_password
+        from apps.common.models import ActivityLog
+        self.cookie()
+        original=User.objects.get().password_hash
+        def concurrent_change(password):
+            User.objects.update(auth_version=1)
+            return hash_password(password)
+        with patch('apps.authentication.password.hash_password',side_effect=concurrent_change):
+            response=self.client.patch('/api/auth/password',{'currentPassword':'fixture-password','newPassword':'changed-fixture-password'},content_type='application/json')
+        self.assertEqual(response.status_code,409)
+        self.assertEqual(response.json(),{'error':'Your session changed. Sign in and try again.'})
+        self.assertEqual(response.cookies['veevee_session']['max-age'],0)
+        self.assertEqual(User.objects.get().password_hash,original)
+        self.assertEqual(ActivityLog.objects.count(),0)

@@ -7,8 +7,8 @@ from apps.library.views import folder_reads
 
 from apps.assets.views import asset_reads
 
-from apps.authentication.views import current_user, login, logout
+from apps.authentication.views import current_user, login, logout, change_password
 
 from apps.projects.views import project_reads
 
-urlpatterns = [path('api/health', health), path('api/settings', effective_settings), path('api/folders', folder_reads), path('api/assets', asset_reads), path('api/auth/me', current_user), path('api/auth/login', login), path('api/auth/logout', logout), path('api/projects', project_reads)]
+urlpatterns = [path('api/health', health), path('api/settings', effective_settings), path('api/folders', folder_reads), path('api/assets', asset_reads), path('api/auth/me', current_user), path('api/auth/login', login), path('api/auth/logout', logout), path('api/auth/password', change_password), path('api/projects', project_reads)]

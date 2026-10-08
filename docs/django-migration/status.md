@@ -171,3 +171,10 @@ HTTP requests: anonymous/authenticated ok:true, HttpOnly path=/ max-age=0 cookie
 without SameSite, and exactly one authenticated logout audit event. Aged-session
 renewal cannot replace the cleared cookie. Full HTTP harness passes again.
 Logout and auth traffic remain Next-owned; hosted/security/browser gates remain.
+
+Password PATCH implemented with current validation, scrypt replacement, guarded
+active/auth-version UPDATE, incremented version, cookie reissue and audit event.
+Three focused DB/API tests pass: success invalidates old token; incorrect current
+password leaves version unchanged; concurrent version change returns 409, clears
+cookie and preserves hash without audit. Actual Node/Django password HTTP parity,
+security/browser/hosted gates remain. Production auth remains Next-owned.
