@@ -112,6 +112,25 @@ def main():
                 report.append({'case':name,'status':responses[0][0],'json_equal':True,'database_unchanged':True,'cookie_flags_equal':True})
             with db.cursor() as c:
                 c.execute('UPDATE users SET is_active=true')
+            me_report = []
+            for name, cookie in [('anonymous',''),('invalid','invalid'),('authenticated',token()),('wrong-version',token(1)),('renewal',token(age=172800000))]:
+                before = snapshot()
+                responses = [get(url.replace('/api/settings','/api/auth/me'),cookie) for url in urls]
+                assert responses[0][:2] == responses[1][:2], ('me',name,responses[0][:2],responses[1][:2])
+                cookies=[]
+                for _,_,headers in responses:
+                    jar=SimpleCookie()
+                    if headers.get('Set-Cookie'): jar.load(headers['Set-Cookie'])
+                    cookies.append(jar)
+                assert bool(cookies[0]) == bool(cookies[1])
+                for jar in cookies:
+                    if jar:
+                        expected='0' if name in ('anonymous','invalid','wrong-version') else '2592000'
+                        assert str(jar['veevee_session']['max-age']) == expected
+                        assert jar['veevee_session']['httponly']
+                        assert jar['veevee_session']['samesite'].lower() == 'lax'
+                assert before == snapshot(), 'me read mutated DB'
+                me_report.append({'case':name,'status':responses[0][0],'json_equal':True,'cookie_contract_equal':True,'database_unchanged':True})
             folder_report = []
             for query in ['', '?tree=1', '?tree=true&ancestry=cccccccc-cccc-4ccc-8ccc-cccccccccccc', '?parentId=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb&projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd', '?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd', '?ancestry=cccccccc-cccc-4ccc-8ccc-cccccccccccc', '?ancestry=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', '?tree=1&tree=0', '?parentId=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb&parentId=dddddddd-dddd-4ddd-8ddd-dddddddddddd']:
                 before = snapshot()
@@ -150,7 +169,7 @@ def main():
                 time.sleep(.2)
             assert response[:2] == get(urls[1], token())[:2]
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
-            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report},indent=2))
+            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

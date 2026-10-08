@@ -380,7 +380,7 @@
         "GET": {
           "owner": "next",
           "next_status": "active",
-          "state": "NOT_STARTED",
+          "state": "IMPLEMENTING",
           "issue": "DJANGO-023",
           "evidence": []
         },

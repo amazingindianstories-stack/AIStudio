@@ -113,3 +113,9 @@ Django on a fresh verified disposable cluster. Status/JSON and unchanged DB
 snapshots agree. Seven settings/nine folder comparisons and same-origin settings
 rewrite also pass again. See asset-read-qualification.md. Production ownership,
 schema authority and worker authority remain unchanged.
+
+Current-user GET implemented from current Next behavior. Thirteen Django tests
+pass, plus five actual current-user HTTP comparisons: anonymous/invalid/version
+mismatch returns 200 user:null and clears cookie, public user fields match,
+renewal max-age/flags match, DB snapshots unchanged. Other HTTP suites still
+pass. Auth issuer/production traffic remain Next; profile PATCH is not ported.
