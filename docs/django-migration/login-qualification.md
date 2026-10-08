@@ -18,3 +18,7 @@ malformed JSON/type coercion parity, Origin/CSRF/security qualification, secure
 hosted cookie forwarding, browser, PostgreSQL 16 CI and preview canary. Login
 routing is not selected; Next remains authoritative issuer. This evidence is
 not production authorization or final authentication acceptance.
+
+Logout extension: both runtimes pass anonymous and authenticated POST logout
+with equal response/cookie contract and one authenticated logout audit event.
+Focused Django coverage additionally checks clearing overrides aged renewal.

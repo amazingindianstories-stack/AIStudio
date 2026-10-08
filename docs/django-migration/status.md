@@ -165,3 +165,9 @@ credentials, successful normalized login, cross-runtime accepted cookies,
 nonexistent-account failures and sixth-attempt throttle. DB attempt/audit event
 invariants match. All existing HTTP suites still pass. See login-qualification.md
 for open security/input/browser/hosted gates. No auth cutover or deployment.
+
+Logout implemented and qualified via focused Django test plus actual Next/Django
+HTTP requests: anonymous/authenticated ok:true, HttpOnly path=/ max-age=0 cookie
+without SameSite, and exactly one authenticated logout audit event. Aged-session
+renewal cannot replace the cleared cookie. Full HTTP harness passes again.
+Logout and auth traffic remain Next-owned; hosted/security/browser gates remain.

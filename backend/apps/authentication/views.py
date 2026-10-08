@@ -61,3 +61,21 @@ def login(request):
         # Current activity logging is best effort and must not fail login.
         pass
     return response
+
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([])
+def logout(request):
+    import time
+    import uuid
+    from apps.common.models import ActivityLog
+    user=lookup(request)
+    if user:
+        try:
+            ActivityLog.objects.create(id=uuid.uuid4(),user_id=user.id,action='logout',detail=None,created_at=int(time.time()*1000))
+        except Exception:
+            pass
+    response=Response({'ok':True})
+    # Match the current logout cookie exactly; do not carry renewal through.
+    response.set_cookie('veevee_session','',max_age=0,httponly=True,path='/',samesite=None)
+    return response

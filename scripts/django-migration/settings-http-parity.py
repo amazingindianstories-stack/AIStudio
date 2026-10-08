@@ -151,7 +151,20 @@ def main():
                     assert c.fetchall()==[('missing@example.invalid',5)]
                     c.execute('SELECT user_id::text,action,detail FROM activity_logs')
                     assert c.fetchall()==[('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','login',None)]
-                login_report.append({'runtime':runtime,'success_cookie_interoperable':True,'failure_throttle_audit_contract':True})
+                logout_url=url.replace('/api/settings','/api/auth/logout')
+                for cookie in ['',jar['veevee_session'].value]:
+                    logged_out=get(logout_url,cookie,{})
+                    assert logged_out[:2]==(200,{'ok':True})
+                    cleared=SimpleCookie();cleared.load(logged_out[2]['Set-Cookie'])
+                    assert cleared['veevee_session'].value==''
+                    assert str(cleared['veevee_session']['max-age'])=='0'
+                    assert cleared['veevee_session']['httponly']
+                    assert cleared['veevee_session']['path']=='/'
+                    assert not cleared['veevee_session']['samesite']
+                with db.cursor() as c:
+                    c.execute("SELECT count(*) FROM activity_logs WHERE action='logout'")
+                    assert c.fetchone()[0]==1
+                login_report.append({'runtime':runtime,'success_cookie_interoperable':True,'failure_throttle_audit_contract':True,'logout_cookie_audit_contract':True})
             project_report = []
             for name,cookie in [('anonymous',''),('authenticated',token())]:
                 before=snapshot()

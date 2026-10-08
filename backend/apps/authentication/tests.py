@@ -124,3 +124,22 @@ class LoginApiTests(TransactionTestCase):
         response=self.client.post('/api/auth/login',{},content_type='application/json')
         self.assertEqual(response.status_code,400)
         self.assertEqual(response.json(),{'error':'Email and password are required.'})
+
+class LogoutApiTests(TransactionTestCase):
+    cookie=SettingsTests.cookie
+    setUp=LoginApiTests.setUp
+
+    def test_logout_clears_cookie_and_audits_only_valid_session(self):
+        from apps.common.models import ActivityLog
+        response=self.client.post('/api/auth/logout')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json(),{'ok':True})
+        self.assertEqual(response.cookies['veevee_session']['max-age'],0)
+        self.assertTrue(response.cookies['veevee_session']['httponly'])
+        self.assertEqual(response.cookies['veevee_session']['samesite'],'')
+        self.assertEqual(ActivityLog.objects.count(),0)
+        self.cookie(age=172800000)
+        response=self.client.post('/api/auth/logout')
+        self.assertEqual(response.cookies['veevee_session']['max-age'],0)
+        self.assertEqual(response.cookies['veevee_session'].value,'')
+        self.assertEqual(ActivityLog.objects.filter(action='logout').count(),1)
