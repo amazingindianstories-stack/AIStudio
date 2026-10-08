@@ -636,3 +636,21 @@ is compared on equivalent larger/indexed data. These local timings are neither
 representative nor thresholds. The main HTTP CI harness includes this tooling;
 Drizzle session instrumentation may require adjustment when dependencies change.
 Production ownership, schema authority and hosted authorization remain unchanged.
+
+Actual Node/Django history comparison now adds 5,000 synthetic generations to
+the same verified disposable PG18 HTTP fixture database, analyzes its local
+statistics and compares seven actual service responses/plans. Additional cases
+cover matching/no-match large prompt searches and a folder cursor midway through
+the synthetic timestamps. All seven responses match; existing HTTP regressions
+also pass. Synthetic IDs are explicitly tracked and deleted in finally; the
+parent harness confirms its original full fixture snapshot is restored.
+
+This narrow physical schema has no declared history indexes, so observed full
+scans are also present in the actual Node query (the literal search scans the
+5,006-row fixture and discards 5,005 rows). It establishes that this scan is not
+unique to Django on this fixture. It does not resolve the separate full-indexed
+PG16 search-scaling concern or prove production performance parity. Node/Django
+comparison against equivalent full indexed schema, representative distributions
+and concurrency remains necessary. No production database, deployment, index
+change or schema authority transfer occurred. CI's HTTP harness includes the
+larger comparison and fixture cleanup guard.
