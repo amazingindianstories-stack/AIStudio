@@ -674,3 +674,23 @@ constraints/defaults/triggers, full PG16 driver parity, larger distributions,
 concurrent behavior or HTTP latency. Those performance/hosted/application gates
 remain pending. Fixture cleanup restored row snapshots and all HTTP checks pass.
 Indexes persist only in the dedicated disposable qualification database.
+
+Local HTTPS browser qualification now closes the previous production Secure
+cookie harness gap. A qualification-only TLS front door binds 127.0.0.1,
+forwards GETs to the real Next proxy, preserves response/cookie headers and
+uses ephemeral one-day certificates/keys under isolated TMPDIR. It installs no
+trust roots and prints no keys. Chromium ignores certificate validation only
+inside this loopback test context; input hostname/protocol are asserted. TLS
+server and certificate directory close/clean up on exit.
+
+All ten controlled browser cases pass with production-settings two-worker
+Gunicorn: settings, history pages/cursor/error, update polling/error, counts and
+Canvas 400/200. Browser cookies are explicitly asserted Secure, HttpOnly and
+SameSite=Lax; successful aged sessions renew, both 500s retain the prior cookie.
+Fetches remain on the frontend HTTPS origin and carry Django request IDs.
+Existing actual Node/Django HTTP and indexed plan comparisons also pass. CI
+now runs --gunicorn --browser alongside the existing local HTTP browser pass.
+This is ephemeral loopback TLS with a test certificate, not hosted certificate
+validation, Vercel/Railway forwarding or full application acceptance. Those
+gates and production transfer remain pending. No shared credentials/providers
+or production resources were used.

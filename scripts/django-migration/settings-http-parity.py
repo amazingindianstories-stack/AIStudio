@@ -1,4 +1,5 @@
 """Real Next/Django HTTP comparison, restricted to disposable local qualification."""
+from contextlib import ExitStack
 import hashlib
 import hmac
 import base64
@@ -41,8 +42,6 @@ def get(url,cookie,body=None,method=None,extra_headers=None,raw=False):
 
 
 def main():
-    if '--gunicorn' in sys.argv and '--browser' in sys.argv:
-        raise SystemExit('Production Secure-cookie browser qualification requires an HTTPS harness')
     target=urlsplit(os.environ.get('DATABASE_URL',''))
     if os.environ.get('MIGRATION_TEST_ISOLATED')!='1' or target.hostname!='127.0.0.1' or target.path!='/veevee_django_migration':
         raise SystemExit('Disposable loopback database required')
@@ -50,6 +49,7 @@ def main():
         raise SystemExit('Refusing checkout with dotenv files')
     root=Path.cwd()
     processes=[]
+    browser_stack = ExitStack()
     with psycopg.connect(os.environ['DATABASE_URL'],autocommit=True) as db:
         with db.cursor() as c:
             c.execute('CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY,email text,name text,role text,color text,avatar_url text,is_active boolean,auth_version integer)')
@@ -531,6 +531,10 @@ def main():
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
             browser_report = 'not_run'
             if '--browser' in sys.argv:
+                browser_url = urls[0]
+                if '--gunicorn' in sys.argv:
+                    from loopback_https import loopback_https
+                    browser_url = browser_stack.enter_context(loopback_https(next_port))+'/api/settings'
                 update_browser_cases = []
                 for query in ('?since=2&since=1', '?since=9999999999999'):
                     direct = get(urls[1].replace('/api/settings','/api/history/updates')+query,token())
@@ -540,12 +544,13 @@ def main():
                     update_browser_cases.append({'path':'/api/history'+query,'status':200,'expected':direct[1]})
                 update_browser_cases.append({'path':'/api/history?projectId=invalid','status':500,'expected':'','raw':True,'renewal':False})
                 update_browser_cases.append({'path':'/api/history/updates?since=1.5','status':500,'expected':'','raw':True,'renewal':False})
-                result=subprocess.run(['node','scripts/django-migration/settings-browser.mjs'],input=json.dumps({'url':urls[0],'cookie':token(age=172800000),'expected':response[1], 'extraCases':update_browser_cases+[{'path':'/api/history/counts?kind=audio','status':200,'expected':{'project':{'total':0,'unsorted':0,'byFolder':{}},'globalLibrary':{'total':1,'unsorted':1,'byFolder':{}},'allAssets':1,'favorites':1}},{'path':'/api/canvas-boards','status':400,'expected':{'error':'projectId required.'}},{'path':'/api/canvas-boards?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd','status':200,'expected':{'boards':[{'id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc','projectId':'dddddddd-dddd-4ddd-8ddd-dddddddddddd','name':'दृश्य','createdBy':None,'createdAt':1,'updatedAt':2}]}}]}),text=True,capture_output=True)
+                result=subprocess.run(['node','scripts/django-migration/settings-browser.mjs'],input=json.dumps({'url':browser_url,'secure':'--gunicorn' in sys.argv,'cookie':token(age=172800000),'expected':response[1], 'extraCases':update_browser_cases+[{'path':'/api/history/counts?kind=audio','status':200,'expected':{'project':{'total':0,'unsorted':0,'byFolder':{}},'globalLibrary':{'total':1,'unsorted':1,'byFolder':{}},'allAssets':1,'favorites':1}},{'path':'/api/canvas-boards','status':400,'expected':{'error':'projectId required.'}},{'path':'/api/canvas-boards?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd','status':200,'expected':{'boards':[{'id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc','projectId':'dddddddd-dddd-4ddd-8ddd-dddddddddddd','name':'दृश्य','createdBy':None,'createdAt':1,'updatedAt':2}]}}]}),text=True,capture_output=True)
                 if result.returncode:
                     raise RuntimeError(result.stderr[-4000:])
                 browser_report=json.loads(result.stdout)
             print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'history_node_django_plans':plan_result,'batch_filename_parity':{'cases':len(batches),'node_equal':True,'database_unchanged':True},'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_error_http_parity':history_errors,'history_pagination_http_parity':pagination_report,'history_http_parity':history_report,'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
+            browser_stack.close()
             for process,log in processes:
                 process.terminate()
             for process,log in processes:

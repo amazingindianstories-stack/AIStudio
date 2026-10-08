@@ -118,3 +118,8 @@ of only this disposable database's connections followed immediately by settings
 and renewal requests. No settings retry masks errors. All five cases and DB
 snapshots pass. This verifies the exercised connection-reuse correction, not
 arbitrary outage/load resilience or broader cutover readiness.
+
+The isolated harness now supports `--gunicorn --browser` with an ephemeral
+loopback HTTPS front door. Ten controlled fetch cases pass with Secure cookie
+assertions under production settings; see qualification-index.md for scope.
+Hosted HTTPS/certificate/proxy behavior and full UI acceptance remain pending.
