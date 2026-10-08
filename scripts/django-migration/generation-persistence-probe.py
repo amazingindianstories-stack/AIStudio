@@ -48,8 +48,25 @@ with transaction.atomic():
         if kind != 'depth':
             assert row.depth_claim_id is None and row.progress_percent is None
         cases.append(kind)
+    from apps.generation.history_counts import base_query, grouped
+    # Remove preexisting invariant fixtures from this probe's query using a
+    # unique prompt marker, while retaining the real complete physical schema.
+    marker = 'count-probe-' + uuid4().hex
+    for kind, favorite in [('image', True), ('video', False), ('depth', True), ('audio', True)]:
+        identifier = uuid4()
+        identifiers.append(identifier)
+        Generation.objects.create(id=identifier, kind=kind, status='queued',
+            prompt=marker+' 100%_literal\\ref', model='fixture-only', aspect_ratio='16:9',
+            is_favorite=favorite, created_at=1, updated_at=2)
+    rows = base_query(None, marker)
+    assert grouped(rows) == {'total': 3, 'unsorted': 3, 'byFolder': {}}
+    assert rows.filter(is_favorite=True).count() == 2
+    assert base_query('audio', marker).count() == 1
+    assert base_query('image', marker+' 100%_literal\\ref').count() == 1
+    assert base_query(None, marker+' 100XXliteralXref').count() == 0
     transaction.set_rollback(True)
 assert not Generation.objects.filter(pk__in=identifiers).exists()
 print(json.dumps({'generation_orm_kinds': cases, 'generation_columns': 60,
                   'fixture_rows_rolled_back': True, 'provider_calls': 0,
+                  'history_count_full_schema_checks': 5,
                   'scope': 'ORM persistence only; not enqueue API or provider/MOV-byte qualification'}))

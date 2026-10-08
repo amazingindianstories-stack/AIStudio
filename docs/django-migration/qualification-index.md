@@ -272,3 +272,20 @@ suite passes 39 discovered tests. This uses local PG18 narrow fixtures and
 runserver/Next development servers; full-schema PG16, browser/hosted, complete
 error/header parity and performance plans remain pending. No generation enqueue,
 worker, provider, schema authority or traffic change occurred.
+
+History count service now passes five full-schema checks in the Python 3.12
+production-settings image against disposable PostgreSQL 16.15: grouped global
+counts excluding audio, favorite count, explicit audio, literal percent/underscore/
+backslash search and a nonmatching wildcard-like string. The probe inserts four
+full-width generation rows in a transaction and rolls all rows back; no worker
+or provider executes. The complete container harness also passes existing health
+failure/recovery, five settings and eleven hierarchy/naming checks. This advances
+service/schema compatibility, not full history HTTP parity on PG16 or performance
+plans, hosted TLS/browser acceptance, schema baseline or production ownership.
+
+Verified API revision 86154d5c38cf3a79e3d7ea5366e292f8c4fe3f58, API fingerprint
+e506cf9f014b1c80c77749b33b9b2c71178478d82de181a8acf3c18114e2c1df,
+image sha256:4f7decc13d15a6280d09a2366edb6d37a41cc7f14515bca68a451f7951beefad.
+Image inventory has 89 allowed application files and zero unexpected files.
+The earlier hosted proposal remains pinned to its separately reviewed candidate;
+this new image is not silently substituted. Hosted approval remains pending.
