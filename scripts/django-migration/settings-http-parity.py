@@ -28,8 +28,9 @@ def token(version=0, age=0):
     return payload+'.'+enc(hmac.new(os.environ['AUTH_SECRET'].encode(),payload.encode(),hashlib.sha256).digest())
 
 
-def get(url,cookie,body=None,method=None):
+def get(url,cookie,body=None,method=None,extra_headers=None):
     headers={'Cookie':'veevee_session='+cookie} if cookie else {}
+    if extra_headers: headers.update(extra_headers)
     if body is not None: headers['Content-Type']='application/json'
     request=urllib.request.Request(url,data=json.dumps(body).encode() if body is not None else None,headers=headers,method=method)
     try: response=urllib.request.urlopen(request,timeout=20)
@@ -74,7 +75,9 @@ def main():
             next_port,django_port=port(),port()
             for command,name in [(['node','node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port',str(next_port)],'next'),([sys.executable,'backend/manage.py','runserver',f'127.0.0.1:{django_port}','--noreload'],'django')]:
                 log=open(root.parent/(name+'-settings-parity.log'),'w')
-                processes.append((subprocess.Popen(command,stdout=log,stderr=subprocess.STDOUT),log))
+                server_env=dict(os.environ)
+                if name=='django': server_env['DJANGO_BROWSER_ORIGINS']='https://frontend.example'
+                processes.append((subprocess.Popen(command,env=server_env,stdout=log,stderr=subprocess.STDOUT),log))
             urls=[f'http://127.0.0.1:{p}/api/settings' for p in (next_port,django_port)]
             for url in urls:
                 deadline=time.monotonic()+90
@@ -205,6 +208,27 @@ def main():
                 assert responses[0][:2] == responses[1][:2], ('assets',query,responses[0][:2],responses[1][:2])
                 assert before == snapshot(), 'asset read mutated DB'
                 asset_report.append({'query':query,'authenticated':bool(cookie),'status':responses[0][0],'json_equal':True,'database_unchanged':True})
+            origin_report=[]
+            before=snapshot()
+            with db.cursor() as c:
+                c.execute('SELECT count(*) FROM login_attempts')
+                attempts_before=c.fetchone()[0]
+                c.execute('SELECT count(*) FROM activity_logs')
+                audit_before=c.fetchone()[0]
+            for path,method in [('/api/auth/login','POST'),('/api/auth/logout','POST'),('/api/auth/password','PATCH')]:
+                endpoint=urls[1].replace('/api/settings',path)
+                for headers in [{'Origin':'https://attacker.example'},{'Origin':'null'},{'Sec-Fetch-Site':'cross-site'}]:
+                    rejected=get(endpoint,token(),{},method=method,extra_headers=headers)
+                    assert rejected[:2]==(403,{'error':'FORBIDDEN_ORIGIN'})
+                origin_report.append({'route':path,'untrusted_null_cross_site_rejected':True})
+            trusted=get(urls[1].replace('/api/settings','/api/auth/login'),'',{},extra_headers={'Origin':'https://frontend.example'})
+            assert trusted[:2]==(400,{'error':'Email and password are required.'})
+            assert before==snapshot(),'Origin denial mutated application DB'
+            with db.cursor() as c:
+                c.execute('SELECT count(*) FROM login_attempts')
+                assert c.fetchone()[0]==attempts_before
+                c.execute('SELECT count(*) FROM activity_logs')
+                assert c.fetchone()[0]==audit_before
             password_report=[]
             for runtime,url in zip(('next','django'),urls):
                 with db.cursor() as c:
@@ -294,7 +318,7 @@ def main():
                 time.sleep(.2)
             assert response[:2] == get(urls[1], token())[:2]
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
-            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report},indent=2))
+            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

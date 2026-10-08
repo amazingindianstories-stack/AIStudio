@@ -198,3 +198,9 @@ unsafe API methods; reject untrusted/null origins and origin-less cross-site
 Fetch Metadata. Production requires HTTPS frontend origins. Focused auth test
 proves rejection precedes DB/audit effects, trusted Origin reaches validation.
 Hosted proxy/browser qualification remains mandatory and unverified; no cutover.
+
+Actual Origin security HTTP qualification: nine rejection cases across login,
+logout and password changes pass; trusted frontend Origin reaches validation.
+Application snapshots plus attempts/audit counts are unchanged after denials.
+Full HTTP harness still passes. See origin-security-qualification.md; hosted
+browser/proxy behavior remains pending. No production routing or secrets changed.
