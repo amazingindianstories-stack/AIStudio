@@ -81,6 +81,8 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
                  '--env','DJANGO_BROWSER_ORIGINS=https://frontend.example',image])
             created.append(api)
             ready = wait_for(lambda: health(200))
+            for _ in range(12):
+                health(200)  # Exercise both Gunicorn workers before the outage.
             run(['stop','--time','1',database])
             failed = wait_for(lambda: health(503))
             run(['start',database])
@@ -140,11 +142,20 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'secure_renewal'
                 ('version-mismatch','UPDATE users SET auth_version=1;',401,{'error':'UNAUTHENTICATED'}),
                 ('disabled','UPDATE users SET auth_version=0,is_active=false;',401,{'error':'UNAUTHENTICATED'}),
             ]
+            if '--connection-recovery' in sys.argv:
+                for _ in range(12):
+                    health(200)
+                sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname='veevee_django_migration' AND pid<>pg_backend_pid();")
             for name, mutation, status, body in cases:
                 if mutation:
                     sql(mutation)
                 before = sql(snapshot_sql)
-                result = json.loads(run(['exec',api,'python','-c',settings_probe]))
+                try:
+                    result = json.loads(run(['exec',api,'python','-c',settings_probe]))
+                except RuntimeError:
+                    diagnostic = subprocess.run(docker + ['logs','--tail','60',api],env=env,capture_output=True,text=True)
+                    print(diagnostic.stderr, file=sys.stderr)
+                    raise
                 assert result['status'] == status and result['body'] == body, name
                 assert result['secure_renewal'] == (status == 200), name
                 assert result['renewal_accepted'] == (status == 200), name

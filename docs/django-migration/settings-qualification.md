@@ -100,3 +100,21 @@ reported by the original harness, and its cause remains unresolved. Improved
 synthetic-container diagnostics are committed. The later pass establishes
 successful installation/execution evidence, not repeatable readiness acceptance.
 Investigate the initial failure before treating this variant as a stable gate.
+
+## Persistent-connection recovery correction
+
+A strengthened run warmed Gunicorn connections with twelve health requests.
+After DB restart and an initial recovered 200, a later worker request returned
+503/database-unavailable. This reproduces stale per-worker connections after
+restart; the exact earlier settings subprocess failure still lacks its original
+diagnostic. Django now enables `CONN_HEALTH_CHECKS` for the existing 60-second
+persistent connections, as described in
+https://docs.djangoproject.com/en/5.2/ref/databases/#persistent-connections.
+
+The strengthened container variant passes after this correction with
+`--runtime --declared-schema --invariants --connection-recovery`: warmed workers,
+DB outage/restart, twelve subsequent healthy probes, then explicit termination
+of only this disposable database's connections followed immediately by settings
+and renewal requests. No settings retry masks errors. All five cases and DB
+snapshots pass. This verifies the exercised connection-reuse correction, not
+arbitrary outage/load resilience or broader cutover readiness.

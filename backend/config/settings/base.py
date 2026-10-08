@@ -18,6 +18,7 @@ u = urlsplit(os.environ['DATABASE_URL'])
 if u.scheme not in ('postgres', 'postgresql') or not u.hostname or not u.path.strip('/'):
     raise ImproperlyConfigured('An explicit PostgreSQL target is required')
 DATABASES = {'default': {'ENGINE': 'django.db.backends.postgresql', 'NAME': unquote(u.path[1:]), 'USER': unquote(u.username or ''), 'PASSWORD': unquote(u.password or ''), 'HOST': u.hostname, 'PORT': u.port or 5432, 'CONN_MAX_AGE': 60, 'OPTIONS': {'connect_timeout': 5}}}
+DATABASES['default']['CONN_HEALTH_CHECKS'] = True
 
 AUTH_SECRET = os.environ['AUTH_SECRET']
 SESSION_COOKIE_SECURE = True
