@@ -1,3 +1,4 @@
+from django.contrib.postgres.functions import RandomUUID
 from django.db import models
 from django.db.models.expressions import RawSQL
 from apps.common.indexes import PostgreSQLIndex
@@ -7,7 +8,7 @@ from apps.library.models import Folder
 
 
 class Generation(models.Model):
-    id = models.UUIDField(primary_key=True)
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     kind = models.TextField()
     status = models.TextField()
     prompt = models.TextField()
@@ -26,9 +27,9 @@ class Generation(models.Model):
     project = models.ForeignKey(Project, on_delete=models.RESTRICT, db_column='project_id', null=True)
     folder = models.ForeignKey(Folder, on_delete=models.RESTRICT, db_column='folder_id', null=True)
     user_id = models.UUIDField(null=True)
-    cost_cents = models.IntegerField(default=0)
-    cost_basis = models.TextField(default="estimated")
-    is_favorite = models.BooleanField(default=False)
+    cost_cents = models.IntegerField(default=0, db_default=0)
+    cost_basis = models.TextField(default="estimated", db_default='estimated')
+    is_favorite = models.BooleanField(default=False, db_default=False)
     favorited_at = models.BigIntegerField(null=True)
     task_id = models.TextField(null=True)
     source_generation_id = models.UUIDField(null=True)
@@ -39,12 +40,12 @@ class Generation(models.Model):
     completed_at = models.BigIntegerField(null=True)
     last_poll_at = models.BigIntegerField(null=True)
     next_poll_at = models.BigIntegerField(null=True)
-    poll_attempts = models.IntegerField(default=0)
+    poll_attempts = models.IntegerField(default=0, db_default=0)
     callback_received_at = models.BigIntegerField(null=True)
     provider_status = models.TextField(null=True)
     worker_lease_id = models.TextField(null=True)
     worker_lease_until = models.BigIntegerField(null=True)
-    poll_error_count = models.IntegerField(default=0)
+    poll_error_count = models.IntegerField(default=0, db_default=0)
     last_poll_error_at = models.BigIntegerField(null=True)
     generate_audio = models.BooleanField(null=True)
     draft_mode = models.BooleanField(null=True)
@@ -55,16 +56,16 @@ class Generation(models.Model):
     track_characters = models.BooleanField(null=True)
     depth_claim_id = models.UUIDField(null=True)
     depth_claim_worker_id = models.TextField(null=True)
-    depth_reap_attempts = models.IntegerField(default=0)
+    depth_reap_attempts = models.IntegerField(default=0, db_default=0)
     seed = models.IntegerField(null=True)
     candidate_task_ids = models.JSONField(null=True)
     continuation_frame_url = models.TextField(null=True)
     last_frame_url = models.TextField(null=True)
-    flagged = models.BooleanField(default=False)
+    flagged = models.BooleanField(default=False, db_default=False)
     flagged_at = models.BigIntegerField(null=True)
     flag_reason = models.TextField(null=True)
     judge_score = models.JSONField(null=True)
-    location_version = models.IntegerField(default=1)
+    location_version = models.IntegerField(default=1, db_default=1)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
 

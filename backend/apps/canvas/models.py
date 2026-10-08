@@ -1,8 +1,9 @@
+from django.contrib.postgres.functions import RandomUUID
 from django.db import models
 
 
 class CanvasBoard(models.Model):
-    id = models.UUIDField(primary_key=True)
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     project_id = models.UUIDField()
     name = models.TextField()
     data = models.JSONField()

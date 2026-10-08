@@ -1,8 +1,9 @@
+from django.contrib.postgres.functions import RandomUUID
 from apps.common.indexes import PostgreSQLIndex
 from django.db import models
 
 class ActivityLog(models.Model):
-    id = models.UUIDField(primary_key=True)
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     user_id = models.UUIDField(null=True)
     action = models.TextField()
     detail = models.JSONField(null=True)

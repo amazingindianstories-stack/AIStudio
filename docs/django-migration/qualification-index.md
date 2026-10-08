@@ -782,3 +782,35 @@ and 42 regression tests pass. Local verification uses disposable PostgreSQL 18;
 CI runs the probe on its PostgreSQL 16 service. This does not prove deferred scope
 triggers, physical NOT NULL/FK/default equivalence or production baseline readiness.
 No schema authority or production ownership changed.
+
+All 46 current Drizzle database defaults now have Django `db_default` declarations
+in runtime and disk migration state. They include fourteen gen_random_uuid()
+fallbacks, literal text/numeric/boolean defaults and two JSON array defaults.
+Existing Python-side defaults are preserved. Ten migrations use empty database
+operations; sqlmigrate confirms no physical DDL. The CI default probe imports
+schema metadata only and rejects unsupported SQL/runtime default forms.
+
+Disposable temporary tables compare PostgreSQL's canonical default expressions
+for all 205 columns in both Django states: 410 comparisons pass, including absent
+defaults. Source/runtime/disk SQL inserts verify 573 literal/absent values and 42
+UUID-v4 fallbacks. Actual Django ORM omitted-field inserts verify all 46 defaults
+in both registries (92 checks). Raw cursor JSON values require JSON decoding
+before comparing with fixture arrays; ORM JSON values are already decoded. All
+temporary objects are rolled back and verified absent. System checks, migration
+consistency and 42 Django regression tests pass. Local PostgreSQL is version 18;
+CI's configured PostgreSQL 16 service runs this qualification.
+
+This is declared-default equivalence, not a complete Django-only schema baseline
+or production-catalog comparison. Temporary default tables intentionally omit
+NOT NULL/FK/index/trigger rules to isolate defaults; those require their own
+physical qualification. Current migration-script-only defaults and unexpected
+production objects remain subject to the baseline gate. Drizzle and runtime
+ownership remain unchanged; no production DDL or traffic transfer occurred.
+
+The real Node vs Django HTTP harness also passes after these declarations using
+two Gunicorn workers and production Django settings on the isolated local DB.
+It exercises the implemented read contracts, auth login/logout/password and
+mixed-runtime default-project/password seams, history pagination/errors and
+seven 5,006-row history response/plan comparisons. This run does not execute the
+browser option or prove hosted traffic readiness. The 21-table/205-column/PK/FK
+guard continues to pass. No shared/provider credentials were loaded.

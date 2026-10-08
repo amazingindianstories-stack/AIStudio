@@ -213,3 +213,8 @@ Django tests pass. Full schema equivalence remains open; authority unchanged.
 2026-10-08: Added two current CHECK constraints to unmanaged Django runtime/disk
 state; four canonical catalog comparisons and 57 source/runtime/disk insert
 checks pass. Migration is state-only; 42 Django tests pass. Schema gate open.
+
+2026-10-08: Added all 46 current declared database defaults to unmanaged Django
+runtime/disk state. 410 catalog comparisons, 573 literal/absent SQL values, 42
+UUID fallbacks and 92 ORM default checks pass. Ten migrations emit no DDL;
+42 Django regression tests pass. Full schema takeover remains open.

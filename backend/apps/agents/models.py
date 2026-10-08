@@ -1,12 +1,13 @@
+from django.contrib.postgres.functions import RandomUUID
 from apps.common.indexes import PostgreSQLIndex
 from django.db import models
 
 
 class AgentConversation(models.Model):
-    id = models.UUIDField(primary_key=True)
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     project_id = models.UUIDField()
     name = models.TextField()
-    kind = models.TextField(default='chat')
+    kind = models.TextField(default='chat', db_default='chat')
     agent_kind = models.TextField(null=True)
     created_by = models.UUIDField(null=True)
     created_at = models.BigIntegerField()
@@ -22,7 +23,7 @@ class AgentConversation(models.Model):
 
 
 class AgentConversationMessage(models.Model):
-    id = models.UUIDField(primary_key=True)
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     # Drizzle currently declares a UUID column without a foreign key.
     conversation_id = models.UUIDField()
     role = models.TextField()

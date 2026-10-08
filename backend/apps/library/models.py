@@ -1,17 +1,18 @@
+from django.contrib.postgres.functions import RandomUUID
 from apps.common.indexes import PostgreSQLIndex, PostgreSQLUniqueIndex
 from django.db.models.expressions import RawSQL
 from django.db import models
 
 class Folder(models.Model):
-    id = models.UUIDField(primary_key=True)
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     project = models.ForeignKey('projects.Project', on_delete=models.RESTRICT, db_column='project_id', null=True)
     parent = models.ForeignKey('self', on_delete=models.RESTRICT, db_column='parent_id', null=True)
     name = models.TextField()
-    name_normalized = models.TextField()
-    version = models.IntegerField()
+    name_normalized = models.TextField(db_default='')
+    version = models.IntegerField(db_default=1)
     color = models.TextField(null=True)
     created_at = models.BigIntegerField()
-    updated_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField(db_default=0)
     class Meta:
         managed = False
         db_table = 'folders'
@@ -30,7 +31,7 @@ class OrganizationIdempotencyKey(models.Model):
     actor_id = models.TextField(null=True)
     operation = models.TextField()
     fingerprint = models.TextField()
-    status = models.TextField(default='completed')
+    status = models.TextField(default='completed', db_default='completed')
     result = models.JSONField(null=True)
     created_at = models.BigIntegerField()
     expires_at = models.BigIntegerField()
@@ -47,7 +48,7 @@ class OrganizationIdempotencyKey(models.Model):
 
 class NamingCounter(models.Model):
     namespace = models.TextField(primary_key=True)
-    next_sequence = models.BigIntegerField(default=1)
+    next_sequence = models.BigIntegerField(default=1, db_default=1)
     updated_at = models.BigIntegerField()
 
     class Meta:
