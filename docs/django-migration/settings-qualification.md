@@ -66,3 +66,21 @@ inside containers, full-schema integration, schema baselining, browser Secure
 cookie transport, hosted preview or production acceptance. The Node/Django
 comparison remains the separate real-server harness. No service or ownership
 was transferred. Readiness/outage/recovery checks also passed in the same run.
+
+## Complete declared table set — 2026-10-08
+
+`container-build.py --runtime --declared-schema` passes the same five settings
+contracts, secure renewal/follow-up and unchanged DB snapshots against all 21
+tables generated from the current `src/lib/schema.js`. Drizzle generate runs
+only inside the verified clean copy, writes SQL into a disposable directory,
+and that SQL is applied only to the newly created tmpfs PostgreSQL 16.15
+container. The actual public base-table count is asserted to be 21. The users
+fixture supplies the declared required password and creation fields; no partial
+users/settings/user_limits DDL is used in this variant.
+
+This establishes settings runtime compatibility with the current declared
+schema shape. It is fresh-schema setup, not old-schema upgrade coverage or
+production equivalence. Additional invariants implemented by migration scripts
+(functions, triggers and advanced constraints) are not installed by this step.
+Django-only schema creation, complete ORM coverage and exact catalog equivalence
+remain pending. Drizzle remains the recorded schema authority.

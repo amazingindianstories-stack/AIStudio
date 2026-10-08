@@ -63,3 +63,8 @@ including unchanged DB snapshots and Secure renewal accepted by follow-up HTTP.
 This supersedes business-pending for this minimal settings fixture only; full
 schema, browser TLS and hosted qualification remain incomplete. Details are in
 settings-qualification.md.
+
+The settings container variant also passes against the entire current Drizzle
+declared table set (21 tables) on disposable PostgreSQL 16.15. This replaces
+partial-table DDL for that variant. Migration-script invariants, old-schema
+upgrades and Django schema equivalence remain unqualified.

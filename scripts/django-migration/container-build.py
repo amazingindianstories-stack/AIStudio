@@ -84,7 +84,19 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
             recovered = wait_for(lambda: health(200))
             def sql(statement):
                 return run(['exec','--interactive',database,'psql','-U','migration','-d','veevee_django_migration','-v','ON_ERROR_STOP=1','-At'], input=statement)
-            sql('''CREATE TABLE users (id uuid PRIMARY KEY,email text,name text,role text,color text,avatar_url text,is_active boolean,auth_version integer);
+            if '--declared-schema' in sys.argv:
+                with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'], prefix='drizzle-schema-') as output:
+                    subprocess.run(['node','node_modules/drizzle-kit/bin.cjs','generate',
+                                    '--dialect=postgresql','--schema=./src/lib/schema.js',f'--out={output}'],
+                                   env=env, check=True)
+                    migrations = sorted(Path(output).glob('*.sql'))
+                    assert len(migrations) == 1, 'Expected a fresh declared-schema migration'
+                    sql(migrations[0].read_text())
+                table_count = int(sql("SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"))
+                assert table_count == 21, table_count
+                sql("INSERT INTO users (id,email,password_hash,password_salt,name,role,is_active,auth_version,created_at) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','fixture@example.invalid','synthetic-unused','synthetic-unused','Fixture','user',true,0,0);")
+            else:
+                sql('''CREATE TABLE users (id uuid PRIMARY KEY,email text,name text,role text,color text,avatar_url text,is_active boolean,auth_version integer);
 CREATE TABLE settings (key text PRIMARY KEY,value text NOT NULL,updated_at bigint NOT NULL);
 CREATE TABLE user_limits (user_id uuid,key text,value text NOT NULL,updated_at bigint NOT NULL,PRIMARY KEY(user_id,key));
 INSERT INTO users VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','fixture@example.invalid','Fixture','user',NULL,NULL,true,0);''')
@@ -134,6 +146,9 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'secure_renewal'
                               'container_health_recovered':recovered['status'],'sanitized_structured_logs':True,
                               'settings_contract_cases':[case[0] for case in cases],
                               'settings_database_unchanged':True,'secure_renewal_followup':True}))
+            if '--declared-schema' in sys.argv:
+                print(json.dumps({'declared_schema_tables':table_count,'schema_source':'current src/lib/schema.js',
+                                  'advanced_migration_invariants_qualified':False,'upgrade_coverage':False}))
         finally:
             for name in reversed(created):
                 subprocess.run(docker + ['rm','--force',name], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
