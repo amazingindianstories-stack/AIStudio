@@ -14,10 +14,21 @@ from django.apps import apps
 from django.db import connection
 from django.db.migrations.loader import MigrationLoader
 expected=json.loads(subprocess.run(['node','scripts/django-migration/declared-generation-indexes.mjs'],capture_output=True,text=True,check=True).stdout)
-pending={'generations_stale_video_poll_idx','generations_coordinator_due_idx'}
+pending=set()
 expected={index['name']:index for index in expected if index['name'] not in pending}
 def normalize(predicate):
-    return re.sub(r'[\s"()]','', (predicate or '').replace('"generations".',''))
+    tokens=re.findall(r"\"[^\"]*\"|'(?:''|[^'])*'|[A-Za-z_][A-Za-z_0-9]*|[^\s]",(predicate or '').replace('"generations".',''))
+    tokens=[token[1:-1] if token.startswith('"') else token for token in tokens]
+    # Strip only parentheses enclosing the whole predicate. Retain internal
+    # grouping and whitespace inside SQL literals such as 'Magnific %'.
+    while tokens and tokens[0]=='(' and tokens[-1]==')':
+        depth=0
+        for index,token in enumerate(tokens):
+            depth += (token=='(')-(token==')')
+            if depth==0: break
+        if index!=len(tokens)-1: break
+        tokens=tokens[1:-1]
+    return tokens
 for registry in [apps,MigrationLoader(None).project_state().apps]:
     model=registry.get_model('generation','Generation')
     indexes={index.name:index for index in model._meta.indexes}

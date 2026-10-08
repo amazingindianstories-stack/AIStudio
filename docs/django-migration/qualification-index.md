@@ -720,3 +720,12 @@ all ten match. An initial comparison needed normalization of Django's implicit
 ascending direction. It does not compare physical catalogs or all index options.
 Two complex worker indexes remain unmodeled. Generation stays unmanaged and
 Drizzle remains schema authority; no physical schema change or deployment.
+
+Generation state now includes the two compound worker indexes in state-only
+migration 0003. The comparison guard preserves internal predicate grouping and
+SQL literal whitespace, checking all twelve declarations in runtime and disk
+state against current Drizzle metadata. All twelve match. The literal percent
+in the Magnific LIKE condition requires Django formatting escape (`%%`); the
+compiled predicate retains the original single percent. System checks and
+makemigrations pass; sqlmigrate 0003 emits only a no-op transaction. Physical
+indexes, worker ownership and schema authority remain unchanged.

@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.expressions import RawSQL
 from apps.common.indexes import PostgreSQLIndex
 
 from apps.projects.models import Project
@@ -81,4 +82,8 @@ class Generation(models.Model):
             PostgreSQLIndex(name='generations_folder_keyset_idx', fields=['folder', '-created_at', '-id']),
             PostgreSQLIndex(name='generations_favorite_keyset_idx', fields=['-favorited_at','-id'], condition=models.Q(is_favorite=True)),
             PostgreSQLIndex(name='generations_flagged_keyset_idx', fields=['-flagged_at','-id'], condition=models.Q(flagged=True)),
+            PostgreSQLIndex(name='generations_stale_video_poll_idx', fields=['updated_at','created_at','id'],
+                condition=models.Q(RawSQL("kind = 'video' and status in ('queued', 'running') and task_id is not null", [], output_field=models.BooleanField()))),
+            PostgreSQLIndex(name='generations_coordinator_due_idx', fields=['status','next_poll_at','created_at'],
+                condition=models.Q(RawSQL("(kind = 'video' and status in ('queued', 'running')) or (kind = 'image' and (status = 'queued' or (status = 'running' and model like 'Magnific %%')))", [], output_field=models.BooleanField()))),
         ]
