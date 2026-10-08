@@ -2,12 +2,11 @@
   "equivalent": false,
   "different_categories": [
     "columns",
-    "constraints",
-    "functions",
-    "triggers"
+    "constraints"
   ],
   "scratch_schema_rolled_back": true,
-  "django_fixture_source": "disk migration model state; schema_editor materialization, not production migrations",
+  "invariant_behavior_both_fixtures": true,
+  "django_fixture_source": "disk migration model state plus frozen Django invariant SQL; not production migrations",
   "category_counts": {
     "current": {
       "tables": 21,
@@ -24,10 +23,10 @@
     "django": {
       "tables": 21,
       "columns": 205,
-      "constraints": 158,
+      "constraints": 162,
       "indexes": 58,
-      "triggers": 0,
-      "functions": 0,
+      "triggers": 5,
+      "functions": 4,
       "sequences": 0,
       "enum_values": 0,
       "domains": 0,
@@ -2274,15 +2273,6 @@
           "pg_get_constraintdef": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT"
         },
         {
-          "relname": "folders",
-          "conname": "trg_check_folder_scope",
-          "contype": "t",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "TRIGGER DEFERRABLE INITIALLY DEFERRED"
-        },
-        {
           "relname": "generation_naming",
           "conname": "generation_naming_generation_id_fkey",
           "contype": "f",
@@ -2290,15 +2280,6 @@
           "condeferred": false,
           "convalidated": true,
           "pg_get_constraintdef": "FOREIGN KEY (generation_id) REFERENCES generations(id) ON DELETE CASCADE"
-        },
-        {
-          "relname": "generation_naming",
-          "conname": "trg_check_generation_naming_scope",
-          "contype": "t",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "TRIGGER DEFERRABLE INITIALLY DEFERRED"
         },
         {
           "relname": "generations",
@@ -2317,84 +2298,6 @@
           "condeferred": false,
           "convalidated": true,
           "pg_get_constraintdef": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT"
-        },
-        {
-          "relname": "generations",
-          "conname": "trg_check_generation_location_naming",
-          "contype": "t",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "TRIGGER DEFERRABLE INITIALLY DEFERRED"
-        },
-        {
-          "relname": "generations",
-          "conname": "trg_check_generation_scope",
-          "contype": "t",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "TRIGGER DEFERRABLE INITIALLY DEFERRED"
-        }
-      ],
-      "django_only": []
-    },
-    "functions": {
-      "current_only": [
-        {
-          "proname": "check_folder_scope_integrity",
-          "pg_get_function_identity_arguments": "",
-          "pg_get_functiondef": "CREATE OR REPLACE FUNCTION qualification_schema_reproduction.check_folder_scope_integrity()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\n   DECLARE\n     parent_proj UUID;\n     child_count INT;\n     gen_count INT;\n   BEGIN\n     -- 1. If child folder has parent, verify child's project matches parent's project\n     IF NEW.parent_id IS NOT NULL THEN\n       SELECT project_id INTO parent_proj FROM folders WHERE id = NEW.parent_id;\n       IF NOT FOUND THEN\n         RAISE EXCEPTION 'Parent folder % does not exist', NEW.parent_id USING ERRCODE = 'foreign_key_violation';\n       END IF;\n       IF NEW.project_id IS DISTINCT FROM parent_proj THEN\n         RAISE EXCEPTION 'Folder scope mismatch: child project_id (%) does not match parent project_id (%)',\n           NEW.project_id, parent_proj USING ERRCODE = 'check_violation';\n       END IF;\n     END IF;\n\n     -- 2. If folder project_id was updated directly, verify all child folders match NEW.project_id\n     IF TG_OP = 'UPDATE' AND NEW.project_id IS DISTINCT FROM OLD.project_id THEN\n       SELECT count(*)::int INTO child_count\n       FROM folders\n       WHERE parent_id = NEW.id AND project_id IS DISTINCT FROM NEW.project_id;\n\n       IF child_count > 0 THEN\n         RAISE EXCEPTION 'Folder scope mismatch: parent project_id (%) update leaves % child folders with mismatched scope',\n           NEW.project_id, child_count USING ERRCODE = 'check_violation';\n       END IF;\n\n       -- Also verify any generations in this folder match NEW.project_id\n       SELECT count(*)::int INTO gen_count\n       FROM generations\n       WHERE folder_id = NEW.id AND project_id IS DISTINCT FROM NEW.project_id;\n\n       IF gen_count > 0 THEN\n         RAISE EXCEPTION 'Generation scope mismatch: folder project_id (%) update leaves % generations with mismatched scope',\n           NEW.project_id, gen_count USING ERRCODE = 'check_violation';\n       END IF;\n     END IF;\n\n     RETURN NEW;\n   END;\n   $function$\n"
-        },
-        {
-          "proname": "check_generation_naming_scope_integrity",
-          "pg_get_function_identity_arguments": "",
-          "pg_get_functiondef": "CREATE OR REPLACE FUNCTION qualification_schema_reproduction.check_generation_naming_scope_integrity()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\n   DECLARE\n     gen_folder UUID;\n     gen_project UUID;\n     expected_ns TEXT;\n     allocated_seq BIGINT;\n     now_ts BIGINT;\n   BEGIN\n     IF TG_TABLE_NAME = 'generation_naming' THEN\n       SELECT folder_id, project_id INTO gen_folder, gen_project\n       FROM generations WHERE id = NEW.generation_id;\n       IF NOT FOUND THEN\n         RETURN NEW;\n       END IF;\n\n       IF gen_folder IS NOT NULL THEN\n         expected_ns := 'folder:' || gen_folder::text;\n       ELSIF gen_project IS NOT NULL THEN\n         expected_ns := 'project_unsorted:' || gen_project::text;\n       ELSE\n         expected_ns := 'global_unsorted';\n       END IF;\n\n       IF NEW.namespace IS DISTINCT FROM expected_ns THEN\n         RAISE EXCEPTION 'Naming namespace mismatch: namespace (%) does not match generation (%) location (%)',\n           NEW.namespace, NEW.generation_id, expected_ns USING ERRCODE = 'check_violation';\n       END IF;\n       RETURN NEW;\n\n     ELSIF TG_TABLE_NAME = 'generations' THEN\n       now_ts := ROUND(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint;\n\n       IF NEW.folder_id IS NOT NULL THEN\n         expected_ns := 'folder:' || NEW.folder_id::text;\n       ELSIF NEW.project_id IS NOT NULL THEN\n         expected_ns := 'project_unsorted:' || NEW.project_id::text;\n       ELSE\n         expected_ns := 'global_unsorted';\n       END IF;\n\n       IF TG_OP = 'INSERT' THEN\n         -- Auto-assign naming row if omitted (supports old application inserts)\n         IF NOT EXISTS (SELECT 1 FROM generation_naming WHERE generation_id = NEW.id) THEN\n           INSERT INTO naming_counters (namespace, next_sequence, updated_at)\n           VALUES (expected_ns, 2, now_ts)\n           ON CONFLICT (namespace) DO UPDATE SET\n             next_sequence = naming_counters.next_sequence + 1,\n             updated_at = EXCLUDED.updated_at\n           RETURNING next_sequence - 1 INTO allocated_seq;\n\n           INSERT INTO generation_naming (generation_id, namespace, sequence, assigned_at)\n           VALUES (NEW.id, expected_ns, allocated_seq, now_ts)\n           ON CONFLICT (generation_id) DO NOTHING;\n         END IF;\n         RETURN NEW;\n\n       ELSIF TG_OP = 'UPDATE' AND (NEW.folder_id IS DISTINCT FROM OLD.folder_id OR NEW.project_id IS DISTINCT FROM OLD.project_id) THEN\n         -- Auto-reassign naming row if omitted or mismatched (supports old application moves, code rollback, and direct SQL)\n         IF NOT EXISTS (SELECT 1 FROM generation_naming WHERE generation_id = NEW.id) THEN\n           INSERT INTO naming_counters (namespace, next_sequence, updated_at)\n           VALUES (expected_ns, 2, now_ts)\n           ON CONFLICT (namespace) DO UPDATE SET\n             next_sequence = naming_counters.next_sequence + 1,\n             updated_at = EXCLUDED.updated_at\n           RETURNING next_sequence - 1 INTO allocated_seq;\n\n           INSERT INTO generation_naming (generation_id, namespace, sequence, assigned_at)\n           VALUES (NEW.id, expected_ns, allocated_seq, now_ts)\n           ON CONFLICT (generation_id) DO NOTHING;\n         ELSIF EXISTS (\n           SELECT 1 FROM generation_naming\n           WHERE generation_id = NEW.id AND namespace IS DISTINCT FROM expected_ns\n         ) THEN\n           INSERT INTO naming_counters (namespace, next_sequence, updated_at)\n           VALUES (expected_ns, 2, now_ts)\n           ON CONFLICT (namespace) DO UPDATE SET\n             next_sequence = naming_counters.next_sequence + 1,\n             updated_at = EXCLUDED.updated_at\n           RETURNING next_sequence - 1 INTO allocated_seq;\n\n           UPDATE generation_naming\n           SET namespace = expected_ns, sequence = allocated_seq, assigned_at = now_ts\n           WHERE generation_id = NEW.id;\n         END IF;\n       END IF;\n       RETURN NEW;\n     END IF;\n\n     RETURN NEW;\n   END;\n   $function$\n"
-        },
-        {
-          "proname": "check_generation_scope_integrity",
-          "pg_get_function_identity_arguments": "",
-          "pg_get_functiondef": "CREATE OR REPLACE FUNCTION qualification_schema_reproduction.check_generation_scope_integrity()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\n   DECLARE\n     folder_proj UUID;\n   BEGIN\n     IF NEW.folder_id IS NOT NULL THEN\n       SELECT project_id INTO folder_proj FROM folders WHERE id = NEW.folder_id;\n       IF NOT FOUND THEN\n         RAISE EXCEPTION 'Referenced folder % does not exist', NEW.folder_id USING ERRCODE = 'foreign_key_violation';\n       END IF;\n       IF NEW.project_id IS DISTINCT FROM folder_proj THEN\n         RAISE EXCEPTION 'Generation scope mismatch: generation project_id (%) does not match folder project_id (%)',\n           NEW.project_id, folder_proj USING ERRCODE = 'check_violation';\n       END IF;\n     END IF;\n     RETURN NEW;\n   END;\n   $function$\n"
-        },
-        {
-          "proname": "sync_folder_name_normalized",
-          "pg_get_function_identity_arguments": "",
-          "pg_get_functiondef": "CREATE OR REPLACE FUNCTION qualification_schema_reproduction.sync_folder_name_normalized()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\n   BEGIN\n     IF NEW.name IS NOT NULL THEN\n       NEW.name_normalized := LOWER(TRIM(NORMALIZE(NEW.name, NFKC)));\n     END IF;\n     RETURN NEW;\n   END;\n   $function$\n"
-        }
-      ],
-      "django_only": []
-    },
-    "triggers": {
-      "current_only": [
-        {
-          "relname": "folders",
-          "tgname": "trg_check_folder_scope",
-          "tgenabled": "O",
-          "pg_get_triggerdef": "CREATE CONSTRAINT TRIGGER trg_check_folder_scope AFTER INSERT OR UPDATE OF parent_id, project_id ON folders DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_folder_scope_integrity()"
-        },
-        {
-          "relname": "folders",
-          "tgname": "trg_sync_folder_name_normalized",
-          "tgenabled": "O",
-          "pg_get_triggerdef": "CREATE TRIGGER trg_sync_folder_name_normalized BEFORE INSERT OR UPDATE OF name ON folders FOR EACH ROW EXECUTE FUNCTION sync_folder_name_normalized()"
-        },
-        {
-          "relname": "generation_naming",
-          "tgname": "trg_check_generation_naming_scope",
-          "tgenabled": "O",
-          "pg_get_triggerdef": "CREATE CONSTRAINT TRIGGER trg_check_generation_naming_scope AFTER INSERT OR UPDATE ON generation_naming DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_generation_naming_scope_integrity()"
-        },
-        {
-          "relname": "generations",
-          "tgname": "trg_check_generation_location_naming",
-          "tgenabled": "O",
-          "pg_get_triggerdef": "CREATE CONSTRAINT TRIGGER trg_check_generation_location_naming AFTER INSERT OR UPDATE OF folder_id, project_id ON generations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_generation_naming_scope_integrity()"
-        },
-        {
-          "relname": "generations",
-          "tgname": "trg_check_generation_scope",
-          "tgenabled": "O",
-          "pg_get_triggerdef": "CREATE CONSTRAINT TRIGGER trg_check_generation_scope AFTER INSERT OR UPDATE OF folder_id, project_id ON generations DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION check_generation_scope_integrity()"
         }
       ],
       "django_only": []

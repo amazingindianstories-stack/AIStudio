@@ -925,3 +925,28 @@ is PostgreSQL 18 evidence; configured PostgreSQL 16 CI execution remains pending
 The fixture also relies on the user's current untracked folder-color migration;
 that file must be integrated before a clean checkout can run the existing color
 qualification and complete reproduction probe. No production DDL occurred.
+
+Current hierarchy/naming functions and triggers now live in versioned Django SQL
+resource `backend/apps/library/baseline_sql/invariants_v1.py`. Its fourteen
+statements preserve four function definitions and five drop/create trigger pairs
+exactly from the current source migration exports. Qualification rejects any
+source drift. The resource is not yet connected to the active unmanaged migration
+graph; the eventual baseline must apply it through RunSQL after table creation.
+
+The reproduction probe applies the Django resource twice, compares canonical
+function/trigger catalogs exactly, and exercises the existing invariant behavior
+fixture on both current and Django-created schemas. Coverage includes Unicode
+normalization, sibling collisions, deferred folder/generation scope rules,
+automatic naming, namespace/positive-sequence rejection, whole-scope moves, naming
+reassignment and cascade deletion. Explicit fixture transaction boundaries are
+replayed as constraint flushes within a rollback-only outer transaction; this
+does not establish concurrent transaction behavior. PostgreSQL 18 RESTRICT error
+classification is accommodated alongside the earlier foreign-key classification.
+All scratch data and DDL are rolled back. CI now requires exact index and invariant
+catalog equivalence, while whole-schema equivalence remains false.
+
+Only columns and constraints differ in the refreshed local report: physical
+column order and five additive-script FK aliases. Current production catalog
+audit, PostgreSQL 16 execution and an actual Django-migrations-only fresh baseline
+remain required. The untracked color migration clean-checkout limitation remains.
+No application migration or production schema was applied.

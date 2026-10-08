@@ -241,3 +241,8 @@ source fixture FK aliases and broader schema gaps remain. No production DDL.
 2026-10-08: Fresh table key names now match; all 58 physical index catalog rows
 are equal in local full reproduction. Four catalog categories remain unequal.
 42 regression tests pass; production/baseline takeover remains open.
+
+2026-10-08: Ported four current functions/five triggers into versioned Django
+baseline SQL. Exact catalog comparison and existing invariant behavior pass on
+both isolated reproduced schemas. Two catalog categories remain unequal;
+active migration graph and schema authority remain unchanged.

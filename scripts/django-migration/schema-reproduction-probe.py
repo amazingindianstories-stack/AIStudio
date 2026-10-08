@@ -12,11 +12,13 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import sqlparse
 from urllib.parse import urlsplit
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('output', nargs='?')
 parser.add_argument('--require-index-equivalent', action='store_true', help='Require exact physical index catalog equivalence only')
+parser.add_argument('--require-invariant-equivalent', action='store_true', help='Require exact function/trigger catalogs and invariant behavior')
 parser.add_argument('--require-equivalent', action='store_true', help='Fail if any physical catalog category differs')
 args = parser.parse_args()
 url = urlsplit(os.environ.get('DATABASE_URL', ''))
@@ -27,6 +29,7 @@ import django
 django.setup()
 from django.db import connection, transaction
 from django.db.migrations.loader import MigrationLoader
+from apps.library.baseline_sql.invariants_v1 import STATEMENTS as DJANGO_INVARIANTS
 
 spec = importlib.util.spec_from_file_location('schema_catalog', Path(__file__).with_name('schema-catalog.py'))
 catalog = importlib.util.module_from_spec(spec)
@@ -51,6 +54,8 @@ with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR'), prefix='schema-re
     assert len(files) == 1, 'Expected one fresh schema migration'
     declared_sql = files[0].read_text().replace('"public".', '"' + namespace + '".')
 statements = json.loads(subprocess.check_output(['node', '--import', 'tsx', 'scripts/django-migration/invariant-statements.mjs'], text=True))
+source_invariants = tuple(statement for domain in ['hierarchy', 'naming'] for statement in statements[domain] if statement.startswith(('CREATE OR REPLACE FUNCTION', 'DROP TRIGGER', 'CREATE TRIGGER', 'CREATE CONSTRAINT TRIGGER')))
+assert DJANGO_INVARIANTS == source_invariants, 'Frozen Django invariant SQL differs from current source; review required'
 checks = json.loads(subprocess.check_output(['node', 'scripts/django-migration/declared-checks.mjs'], text=True))
 results = {}
 for version in ['current', 'django']:
@@ -77,14 +82,38 @@ for version in ['current', 'django']:
             with connection.schema_editor(atomic=False) as editor:
                 for model in state.apps.get_models():
                     editor.create_model(model)
+            with connection.cursor() as cursor:
+                for _ in range(2):
+                    for statement in DJANGO_INVARIANTS:
+                        cursor.execute(statement)
         results[version] = capture()
+        # Replay the existing fixture's explicit transaction boundaries as
+        # constraint flushes inside our outer rollback-only transaction.
+        explicit_transaction = False
+        behavior = Path('scripts/django-migration/invariant-behavior.sql').read_text()
+        behavior = behavior.replace('WHEN foreign_key_violation THEN', 'WHEN foreign_key_violation OR restrict_violation THEN')
+        with connection.cursor() as cursor:
+            for statement in sqlparse.split(behavior):
+                normalized = sqlparse.format(statement, strip_comments=True).strip().upper()
+                if normalized == 'BEGIN;':
+                    cursor.execute('SET CONSTRAINTS ALL DEFERRED')
+                    explicit_transaction = True
+                elif normalized == 'COMMIT;':
+                    cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+                    explicit_transaction = False
+                else:
+                    cursor.execute(statement)
+                    if not explicit_transaction:
+                        cursor.execute('SET CONSTRAINTS ALL IMMEDIATE')
+            assert not explicit_transaction
+
         transaction.set_rollback(True)
 with connection.cursor() as cursor:
     cursor.execute('SELECT count(*) FROM pg_namespace WHERE nspname=%s', [namespace])
     assert cursor.fetchone()[0] == 0, 'Scratch schema was not rolled back'
 differences = catalog.compare(results['current'], results['django'])
-report = {'equivalent': not differences, 'different_categories': differences, 'scratch_schema_rolled_back': True,
-          'django_fixture_source': 'disk migration model state; schema_editor materialization, not production migrations',
+report = {'equivalent': not differences, 'different_categories': differences, 'scratch_schema_rolled_back': True, 'invariant_behavior_both_fixtures': True,
+          'django_fixture_source': 'disk migration model state plus frozen Django invariant SQL; not production migrations',
           'category_counts': {version: {category: len(rows) for category, rows in data.items()} for version, data in results.items()},
           'differences': {category: {'current_only': [row for row in results['current'][category] if row not in results['django'][category]], 'django_only': [row for row in results['django'][category] if row not in results['current'][category]]} for category in differences}}
 if args.output:
@@ -95,4 +124,7 @@ if args.require_equivalent and differences:
     raise SystemExit(1)
 
 if args.require_index_equivalent and 'indexes' in differences:
+    raise SystemExit(1)
+
+if args.require_invariant_equivalent and any(category in differences for category in ('functions', 'triggers')):
     raise SystemExit(1)
