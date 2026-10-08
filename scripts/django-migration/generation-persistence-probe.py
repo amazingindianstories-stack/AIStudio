@@ -7,7 +7,7 @@ from uuid import uuid4
 url = urlsplit(os.environ.get('DATABASE_URL', ''))
 if (os.environ.get('VEEVEE_GENERATION_PERSISTENCE_TEST') != '1'
         or not (url.hostname or '').startswith('veevee-qualification-pg-')
-        or url.path != '/veevee_django_migration'):
+        or not (url.path == '/veevee_django_migration' or (url.path == '/veevee_django_baseline' and os.environ.get('VEEVEE_BASELINE_TEST') == '1'))):
     raise SystemExit('Verified disposable container target required')
 
 os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings.production'

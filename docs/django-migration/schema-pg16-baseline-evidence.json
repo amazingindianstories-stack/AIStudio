@@ -1,0 +1,24 @@
+{
+  "equivalent": true,
+  "different_categories": [],
+  "postgres_version": "16.15 (Debian 16.15-1.pgdg13+2)",
+  "committed_migrations": 22,
+  "fresh_database": true,
+  "connection_reopened": true,
+  "category_counts": {
+    "tables": 22,
+    "columns": 209,
+    "constraints": 44,
+    "indexes": 59,
+    "triggers": 5,
+    "functions": 4,
+    "sequences": 1,
+    "enum_values": 0,
+    "domains": 0,
+    "extensions": 1
+  },
+  "source_revision": "cf74eb91659616d898ea50f592b275a42563234f",
+  "api_source_sha256": "7a1b53c1ece399303eeed75b72fe67b0873eb2fac39c34ea6edfe74777b943b5",
+  "invariant_behavior_both_databases": true,
+  "generation_orm_qualified_on_django_baseline": true
+}

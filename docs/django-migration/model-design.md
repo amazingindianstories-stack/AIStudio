@@ -1004,3 +1004,26 @@ outside production settings. PostgreSQL 16 execution, committed fresh-database
 qualification, existing-history reconciliation, actual production catalog audit,
 backup/PITR and reviewed baseline activation remain pending. Drizzle retains
 schema authority; route ownership and production traffic are unchanged.
+
+### PostgreSQL 16 committed baseline qualification
+
+The isolated Python 3.12 container applied all 22 candidate migrations to a fresh
+PostgreSQL 16.15 database with real commits. After reconnecting, all migration
+records persisted and the plan was empty. The complete catalog matched the
+current-source database: 21 application tables plus Django bookkeeping, 209
+columns, 44 constraints, 59 indexes, four functions, five triggers and one
+bookkeeping sequence. PostgreSQL 16 does not expose NOT NULL constraints as the
+separate catalog entries counted on PostgreSQL 18; comparison was within PG16.
+
+Both databases passed the existing 11 hierarchy/naming behavior checks with real
+transaction boundaries. The Django-created database also passed 60-field image,
+video and depth ORM roundtrips, five history-count checks, eight history and eight
+update checks, and bounded page query measurements. No provider calls occurred.
+The harness also passed its five settings cases and database-outage recovery.
+Temporary containers, both databases and their internal network were removed.
+
+Evidence: `schema-pg16-baseline-evidence.json`. Reproduce via the isolated runner
+with `container-build.py --runtime --declared-schema --invariants --baseline`.
+Actual production audit, existing Django history reconciliation, backup/PITR,
+reviewed baseline activation and route transfers remain outstanding. The separate
+folder-color work must still be integrated for clean-checkout qualification.

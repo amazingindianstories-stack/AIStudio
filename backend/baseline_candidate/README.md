@@ -21,11 +21,19 @@ python scripts/django-migration/schema-reproduction-probe.py --migration-executo
 
 The graph is a candidate for the reviewed schema takeover, not instructions to
 run against an existing database. Existing tables must never be recreated.
-Before promotion: qualify on PostgreSQL 16 and a fresh committed database, audit
-actual production catalogs, reconcile prior Django migration history, verify
+PostgreSQL 16 fresh committed database qualification passed through the isolated
+container harness (`--runtime --declared-schema --invariants --baseline`).
+Before promotion: audit actual production catalogs, reconcile prior Django migration history, verify
 backup/PITR, review fake-baselining and rollback, then deliberately select the
 approved graph and managed model state. The invariant migration is intentionally
 irreversible: table/function removal requires a separate reviewed operation.
 
 The current local source includes the separate Asset Library folder-color change;
 its migration must be integrated before clean-checkout CI qualification succeeds.
+
+The PG16 harness creates a second empty database inside its tmpfs-only PostgreSQL
+container, applies the candidate graph with real commits, reconnects, verifies all
+22 history entries and an empty plan, compares full catalogs, runs invariant SQL
+with its real transaction boundaries, and exercises generation ORM/history reads.
+Both databases and the internal network are removed by the harness after the run.
+Evidence: `docs/django-migration/schema-pg16-baseline-evidence.json`.

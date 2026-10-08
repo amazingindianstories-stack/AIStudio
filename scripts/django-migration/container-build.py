@@ -13,6 +13,9 @@ import re
 if '--orm-generations' in sys.argv and not {'--runtime', '--declared-schema'}.issubset(sys.argv):
     raise SystemExit('Generation ORM qualification requires runtime and declared schema')
 
+if '--baseline' in sys.argv and not {'--runtime', '--declared-schema', '--invariants'}.issubset(sys.argv):
+    raise SystemExit('Baseline qualification requires runtime, declared schema and invariants')
+
 root = Path.cwd()
 home = Path(os.environ['HOME'])
 if os.environ.get('MIGRATION_TEST_ISOLATED') != '1' or root.parent.name != home.parent.name or root.name != 'repo' or root.parent.parent != Path('/private/tmp'):
@@ -134,6 +137,36 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
                     invariant_counts = json.loads(sql("SELECT jsonb_build_object('functions',(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'),'triggers',(SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal));"))
                     assert invariant_counts['functions'] > 0 and invariant_counts['triggers'] > 0, invariant_counts
                     sql(Path('scripts/django-migration/invariant-behavior.sql').read_text())
+                if '--baseline' in sys.argv:
+                    # Source check is read from the current additive migration.
+                    checks = json.loads(subprocess.check_output(['node','scripts/django-migration/declared-checks.mjs'], env=env, text=True))
+                    color = next(check for check in checks if check['name'] == 'folders_color_check')
+                    sql(f"ALTER TABLE folders ADD CONSTRAINT folders_color_check CHECK ({color['sql']});")
+                    import importlib.util
+                    spec = importlib.util.spec_from_file_location('schema_catalog', 'scripts/django-migration/schema-catalog.py')
+                    catalog = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(catalog)
+                    probe = Path('scripts/django-migration/baseline-container-probe.py').read_text()
+                    payload = json.dumps({'queries': catalog.QUERIES})
+                    current = json.loads(run(['exec','--interactive','-e','VEEVEE_BASELINE_TEST=1',api,'python','-c',probe], input=payload))
+                    run(['exec',database,'createdb','-U','migration','veevee_django_baseline'])
+                    baseline_url = f'DATABASE_URL=postgresql://migration:disposable-only@{database}:5432/veevee_django_baseline'
+                    candidate = json.loads(run(['exec','--interactive','-e','VEEVEE_BASELINE_TEST=1','-e',baseline_url,api,'python','-c',probe], input=payload))
+                    differences = catalog.compare(current['catalog'], candidate['catalog'])
+                    evidence = {'equivalent': not differences, 'different_categories': differences,
+                                'postgres_version': version, 'committed_migrations': candidate['committed_migrations'],
+                                'fresh_database': True, 'connection_reopened': True,
+                                'category_counts': {key: len(rows) for key, rows in candidate['catalog'].items()},
+                                'source_revision': revision, 'api_source_sha256': fingerprint}
+                    assert not differences, json.dumps({'different_categories': differences})
+                    behavior = Path('scripts/django-migration/invariant-behavior.sql').read_text()
+                    run(['exec','--interactive',database,'psql','-U','migration','-d','veevee_django_baseline','-v','ON_ERROR_STOP=1','-At'], input=behavior)
+                    evidence['invariant_behavior_both_databases'] = True
+                    orm_probe = Path('scripts/django-migration/generation-persistence-probe.py').read_text()
+                    print(run(['exec','-e','VEEVEE_GENERATION_PERSISTENCE_TEST=1','-e','VEEVEE_BASELINE_TEST=1','-e',baseline_url,api,'python','-c',orm_probe]))
+                    evidence['generation_orm_qualified_on_django_baseline'] = True
+                    Path('/private/tmp/veevee-pg16-baseline-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
+                    print(json.dumps(evidence))
                 sql("INSERT INTO users (id,email,password_hash,password_salt,name,role,is_active,auth_version,created_at) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','fixture@example.invalid','synthetic-unused','synthetic-unused','Fixture','user',true,0,0);")
             else:
                 sql('''CREATE TABLE users (id uuid PRIMARY KEY,email text,name text,role text,color text,avatar_url text,is_active boolean,auth_version integer);
