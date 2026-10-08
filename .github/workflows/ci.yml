@@ -154,6 +154,7 @@ jobs:
       - run: python scripts/django-migration/generation-serialization-parity.py
       - run: python scripts/django-migration/watermark-parity.py
       - run: python scripts/django-migration/history-parameters-parity.py
+      - run: python scripts/django-migration/filename-parity.py
       - run: python scripts/django-migration/update-operand-parity.py
       - run: python -m unittest discover -s scripts/django-migration -p "test_*.py"
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium

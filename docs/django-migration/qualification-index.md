@@ -453,3 +453,18 @@ History requires composite PostgreSQL keysets, favorites ordering, lookahead,
 filter semantics and canonical filename resolution; these must be implemented
 and qualified together before claiming the route. History status/ownership
 remains unchanged. No shared credentials or production resources were used.
+
+Canonical filename preparation adds the Python pure formatter from the current
+filename-resolver.js semantics: NFKD ASCII folder slugs, R/SC tokens, reserved
+Windows names, serial padding, MIME/key/URL extension precedence, and bounded
+255-byte names with the current SHA256 hash suffix. Forty-five cases match the
+actual Node resolver, including nested folders, no ancestry, project/global
+unsorted, long paths, Unicode, MOV masters versus MP4 previews and sequence
+boundaries. The pure oracle executes no database/storage/provider calls and is
+added to CI. No output bytes are transformed or formats substituted.
+
+This is filename formatting evidence, not complete batch naming/history/export
+qualification. Database ancestry lookup, persisted generation_naming namespace
+and sequence, missing-record fallbacks, batch independence and moves/renames
+still require implementation/comparison. History remains unimplemented and
+traffic ownership unchanged; no deployed schema or shared resources were used.
