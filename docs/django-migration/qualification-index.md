@@ -118,3 +118,11 @@ relationship. The relationship is explicitly retained in migration state.
 Model-state drift check passes; physical schema/default/index/CASCADE equivalence
 and portrait API/provider qualification are still pending. Declaration count is
 13/21; no traffic, provider or schema authority has transferred.
+
+Two isolated portrait persistence tests pass: nullable provider IDs permit
+multiple unset values, non-null provider IDs remain unique, Unicode group names
+and declared Python defaults roundtrip, select_related resolves group_id, and
+direct SQL group deletion cascades to assets under the fixture's current-schema
+FK. These use explicitly created disposable tables, not Django-created physical
+schema, and invoke no portrait provider or storage service. Migration baseline
+equivalence and portrait API behavior remain pending.
