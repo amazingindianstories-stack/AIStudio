@@ -95,3 +95,23 @@ source provenance and actual frontend rewrite destination. Do not infer that
 all live traffic is Node-owned solely from the repository ownership manifest;
 it records this migration's declared state, while live routing remains unproven.
 No DB query, secret retrieval, request mutation or deployment was performed.
+
+## Frontend deployment reconciliation
+
+Read-only Vercel project/list/inspect commands on 2026-10-08 identify project
+`aistudio-v1` as Next.js. Current production deployment
+`dpl_Aw9qb3spGS9jswTZijRXen4Dt4ex` reports source commit
+`a208e8aee3c6aa052a9482f996235e4992618a8b` on
+`fix/preview-regressions-codex`, matching this migration's repository baseline.
+Its aliases include `veevee.ai` and `www.veevee.ai`. Deployment build outputs
+include the business API lambdas, including `/api/settings` and `/api/auth/login`.
+The sanitized machine-readable inventory is frontend-deployment-evidence.json.
+
+Baseline source has no Django method-selection rewrite and defaults its browser
+API base to same-origin. It also permits `NEXT_PUBLIC_API_URL` to override that
+base. Build-output function presence and source defaults do not prove the
+compiled override value or every actual request destination. Live browser
+destination/edge-routing verification remains required. No secret variables or
+production API mutations were requested. Existing Railway Django services must
+therefore be treated as separate, unreconciled infrastructure rather than proof
+that this frontend has transferred ownership.

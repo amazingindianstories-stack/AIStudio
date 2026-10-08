@@ -19,6 +19,11 @@ deployment; it describes the current checkout's declared architecture.
 See `railway-api-release.md` for service/deployment IDs, runtime fingerprints,
 historical object evidence and remaining provenance/routing gates. No production
 database credentials or application secrets were retrieved or used.
+Read-only Vercel inspection subsequently confirms the production frontend is
+reported as Next.js at baseline `a208e8`, with business API lambda outputs.
+See `frontend-deployment-evidence.json`; compiled browser API-base overrides and
+live route destinations remain unverified. This narrows the deployed-source
+gap without proving traffic ownership or the database catalog.
 
 Read the original scope in `source-request.txt` and mandatory isolation rule in
 `isolation-requirement.txt`. `history-evidence.txt` records all locally reachable
