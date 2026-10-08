@@ -37,7 +37,7 @@ def inventory(registry, connection):
         for field in model._meta.local_fields:
             if field.column is None:
                 continue  # CompositePrimaryKey is a virtual field.
-            columns[field.column] = {'type': field.db_type(connection), 'nullable': field.null}
+            columns[field.column] = {'type': field.db_type(connection), 'nullable': field.null, 'unique': field.unique}
             if field.is_relation and field.db_constraint:
                 foreign_keys.append({'columns': [field.column],
                     'target_table': field.remote_field.model._meta.db_table,

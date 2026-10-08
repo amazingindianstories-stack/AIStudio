@@ -51,3 +51,10 @@ class ModelColumnGuardTests(unittest.TestCase):
         actual = deepcopy(expected)
         actual['media_export_items']['foreign_keys'][0]['target_table'] = 'generations'
         self.assertTrue(module.compare(expected, actual))
+
+    def test_column_uniqueness_drift_fails(self):
+        expected = deepcopy(self.expected)
+        expected['media_export_items']['columns']['export_id']['unique'] = False
+        actual = deepcopy(expected)
+        actual['media_export_items']['columns']['export_id']['unique'] = True
+        self.assertTrue(module.compare(expected, actual))

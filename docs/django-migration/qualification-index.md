@@ -214,3 +214,14 @@ Revision label f5c8364bffe04fc983844c2725daed0d3a518c2a; API fingerprint remains
 This does not prove enqueue/admission API behavior, provider calls, native MOV
 bytes, physical baseline equivalence or production-schema readiness. Hosted
 preview authorization remains pending and route ownership is unchanged.
+
+Column metadata guard now also compares single-column uniqueness (including
+single-column PK uniqueness). It exposed users.email missing unique=True in
+runtime and disk state; corrected with unmanaged authentication 0004. SQL
+inspection confirms no application DDL. Guard passes for 21 tables/205 columns,
+model drift check passes, authentication regression tests pass, and all eleven
+release/schema-guard unit tests pass. Composite/conditional unique indexes,
+constraint names, physical null-distinctness and full catalog equivalence remain
+separate baseline work. The previously qualified release remains pinned to
+8f70339; this new model revision is not silently substituted into that artifact.
+No production schema, deployment or route authority changed.

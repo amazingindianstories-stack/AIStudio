@@ -9,7 +9,7 @@ for (const table of Object.values(schema)) {
   for (const key of config.primaryKeys) primary.push(...key.columns.map(column => column.name));
   tables[config.name] = {
     columns: Object.fromEntries(config.columns.map(column => [column.name, {
-      type: column.getSQLType(), nullable: !column.notNull,
+      type: column.getSQLType(), nullable: !column.notNull, unique: Boolean(column.isUnique || column.primary),
     }])),
     primary_key: primary,
     foreign_keys: config.foreignKeys.map(key => {
