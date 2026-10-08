@@ -55,6 +55,9 @@ def main():
             c.execute('CREATE TABLE IF NOT EXISTS user_limits (user_id uuid,key text,value text NOT NULL,updated_at bigint NOT NULL,PRIMARY KEY(user_id,key))')
             c.execute('CREATE TABLE IF NOT EXISTS projects (id uuid PRIMARY KEY,name text,brief text,created_by uuid,created_at bigint,updated_at bigint)')
             c.execute('CREATE TABLE IF NOT EXISTS folders (id uuid PRIMARY KEY,project_id uuid,parent_id uuid,name text,name_normalized text,version integer,color text,created_at bigint,updated_at bigint)')
+            c.execute('CREATE TABLE IF NOT EXISTS canvas_boards (id uuid PRIMARY KEY,project_id uuid NOT NULL,name text NOT NULL,data jsonb NOT NULL,created_by uuid,created_at bigint NOT NULL,updated_at bigint NOT NULL)')
+            c.execute('TRUNCATE canvas_boards')
+            c.execute("INSERT INTO canvas_boards VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','dddddddd-dddd-4ddd-8ddd-dddddddddddd','दृश्य','{\"private_graph\":\"fixture\"}',NULL,1,2)")
             c.execute('CREATE TABLE IF NOT EXISTS assets (id uuid PRIMARY KEY,kind text,name text,slug text,description text,images jsonb,project_id uuid,created_at bigint,updated_at bigint)')
             c.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text, ADD COLUMN IF NOT EXISTS password_salt text, ADD COLUMN IF NOT EXISTS created_at bigint')
             c.execute('CREATE TABLE IF NOT EXISTS login_attempts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),identifier text NOT NULL,created_at bigint NOT NULL)')
@@ -69,7 +72,7 @@ def main():
         def snapshot():
             with db.cursor() as c:
                 result=[]
-                for table in ('users','settings','user_limits','projects','folders','assets'):
+                for table in ('users','settings','user_limits','projects','folders','assets','canvas_boards'):
                     c.execute('SELECT row_to_json(t)::text FROM '+table+' t ORDER BY 1')
                     result.append(c.fetchall())
                 return result
@@ -219,6 +222,29 @@ def main():
                 assert responses[0][:2] == responses[1][:2], ('assets',query,responses[0][:2],responses[1][:2])
                 assert before == snapshot(), 'asset read mutated DB'
                 asset_report.append({'query':query,'authenticated':bool(cookie),'status':responses[0][0],'json_equal':True,'database_unchanged':True})
+            canvas_report = []
+            for query, cookie in [('', ''), ('', token()), ('?projectId=', token()),
+                    ('?projectId=&projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd', token()),
+                    ('?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd', token()),
+                    ('?projectId=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', token()),
+                    ('?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd&projectId=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', token(age=172800000)),
+                    ('', token(age=172800000))]:
+                before = snapshot()
+                responses = [get(url.replace('/api/settings','/api/canvas-boards')+query,cookie) for url in urls]
+                assert responses[0][:2] == responses[1][:2], ('canvas',query,responses[0][:2],responses[1][:2])
+                jars = []
+                for _, body, headers in responses:
+                    assert headers.get('Content-Type','').startswith('application/json')
+                    assert all('data' not in row for row in body.get('boards',[]))
+                    jar = SimpleCookie(headers.get('Set-Cookie',''))
+                    jars.append(jar)
+                assert bool(jars[0]) == bool(jars[1]), ('canvas renewal',query)
+                for jar in jars:
+                    if jar:
+                        value = jar['veevee_session']
+                        assert value['max-age']=='2592000' and value['httponly'] and value['samesite'].lower()=='lax' and value['path']=='/'
+                assert before == snapshot(), 'canvas read mutated DB'
+                canvas_report.append({'query':query,'status':responses[0][0],'json_equal':True,'cookie_contract_equal':True,'database_unchanged':True})
             origin_report=[]
             before=snapshot()
             with db.cursor() as c:
@@ -354,7 +380,7 @@ def main():
             if '--browser' in sys.argv:
                 result=subprocess.run(['node','scripts/django-migration/settings-browser.mjs'],input=json.dumps({'url':urls[0],'cookie':token(age=172800000),'expected':response[1]}),text=True,capture_output=True,check=True)
                 browser_report=json.loads(result.stdout)
-            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

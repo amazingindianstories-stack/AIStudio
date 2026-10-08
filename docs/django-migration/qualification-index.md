@@ -235,3 +235,15 @@ Node source is documented in method-specific contract dimensions; POST and
 board graph/upload routes remain unimplemented in Django. Actual Node/Django
 HTTP comparison, error/header parity, PG16 full-schema/browser/hosted gates and
 traffic transfer remain pending. Node retains authority; no routing change.
+
+Real Next/Django HTTP harness now includes eight Canvas metadata cases. The
+first run found aged-session renewal missing from Django's projectId-required
+400 response; corrected with shared success/error response renewal within the
+Canvas view and a regression assertion. Complete local real-server rerun passes:
+all eight Canvas cases match status, JSON, selected cookie contract attributes,
+metadata graph exclusion and unchanged database snapshots. Existing HTTP
+contracts/routing/auth concurrency suite also passes. Two isolated Canvas tests
+pass after correction. This run uses development Next/runserver and local PG18
+with narrow fixtures, not full-schema PG16, browser or hosted evidence. Invalid
+UUID/uncaught-error body parity and complete headers remain pending. Ownership
+remains Node; Canvas stays IMPLEMENTING rather than claiming full parity.

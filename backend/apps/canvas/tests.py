@@ -23,6 +23,10 @@ class BoardMetadataReadTests(TransactionTestCase):
             response = self.client.get('/api/canvas-boards'+suffix)
             self.assertEqual((response.status_code,response.json()),(400,{'error':'projectId required.'}))
         self.assertEqual(self.client.get('/api/canvas-boards?projectId=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').json(),{'boards':[]})
+        self.cookie(age=2*86400000)
+        missing = self.client.get('/api/canvas-boards')
+        self.assertEqual(missing.status_code,400)
+        self.assertIn('veevee_session',missing.cookies)
 
     def test_metadata_projection_scope_and_renewal(self):
         self.cookie(age=2*86400000)

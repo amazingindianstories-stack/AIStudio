@@ -952,7 +952,7 @@
           },
           "headers": {
             "content_type": "application/json",
-            "renewal": "Valid aged session renewed as host-only 30-day HttpOnly SameSite=Lax cookie; Secure in production"
+            "renewal": "Valid aged session renewed as host-only 30-day HttpOnly SameSite=Lax cookie; Secure in production; valid aged sessions also renew on projectId-required 400 responses"
           },
           "db_reads": [
             "users session lookup",
@@ -967,10 +967,11 @@
           "pagination": null,
           "naming": "Stored board name returned verbatim",
           "evidence": [
-            "backend/apps/canvas/tests.py"
+            "backend/apps/canvas/tests.py",
+            "scripts/django-migration/settings-http-parity.py (eight isolated real HTTP cases)"
           ],
           "remaining_qualification": [
-            "Actual Node/Django HTTP comparison including error and header parity",
+            "Invalid UUID/uncaught-error body and complete header parity",
             "PG16 full-schema and full application browser tests",
             "Hosted preview and authorized canary/rollback lifecycle"
           ]
