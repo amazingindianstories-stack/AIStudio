@@ -37,7 +37,7 @@ def lookup(request):
         return None
     uid, version, expiry = session
     try:
-        user = User.objects.filter(id=uid, is_active=True, auth_version=version).first()
+        user = User.objects.only('id','email','name','role','color','avatar_url','is_active','auth_version').filter(id=uid, is_active=True, auth_version=version).first()
     except (ValueError, models_validation_error):
         return None
     if user and expiry - now < TTL_MS - 24 * 60 * 60 * 1000:
@@ -49,3 +49,9 @@ def lookup(request):
     return user
 
 from django.core.exceptions import ValidationError as models_validation_error
+
+
+def sign_session(user):
+    now = int(time.time()*1000)
+    payload = encode(json.dumps({'uid':str(user.id),'ver':user.auth_version,'exp':now+TTL_MS},separators=(',',':')).encode())
+    return payload+'.'+encode(hmac.new(settings.AUTH_SECRET.encode(),payload.encode(),hashlib.sha256).digest())

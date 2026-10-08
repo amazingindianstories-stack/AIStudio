@@ -6,7 +6,7 @@ Goal remains active. No production cutover or deployment has been performed.
 |---|---|
 | Django authoritative API methods | 0 / 85 |
 | Node business route files remaining | 65 |
-| ORM models implemented | 7 partial unmanaged models / 21 declared application tables |
+| ORM models implemented | 8 partial unmanaged models / 21 declared application tables |
 | Model design inventory | 21 / 21 declarations; live catalog audit pending |
 | Schema authority | DRIZZLE |
 | Auth authority | NEXT |
@@ -151,3 +151,11 @@ Throttle source parity: seventeen environment parsing cases, retry boundaries
 and admission decisions agree directly with current Node login-throttle.js.
 Corrected Python-only acceptance of numeric underscores/non-JS whitespace.
 Three focused source/database tests pass. Login HTTP behavior remains pending.
+
+Django login implementation added using qualified password/throttle helpers,
+compatible session cookie, disabled-account checks and best-effort login audit.
+Current user credential fields and activity_logs recorded as unmanaged state.
+Full current Django suite passes 21 tests. Login remains IMPLEMENTING/Next-owned;
+real Node/Django login HTTP/DB-effect parity, malformed-input coercion, unsafe
+Origin/CSRF qualification, browser/preview and issuer cutover remain pending.
+No deployment or schema authority change occurred.

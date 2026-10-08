@@ -3,6 +3,9 @@ from django.db import models
 class User(models.Model):
     id = models.UUIDField(primary_key=True)
     email = models.TextField()
+    password_hash = models.TextField()
+    password_salt = models.TextField()
+    created_at = models.BigIntegerField()
     name = models.TextField()
     role = models.TextField()
     color = models.TextField(null=True)

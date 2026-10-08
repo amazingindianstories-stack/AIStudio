@@ -88,3 +88,39 @@ class ThrottleSourceParityTests(TransactionTestCase):
         self.assertEqual([maximum_attempts(value) for value in values],expected['maximums'])
         self.assertEqual([retry_after(oldest,now) for oldest,now in request['retries']],expected['retries'])
         self.assertEqual([admits(value['maxAttempts'],value['recentFailureCount']) for value in request['admissions']],expected['admissions'])
+
+class LoginApiTests(TransactionTestCase):
+    def setUp(self):
+        import json
+        from django.db import connection
+        from .password import hash_password
+        SettingsTests.setUp(self)
+        LoginThrottleTests.setUp(self)
+        credentials=hash_password('fixture-password')
+        with connection.cursor() as c:
+            c.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text, ADD COLUMN IF NOT EXISTS password_salt text, ADD COLUMN IF NOT EXISTS created_at bigint')
+            c.execute('UPDATE users SET password_hash=%s,password_salt=%s,created_at=1',[credentials['hash'],credentials['salt']])
+            c.execute('CREATE TABLE IF NOT EXISTS activity_logs (id uuid PRIMARY KEY,user_id uuid,action text,detail jsonb,created_at bigint)')
+            c.execute('TRUNCATE activity_logs')
+
+    def test_login_success_and_failure_throttle(self):
+        from .models import LoginAttempt
+        from apps.common.models import ActivityLog
+        response=self.client.post('/api/auth/login',{'email':' FIXTURE@EXAMPLE.INVALID ','password':'fixture-password'},content_type='application/json')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response.json()['user']['email'],'fixture@example.invalid')
+        self.assertEqual(response.cookies['veevee_session']['max-age'],2592000)
+        self.assertEqual(ActivityLog.objects.filter(action='login').count(),1)
+        self.assertEqual(LoginAttempt.objects.count(),0)
+        for _ in range(5):
+            response=self.client.post('/api/auth/login',{'email':'missing@example.invalid','password':'wrong'},content_type='application/json')
+            self.assertEqual(response.status_code,401)
+        response=self.client.post('/api/auth/login',{'email':'missing@example.invalid','password':'wrong'},content_type='application/json')
+        self.assertEqual(response.status_code,429)
+        self.assertTrue(int(response['Retry-After'])>0)
+        self.assertEqual(LoginAttempt.objects.count(),5)
+
+    def test_missing_credentials(self):
+        response=self.client.post('/api/auth/login',{},content_type='application/json')
+        self.assertEqual(response.status_code,400)
+        self.assertEqual(response.json(),{'error':'Email and password are required.'})
