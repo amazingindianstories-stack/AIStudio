@@ -546,3 +546,23 @@ This minimal controlled local HTTP document does not prove Asset Library UI
 scroll/merge acceptance, HTTPS Secure cookies or hosted Vercel/Railway behavior.
 History remains IMPLEMENTING with Next production ownership; routing is unset
 by default. Full-schema PG16, performance and deployment gates remain pending.
+
+Full current declared schema + additive hierarchy/naming SQL on disposable
+PostgreSQL 16.15 now passes eight history-service checks inside the production
+Python 3.12 image: UUID timestamp tie ordering, strict composite cursor, newer
+insert exclusion, exact-multiple terminal cursor, persisted canonical names,
+favorite timestamp keysets, explicit audio filter and private diagnostic
+omission. Naming fixtures are explicitly inserted; an initial failed fixture
+incorrectly assumed ORM insertion allocated generation_naming automatically.
+That assumption was corrected without changing production allocation semantics.
+All generation fixture rows roll back. Existing three generation-kind roundtrips,
+five counts/eight update checks, settings, health recovery and eleven hierarchy/
+naming behavior cases pass. CI's existing container probe includes these cases.
+
+Image source fd8ea7e62beacf2208fa2ca760629c62815efb59, API fingerprint
+c2051d16f8608e4238cca149c8f7d3ec515ba4f65ede9c4c7987318c788b5dd9, image
+sha256:e8e226a8433bfad19c531757305be3a3d54efdd3f496cb3e55fbd5912bd679c8.
+This local ARM64 image evidence is not hosted deployment, production-catalog
+equivalence, old-schema upgrade or complete invariant acceptance. Performance,
+full application, hosted and production transfer gates remain pending. No shared
+credentials, provider requests or output-media transformations were used.

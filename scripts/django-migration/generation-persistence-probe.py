@@ -106,10 +106,51 @@ with transaction.atomic():
     updates = read_generation_updates(watermark)
     assert len(updates) == 100
     assert [row['id'] for row in updates] == list(reversed(cap_ids[5:]))
+    from django.http import QueryDict
+    from apps.generation.history import query_history
+    from apps.library.models import GenerationNaming
+    history_marker = 'history-probe-' + uuid4().hex
+    history_ids = []
+    for index in range(5):
+        identifier = uuid4()
+        identifiers.append(identifier)
+        history_ids.append(str(identifier))
+        Generation.objects.create(id=identifier, kind='audio' if index==4 else 'image',
+            status='completed', prompt=history_marker, model='fixture-only', aspect_ratio='16:9',
+            created_at=10, updated_at=10, is_favorite=index in (0,2),
+            favorited_at=42+index if index in (0,2) else None)
+        GenerationNaming.objects.create(generation_id=identifier,namespace='global_unsorted',sequence=400000+index,assigned_at=10)
+    def history_page(**values):
+        params = QueryDict(mutable=True)
+        params.update({'q':history_marker, **values})
+        return query_history(params)
+    first_page = history_page(limit='2')
+    original_order = sorted(history_ids[:4], reverse=True)
+    assert [item['id'] for item in first_page['items']] == original_order[:2]
+    assert first_page['nextCursor'] == '10.'+original_order[1]
+    newer = uuid4()
+    identifiers.append(newer)
+    Generation.objects.create(id=newer, kind='image', status='completed',
+        prompt=history_marker, model='fixture-only', aspect_ratio='16:9', created_at=11, updated_at=11)
+    last_page = history_page(limit='2', cursor=first_page['nextCursor'])
+    assert [item['id'] for item in last_page['items']] == original_order[2:]
+    assert last_page['nextCursor'] is None
+    for item in first_page['items']+last_page['items']:
+        naming = GenerationNaming.objects.get(pk=item['id'])
+        assert item['filename'] == f'unsorted_{naming.sequence:04d}.png'
+        assert 'providerResponses' not in item
+    favorites = history_page(favorite='1',limit='1')
+    assert favorites['items'][0]['id'] == history_ids[2]
+    assert favorites['nextCursor'] == '44.'+history_ids[2]
+    last_favorite = history_page(favorite='1',limit='1',cursor=favorites['nextCursor'])
+    assert last_favorite['items'][0]['id'] == history_ids[0] and last_favorite['nextCursor'] is None
+    audio_page = history_page(kind='audio')
+    assert [item['id'] for item in audio_page['items']] == [history_ids[4]]
     transaction.set_rollback(True)
 assert not Generation.objects.filter(pk__in=identifiers).exists()
 print(json.dumps({'generation_orm_kinds': cases, 'generation_columns': 60,
                   'fixture_rows_rolled_back': True, 'provider_calls': 0,
                   'history_count_full_schema_checks': 5,
+                  'history_full_schema_checks':['uuid_tie_order','composite_cursor','newer_insert_excluded','exact_multiple_terminal','persisted_names','favorite_keysets','audio_filter','private_diagnostics_omitted'],
                   'update_selection_checks': ['inflight', 'strict_watermark', 'exclude_audio', 'public_shape', 'descending_order', 'newest_100_cap', 'fractional_rejected', 'overflow_rejected'],
-                  'scope': 'ORM persistence only; not enqueue API or provider/MOV-byte qualification'}))
+                  'scope': 'ORM persistence and history/count/update services; not enqueue API or provider/MOV-byte qualification'}))
