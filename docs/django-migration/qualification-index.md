@@ -363,3 +363,16 @@ integer and overflow. CI runs this comparison. Exact driver text formatting for
 all extreme doubles and actual HTTP error body/cookie parity remain pending;
 this does not prove complete update route parity or authorize traffic selection.
 No production database or provider was used.
+
+The corrected complete update query now passes eight checks in the production
+Python 3.12 image/full current Drizzle schema on disposable PostgreSQL 16.15.
+Added savepoint cases prove fractional since=1.5 raises 22P02 and overflow
+since=1e20 raises 22003 even with eligible queued/running rows present; the OR
+condition does not bypass operand validation. Original six selection/cap/public
+shape checks, five counts checks, three generation-kind roundtrips, settings,
+health and invariant checks pass. All fixture rows roll back. Actual update HTTP
+Node/Django parity, error bodies/renewal, browser/hosted and production transfer
+remain pending. Image revision 8e4fe8d9d6df14b85f1453264770b9514cbaa7e7,
+API fingerprint 5d902e9b47f0201a507f5747e1ca7d0e4529e2b0c1299102f432c989d1795983,
+image sha256:342532eb8062cd1557641ede6a3f245b58340a1f3c5ddd07b9d19e4c59a28514.
+This is local ARM64 evidence, not a hosted deployment or schema authority gate.

@@ -86,6 +86,15 @@ with transaction.atomic():
     assert boundary_ids['equal'] not in selected and boundary_ids['audio'] not in selected
     assert all('providerResponses' not in row for row in updates)
     assert [row['updatedAt'] for row in updates] == sorted([row['updatedAt'] for row in updates], reverse=True)
+    for invalid, expected_code in [(1.5, '22P02'), (1e20, '22003')]:
+        from django.db import DatabaseError
+        try:
+            with transaction.atomic():
+                read_generation_updates(invalid)
+        except DatabaseError as error:
+            assert getattr(error.__cause__, 'sqlstate', None) == expected_code
+        else:
+            raise AssertionError('Invalid update operand was silently accepted')
     cap_ids = []
     for index in range(105):
         identifier = uuid4()
@@ -102,5 +111,5 @@ assert not Generation.objects.filter(pk__in=identifiers).exists()
 print(json.dumps({'generation_orm_kinds': cases, 'generation_columns': 60,
                   'fixture_rows_rolled_back': True, 'provider_calls': 0,
                   'history_count_full_schema_checks': 5,
-                  'update_selection_checks': ['inflight', 'strict_watermark', 'exclude_audio', 'public_shape', 'descending_order', 'newest_100_cap'],
+                  'update_selection_checks': ['inflight', 'strict_watermark', 'exclude_audio', 'public_shape', 'descending_order', 'newest_100_cap', 'fractional_rejected', 'overflow_rejected'],
                   'scope': 'ORM persistence only; not enqueue API or provider/MOV-byte qualification'}))
