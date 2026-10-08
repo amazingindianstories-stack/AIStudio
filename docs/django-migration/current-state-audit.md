@@ -24,6 +24,12 @@ reported as Next.js at baseline `a208e8`, with business API lambda outputs.
 See `frontend-deployment-evidence.json`; compiled browser API-base overrides and
 live route destinations remain unverified. This narrows the deployed-source
 gap without proving traffic ownership or the database catalog.
+Public production login assets were also inspected without API requests: their
+API helper falls back to an empty base and their browser process shim has an
+empty environment, with no API-origin injection found in the page HTML. This
+supports same-origin login as an inference from compiled assets; authenticated
+traffic and server forwarding remain unverified. Details are in the Railway
+release review's public asset observation section.
 
 Read the original scope in `source-request.txt` and mandatory isolation rule in
 `isolation-requirement.txt`. `history-evidence.txt` records all locally reachable

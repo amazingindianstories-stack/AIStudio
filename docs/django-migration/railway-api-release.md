@@ -115,3 +115,26 @@ destination/edge-routing verification remains required. No secret variables or
 production API mutations were requested. Existing Railway Django services must
 therefore be treated as separate, unreconciled infrastructure rather than proof
 that this frontend has transferred ownership.
+
+## Public compiled login asset observation
+
+On 2026-10-08, unauthenticated GETs fetched only `/login` and its public static
+JavaScript assets. The page redirects from `veevee.ai` to `www.veevee.ai` and
+references deployment `dpl_Aw9qb3spGS9jswTZijRXen4Dt4ex` in its asset URLs.
+No API request, login submission, cookie or credential was supplied.
+
+Observed login asset:
+`/_next/static/chunks/app/login/page-3d7a608a47106283.js`.
+Module 55490 computes `(process.env.NEXT_PUBLIC_API_URL || '').replace(...)`
+and fetches the resulting base plus `/api/auth/login` with credentials included.
+The process resolver in shared asset
+`/_next/static/chunks/1255-4b24d74c3ca6c089.js` selects a global process only
+when present with an environment; otherwise module 53965 supplies the browser
+shim with `env={}`. The returned HTML contains no `NEXT_PUBLIC_API_URL`,
+`window.process` or `globalThis.process` assignment.
+
+Inference from these observed assets: the ordinary browser login request uses
+the frontend's same-origin `/api/auth/login`. This narrows the API-base gap for
+the observed login page. It does not verify runtime browser requests, all app
+chunks, edge forwarding, authenticated responses or the Railway backend's role.
+No production qualification tests were run; this was public asset inspection.
