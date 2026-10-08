@@ -1017,7 +1017,20 @@
       }
     }
   },
-  "exceptions": [],
+  "exceptions": [
+    {
+      "path": "src/app/api/admin/migrate-schema/route.js",
+      "sha256": "b3e8c3ede5946cab05d8a3937f4759f559c31ef7cad3a65dfde51e9808b8b5cf",
+      "issue": "DJANGO-BLUEPRINT-G0",
+      "reason": "Blueprint G0 explicitly requires reconciling checkpoint folder-colour source and its legacy additive/admin migration before Node retirement; exact content only. See docs/django-migration/blueprint-execution.md."
+    },
+    {
+      "path": "src/app/api/folders/route.js",
+      "sha256": "14eddaef42676374393973c825b7a3cc784df720d9abcd168141cccbb37e235b",
+      "issue": "DJANGO-BLUEPRINT-G0",
+      "reason": "Blueprint G0 explicitly requires reconciling checkpoint folder-colour source and its legacy additive/admin migration before Node retirement; exact content only. See docs/django-migration/blueprint-execution.md."
+    }
+  ],
   "frozen_backend_files": {
     "src/lib/schema.js": "3ab6a50a89404fea11ac0253491f26e2775b5beb51887ff0d2f0d0ddf5d04bfb",
     "drizzle.config.js": "5878a68864a2b9b32c5384957d36b774d6bcc869dcd340f6913668e71e22dc03",

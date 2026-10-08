@@ -104,6 +104,15 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
   "ALTER TABLE folders ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
   "ALTER TABLE folders ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0",
   "ALTER TABLE folders ADD COLUMN IF NOT EXISTS color TEXT",
+  `DO $$ BEGIN
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = 'folders'::regclass AND conname = 'folders_color_check'
+    ) THEN
+      ALTER TABLE folders ADD CONSTRAINT folders_color_check
+        CHECK (color IS NULL OR color IN ('gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink'));
+    END IF;
+  END $$;`,
   "ALTER TABLE generations ADD COLUMN IF NOT EXISTS location_version INTEGER NOT NULL DEFAULT 1",
   `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'folders'::regclass AND conname = 'folders_project_id_fkey') THEN
@@ -514,6 +523,12 @@ export async function POST(request) {
           and column_name in ('parent_id', 'name_normalized', 'version', 'updated_at', 'color');
       `);
 
+      const folderColorConstraintVerification = await tx.execute(sql`
+        select count(*)::int as count from pg_constraint
+        where conrelid = 'folders'::regclass and conname = 'folders_color_check'
+          and contype = 'c' and convalidated;
+      `);
+
       const generationNamingTablesVerification = await tx.execute(sql`
         select count(*)::int as count
         from information_schema.tables
@@ -559,6 +574,7 @@ export async function POST(request) {
       const portCount = Number((portraitTablesVerification.rows ?? portraitTablesVerification)[0]?.count || 0);
       const mediaExportCount = Number((mediaExportTablesVerification.rows ?? mediaExportTablesVerification)[0]?.count || 0);
       const folderColCount = Number((hierarchicalFolderColumnsVerification.rows ?? hierarchicalFolderColumnsVerification)[0]?.count || 0);
+      const folderColorCount = Number((folderColorConstraintVerification.rows ?? folderColorConstraintVerification)[0]?.count || 0);
       const namingCount = Number((generationNamingTablesVerification.rows ?? generationNamingTablesVerification)[0]?.count || 0);
 
       counts = {
@@ -566,11 +582,12 @@ export async function POST(request) {
         portraitTables: portCount,
         mediaExportTables: mediaExportCount,
         hierarchicalFolderColumns: folderColCount,
+        folderColorConstraints: folderColorCount,
         generationNamingTables: namingCount,
       };
 
       // verified: coordCount === 21
-      verified = coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 5 && namingCount === 2;
+      verified = coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 5 && folderColorCount === 1 && namingCount === 2;
       if (!verified) {
         throw new Error(`Verification count mismatch: ${JSON.stringify(counts)}`);
       }

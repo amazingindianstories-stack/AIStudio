@@ -35,3 +35,28 @@ blueprint; this reconciliation is not migration completion.
 5. Route local browser and worker integration solely to Django, remove Node
    business dependencies after replacement tests, and run the full acceptance
    matrix before packaging the undeployed source and deployment-only playbook.
+
+## G0 integration evidence
+
+Folder-colour migration is now included in database and browser CI. The legacy
+schema verifier requires its check constraint; the existing admin migration
+installs and verifies it with a separate expected count. Exact-content Node
+exceptions are scoped to `DJANGO-BLUEPRINT-G0`; no general Node feature exception
+is granted. The admin API inventory hash reflects this reconciliation.
+
+Fresh disposable PG18 qualification passed four tests: admin authentication,
+repeat migration success, injected transaction rollback, and a populated
+pre-colour schema upgrade with eight palette values, NULL default, preservation,
+repeatability and invalid-value rejection. The earlier reused database had an
+orphan fixture and correctly failed FK installation; it was not repaired or used
+as positive evidence. Full test output is in `evidence/g0-admin-color-tests.log`.
+Ownership/contract and generated-status guards pass. Three missing history GET
+contract dimensions were completed from its documented behavior; chronological
+schema updates were moved out of the generated status into status-history.md.
+
+Read-only delegated audit confirmed 65 files/85 methods and only 12 currently
+implemented Django methods. Stable acceptance identity is method plus path:
+issue numbers are reused. Project POST includes folder operations; profile PATCH
+needs media storage; browser store.js also invokes queue/execute; coordinator
+bootstrap starts the export worker. These dependencies must survive the planned
+service split and be removed only after replacement qualification.

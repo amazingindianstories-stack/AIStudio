@@ -119,12 +119,14 @@ export async function verifyProductionSchema(customDb = null) {
   // Verify check constraints
   const expectedCheckConstraints = [
     "generation_naming_sequence_check",
+    "folders_color_check",
   ];
   const checkResult = await db.execute(sql`
     select conname
     from pg_constraint
     where contype = 'c'
-      and conname in ('generation_naming_sequence_check');
+      and conname in ('generation_naming_sequence_check', 'folders_color_check')
+      and connamespace = (select oid from pg_namespace where nspname = current_schema());
   `);
   const liveChecks = new Set((checkResult.rows ?? checkResult).map((r) => r.conname));
   const missingChecks = expectedCheckConstraints.filter((c) => !liveChecks.has(c));

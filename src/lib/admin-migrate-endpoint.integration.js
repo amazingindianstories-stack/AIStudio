@@ -48,8 +48,9 @@ test("Admin migrate-schema endpoint: 200 OK, verified === true, and idempotent r
     assert.equal(body1.coordinatorColumns, 21);
     assert.equal(body1.portraitTables, 2);
     assert.equal(body1.mediaExportTables, 2);
-    assert.equal(body1.hierarchicalFolderColumns, 4);
+    assert.equal(body1.hierarchicalFolderColumns, 5);
     assert.equal(body1.generationNamingTables, 2);
+    assert.equal(body1.folderColorConstraints, 1);
 
     // 2. Second execution: strictly idempotent re-run
     const req2 = new Request("http://localhost/api/admin/migrate-schema", {
@@ -67,8 +68,9 @@ test("Admin migrate-schema endpoint: 200 OK, verified === true, and idempotent r
     assert.equal(body2.coordinatorColumns, 21);
     assert.equal(body2.portraitTables, 2);
     assert.equal(body2.mediaExportTables, 2);
-    assert.equal(body2.hierarchicalFolderColumns, 4);
+    assert.equal(body2.hierarchicalFolderColumns, 5);
     assert.equal(body2.generationNamingTables, 2);
+    assert.equal(body2.folderColorConstraints, 1);
   } finally {
     if (originalSecret !== undefined) {
       process.env.SET_TOKEN_SECRET = originalSecret;

@@ -153,7 +153,7 @@
         "POST"
       ],
       "source": "src/app/api/admin/migrate-schema/route.js",
-      "source_sha256": "68149286b02272179b2748ca07b2ef7371c128d21b9e2c9e41d87dc3149c5751",
+      "source_sha256": "b3e8c3ede5946cab05d8a3937f4759f559c31ef7cad3a65dfde51e9808b8b5cf",
       "qualification": "INVENTORIED_NOT_VERIFIED",
       "imports": [
         "next/server",
@@ -173,7 +173,7 @@
         "transitive DB reads/writes and storage/provider/worker effects",
         "headers, idempotency, concurrency, pagination, naming"
       ],
-      "source_lines": 591
+      "source_lines": 608
     },
     {
       "path": "/api/admin/pricing",
@@ -1731,7 +1731,6 @@
           "request_body": null,
           "authentication": "Active compatible session and auth_version; otherwise 401 UNAUTHENTICATED",
           "authorization": "Team-wide history; current filters do not limit by user",
-          "query": "First values of projectId/folderId (none means NULL), kind image/video/audio, favorite=1, q trimmed/sliced to 200 UTF16 units; limit parseInt decimal prefix clamped 1..100 default20; cursor first-dot Number plus UUID or first-page fallback",
           "success": "200 {items:[public generation fields plus canonical filename],nextCursor:string|null}",
           "ordering": "favorite uses favorited_at DESC otherwise created_at DESC, then id DESC; strict composite bigint/UUID cursor predicate",
           "pagination": "limit+1 proves next page; no phantom cursor for exact multiples; newer insert before cursor excluded",
@@ -1758,7 +1757,10 @@
             "Browser/full application and hosted preview",
             "Authorized canary and rollback"
           ],
-          "failure": "401 UNAUTHENTICATED before query; invalid UUID filters or bigint cursor operands preserve current empty500 without Content-Type/session renewal"
+          "failure": "401 UNAUTHENTICATED before query; invalid UUID filters or bigint cursor operands preserve current empty500 without Content-Type/session renewal",
+          "query_params": "First values of projectId/folderId (none means NULL), kind image/video/audio, favorite=1, q trimmed/sliced to 200 UTF16 units; limit parseInt decimal prefix clamped 1..100 default20; cursor first-dot Number plus UUID or first-page fallback",
+          "idempotency": "Read-only application data; no idempotency key. Successful aged sessions may renew the cookie.",
+          "concurrency": "Strict composite keyset excludes rows inserted before an existing cursor. Separate read queries do not promise a transaction-wide snapshot of concurrently changed folder ancestry."
         }
       }
     },
