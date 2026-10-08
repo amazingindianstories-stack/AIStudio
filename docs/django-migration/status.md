@@ -132,3 +132,10 @@ association; independent empty-table creation and stable repeat reads pass for
 both runtimes. Twelve mixed Next/Django concurrent HTTP requests return one
 shared default project ID and one DB row. See project-read-qualification.md.
 All other HTTP comparisons and same-origin rewrite still pass. No cutover.
+
+Password compatibility foundation qualified directly against current Node source:
+Python verifies Node scrypt hashes and Node verifies Python hashes for synthetic
+ASCII/Hindi/emoji/lone-surrogate passwords. Preserves textual hex salt, 64-byte
+scrypt output, UTF-16 validation length and Node UTF-8 replacement behavior.
+Focused interoperability test passes. Login/password mutations, throttling,
+audit logging and auth authority transfer remain unimplemented/unqualified.
