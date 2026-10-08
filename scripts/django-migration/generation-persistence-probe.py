@@ -1,0 +1,55 @@
+"""Full-width ORM roundtrips against the harness's disposable PG16 schema only."""
+import json
+import os
+from urllib.parse import urlsplit
+from uuid import uuid4
+
+url = urlsplit(os.environ.get('DATABASE_URL', ''))
+if (os.environ.get('VEEVEE_GENERATION_PERSISTENCE_TEST') != '1'
+        or not (url.hostname or '').startswith('veevee-qualification-pg-')
+        or url.path != '/veevee_django_migration'):
+    raise SystemExit('Verified disposable container target required')
+
+os.environ['DJANGO_SETTINGS_MODULE'] = 'config.settings.production'
+import django
+django.setup()
+from django.db import transaction
+from apps.generation.models import Generation
+
+assert len(Generation._meta.concrete_fields) == 60
+identifiers = []
+cases = []
+with transaction.atomic():
+    for kind in ['image', 'video', 'depth']:
+        identifier = uuid4()
+        identifiers.append(identifier)
+        values = {'id': identifier, 'kind': kind, 'status': 'queued', 'prompt': 'दृश्य fixture',
+                  'model': 'fixture-only', 'aspect_ratio': '16:9', 'created_at': 9007199254740993,
+                  'updated_at': 9007199254740995, 'reference_images': [{'url': '/fixture/reference.png'}],
+                  'provider_responses': {'fixture': True}, 'seed': 2147483647}
+        if kind == 'video':
+            values.update(generate_audio=False, draft_mode=False, bitrate_mode='high', video_task_mode='edit',
+                          reference_videos=[{'url': '/fixture/source.mov'}], reference_audios=[],
+                          source_generation_id=uuid4(), draft_task_id='fixture-draft',
+                          url='/fixture/native-master.mov', candidate_task_ids=['fixture-task'])
+        if kind == 'depth':
+            values.update(depth_claim_id=uuid4(), depth_claim_worker_id='fixture-gpu',
+                          track_characters=True, progress_percent=37, progress_message='fixture progress')
+        Generation.objects.create(**values)
+        row = Generation.objects.get(pk=identifier)
+        for name, expected in values.items():
+            assert getattr(row, name) == expected, (kind, name)
+        assert row.project_id is None and row.folder_id is None
+        assert (row.cost_cents, row.cost_basis, row.location_version) == (0, 'estimated', 1)
+        assert (row.poll_attempts, row.poll_error_count, row.depth_reap_attempts) == (0, 0, 0)
+        assert row.worker_lease_id is None and row.worker_lease_until is None
+        if kind != 'video':
+            assert row.generate_audio is None and row.draft_mode is None and row.video_task_mode is None
+        if kind != 'depth':
+            assert row.depth_claim_id is None and row.progress_percent is None
+        cases.append(kind)
+    transaction.set_rollback(True)
+assert not Generation.objects.filter(pk__in=identifiers).exists()
+print(json.dumps({'generation_orm_kinds': cases, 'generation_columns': 60,
+                  'fixture_rows_rolled_back': True, 'provider_calls': 0,
+                  'scope': 'ORM persistence only; not enqueue API or provider/MOV-byte qualification'}))

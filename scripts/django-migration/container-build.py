@@ -10,6 +10,9 @@ import sys
 import hashlib
 import re
 
+if '--orm-generations' in sys.argv and not {'--runtime', '--declared-schema'}.issubset(sys.argv):
+    raise SystemExit('Generation ORM qualification requires runtime and declared schema')
+
 root = Path.cwd()
 home = Path(os.environ['HOME'])
 if os.environ.get('MIGRATION_TEST_ISOLATED') != '1' or root.parent.name != home.parent.name or root.name != 'repo' or root.parent.parent != Path('/private/tmp'):
@@ -182,6 +185,9 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'secure_renewal'
                 assert result['secure_renewal'] == (status == 200), name
                 assert result['renewal_accepted'] == (status == 200), name
                 assert sql(snapshot_sql) == before, name
+            if '--orm-generations' in sys.argv:
+                probe = Path('scripts/django-migration/generation-persistence-probe.py').read_text()
+                print(run(['exec','-e','VEEVEE_GENERATION_PERSISTENCE_TEST=1',api,'python','-c',probe]))
             logs = run(['logs',api])
             events = [json.loads(line) for line in logs.splitlines() if line.startswith('{')]
             assert any(e.get('status') == 200 for e in events)

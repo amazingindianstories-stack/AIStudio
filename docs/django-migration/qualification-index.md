@@ -194,3 +194,23 @@ for allowlist exclusions, fingerprint order/scope, file/manifest output, mismatc
 rejection before directory creation, exact revision and symlink rejection. CI
 runs both schema-guard and exporter test files. Hosted deployment approval is
 still pending; no resources or route ownership changed.
+
+Full-width Generation ORM persistence now passes for image, video and depth on
+the current 21-table Drizzle fixture plus hierarchy/naming invariants in disposable
+PostgreSQL 16.15, using the production Python 3.12 image. The optional container
+harness `--orm-generations` requires runtime + declared schema, verifies its
+container DB target before Django setup, inserts the model's 60 columns, reads
+back fixture values and rolls back all three rows. It covers exact bigint
+values, JSON references/diagnostics, video audio/draft false-vs-null controls,
+lineage and depth claim UUID/progress fields. No worker/provider executes.
+The initial probe failed before inserts because DJANGO_SETTINGS_MODULE was
+missing; explicit production settings corrected the harness. The complete rerun
+passes existing health, five settings and eleven invariant cases as well.
+
+Image ID for this run:
+sha256:204a439b0fd8894cd76655b88ca5d3d6dbd9017ccefc892bfdecf37a156d74a8.
+Revision label f5c8364bffe04fc983844c2725daed0d3a518c2a; API fingerprint remains
+730765b8101543f08a4241f8d1706d03a53ec0eee153a62f1354d1447920ff83.
+This does not prove enqueue/admission API behavior, provider calls, native MOV
+bytes, physical baseline equivalence or production-schema readiness. Hosted
+preview authorization remains pending and route ownership is unchanged.
