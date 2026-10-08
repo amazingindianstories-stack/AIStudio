@@ -111,3 +111,10 @@ tests); this is not nine new library cases. Model-state drift check passes and
 SQL inspection confirms migration 0002 emits no application DDL. Declaration
 coverage is now 11/21, still partial/unmanaged; FK/default/index/trigger baseline
 and schema takeover remain incomplete. Runtime/traffic ownership is unchanged.
+
+PortraitGroup/PortraitAsset unmanaged declarations now represent the current
+portrait columns, nullable unique provider IDs, Python defaults and group
+relationship. The relationship is explicitly retained in migration state.
+Model-state drift check passes; physical schema/default/index/CASCADE equivalence
+and portrait API/provider qualification are still pending. Declaration count is
+13/21; no traffic, provider or schema authority has transferred.
