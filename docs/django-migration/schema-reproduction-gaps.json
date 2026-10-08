@@ -2276,25 +2276,7 @@
         },
         {
           "relname": "folders",
-          "conname": "folders_parent_id_folders_id_fk",
-          "contype": "f",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (parent_id) REFERENCES folders(id) ON DELETE RESTRICT"
-        },
-        {
-          "relname": "folders",
           "conname": "folders_project_id_fkey",
-          "contype": "f",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT"
-        },
-        {
-          "relname": "folders",
-          "conname": "folders_project_id_projects_id_fk",
           "contype": "f",
           "condeferrable": false,
           "condeferred": false,
@@ -2321,15 +2303,6 @@
         },
         {
           "relname": "generation_naming",
-          "conname": "generation_naming_generation_id_generations_id_fk",
-          "contype": "f",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (generation_id) REFERENCES generations(id) ON DELETE CASCADE"
-        },
-        {
-          "relname": "generation_naming",
           "conname": "trg_check_generation_naming_scope",
           "contype": "t",
           "condeferrable": true,
@@ -2348,25 +2321,7 @@
         },
         {
           "relname": "generations",
-          "conname": "generations_folder_id_folders_id_fk",
-          "contype": "f",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE RESTRICT"
-        },
-        {
-          "relname": "generations",
           "conname": "generations_project_id_fkey",
-          "contype": "f",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE RESTRICT"
-        },
-        {
-          "relname": "generations",
-          "conname": "generations_project_id_projects_id_fk",
           "contype": "f",
           "condeferrable": false,
           "condeferred": false,
@@ -2401,15 +2356,6 @@
           "pg_get_constraintdef": "PRIMARY KEY (export_id, generation_id)"
         },
         {
-          "relname": "media_export_items",
-          "conname": "media_export_items_export_id_media_exports_id_fk",
-          "contype": "f",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (export_id) REFERENCES media_exports(id) ON DELETE CASCADE"
-        },
-        {
           "relname": "portrait_assets",
           "conname": "portrait_assets_byteplus_asset_id_unique",
           "contype": "u",
@@ -2417,15 +2363,6 @@
           "condeferred": false,
           "convalidated": true,
           "pg_get_constraintdef": "UNIQUE (byteplus_asset_id)"
-        },
-        {
-          "relname": "portrait_assets",
-          "conname": "portrait_assets_group_id_portrait_groups_id_fk",
-          "contype": "f",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (group_id) REFERENCES portrait_groups(id) ON DELETE CASCADE"
         },
         {
           "relname": "portrait_groups",
@@ -2466,60 +2403,6 @@
           "pg_get_constraintdef": "UNIQUE (worker_id)"
         },
         {
-          "relname": "folders",
-          "conname": "folders_parent_id_bd43fe3e_fk_folders_id",
-          "contype": "f",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (parent_id) REFERENCES folders(id) DEFERRABLE INITIALLY DEFERRED"
-        },
-        {
-          "relname": "folders",
-          "conname": "folders_project_id_cbe2d432_fk_projects_id",
-          "contype": "f",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (project_id) REFERENCES projects(id) DEFERRABLE INITIALLY DEFERRED"
-        },
-        {
-          "relname": "generation_naming",
-          "conname": "generation_naming_generation_id_a33e71df_fk_generations_id",
-          "contype": "f",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (generation_id) REFERENCES generations(id) DEFERRABLE INITIALLY DEFERRED"
-        },
-        {
-          "relname": "generations",
-          "conname": "generations_folder_id_e9828c4f_fk_folders_id",
-          "contype": "f",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (folder_id) REFERENCES folders(id) DEFERRABLE INITIALLY DEFERRED"
-        },
-        {
-          "relname": "generations",
-          "conname": "generations_project_id_3e51796a_fk_projects_id",
-          "contype": "f",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (project_id) REFERENCES projects(id) DEFERRABLE INITIALLY DEFERRED"
-        },
-        {
-          "relname": "media_export_items",
-          "conname": "media_export_items_export_id_0f4cfda6_fk_media_exports_id",
-          "contype": "f",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (export_id) REFERENCES media_exports(id) DEFERRABLE INITIALLY DEFERRED"
-        },
-        {
           "relname": "media_export_items",
           "conname": "media_export_items_pkey",
           "contype": "p",
@@ -2536,15 +2419,6 @@
           "condeferred": false,
           "convalidated": true,
           "pg_get_constraintdef": "UNIQUE (byteplus_asset_id)"
-        },
-        {
-          "relname": "portrait_assets",
-          "conname": "portrait_assets_group_id_dabb3312_fk_portrait_groups_id",
-          "contype": "f",
-          "condeferrable": true,
-          "condeferred": true,
-          "convalidated": true,
-          "pg_get_constraintdef": "FOREIGN KEY (group_id) REFERENCES portrait_groups(id) DEFERRABLE INITIALLY DEFERRED"
         },
         {
           "relname": "portrait_groups",

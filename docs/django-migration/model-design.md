@@ -886,3 +886,23 @@ physical FK clauses, column order and missing functions/triggers. The detailed
 report is refreshed. This schema-editor preparation does not transfer schema
 authority or create/drop production objects. PostgreSQL 16 and complete
 Django-migrations-only baseline qualification remain required.
+
+The scoped PostgreSQL schema editor now preserves all seven current Drizzle FK
+names and physical ON DELETE RESTRICT/CASCADE clauses, with NOT DEFERRABLE
+validation. It applies to normal FK creation and routes ADD COLUMN through the
+same policy. Unlisted relationships retain Django behavior. This supplies fresh
+schema generation semantics; it does not alter existing database constraints.
+The metadata guard compares each policy with actual current Drizzle FK metadata.
+A physical probe passes 28 cases across runtime/disk state and direct constraint/
+ADD COLUMN paths, verifying catalog flags, immediate missing-parent rejection,
+restricted parent deletion and cascading child deletion. PostgreSQL 18 reports
+RESTRICT violations as 23001; the probe also accepts 23503 on older servers.
+All scratch objects are rolled back; 42 Django regression tests pass. CI now
+includes this probe on its PostgreSQL 16 service.
+
+The refreshed complete reproduction report has no Django-only FK differences.
+Current additive migration aliases still produce five extra FKs in the source
+fixture and require production audit; this change does not silently discard
+them. Constraint/key names, physical column order, four functions and five
+triggers remain baseline gaps. Five catalog categories still differ; the
+Django-migrations-only baseline and production equivalence gates remain open.

@@ -233,3 +233,7 @@ no DDL. Eight text pattern indexes and other baseline differences remain.
 pattern indexes absent from current declarations. Fresh reproduction index count
 is now 58 vs current 58, with naming/other catalog differences still open.
 Sixteen suppression checks, unrelated-index control and 42 tests pass.
+
+2026-10-08: Fresh Django FK SQL now preserves seven current names and immediate
+RESTRICT/CASCADE rules. Twenty-eight physical cases and 42 regression tests pass;
+source fixture FK aliases and broader schema gaps remain. No production DDL.
