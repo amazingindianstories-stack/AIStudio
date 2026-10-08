@@ -69,6 +69,23 @@ class SettingsTests(TransactionTestCase):
         self.cookie()
         self.assertEqual(self.client.get('/api/settings').status_code,401)
 
+    def test_settings_reads_are_bounded_by_registered_keys(self):
+        from django.test.utils import CaptureQueriesContext
+        with connection.cursor() as c:
+            c.execute("INSERT INTO settings SELECT 'unrelated-' || n, 'fixture', 0 FROM generate_series(1, 2000) n")
+            c.execute("INSERT INTO user_limits SELECT %s, 'unrelated-' || n, 'fixture', 0 FROM generate_series(1, 2000) n", [UID])
+            c.execute("INSERT INTO settings VALUES ('maxPromptLength','12000',0)")
+            c.execute("INSERT INTO user_limits VALUES (%s,'maxConcurrentJobs','2',0)", [UID])
+        self.cookie()
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get('/api/settings')
+        self.assertEqual(response.json(), {'maxPromptLength':12000,'maxConcurrentJobs':2})
+        self.assertEqual(len(queries), 3)  # User, registered globals, registered overrides.
+        for query in list(queries)[1:]:
+            self.assertIn(' IN ', query['sql'])
+            self.assertIn('maxPromptLength', query['sql'])
+            self.assertIn('maxConcurrentJobs', query['sql'])
+
 
 class CurrentNodeLimitParityTests(TransactionTestCase):
     def test_current_node_parser_contract(self):

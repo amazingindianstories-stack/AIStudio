@@ -34,3 +34,16 @@ cookie. Browser was installed under the disposable HOME; no personal profile
 is used. This proves the tested browser transport, not the Asset Library UI,
 HTTPS hosted forwarding, Secure-cookie behavior or the full existing suite.
 The PostgreSQL 16 CI job now runs this browser contract; remote CI is pending.
+
+## Bounded settings reads — 2026-10-08
+
+Django now filters both global settings and personal overrides to the two
+registered response keys. Qualification inserts 2,000 unrelated rows into each
+table and verifies the correct effective limits with exactly three database
+queries (session user, globals, overrides). Both settings queries restrict the
+keys in SQL, so unrelated settings are not materialized in Python. All six
+admin-dashboard tests passed through the verified disposable runner, followed
+by the complete Node/Django HTTP harness under two-worker production-settings
+Gunicorn, including the same-origin rewrite. This establishes a bounded query
+shape; it does not establish hosted latency, production query plans or a
+Node-versus-Django load baseline. No schema or traffic ownership changed.

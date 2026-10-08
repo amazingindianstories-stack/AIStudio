@@ -30,8 +30,8 @@ def effective_settings(request):
     user = lookup(request)
     if user is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
-    globals = dict(AppSetting.objects.values_list('key', 'value'))
-    overrides = dict(UserLimit.objects.filter(user_id=user.id).values_list('key', 'value'))
+    globals = dict(AppSetting.objects.filter(key__in=LIMITS).values_list('key', 'value'))
+    overrides = dict(UserLimit.objects.filter(user_id=user.id, key__in=LIMITS).values_list('key', 'value'))
     response = Response({key: parse(overrides[key] if key in overrides else globals.get(key), definition) for key, definition in LIMITS.items()})
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=30*24*60*60, httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')

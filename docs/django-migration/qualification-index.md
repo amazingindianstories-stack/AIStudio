@@ -35,3 +35,9 @@ PostgreSQL. Health checks process/database readiness; login and password cookies
 carry Secure. CI includes this runtime variant. It is not a container/Railway
 or hosted TLS qualification; Secure-cookie browser forwarding needs HTTPS and
 cannot be inferred from manually supplied cookies over local HTTP.
+
+Settings read performance qualification: six admin-dashboard tests pass after
+restricting global/personal reads to registered keys. A fixture with 4,000
+unrelated rows verifies three queries and correct limits. The production-settings
+Gunicorn HTTP harness passed again after this change. Hosted/load baselines
+remain pending; see settings-qualification.md for the precise evidence scope.
