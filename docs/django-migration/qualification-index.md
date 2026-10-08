@@ -77,3 +77,11 @@ stderr diagnostics; its cause remains unresolved, so stable qualification is
 not established. Diagnostics now retain synthetic-container stderr. Behavioral
 invariant tests, other migration scripts and upgrade/equivalence gates remain
 pending.
+
+Current-schema PostgreSQL reference behavior now passes eleven hierarchy/naming
+checks in the disposable PG16 container: normalization, sibling uniqueness,
+child scope, restricted parent deletion, auto naming, generation scope,
+namespace integrity, positive sequence, deferred scope move, naming reassignment
+and cascade deletion. Settings and deterministic connection recovery also pass
+in that run. These use current Node migration SQL and do not prove a Django
+migration baseline, concurrent naming allocation, cycles or complete invariants.

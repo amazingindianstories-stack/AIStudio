@@ -109,6 +109,7 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
                             sql('BEGIN;\n' + ';\n'.join(statements[domain]) + ';\nCOMMIT;')
                     invariant_counts = json.loads(sql("SELECT jsonb_build_object('functions',(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'),'triggers',(SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal));"))
                     assert invariant_counts['functions'] > 0 and invariant_counts['triggers'] > 0, invariant_counts
+                    sql(Path('scripts/django-migration/invariant-behavior.sql').read_text())
                 sql("INSERT INTO users (id,email,password_hash,password_salt,name,role,is_active,auth_version,created_at) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','fixture@example.invalid','synthetic-unused','synthetic-unused','Fixture','user',true,0,0);")
             else:
                 sql('''CREATE TABLE users (id uuid PRIMARY KEY,email text,name text,role text,color text,avatar_url text,is_active boolean,auth_version integer);
@@ -177,7 +178,8 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'secure_renewal'
                     print(json.dumps({'hierarchy_statements':len(statements['hierarchy']),
                                       'naming_statements':len(statements['naming']),
                                       'repeated_apply_passed':True,'catalog_counts':invariant_counts,
-                                      'behavioral_invariants_qualified':False}))
+                                      'hierarchy_naming_behavior_cases':11,
+                                      'complete_behavioral_invariants_qualified':False}))
         finally:
             for name in reversed(created):
                 subprocess.run(docker + ['rm','--force',name], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
