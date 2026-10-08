@@ -986,3 +986,21 @@ reviewed baselining and the deployment gates are still required. The separate
 untracked folder-color migration remains a clean-checkout qualification dependency.
 
 The isolated Django regression suite also passed all 42 tests.
+
+### Candidate baseline executed through Django migrations
+
+`backend/baseline_candidate` now supplies an executable candidate graph: 21
+CreateModel operations plus one RunSQL migration for invariant functions,
+triggers and FK aliases. The isolated PostgreSQL 18 probe applies all 22
+migrations through MigrationExecutor, verifies an empty subsequent plan, and
+compares every catalog category with the current source fixture. Exact agreement
+and both invariant behavior checks passed; scratch schemas rolled back. Django's
+recorder is included on both sides (22 total tables, 209 columns, 172 constraints,
+59 indexes, one sequence), with no catalog differences excluded.
+
+CI includes executor qualification. Evidence is `schema-executor-evidence.json`.
+This advances beyond manual diagnostic reconstruction, but the candidate remains
+outside production settings. PostgreSQL 16 execution, committed fresh-database
+qualification, existing-history reconciliation, actual production catalog audit,
+backup/PITR and reviewed baseline activation remain pending. Drizzle retains
+schema authority; route ownership and production traffic are unchanged.

@@ -1,0 +1,34 @@
+{
+  "equivalent": true,
+  "different_categories": [],
+  "scratch_schema_rolled_back": true,
+  "invariant_behavior_both_fixtures": true,
+  "django_fixture_source": "candidate Django migration executor; not production authority",
+  "category_counts": {
+    "current": {
+      "tables": 22,
+      "columns": 209,
+      "constraints": 172,
+      "indexes": 59,
+      "triggers": 5,
+      "functions": 4,
+      "sequences": 1,
+      "enum_values": 0,
+      "domains": 0,
+      "extensions": 1
+    },
+    "django": {
+      "tables": 22,
+      "columns": 209,
+      "constraints": 172,
+      "indexes": 59,
+      "triggers": 5,
+      "functions": 4,
+      "sequences": 1,
+      "enum_values": 0,
+      "domains": 0,
+      "extensions": 1
+    }
+  },
+  "differences": {}
+}

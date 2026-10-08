@@ -17,6 +17,7 @@ from urllib.parse import urlsplit
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('output', nargs='?')
+parser.add_argument('--migration-executor', action='store_true', help='Create Django fixture solely through the candidate migration graph')
 parser.add_argument('--require-index-equivalent', action='store_true', help='Require exact physical index catalog equivalence only')
 parser.add_argument('--require-invariant-equivalent', action='store_true', help='Require exact function/trigger catalogs and invariant behavior')
 parser.add_argument('--require-constraint-equivalent', action='store_true', help='Require exact constraint catalog equivalence')
@@ -30,6 +31,9 @@ import django
 django.setup()
 from django.db import connection, transaction
 from django.db.migrations.loader import MigrationLoader
+from django.db.migrations.executor import MigrationExecutor
+from django.db.migrations.recorder import MigrationRecorder
+from django.test.utils import override_settings
 from apps.library.baseline_sql.invariants_v1 import STATEMENTS as DJANGO_INVARIANTS
 from apps.library.baseline_sql.foreign_key_aliases_v1 import STATEMENTS as DJANGO_FK_ALIASES
 
@@ -69,6 +73,9 @@ for version in ['current', 'django']:
             assert cursor.fetchone()[0] == 0, 'Scratch namespace already exists'
             cursor.execute(f'CREATE SCHEMA "{namespace}"')
             cursor.execute(f'SET LOCAL search_path TO "{namespace}"')
+        if args.migration_executor:
+            # Include Django bookkeeping in both catalogs, without filtering it.
+            MigrationRecorder(connection).ensure_schema()
         if version == 'current':
             with connection.cursor() as cursor:
                 cursor.execute(declared_sql)
@@ -77,6 +84,14 @@ for version in ['current', 'django']:
                         cursor.execute(statement)
                 color = next(check for check in checks if check['name'] == 'folders_color_check')
                 cursor.execute(f'ALTER TABLE folders ADD CONSTRAINT folders_color_check CHECK ({color["sql"]})')
+        elif args.migration_executor:
+            modules = {path.name: f'baseline_candidate.{path.name}' for path in Path('backend/baseline_candidate').iterdir() if path.is_dir() and (path / '__init__.py').exists()}
+            with override_settings(MIGRATION_MODULES=modules):
+                executor = MigrationExecutor(connection)
+                targets = executor.loader.graph.leaf_nodes()
+                assert len(executor.migration_plan(targets)) == 22
+                executor.migrate(targets)
+                assert not MigrationExecutor(connection).migration_plan(targets), 'Candidate graph is not fully recorded'
         else:
             state = MigrationLoader(None).project_state()
             # Materialize unmanaged declarations only in this diagnostic fixture.
@@ -117,7 +132,7 @@ with connection.cursor() as cursor:
     assert cursor.fetchone()[0] == 0, 'Scratch schema was not rolled back'
 differences = catalog.compare(results['current'], results['django'])
 report = {'equivalent': not differences, 'different_categories': differences, 'scratch_schema_rolled_back': True, 'invariant_behavior_both_fixtures': True,
-          'django_fixture_source': 'disk migration model state plus frozen Django invariant and FK alias SQL; not production migrations',
+          'django_fixture_source': ('candidate Django migration executor; not production authority' if args.migration_executor else 'disk migration model state plus frozen Django invariant and FK alias SQL; not production migrations'),
           'category_counts': {version: {category: len(rows) for category, rows in data.items()} for version, data in results.items()},
           'differences': {category: {'current_only': [row for row in results['current'][category] if row not in results['django'][category]], 'django_only': [row for row in results['django'][category] if row not in results['current'][category]]} for category in differences}}
 if args.output:

@@ -159,6 +159,7 @@ jobs:
       - run: python scripts/django-migration/foreign-key-probe.py
       - run: python scripts/django-migration/field-order-probe.py
       - run: python scripts/django-migration/schema-reproduction-probe.py --require-equivalent
+      - run: python scripts/django-migration/schema-reproduction-probe.py --migration-executor --require-equivalent
       - run: python scripts/django-migration/generation-index-state.py
       - run: python scripts/django-migration/generation-index-ddl-probe.py
       - run: python scripts/django-migration/generation-serialization-parity.py
