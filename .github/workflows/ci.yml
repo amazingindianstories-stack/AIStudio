@@ -153,6 +153,7 @@ jobs:
       - run: python scripts/django-migration/model-columns.py
       - run: python scripts/django-migration/index-state.py
       - run: python scripts/django-migration/index-ddl-probe.py
+      - run: python scripts/django-migration/check-constraint-probe.py
       - run: python scripts/django-migration/generation-index-state.py
       - run: python scripts/django-migration/generation-index-ddl-probe.py
       - run: python scripts/django-migration/generation-serialization-parity.py

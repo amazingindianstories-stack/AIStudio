@@ -765,3 +765,20 @@ behavior evidence, not production catalog equivalence: migration-script-only
 objects, defaults, constraints, functions, triggers and Django-only baseline
 reproduction still require the takeover gate. Drizzle remains schema authority;
 no runtime, provider, worker or production traffic ownership transferred.
+
+Django runtime/disk state now declares the current positive generation-naming
+sequence check and the folder-color check from the current additive migration
+source. Library migration 0005 has empty database operations; sqlmigrate confirms
+no physical DDL. A CI probe derives the sequence condition from Drizzle metadata
+and reads the color migration as text without importing its dotenv/DB entrypoint.
+On rolled-back temporary PostgreSQL tables, source SQL and both Django states
+produce identical canonical constraint definitions and validation/deferrability
+flags (four comparisons). Fifty-seven insert checks cover all eight colors, null,
+invalid/blank/case/whitespace variants, nonpositive sequences, positive sequences
+and bigint maximum. Null sequence passes the CHECK alone; the existing column
+nullability guard remains responsible for its NOT NULL declaration. All objects
+are rolled back and verified absent. Django system checks, migration consistency
+and 42 regression tests pass. Local verification uses disposable PostgreSQL 18;
+CI runs the probe on its PostgreSQL 16 service. This does not prove deferred scope
+triggers, physical NOT NULL/FK/default equivalence or production baseline readiness.
+No schema authority or production ownership changed.

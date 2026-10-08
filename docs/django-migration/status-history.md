@@ -209,3 +209,7 @@ browser/proxy behavior remains pending. No production routing or secrets changed
 in runtime/disk Django state. Isolated qualification: 66 physical index checks,
 24 scoped uniqueness insert checks, seven no-op migration SQL checks and 42
 Django tests pass. Full schema equivalence remains open; authority unchanged.
+
+2026-10-08: Added two current CHECK constraints to unmanaged Django runtime/disk
+state; four canonical catalog comparisons and 57 source/runtime/disk insert
+checks pass. Migration is state-only; 42 Django tests pass. Schema gate open.

@@ -15,6 +15,7 @@ class Folder(models.Model):
     class Meta:
         managed = False
         db_table = 'folders'
+        constraints = [models.CheckConstraint(name='folders_color_check', condition=models.Q(color__isnull=True) | models.Q(color__in=['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']))]
         indexes = [
             PostgreSQLIndex(models.F('project').asc(nulls_last=True), name='folders_project_id_idx'),
             PostgreSQLIndex(models.F('parent').asc(nulls_last=True), name='folders_parent_id_idx'),
@@ -63,6 +64,7 @@ class GenerationNaming(models.Model):
     class Meta:
         managed = False
         db_table = 'generation_naming'
+        constraints = [models.CheckConstraint(name='generation_naming_sequence_check', condition=models.Q(sequence__gt=0))]
         indexes = [
             PostgreSQLUniqueIndex(models.F('namespace').asc(nulls_last=True), models.F('sequence').asc(nulls_last=True), name='generation_naming_namespace_seq_idx'),
             PostgreSQLIndex(models.F('namespace').asc(nulls_last=True), name='generation_naming_namespace_idx'),
