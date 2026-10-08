@@ -4,7 +4,6 @@
     "columns",
     "constraints",
     "functions",
-    "indexes",
     "triggers"
   ],
   "scratch_schema_rolled_back": true,
@@ -2257,15 +2256,6 @@
     "constraints": {
       "current_only": [
         {
-          "relname": "depth_workers",
-          "conname": "depth_workers_worker_id_unique",
-          "contype": "u",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "UNIQUE (worker_id)"
-        },
-        {
           "relname": "folders",
           "conname": "folders_parent_id_fkey",
           "contype": "f",
@@ -2345,109 +2335,9 @@
           "condeferred": true,
           "convalidated": true,
           "pg_get_constraintdef": "TRIGGER DEFERRABLE INITIALLY DEFERRED"
-        },
-        {
-          "relname": "media_export_items",
-          "conname": "media_export_items_export_id_generation_id_pk",
-          "contype": "p",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "PRIMARY KEY (export_id, generation_id)"
-        },
-        {
-          "relname": "portrait_assets",
-          "conname": "portrait_assets_byteplus_asset_id_unique",
-          "contype": "u",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "UNIQUE (byteplus_asset_id)"
-        },
-        {
-          "relname": "portrait_groups",
-          "conname": "portrait_groups_byteplus_group_id_unique",
-          "contype": "u",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "UNIQUE (byteplus_group_id)"
-        },
-        {
-          "relname": "user_limits",
-          "conname": "user_limits_user_id_key_pk",
-          "contype": "p",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "PRIMARY KEY (user_id, key)"
-        },
-        {
-          "relname": "users",
-          "conname": "users_email_unique",
-          "contype": "u",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "UNIQUE (email)"
         }
       ],
-      "django_only": [
-        {
-          "relname": "depth_workers",
-          "conname": "depth_workers_worker_id_key",
-          "contype": "u",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "UNIQUE (worker_id)"
-        },
-        {
-          "relname": "media_export_items",
-          "conname": "media_export_items_pkey",
-          "contype": "p",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "PRIMARY KEY (export_id, generation_id)"
-        },
-        {
-          "relname": "portrait_assets",
-          "conname": "portrait_assets_byteplus_asset_id_key",
-          "contype": "u",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "UNIQUE (byteplus_asset_id)"
-        },
-        {
-          "relname": "portrait_groups",
-          "conname": "portrait_groups_byteplus_group_id_key",
-          "contype": "u",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "UNIQUE (byteplus_group_id)"
-        },
-        {
-          "relname": "user_limits",
-          "conname": "user_limits_pkey",
-          "contype": "p",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "PRIMARY KEY (user_id, key)"
-        },
-        {
-          "relname": "users",
-          "conname": "users_email_key",
-          "contype": "u",
-          "condeferrable": false,
-          "condeferred": false,
-          "convalidated": true,
-          "pg_get_constraintdef": "UNIQUE (email)"
-        }
-      ]
+      "django_only": []
     },
     "functions": {
       "current_only": [
@@ -2473,120 +2363,6 @@
         }
       ],
       "django_only": []
-    },
-    "indexes": {
-      "current_only": [
-        {
-          "table_name": "depth_workers",
-          "index_name": "depth_workers_worker_id_unique",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX depth_workers_worker_id_unique ON qualification_schema_reproduction.depth_workers USING btree (worker_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "media_export_items",
-          "index_name": "media_export_items_export_id_generation_id_pk",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX media_export_items_export_id_generation_id_pk ON qualification_schema_reproduction.media_export_items USING btree (export_id, generation_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "portrait_assets",
-          "index_name": "portrait_assets_byteplus_asset_id_unique",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX portrait_assets_byteplus_asset_id_unique ON qualification_schema_reproduction.portrait_assets USING btree (byteplus_asset_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "portrait_groups",
-          "index_name": "portrait_groups_byteplus_group_id_unique",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX portrait_groups_byteplus_group_id_unique ON qualification_schema_reproduction.portrait_groups USING btree (byteplus_group_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "user_limits",
-          "index_name": "user_limits_user_id_key_pk",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX user_limits_user_id_key_pk ON qualification_schema_reproduction.user_limits USING btree (user_id, key)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "users",
-          "index_name": "users_email_unique",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX users_email_unique ON qualification_schema_reproduction.users USING btree (email)",
-          "pg_get_expr": null
-        }
-      ],
-      "django_only": [
-        {
-          "table_name": "depth_workers",
-          "index_name": "depth_workers_worker_id_key",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX depth_workers_worker_id_key ON qualification_schema_reproduction.depth_workers USING btree (worker_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "media_export_items",
-          "index_name": "media_export_items_pkey",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX media_export_items_pkey ON qualification_schema_reproduction.media_export_items USING btree (export_id, generation_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "portrait_assets",
-          "index_name": "portrait_assets_byteplus_asset_id_key",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX portrait_assets_byteplus_asset_id_key ON qualification_schema_reproduction.portrait_assets USING btree (byteplus_asset_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "portrait_groups",
-          "index_name": "portrait_groups_byteplus_group_id_key",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX portrait_groups_byteplus_group_id_key ON qualification_schema_reproduction.portrait_groups USING btree (byteplus_group_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "user_limits",
-          "index_name": "user_limits_pkey",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX user_limits_pkey ON qualification_schema_reproduction.user_limits USING btree (user_id, key)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "users",
-          "index_name": "users_email_key",
-          "indisunique": true,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE UNIQUE INDEX users_email_key ON qualification_schema_reproduction.users USING btree (email)",
-          "pg_get_expr": null
-        }
-      ]
     },
     "triggers": {
       "current_only": [

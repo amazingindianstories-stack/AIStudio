@@ -898,3 +898,22 @@ fixture and require production audit; this change does not silently discard
 them. Constraint/key names, physical column order, four functions and five
 triggers remain baseline gaps. Five catalog categories still differ; the
 Django-migrations-only baseline and production equivalence gates remain open.
+
+Fresh Django table creation now names the four existing single-column unique
+constraints and two composite primary keys exactly as the current schema does.
+The scoped schema editor preserves inline uniqueness and composite-key shape,
+rejecting an unexpected composite column list. The complete reproduction probe
+now compares all 58 physical index catalog rows exactly, including backing key
+indexes: no index differences remain. `--require-index-equivalent` gates this
+specific category in CI while still reporting whole-schema equivalence false.
+Temporary-directory selection now also supports CI without TMPDIR set.
+
+Four categories remain different: physical column order, additive-script FK
+aliases/trigger constraints, four functions and five triggers. Fresh creation
+naming does not constitute a rename migration for existing constraints, and
+future constraint recreation paths still require qualification. System checks,
+migration consistency and 42 regression tests pass locally. The refreshed report
+is PostgreSQL 18 evidence; configured PostgreSQL 16 CI execution remains pending.
+The fixture also relies on the user's current untracked folder-color migration;
+that file must be integrated before a clean checkout can run the existing color
+qualification and complete reproduction probe. No production DDL occurred.

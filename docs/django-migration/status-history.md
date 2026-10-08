@@ -237,3 +237,7 @@ Sixteen suppression checks, unrelated-index control and 42 tests pass.
 2026-10-08: Fresh Django FK SQL now preserves seven current names and immediate
 RESTRICT/CASCADE rules. Twenty-eight physical cases and 42 regression tests pass;
 source fixture FK aliases and broader schema gaps remain. No production DDL.
+
+2026-10-08: Fresh table key names now match; all 58 physical index catalog rows
+are equal in local full reproduction. Four catalog categories remain unequal.
+42 regression tests pass; production/baseline takeover remains open.

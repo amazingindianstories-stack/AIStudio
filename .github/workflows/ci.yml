@@ -157,6 +157,7 @@ jobs:
       - run: python scripts/django-migration/default-probe.py
       - run: python scripts/django-migration/pattern-index-probe.py
       - run: python scripts/django-migration/foreign-key-probe.py
+      - run: python scripts/django-migration/schema-reproduction-probe.py --require-index-equivalent
       - run: python scripts/django-migration/generation-index-state.py
       - run: python scripts/django-migration/generation-index-ddl-probe.py
       - run: python scripts/django-migration/generation-serialization-parity.py

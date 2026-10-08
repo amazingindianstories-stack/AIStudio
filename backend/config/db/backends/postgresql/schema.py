@@ -17,6 +17,31 @@ CURRENT_TEXT_KEYS_WITHOUT_PATTERN_INDEX = frozenset({
 
 
 class DatabaseSchemaEditor(PostgreSQLSchemaEditor):
+    def column_sql(self, model, field, include_default=False):
+        definition, params = super().column_sql(model, field, include_default)
+        name = CURRENT_UNIQUE_NAMES.get((model._meta.db_table, field.column))
+        if name and definition and field.unique and not field.primary_key:
+            # Django emits the inline UNIQUE token after the type/default/null
+            # clauses. Only these four known text columns use this path.
+            head, separator, tail = definition.rpartition(' UNIQUE')
+            if not separator:
+                raise ValueError('Expected inline unique constraint for current text key')
+            definition = head + ' CONSTRAINT ' + self.quote_name(name) + separator + tail
+        return definition, params
+
+    def table_sql(self, model):
+        sql, params = super().table_sql(model)
+        policy = CURRENT_COMPOSITE_PRIMARY_KEYS.get(model._meta.db_table)
+        if policy:
+            columns, name = policy
+            if tuple(model._meta.pk.columns) != columns:
+                raise ValueError('Current composite primary key changed; review schema policy')
+            clause = self._pk_constraint_sql(columns)
+            if sql.count(clause) != 1:
+                raise ValueError('Expected one current composite primary key clause')
+            sql = sql.replace(clause, 'CONSTRAINT ' + self.quote_name(name) + ' ' + clause, 1)
+        return sql, params
+
     def _create_like_index_sql(self, model, field):
         if (model._meta.db_table, field.column) in CURRENT_TEXT_KEYS_WITHOUT_PATTERN_INDEX:
             return None
@@ -56,4 +81,16 @@ CURRENT_FOREIGN_KEYS = {
     ('generation_naming', 'generation_id'): ('generations', 'id', 'CASCADE', 'generation_naming_generation_id_generations_id_fk'),
     ('portrait_assets', 'group_id'): ('portrait_groups', 'id', 'CASCADE', 'portrait_assets_group_id_portrait_groups_id_fk'),
     ('media_export_items', 'export_id'): ('media_exports', 'id', 'CASCADE', 'media_export_items_export_id_media_exports_id_fk'),
+}
+
+
+CURRENT_UNIQUE_NAMES = {
+    ('users', 'email'): 'users_email_unique',
+    ('depth_workers', 'worker_id'): 'depth_workers_worker_id_unique',
+    ('portrait_groups', 'byteplus_group_id'): 'portrait_groups_byteplus_group_id_unique',
+    ('portrait_assets', 'byteplus_asset_id'): 'portrait_assets_byteplus_asset_id_unique',
+}
+CURRENT_COMPOSITE_PRIMARY_KEYS = {
+    'user_limits': (('user_id', 'key'), 'user_limits_user_id_key_pk'),
+    'media_export_items': (('export_id', 'generation_id'), 'media_export_items_export_id_generation_id_pk'),
 }

@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('output', nargs='?')
+parser.add_argument('--require-index-equivalent', action='store_true', help='Require exact physical index catalog equivalence only')
 parser.add_argument('--require-equivalent', action='store_true', help='Fail if any physical catalog category differs')
 args = parser.parse_args()
 url = urlsplit(os.environ.get('DATABASE_URL', ''))
@@ -44,7 +45,7 @@ def capture():
     return data
 
 
-with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'], prefix='schema-reproduction-') as output:
+with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR'), prefix='schema-reproduction-') as output:
     generated = subprocess.run(['node', 'node_modules/drizzle-kit/bin.cjs', 'generate', '--dialect=postgresql', '--schema=./src/lib/schema.js', f'--out={output}'], capture_output=True, text=True, check=True)
     files = list(Path(output).glob('*.sql'))
     assert len(files) == 1, 'Expected one fresh schema migration'
@@ -91,4 +92,7 @@ if args.output:
 print(json.dumps({key: value for key, value in report.items() if key != 'differences'}))
 
 if args.require_equivalent and differences:
+    raise SystemExit(1)
+
+if args.require_index_equivalent and 'indexes' in differences:
     raise SystemExit(1)
