@@ -654,3 +654,23 @@ comparison against equivalent full indexed schema, representative distributions
 and concurrency remains necessary. No production database, deployment, index
 change or schema authority transfer occurred. CI's HTTP harness includes the
 larger comparison and fixture cleanup guard.
+
+Actual Node/Django comparison now installs all 12 currently declared generation
+indexes from getTableConfig metadata into the disposable PG18 fixture database.
+The metadata emitter preserves column order/direction/null ordering, uniqueness,
+method and unparameterized partial predicates; unsupported expressions/opclasses
+fail rather than silently approximating. It imports schema metadata only and
+creates no connection. No production schema or migration authority is changed.
+
+Seven response comparisons pass again on the same 5,006 rows and declared
+indexes, with identical observed plan node/row/index structures. Common folder
+and matching-search cases use generations_created_at_idx/incremental sort;
+one cursor uses generations_created_keyset_idx. Rare literal and no-match
+searches use Seq Scan/Sort in both implementations. The large no-match case
+rejects 5,006 rows in both; single DB-only samples were Node 1.699ms and Django
+1.702ms. This establishes a shared scan pattern for this dataset rather than
+a Django-specific regression. It does not prove a production SLA, all physical
+constraints/defaults/triggers, full PG16 driver parity, larger distributions,
+concurrent behavior or HTTP latency. Those performance/hosted/application gates
+remain pending. Fixture cleanup restored row snapshots and all HTTP checks pass.
+Indexes persist only in the dedicated disposable qualification database.

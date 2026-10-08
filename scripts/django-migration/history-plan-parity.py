@@ -14,6 +14,10 @@ django.setup()
 from django.db import connection
 from django.http import QueryDict
 from apps.generation.history import query_history
+indexes=json.loads(subprocess.run(['node','scripts/django-migration/declared-generation-indexes.mjs'],capture_output=True,text=True,check=True).stdout)
+with connection.cursor() as cursor:
+    for index in indexes:
+        cursor.execute(index['sql'])
 marker = 'history-plan-large-' + uuid4().hex
 fixture_ids = []
 with connection.cursor() as cursor:
@@ -53,7 +57,7 @@ try:
             plan=cursor.fetchone()[0][0]
         report.append({'response_equal':True,'node_nodes':node['nodes'],'django_nodes':nodes(plan['Plan']),
                        'node_execution_ms':node['execution_ms'],'django_execution_ms':plan['Execution Time']})
-    print(json.dumps({'history_plan_comparisons':report,'synthetic_rows_added':5000,'scope':'same narrow physical schema for both drivers on PG18; no production performance SLA'}))
+    print(json.dumps({'history_plan_comparisons':report,'declared_generation_indexes':len(indexes),'synthetic_rows_added':5000,'scope':'same generation columns and declared generation indexes for both drivers on PG18; no production performance SLA'}))
 finally:
     with connection.cursor() as cursor:
         cursor.execute('DELETE FROM generations WHERE id=ANY(%s::uuid[])',[fixture_ids])
