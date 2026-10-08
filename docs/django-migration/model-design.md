@@ -868,3 +868,21 @@ naming differences, physical FK clauses/deferrability, column order and missing
 functions/triggers. Five catalog categories still differ. The refreshed report
 does not prove equivalence or authorize physical production index removal.
 Existing database objects and Drizzle authority remain unchanged.
+
+The PostgreSQL backend now uses a scoped schema-editor override for the eight
+current text PK/unique columns without text_pattern_ops indexes. It suppresses
+only automatic LIKE indexes for those exact table/column pairs; unrelated tables
+retain Django's default behavior. No field types, uniqueness rules, query
+execution or existing physical indexes change. Explicit future pattern indexes
+remain available through reviewed index migrations. A CI probe verifies sixteen
+runtime/disk suppression cases and creates an unrelated temporary control index
+with text_pattern_ops, then verifies rollback. System checks, migration-state
+consistency and 42 Django tests pass.
+
+Fresh disk-state reproduction now has 58 indexes, matching the current fixture's
+count, down from 66. Counts alone do not establish equivalence: six PK/unique
+index names still differ, and five catalog categories remain unequal, including
+physical FK clauses, column order and missing functions/triggers. The detailed
+report is refreshed. This schema-editor preparation does not transfer schema
+authority or create/drop production objects. PostgreSQL 16 and complete
+Django-migrations-only baseline qualification remain required.

@@ -26,7 +26,7 @@
       "tables": 21,
       "columns": 205,
       "constraints": 158,
-      "indexes": 66,
+      "indexes": 58,
       "triggers": 0,
       "functions": 0,
       "sequences": 0,
@@ -2660,15 +2660,6 @@
       "django_only": [
         {
           "table_name": "depth_workers",
-          "index_name": "depth_workers_worker_id_b7c2a883_like",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX depth_workers_worker_id_b7c2a883_like ON qualification_schema_reproduction.depth_workers USING btree (worker_id text_pattern_ops)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "depth_workers",
           "index_name": "depth_workers_worker_id_key",
           "indisunique": true,
           "indisvalid": true,
@@ -2686,48 +2677,12 @@
           "pg_get_expr": null
         },
         {
-          "table_name": "naming_counters",
-          "index_name": "naming_counters_namespace_939aa75a_like",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX naming_counters_namespace_939aa75a_like ON qualification_schema_reproduction.naming_counters USING btree (namespace text_pattern_ops)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "organization_idempotency_keys",
-          "index_name": "organization_idempotency_keys_key_4c462080_like",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX organization_idempotency_keys_key_4c462080_like ON qualification_schema_reproduction.organization_idempotency_keys USING btree (key text_pattern_ops)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "portrait_assets",
-          "index_name": "portrait_assets_byteplus_asset_id_69285054_like",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX portrait_assets_byteplus_asset_id_69285054_like ON qualification_schema_reproduction.portrait_assets USING btree (byteplus_asset_id text_pattern_ops)",
-          "pg_get_expr": null
-        },
-        {
           "table_name": "portrait_assets",
           "index_name": "portrait_assets_byteplus_asset_id_key",
           "indisunique": true,
           "indisvalid": true,
           "indisready": true,
           "pg_get_indexdef": "CREATE UNIQUE INDEX portrait_assets_byteplus_asset_id_key ON qualification_schema_reproduction.portrait_assets USING btree (byteplus_asset_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "portrait_groups",
-          "index_name": "portrait_groups_byteplus_group_id_2acffd67_like",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX portrait_groups_byteplus_group_id_2acffd67_like ON qualification_schema_reproduction.portrait_groups USING btree (byteplus_group_id text_pattern_ops)",
           "pg_get_expr": null
         },
         {
@@ -2740,39 +2695,12 @@
           "pg_get_expr": null
         },
         {
-          "table_name": "pricing",
-          "index_name": "pricing_model_142327f5_like",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX pricing_model_142327f5_like ON qualification_schema_reproduction.pricing USING btree (model text_pattern_ops)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "settings",
-          "index_name": "settings_key_f16b5bae_like",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX settings_key_f16b5bae_like ON qualification_schema_reproduction.settings USING btree (key text_pattern_ops)",
-          "pg_get_expr": null
-        },
-        {
           "table_name": "user_limits",
           "index_name": "user_limits_pkey",
           "indisunique": true,
           "indisvalid": true,
           "indisready": true,
           "pg_get_indexdef": "CREATE UNIQUE INDEX user_limits_pkey ON qualification_schema_reproduction.user_limits USING btree (user_id, key)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "users",
-          "index_name": "users_email_0ea73cca_like",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX users_email_0ea73cca_like ON qualification_schema_reproduction.users USING btree (email text_pattern_ops)",
           "pg_get_expr": null
         },
         {

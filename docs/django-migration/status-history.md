@@ -228,3 +228,8 @@ Django-only baseline and production equivalence remain unproven.
 from fresh Django reproduction (72 → 66 total; current fixture 58). All 33
 declared indexes, column/FK guards and 42 tests pass. Four new migrations emit
 no DDL. Eight text pattern indexes and other baseline differences remain.
+
+2026-10-08: Scoped PostgreSQL schema editor suppresses eight automatic text
+pattern indexes absent from current declarations. Fresh reproduction index count
+is now 58 vs current 58, with naming/other catalog differences still open.
+Sixteen suppression checks, unrelated-index control and 42 tests pass.
