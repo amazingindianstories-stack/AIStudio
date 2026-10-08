@@ -50,14 +50,16 @@ def main():
             c.execute('CREATE TABLE IF NOT EXISTS user_limits (user_id uuid,key text,value text NOT NULL,updated_at bigint NOT NULL,PRIMARY KEY(user_id,key))')
             c.execute('CREATE TABLE IF NOT EXISTS projects (id uuid PRIMARY KEY,name text,brief text,created_by uuid,created_at bigint,updated_at bigint)')
             c.execute('CREATE TABLE IF NOT EXISTS folders (id uuid PRIMARY KEY,project_id uuid,parent_id uuid,name text,name_normalized text,version integer,color text,created_at bigint,updated_at bigint)')
-            c.execute('TRUNCATE users,settings,user_limits,folders,projects')
+            c.execute('CREATE TABLE IF NOT EXISTS assets (id uuid PRIMARY KEY,kind text,name text,slug text,description text,images jsonb,project_id uuid,created_at bigint,updated_at bigint)')
+            c.execute('TRUNCATE users,settings,user_limits,folders,projects,assets')
+            c.execute("INSERT INTO assets VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','character','Global','global',NULL,'[]',NULL,1,1),('cccccccc-cccc-4ccc-8ccc-cccccccccccc','character','Project','project','Description','[\"/media/fixture.png\"]','dddddddd-dddd-4ddd-8ddd-dddddddddddd',2,2)")
             c.execute("INSERT INTO projects VALUES ('dddddddd-dddd-4ddd-8ddd-dddddddddddd','Project',NULL,NULL,1,2)")
             c.execute("INSERT INTO folders VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',NULL,NULL,'Root','root',1,'blue',1,2),('cccccccc-cccc-4ccc-8ccc-cccccccccccc',NULL,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','Child','child',2,NULL,3,4)")
             c.execute("INSERT INTO users VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','fixture@example.invalid','Fixture','user',NULL,NULL,true,0)")
         def snapshot():
             with db.cursor() as c:
                 result=[]
-                for table in ('users','settings','user_limits','projects','folders'):
+                for table in ('users','settings','user_limits','projects','folders','assets'):
                     c.execute('SELECT row_to_json(t)::text FROM '+table+' t ORDER BY 1')
                     result.append(c.fetchall())
                 return result
@@ -117,6 +119,13 @@ def main():
                 assert responses[0][:2] == responses[1][:2], (query, responses[0][:2], responses[1][:2])
                 assert before == snapshot(), 'folder read mutated DB'
                 folder_report.append({'query':query,'status':responses[0][0],'json_equal':True,'database_unchanged':True})
+            asset_report = []
+            for query, cookie in [('', ''), ('', token()), ('?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd',token()), ('?projectId=&projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd',token()), ('?projectId=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',token())]:
+                before = snapshot()
+                responses = [get(url.replace('/api/settings','/api/assets')+query,cookie) for url in urls]
+                assert responses[0][:2] == responses[1][:2], ('assets',query,responses[0][:2],responses[1][:2])
+                assert before == snapshot(), 'asset read mutated DB'
+                asset_report.append({'query':query,'authenticated':bool(cookie),'status':responses[0][0],'json_equal':True,'database_unchanged':True})
             # Reuse the actual Next process after restarting with server-side
             # method routing; its retained Node route must be bypassed.
             next_process, next_log = processes[0]
@@ -141,7 +150,7 @@ def main():
                 time.sleep(.2)
             assert response[:2] == get(urls[1], token())[:2]
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
-            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report},indent=2))
+            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

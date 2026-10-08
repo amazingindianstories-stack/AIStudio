@@ -107,3 +107,9 @@ createdAt order, omitted null description/projectId, and first repeated query
 value. Eleven Django tests pass. GET assets remains IMPLEMENTING/Next-owned;
 real HTTP parity, errors/browser/performance and storage qualification remain.
 No asset mutation or provider/storage side effect was implemented or invoked.
+
+2026-10-08: five actual asset HTTP comparisons pass against current Next and
+Django on a fresh verified disposable cluster. Status/JSON and unchanged DB
+snapshots agree. Seven settings/nine folder comparisons and same-origin settings
+rewrite also pass again. See asset-read-qualification.md. Production ownership,
+schema authority and worker authority remain unchanged.
