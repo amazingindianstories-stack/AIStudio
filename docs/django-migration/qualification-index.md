@@ -20,3 +20,7 @@ No domain has been deployed or removed from Node. Eight unmanaged models are
 partial qualification infrastructure, not the final Django schema system.
 
 Original complete scope and acceptance criteria remain in source-request.txt.
+
+Mixed-runtime password race qualification passes one concurrent run with exactly
+one winning hash/version/audit mutation. Barrier-controlled cross-runtime stress
+coverage remains pending; see password-change-qualification.md for exact scope.

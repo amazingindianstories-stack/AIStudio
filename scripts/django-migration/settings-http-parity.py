@@ -259,6 +259,26 @@ def main():
                     assert c.fetchall()==[('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','password_changed',None)]
                 password_report.append({'runtime':runtime,'old_token_rejected_by_both':True,'new_token_accepted_by_both':True,'hash_version_audit_contract':True})
             with db.cursor() as c:
+                c.execute('UPDATE users SET password_hash=%s,password_salt=%s,auth_version=0',[password_hash,salt])
+                c.execute('TRUNCATE activity_logs')
+            from concurrent.futures import ThreadPoolExecutor
+            original_cookie=token()
+            def competing_change(index):
+                return get(urls[index].replace('/api/settings','/api/auth/password'),original_cookie,
+                           {'currentPassword':'fixture-password','newPassword':f'competing-password-{index}'},method='PATCH')
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                competing=list(pool.map(competing_change,range(2)))
+            statuses=[result[0] for result in competing]
+            assert statuses.count(200)==1 and all(status in (200,401,409) for status in statuses), statuses
+            winner=statuses.index(200)
+            with db.cursor() as c:
+                c.execute('SELECT auth_version,password_hash,password_salt FROM users')
+                version,stored_hash,stored_salt=c.fetchone()
+                assert version==1
+                candidate=hashlib.scrypt(f'competing-password-{winner}'.encode(),salt=stored_salt.encode(),n=16384,r=8,p=1,dklen=64,maxmem=32*1024*1024).hex()
+                assert candidate==stored_hash
+                c.execute("SELECT count(*) FROM activity_logs WHERE action='password_changed'")
+                assert c.fetchone()[0]==1
                 c.execute('UPDATE users SET auth_version=0')
             default_project_report=[]
             for runtime,url in zip(('next','django'),urls):
@@ -318,7 +338,7 @@ def main():
                 time.sleep(.2)
             assert response[:2] == get(urls[1], token())[:2]
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
-            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report},indent=2))
+            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()
