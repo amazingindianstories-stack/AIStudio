@@ -112,6 +112,9 @@ def main():
         assert actual[1][ids[4]]['filename'] == 'root_child_0001.png'
         assert actual[1][ids[0]]['filename'] == 'root_0012.png'
         assert actual[1][ids[2]]['filename'] == 'unsorted_0042.png'
+        plan_snapshot = snapshot()
+        plan_result = json.loads(subprocess.run([sys.executable,'scripts/django-migration/history-plan-parity.py'],capture_output=True,text=True,check=True).stdout)
+        assert plan_snapshot == snapshot(), 'History plan comparisons mutated DB'
         try:
             next_port,django_port=port(),port()
             django_command=[sys.executable,'backend/manage.py','runserver',f'127.0.0.1:{django_port}','--noreload']
@@ -541,7 +544,7 @@ def main():
                 if result.returncode:
                     raise RuntimeError(result.stderr[-4000:])
                 browser_report=json.loads(result.stdout)
-            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'batch_filename_parity':{'cases':len(batches),'node_equal':True,'database_unchanged':True},'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_error_http_parity':history_errors,'history_pagination_http_parity':pagination_report,'history_http_parity':history_report,'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'history_node_django_plans':plan_result,'batch_filename_parity':{'cases':len(batches),'node_equal':True,'database_unchanged':True},'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_error_http_parity':history_errors,'history_pagination_http_parity':pagination_report,'history_http_parity':history_report,'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

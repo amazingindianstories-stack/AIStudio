@@ -616,3 +616,23 @@ All previous container checks pass. Source 5794c022f4d78c821b4d529c998cfc54a6362
 API fingerprint c2051d16f8608e4238cca149c8f7d3ec515ba4f65ede9c4c7987318c788b5dd9,
 image sha256:f6ed625c574416014aa713bcca767e2ddc24ee3e5787bfc8f1fb789e1747da5d.
 This remains local ARM64 evidence; hosted and production transfer are pending.
+
+Actual Node/Django history plan comparison tooling now runs with the HTTP
+harness. The Node oracle instruments the current Drizzle session logger while
+calling actual queryHistory, capturing its first SELECT and bindings, then
+executes EXPLAIN ANALYZE through the same isolated postgres-js client. Django
+uses an execution wrapper on actual query_history. No Node business source is
+modified and no manually reconstructed query substitutes for either service.
+Printed results contain only plan node types/counts/index names/timing and
+response-equality flags; SQL and bindings are not printed.
+
+Four cases pass exact response comparison on the six-row disposable PG18
+fixture: literal wildcard/backslash search, no-match search, folder filter and
+UUID composite cursor. Both implementations choose Limit/Sort/Seq Scan for
+these small fixtures. All existing HTTP checks pass. This validates the real
+query comparison mechanism, not larger-cardinality performance parity. The
+previous PG16 5,100-row no-match scaling concern remains unresolved until Node
+is compared on equivalent larger/indexed data. These local timings are neither
+representative nor thresholds. The main HTTP CI harness includes this tooling;
+Drizzle session instrumentation may require adjustment when dependencies change.
+Production ownership, schema authority and hosted authorization remain unchanged.
