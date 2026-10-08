@@ -146,11 +146,46 @@ with transaction.atomic():
     assert last_favorite['items'][0]['id'] == history_ids[0] and last_favorite['nextCursor'] is None
     audio_page = history_page(kind='audio')
     assert [item['id'] for item in audio_page['items']] == [history_ids[4]]
+    from apps.library.models import Folder
+    from django.db import connection
+    from time import perf_counter
+    performance_marker = 'history-query-count-' + uuid4().hex
+    parent = None
+    for depth in range(3):
+        folder_id = uuid4()
+        Folder.objects.create(id=folder_id,parent_id=parent,name=f'R{depth+1}',
+            name_normalized=f'r{depth+1}',version=1,created_at=1,updated_at=1)
+        parent = folder_id
+    for index in range(100):
+        identifier = uuid4()
+        identifiers.append(identifier)
+        Generation.objects.create(id=identifier,kind='image',status='completed',
+            prompt=performance_marker,model='fixture-only',aspect_ratio='16:9',
+            created_at=index+1,updated_at=index+1,folder_id=parent)
+        GenerationNaming.objects.create(generation_id=identifier,namespace=f'folder:{parent}',sequence=500000+index,assigned_at=1)
+    query_measurements = []
+    for size in (1,20,100):
+        count = [0]
+        def count_queries(execute, statement, params, many, context):
+            count[0] += 1
+            assert statement.lstrip().upper().startswith('SELECT'), 'History read attempted mutation'
+            return execute(statement,params,many,context)
+        params = QueryDict(mutable=True)
+        params.update({'q':performance_marker,'limit':str(size)})
+        started = perf_counter()
+        with connection.execute_wrapper(count_queries):
+            page = query_history(params)
+        elapsed = (perf_counter()-started)*1000
+        assert len(page['items']) == size
+        assert count[0] == 5, ('Per-item history queries',size,count[0])
+        assert all(item['filename'].startswith('R1_R2_R3_') for item in page['items'])
+        query_measurements.append({'page_size':size,'folder_depth':3,'queries':count[0],'elapsed_ms':round(elapsed,3)})
     transaction.set_rollback(True)
 assert not Generation.objects.filter(pk__in=identifiers).exists()
 print(json.dumps({'generation_orm_kinds': cases, 'generation_columns': 60,
                   'fixture_rows_rolled_back': True, 'provider_calls': 0,
                   'history_count_full_schema_checks': 5,
+                  'history_query_measurements':query_measurements,
                   'history_full_schema_checks':['uuid_tie_order','composite_cursor','newer_insert_excluded','exact_multiple_terminal','persisted_names','favorite_keysets','audio_filter','private_diagnostics_omitted'],
                   'update_selection_checks': ['inflight', 'strict_watermark', 'exclude_audio', 'public_shape', 'descending_order', 'newest_100_cap', 'fractional_rejected', 'overflow_rejected'],
                   'scope': 'ORM persistence and history/count/update services; not enqueue API or provider/MOV-byte qualification'}))

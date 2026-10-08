@@ -577,3 +577,22 @@ history query integration; the separate HTTP/Chromium/full-schema PG16 service
 evidence above covers that scope. regression-checkpoint.json records this
 boundary and the remaining gates against source a55419d. Ownership remains
 0/85 Django traffic, 12 methods started; no deployment or provider activity.
+
+History database query scaling now has a full-schema PG16 regression probe:
+100 synthetic generations share a three-level folder chain and explicit persisted
+naming records. Page sizes 1,20,100 each execute exactly five SELECTs (history,
+joined naming inputs, three ancestor levels). The execution wrapper rejects any
+non-SELECT statement during the measured read. Every returned filename retains
+the R1_R2_R3 path. Query count is independent of page size for this fixture,
+preventing per-item ancestry/naming reads. Fixture generations/folders/naming
+records live in the rollback transaction. CI's existing image probe includes it.
+
+Observed single local samples were 2.876/3.426/6.935ms for page sizes 1/20/100,
+excluding authentication/network. These are diagnostic samples, not a production
+SLA, statistical benchmark, Node baseline or representative large-table plan.
+Broader query plans/cardinalities/depths/concurrency/HTTP baselines remain
+unqualified. All previous full-schema/history/count/update/settings/health and
+invariant checks pass. Source ccda75650108fa38b4598c5740d9cfbd0ca02001, API
+fingerprint c2051d16f8608e4238cca149c8f7d3ec515ba4f65ede9c4c7987318c788b5dd9,
+local image sha256:cfd7210d4f809bc86b821382b0d055117a6ac0903438ffd513d8a7403bde8b0e.
+No hosted deployment or production ownership/schema authority change occurred.
