@@ -1752,7 +1752,56 @@
         "transitive DB reads/writes and storage/provider/worker effects",
         "headers, idempotency, concurrency, pagination, naming"
       ],
-      "source_lines": 41
+      "source_lines": 41,
+      "method_contracts": {
+        "GET": {
+          "request_body": null,
+          "authentication": "Active compatible session and auth_version; checked before watermark parsing",
+          "authorization": "All authenticated users see team-wide updates; no user/project filtering",
+          "query_params": {
+            "since": "First value parsed by Number; finite positive retained, otherwise server now minus 300000 ms; ignores other query keys"
+          },
+          "success": {
+            "status": 200,
+            "json": {
+              "items": "public generation items excluding audio: queued/running or updated_at > since; order updated_at DESC; limit 100",
+              "now": "server timestamp after selection in ms"
+            }
+          },
+          "failure": {
+            "401": {
+              "error": "UNAUTHENTICATED"
+            },
+            "500": "Database failures uncaught; exact malformed/out-of-range DB behavior pending"
+          },
+          "headers": {
+            "content_type": "application/json",
+            "renewal": "Aged compatible session renews 30-day host-only HttpOnly SameSite=Lax cookie; Secure in production"
+          },
+          "db_reads": [
+            "users session lookup",
+            "generations bounded update selection"
+          ],
+          "db_mutations": [],
+          "storage_effects": [],
+          "provider_effects": [],
+          "worker_effects": [],
+          "idempotency": "Read only; no key",
+          "concurrency": "No transaction; server watermark obtained after query; equal update timestamps have no specified secondary ordering",
+          "pagination": "100-row cap; no cursor or hasMore",
+          "naming": "Current update feed does not resolve canonical filenames",
+          "evidence": [
+            "backend/apps/generation/updates.py",
+            "backend/apps/generation/test_update_endpoint.py",
+            "scripts/django-migration/watermark-parity.py"
+          ],
+          "remaining_qualification": [
+            "Real Node/Django HTTP comparison including fractional/out-of-range DB operands",
+            "Full application browser and hosted preview",
+            "Performance plans and authorized canary/rollback"
+          ]
+        }
+      }
     },
     {
       "path": "/api/media/[...path]",

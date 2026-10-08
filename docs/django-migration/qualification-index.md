@@ -339,3 +339,16 @@ captures the new service before its commit; image ID
 sha256:83d41cacd450eb5c2b7664e1d0b7c2ba745d3fd768b03bf782674e352c605649.
 It is not the committed hosted candidate or a signed attestation. No production,
 worker, provider, schema-authority or ownership changes occurred.
+
+Update polling GET is now IMPLEMENTING: compatible authentication, first since
+query value, Number-compatible positive finite watermark or five-minute fallback,
+public update selection, server now timestamp and session renewal. Forty-four
+parser cases match actual JavaScript Number (decimal/radix/Unicode whitespace,
+invalid text, overflow/underflow and IEEE rounding). Five generation-app tests
+pass, including two endpoint-boundary tests using a mocked selection service;
+actual query selection remains separately qualified on full-schema PG16. The
+initial fixed-clock renewal test failed due to creating its cookie under a
+different clock; consistent fixture creation corrected it. No actual update
+HTTP Node/Django parity, fractional/out-of-range PostgreSQL binding comparison,
+full browser or hosted qualification is claimed. Node remains traffic owner;
+route is not added to the routing allowlist. CI runs the parser oracle.

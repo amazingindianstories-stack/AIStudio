@@ -788,9 +788,13 @@
         "GET": {
           "owner": "next",
           "next_status": "active",
-          "state": "NOT_STARTED",
+          "state": "IMPLEMENTING",
           "issue": "DJANGO-049",
-          "evidence": []
+          "evidence": [
+            "backend/apps/generation/updates.py",
+            "backend/apps/generation/test_update_endpoint.py",
+            "scripts/django-migration/watermark-parity.py"
+          ]
         }
       }
     },
