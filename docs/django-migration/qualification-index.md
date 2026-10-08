@@ -260,3 +260,15 @@ Canvas cases also pass in this browser run. This is not an Asset Library/full
 application browser suite, HTTPS Secure-cookie proof, production Next build,
 full-schema PG16 or hosted deployment. No production routing selection or
 ownership transfer occurred; authorization for hosted preview remains pending.
+
+History counts GET is now IMPLEMENTING in Django. Three isolated API cases
+verify auth, project/global/folder grouping, ignored folder/favorite filters,
+audio exclusion/explicit audio, unrecognized depth kind, literal escaped search,
+ECMAScript trim and first repeated parameter. Query capture proves four aggregate
+queries with a project scope and excludes wide generation payload columns. Eight
+real Node/Django HTTP cases pass, including the 200-UTF16-unit split-surrogate
+boundary, selected renewal presence and unchanged DB snapshots. The full Django
+suite passes 39 discovered tests. This uses local PG18 narrow fixtures and
+runserver/Next development servers; full-schema PG16, browser/hosted, complete
+error/header parity and performance plans remain pending. No generation enqueue,
+worker, provider, schema authority or traffic change occurred.

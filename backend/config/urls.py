@@ -13,4 +13,6 @@ from apps.projects.views import project_reads
 
 from apps.canvas.views import board_metadata_reads
 
-urlpatterns = [path('api/canvas-boards', board_metadata_reads), path('api/health', health), path('api/settings', effective_settings), path('api/folders', folder_reads), path('api/assets', asset_reads), path('api/auth/me', current_user), path('api/auth/login', login), path('api/auth/logout', logout), path('api/auth/password', change_password), path('api/projects', project_reads)]
+from apps.generation.history_counts import history_counts
+
+urlpatterns = [path('api/history/counts', history_counts), path('api/canvas-boards', board_metadata_reads), path('api/health', health), path('api/settings', effective_settings), path('api/folders', folder_reads), path('api/assets', asset_reads), path('api/auth/me', current_user), path('api/auth/login', login), path('api/auth/logout', logout), path('api/auth/password', change_password), path('api/projects', project_reads)]

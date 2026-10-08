@@ -12,7 +12,7 @@ import time
 from http.cookies import SimpleCookie
 import urllib.request
 import urllib.error
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlencode
 import psycopg
 
 
@@ -55,6 +55,17 @@ def main():
             c.execute('CREATE TABLE IF NOT EXISTS user_limits (user_id uuid,key text,value text NOT NULL,updated_at bigint NOT NULL,PRIMARY KEY(user_id,key))')
             c.execute('CREATE TABLE IF NOT EXISTS projects (id uuid PRIMARY KEY,name text,brief text,created_by uuid,created_at bigint,updated_at bigint)')
             c.execute('CREATE TABLE IF NOT EXISTS folders (id uuid PRIMARY KEY,project_id uuid,parent_id uuid,name text,name_normalized text,version integer,color text,created_at bigint,updated_at bigint)')
+            c.execute('CREATE TABLE IF NOT EXISTS generations (id uuid PRIMARY KEY,kind text NOT NULL,prompt text NOT NULL,project_id uuid,folder_id uuid,is_favorite boolean NOT NULL)')
+            c.execute('TRUNCATE generations')
+            for index, (kind,prompt,project,folder,favorite) in enumerate([
+                ('image','100%_fixture\\ref','dddddddd-dddd-4ddd-8ddd-dddddddddddd','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',True),
+                ('video','100XXfixtureXref','dddddddd-dddd-4ddd-8ddd-dddddddddddd',None,False),
+                ('depth','Depth fixture',None,None,True),
+                ('audio','Audio fixture',None,None,True),
+                ('image','Global fixture',None,'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',False),
+                ('image','a'*199+'�',None,None,False),
+            ]):
+                c.execute('INSERT INTO generations VALUES (%s,%s,%s,%s,%s,%s)',[f'aaaaaaaa-aaaa-4aaa-8aaa-{index:012d}',kind,prompt,project,folder,favorite])
             c.execute('CREATE TABLE IF NOT EXISTS canvas_boards (id uuid PRIMARY KEY,project_id uuid NOT NULL,name text NOT NULL,data jsonb NOT NULL,created_by uuid,created_at bigint NOT NULL,updated_at bigint NOT NULL)')
             c.execute('TRUNCATE canvas_boards')
             c.execute("INSERT INTO canvas_boards VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','dddddddd-dddd-4ddd-8ddd-dddddddddddd','दृश्य','{\"private_graph\":\"fixture\"}',NULL,1,2)")
@@ -72,7 +83,7 @@ def main():
         def snapshot():
             with db.cursor() as c:
                 result=[]
-                for table in ('users','settings','user_limits','projects','folders','assets','canvas_boards'):
+                for table in ('users','settings','user_limits','projects','folders','assets','canvas_boards','generations'):
                     c.execute('SELECT row_to_json(t)::text FROM '+table+' t ORDER BY 1')
                     result.append(c.fetchall())
                 return result
@@ -245,6 +256,20 @@ def main():
                         assert value['max-age']=='2592000' and value['httponly'] and value['samesite'].lower()=='lax' and value['path']=='/'
                 assert before == snapshot(), 'canvas read mutated DB'
                 canvas_report.append({'query':query,'status':responses[0][0],'json_equal':True,'cookie_contract_equal':True,'database_unchanged':True})
+            history_count_report = []
+            for query,cookie in [('', ''),('', token()),
+                    ('?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd&folderId=none&favorite=1', token(age=172800000)),
+                    ('?projectId=none&kind=audio',token()),('?kind=depth',token()),
+                    ('?projectId=&projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd&kind=audio&kind=image',token()),
+                    ('?'+urlencode({'q':'\ufeff100%_fixture\\ref\ufeff'}),token()),
+                    ('?'+urlencode({'q':'a'*199+'😀tail'}),token())]:
+                before = snapshot()
+                responses = [get(url.replace('/api/settings','/api/history/counts')+query,cookie) for url in urls]
+                assert responses[0][:2] == responses[1][:2], ('history counts',query,responses[0][:2],responses[1][:2])
+                jars = [SimpleCookie(response[2].get('Set-Cookie','')) for response in responses]
+                assert bool(jars[0]) == bool(jars[1]), ('history count renewal',query)
+                assert before == snapshot(), 'history counts mutated DB'
+                history_count_report.append({'query':query,'status':responses[0][0],'json_equal':True,'renewal_presence_equal':True,'database_unchanged':True})
             origin_report=[]
             before=snapshot()
             with db.cursor() as c:
@@ -382,7 +407,7 @@ def main():
                 if result.returncode:
                     raise RuntimeError(result.stderr[-4000:])
                 browser_report=json.loads(result.stdout)
-            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_counts_http_parity':history_count_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

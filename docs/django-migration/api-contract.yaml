@@ -1475,7 +1475,61 @@
         "transitive DB reads/writes and storage/provider/worker effects",
         "headers, idempotency, concurrency, pagination, naming"
       ],
-      "source_lines": 47
+      "source_lines": 47,
+      "method_contracts": {
+        "GET": {
+          "request_body": null,
+          "authentication": "Compatible active veevee_session user/auth-version; auth precedes parsing",
+          "authorization": "Any authenticated user; no user/project membership predicate in current route",
+          "query_params": {
+            "projectId": "first value: none => null, empty/absent => no project breakdown; otherwise UUID",
+            "kind": "first image/video/audio accepted; all others ignored (including depth)",
+            "q": "first value; ECMAScript trim; truncate to 200 UTF-16 code units then trim for SQL; ILIKE literal escaped backslash/percent/underscore",
+            "folderId": "ignored",
+            "favorite": "ignored"
+          },
+          "success": {
+            "status": 200,
+            "json": {
+              "project": "{total,unsorted,byFolder}; zero if no nonempty projectId",
+              "globalLibrary": "global project_id NULL {total,unsorted,byFolder}",
+              "allAssets": "integer count across all projects with kind/q",
+              "favorites": "integer count across all projects with kind/q and is_favorite=true"
+            }
+          },
+          "failure": {
+            "401": {
+              "error": "UNAUTHENTICATED"
+            },
+            "500": "Invalid UUID/database failures uncaught; exact error parity pending"
+          },
+          "headers": {
+            "content_type": "application/json",
+            "renewal": "Aged valid session renews host-only 30-day HttpOnly SameSite=Lax cookie; Secure in production"
+          },
+          "db_reads": [
+            "users session lookup",
+            "generations: up to two grouped folder counts and two global counts; exclude audio except explicit kind=audio"
+          ],
+          "db_mutations": [],
+          "storage_effects": [],
+          "provider_effects": [],
+          "worker_effects": [],
+          "idempotency": "Read only; no key",
+          "concurrency": "Independent aggregate reads; no snapshot transaction; current Node runs queries concurrently",
+          "pagination": null,
+          "naming": null,
+          "evidence": [
+            "backend/apps/generation/tests.py",
+            "scripts/django-migration/settings-http-parity.py (eight isolated cases)"
+          ],
+          "remaining_qualification": [
+            "Complete error/header/cookie contract including invalid UUIDs",
+            "Full-schema PG16 and performance/plan qualification",
+            "Browser and hosted preview; authorized traffic and rollback lifecycle"
+          ]
+        }
+      }
     },
     {
       "path": "/api/history/exports/[id]/download",

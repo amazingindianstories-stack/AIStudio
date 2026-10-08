@@ -666,9 +666,13 @@
         "GET": {
           "owner": "next",
           "next_status": "active",
-          "state": "NOT_STARTED",
+          "state": "IMPLEMENTING",
           "issue": "DJANGO-041",
-          "evidence": []
+          "evidence": [
+            "backend/apps/generation/history_counts.py",
+            "backend/apps/generation/tests.py",
+            "scripts/django-migration/settings-http-parity.py"
+          ]
         }
       }
     },
