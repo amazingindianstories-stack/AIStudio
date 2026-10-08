@@ -1749,14 +1749,16 @@
           "naming": "Persisted namespace/sequence with legacy fallback; current folder ancestry formatter",
           "evidence": [
             "backend/apps/generation/history.py",
-            "scripts/django-migration/settings-http-parity.py: ten HTTP cases plus populated favorite ordering/exact multiple and insertion between requests under Gunicorn"
+            "scripts/django-migration/settings-http-parity.py: ten HTTP cases plus populated favorite ordering/exact multiple and insertion between requests under Gunicorn",
+            "scripts/django-migration/settings-http-parity.py: four actual malformed UUID/fractional/overflow failure comparisons under Gunicorn"
           ],
           "remaining_qualification": [
-            "Malformed UUID/operand error responses",
+            "Additional PostgreSQL UUID syntax and extreme cursor number formatting",
             "Full-schema PG16 invariants and query performance",
             "Browser/full application and hosted preview",
             "Authorized canary and rollback"
-          ]
+          ],
+          "failure": "401 UNAUTHENTICATED before query; invalid UUID filters or bigint cursor operands preserve current empty500 without Content-Type/session renewal"
         }
       }
     },

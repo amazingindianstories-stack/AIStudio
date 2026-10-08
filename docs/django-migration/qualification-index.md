@@ -519,3 +519,16 @@ ordering, lookahead, naming, effects, evidence and remaining gates separately
 from PATCH/DELETE. This is sequential inter-request insertion evidence, not a
 concurrent stress test or full-schema/index-plan acceptance. Browser/hosted,
 performance, error parity and production ownership remain pending.
+
+History failure qualification found the same framework body mismatch previously
+fixed for update polling: malformed projectId/folderId and fractional/overflow
+cursor sort values returned empty 500 on Node but HTML on Django. History now
+handles UUID validation code invalid and database DataError SQLSTATE 22P02/22003
+with the current empty 500, no Content-Type and no renewed cookie. Other
+validation/database errors propagate. Logs include only a rejection category or
+SQLSTATE, never supplied query text or database error details. Four actual HTTP
+cases now match under production-settings two-worker Gunicorn with unchanged
+fixture snapshots. All ten successful/auth history comparisons, both keyset
+scenarios and prior HTTP checks pass again. This finite corpus does not qualify
+all PostgreSQL UUID spellings or extreme cursor values. Full-schema PG16,
+performance, browser/hosted and production transfer remain pending.

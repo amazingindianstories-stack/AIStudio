@@ -1,4 +1,8 @@
 """Current history read, including composite keysets and canonical filenames."""
+import logging
+from django.core.exceptions import ValidationError
+from django.db import DataError
+from django.http import HttpResponse
 from django.conf import settings
 from django.db.models import BooleanField
 from django.db.models.expressions import RawSQL
@@ -53,7 +57,19 @@ def query_history(params):
 def history_reads(request):
     if lookup(request) is None:
         return Response({'error':'UNAUTHENTICATED'}, status=401)
-    response = Response(query_history(request.query_params))
+    try:
+        page = query_history(request.query_params)
+    except (ValidationError, DataError) as error:
+        code = getattr(error.__cause__, 'sqlstate', None)
+        if isinstance(error, DataError) and code not in ('22P02', '22003'):
+            raise
+        if isinstance(error, ValidationError) and error.code != 'invalid':
+            raise
+        logging.getLogger(__name__).warning('history_parameter_rejected code=%s', code or 'invalid_uuid')
+        response = HttpResponse(b'', status=500)
+        del response['Content-Type']
+        return response
+    response = Response(page)
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,
             httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')
