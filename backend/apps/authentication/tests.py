@@ -191,3 +191,25 @@ class PasswordChangeApiTests(TransactionTestCase):
         self.assertEqual(response.cookies['veevee_session']['max-age'],0)
         self.assertEqual(User.objects.get().password_hash,original)
         self.assertEqual(ActivityLog.objects.count(),0)
+
+
+class BrowserOriginTests(TransactionTestCase):
+    setUp=LoginApiTests.setUp
+    cookie=SettingsTests.cookie
+
+    def test_cross_origin_mutations_fail_before_database_effects(self):
+        from django.test import override_settings
+        from .models import LoginAttempt
+        from apps.common.models import ActivityLog
+        self.cookie()
+        with override_settings(VEEVEE_BROWSER_ORIGINS=('https://frontend.example',)):
+            for endpoint,method in [('/api/auth/login',self.client.post),('/api/auth/logout',self.client.post),('/api/auth/password',self.client.patch)]:
+                response=method(endpoint,{},content_type='application/json',HTTP_ORIGIN='https://attacker.example')
+                self.assertEqual(response.status_code,403)
+                self.assertEqual(response.json(),{'error':'FORBIDDEN_ORIGIN'})
+            response=self.client.post('/api/auth/login',{},content_type='application/json',HTTP_ORIGIN='https://frontend.example')
+            self.assertEqual(response.status_code,400)
+            response=self.client.post('/api/auth/logout',HTTP_SEC_FETCH_SITE='cross-site')
+            self.assertEqual(response.status_code,403)
+        self.assertEqual(LoginAttempt.objects.count(),0)
+        self.assertEqual(ActivityLog.objects.count(),0)

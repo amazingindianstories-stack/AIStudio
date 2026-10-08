@@ -192,3 +192,9 @@ metadata required by packaging tests; isolation runner now copies that document
 and creates an independent index containing only copied source, never the user's
 Git metadata or generated packaging output. Browser/DB migration/full Django
 schema/hosted qualification remain separate, incomplete gates.
+
+Browser mutation security correction added: exact trusted Origin allowlist for
+unsafe API methods; reject untrusted/null origins and origin-less cross-site
+Fetch Metadata. Production requires HTTPS frontend origins. Focused auth test
+proves rejection precedes DB/audit effects, trusted Origin reaches validation.
+Hosted proxy/browser qualification remains mandatory and unverified; no cutover.

@@ -54,3 +54,15 @@ status and duration; query strings and cookies are excluded. Gunicorn raw access
 logging is disabled because future media-grant queries can contain credentials.
 Secure renewal cookies have isolated API-test coverage. Hosted TLS, proxy host
 behavior, service connectivity and deployment health remain unverified.
+
+## Browser mutation protection
+
+Django rejects unsafe /api requests carrying an Origin outside the exact
+`DJANGO_BROWSER_ORIGINS` allowlist, including null origins. Without Origin,
+cross-site/same-site Fetch Metadata is rejected. Origin-less machine clients
+remain subject to endpoint authentication. Production requires explicit bare
+HTTPS frontend origins; no wildcard, credentials, path or query is accepted.
+This is a deliberate security correction; current Node lacks this middleware.
+Before selecting mutations, prove actual browser requests through the hosted
+same-origin proxy retain Origin and use the configured public frontend origin.
+Do not trust forwarded Host as an origin allowlist or enable broad CORS.

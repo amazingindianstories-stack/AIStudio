@@ -7,7 +7,7 @@ SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 DEBUG = False
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if host.strip()]
 INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets']
-MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'apps.common.middleware.RequestLogMiddleware']
+MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'apps.common.middleware.RequestLogMiddleware', 'apps.common.origin.BrowserOriginMiddleware']
 ROOT_URLCONF = 'config.urls'
 WSGI_APPLICATION = 'config.wsgi.application'
 APPEND_SLASH = False
@@ -33,3 +33,9 @@ LOGGING = {
     'handlers': {'structured_console': {'class': 'logging.StreamHandler', 'stream': 'ext://sys.stdout'}},
     'loggers': {'veevee.requests': {'handlers': ['structured_console'], 'level': 'INFO', 'propagate': False}},
 }
+
+VEEVEE_BROWSER_ORIGINS = tuple(value.strip() for value in os.environ.get('DJANGO_BROWSER_ORIGINS','').split(',') if value.strip())
+for value in VEEVEE_BROWSER_ORIGINS:
+    parsed=urlsplit(value)
+    if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
+        raise ImproperlyConfigured('Browser origins must be exact bare origins without credentials')
