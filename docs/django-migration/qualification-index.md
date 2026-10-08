@@ -185,3 +185,12 @@ is empty. Hosted TLS, architecture, same-origin browser forwarding and Secure
 cookie behavior remain pending. The concrete resource creation scope is in
 hosted-preview-proposal.md; it awaits authorization and excludes production
 routing/data/secrets and existing service replacement.
+
+Committed-source release exporter now materializes the qualified API revision
+without reading dirty worktree file contents. Actual export yields 85 allowed
+source/config files and matches the recorded API image fingerprint. Railway
+configuration is recorded with a separate hash. Five isolated unit tests pass
+for allowlist exclusions, fingerprint order/scope, file/manifest output, mismatch
+rejection before directory creation, exact revision and symlink rejection. CI
+runs both schema-guard and exporter test files. Hosted deployment approval is
+still pending; no resources or route ownership changed.

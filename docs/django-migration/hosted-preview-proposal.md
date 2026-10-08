@@ -58,3 +58,20 @@ The current local image evidence is in api-image-qualification.json. It is
 ARM64 qualification; Railway image architecture must be checked and qualified
 rather than inferred. No schema authority or route ownership changes are
 included in this proposal.
+
+## Committed-source export prepared
+
+`python3 scripts/django-migration/export-api-release.py` exports only allowed
+API/build/config files from the exact qualified Git revision. It refuses a
+fingerprint mismatch before writing a release directory, excludes dotenv/Git/
+frontend/archives and rejects selected symlink inputs. The release manifest
+records per-file hashes and a separate Railway config hash (deployment config
+is outside the image harness fingerprint). No deployment command is executed.
+
+Verified export has 85 source/config files; API fingerprint matches
+`730765b8101543f08a4241f8d1706d03a53ec0eee153a62f1354d1447920ff83`.
+Railway config hash is
+`459edef5b9142e82108a560a1c2309dbc18a9d3dbcbde9711b0858d03c290e70`.
+Five isolated exporter tests pass. Its local temporary directory is not a
+hosted artifact or durable release record; re-export and verify before upload.
+Hosted creation authorization remains pending.
