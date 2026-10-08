@@ -532,3 +532,17 @@ fixture snapshots. All ten successful/auth history comparisons, both keyset
 scenarios and prior HTTP checks pass again. This finite corpus does not qualify
 all PostgreSQL UUID spellings or extreme cursor values. Full-schema PG16,
 performance, browser/hosted and production transfer remain pending.
+
+GET history now has an exact, opt-in same-origin routing switch. Three controlled
+Chromium cases pass through the real local Next proxy: page limit 1 with public
+fields/canonical filename, strict cursor yielding the empty terminal page, and
+invalid project empty 500. Results equal the direct Django responses and carry
+Django request IDs while response URLs stay on the frontend origin. Aged
+HttpOnly/Lax cookies renew on successful reads, not failure. All ten controlled
+browser cases and existing HTTP/keyset/batch-naming checks pass; seven routing
+tests verify opt-in exact paths and retained PATCH/DELETE ownership. Existing CI
+--browser execution includes these cases.
+This minimal controlled local HTTP document does not prove Asset Library UI
+scroll/merge acceptance, HTTPS Secure cookies or hosted Vercel/Railway behavior.
+History remains IMPLEMENTING with Next production ownership; routing is unset
+by default. Full-schema PG16, performance and deployment gates remain pending.

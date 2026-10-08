@@ -44,3 +44,12 @@ test('update polling switch preserves watermarks and leaves other history method
   assert.equal(djangoDestination(url,'POST',config),null);
   assert.equal(djangoDestination('https://frontend.example/api/history','GET',config),null);
 });
+
+test('history reads are separately selected and retain mutation ownership',()=>{
+  const url='https://frontend.example/api/history?limit=2&cursor=1.id';
+  const config={...configured,methods:'GET /api/history'};
+  assert.equal(djangoDestination(url,'GET',config).href,'https://django.example/api/history?limit=2&cursor=1.id');
+  for (const method of ['PATCH','DELETE','POST']) assert.equal(djangoDestination(url,method,config),null);
+  assert.equal(djangoDestination(url,'GET',configured),null);
+  assert.equal(djangoDestination('https://frontend.example/api/history/updates','GET',config),null);
+});
