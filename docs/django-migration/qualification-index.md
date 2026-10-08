@@ -708,3 +708,15 @@ includes the added assertions.
 This strengthens local browser transport evidence; hosted TLS/proxy behavior,
 full application flows and production domain transfer remain unqualified. No
 shared credentials, provider calls or production deployment occurred.
+
+Django generation model/migration state now preserves ten current index
+declarations and original PostgreSQL names, including names beyond Django's
+portable 30-character limit. A PostgreSQLIndex subclass permits 63 characters;
+system checks pass. SeparateDatabaseAndState migration 0002 has empty database
+operations; sqlmigrate confirms no-op DDL and makemigrations reports no changes.
+A CI guard compares index inventory, column order/direction and simple boolean
+partial predicates against current Drizzle metadata in runtime and disk state;
+all ten match. An initial comparison needed normalization of Django's implicit
+ascending direction. It does not compare physical catalogs or all index options.
+Two complex worker indexes remain unmodeled. Generation stays unmanaged and
+Drizzle remains schema authority; no physical schema change or deployment.

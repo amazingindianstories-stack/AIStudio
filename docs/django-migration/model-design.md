@@ -734,3 +734,12 @@ current Drizzle declarations (RESTRICT, RESTRICT and CASCADE respectively).
 The unmanaged library 0003 migration changes model state only. The guard does
 not claim equivalence of physical constraint deferrability or SQL defaults;
 those remain the catalog/baseline gate's responsibility.
+
+Generation index state now declares ten current indexes: created, queue,
+project/folder, user-created, created/project/folder keysets, and favorite/flagged
+partial keysets. Original PostgreSQL names are preserved with a 63-character
+index subclass. Migration 0002 uses SeparateDatabaseAndState with no database
+operations; it does not create/change physical indexes or transfer schema
+authority. Runtime/disk column order, direction and boolean predicates match
+current Drizzle metadata. Two compound worker predicate indexes remain pending,
+as do physical/default/constraint/trigger baselining and complete catalog proof.

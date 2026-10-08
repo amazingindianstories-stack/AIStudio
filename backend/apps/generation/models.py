@@ -1,4 +1,5 @@
 from django.db import models
+from apps.common.indexes import PostgreSQLIndex
 
 from apps.projects.models import Project
 from apps.library.models import Folder
@@ -69,3 +70,15 @@ class Generation(models.Model):
     class Meta:
         managed = False
         db_table = 'generations'
+        indexes = [
+            PostgreSQLIndex(name='generations_created_at_idx', fields=['created_at']),
+            PostgreSQLIndex(name='generations_queue_idx', fields=['status', 'kind', 'created_at']),
+            PostgreSQLIndex(name='generations_project_id_idx', fields=['project']),
+            PostgreSQLIndex(name='generations_folder_id_idx', fields=['folder']),
+            PostgreSQLIndex(name='generations_user_created_idx', fields=['user_id', 'created_at']),
+            PostgreSQLIndex(name='generations_created_keyset_idx', fields=['-created_at', '-id']),
+            PostgreSQLIndex(name='generations_project_keyset_idx', fields=['project', '-created_at', '-id']),
+            PostgreSQLIndex(name='generations_folder_keyset_idx', fields=['folder', '-created_at', '-id']),
+            PostgreSQLIndex(name='generations_favorite_keyset_idx', fields=['-favorited_at','-id'], condition=models.Q(is_favorite=True)),
+            PostgreSQLIndex(name='generations_flagged_keyset_idx', fields=['-flagged_at','-id'], condition=models.Q(flagged=True)),
+        ]

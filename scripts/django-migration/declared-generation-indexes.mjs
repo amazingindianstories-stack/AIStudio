@@ -12,7 +12,7 @@ const indexes=getTableConfig(generations).indexes.map(({config})=>{
   });
   const where=config.where?dialect.sqlToQuery(config.where):null;
   if(where?.params.length)throw new Error('Parameterized index predicate unsupported');
-  return {name:config.name,sql:'CREATE '+(config.unique?'UNIQUE ':'')+'INDEX IF NOT EXISTS '+quote(config.name)+
+  return {name:config.name,columns:config.columns.map(column=>({name:column.name,order:column.indexConfig.order||'asc'})),predicate:where?.sql||null,sql:'CREATE '+(config.unique?'UNIQUE ':'')+'INDEX IF NOT EXISTS '+quote(config.name)+
     ' ON "generations" USING '+(config.method||'btree')+' ('+columns.join(',')+')'+(where?' WHERE '+where.sql:'')};
 });
 process.stdout.write(JSON.stringify(indexes));
