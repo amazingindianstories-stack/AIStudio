@@ -45,10 +45,10 @@ shared deployment's credentials.
 7. Request the separately scoped production settings canary authorization.
 
 Service creation, shared DB connectivity and traffic changes remain pending.
-Local Docker CLI is installed, but the daemon socket was absent when inspected;
-no container build or image-content verification has run. Two-worker Gunicorn
-production-settings HTTP qualification is recorded separately and cannot prove
-the container or Railway transport.
+Current local image qualification is recorded in api-image-qualification.json.
+It covers production startup, disposable PostgreSQL 16, settings fixtures and
+health recovery. Hosted Railway transport, TLS and browser forwarding remain
+unqualified. Historical observations below retain their original scope.
 
 ## Existing Railway inventory (read-only observation)
 
@@ -204,3 +204,15 @@ attestations. Railway's source-build path does not automatically run this local
 harness: the eventual release must explicitly preserve/verify these labels or
 provide equivalent committed-source/image evidence. Existing deployments remain
 unreconciled; no live service was changed.
+
+## Current release candidate — 8f70339
+
+The current API image passes the complete available local container harness:
+`--runtime --declared-schema --invariants --connection-recovery`. Exact image,
+API fingerprint, PostgreSQL version, case counts and limitations are recorded
+in api-image-qualification.json. The API source revision is committed; the
+Drizzle fixture uses the current dirty schema (including preserved UI-related
+changes), whose hash is recorded separately. Do not mistake its fixture schema
+for committed-source or production-schema attestation. Cleanup inventory showed
+no remaining qualification containers or networks. See hosted-preview-proposal.md
+for the concrete isolated deployment scope requiring authorization.

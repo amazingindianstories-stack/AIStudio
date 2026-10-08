@@ -175,3 +175,13 @@ after npm ci; remote CI execution is pending. Defaults, index/check/unique
 constraint details, FK deferrability/update policies, triggers/functions and
 actual production catalog equivalence remain unproven. This is declared metadata
 coverage, not the Django schema-authority takeover gate.
+
+Current committed API revision 8f70339 passes container qualification with
+Python 3.12, PostgreSQL 16.15, all five settings cases, database failure/restart
+and stale-connection recovery, eleven hierarchy/naming behavior checks and
+sanitized logs. Image/fingerprint and fixture-schema hash are recorded in
+api-image-qualification.json. Disposable container/network cleanup inventory
+is empty. Hosted TLS, architecture, same-origin browser forwarding and Secure
+cookie behavior remain pending. The concrete resource creation scope is in
+hosted-preview-proposal.md; it awaits authorization and excludes production
+routing/data/secrets and existing service replacement.

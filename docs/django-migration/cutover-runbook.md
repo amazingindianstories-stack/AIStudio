@@ -51,7 +51,8 @@ translates directly into a PostgreSQL URL from Railway.
 The concrete service release inputs and evidence checklist are in
 railway-api-release.md. The API Dockerfile has a dedicated build-context
 allowlist; use the reviewed committed source rather than uploading this dirty
-checkout. Container build qualification is pending availability of Docker.
+checkout. Local ARM64 container qualification now passes; see api-image-qualification.json.
+Hosted Railway/TLS qualification remains pending.
 
 Request logs emit sanitized JSON to stdout with request ID, matched route,
 status and duration; query strings and cookies are excluded. Gunicorn raw access
