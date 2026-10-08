@@ -180,12 +180,52 @@ with transaction.atomic():
         assert count[0] == 5, ('Per-item history queries',size,count[0])
         assert all(item['filename'].startswith('R1_R2_R3_') for item in page['items'])
         query_measurements.append({'page_size':size,'folder_depth':3,'queries':count[0],'elapsed_ms':round(elapsed,3)})
+    large_rows = []
+    for index in range(5000):
+        identifier = uuid4()
+        identifiers.append(identifier)
+        large_rows.append(Generation(id=identifier,kind='image',status='completed',
+            prompt=performance_marker,model='fixture-only',aspect_ratio='16:9',
+            created_at=index+101,updated_at=index+101,folder_id=parent))
+    Generation.objects.bulk_create(large_rows,batch_size=250)
+    with connection.cursor() as cursor:
+        cursor.execute('ANALYZE generations')
+    plan_measurements = []
+    def plan_nodes(node):
+        result = [{'type':node['Node Type'],'rows':node.get('Actual Rows'),
+            'removed':node.get('Rows Removed by Filter',0),'index':node.get('Index Name'),
+            'index_condition':bool(node.get('Index Cond')),'sort':node.get('Sort Method')}]
+        for child in node.get('Plans',[]):
+            result.extend(plan_nodes(child))
+        return result
+    for label,values in [('search',{'q':performance_marker}),
+            ('search_miss',{'q':performance_marker+'-absent'}),
+            ('folder',{'folderId':str(parent)}),
+            ('folder_cursor',{'folderId':str(parent),'cursor':'2500.ffffffff-ffff-4fff-8fff-ffffffffffff'})]:
+        captured = []
+        def capture_first(execute,statement,params,many,context):
+            if not captured:
+                captured.append((statement,params))
+            return execute(statement,params,many,context)
+        params = QueryDict(mutable=True)
+        params.update({'limit':'20',**values})
+        with connection.execute_wrapper(capture_first):
+            page = query_history(params)
+        assert len(page['items']) == (0 if label=='search_miss' else 20)
+        statement,bindings = captured[0]
+        assert statement.lstrip().upper().startswith('SELECT')
+        with connection.cursor() as cursor:
+            cursor.execute('EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) '+statement,bindings)
+            plan = cursor.fetchone()[0][0]
+        plan_measurements.append({'case':label,'fixture_rows':5100,
+            'execution_ms':plan['Execution Time'],'nodes':plan_nodes(plan['Plan'])})
     transaction.set_rollback(True)
 assert not Generation.objects.filter(pk__in=identifiers).exists()
 print(json.dumps({'generation_orm_kinds': cases, 'generation_columns': 60,
                   'fixture_rows_rolled_back': True, 'provider_calls': 0,
                   'history_count_full_schema_checks': 5,
                   'history_query_measurements':query_measurements,
+                  'history_plan_measurements':plan_measurements,
                   'history_full_schema_checks':['uuid_tie_order','composite_cursor','newer_insert_excluded','exact_multiple_terminal','persisted_names','favorite_keysets','audio_filter','private_diagnostics_omitted'],
                   'update_selection_checks': ['inflight', 'strict_watermark', 'exclude_audio', 'public_shape', 'descending_order', 'newest_100_cap', 'fractional_rejected', 'overflow_rejected'],
                   'scope': 'ORM persistence and history/count/update services; not enqueue API or provider/MOV-byte qualification'}))

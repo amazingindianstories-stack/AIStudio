@@ -596,3 +596,23 @@ invariant checks pass. Source ccda75650108fa38b4598c5740d9cfbd0ca02001, API
 fingerprint c2051d16f8608e4238cca149c8f7d3ec515ba4f65ede9c4c7987318c788b5dd9,
 local image sha256:cfd7210d4f809bc86b821382b0d055117a6ac0903438ffd513d8a7403bde8b0e.
 No hosted deployment or production ownership/schema authority change occurred.
+
+History plan instrumentation captures the first SELECT emitted by the real
+query_history service, then runs EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) with its
+original bindings only on disposable PG16.15. Five thousand additional bulk
+fixture generations enlarge the three-level folder dataset to 5,100; ANALYZE
+runs only in this disposable container. Printed plan summaries omit SQL, query
+parameters, filter expressions and media fields. All fixture writes roll back.
+
+Observed common-search/folder plans use generations_created_at_idx plus
+incremental sort; the folder cursor has an index condition. Single database-only
+execution samples were 0.056/0.027/0.035ms. A no-match substring search instead
+uses sequential scan plus sort, rejects all 5,223 rows in the database and takes
+5.281ms. This records an unresolved search-scaling risk, not performance parity
+or a production SLA. Node comparative plans, representative distributions,
+rare matches, bigger cardinalities and concurrency remain required. No planner
+node/index choice is forced by the probe and no schema/index change was made.
+All previous container checks pass. Source 5794c022f4d78c821b4d529c998cfc54a6362e9f,
+API fingerprint c2051d16f8608e4238cca149c8f7d3ec515ba4f65ede9c4c7987318c788b5dd9,
+image sha256:f6ed625c574416014aa713bcca767e2ddc24ee3e5787bfc8f1fb789e1747da5d.
+This remains local ARM64 evidence; hosted and production transfer are pending.
