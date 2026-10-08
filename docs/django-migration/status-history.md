@@ -218,3 +218,8 @@ checks pass. Migration is state-only; 42 Django tests pass. Schema gate open.
 runtime/disk state. 410 catalog comparisons, 573 literal/absent SQL values, 42
 UUID fallbacks and 92 ORM default checks pass. Ten migrations emit no DDL;
 42 Django regression tests pass. Full schema takeover remains open.
+
+2026-10-08: Whole-schema reproduction probe finds five differing catalog
+categories; the explicit equivalence gate exits 1. Recorded physical FK, implicit
+index, naming/order and function/trigger gaps. Scratch schema rolled back;
+Django-only baseline and production equivalence remain unproven.

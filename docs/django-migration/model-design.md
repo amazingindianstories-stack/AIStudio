@@ -822,3 +822,34 @@ NOT NULL/FK/index/trigger rules to isolate defaults; those require their own
 physical qualification. Current migration-script-only defaults and unexpected
 production objects remain subject to the baseline gate. Drizzle and runtime
 ownership remain unchanged; no production DDL or traffic transfer occurred.
+
+Whole-schema reproduction diagnostic now exists in
+`scripts/django-migration/schema-reproduction-probe.py`. It builds a fresh current
+Drizzle fixture plus current hierarchy/naming SQL and color check, then a fresh
+fixture materialized from disk Django migration model state. Both use the same
+scratch namespace in separate rolled-back transactions. No public application
+DDL is applied. This is not yet a Django-migrations-only baseline.
+
+The current local PostgreSQL 18 comparison is **not equivalent**. Both fixtures
+have 21 tables/205 columns. Five categories differ: columns, constraints, indexes,
+functions and triggers. The 79 differing column rows differ only in physical
+ordinal position; types/nullability/defaults match. The current fixture has 58
+indexes versus Django's 72: implicit FK and text pattern indexes add objects, and
+unique/composite-PK names differ. Current SQL FKs preserve immediate RESTRICT or
+CASCADE; Django schema_editor generates deferred FKs without those SQL deletion
+clauses. Django's on_delete service policy does not prove physical FK equivalence.
+Current additive scripts also yield duplicate named FK constraints in this
+fresh-fixture path; actual production presence must be audited before any
+preserve/exclude decision. Four custom functions/five triggers are missing from
+Django reproduction. PostgreSQL 18 NOT NULL catalog constraints are version
+specific; PostgreSQL 16 comparison is still required.
+
+The detailed synthetic fixture report is `schema-reproduction-gaps.json`. No
+automatic normalization or waiver hides these differences. Diagnostic mode exits
+successfully after capturing evidence; `--require-equivalent` deliberately exits
+1 for this incomplete state. Both modes verify scratch-schema rollback. This
+report is a baseline blocker, not schema takeover approval or production proof.
+Next baseline work must represent exact physical FK behavior and names, remove
+unintended indexes, preserve/check physical column order, and port current
+functions/triggers into Django migration SQL before testing an empty Django-only
+baseline and reviewing the real production catalog. Authority remains Drizzle.
