@@ -60,3 +60,10 @@ issue numbers are reused. Project POST includes folder operations; profile PATCH
 needs media storage; browser store.js also invokes queue/execute; coordinator
 bootstrap starts the export worker. These dependencies must survive the planned
 service split and be removed only after replacement qualification.
+
+Detached clean source checkout `b2aa5df` passed PG16 committed fresh/adoption
+qualification, PG18 executor catalog equivalence, all 1,069 Node unit tests,
+ESLint and the Next production build. Installed Node dependencies were reused;
+no clean `npm ci` claim is made. Evidence and complete sanitized logs are under
+`evidence/g0-*`. No shared service was accessed. G1 now consolidates the two
+Django graphs and replaces partial-table test fixtures with migrated-schema tests.

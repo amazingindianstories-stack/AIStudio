@@ -1,0 +1,1125 @@
+Isolation verified: copied source; empty credential home; allowlisted env; live dedicated loopback cluster.
+✔ Admin migrate-schema endpoint: rejects unauthenticated requests with 403 (3.264084ms)
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "provider_responses" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "submitted_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "provider_created_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "provider_updated_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "completed_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "last_poll_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "next_poll_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "poll_attempts" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "callback_received_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "provider_status" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "worker_lease_id" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "worker_lease_until" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "source_generation_id" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "draft_task_id" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "draft_mode" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "bitrate_mode" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "last_frame_url" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "reference_videos" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "reference_audios" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "video_task_mode" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "generations_coordinator_due_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "portrait_groups" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "portrait_assets" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "project_id" of relation "assets" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "assets_project_id_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "project_id" of relation "portrait_groups" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "portrait_groups_project_id_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_exports" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_export_items" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_exports_user_created_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_exports_worker_due_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_export_items_order_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "parent_id" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "name_normalized" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "version" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "updated_at" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "color" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "location_version" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_project_id_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_parent_id_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_global_root_unique_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_project_root_unique_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_subfolder_unique_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "trg_sync_folder_name_normalized" for relation "folders" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "trg_check_folder_scope" for relation "folders" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "trg_check_generation_scope" for relation "generations" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "organization_idempotency_keys" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "actor_id" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "operation" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "fingerprint" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "status" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "expires_at" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "organization_idempotency_keys_created_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "organization_idempotency_keys_expires_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "organization_idempotency_keys_actor_op_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "manifest_version" of relation "media_exports" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "naming_counters" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "generation_naming" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "generation_naming_namespace_seq_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "generation_naming_namespace_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "trg_check_generation_naming_scope" for relation "generation_naming" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'trigger "trg_check_generation_location_naming" for relation "generations" does not exist, skipping',
+  file: 'dropcmds.c',
+  line: '523',
+  routine: 'does_not_exist_skipping'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "provider_responses" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "submitted_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "provider_created_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "provider_updated_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "completed_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "last_poll_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "next_poll_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "poll_attempts" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "callback_received_at" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "provider_status" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "worker_lease_id" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "worker_lease_until" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "source_generation_id" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "draft_task_id" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "draft_mode" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "bitrate_mode" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "last_frame_url" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "reference_videos" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "reference_audios" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "video_task_mode" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "generations_coordinator_due_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "portrait_groups" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "portrait_assets" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "idx_portrait_assets_group_id" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "project_id" of relation "assets" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "assets_project_id_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "project_id" of relation "portrait_groups" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "portrait_groups_project_id_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_exports" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_export_items" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_exports_user_created_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_exports_worker_due_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "media_export_items_order_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "parent_id" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "name_normalized" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "version" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "updated_at" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "color" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "location_version" of relation "generations" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_project_id_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_parent_id_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_global_root_unique_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_project_root_unique_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "folders_subfolder_unique_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "organization_idempotency_keys" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "actor_id" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "operation" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "fingerprint" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "status" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "expires_at" of relation "organization_idempotency_keys" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "organization_idempotency_keys_created_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "organization_idempotency_keys_expires_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "organization_idempotency_keys_actor_op_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "manifest_version" of relation "media_exports" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "naming_counters" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "generation_naming" already exists, skipping',
+  file: 'parse_utilcmd.c',
+  line: '211',
+  routine: 'transformCreateStmt'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "generation_naming_namespace_seq_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42P07',
+  message: 'relation "generation_naming_namespace_idx" already exists, skipping',
+  file: 'index.c',
+  line: '894',
+  routine: 'index_create'
+}
+✔ Admin migrate-schema endpoint: 200 OK, verified === true, and idempotent re-run (74.108834ms)
+[migrate-schema] Error applying migration: Error: SIMULATED_ADMIN_MIGRATION_FAILURE
+    at <anonymous> (/private/tmp/veevee-django-ch2r367e/repo/src/lib/admin-migrate-endpoint.integration.js:100:15)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async scope (/Users/ais4/Desktop/Rohit Chavda/Dev/image-video-project/node_modules/postgres/cjs/src/index.js:260:18)
+    at async sql.begin (/Users/ais4/Desktop/Rohit Chavda/Dev/image-video-project/node_modules/postgres/cjs/src/index.js:243:14)
+    at async POST (/private/tmp/veevee-django-ch2r367e/repo/src/app/api/admin/migrate-schema/route.js:461:5)
+    at async TestContext.<anonymous> (/private/tmp/veevee-django-ch2r367e/repo/src/lib/admin-migrate-endpoint.integration.js:110:17)
+    at async Test.run (node:internal/test_runner/test:1389:7)
+    at async Test.processPendingSubtests (node:internal/test_runner/test:960:7)
+✔ Admin migrate-schema endpoint: rolls back transaction on simulated failure (4.234458ms)
+◇ injected env (0) from ../empty.env // tip: ⌁ auth for agents [www.vestauth.com]
+Applying folder color migration...
+Folder color migration completed successfully.
+Applying folder color migration...
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '42701',
+  message: 'column "color" of relation "folders" already exists, skipping',
+  file: 'tablecmds.c',
+  line: '7682',
+  routine: 'check_for_column_name_collision'
+}
+Folder color migration completed successfully.
+{
+  severity_local: 'NOTICE',
+  severity: 'NOTICE',
+  code: '00000',
+  message: 'drop cascades to table color_upgrade_8d60521f9bc8411196209d712400732e.folders',
+  file: 'dependency.c',
+  line: '1177',
+  routine: 'reportDependentObjects'
+}
+✔ folder colour upgrades populated old schema, defaults NULL, preserves rows and repeats safely (40.33925ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5558.766208
