@@ -299,3 +299,15 @@ complete narrow-fixture Node/Django HTTP suite pass in the same run. Five routin
 unit tests pass. This controlled document is not full application UI acceptance,
 hosted HTTPS/Secure-cookie proof, production Next build or production transfer.
 Hosted approval remains pending; route ownership is unchanged.
+
+Public generation serializer is now implemented as a shared Django prerequisite
+for history/update reads. Three direct comparisons against current Node rowToItem
+pass in the isolated runner: nullable omission vs lineage nulls, false/zero/empty
+reference preservation, continuation/first-frame alias, reconciled-vs-estimated
+cost basis and structured judge/reference values. Private provider_responses is
+excluded in every case. The oracle imports current store-db.js but invokes only
+its serializer; no DB, storage, worker or provider function executes. CI now runs
+the comparison after npm ci. UUID runtime formatting is handled in Django; this
+fixture compares Node wire-shaped values. Full public-field fixture coverage,
+actual history/update endpoints, pagination/naming and hosted traffic remain
+pending. No route ownership or production artifact changed.

@@ -151,6 +151,7 @@ jobs:
       - run: python backend/manage.py test apps.common apps.admin_dashboard apps.library apps.assets apps.authentication apps.projects apps.canvas apps.agents apps.generation apps.exports apps.workers
       - run: npm ci
       - run: python scripts/django-migration/model-columns.py
+      - run: python scripts/django-migration/generation-serialization-parity.py
       - run: python -m unittest discover -s scripts/django-migration -p "test_*.py"
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - run: python scripts/django-migration/settings-http-parity.py --browser
