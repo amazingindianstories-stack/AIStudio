@@ -85,3 +85,12 @@ namespace integrity, positive sequence, deferred scope move, naming reassignment
 and cascade deletion. Settings and deterministic connection recovery also pass
 in that run. These use current Node migration SQL and do not prove a Django
 migration baseline, concurrent naming allocation, cycles or complete invariants.
+
+Machine-readable GET contract details now cover settings, folders, assets,
+projects and current-user reads, including side effects, ordering, query
+precedence, cookie behavior and remaining qualification. The ownership CI guard
+also checks exact route/method inventory correspondence and required dimensions
+for documented methods. Five guard rejection tests pass, and the complete
+65-route/85-method check reports zero errors in a newly verified isolated copy.
+These are documentation/structural checks; other methods remain inventoried
+with pending contract review, and no parity or traffic state was promoted.

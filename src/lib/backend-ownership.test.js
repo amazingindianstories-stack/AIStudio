@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { checkOwnership } from '../../scripts/check-backend-ownership.mjs';
+import { checkOwnership, checkApiContracts } from '../../scripts/check-backend-ownership.mjs';
 
 function fixture(source, run) {
   const root = mkdtempSync(path.join(tmpdir(), 'ownership-test-'));
@@ -19,6 +19,20 @@ function fixture(source, run) {
 test('ownership guard recognizes exported arrow handlers and rejects unregistered methods',()=>{
   fixture('export const GET = async () => {}; export const POST = async () => {};',(root,m)=>{
     assert.ok(checkOwnership(root,m).some(e=>e.includes('Unregistered Node method: POST')));
+  });
+});
+
+test('API inventory cannot drop a retained route or method',()=>{
+  fixture('export async function GET() {}',(_root,m)=>{
+    assert.ok(checkApiContracts({routes:[]},m).some(e=>e.includes('Missing API contract route')));
+    assert.ok(checkApiContracts({routes:[{path:'/api/settings',source:m.routes['/api/settings'].source,methods:[]}]},m).some(e=>e.includes('Missing API contract method')));
+  });
+});
+test('documented method contracts must retain every behavioral dimension',()=>{
+  fixture('export async function GET() {}',(_root,m)=>{
+    const route={path:'/api/settings',source:m.routes['/api/settings'].source,methods:['GET'],method_contracts:{GET:{success:{status:200}}}};
+    assert.ok(checkApiContracts({routes:[route]},m).some(e=>e.includes('Missing API contract dimension db_mutations')));
+    assert.ok(checkApiContracts({routes:[route,route]},m).some(e=>e.includes('Duplicate API contract')));
   });
 });
 test('ownership guard recognizes aliased handlers',()=>{

@@ -581,7 +581,69 @@
         "transitive DB reads/writes and storage/provider/worker effects",
         "headers, idempotency, concurrency, pagination, naming"
       ],
-      "source_lines": 144
+      "source_lines": 144,
+      "method_contracts": {
+        "GET": {
+          "request_body": null,
+          "authentication": "veevee_session HMAC-SHA256; active users row and matching auth_version; missing legacy ver means 0",
+          "authorization": "any authenticated teammate",
+          "headers": {
+            "content_type": "application/json",
+            "renewal": "Set-Cookie on valid session older than one day; 30-day HttpOnly SameSite=Lax host-only / cookie; Secure in production"
+          },
+          "storage_effects": [],
+          "provider_effects": [],
+          "worker_effects": [],
+          "pagination": null,
+          "query_params": {
+            "projectId": "First repeated value; empty/missing means all assets across every project/global scope; nonempty filters exact project UUID"
+          },
+          "success": {
+            "status": 200,
+            "json": {
+              "assets": [
+                {
+                  "id": "UUID",
+                  "kind": "stored string",
+                  "name": "string",
+                  "slug": "stored string",
+                  "description": "string; omitted when DB null",
+                  "images": "stored JSON or [] when null",
+                  "projectId": "UUID; omitted when DB null",
+                  "createdAt": "epoch milliseconds",
+                  "updatedAt": "epoch milliseconds"
+                }
+              ]
+            }
+          },
+          "failure": {
+            "unauthenticated": {
+              "status": 401,
+              "json": {
+                "error": "UNAUTHENTICATED"
+              }
+            },
+            "database_error": "Uncaught route/database failure; malformed UUID behavior remains unqualified"
+          },
+          "db_reads": [
+            "users session lookup",
+            "assets; created_at DESC"
+          ],
+          "db_mutations": [],
+          "concurrency": "No snapshot transaction; creation-time ties have no explicit tiebreaker",
+          "naming": "Stored slug returned unchanged; no filename generation",
+          "idempotency": "No idempotency key on GET",
+          "evidence": [
+            "scripts/django-migration/settings-http-parity.py"
+          ],
+          "remaining_qualification": [
+            "malformed/error contracts and complete header parity",
+            "PostgreSQL 16 full-schema Node/Django comparison",
+            "full application browser suite and hosted preview",
+            "authorized canary, observation and rollback"
+          ]
+        }
+      }
     },
     {
       "path": "/api/audio/transcribe",
@@ -696,7 +758,55 @@
         "transitive DB reads/writes and storage/provider/worker effects",
         "headers, idempotency, concurrency, pagination, naming"
       ],
-      "source_lines": 229
+      "source_lines": 229,
+      "method_contracts": {
+        "GET": {
+          "request_body": null,
+          "authentication": "veevee_session HMAC-SHA256; active users row and matching auth_version; missing legacy ver means 0",
+          "authorization": "Anonymous allowed; returns null and clears cookie when session invalid; valid sessions return only public actor fields",
+          "headers": {
+            "content_type": "application/json",
+            "renewal": "Set-Cookie on valid session older than one day; 30-day HttpOnly SameSite=Lax host-only / cookie; Secure in production"
+          },
+          "storage_effects": [],
+          "provider_effects": [],
+          "worker_effects": [],
+          "pagination": null,
+          "query_params": {
+            "behavior": "ignored"
+          },
+          "success": {
+            "status": 200,
+            "json": {
+              "user": "null, or {id UUID,email string,name string,role string,color string|null,avatarUrl string|null}"
+            }
+          },
+          "failure": {},
+          "db_reads": [
+            "users session lookup"
+          ],
+          "db_mutations": [],
+          "concurrency": "No transaction; active/auth-version checked at session lookup",
+          "naming": null,
+          "idempotency": "No idempotency key on GET",
+          "evidence": [
+            "scripts/django-migration/settings-http-parity.py"
+          ],
+          "remaining_qualification": [
+            "malformed/error contracts and complete header parity",
+            "PostgreSQL 16 full-schema Node/Django comparison",
+            "full application browser suite and hosted preview",
+            "authorized canary, observation and rollback"
+          ],
+          "unauthenticated_behavior": {
+            "status": 200,
+            "json": {
+              "user": null
+            },
+            "cookie": "Clear veevee_session: max-age 0, HttpOnly, SameSite=Lax, host-only path /, Secure in production"
+          }
+        }
+      }
     },
     {
       "path": "/api/auth/password",
@@ -930,7 +1040,77 @@
         "transitive DB reads/writes and storage/provider/worker effects",
         "headers, idempotency, concurrency, pagination, naming"
       ],
-      "source_lines": 235
+      "source_lines": 235,
+      "method_contracts": {
+        "GET": {
+          "request_body": null,
+          "authentication": "veevee_session HMAC-SHA256; active users row and matching auth_version; missing legacy ver means 0",
+          "authorization": "any authenticated teammate",
+          "headers": {
+            "content_type": "application/json",
+            "renewal": "Set-Cookie on valid session older than one day; 30-day HttpOnly SameSite=Lax host-only / cookie; Secure in production"
+          },
+          "storage_effects": [],
+          "provider_effects": [],
+          "worker_effects": [],
+          "pagination": null,
+          "query_params": {
+            "precedence": [
+              "tree first when first value is exactly 1 or true",
+              "nonempty ancestry next",
+              "otherwise child/root listing"
+            ],
+            "parentId": "Nonempty first value lists direct children and overrides projectId filtering",
+            "projectId": "First value; empty/missing lists global roots when no parentId",
+            "duplicates": "URLSearchParams.get uses first occurrence",
+            "unknown": "ignored"
+          },
+          "success": {
+            "status": 200,
+            "json": {
+              "children": "{folders:[{id,projectId UUID|null,parentId UUID|null,name,nameNormalized,version,color string|null,createdAt,updatedAt}]}",
+              "ancestry": "{breadcrumbs:[{id,name,color string|null,projectId UUID|null,parentId UUID|null}]} ordered root to selected folder; nonexistent UUID yields []",
+              "tree": "{globalFolders:[recursive folder nodes],projects:[{id,name,brief string|null,createdAt,updatedAt,folders:[recursive nodes]}]}",
+              "tree_node": "{id,name,color string|null,projectId UUID|null,parentId UUID|null,version,children,createdAt,updatedAt}; omits nameNormalized"
+            }
+          },
+          "failure": {
+            "unauthenticated": {
+              "status": 401,
+              "json": {
+                "error": "UNAUTHENTICATED"
+              }
+            },
+            "organization_error": "{error:message,code:OrganizationError.code}, status=OrganizationError.status",
+            "unexpected": {
+              "status": 500,
+              "json": {
+                "error": "error.message or Failed to fetch folders."
+              },
+              "remaining": "Malformed UUID and corrupted-cycle parity not fully qualified"
+            }
+          },
+          "db_reads": [
+            "users session lookup",
+            "child mode: folders filtered by parent or root scope, name ASC",
+            "ancestry mode: one folders lookup per ancestor; visited-set guard",
+            "tree mode: all folders name ASC then all projects name ASC"
+          ],
+          "db_mutations": [],
+          "concurrency": "No snapshot transaction; ancestry/tree visited guards prevent unbounded cycle recursion; ordering ties have no explicit tiebreaker",
+          "naming": "Stored names and normalized names projected unchanged",
+          "idempotency": "No idempotency key on GET",
+          "evidence": [
+            "scripts/django-migration/settings-http-parity.py"
+          ],
+          "remaining_qualification": [
+            "malformed/error contracts and complete header parity",
+            "PostgreSQL 16 full-schema Node/Django comparison",
+            "full application browser suite and hosted preview",
+            "authorized canary, observation and rollback"
+          ]
+        }
+      }
     },
     {
       "path": "/api/generate/depth",
@@ -1562,7 +1742,76 @@
         "transitive DB reads/writes and storage/provider/worker effects",
         "headers, idempotency, concurrency, pagination, naming"
       ],
-      "source_lines": 83
+      "source_lines": 83,
+      "method_contracts": {
+        "GET": {
+          "request_body": null,
+          "authentication": "veevee_session HMAC-SHA256; active users row and matching auth_version; missing legacy ver means 0",
+          "authorization": "any authenticated teammate",
+          "headers": {
+            "content_type": "application/json",
+            "renewal": "Set-Cookie on valid session older than one day; 30-day HttpOnly SameSite=Lax host-only / cookie; Secure in production"
+          },
+          "storage_effects": [],
+          "provider_effects": [],
+          "worker_effects": [],
+          "pagination": null,
+          "query_params": {
+            "behavior": "ignored"
+          },
+          "success": {
+            "status": 200,
+            "json": {
+              "projects": [
+                {
+                  "id": "UUID",
+                  "name": "string",
+                  "brief": "string; omitted when DB null",
+                  "createdAt": "epoch milliseconds",
+                  "updatedAt": "epoch milliseconds",
+                  "folders": [
+                    {
+                      "id": "UUID",
+                      "name": "string",
+                      "createdAt": "epoch milliseconds"
+                    }
+                  ]
+                }
+              ]
+            },
+            "folder_scope": "Includes all folders matching project_id, including nested folders; global folders excluded; projection omits color/parentId/version"
+          },
+          "failure": {
+            "unauthenticated": {
+              "status": 401,
+              "json": {
+                "error": "UNAUTHENTICATED"
+              }
+            }
+          },
+          "db_reads": [
+            "users session lookup",
+            "projects existence under advisory lock",
+            "projects created_at ASC",
+            "all folders created_at ASC; grouped by matching project_id"
+          ],
+          "db_mutations": [
+            "Only when no project exists: insert My Project with UUID/default, identical creation/update timestamps and null brief/created_by"
+          ],
+          "concurrency": "Default bootstrap transaction uses pg_advisory_xact_lock(815042); project/folder projection occurs after that transaction without a shared snapshot",
+          "naming": null,
+          "idempotency": "Repeated populated reads do not mutate; concurrent empty reads must create exactly one default project",
+          "evidence": [
+            "scripts/django-migration/settings-http-parity.py"
+          ],
+          "remaining_qualification": [
+            "malformed/error contracts and complete header parity",
+            "PostgreSQL 16 full-schema Node/Django comparison",
+            "full application browser suite and hosted preview",
+            "authorized canary, observation and rollback"
+          ]
+        }
+      }
     },
     {
       "path": "/api/queue/execute",
@@ -1723,13 +1972,16 @@
           "parsing": "ECMAScript parseInt(raw,10), finite-number fallback, min fallback, optional max clamp; invalid personal override falls to registry default, not global value",
           "evidence": [
             "backend/apps/admin_dashboard/tests.py",
-            "scripts/django-migration/limits-oracle.mjs"
+            "scripts/django-migration/limits-oracle.mjs",
+            "scripts/django-migration/settings-http-parity.py",
+            "scripts/django-migration/settings-browser.mjs",
+            "scripts/django-migration/container-build.py"
           ],
           "remaining_qualification": [
-            "real Node vs Django HTTP response and headers",
-            "DB state before/after for both runtimes",
-            "cookie interoperability and middleware denial",
-            "browser preview and deployed canary"
+            "comprehensive error/header parity",
+            "full application browser suite and hosted HTTPS preview",
+            "production load baseline",
+            "authorized canary and rollback observation"
           ]
         }
       }

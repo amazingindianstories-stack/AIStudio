@@ -69,10 +69,33 @@ export function checkOwnership(root, manifest) {
   return errors;
 }
 
+export function checkApiContracts(contract, manifest) {
+  const errors = [];
+  const seen = new Set();
+  const dimensions = ['request_body','query_params','authentication','authorization','success','failure','headers','db_reads','db_mutations','storage_effects','provider_effects','worker_effects','idempotency','concurrency','pagination','naming','remaining_qualification'];
+  for (const route of contract.routes ?? []) {
+    if (seen.has(route.path)) errors.push(`Duplicate API contract: ${route.path}`);
+    seen.add(route.path);
+    const owner = manifest.routes[route.path];
+    if (!owner) { errors.push(`Unregistered API contract: ${route.path}`); continue; }
+    if (route.source !== owner.source) errors.push(`API contract source mismatch: ${route.path}`);
+    const methods = new Set(route.methods ?? []);
+    for (const method of Object.keys(owner.methods)) if (!methods.has(method)) errors.push(`Missing API contract method: ${method} ${route.path}`);
+    for (const method of methods) if (!owner.methods[method]) errors.push(`Unregistered API contract method: ${method} ${route.path}`);
+    for (const [method, details] of Object.entries(route.method_contracts ?? {})) {
+      if (!methods.has(method)) errors.push(`Contract details for undeclared method: ${method} ${route.path}`);
+      for (const dimension of dimensions) if (!Object.hasOwn(details, dimension)) errors.push(`Missing API contract dimension ${dimension}: ${method} ${route.path}`);
+    }
+  }
+  for (const url of Object.keys(manifest.routes)) if (!seen.has(url)) errors.push(`Missing API contract route: ${url}`);
+  return errors;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = process.cwd();
   const manifest = JSON.parse(readFileSync('docs/django-migration/route-ownership.yaml'));
   const errors = checkOwnership(root, manifest);
+  errors.push(...checkApiContracts(JSON.parse(readFileSync('docs/django-migration/api-contract.yaml')), manifest));
   const base = process.env.BACKEND_OWNERSHIP_BASE;
   if (base) {
     // CI passes the PR base SHA. Changing a baseline must not bless new Node code.
