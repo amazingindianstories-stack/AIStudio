@@ -289,3 +289,13 @@ image sha256:4f7decc13d15a6280d09a2366edb6d37a41cc7f14515bca68a451f7951beefad.
 Image inventory has 89 allowed application files and zero unexpected files.
 The earlier hosted proposal remains pinned to its separately reviewed candidate;
 this new image is not silently substituted. Hosted approval remains pending.
+
+History counts GET is now explicitly selectable in the server method switch.
+Unset selection retains Node; the exact GET path is isolated from history feed
+and other methods. A real local Chromium run passes its audio-count JSON,
+frontend-origin response URL, Django request ID and aged HttpOnly/Lax renewal
+through the Next rewrite. Existing settings and Canvas browser cases and the
+complete narrow-fixture Node/Django HTTP suite pass in the same run. Five routing
+unit tests pass. This controlled document is not full application UI acceptance,
+hosted HTTPS/Secure-cookie proof, production Next build or production transfer.
+Hosted approval remains pending; route ownership is unchanged.

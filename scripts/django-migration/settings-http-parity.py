@@ -382,7 +382,7 @@ def main():
             next_process, next_log = processes[0]
             next_process.terminate()
             next_process.wait(timeout=10)
-            routed_env = dict(os.environ, DJANGO_API_METHODS='GET /api/settings, GET /api/canvas-boards',
+            routed_env = dict(os.environ, DJANGO_API_METHODS='GET /api/settings, GET /api/canvas-boards, GET /api/history/counts',
                               DJANGO_API_ORIGIN=f'http://127.0.0.1:{django_port}',
                               DJANGO_API_ALLOW_LOCAL='1')
             routed = subprocess.Popen(['node','node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port',str(next_port)], env=routed_env, stdout=next_log, stderr=subprocess.STDOUT)
@@ -403,7 +403,7 @@ def main():
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
             browser_report = 'not_run'
             if '--browser' in sys.argv:
-                result=subprocess.run(['node','scripts/django-migration/settings-browser.mjs'],input=json.dumps({'url':urls[0],'cookie':token(age=172800000),'expected':response[1], 'extraCases':[{'path':'/api/canvas-boards','status':400,'expected':{'error':'projectId required.'}},{'path':'/api/canvas-boards?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd','status':200,'expected':{'boards':[{'id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc','projectId':'dddddddd-dddd-4ddd-8ddd-dddddddddddd','name':'दृश्य','createdBy':None,'createdAt':1,'updatedAt':2}]}}]}),text=True,capture_output=True)
+                result=subprocess.run(['node','scripts/django-migration/settings-browser.mjs'],input=json.dumps({'url':urls[0],'cookie':token(age=172800000),'expected':response[1], 'extraCases':[{'path':'/api/history/counts?kind=audio','status':200,'expected':{'project':{'total':0,'unsorted':0,'byFolder':{}},'globalLibrary':{'total':1,'unsorted':1,'byFolder':{}},'allAssets':1,'favorites':1}},{'path':'/api/canvas-boards','status':400,'expected':{'error':'projectId required.'}},{'path':'/api/canvas-boards?projectId=dddddddd-dddd-4ddd-8ddd-dddddddddddd','status':200,'expected':{'boards':[{'id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc','projectId':'dddddddd-dddd-4ddd-8ddd-dddddddddddd','name':'दृश्य','createdBy':None,'createdAt':1,'updatedAt':2}]}}]}),text=True,capture_output=True)
                 if result.returncode:
                     raise RuntimeError(result.stderr[-4000:])
                 browser_report=json.loads(result.stdout)

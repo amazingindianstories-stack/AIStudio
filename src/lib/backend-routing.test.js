@@ -26,3 +26,12 @@ test('Canvas metadata selection preserves repeated parameters and retains mutati
   assert.equal(djangoDestination(url,'GET',configured),null);
   assert.throws(()=>djangoDestination(url,'POST',{...config,methods:'POST /api/canvas-boards'}));
 });
+
+test('history counts switch is exact and opt-in',()=>{
+  const url='https://frontend.example/api/history/counts?kind=audio&favorite=1';
+  const config={...configured,methods:'GET /api/history/counts'};
+  assert.equal(djangoDestination(url,'GET',config).href,'https://django.example/api/history/counts?kind=audio&favorite=1');
+  assert.equal(djangoDestination(url,'GET',configured),null);
+  assert.equal(djangoDestination(url,'POST',config),null);
+  assert.equal(djangoDestination('https://frontend.example/api/history','GET',config),null);
+});
