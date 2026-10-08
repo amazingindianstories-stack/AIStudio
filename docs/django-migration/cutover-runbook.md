@@ -48,6 +48,10 @@ Database URL libpq TLS options are preserved; unknown options block startup.
 Review sslmode and CA configuration against the actual database transport before
 deployment. Do not assume the existing Cloud SQL Node connector configuration
 translates directly into a PostgreSQL URL from Railway.
+The concrete service release inputs and evidence checklist are in
+railway-api-release.md. The API Dockerfile has a dedicated build-context
+allowlist; use the reviewed committed source rather than uploading this dirty
+checkout. Container build qualification is pending availability of Docker.
 
 Request logs emit sanitized JSON to stdout with request ID, matched route,
 status and duration; query strings and cookies are excluded. Gunicorn raw access
