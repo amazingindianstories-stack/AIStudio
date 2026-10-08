@@ -44,3 +44,32 @@ class PasswordCompatibilityTests(TransactionTestCase):
             self.assertTrue(result['verified'])
             self.assertEqual(validate_password(password),result['validation'])
         self.assertFalse(verify_password('fixture','malformed','salt'))
+
+class LoginThrottleTests(TransactionTestCase):
+    def setUp(self):
+        from django.db import connection
+        with connection.cursor() as c:
+            c.execute('CREATE TABLE IF NOT EXISTS login_attempts (id uuid PRIMARY KEY,identifier text NOT NULL,created_at bigint NOT NULL)')
+            c.execute('TRUNCATE login_attempts')
+
+    def test_unknown_identifier_failures_expiry_and_retry(self):
+        from .throttle import check, record_failure, WINDOW_MS
+        from .models import LoginAttempt
+        now=2000000
+        record_failure('  UNKNOWN@example.invalid ',now=now-WINDOW_MS)
+        for offset in range(5):
+            record_failure('unknown@example.invalid',now=now-1000+offset)
+        self.assertEqual(check(' UNKNOWN@EXAMPLE.INVALID ',now=now),{'allowed':False,'retryAfterMs':WINDOW_MS-1000})
+        self.assertEqual(LoginAttempt.objects.count(),5)
+        self.assertEqual(check('other@example.invalid',now=now),{'allowed':True,'retryAfterMs':0})
+        self.assertTrue(check('unknown@example.invalid',now=now+WINDOW_MS)['allowed'])
+        self.assertEqual(LoginAttempt.objects.count(),0)
+
+    def test_disabled_gate_does_not_cleanup(self):
+        from .throttle import check, record_failure, maximum_attempts
+        from .models import LoginAttempt
+        record_failure('fixture',now=1)
+        self.assertEqual(check('fixture',now=2000000,max_attempts=0),{'allowed':True,'retryAfterMs':0})
+        self.assertEqual(LoginAttempt.objects.count(),1)
+        for raw,expected in [('0',0),('',0),('5.9',5),('0x10',16),('invalid',5),('-1',5)]:
+            self.assertEqual(maximum_attempts(raw),expected)

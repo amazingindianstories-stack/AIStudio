@@ -6,7 +6,7 @@ Goal remains active. No production cutover or deployment has been performed.
 |---|---|
 | Django authoritative API methods | 0 / 85 |
 | Node business route files remaining | 65 |
-| ORM models implemented | 6 partial unmanaged read models / 21 declared application tables |
+| ORM models implemented | 7 partial unmanaged models / 21 declared application tables |
 | Model design inventory | 21 / 21 declarations; live catalog audit pending |
 | Schema authority | DRIZZLE |
 | Auth authority | NEXT |
@@ -139,3 +139,10 @@ ASCII/Hindi/emoji/lone-surrogate passwords. Preserves textual hex salt, 64-byte
 scrypt output, UTF-16 validation length and Node UTF-8 replacement behavior.
 Focused interoperability test passes. Login/password mutations, throttling,
 audit logging and auth authority transfer remain unimplemented/unqualified.
+
+Login-throttle foundation implemented from current login-throttle.js using the
+existing login_attempts table. Two isolated DB tests pass: normalized nonexistent
+identifier failures, expiry boundary cleanup, retry timing and disabled gate
+without cleanup. Unmanaged migration state is recorded; no schema DDL is
+issued for this model. Direct Node throttle parity and login HTTP qualification
+remain pending. Authentication issuer and traffic authority remain Next.

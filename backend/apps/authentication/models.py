@@ -13,3 +13,11 @@ class User(models.Model):
     class Meta:
         managed = False
         db_table = 'users'
+
+class LoginAttempt(models.Model):
+    id = models.UUIDField(primary_key=True)
+    identifier = models.TextField()
+    created_at = models.BigIntegerField()
+    class Meta:
+        managed = False
+        db_table = 'login_attempts'
