@@ -5,8 +5,8 @@ from django.db import models
 
 class Folder(models.Model):
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
-    project = models.ForeignKey('projects.Project', on_delete=models.RESTRICT, db_column='project_id', null=True)
-    parent = models.ForeignKey('self', on_delete=models.RESTRICT, db_column='parent_id', null=True)
+    project = models.ForeignKey('projects.Project', on_delete=models.RESTRICT, db_column='project_id', null=True, db_index=False)
+    parent = models.ForeignKey('self', on_delete=models.RESTRICT, db_column='parent_id', null=True, db_index=False)
     name = models.TextField()
     name_normalized = models.TextField(db_default='')
     version = models.IntegerField(db_default=1)
@@ -57,7 +57,7 @@ class NamingCounter(models.Model):
 
 
 class GenerationNaming(models.Model):
-    generation = models.OneToOneField('generation.Generation', on_delete=models.CASCADE, db_column='generation_id', primary_key=True)
+    generation = models.OneToOneField('generation.Generation', on_delete=models.CASCADE, db_column='generation_id', primary_key=True, db_index=False)
     namespace = models.TextField()
     sequence = models.BigIntegerField()
     assigned_at = models.BigIntegerField()

@@ -56,13 +56,16 @@ def main():
         actual = {}
         with connection.schema_editor(collect_sql=True, atomic=False) as editor:
             for model in registry.get_models():
+                for field in model._meta.local_fields:
+                    if field.is_relation and field.db_constraint:
+                        assert not field.db_index, (model._meta.db_table, field.column, 'Implicit FK index is absent from current schema declarations')
                 actual[model._meta.db_table] = [compiled(index, model, editor) for index in model._meta.indexes]
         assert set(actual) == set(expected), 'Table inventory differs'
         for table in expected:
             assert sorted(actual[table], key=lambda i: i['name']) == sorted(expected[table], key=lambda i: i['name']), (table, actual[table], expected[table])
     noop_migrations = 0
     for app, migration in sorted(MigrationLoader(None).disk_migrations):
-        if not migration.endswith('_declared_index_state'):
+        if not migration.endswith(('_declared_index_state', '_explicit_relation_index_state')):
             continue
         output = io.StringIO()
         call_command('sqlmigrate', app, migration, stdout=output)

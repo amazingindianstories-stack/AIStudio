@@ -26,7 +26,7 @@
       "tables": 21,
       "columns": 205,
       "constraints": 158,
-      "indexes": 72,
+      "indexes": 66,
       "triggers": 0,
       "functions": 0,
       "sequences": 0,
@@ -2677,51 +2677,6 @@
           "pg_get_expr": null
         },
         {
-          "table_name": "folders",
-          "index_name": "folders_parent_id_bd43fe3e",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX folders_parent_id_bd43fe3e ON qualification_schema_reproduction.folders USING btree (parent_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "folders",
-          "index_name": "folders_project_id_cbe2d432",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX folders_project_id_cbe2d432 ON qualification_schema_reproduction.folders USING btree (project_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "generations",
-          "index_name": "generations_folder_id_e9828c4f",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX generations_folder_id_e9828c4f ON qualification_schema_reproduction.generations USING btree (folder_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "generations",
-          "index_name": "generations_project_id_3e51796a",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX generations_project_id_3e51796a ON qualification_schema_reproduction.generations USING btree (project_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "media_export_items",
-          "index_name": "media_export_items_export_id_0f4cfda6",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX media_export_items_export_id_0f4cfda6 ON qualification_schema_reproduction.media_export_items USING btree (export_id)",
-          "pg_get_expr": null
-        },
-        {
           "table_name": "media_export_items",
           "index_name": "media_export_items_pkey",
           "indisunique": true,
@@ -2764,15 +2719,6 @@
           "indisvalid": true,
           "indisready": true,
           "pg_get_indexdef": "CREATE UNIQUE INDEX portrait_assets_byteplus_asset_id_key ON qualification_schema_reproduction.portrait_assets USING btree (byteplus_asset_id)",
-          "pg_get_expr": null
-        },
-        {
-          "table_name": "portrait_assets",
-          "index_name": "portrait_assets_group_id_dabb3312",
-          "indisunique": false,
-          "indisvalid": true,
-          "indisready": true,
-          "pg_get_indexdef": "CREATE INDEX portrait_assets_group_id_dabb3312 ON qualification_schema_reproduction.portrait_assets USING btree (group_id)",
           "pg_get_expr": null
         },
         {

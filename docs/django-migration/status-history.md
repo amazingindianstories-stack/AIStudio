@@ -223,3 +223,8 @@ UUID fallbacks and 92 ORM default checks pass. Ten migrations emit no DDL;
 categories; the explicit equivalence gate exits 1. Recorded physical FK, implicit
 index, naming/order and function/trigger gaps. Scratch schema rolled back;
 Django-only baseline and production equivalence remain unproven.
+
+2026-10-08: Explicit relation index state removes six unintended FK indexes
+from fresh Django reproduction (72 → 66 total; current fixture 58). All 33
+declared indexes, column/FK guards and 42 tests pass. Four new migrations emit
+no DDL. Eight text pattern indexes and other baseline differences remain.

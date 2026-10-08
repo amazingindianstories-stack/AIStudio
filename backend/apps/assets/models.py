@@ -40,7 +40,7 @@ class PortraitGroup(models.Model):
 
 class PortraitAsset(models.Model):
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
-    group = models.ForeignKey(PortraitGroup, on_delete=models.CASCADE, db_column='group_id')
+    group = models.ForeignKey(PortraitGroup, on_delete=models.CASCADE, db_column='group_id', db_index=False)
     byteplus_asset_id = models.TextField(null=True, unique=True)
     name = models.TextField(null=True)
     asset_type = models.TextField(default='Image', db_default='Image')

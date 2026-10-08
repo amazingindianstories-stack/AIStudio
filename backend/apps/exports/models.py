@@ -32,7 +32,7 @@ class MediaExport(models.Model):
 
 class MediaExportItem(models.Model):
     pk = models.CompositePrimaryKey('export_id', 'generation_id')
-    export = models.ForeignKey(MediaExport, on_delete=models.CASCADE, db_column='export_id')
+    export = models.ForeignKey(MediaExport, on_delete=models.CASCADE, db_column='export_id', db_index=False)
     generation_id = models.UUIDField()
     position = models.IntegerField()
     source_key = models.TextField()

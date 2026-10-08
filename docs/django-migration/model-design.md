@@ -853,3 +853,18 @@ Next baseline work must represent exact physical FK behavior and names, remove
 unintended indexes, preserve/check physical column order, and port current
 functions/triggers into Django migration SQL before testing an empty Django-only
 baseline and reviewing the real production catalog. Authority remains Drizzle.
+
+The current reproduction report now reflects explicit `db_index=False` on all
+seven relationship fields. This removes six unintended foreign-key indexes from
+a fresh Django fixture (the one-to-one PK had no redundant index). Four new
+state-only migrations emit no DDL; the index-state guard verifies this alongside
+the seven earlier index-state migrations. It also rejects automatic FK index
+flags in runtime and disk state. All 33 explicitly declared indexes and all
+205 columns/PK/FK policies still match; system checks, migration consistency
+and 42 regression tests pass. Full physical reproduction now has 66 indexes
+versus the current fixture's 58, down from the initial Django count of 72.
+Eight unintended text pattern indexes remain, alongside unique/composite-key
+naming differences, physical FK clauses/deferrability, column order and missing
+functions/triggers. Five catalog categories still differ. The refreshed report
+does not prove equivalence or authorize physical production index removal.
+Existing database objects and Drizzle authority remain unchanged.
