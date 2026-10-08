@@ -184,3 +184,11 @@ nonmutation, successful hash/version/audit effects, and cross-runtime old-cookie
 rejection/new-cookie acceptance. Full HTTP harness passes again. See
 password-change-qualification.md for unqualified security/concurrency/browser
 cases. Production auth and all business traffic remain Next-owned.
+
+Repository integration qualification: all 1063 Node unit tests pass, lint passes,
+and Next production build passes in the credential-free disposable checkout.
+Initial two unit failures came from omitted progress.md and absent local Git
+metadata required by packaging tests; isolation runner now copies that document
+and creates an independent index containing only copied source, never the user's
+Git metadata or generated packaging output. Browser/DB migration/full Django
+schema/hosted qualification remain separate, incomplete gates.

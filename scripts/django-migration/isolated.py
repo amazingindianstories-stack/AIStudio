@@ -12,12 +12,13 @@ ROOT = Path(__file__).resolve().parents[2]
 ROOT_FILES = {'package.json', 'package-lock.json', 'jsconfig.json', 'next.config.js',
               'drizzle.config.js', 'eslint.config.mjs', 'playwright.config.mjs',
               'postcss.config.js', 'tailwind.config.js', 'vercel.json', 'AGENTS.md',
-              'CLAUDE.md', 'DEPLOYMENT_RUNBOOK.md', 'BACKEND_AUDIT.md', '.gitignore'}
+              'CLAUDE.md', 'DEPLOYMENT_RUNBOOK.md', 'BACKEND_AUDIT.md', 'progress.md', '.gitignore'}
 DIRECTORIES = {'src', 'scripts', 'tests', 'backend', 'docs', '.github'}
 
 
 def refresh(session):
     target = session / 'repo'
+    copied = []
     files = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
     for name in files:
         p = Path(name)
@@ -31,9 +32,16 @@ def refresh(session):
         dest = target / p
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, dest)
+        copied.append(str(p))
     modules = target / 'node_modules'
     if not modules.exists():
         modules.symlink_to(ROOT / 'node_modules', target_is_directory=True)
+    # Independent local metadata lets packaging/documentation tests inspect the
+    # copied source without sharing or touching the user's Git index.
+    git_env = {'PATH': '/opt/homebrew/bin:/usr/bin:/bin', 'HOME': str(session / 'home')}
+    if not (target / '.git').exists():
+        subprocess.run(['git', 'init', '--quiet'], cwd=target, env=git_env, check=True)
+    subprocess.run(['git', 'add', '--', *copied], cwd=target, env=git_env, check=True)
     return target
 
 
