@@ -12,8 +12,8 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('library', '0001_folder'),
-        ('projects', '0001_project'),
+        ('library', '0001_baseline_folder'),
+        ('projects', '0001_baseline_project'),
     ]
 
     operations = [

@@ -165,6 +165,11 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
                     orm_probe = Path('scripts/django-migration/generation-persistence-probe.py').read_text()
                     print(run(['exec','-e','VEEVEE_GENERATION_PERSISTENCE_TEST=1','-e','VEEVEE_BASELINE_TEST=1','-e',baseline_url,api,'python','-c',orm_probe]))
                     evidence['generation_orm_qualified_on_django_baseline'] = True
+                    adoption_probe = Path('scripts/django-migration/baseline-adoption-probe.py').read_text()
+                    adoption_payload = json.dumps({'queries': catalog.QUERIES, 'expected_catalog': candidate['catalog']})
+                    adoption = json.loads(run(['exec','--interactive','-e','VEEVEE_BASELINE_TEST=1',api,'python','-c',adoption_probe], input=adoption_payload))
+                    evidence['populated_database_adoption'] = adoption
+
                     Path('/private/tmp/veevee-pg16-baseline-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
                     print(json.dumps(evidence))
                 sql("INSERT INTO users (id,email,password_hash,password_salt,name,role,is_active,auth_version,created_at) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','fixture@example.invalid','synthetic-unused','synthetic-unused','Fixture','user',true,0,0);")

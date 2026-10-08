@@ -10,24 +10,21 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('agents', '0001_agentconversation'),
+        ('authentication', '0001_baseline_user'),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='AgentConversationMessage',
+            name='LoginAttempt',
             fields=[
                 ('id', models.UUIDField(db_default=django.contrib.postgres.functions.RandomUUID(), primary_key=True)),
-                ('conversation_id', models.UUIDField()),
-                ('role', models.TextField()),
-                ('content', models.TextField()),
-                ('tool_trace', models.JSONField(null=True)),
+                ('identifier', models.TextField()),
                 ('created_at', models.BigIntegerField()),
             ],
             options={
-                'db_table': 'agent_conversation_messages',
+                'db_table': 'login_attempts',
                 'managed': True,
-                'indexes': [apps.common.indexes.PostgreSQLIndex(models.OrderBy(models.F('conversation_id'), nulls_last=True), name='agent_conversation_messages_conversation_id_idx')],
+                'indexes': [apps.common.indexes.PostgreSQLIndex(models.OrderBy(models.F('identifier'), nulls_last=True), models.OrderBy(models.F('created_at'), nulls_last=True), name='login_attempts_identifier_created_idx')],
                 'constraints': [],
             },
         ),

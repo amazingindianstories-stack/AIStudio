@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('library', '0002_namingcounter'),
+        ('library', '0002_baseline_namingcounter'),
     ]
 
     operations = [

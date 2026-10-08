@@ -17,8 +17,23 @@
     "domains": 0,
     "extensions": 1
   },
-  "source_revision": "cf74eb91659616d898ea50f592b275a42563234f",
-  "api_source_sha256": "7a1b53c1ece399303eeed75b72fe67b0873eb2fac39c34ea6edfe74777b943b5",
+  "source_revision": "ad1fb81510439395a822afbeadc8d1ea6d79af22",
+  "api_source_sha256": "812b64d608b1ea15efcb04f4bbbb3ac7b797fc47d66432f092dda075c6751b6b",
   "invariant_behavior_both_databases": true,
-  "generation_orm_qualified_on_django_baseline": true
+  "generation_orm_qualified_on_django_baseline": true,
+  "populated_database_adoption": {
+    "transitional_history_records": 49,
+    "candidate_history_records": 22,
+    "catalog_unchanged": true,
+    "application_tables_unchanged": 21,
+    "application_rows_preserved": 7,
+    "ddl_rejected_during_adoption": true,
+    "negative_preflights": [
+      "missing_index",
+      "unknown_history"
+    ],
+    "connection_reopened": true,
+    "repeated_adoption_noop": true,
+    "previous_graph_no_pending_migrations": true
+  }
 }

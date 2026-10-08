@@ -8,19 +8,21 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('library', '0001_folder'),
+        ('admin_dashboard', '0001_baseline_appsetting'),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='NamingCounter',
+            name='UserLimit',
             fields=[
-                ('namespace', models.TextField(primary_key=True, serialize=False)),
-                ('next_sequence', models.BigIntegerField(db_default=1, default=1)),
+                ('user_id', models.UUIDField()),
+                ('key', models.TextField()),
+                ('value', models.TextField()),
                 ('updated_at', models.BigIntegerField()),
+                ('pk', models.CompositePrimaryKey('user_id', 'key', blank=True, editable=False, primary_key=True, serialize=False)),
             ],
             options={
-                'db_table': 'naming_counters',
+                'db_table': 'user_limits',
                 'managed': True,
                 'indexes': [],
                 'constraints': [],

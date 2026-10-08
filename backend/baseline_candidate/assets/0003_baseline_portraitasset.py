@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('assets', '0002_portraitgroup'),
+        ('assets', '0002_baseline_portraitgroup'),
     ]
 
     operations = [

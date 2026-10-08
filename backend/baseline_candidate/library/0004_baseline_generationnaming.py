@@ -10,8 +10,8 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('generation', '0001_generation'),
-        ('library', '0003_organizationidempotencykey'),
+        ('generation', '0001_baseline_generation'),
+        ('library', '0003_baseline_organizationidempotencykey'),
     ]
 
     operations = [

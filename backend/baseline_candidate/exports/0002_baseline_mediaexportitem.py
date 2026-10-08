@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('exports', '0001_mediaexport'),
+        ('exports', '0001_baseline_mediaexport'),
     ]
 
     operations = [

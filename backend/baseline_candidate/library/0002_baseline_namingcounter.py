@@ -8,20 +8,19 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('admin_dashboard', '0002_userlimit'),
+        ('library', '0001_baseline_folder'),
     ]
 
     operations = [
         migrations.CreateModel(
-            name='Pricing',
+            name='NamingCounter',
             fields=[
-                ('model', models.TextField(primary_key=True, serialize=False)),
-                ('unit_cost_cents', models.IntegerField()),
-                ('unit', models.TextField()),
-                ('notes', models.TextField(null=True)),
+                ('namespace', models.TextField(primary_key=True, serialize=False)),
+                ('next_sequence', models.BigIntegerField(db_default=1, default=1)),
+                ('updated_at', models.BigIntegerField()),
             ],
             options={
-                'db_table': 'pricing',
+                'db_table': 'naming_counters',
                 'managed': True,
                 'indexes': [],
                 'constraints': [],

@@ -33,6 +33,16 @@ def refresh(session):
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, dest)
         copied.append(str(p))
+    # Remove only previously copied source files that disappeared or became
+    # excluded. Otherwise renames leave two migration graphs in the test image.
+    if (target / '.git').exists():
+        previous = subprocess.check_output(['git', 'ls-files', '-z'], cwd=target).decode().split('\0')
+        for name in set(previous) - set(copied) - {''}:
+            stale = target / name
+            if not stale.parent.resolve().is_relative_to(target.resolve()):
+                raise SystemExit('Copied source path escapes isolated checkout')
+            if stale.is_file() or stale.is_symlink():
+                stale.unlink()
     modules = target / 'node_modules'
     if not modules.exists():
         modules.symlink_to(ROOT / 'node_modules', target_is_directory=True)
@@ -41,6 +51,7 @@ def refresh(session):
     git_env = {'PATH': '/opt/homebrew/bin:/usr/bin:/bin', 'HOME': str(session / 'home')}
     if not (target / '.git').exists():
         subprocess.run(['git', 'init', '--quiet'], cwd=target, env=git_env, check=True)
+    subprocess.run(['git', 'add', '-u'], cwd=target, env=git_env, check=True)
     subprocess.run(['git', 'add', '--', *copied], cwd=target, env=git_env, check=True)
     return target
 
