@@ -425,3 +425,18 @@ polling/store merge acceptance, Secure-cookie HTTPS, Vercel/Railway behavior or
 production traffic. Those gates, performance and extreme Number operand text
 parity remain pending. No backend route business implementation or user UI was
 changed, no deployment performed, and no shared credentials loaded.
+
+Expanded actual Node-driver operand qualification from six to 17 numeric cases.
+It exposed scientific notation differences at 1e21 and above: Node/PostgreSQL
+rejects text as 22P02 while exact Python integer expansion produced 22003.
+Django binding now retains scientific notation at that boundary. It also expands
+shortest float text for integral values below 1e21 instead of converting the exact
+binary integer; this preserves the rounded decimal operand near bigint limits.
+The oracle now compares PostgreSQL's actual accepted bigint text, as well as
+comparison results and error SQLSTATE, so a constant Boolean cannot hide a
+different valid bound integer. All 17 cases pass, including finite maximum,
+subnormal minimum, exponent boundaries, fractional inputs, bigint edge rounding
+and integer overflow; six generation tests pass. CI uses the expanded oracle.
+This finite corpus does not prove Number-to-text identity for every IEEE double;
+full browser application, hosted/performance and production ownership gates
+remain pending. No shared database, provider or deployment was used.

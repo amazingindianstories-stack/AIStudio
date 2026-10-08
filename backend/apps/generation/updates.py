@@ -7,7 +7,14 @@ from .serialization import generation_item
 def operand_text(value):
     # PostgreSQL receives Node Number's integer or fractional text. Avoid
     # Django IntegerField's truncation and out-of-range predicate shortcuts.
-    return str(int(value)) if value == int(value) else str(value)
+    from decimal import Decimal
+    number = float(value)
+    text = repr(number)
+    # Number.toString uses decimal notation below 1e21, scientific notation
+    # above it. Expand shortest float text rather than the exact binary integer.
+    if number.is_integer() and abs(number) < 1e21:
+        return format(Decimal(text), 'f').split('.')[0]
+    return text
 
 
 def read_generation_updates(since, limit=100):

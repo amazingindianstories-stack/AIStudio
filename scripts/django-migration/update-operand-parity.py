@@ -20,8 +20,9 @@ for case in expected:
     item = {'value':case['value']}
     try:
         with connection.cursor() as cursor:
-            cursor.execute('SELECT 2::bigint > %s::bigint',[operand_text(case['value'])])
-            item['matched'] = cursor.fetchone()[0]
+            binding = operand_text(float(case['value']))
+            cursor.execute('SELECT 2::bigint > %s::bigint, %s::bigint::text',[binding,binding])
+            item['matched'], item['operand'] = cursor.fetchone()
     except Exception as error:
         item['error_code'] = getattr(error.__cause__,'sqlstate',None)
     actual.append(item)
