@@ -321,3 +321,21 @@ pass, including UUID-to-string formatting; provider diagnostics remain excluded.
 Django setup uses the verified runner's disposable settings, but this comparison
 executes no database query, storage call, worker or provider request. It remains
 serializer evidence, not history/update HTTP qualification or production cutover.
+
+Django update-selection service now implements current readGenerationUpdates:
+exclude audio, select queued/running or updated_at strictly greater than since,
+order descending updated_at and default cap 100, using the verified public
+serializer. Six full-schema PG16 checks pass for old in-flight inclusion, strict
+watermark boundary, audio exclusion, private diagnostic omission, descending
+order and exact newest-100 selection from 105 distinct timestamps. All inserted
+fixture rows are transactionally rolled back. Existing container settings/counts/
+invariants/health checks also pass. No HTTP update route, request parser or traffic
+selection is introduced yet; actual Node/Django query/HTTP comparison, malformed
+watermark semantics, browser/hosted and performance evidence remain pending.
+
+This image is a local working-source qualification: source label aa746ef,
+API fingerprint 12ba9e370d6845217991b9d22e02d0b3ced691b153b42f9f4b667285157a839a
+captures the new service before its commit; image ID
+sha256:83d41cacd450eb5c2b7664e1d0b7c2ba745d3fd768b03bf782674e352c605649.
+It is not the committed hosted candidate or a signed attestation. No production,
+worker, provider, schema-authority or ownership changes occurred.

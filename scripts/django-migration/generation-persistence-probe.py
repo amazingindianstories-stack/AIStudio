@@ -64,9 +64,43 @@ with transaction.atomic():
     assert base_query('audio', marker).count() == 1
     assert base_query('image', marker+' 100%_literal\\ref').count() == 1
     assert base_query(None, marker+' 100XXliteralXref').count() == 0
+    from apps.generation.updates import read_generation_updates
+    # Use a future watermark to exclude invariant fixtures and retain old
+    # in-flight rows; assert the exact strict > boundary for completed rows.
+    watermark = 9007199254741000
+    boundary_ids = {}
+    for label, kind, status, updated in [
+        ('queued', 'image', 'queued', 1), ('running', 'depth', 'running', 2),
+        ('equal', 'video', 'completed', watermark),
+        ('new', 'video', 'completed', watermark+1),
+        ('audio', 'audio', 'running', watermark+2)]:
+        identifier = uuid4()
+        identifiers.append(identifier)
+        boundary_ids[label] = str(identifier)
+        Generation.objects.create(id=identifier, kind=kind, status=status,
+            prompt='update fixture', model='fixture-only', aspect_ratio='16:9',
+            created_at=1, updated_at=updated, provider_responses={'private': 'excluded'})
+    updates = read_generation_updates(watermark)
+    selected = {row['id'] for row in updates}
+    assert {boundary_ids['queued'], boundary_ids['running'], boundary_ids['new']} <= selected
+    assert boundary_ids['equal'] not in selected and boundary_ids['audio'] not in selected
+    assert all('providerResponses' not in row for row in updates)
+    assert [row['updatedAt'] for row in updates] == sorted([row['updatedAt'] for row in updates], reverse=True)
+    cap_ids = []
+    for index in range(105):
+        identifier = uuid4()
+        identifiers.append(identifier)
+        cap_ids.append(str(identifier))
+        Generation.objects.create(id=identifier, kind='image', status='completed',
+            prompt='cap fixture', model='fixture-only', aspect_ratio='16:9',
+            created_at=1, updated_at=watermark+100+index)
+    updates = read_generation_updates(watermark)
+    assert len(updates) == 100
+    assert [row['id'] for row in updates] == list(reversed(cap_ids[5:]))
     transaction.set_rollback(True)
 assert not Generation.objects.filter(pk__in=identifiers).exists()
 print(json.dumps({'generation_orm_kinds': cases, 'generation_columns': 60,
                   'fixture_rows_rolled_back': True, 'provider_calls': 0,
                   'history_count_full_schema_checks': 5,
+                  'update_selection_checks': ['inflight', 'strict_watermark', 'exclude_audio', 'public_shape', 'descending_order', 'newest_100_cap'],
                   'scope': 'ORM persistence only; not enqueue API or provider/MOV-byte qualification'}))
