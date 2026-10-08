@@ -159,3 +159,9 @@ Full current Django suite passes 21 tests. Login remains IMPLEMENTING/Next-owned
 real Node/Django login HTTP/DB-effect parity, malformed-input coercion, unsafe
 Origin/CSRF qualification, browser/preview and issuer cutover remain pending.
 No deployment or schema authority change occurred.
+
+Real login HTTP qualification passes independently for Next/Django: missing
+credentials, successful normalized login, cross-runtime accepted cookies,
+nonexistent-account failures and sixth-attempt throttle. DB attempt/audit event
+invariants match. All existing HTTP suites still pass. See login-qualification.md
+for open security/input/browser/hosted gates. No auth cutover or deployment.

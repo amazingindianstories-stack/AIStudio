@@ -28,8 +28,10 @@ def token(version=0, age=0):
     return payload+'.'+enc(hmac.new(os.environ['AUTH_SECRET'].encode(),payload.encode(),hashlib.sha256).digest())
 
 
-def get(url,cookie):
-    request=urllib.request.Request(url,headers={'Cookie':'veevee_session='+cookie} if cookie else {})
+def get(url,cookie,body=None):
+    headers={'Cookie':'veevee_session='+cookie} if cookie else {}
+    if body is not None: headers['Content-Type']='application/json'
+    request=urllib.request.Request(url,data=json.dumps(body).encode() if body is not None else None,headers=headers)
     try: response=urllib.request.urlopen(request,timeout=20)
     except urllib.error.HTTPError as error: response=error
     return response.status,json.loads(response.read()),response.headers
@@ -51,6 +53,10 @@ def main():
             c.execute('CREATE TABLE IF NOT EXISTS projects (id uuid PRIMARY KEY,name text,brief text,created_by uuid,created_at bigint,updated_at bigint)')
             c.execute('CREATE TABLE IF NOT EXISTS folders (id uuid PRIMARY KEY,project_id uuid,parent_id uuid,name text,name_normalized text,version integer,color text,created_at bigint,updated_at bigint)')
             c.execute('CREATE TABLE IF NOT EXISTS assets (id uuid PRIMARY KEY,kind text,name text,slug text,description text,images jsonb,project_id uuid,created_at bigint,updated_at bigint)')
+            c.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text, ADD COLUMN IF NOT EXISTS password_salt text, ADD COLUMN IF NOT EXISTS created_at bigint')
+            c.execute('CREATE TABLE IF NOT EXISTS login_attempts (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),identifier text NOT NULL,created_at bigint NOT NULL)')
+            c.execute('CREATE TABLE IF NOT EXISTS activity_logs (id uuid PRIMARY KEY DEFAULT gen_random_uuid(),user_id uuid,action text,detail jsonb,created_at bigint NOT NULL)')
+            c.execute('TRUNCATE login_attempts,activity_logs')
             c.execute('ALTER TABLE projects ALTER COLUMN id SET DEFAULT gen_random_uuid()')
             c.execute('TRUNCATE users,settings,user_limits,folders,projects,assets')
             c.execute("INSERT INTO assets VALUES ('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb','character','Global','global',NULL,'[]',NULL,1,1),('cccccccc-cccc-4ccc-8ccc-cccccccccccc','character','Project','project','Description','[\"/media/fixture.png\"]','dddddddd-dddd-4ddd-8ddd-dddddddddddd',2,2)")
@@ -115,6 +121,37 @@ def main():
                 c.execute('UPDATE users SET is_active=true')
             with db.cursor() as c:
                 c.execute("INSERT INTO folders VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff','dddddddd-dddd-4ddd-8ddd-dddddddddddd',NULL,'Project root','project root',1,'red',5,6)")
+            import hashlib
+            salt='synthetic-fixed-salt'
+            password_hash=hashlib.scrypt(b'fixture-password',salt=salt.encode(),n=16384,r=8,p=1,dklen=64,maxmem=32*1024*1024).hex()
+            with db.cursor() as c:
+                c.execute('UPDATE users SET password_hash=%s,password_salt=%s,created_at=1',[password_hash,salt])
+            login_report=[]
+            for runtime,url in zip(('next','django'),urls):
+                with db.cursor() as c:
+                    c.execute('TRUNCATE login_attempts,activity_logs')
+                login_url=url.replace('/api/settings','/api/auth/login')
+                missing=get(login_url,'',{})
+                assert missing[:2]==(400,{'error':'Email and password are required.'})
+                success=get(login_url,'',{'email':' FIXTURE@EXAMPLE.INVALID ','password':'fixture-password'})
+                assert success[0]==200 and success[1]['user']['email']=='fixture@example.invalid'
+                jar=SimpleCookie();jar.load(success[2]['Set-Cookie'])
+                assert jar['veevee_session']['httponly'] and jar['veevee_session']['samesite'].lower()=='lax'
+                assert str(jar['veevee_session']['max-age'])=='2592000'
+                for target_url in urls:
+                    assert get(target_url,jar['veevee_session'].value)[0]==200
+                for attempt in range(5):
+                    failure=get(login_url,'',{'email':'missing@example.invalid','password':'wrong'})
+                    assert failure[:2]==(401,{'error':'Invalid email or password.'})
+                blocked=get(login_url,'',{'email':'missing@example.invalid','password':'wrong'})
+                assert blocked[:2]==(429,{'error':'Too many failed attempts. Try again later.'})
+                assert 895 <= int(blocked[2]['Retry-After']) <= 900
+                with db.cursor() as c:
+                    c.execute('SELECT identifier,count(*) FROM login_attempts GROUP BY identifier')
+                    assert c.fetchall()==[('missing@example.invalid',5)]
+                    c.execute('SELECT user_id::text,action,detail FROM activity_logs')
+                    assert c.fetchall()==[('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','login',None)]
+                login_report.append({'runtime':runtime,'success_cookie_interoperable':True,'failure_throttle_audit_contract':True})
             project_report = []
             for name,cookie in [('anonymous',''),('authenticated',token())]:
                 before=snapshot()
@@ -213,7 +250,7 @@ def main():
                 time.sleep(.2)
             assert response[:2] == get(urls[1], token())[:2]
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
-            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed'},indent=2))
+            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()
