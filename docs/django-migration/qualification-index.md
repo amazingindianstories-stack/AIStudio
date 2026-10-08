@@ -694,3 +694,17 @@ This is ephemeral loopback TLS with a test certificate, not hosted certificate
 validation, Vercel/Railway forwarding or full application acceptance. Those
 gates and production transfer remain pending. No shared credentials/providers
 or production resources were used.
+
+HTTPS Secure-cookie renewal qualification now checks actual follow-up browser
+transport. After each of the eight renewal cases, Chromium performs another
+settings fetch without cookie reinjection/reset. All eight follow-ups return
+authenticated expected JSON with Django request IDs on the same HTTPS origin.
+The fresh cookie remains unchanged (no renewal on every request), and
+document.cookie cannot expose the HttpOnly session. Both failure cases keep
+the aged cookie and skip this fresh-cookie follow-up; report null denotes not
+run, not rejection. All ten base browser cases plus existing HTTP/plan checks
+pass with production Gunicorn settings. Existing CI HTTPS browser execution
+includes the added assertions.
+This strengthens local browser transport evidence; hosted TLS/proxy behavior,
+full application flows and production domain transfer remain unqualified. No
+shared credentials, provider calls or production deployment occurred.

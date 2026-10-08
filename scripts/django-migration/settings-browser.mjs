@@ -40,7 +40,21 @@ try {
     assert.equal(cookie.secure,!!input.secure);
     assert.equal(cookie.sameSite,'Lax');
     assert.equal(cookie.value!==input.cookie,entry.renewal!==false,'Session renewal contract');
-    report.push({path:entry.path,status:result.status,body_equal:true,same_origin:true,django_request_id:true,renewal:entry.renewal!==false,server_watermark_bounded:!!entry.watermark});
+    if (entry.renewal!==false) {
+      // Do not reset/reinject cookies: Chromium must send the renewed cookie.
+      const followup=await page.evaluate(async()=>{
+        const response=await fetch('/api/settings');
+        return {status:response.status,body:await response.json(),requestId:response.headers.get('x-request-id'),url:response.url,visibleCookie:document.cookie};
+      });
+      assert.equal(followup.status,200,'Renewed session rejected');
+      assert.deepEqual(followup.body,input.expected);
+      assert.ok(followup.requestId);
+      assert.equal(new URL(followup.url).origin,origin.origin);
+      assert.ok(!followup.visibleCookie.includes('veevee_session'),'HttpOnly session exposed');
+      const after=(await context.cookies()).find(value=>value.name==='veevee_session');
+      assert.equal(after.value,cookie.value,'Fresh session renewed on every request');
+    }
+    report.push({path:entry.path,status:result.status,body_equal:true,same_origin:true,django_request_id:true,renewal:entry.renewal!==false,renewed_followup_accepted:entry.renewal!==false?true:null,server_watermark_bounded:!!entry.watermark});
   }
   console.log(JSON.stringify({same_origin_fetch:true,django_request_id:true,http_only_renewal:true,lax_cookie:true,secure_cookie:!!input.secure,cases:report}));
 } finally {await browser.close();}
