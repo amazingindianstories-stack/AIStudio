@@ -63,3 +63,20 @@ See qualification-index.md for current local evidence and limits. Historical
 chronological observations are in status-history.md; older counts there are not
 current ownership. All production transfers, schema takeover and Python-worker
 qualification remain incomplete. No production deployment is recorded.
+
+### Additive foreign-key aliases preserved in baseline SQL
+
+The pending Django baseline now includes frozen, idempotent SQL for the five
+foreign-key aliases created by the current hierarchy and naming migrations.
+The reproduction probe rejects source drift, applies these statements twice,
+and CI requires exact constraint catalog agreement. Isolated PostgreSQL 18
+qualification matched all 167 constraints, 58 indexes, four functions and five
+triggers; invariant behavior passed on both fixtures and scratch schemas were
+rolled back. The remaining catalog difference is ordinal position for 79
+columns; column types, nullability and defaults agree.
+
+This is still a diagnostic reconstruction, not an executable authoritative
+Django migration baseline. Production catalog audit, baseline review and schema
+ownership transfer remain outstanding. Drizzle retains schema authority and
+Django owns no production routes. Clean-checkout qualification still depends on
+integration of the separate Asset Library folder-color migration work.
