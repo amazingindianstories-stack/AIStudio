@@ -468,3 +468,21 @@ qualification. Database ancestry lookup, persisted generation_naming namespace
 and sequence, missing-record fallbacks, batch independence and moves/renames
 still require implementation/comparison. History remains unimplemented and
 traffic ownership unchanged; no deployed schema or shared resources were used.
+
+Batched Python database filename resolution now reads requested generation IDs
+with a left join to generation_naming, then fetches only referenced folder
+ancestors in batches with cycle protection. Persisted namespace/sequence wins;
+legacy absent naming records use current folder/project/global namespace and
+sequence 1. Results preserve generationId/filename/namespace/sequence/extension.
+No sequence is allocated and no naming data is mutated by this read service.
+The current Node resolver also fetches project names that its pure formatter
+ignores; Python omits that unused lookup without changing the public result.
+
+Six batch comparisons against the actual Node resolver pass on disposable local
+PG18, covering empty/duplicate/reordered/missing IDs, persisted versus legacy
+records and nested folder ancestry. Independent expected names verify root
+serial 12, root/child fallback serial 1 and global persisted serial 42. Snapshots
+include generation_naming and remain unchanged. Existing real HTTP comparisons
+pass. This uses narrow qualification fixtures, not full-schema PG16 naming
+invariant/rename/move/concurrency acceptance. History HTTP integration and those
+gates remain pending; no ownership, schema authority or deployment changes.

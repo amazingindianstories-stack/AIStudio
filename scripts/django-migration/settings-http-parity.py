@@ -72,6 +72,9 @@ def main():
             ]):
                 c.execute('INSERT INTO generations (id,kind,prompt,project_id,folder_id,is_favorite) VALUES (%s,%s,%s,%s,%s,%s)',[f'aaaaaaaa-aaaa-4aaa-8aaa-{index:012d}',kind,prompt,project,folder,favorite])
             c.execute("UPDATE generations SET status=CASE WHEN kind='depth' THEN 'running' WHEN prompt LIKE '100%%' AND kind='image' THEN 'queued' ELSE 'completed' END,model='fixture-only',aspect_ratio='16:9',created_at=1,updated_at=right(id::text,1)::bigint+1,depth_reap_attempts=0,flagged=false,provider_responses='{\"private\":true}'::jsonb")
+            c.execute('CREATE TABLE IF NOT EXISTS generation_naming (generation_id uuid PRIMARY KEY,namespace text NOT NULL,sequence bigint NOT NULL,assigned_at bigint NOT NULL)')
+            c.execute('TRUNCATE generation_naming')
+            c.execute("INSERT INTO generation_naming VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-000000000000','folder:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',12,1),('aaaaaaaa-aaaa-4aaa-8aaa-000000000002','global_unsorted',42,1)")
             c.execute('CREATE TABLE IF NOT EXISTS canvas_boards (id uuid PRIMARY KEY,project_id uuid NOT NULL,name text NOT NULL,data jsonb NOT NULL,created_by uuid,created_at bigint NOT NULL,updated_at bigint NOT NULL)')
             c.execute('TRUNCATE canvas_boards')
             c.execute("INSERT INTO canvas_boards VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','dddddddd-dddd-4ddd-8ddd-dddddddddddd','दृश्य','{\"private_graph\":\"fixture\"}',NULL,1,2)")
@@ -89,10 +92,26 @@ def main():
         def snapshot():
             with db.cursor() as c:
                 result=[]
-                for table in ('users','settings','user_limits','projects','folders','assets','canvas_boards','generations'):
+                for table in ('users','settings','user_limits','projects','folders','assets','canvas_boards','generations','generation_naming'):
                     c.execute('SELECT row_to_json(t)::text FROM '+table+' t ORDER BY 1')
                     result.append(c.fetchall())
                 return result
+        sys.path.insert(0,str(root/'backend'))
+        import django
+        django.setup()
+        from apps.library.filenames import batch_resolve_generation_filenames
+        ids = [f'aaaaaaaa-aaaa-4aaa-8aaa-{index:012d}' for index in range(6)]
+        batches = [[],ids,[ids[0]],[ids[0],ids[0]],list(reversed(ids)),['ffffffff-ffff-4fff-8fff-ffffffffffff']]
+        with db.cursor() as c:
+            c.execute("UPDATE generations SET folder_id='cccccccc-cccc-4ccc-8ccc-cccccccccccc' WHERE id='aaaaaaaa-aaaa-4aaa-8aaa-000000000004'")
+        before = snapshot()
+        expected = json.loads(subprocess.run(['node','--import','tsx','scripts/django-migration/batch-filename-oracle.mjs'],input=json.dumps(batches),text=True,capture_output=True,check=True).stdout)
+        actual = [batch_resolve_generation_filenames(batch) for batch in batches]
+        assert actual == expected, ('batch filenames',actual,expected)
+        assert before == snapshot(), 'batch filename read mutated DB'
+        assert actual[1][ids[4]]['filename'] == 'root_child_0001.png'
+        assert actual[1][ids[0]]['filename'] == 'root_0012.png'
+        assert actual[1][ids[2]]['filename'] == 'unsorted_0042.png'
         try:
             next_port,django_port=port(),port()
             django_command=[sys.executable,'backend/manage.py','runserver',f'127.0.0.1:{django_port}','--noreload']
@@ -452,7 +471,7 @@ def main():
                 if result.returncode:
                     raise RuntimeError(result.stderr[-4000:])
                 browser_report=json.loads(result.stdout)
-            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'batch_filename_parity':{'cases':len(batches),'node_equal':True,'database_unchanged':True},'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

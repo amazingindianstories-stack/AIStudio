@@ -1,0 +1,11 @@
+import {readFileSync} from 'node:fs';
+if(process.env.MIGRATION_TEST_ISOLATED!=='1')throw new Error('Isolated runner required');
+const target=new URL(process.env.DATABASE_URL);
+if(target.hostname!=='127.0.0.1'||target.pathname!=='/veevee_django_migration')throw new Error('Disposable database required');
+const {getDb}=await import('../../src/lib/db.js');
+const {batchResolveGenerationFilenames}=await import('../../src/lib/filename-resolver.js');
+const db=await getDb();
+const results=[];
+for(const ids of JSON.parse(readFileSync(0,'utf8'))) results.push(Object.fromEntries(await batchResolveGenerationFilenames(db,ids)));
+process.stdout.write(JSON.stringify(results));
+process.exit(0);

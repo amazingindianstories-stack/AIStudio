@@ -67,3 +67,44 @@ def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequ
     if prefix.upper() in RESERVED:
         prefix = '_' + prefix
     return bound_filename(prefix, format_serial(sequence), resolve_extension(kind, url, media_key, content_type))
+
+
+def batch_resolve_generation_filenames(generation_ids):
+    from django.db import connection
+    from .models import Folder
+    identifiers = list(dict.fromkeys(str(value) for value in generation_ids if value))
+    if not identifiers:
+        return {}
+    # Fetch only naming inputs and keep absent legacy naming records visible.
+    with connection.cursor() as cursor:
+        cursor.execute('''SELECT g.id,g.kind,g.url,g.project_id,g.folder_id,n.namespace,n.sequence
+            FROM generations g LEFT JOIN generation_naming n ON n.generation_id=g.id
+            WHERE g.id = ANY(%s::uuid[])''', [identifiers])
+        generations = cursor.fetchall()
+    folders = {}
+    pending = {row[4] for row in generations if row[4]}
+    while pending:
+        rows = list(Folder.objects.filter(id__in=pending).values('id','parent_id','name'))
+        pending = set()
+        for row in rows:
+            if row['id'] not in folders:
+                folders[row['id']] = row
+                if row['parent_id'] and row['parent_id'] not in folders:
+                    pending.add(row['parent_id'])
+    result = {}
+    for identifier, kind, url, project_id, folder_id, namespace, sequence in generations:
+        namespace = namespace or (f'folder:{folder_id}' if folder_id else
+                                  f'project_unsorted:{project_id}' if project_id else 'global_unsorted')
+        sequence = sequence or 1
+        ancestry, visited = [], set()
+        current = folders.get(folder_id)
+        while current and current['id'] not in visited:
+            visited.add(current['id'])
+            ancestry.insert(0, current)
+            current = folders.get(current['parent_id'])
+        identifier = str(identifier)
+        result[identifier] = {'generationId':identifier,
+            'filename':resolve_generation_filename(ancestry, namespace, sequence, kind, url),
+            'namespace':namespace, 'sequence':sequence,
+            'extension':resolve_extension(kind, url)}
+    return result
