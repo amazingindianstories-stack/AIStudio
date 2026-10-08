@@ -15,6 +15,8 @@ const config = [
       "depth-worker/**",
       "drizzle/**",
       "node_modules/**",
+      "playwright-report/**",
+      "test-results/**",
       "public/**",
     ],
   },

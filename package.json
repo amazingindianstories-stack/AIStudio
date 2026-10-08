@@ -31,6 +31,7 @@
     "db:snapshot:organization": "tsx scripts/snapshot-organization.js",
     "db:audit:hierarchical-folders": "tsx scripts/audit-folder-migration.js",
     "db:migrate:hierarchical-folders": "tsx scripts/migrate-hierarchical-folders.js",
+    "db:migrate:folder-color": "tsx scripts/migrate-folder-color.js",
     "db:audit:generation-naming": "tsx scripts/audit-generation-naming.js",
     "db:migrate:generation-naming": "tsx scripts/migrate-generation-naming.js",
     "db:verify:production-schema": "tsx scripts/verify-production-schema.js",

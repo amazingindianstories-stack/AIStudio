@@ -179,3 +179,59 @@ test("validateGenerationReference for video generations", () => {
   assert.equal(duplicate.valid, false);
   assert.match(duplicate.reason, /already added as a reference/);
 });
+
+test("validateGenerationReference for upscaler mode", () => {
+  const imageItem = {
+    id: "img-1",
+    kind: "image",
+    status: "succeeded",
+    url: "/api/media/generations/1.png",
+  };
+  const videoItem = {
+    id: "vid-1",
+    kind: "video",
+    status: "succeeded",
+    url: "/api/media/generations/1.mp4",
+  };
+
+  const imageValid = validateGenerationReference(imageItem, {
+    mode: "upscale",
+  });
+  assert.equal(imageValid.valid, true);
+  assert.equal(imageValid.action, "add-image-ref");
+
+  const videoInvalid = validateGenerationReference(videoItem, {
+    mode: "upscale",
+  });
+  assert.equal(videoInvalid.valid, false);
+  assert.match(videoInvalid.reason, /Upscaler only accepts image generations/);
+});
+
+test("simulates batch multi-asset drop validation against model capacity", () => {
+  const items = [
+    { id: "1", kind: "image", status: "succeeded", url: "/img1.png" },
+    { id: "2", kind: "image", status: "succeeded", url: "/img2.png" },
+    { id: "3", kind: "video", status: "succeeded", url: "/vid1.mp4" },
+    { id: "4", kind: "image", status: "succeeded", url: "/img3.png" },
+  ];
+
+  // Dropping into Kling Image 3.0 (max 1 image reference)
+  let added = [];
+  let skipped = 0;
+  for (const item of items) {
+    const v = validateGenerationReference(item, {
+      mode: "image",
+      model: "Kling Image 3.0",
+      referenceImages: added,
+    });
+    if (v.valid && v.action === "add-image-ref") {
+      added.push(item.url);
+    } else {
+      skipped++;
+    }
+  }
+
+  assert.equal(added.length, 1);
+  assert.equal(skipped, 3); // 1 video + 2 images exceeding max
+});
+

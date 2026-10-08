@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { useCanvasStore, hasClipboard } from "@/lib/canvas-store";
+import { getAssetDragData } from "@/lib/asset-drag-contract";
 
 import {
   computeFrameMembership,
@@ -746,15 +747,33 @@ export const CanvasSurface = forwardRef
   const onDrop = (e) => {
     e.preventDefault();
     setDragGhost(null);
-    const assetId = e.dataTransfer.getData("text/assetId");
-    if (assetId) {
-      const item = items.find((i) => i.id === assetId);
-      if (item) {
-        const src = item.kind === "video" ? item.poster ?? item.url : item.url;
-        if (src) {
-          const screen = toScreenLocal(e.clientX, e.clientY);
-          const worldPoint = screenToWorld(screen, viewport);
-          addImageFromAsset({ url: src, aspectRatio: item.aspectRatio }, worldPoint);
+    const assetPayload = getAssetDragData(e, useStore.getState());
+    const rawAssetId = e.dataTransfer.getData("text/assetId");
+    const assetIds =
+      assetPayload.ids.length > 0
+        ? assetPayload.ids
+        : rawAssetId
+        ? [rawAssetId]
+        : [];
+
+    if (assetIds.length > 0) {
+      const screen = toScreenLocal(e.clientX, e.clientY);
+      const worldPoint = screenToWorld(screen, viewport);
+      let offset = 0;
+      for (const id of assetIds) {
+        const item =
+          items.find((i) => i.id === id) ||
+          (assetPayload.items && assetPayload.items.find((i) => i.id === id)) ||
+          useStore.getState().items.find((i) => i.id === id);
+        if (item) {
+          const src = item.kind === "video" ? item.poster ?? item.url : item.url;
+          if (src) {
+            addImageFromAsset(
+              { url: src, aspectRatio: item.aspectRatio },
+              { x: worldPoint.x + offset, y: worldPoint.y + offset }
+            );
+            offset += 30;
+          }
         }
       }
       return;

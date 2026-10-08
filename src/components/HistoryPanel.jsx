@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-
 import {
   Search,
   ChevronDown,
   Layers,
   LayoutGrid,
-  History,
+  History as HistoryIcon,
   Check,
   X,
   Star,
@@ -16,15 +15,25 @@ import {
   Download,
   Loader2,
   Move,
+  FileText,
+  FolderPlus,
+  SlidersHorizontal,
+  Trash2,
+  AlertCircle,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
 import { MediaCard } from "./MediaCard";
-import { ProjectPanel, EmptyState } from "./ProjectPanel";
+import { EmptyState, BriefEditor } from "./ProjectPanel";
 import { AssetGrid } from "./AssetGrid";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { ProjectMenu } from "./ProjectMenu";
+import { FolderTree } from "./FolderTree";
+import { BreadcrumbBar } from "./BreadcrumbBar";
+import { ChildFolderList } from "./ChildFolderList";
 import { DestinationPickerModal } from "./DestinationPickerModal";
+import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
+import { UNSORTED } from "@/lib/feed-scope";
 import { cn } from "@/lib/utils";
 
 const ZOOM_KEY = "veevee-asset-zoom-v1";
@@ -46,19 +55,49 @@ export function HistoryPanel() {
   const selectedIds = useStore((s) => s.selectedIds);
   const selectAll = useStore((s) => s.selectAll);
   const clearSelection = useStore((s) => s.clearSelection);
-  const moveItemsToProject = useStore((s) => s.moveItemsToProject);
   const projects = useStore((s) => s.projects);
   const activeProjectId = useStore((s) => s.activeProjectId);
+  const activeFolderId = useStore((s) => s.activeFolderId);
+  const libraryTree = useStore((s) => s.libraryTree);
+  const setActiveProject = useStore((s) => s.setActiveProject);
+  const setActiveFolder = useStore((s) => s.setActiveFolder);
+  const createFolder = useStore((s) => s.createFolder);
+  const moveFolder = useStore((s) => s.moveFolder);
+  const moveGenerationsToDestination = useStore((s) => s.moveGenerationsToDestination);
+  const deleteGenerations = useStore((s) => s.deleteGenerations);
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
+  const [briefView, setBriefView] = useState(false);
+  const [addingScope, setAddingScope] = useState(null); // { projectId, parentId } or null
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [activeExport, setActiveExport] = useState(null);
   const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [movingFolder, setMovingFolder] = useState(null);
   const autoDownloaded = useRef(null);
 
+  // Switching project closes brief view and folder creation
   useEffect(() => {
-    try { const id = localStorage.getItem(ACTIVE_EXPORT_KEY); if (id) setActiveExport({ id, status: "queued", totalItems: 0, processedItems: 0, skippedItems: 0 }); } catch { /* ignore */ }
+    setBriefView(false);
+    setAddingScope(null);
+  }, [activeProjectId]);
+
+  // Active export restoration & polling
+  useEffect(() => {
+    try {
+      const id = localStorage.getItem(ACTIVE_EXPORT_KEY);
+      if (id) {
+        setActiveExport({
+          id,
+          status: "queued",
+          totalItems: 0,
+          processedItems: 0,
+          skippedItems: 0,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
   }, []);
 
   useEffect(() => {
@@ -66,21 +105,35 @@ export function HistoryPanel() {
     let cancelled = false;
     const poll = async () => {
       const response = await apiFetch(`/api/history/exports/${activeExport.id}`);
-      if (!response.ok) { if (response.status === 404) { try { localStorage.removeItem(ACTIVE_EXPORT_KEY); } catch {} } return; }
+      if (!response.ok) {
+        if (response.status === 404) {
+          try {
+            localStorage.removeItem(ACTIVE_EXPORT_KEY);
+          } catch {}
+        }
+        return;
+      }
       const next = await response.json();
       if (!cancelled) setActiveExport(next);
       if (next.status === "ready" && autoDownloaded.current !== next.id) {
         autoDownloaded.current = next.id;
         window.location.assign(`/api/history/exports/${next.id}/download`);
-        try { localStorage.removeItem(ACTIVE_EXPORT_KEY); } catch { /* ignore */ }
+        try {
+          localStorage.removeItem(ACTIVE_EXPORT_KEY);
+        } catch {
+          /* ignore */
+        }
       }
     };
-    poll(); const timer = setInterval(poll, 2000);
-    return () => { cancelled = true; clearInterval(timer); };
+    poll();
+    const timer = setInterval(poll, 2000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, [activeExport?.id, activeExport?.status]);
 
-  // Thumbnail size is a workspace preference, not session state — losing it on
-  // every reload made the control feel like it did not work.
+  // Thumbnail size zoom control
   const [assetCardWidth, setAssetCardWidth] = useState(160);
   useEffect(() => {
     try {
@@ -92,6 +145,7 @@ export function HistoryPanel() {
       /* ignore */
     }
   }, []);
+
   const setZoom = (value) => {
     const clamped = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, value));
     setAssetCardWidth(clamped);
@@ -102,22 +156,23 @@ export function HistoryPanel() {
     }
   };
 
-  // The search box is a local, immediately-responsive value; the store is
-  // written on the same keystroke but debounces the query behind it. Binding
-  // the input straight to the store would be fine too — this exists so the
-  // field never lags behind typing if a render happens to be slow.
+  // Search input draft
   const [searchDraft, setSearchDraft] = useState(search);
   useEffect(() => {
     setSearchDraft(search);
   }, [search]);
 
   const itemIds = useMemo(() => items.map((i) => i.id), [items]);
-  const allSelected =
-    itemIds.length > 0 && itemIds.every((id) => selectedIds.includes(id));
+  const allSelected = itemIds.length > 0 && itemIds.every((id) => selectedIds.includes(id));
   const selectedExportableIds = useMemo(
     () =>
       items
-        .filter((item) => selectedIds.includes(item.id) && ["image", "video", "depth"].includes(item.kind) && item.url)
+        .filter(
+          (item) =>
+            selectedIds.includes(item.id) &&
+            ["image", "video", "depth"].includes(item.kind) &&
+            item.url
+        )
         .map((item) => item.id),
     [items, selectedIds]
   );
@@ -135,17 +190,33 @@ export function HistoryPanel() {
         throw new Error(json.error || "Failed to create export.");
       }
       const job = await res.json();
-      try { localStorage.setItem(ACTIVE_EXPORT_KEY, job.id); } catch { /* ignore */ }
+      try {
+        localStorage.setItem(ACTIVE_EXPORT_KEY, job.id);
+      } catch {
+        /* ignore */
+      }
       let rejected = 0;
       for (let offset = 0; offset < selectedExportableIds.length; offset += 500) {
-        const chunkResponse = await apiFetch(`/api/history/exports/${job.id}/items`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ids: selectedExportableIds.slice(offset, offset + 500) }) });
+        const chunkResponse = await apiFetch(`/api/history/exports/${job.id}/items`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: selectedExportableIds.slice(offset, offset + 500) }),
+        });
         const body = await chunkResponse.json().catch(() => ({}));
         if (!chunkResponse.ok) throw new Error(body.error || "Failed to add items to export.");
         rejected += body.rejected?.length || 0;
       }
-      const finalize = await apiFetch(`/api/history/exports/${job.id}/finalize`, { method: "POST" });
+      const finalize = await apiFetch(`/api/history/exports/${job.id}/finalize`, {
+        method: "POST",
+      });
       if (!finalize.ok) throw new Error("Failed to queue export.");
-      setActiveExport({ id: job.id, status: "queued", totalItems: selectedExportableIds.length - rejected, processedItems: 0, skippedItems: rejected });
+      setActiveExport({
+        id: job.id,
+        status: "queued",
+        totalItems: selectedExportableIds.length - rejected,
+        processedItems: 0,
+        skippedItems: rejected,
+      });
     } catch (error) {
       alert(error?.message || "Failed to download ZIP.");
     } finally {
@@ -155,481 +226,751 @@ export function HistoryPanel() {
 
   const retryExport = async () => {
     if (!activeExport?.id) return;
-    const response = await apiFetch(`/api/history/exports/${activeExport.id}/finalize`, { method: "POST" });
-    if (response.ok) { try { localStorage.setItem(ACTIVE_EXPORT_KEY, activeExport.id); } catch {} setActiveExport((value) => ({ ...value, status: "queued", error: null })); }
+    const response = await apiFetch(`/api/history/exports/${activeExport.id}/finalize`, {
+      method: "POST",
+    });
+    if (response.ok) {
+      try {
+        localStorage.setItem(ACTIVE_EXPORT_KEY, activeExport.id);
+      } catch {}
+      setActiveExport((value) => ({ ...value, status: "queued", error: null }));
+    }
   };
 
+  const handlePanelKeyDown = (e) => {
+    if (moveModalOpen) return;
+
+    if (e.key === "Escape") {
+      if (selectedIds.length > 0) {
+        e.preventDefault();
+        clearSelection();
+        return;
+      }
+    }
+
+    if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+      const searchInput = document.querySelector('input[aria-label="Search prompts"]');
+      if (searchInput) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select?.();
+      }
+    } else if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
+      const searchInput = document.querySelector('input[aria-label="Search prompts"]');
+      if (searchInput) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select?.();
+      }
+    }
+  };
+
+  // Folder tree nodes for current active workspace
+  const activeWorkspaceFolders = useMemo(() => {
+    if (activeProjectId) {
+      const projData = libraryTree?.projects?.find((p) => p.id === activeProjectId);
+      return projData?.folders ?? [];
+    }
+    return libraryTree?.globalFolders ?? [];
+  }, [activeProjectId, libraryTree]);
+
+  const activeCountsByFolder = useMemo(() => {
+    if (activeProjectId) {
+      return counts.project?.byFolder ?? {};
+    }
+    return counts.globalLibrary?.byFolder ?? {};
+  }, [activeProjectId, counts]);
+
   return (
-    <div className="flex h-full flex-col bg-ink-850">
-      {/* ── scope bar ────────────────────────────────────────────────────────
-          One row: where you are (project / all / favourites) on the left, how
-          you are filtering it on the right.
-
-          NEITHER cluster carries `min-w-0`, and that is the whole trick. Their
-          children are `shrink-0`, so a cluster allowed to shrink below its own
-          content does not clip — it lets those children spill out and paint
-          over whatever sits beside them, which is exactly how the tabs ended up
-          rendered on top of the search field. Leaving `min-width: auto` (i.e.
-          min-content) means the clusters cannot shrink past their contents, so
-          when both no longer fit the parent's `flex-wrap` moves the filters to
-          a second row. Overlap stops being a tuning problem and becomes
-          structurally impossible; the container queries in globals.css only
-          decide how *often* the wrap is needed, never whether things collide. */}
-      <div className="scope-bar flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-line px-4 py-2.5">
-        <div className="scope-tabs flex items-center gap-1 rounded-full bg-ink-700 p-1">
-          {/* Split control: the body is the scope, the chevron is the switcher.
-              Previously both were one button, so clicking the project name to
-              come back from All assets also flung open the project menu — and
-              there was no other route back, since the name looked like a
-              dropdown rather than a tab. They are now two sibling buttons
-              (nesting them would be invalid HTML), and the name stays legible
-              while inactive precisely so it reads as somewhere to return to. */}
-          <div
-            className={cn(
-              "flex items-center rounded-full transition",
-              rightTab === "project" && "bg-ink-850 shadow-sm"
-            )}
-          >
+    <div
+      onKeyDown={handlePanelKeyDown}
+      className="flex h-full w-full overflow-hidden bg-ink-850"
+    >
+      {/* ══════════════════════════════════════════════════════════════════════
+          LEFT: PERSISTENT NAVIGATION SIDEBAR (w-60 shrink-0)
+          ══════════════════════════════════════════════════════════════════════ */}
+      <aside className="flex w-60 shrink-0 flex-col border-r border-line bg-ink-850 select-none">
+        {/* Workspace Switcher (~40-44px high) */}
+        <Dropdown
+          align="left"
+          label="Switch workspace"
+          className="w-full shrink-0"
+          trigger={(open) => (
             <button
-              onClick={() => setRightTab("project")}
-              title={
-                activeProjectId === null
-                  ? "Global Library"
-                  : project
-                  ? rightTab === "project"
-                    ? `Project: ${project.name}`
-                    : `Back to ${project.name}`
-                  : "Global Library"
-              }
+              type="button"
+              aria-label="Switch project"
               className={cn(
-                "flex items-center gap-1.5 whitespace-nowrap rounded-l-full py-1.5 pl-3 pr-1.5 text-sm font-medium transition",
-                rightTab === "project"
-                  ? "text-white"
-                  : "text-white/60 hover:text-white/90"
+                "flex h-11 w-full items-center justify-between border-b border-line px-3.5 text-left transition hover:bg-white/5 outline-none",
+                open && "bg-white/5"
               )}
             >
-              <Layers className="h-4 w-4 shrink-0" />
-              <span className="scope-project-name max-w-[9rem] truncate">
-                {activeProjectId === null ? "Global Library" : project ? project.name : "Global Library"}
-              </span>
-              {(activeProjectId === null ? (counts.globalLibrary?.total ?? 0) : counts.project.total) > 0 && (
-                <ScopeCount
-                  n={activeProjectId === null ? (counts.globalLibrary?.total ?? 0) : counts.project.total}
-                  active={rightTab === "project"}
-                />
-              )}
-            </button>
-
-            <Dropdown
-              align="left"
-              label="Switch project"
-              trigger={(open) => (
-                <span
-                  className={cn(
-                    "grid h-7 w-7 place-items-center rounded-full text-white/50 transition hover:bg-white/10 hover:text-white",
-                    open && "bg-white/10 text-white"
-                  )}
-                  title="Switch project"
-                >
-                  <ChevronDown
-                    className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
-                  />
+              <div className="flex min-w-0 items-center gap-2">
+                <Layers className="h-4 w-4 shrink-0 text-brand" />
+                <span className="scope-project-name truncate text-xs font-semibold uppercase tracking-wider text-white">
+                  {activeProjectId === null
+                    ? "Global Library"
+                    : project
+                    ? project.name
+                    : "Global Library"}
                 </span>
-              )}
-            >
-              {(close) => <ProjectMenu close={close} />}
-            </Dropdown>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0 text-white/50 transition-transform",
+                  open && "rotate-180"
+                )}
+              />
+            </button>
+          )}
+        >
+          {(close) => <ProjectMenu close={close} />}
+        </Dropdown>
+
+        {/* Scrollable Navigation Hierarchy */}
+        <div className="scroll-thin flex flex-1 flex-col overflow-y-auto p-2 space-y-4">
+          {/* ── SECTION 1: LIBRARY ── */}
+          <div className="space-y-0.5">
+            <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+              Library
+            </span>
+            <SidebarItem
+              label="All generations"
+              title="All assets"
+              count={counts.allAssets}
+              icon={<LayoutGrid className="h-3.5 w-3.5" />}
+              active={rightTab === "history" && !briefView}
+              onClick={() => {
+                setRightTab("history");
+                setBriefView(false);
+              }}
+            />
+            <SidebarItem
+              label="Favourites"
+              count={counts.favorites}
+              icon={<Star className="h-3.5 w-3.5 text-amber-400" />}
+              active={rightTab === "favorites" && !briefView}
+              onClick={() => {
+                setRightTab("favorites");
+                setBriefView(false);
+              }}
+            />
+            <SidebarItem
+              label="Global library"
+              count={counts.globalLibrary?.total}
+              icon={<Layers className="h-3.5 w-3.5 text-white/50" />}
+              active={
+                rightTab === "project" &&
+                activeProjectId === null &&
+                activeFolderId === null &&
+                !briefView
+              }
+              onClick={() => {
+                setActiveProject(null);
+                setActiveFolder(null);
+                setRightTab("project");
+                setBriefView(false);
+              }}
+            />
           </div>
 
-          <TabBtn
-            active={rightTab === "history"}
-            onClick={() => setRightTab("history")}
-            label="All assets"
-            count={counts.allAssets}
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </TabBtn>
-          <TabBtn
-            active={rightTab === "favorites"}
-            onClick={() => setRightTab("favorites")}
-            label="Favourites"
-            count={counts.favorites}
-          >
-            <Star className="h-4 w-4" />
-          </TabBtn>
+          {/* ── SECTION 2: CURRENT PROJECT ── */}
+          {project && (
+            <div className="space-y-0.5 border-t border-line/60 pt-3">
+              <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                Current Project
+              </span>
+              <SidebarItem
+                label="Project assets"
+                count={counts.project?.total}
+                icon={<Layers className="h-3.5 w-3.5 text-brand" />}
+                active={
+                  rightTab === "project" &&
+                  activeProjectId === project.id &&
+                  activeFolderId === null &&
+                  !briefView
+                }
+                onClick={() => {
+                  setActiveProject(project.id);
+                  setActiveFolder(null);
+                  setRightTab("project");
+                  setBriefView(false);
+                }}
+              />
+              <SidebarItem
+                label="Project brief"
+                icon={<FileText className="h-3.5 w-3.5 text-white/50" />}
+                active={briefView}
+                onClick={() => {
+                  setActiveProject(project.id);
+                  setBriefView(true);
+                }}
+              />
+            </div>
+          )}
+
+          {/* ── SECTION 3: FOLDERS ── */}
+          <div className="space-y-0.5 border-t border-line/60 pt-3">
+            <div className="flex items-center justify-between px-2 pb-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                Folders
+              </span>
+            </div>
+
+            {/* Inline folder editor at root */}
+            {addingScope && addingScope.parentId === null && (
+              <div className="px-1 py-1">
+                <InlineFolderNameEditor
+                  label="Folder name"
+                  onCommit={async (name) => {
+                    await createFolder({ name, ...addingScope });
+                    setAddingScope(null);
+                  }}
+                  onClose={() => setAddingScope(null)}
+                />
+              </div>
+            )}
+
+            {/* Hierarchical folder tree of active workspace */}
+            <FolderTree
+              folders={activeWorkspaceFolders}
+              activeFolderId={rightTab === "project" ? activeFolderId : null}
+              countsByFolder={activeCountsByFolder}
+              projectId={activeProjectId}
+              onSelectFolder={(fId) => {
+                setRightTab("project");
+                setBriefView(false);
+                setActiveFolder(fId);
+              }}
+              onOpenMoveModal={(folder) => {
+                setMovingFolder(folder);
+                setMoveModalOpen(true);
+              }}
+              onOpenNewFolderModal={(scope) => setAddingScope(scope)}
+            />
+
+            {/* Inline folder editor for subfolders */}
+            {addingScope && addingScope.parentId !== null && (
+              <div className="px-1 py-1">
+                <InlineFolderNameEditor
+                  label="Subfolder name"
+                  onCommit={async (name) => {
+                    await createFolder({ name, ...addingScope });
+                    setAddingScope(null);
+                  }}
+                  onClose={() => setAddingScope(null)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </aside>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          RIGHT: CURRENT LOCATION + COMMAND BAR + FOLDERS + ASSET CANVAS
+          ══════════════════════════════════════════════════════════════════════ */}
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-ink-900">
+        {/* ── ROW 1: LOCATION / BREADCRUMB ROW (~44px high) ── */}
+        <div className="flex h-11 shrink-0 items-center justify-between border-b border-line bg-ink-850 px-4 text-xs select-none">
+          {/* Left: Location breadcrumb statement */}
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            {rightTab === "history" ? (
+              <div className="flex items-center gap-2 font-semibold text-white">
+                <LayoutGrid className="h-4 w-4 text-white/50" />
+                <span>All Generations</span>
+              </div>
+            ) : rightTab === "favorites" ? (
+              <div className="flex items-center gap-2 font-semibold text-white">
+                <Star className="h-4 w-4 text-amber-400" />
+                <span>Favourites</span>
+              </div>
+            ) : briefView && project ? (
+              <div className="flex items-center gap-1.5 font-medium">
+                <span className="text-white/60">{project.name}</span>
+                <span className="text-white/30">/</span>
+                <span className="font-semibold text-white">Project brief</span>
+              </div>
+            ) : (
+              <div className="flex min-w-0 flex-1 items-center">
+                <BreadcrumbBar
+                  onOpenMoveModal={(folder) => {
+                    setMovingFolder(folder);
+                    setMoveModalOpen(true);
+                  }}
+                  onOpenNewFolderModal={null}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Right: Authoritative Primary + New folder button */}
+          <div className="flex shrink-0 items-center pl-3">
+            <button
+              type="button"
+              onClick={() => {
+                setBriefView(false);
+                setRightTab("project");
+                setAddingScope({
+                  projectId: activeProjectId,
+                  parentId: activeFolderId === UNSORTED ? null : activeFolderId,
+                });
+              }}
+              className="flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-white/15"
+              title="Create new folder"
+            >
+              <FolderPlus className="h-3.5 w-3.5" />
+              <span>+ New folder</span>
+            </button>
+          </div>
         </div>
 
-        <div className="scope-actions flex flex-1 items-center justify-end gap-2">
-          {/* A real minimum on the field that needs one, rather than on the
-              cluster around it. Below this the bar wraps to a second row, which
-              is the correct degradation — a clipped search box is not. */}
-          <div className="relative min-w-[9rem] flex-1">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
-            <input
-              value={searchDraft}
-              onChange={(e) => {
-                setSearchDraft(e.target.value);
-                setSearch(e.target.value);
-              }}
-              placeholder="Search prompts"
-              aria-label="Search prompts"
-              className="w-full rounded-full border border-line bg-ink-700 py-1.5 pl-8 pr-8 text-sm text-white/90 outline-none transition placeholder:text-white/35 focus:border-brand/40 focus:bg-ink-650"
-            />
-            {/* Search now runs against the database rather than the handful of
-                rows the client had loaded, so an active query can hide a lot.
-                It needs an obvious way out. */}
-            {searchDraft && (
+        {/* ── ROW 2: ASSET COMMAND BAR WITH IN-PLACE CONTEXTUAL SELECTION (~44px high) ── */}
+        {selectedIds.length > 0 ? (
+          /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same h-11) */
+          <div
+            data-testid="selection-toolbar"
+            className="flex h-11 shrink-0 items-center justify-between border-b border-line bg-ink-800/90 px-4 text-xs select-none"
+          >
+            {/* Left: Select all & count */}
+            <div className="flex items-center gap-3">
               <button
-                onClick={() => {
-                  setSearchDraft("");
-                  setSearch("");
-                }}
-                className="absolute right-2 top-1/2 grid h-5 w-5 -translate-y-1/2 place-items-center rounded-full text-white/40 transition hover:bg-white/10 hover:text-white"
-                aria-label="Clear search"
+                type="button"
+                onClick={() => (allSelected ? clearSelection() : selectAll(itemIds))}
+                className="flex items-center gap-1.5 font-medium text-white/75 transition hover:text-white"
+              >
+                <span
+                  className={cn(
+                    "grid h-3.5 w-3.5 place-items-center rounded border transition",
+                    allSelected
+                      ? "border-brand bg-brand text-ink-900"
+                      : "border-white/40 text-transparent"
+                  )}
+                >
+                  <Check className="h-2.5 w-2.5" strokeWidth={3} />
+                </span>
+                <span>{allSelected ? "Deselect all" : "Select all"}</span>
+              </button>
+
+              <span className="text-white/30">|</span>
+
+              <span className="font-semibold text-white">
+                ✓ {selectedIds.length} selected
+              </span>
+            </div>
+
+            {/* Right: Contextual actions */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={downloadSelectedZip}
+                disabled={!selectedExportableIds.length || isDownloadingZip}
+                className="flex items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1 font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
+                title="Download selected items as ZIP"
+              >
+                {isDownloadingZip ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Download className="h-3.5 w-3.5" />
+                )}
+                <span>Download ZIP</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMoveModalOpen(true)}
+                className="flex items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1 font-semibold text-brand transition hover:bg-brand/30"
+                title="Move selected items"
+              >
+                <Move className="h-3.5 w-3.5" />
+                <span>Move</span>
+              </button>
+
+              {/* More Actions Dropdown */}
+              <Dropdown
+                align="right"
+                label="More actions"
+                trigger={(open) => (
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex items-center gap-1 rounded-full border border-line bg-ink-700/80 px-2.5 py-1 text-white/75 transition hover:text-white",
+                      open && "border-brand/40 text-white"
+                    )}
+                  >
+                    <span>More</span>
+                    <ChevronDown
+                      className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
+                    />
+                  </button>
+                )}
+              >
+                {(close) => (
+                  <div className="py-1 min-w-[150px]">
+                    {project && (
+                      <MenuItem
+                        onClick={() => {
+                          close();
+                          moveGenerationsToDestination(selectedIds, { type: "global_root" });
+                        }}
+                      >
+                        <span>Remove from Project</span>
+                      </MenuItem>
+                    )}
+                    <MenuItem
+                      onClick={() => {
+                        close();
+                        if (
+                          window.confirm(
+                            `Delete ${selectedIds.length} items? This cannot be undone.`
+                          )
+                        ) {
+                          deleteGenerations(selectedIds);
+                        }
+                      }}
+                      className="text-red-400 hover:text-red-300"
+                    >
+                      <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                      <span>Delete</span>
+                    </MenuItem>
+                  </div>
+                )}
+              </Dropdown>
+
+              {/* Clear Selection */}
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="grid h-7 w-7 place-items-center rounded-md text-white/50 transition hover:bg-white/10 hover:text-white"
+                title="Clear selection (Esc)"
+                aria-label="Clear selection"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
-            )}
-            {refreshing && (
-              <Loader2 className="pointer-events-none absolute right-8 top-1/2 h-3.5 w-3.5 -translate-y-1/2 animate-spin text-white/30" />
-            )}
+            </div>
           </div>
-
-          <Dropdown
-            align="right"
-            className="shrink-0"
-            trigger={(open) => (
-              <Pill open={open}>
-                {kindLabel}
-                <ChevronDown
-                  className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
-                />
-              </Pill>
-            )}
-          >
-            {(close) =>
-              (["all", "image", "video"] ).map((k) => (
-                <MenuItem
-                  key={k}
-                  active={filterKind === k}
+        ) : (
+          /* Normal State: Search + Filters + View (EXACT same h-11) */
+          <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-line bg-ink-850 px-4 select-none">
+            {/* Search Input (max-w ~380px) */}
+            <div className="relative w-full max-w-sm sm:max-w-md">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" />
+              <input
+                value={searchDraft}
+                onChange={(e) => {
+                  setSearchDraft(e.target.value);
+                  setSearch(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    if (searchDraft) {
+                      e.preventDefault();
+                      setSearchDraft("");
+                      setSearch("");
+                    }
+                  }
+                }}
+                placeholder="Search assets…"
+                aria-label="Search prompts"
+                className="w-full rounded-full border border-line bg-ink-700/80 py-1 pl-8 pr-8 text-xs text-white/90 outline-none transition placeholder:text-white/35 focus:border-brand/40 focus:bg-ink-650"
+              />
+              {searchDraft && (
+                <button
+                  type="button"
                   onClick={() => {
-                    setFilterKind(k );
-                    close();
+                    setSearchDraft("");
+                    setSearch("");
                   }}
+                  className="absolute right-2 top-1/2 grid h-4 w-4 -translate-y-1/2 place-items-center rounded-full text-white/40 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Clear search"
                 >
-                  <span className="flex-1 capitalize">
-                    {k === "all" ? "All types" : k + "s"}
-                  </span>
-                  {filterKind === k && <Check className="h-4 w-4 text-brand" />}
-                </MenuItem>
-              ))
-            }
-          </Dropdown>
-
-          <AssetZoomControl
-            value={assetCardWidth}
-            onChange={setZoom}
-            className="shrink-0"
-          />
-        </div>
-      </div>
-
-      {/* selection toolbar — only while something is selected, so it stops
-          costing a permanent row for a count nobody was reading */}
-      {selectedIds.length > 0 && (
-        <div className="flex min-w-0 flex-wrap items-center gap-2 border-b border-line bg-ink-800/60 px-4 py-2">
-          <button
-            onClick={() => (allSelected ? clearSelection() : selectAll(itemIds))}
-            className="flex items-center gap-2 text-sm text-white/70 transition hover:text-white"
-          >
-            <span
-              className={cn(
-                "grid h-4 w-4 place-items-center rounded border transition",
-                allSelected
-                  ? "border-brand bg-brand text-ink-900"
-                  : "border-white/40 text-transparent"
+                  <X className="h-3 w-3" />
+                </button>
               )}
-            >
-              <Check className="h-3 w-3" strokeWidth={3} />
-            </span>
-            {allSelected ? "Deselect all" : "Select all"}
-          </button>
+              {refreshing && (
+                <Loader2 className="pointer-events-none absolute right-7 top-1/2 h-3 w-3 -translate-y-1/2 animate-spin text-white/30" />
+              )}
+            </div>
 
-          <span className="text-sm text-white/45">{selectedIds.length} selected</span>
-
-          <button
-            onClick={downloadSelectedZip}
-            disabled={!selectedExportableIds.length || isDownloadingZip}
-            className="flex items-center gap-2 rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
-            title={
-              selectedExportableIds.length
-                ? `Download ${selectedExportableIds.length} selected items as a ZIP (filenames frozen at queue time)`
-                : "Select at least one item to download as a ZIP"
-            }
-          >
-            {isDownloadingZip ? (
-              "Preparing ZIP…"
-            ) : (
-              <>
-                <Download className="h-3.5 w-3.5" /> Download ZIP
-              </>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMoveModalOpen(true)}
-            className="flex items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30"
-            title="Move selected items to any folder or project"
-          >
-            <Move className="h-3.5 w-3.5" /> Move
-          </button>
-
-          <Dropdown
-            align="right"
-            trigger={(open) => (
-              <span
-                className={cn(
-                  "flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-full bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand transition hover:bg-brand/30",
-                  open && "bg-brand/30"
+            {/* Type Filter & View Controls */}
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Type Filter Dropdown */}
+              <Dropdown
+                align="right"
+                label="Filter by type"
+                trigger={(open) => (
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
+                      open && "border-brand/40 text-white"
+                    )}
+                  >
+                    <span>{kindLabel}</span>
+                    <ChevronDown
+                      className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
+                    />
+                  </button>
                 )}
               >
-                <Layers className="h-3.5 w-3.5" /> Move to project
-                <ChevronDown
-                  className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
-                />
-              </span>
-            )}
-          >
-            {(close) =>
-              projects.length === 0 ? (
-                <p className="px-2 py-1.5 text-sm text-white/45">No projects yet.</p>
-              ) : (
-                projects.map((p) => (
-                  <MenuItem
-                    key={p.id}
-                    onClick={() => {
-                      moveItemsToProject(selectedIds, p.id, null);
-                      close();
-                    }}
-                  >
-                    <Layers className="h-4 w-4 text-white/45" />
-                    <span className="flex-1 truncate">{p.name}</span>
-                  </MenuItem>
-                ))
-              )
-            }
-          </Dropdown>
+                {(close) =>
+                  ["all", "image", "video"].map((k) => (
+                    <MenuItem
+                      key={k}
+                      active={filterKind === k}
+                      onClick={() => {
+                        setFilterKind(k);
+                        close();
+                      }}
+                    >
+                      <span className="flex-1 capitalize">
+                        {k === "all" ? "All types" : k + "s"}
+                      </span>
+                      {filterKind === k && <Check className="h-3.5 w-3.5 text-brand" />}
+                    </MenuItem>
+                  ))
+                }
+              </Dropdown>
 
+              {/* View Dropdown (Thumbnail Size Slider) */}
+              <Dropdown
+                align="right"
+                label="View settings"
+                trigger={(open) => (
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
+                      open && "border-brand/40 text-white"
+                    )}
+                  >
+                    <SlidersHorizontal className="h-3 w-3" />
+                    <span>View</span>
+                    <ChevronDown
+                      className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
+                    />
+                  </button>
+                )}
+              >
+                {() => (
+                  <div className="p-2.5 space-y-2 w-48">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block">
+                      Thumbnail Size
+                    </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setZoom(assetCardWidth - 20)}
+                        disabled={assetCardWidth <= ZOOM_MIN}
+                        className="grid h-6 w-6 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20"
+                        title="Smaller"
+                      >
+                        <ZoomOut className="h-3 w-3" />
+                      </button>
+                      <input
+                        type="range"
+                        min={ZOOM_MIN}
+                        max={ZOOM_MAX}
+                        step={10}
+                        value={assetCardWidth}
+                        onChange={(e) => setZoom(Number(e.target.value))}
+                        className="h-1.5 flex-1 cursor-pointer accent-brand"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setZoom(assetCardWidth + 20)}
+                        disabled={assetCardWidth >= ZOOM_MAX}
+                        className="grid h-6 w-6 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20"
+                        title="Larger"
+                      >
+                        <ZoomIn className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </Dropdown>
+            </div>
+          </div>
+        )}
+
+        {/* ── ROW 3: OPTIONAL COMPACT FOLDER SECTION (COLLAPSED BY DEFAULT) ── */}
+        {!briefView && rightTab === "project" && activeFolderId !== UNSORTED && (
+          <ChildFolderList
+            parentId={activeFolderId}
+            projectId={activeProjectId}
+            onOpenMoveModal={(folder) => {
+              setMovingFolder(folder);
+              setMoveModalOpen(true);
+            }}
+            onOpenNewFolderModal={() =>
+              setAddingScope({
+                projectId: activeProjectId,
+                parentId: activeFolderId,
+              })
+            }
+          />
+        )}
+
+        {/* ── ROW 4: MAIN CANVAS (BRIEF OR ASSET GRID DOMINATING SCREEN) ── */}
+        <div className="flex min-h-0 flex-1 flex-col">
+          {briefView && project ? (
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <BriefEditor projectId={project.id} brief={project.brief ?? ""} />
+            </div>
+          ) : (
+            <AssetGrid
+              items={items}
+              loading={loading}
+              cardWidth={assetCardWidth}
+              empty={
+                rightTab === "favorites" ? (
+                  <EmptyState
+                    icon={<Star className="h-6 w-6 text-amber-300/70" />}
+                    title={
+                      search.trim() || filterKind !== "all"
+                        ? "No matching favourites"
+                        : "No favourites yet"
+                    }
+                    body={
+                      search.trim() || filterKind !== "all"
+                        ? "No starred item matches the current search and type filter."
+                        : "Star your best generations and they collect here, newest first."
+                    }
+                  />
+                ) : (
+                  <EmptyState
+                    icon={<HistoryIcon className="h-6 w-6" />}
+                    title={
+                      search.trim() || filterKind !== "all"
+                        ? "No matches"
+                        : "Nothing generated yet"
+                    }
+                    body={
+                      search.trim() || filterKind !== "all"
+                        ? "No generation matches the current search and type filter."
+                        : "Every image and video generated appears here."
+                    }
+                  />
+                )
+              }
+              renderItem={(item) => <MediaCard key={item.id} item={item} selectable />}
+            />
+          )}
+        </div>
+      </main>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          FLOATING ANCHORED ZIP PROGRESS TOAST (BOTTOM-RIGHT, NEVER PUSHES GRID)
+          ══════════════════════════════════════════════════════════════════════ */}
+      {activeExport && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-5 right-5 z-50 flex items-center gap-3 rounded-xl border border-line bg-ink-750/95 px-4 py-2.5 shadow-2xl backdrop-blur-xl text-xs text-white select-none animate-in fade-in slide-in-from-bottom-2 duration-200"
+        >
+          {["queued", "running"].includes(activeExport.status) && (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin text-brand" />
+              <span>
+                {activeExport.status === "queued"
+                  ? "ZIP queued…"
+                  : `Building ZIP ${activeExport.processedItems} / ${activeExport.totalItems}`}
+                {activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""}
+              </span>
+            </>
+          )}
+          {activeExport.status === "ready" && (
+            <>
+              <Check className="h-4 w-4 text-emerald-400" />
+              <span>
+                ZIP ready{activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""}
+              </span>
+              <a
+                href={`/api/history/exports/${activeExport.id}/download`}
+                className="font-semibold text-brand hover:underline"
+              >
+                Download
+              </a>
+            </>
+          )}
+          {activeExport.status === "failed" && (
+            <>
+              <AlertCircle className="h-4 w-4 text-rose-400" />
+              <span className="text-rose-300">{activeExport.error || "ZIP export failed."}</span>
+              <button
+                type="button"
+                onClick={retryExport}
+                className="font-semibold text-brand hover:underline"
+              >
+                Retry
+              </button>
+            </>
+          )}
           <button
-            onClick={clearSelection}
-            className="ml-auto grid h-7 w-7 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white"
-            aria-label="Clear selection"
+            type="button"
+            onClick={() => {
+              try {
+                localStorage.removeItem(ACTIVE_EXPORT_KEY);
+              } catch {}
+              setActiveExport(null);
+            }}
+            className="ml-1 text-white/40 hover:text-white"
+            aria-label="Dismiss export notice"
           >
-            <X className="h-4 w-4" />
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
       )}
 
-      {activeExport && (
-        <div className="flex items-center gap-2 border-b border-line bg-ink-800/60 px-4 py-2 text-xs text-white/60">
-          {["queued", "running"].includes(activeExport.status) && (
-            <><Loader2 className="h-3.5 w-3.5 animate-spin" /> {activeExport.status === "queued" ? "ZIP queued" : `Building ZIP ${activeExport.processedItems}/${activeExport.totalItems}`}{activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""} · Filenames frozen at queue time</>
-          )}
-          {activeExport.status === "ready" && (
-            <><span>ZIP ready{activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""}</span><a className="font-semibold text-brand hover:underline" href={`/api/history/exports/${activeExport.id}/download`}>Download ZIP</a></>
-          )}
-          {activeExport.status === "failed" && (
-            <><span>{activeExport.error || "ZIP export failed."}</span><button className="font-semibold text-red-300 hover:underline" onClick={retryExport}>Retry</button></>
-          )}
-        </div>
-      )}
-
-      {/* body */}
-      {rightTab === "project" ? (
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <ProjectPanel cardWidth={assetCardWidth} />
-        </div>
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <AssetGrid
-            items={items}
-            loading={loading}
-            cardWidth={assetCardWidth}
-            empty={
-              rightTab === "favorites" ? (
-                <EmptyState
-                  icon={<Star className="h-6 w-6 text-amber-300/70" />}
-                  title={
-                    search.trim() || filterKind !== "all"
-                      ? "No matching favourites"
-                      : "No favourites yet"
-                  }
-                  body={
-                    search.trim() || filterKind !== "all"
-                      ? "No starred item matches the current search and type filter."
-                      : "Star your best generations and they collect here, newest first."
-                  }
-                />
-              ) : (
-                <EmptyState
-                  icon={<History className="h-6 w-6" />}
-                  title={
-                    search.trim() || filterKind !== "all"
-                      ? "No matches"
-                      : "Nothing generated yet"
-                  }
-                  body={
-                    search.trim() || filterKind !== "all"
-                      ? "No generation matches the current search and type filter."
-                      : "Every image and video the team generates appears here."
-                  }
-                />
-              )
-            }
-            renderItem={(item) => (
-              // Same "text/itemId" drag payload ProjectPanel already uses for
-              // drag-to-folder — StudioChat's composer reads it too, so an
-              // asset dragged out of here becomes a reference there.
-              <div
-                draggable
-                onDragStart={(e) => {
-                  e.dataTransfer.setData("text/itemId", item.id);
-                  e.dataTransfer.setData("text/plain", item.url || "");
-                  e.dataTransfer.effectAllowed = "copy";
-                  useStore.getState().setDraggedItem(item);
-                }}
-                onDragEnd={() => {
-                  useStore.getState().setDraggedItem(null);
-                }}
-              >
-                <MediaCard item={item} selectable />
-              </div>
-            )}
-          />
-        </div>
-      )}
-
-      {/* Atomic Destination Picker for Bulk Moves */}
+      {/* Destination Picker Modal for Moving Assets or Folders */}
       <DestinationPickerModal
         open={moveModalOpen}
-        onClose={() => setMoveModalOpen(false)}
-        title={`Move ${selectedIds.length} ${selectedIds.length === 1 ? "item" : "items"}`}
+        onClose={() => {
+          setMoveModalOpen(false);
+          setMovingFolder(null);
+        }}
+        title={
+          movingFolder
+            ? `Move "${movingFolder.name}"`
+            : `Move ${selectedIds.length} ${selectedIds.length === 1 ? "item" : "items"}`
+        }
         onConfirm={async (destination) => {
-          await useStore.getState().moveGenerationsToDestination(selectedIds, destination);
+          if (movingFolder) {
+            await moveFolder(movingFolder.id, destination);
+          } else {
+            await moveGenerationsToDestination(selectedIds, destination);
+          }
         }}
       />
     </div>
   );
 }
 
-function ScopeCount({ n, active }) {
+function SidebarItem({ label, title, count, icon, active, onClick }) {
+  const displayTitle = title || label;
   return (
-    <span
-      className={cn(
-        "scope-tab-count shrink-0 rounded-full px-1.5 text-[11px] font-medium tabular-nums",
-        active ? "bg-white/10 text-white/60" : "text-white/35"
-      )}
-    >
-      {n > 999 ? `${Math.floor(n / 1000)}k` : n}
-    </span>
-  );
-}
-
-function TabBtn({
-  active,
-  onClick,
-  label,
-  count,
-  children,
-}
-
-) {
-  return (
-    // The active pill used to be a shared `layoutId` element that slid between
-    // tabs. With the project segment now built differently it could only cover
-    // two of the three, so selecting the project made the pill fly sideways and
-    // then vanish. A plain background per segment is both correct and one less
-    // thing that animates position.
     <button
+      type="button"
+      title={displayTitle}
+      aria-label={displayTitle}
       onClick={onClick}
-      title={label}
-      aria-label={label}
       className={cn(
-        "flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
-        active
-          ? "bg-ink-850 text-white shadow-sm"
-          : "text-white/55 hover:text-white/90"
+        "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition text-left select-none outline-none focus-visible:ring-1 focus-visible:ring-brand",
+        active ? "bg-brand/15 text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
       )}
     >
-      {children}
-      {/* Hidden by the container query when the bar is tight — the icon and
-          position still identify the tab, and the space buys back a usable
-          search field. */}
-      <span className="scope-tab-label whitespace-nowrap">{label}</span>
-      {count > 0 && <ScopeCount n={count} active={active} />}
+      <div className="flex items-center gap-2 min-w-0">
+        <span className={cn("shrink-0", active ? "text-brand" : "text-white/50")}>{icon}</span>
+        <span className="truncate">{label}</span>
+      </div>
+      {count !== undefined && count > 0 && (
+        <span
+          className={cn(
+            "text-[10px] tabular-nums shrink-0",
+            active ? "text-brand/90" : "text-white/40"
+          )}
+        >
+          {count > 999 ? `${Math.floor(count / 1000)}k` : count}
+        </span>
+      )}
     </button>
-  );
-}
-
-function Pill({ open, children }) {
-  return (
-    <span
-      className={cn(
-        "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/75 transition-colors hover:text-white",
-        open && "border-brand/40 text-white"
-      )}
-    >
-      {children}
-    </span>
-  );
-}
-
-function AssetZoomControl({
-  value,
-  onChange,
-  className,
-}
-
-) {
-  return (
-    <div
-      className={cn(
-        "flex shrink-0 items-center gap-1 rounded-lg border border-line bg-ink-800 p-1",
-        className
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => onChange(value - 20)}
-        disabled={value <= ZOOM_MIN}
-        className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
-        aria-label="Zoom assets out"
-        title="Smaller assets"
-      >
-        <ZoomOut className="h-3.5 w-3.5" />
-      </button>
-      <input
-        type="range"
-        min={ZOOM_MIN}
-        max={ZOOM_MAX}
-        step={10}
-        value={value}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="scope-zoom-slider h-1.5 w-20 cursor-pointer accent-white"
-        aria-label="Asset thumbnail size"
-        title={`Asset size: ${value}px`}
-      />
-      <button
-        type="button"
-        onClick={() => onChange(value + 20)}
-        disabled={value >= ZOOM_MAX}
-        className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white disabled:opacity-25"
-        aria-label="Zoom assets in"
-        title="Larger assets"
-      >
-        <ZoomIn className="h-3.5 w-3.5" />
-      </button>
-    </div>
   );
 }

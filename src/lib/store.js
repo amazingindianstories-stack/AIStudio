@@ -237,6 +237,12 @@ async function apiFetch(input, init) {
   return response;
 }
 
+export const CLEAR_SELECTION_PATCH = {
+  selectedIds: [],
+  focusedAssetId: null,
+  selectionAnchorId: null,
+};
+
 export const useStore = create((set, get) => ({
   view: "studio",
 
@@ -319,6 +325,9 @@ export const useStore = create((set, get) => ({
   filterKind: "all",
   selectedIds: [],
   draggedItem: null,
+  draggedAssets: [],
+  focusedAssetId: null,
+  selectionAnchorId: null,
 
   upscalerImage: null,
   upscalerParams: {
@@ -571,7 +580,11 @@ export const useStore = create((set, get) => ({
   removeAudioNote: (index) =>
     set((s) => ({ audioNotes: s.audioNotes.filter((_, i) => i !== index) })),
 
-  setRightTab: (rightTab) => set({ rightTab }),
+  setRightTab: (rightTab) =>
+    set((s) => ({
+      rightTab,
+      ...(s.rightTab !== rightTab ? CLEAR_SELECTION_PATCH : {}),
+    })),
   setActiveId: (activeId) => set({ activeId }),
   // `columns` is AssetGrid's packColumns() output (arrays of items). Stored
   // as id arrays only — DetailModal doesn't need the items themselves, and
@@ -579,9 +592,20 @@ export const useStore = create((set, get) => ({
   // `items`/the feed cache.
   setGridColumns: (columns) =>
     set({ gridColumns: columns.map((col) => col.map((item) => item.id)) }),
-  setSearch: (search) => set({ search }),
-  setFilterKind: (filterKind) => set({ filterKind }),
+  setSearch: (search) =>
+    set((s) => (s.search === search ? {} : { search, ...CLEAR_SELECTION_PATCH })),
+  setFilterKind: (filterKind) =>
+    set((s) => (s.filterKind === filterKind ? {} : { filterKind, ...CLEAR_SELECTION_PATCH })),
   setDraggedItem: (draggedItem) => set({ draggedItem }),
+  setDraggedAssets: ({ items = [], _ids = [], primaryItem = null } = {}) =>
+    set({
+      draggedAssets: items,
+      draggedItem: primaryItem || (items && items[0]) || null,
+    }),
+  clearDraggedAssets: () => set({ draggedAssets: [], draggedItem: null }),
+  setFocusedAssetId: (focusedAssetId) => set({ focusedAssetId }),
+  setSelectionAnchorId: (selectionAnchorId) => set({ selectionAnchorId }),
+  setSelectedIds: (selectedIds) => set({ selectedIds }),
   setUpscalerImage: (upscalerImage) => set({ upscalerImage }),
   setUpscalerParam: (key, value) =>
     set((s) => ({ upscalerParams: { ...s.upscalerParams, [key]: value } })),
@@ -618,6 +642,7 @@ export const useStore = create((set, get) => ({
     // Serve the cache first. Re-entering a scope is the common case (clicking
     // between folders, flipping tabs), and re-rendering identical rows behind a
     // skeleton is both slower to read and a layout jump for no information.
+    const isNewFeedScope = key !== get().feedKey;
     if (cached && !force) {
       set({
         items: cached.items,
@@ -625,6 +650,7 @@ export const useStore = create((set, get) => ({
         loading: false,
         pendingItems: [],
         feedKey: key,
+        ...(isNewFeedScope ? CLEAR_SELECTION_PATCH : {}),
       });
       if (isFeedFresh(cached)) return;
     }
@@ -632,8 +658,8 @@ export const useStore = create((set, get) => ({
     const hasSomethingToShow = Boolean(cached);
     set(
       hasSomethingToShow
-        ? { refreshing: true, feedError: null, feedKey: key }
-        : { loading: true, refreshing: false, feedError: null, items: [], pendingItems: [], feedKey: key }
+        ? { refreshing: true, feedError: null, feedKey: key, ...(isNewFeedScope ? CLEAR_SELECTION_PATCH : {}) }
+        : { loading: true, refreshing: false, feedError: null, items: [], pendingItems: [], feedKey: key, ...CLEAR_SELECTION_PATCH }
     );
 
     // Every in-flight feed request carries a sequence number; only the newest
@@ -1947,8 +1973,18 @@ export const useStore = create((set, get) => ({
   // The subscription at the bottom of this file watches these and refetches the
   // feed, counts and thread — so switching project or folder is one state write
   // here, not a fetch every caller has to remember to make.
-  setActiveProject: (id) => set({ activeProjectId: id, activeFolderId: null, projectScopeSelected: true }),
-  setActiveFolder: (id) => set({ activeFolderId: id }),
+  setActiveProject: (id) =>
+    set((s) => ({
+      activeProjectId: id,
+      activeFolderId: null,
+      projectScopeSelected: true,
+      ...(s.activeProjectId !== id ? CLEAR_SELECTION_PATCH : {}),
+    })),
+  setActiveFolder: (id) =>
+    set((s) => ({
+      activeFolderId: id,
+      ...(s.activeFolderId !== id ? CLEAR_SELECTION_PATCH : {}),
+    })),
 
   createProject: async (name) => {
     const res = await apiFetch("/api/projects", {
@@ -1958,11 +1994,12 @@ export const useStore = create((set, get) => ({
     });
     const json = await res.json();
     if (json.projects) {
-      set({
+      set((s) => ({
         projects: json.projects,
-        activeProjectId: json.project?.id ?? get().activeProjectId,
+        activeProjectId: json.project?.id ?? s.activeProjectId,
         activeFolderId: null,
-      });
+        ...CLEAR_SELECTION_PATCH,
+      }));
       void get().loadLibraryTree();
     }
   },
@@ -1994,6 +2031,7 @@ export const useStore = create((set, get) => ({
         activeProjectId:
           s.activeProjectId === id ? projects[0]?.id ?? null : s.activeProjectId,
         activeFolderId: s.activeProjectId === id ? null : s.activeFolderId,
+        ...(s.activeProjectId === id ? CLEAR_SELECTION_PATCH : {}),
       }));
       // Items got orphaned server-side. That is a membership change across
       // every project-scoped view at once, so refetch rather than trying to
@@ -2078,6 +2116,23 @@ export const useStore = create((set, get) => ({
       const err = await res.json().catch(() => ({}));
       if (err.code === "VERSION_CONFLICT") await get().loadLibraryTree();
       throw Object.assign(new Error(err.error || "Failed to rename folder"), { code: err.code });
+    }
+    await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
+  },
+
+  setFolderColor: async (folderId, color, customIdempotencyKey) => {
+    let idempotencyKey = customIdempotencyKey;
+    if (!idempotencyKey) {
+      idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    }
+    const res = await apiFetch("/api/folders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: folderId, color, idempotencyKey }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(err.error || "Failed to set folder color"), { code: err.code });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
   },
@@ -2213,14 +2268,44 @@ export const useStore = create((set, get) => ({
     return get().moveGenerationsToDestination([itemId], destination);
   },
 
+  singleSelect: (id) =>
+    set({
+      selectedIds: [id],
+      focusedAssetId: id,
+      selectionAnchorId: id,
+    }),
+
   toggleSelect: (id) =>
     set((s) => ({
       selectedIds: s.selectedIds.includes(id)
         ? s.selectedIds.filter((x) => x !== id)
         : [...s.selectedIds, id],
+      focusedAssetId: id,
+      selectionAnchorId: id,
     })),
+
+  selectRange: (targetId, allIds = []) =>
+    set((s) => {
+      if (!allIds || allIds.length === 0) {
+        return { selectedIds: [targetId], focusedAssetId: targetId, selectionAnchorId: targetId };
+      }
+      const anchor = s.selectionAnchorId && allIds.includes(s.selectionAnchorId) ? s.selectionAnchorId : targetId;
+      const anchorIdx = allIds.indexOf(anchor);
+      const targetIdx = allIds.indexOf(targetId);
+      if (anchorIdx === -1 || targetIdx === -1) {
+        return { selectedIds: [targetId], focusedAssetId: targetId, selectionAnchorId: targetId };
+      }
+      const start = Math.min(anchorIdx, targetIdx);
+      const end = Math.max(anchorIdx, targetIdx);
+      const rangeIds = allIds.slice(start, end + 1);
+      return {
+        selectedIds: rangeIds,
+        focusedAssetId: targetId,
+      };
+    }),
+
   selectAll: (ids) => set({ selectedIds: ids }),
-  clearSelection: () => set({ selectedIds: [] }),
+  clearSelection: () => set({ selectedIds: [], focusedAssetId: null, selectionAnchorId: null }),
 
   moveItemsToProject: async (ids, projectId, folderId = null) => {
     if (!ids?.length) return;
@@ -2837,13 +2922,18 @@ if (typeof window !== "undefined") {
   useStore.subscribe((s, prev) => {
     const projectChanged = s.activeProjectId !== prev.activeProjectId;
     const searchChanged = s.search !== prev.search;
-    const scopeChanged =
+    const effectiveScopeChanged =
       projectChanged ||
       searchChanged ||
       s.rightTab !== prev.rightTab ||
-      s.rightPanelOpen !== prev.rightPanelOpen ||
       s.activeFolderId !== prev.activeFolderId ||
       s.filterKind !== prev.filterKind;
+
+    if (effectiveScopeChanged && (s.selectedIds.length > 0 || s.focusedAssetId !== null || s.selectionAnchorId !== null)) {
+      useStore.setState(CLEAR_SELECTION_PATCH);
+    }
+
+    const scopeChanged = effectiveScopeChanged || s.rightPanelOpen !== prev.rightPanelOpen;
     if (!scopeChanged) return;
 
     const key = scopeKey(currentScope(s));
@@ -2943,4 +3033,5 @@ if (typeof window !== "undefined") {
       } catch {}
     }
   });
+  window.useStore = useStore;
 }

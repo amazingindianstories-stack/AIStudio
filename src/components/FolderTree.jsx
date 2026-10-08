@@ -16,6 +16,17 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
+import {
+  getAssetDragData,
+  setFolderDragData,
+  getFolderDragData,
+  clearFolderDragData,
+  isFolderDescendant,
+} from "@/lib/asset-drag-contract";
+import {
+  getFolderColorClass,
+  FOLDER_COLOR_OPTIONS,
+} from "@/lib/folder-colors";
 
 export function FolderTree({
   folders = [],
@@ -28,11 +39,14 @@ export function FolderTree({
 }) {
   const [expanded, setExpanded] = useState({});
   const [dragOverId, setDragOverId] = useState(null);
+  const [dragOverValid, setDragOverValid] = useState(true);
+  const dragCounterMap = useRef(new Map());
   const [renamingFolderId, setRenamingFolderId] = useState(null);
   const renameFolder = useStore((s) => s.renameFolder);
   const deleteFolder = useStore((s) => s.deleteFolder);
-  const moveItem = useStore((s) => s.moveItem);
   const moveFolder = useStore((s) => s.moveFolder);
+  const setFolderColor = useStore((s) => s.setFolderColor);
+  const moveGenerationsToDestination = useStore((s) => s.moveGenerationsToDestination);
 
   const treeId = useId();
   const treeRef = useRef(null);
@@ -55,35 +69,69 @@ export function FolderTree({
     setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleDrop = (targetFolderId) => (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDragOverId(null);
-
-    const itemId = e.dataTransfer.getData("text/itemId");
-    const draggedFolderId = e.dataTransfer.getData("text/folderId");
-
-    if (itemId) {
-      moveItem(itemId, { type: "folder", folderId: targetFolderId, projectId }).catch((err) => {
-        alert(err.message || "Failed to move item.");
-      });
-    } else if (draggedFolderId && draggedFolderId !== targetFolderId) {
-      moveFolder(draggedFolderId, { type: "folder", folderId: targetFolderId }).catch((err) => {
-        alert(err.message || "Failed to move folder.");
-      });
+  const isDropTargetValid = (targetFolderId, e) => {
+    const draggedFolderId = getFolderDragData(e);
+    if (draggedFolderId) {
+      if (draggedFolderId === targetFolderId) return false;
+      if (isFolderDescendant(folders, draggedFolderId, targetFolderId)) return false;
     }
+    return true;
+  };
+
+  const handleDragEnter = (id) => (e) => {
+    dragCounterMap.current.set(id, (dragCounterMap.current.get(id) || 0) + 1);
+    const valid = isDropTargetValid(id, e);
+    setDragOverId(id);
+    setDragOverValid(valid);
   };
 
   const handleDragOver = (id) => (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setDragOverId(id);
+    const valid = isDropTargetValid(id, e);
+    e.dataTransfer.dropEffect = valid ? "move" : "none";
+    if (dragOverId !== id) setDragOverId(id);
+    if (dragOverValid !== valid) setDragOverValid(valid);
   };
 
   const handleDragLeave = (id) => (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (dragOverId === id) setDragOverId(null);
+    const count = Math.max(0, (dragCounterMap.current.get(id) || 0) - 1);
+    dragCounterMap.current.set(id, count);
+    if (count === 0 && dragOverId === id) {
+      setDragOverId(null);
+      setDragOverValid(true);
+    }
+  };
+
+  const handleDrop = (targetFolderId) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterMap.current.clear();
+    setDragOverId(null);
+    setDragOverValid(true);
+
+    const assetPayload = getAssetDragData(e, useStore.getState());
+    const draggedFolderId = getFolderDragData(e);
+
+    if (assetPayload.ids.length > 0) {
+      moveGenerationsToDestination(assetPayload.ids, {
+        type: "folder",
+        folderId: targetFolderId,
+        projectId,
+      }).catch((err) => {
+        alert(err.message || "Failed to move items.");
+      });
+    } else if (draggedFolderId && draggedFolderId !== targetFolderId) {
+      if (isFolderDescendant(folders, draggedFolderId, targetFolderId)) {
+        alert("Cannot move a folder into its own subfolder.");
+        return;
+      }
+      moveFolder(draggedFolderId, { type: "folder", folderId: targetFolderId }).catch((err) => {
+        alert(err.message || "Failed to move folder.");
+      });
+    }
   };
 
   // Keyboard navigation for accessible tree
@@ -142,9 +190,12 @@ export function FolderTree({
           onKeyDown={(e) => onKeyDown(folder, hasChildren, isExpanded, e)}
           draggable={!isEditing}
           onDragStart={(e) => {
-            e.dataTransfer.setData("text/folderId", folder.id);
-            e.dataTransfer.effectAllowed = "move";
+            setFolderDragData(e.dataTransfer, folder.id, folder.name);
           }}
+          onDragEnd={() => {
+            clearFolderDragData();
+          }}
+          onDragEnter={handleDragEnter(folder.id)}
           onDragOver={handleDragOver(folder.id)}
           onDragLeave={handleDragLeave(folder.id)}
           onDrop={handleDrop(folder.id)}
@@ -155,7 +206,10 @@ export function FolderTree({
             isSelected
               ? "bg-brand/20 font-medium text-white"
               : "text-white/70 hover:bg-white/5 hover:text-white",
-            isDragOver && "bg-brand/30 ring-1 ring-brand"
+            isDragOver &&
+              (dragOverValid
+                ? "bg-brand/30 ring-1 ring-brand text-brand"
+                : "bg-red-500/25 ring-1 ring-red-500/60 text-red-300 cursor-not-allowed")
           )}
         >
           {/* Chevron expand/collapse */}
@@ -180,15 +234,15 @@ export function FolderTree({
           {isExpanded ? (
             <FolderOpen
               className={cn(
-                "h-3.5 w-3.5 shrink-0",
-                isSelected ? "text-brand" : "text-amber-400/80"
+                "h-3.5 w-3.5 shrink-0 transition",
+                isSelected ? "text-brand" : getFolderColorClass(folder.color)
               )}
             />
           ) : (
             <FolderClosed
               className={cn(
-                "h-3.5 w-3.5 shrink-0",
-                isSelected ? "text-brand" : "text-amber-400/80"
+                "h-3.5 w-3.5 shrink-0 transition",
+                isSelected ? "text-brand" : getFolderColorClass(folder.color)
               )}
             />
           )}
@@ -234,7 +288,34 @@ export function FolderTree({
               )}
             >
               {(close) => (
-                <div className="py-1">
+                <div className="py-1 min-w-[160px]">
+                  {/* Finder-style Color Picker Palette */}
+                  <div className="px-2.5 py-1.5 border-b border-line">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block mb-1.5">
+                      Color
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {FOLDER_COLOR_OPTIONS.map((opt) => (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          title={opt.label}
+                          onClick={() => {
+                            close();
+                            setFolderColor(folder.id, opt.id === "default" ? null : opt.id);
+                          }}
+                          className={cn(
+                            "grid h-4 w-4 place-items-center rounded-full transition hover:scale-125",
+                            (folder.color || "default") === opt.id &&
+                              "ring-2 ring-white ring-offset-1 ring-offset-ink-750"
+                          )}
+                        >
+                          <span className={cn("h-2.5 w-2.5 rounded-full", opt.dotClass)} />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {onOpenNewFolderModal && (
                     <MenuItem
                       onClick={() => {

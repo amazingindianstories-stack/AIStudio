@@ -23,6 +23,7 @@ import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { GenerationStatus } from "./GenerationStatus";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
+import { setAssetDragData } from "@/lib/asset-drag-contract";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
 // under typical multi-megapixel originals while staying sharp at ~2x DPR.
@@ -208,13 +209,14 @@ function FeedBlock({ item, index }) {
         onClick={() => item.status === "succeeded" && setActiveId(item.id)}
         draggable={item.status === "succeeded" && Boolean(item.url)}
         onDragStart={(e) => {
+          setAssetDragData(e.dataTransfer, [item], item);
           e.dataTransfer.setData("text/itemId", item.id);
           e.dataTransfer.setData("text/plain", item.url || "");
           e.dataTransfer.effectAllowed = "copy";
-          useStore.getState().setDraggedItem(item);
+          useStore.getState().setDraggedAssets({ items: [item], ids: [item.id], primaryItem: item });
         }}
         onDragEnd={() => {
-          useStore.getState().setDraggedItem(null);
+          useStore.getState().clearDraggedAssets();
         }}
         // Without the cap, a 9:16 result is 177% of the column's width — around
         // 1370px tall in a ~770px column — so the thread showed a slice of the

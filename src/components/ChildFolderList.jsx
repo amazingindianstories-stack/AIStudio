@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import {
   FolderClosed,
-  FolderPlus,
+  ChevronRight,
+  ChevronDown,
   MoreVertical,
   Pencil,
   Move,
@@ -13,29 +14,77 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
+import {
+  getAssetDragData,
+  setFolderDragData,
+  getFolderDragData,
+  clearFolderDragData,
+  isFolderDescendant,
+} from "@/lib/asset-drag-contract";
+import {
+  getFolderColorClass,
+  FOLDER_COLOR_OPTIONS,
+} from "@/lib/folder-colors";
+
+const FOLDERS_EXPANDED_KEY = "veevee_folders_expanded";
 
 export function ChildFolderList({
   parentId = null,
   projectId = null,
   onOpenMoveModal,
-  onOpenNewFolderModal,
+  onOpenNewFolderModal: _onOpenNewFolderModal,
 }) {
   const libraryTree = useStore((s) => s.libraryTree);
   const counts = useStore((s) => s.counts);
   const setActiveFolder = useStore((s) => s.setActiveFolder);
   const renameFolder = useStore((s) => s.renameFolder);
   const deleteFolder = useStore((s) => s.deleteFolder);
-  const moveItem = useStore((s) => s.moveItem);
   const moveFolder = useStore((s) => s.moveFolder);
+  const setFolderColor = useStore((s) => s.setFolderColor);
+  const moveGenerationsToDestination = useStore((s) => s.moveGenerationsToDestination);
 
+  const [expanded, setExpanded] = useState(false);
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
+  const [dragOverFolderValid, setDragOverFolderValid] = useState(true);
+  const dragCounterMap = useRef(new Map());
   const [renamingFolderId, setRenamingFolderId] = useState(null);
+
+  // Restore expanded state from localStorage (default collapsed)
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(FOLDERS_EXPANDED_KEY);
+      if (stored === "true") {
+        setExpanded(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleExpanded = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(FOLDERS_EXPANDED_KEY, String(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
+  // All folders across global + projects for ancestor cycle checks
+  const allTreeFolders = useMemo(() => {
+    return [
+      ...(libraryTree?.globalFolders ?? []),
+      ...(libraryTree?.projects?.flatMap((p) => p.folders ?? []) ?? []),
+    ];
+  }, [libraryTree]);
 
   // Find immediate child folders from libraryTree
   const childFolders = useMemo(() => {
     if (!libraryTree) return [];
 
-    // Helper to find a folder by ID anywhere in a tree
     function findNode(nodes, id) {
       for (const n of nodes) {
         if (n.id === id) return n;
@@ -48,7 +97,6 @@ export function ChildFolderList({
     }
 
     if (parentId) {
-      // Find the folder and return its children
       const allRoots = [
         ...(libraryTree.globalFolders ?? []),
         ...(libraryTree.projects?.flatMap((p) => p.folders ?? []) ?? []),
@@ -57,30 +105,78 @@ export function ChildFolderList({
       return node?.children ?? [];
     }
 
-    // Root level:
     if (projectId) {
       const proj = libraryTree.projects?.find((p) => p.id === projectId);
       return (proj?.folders ?? []).filter((f) => !f.parentId);
     }
 
-    // Global Root level:
     return (libraryTree.globalFolders ?? []).filter((f) => !f.parentId);
   }, [libraryTree, parentId, projectId]);
 
+  // If 0 child folders, do not render at all
+  if (!childFolders || childFolders.length === 0) {
+    return null;
+  }
+
+  const isDropTargetValid = (targetFolderId, e) => {
+    const draggedFolderId = getFolderDragData(e);
+    if (draggedFolderId) {
+      if (draggedFolderId === targetFolderId) return false;
+      if (isFolderDescendant(allTreeFolders, draggedFolderId, targetFolderId)) return false;
+    }
+    return true;
+  };
+
+  const handleDragEnter = (id) => (e) => {
+    dragCounterMap.current.set(id, (dragCounterMap.current.get(id) || 0) + 1);
+    const valid = isDropTargetValid(id, e);
+    setDragOverFolderId(id);
+    setDragOverFolderValid(valid);
+  };
+
+  const handleDragOver = (id) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const valid = isDropTargetValid(id, e);
+    e.dataTransfer.dropEffect = valid ? "move" : "none";
+    if (dragOverFolderId !== id) setDragOverFolderId(id);
+    if (dragOverFolderValid !== valid) setDragOverFolderValid(valid);
+  };
+
+  const handleDragLeave = (id) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const count = Math.max(0, (dragCounterMap.current.get(id) || 0) - 1);
+    dragCounterMap.current.set(id, count);
+    if (count === 0 && dragOverFolderId === id) {
+      setDragOverFolderId(null);
+      setDragOverFolderValid(true);
+    }
+  };
 
   const handleDropOnFolder = (targetFolderId) => (e) => {
     e.preventDefault();
     e.stopPropagation();
+    dragCounterMap.current.clear();
     setDragOverFolderId(null);
+    setDragOverFolderValid(true);
 
-    const itemId = e.dataTransfer.getData("text/itemId");
-    const draggedFolderId = e.dataTransfer.getData("text/folderId");
+    const assetPayload = getAssetDragData(e, useStore.getState());
+    const draggedFolderId = getFolderDragData(e);
 
-    if (itemId) {
-      moveItem(itemId, { type: "folder", folderId: targetFolderId }).catch((err) => {
-        alert(err.message || "Failed to move item.");
+    if (assetPayload.ids.length > 0) {
+      moveGenerationsToDestination(assetPayload.ids, {
+        type: "folder",
+        folderId: targetFolderId,
+        ...(projectId ? { projectId } : {}),
+      }).catch((err) => {
+        alert(err.message || "Failed to move items.");
       });
     } else if (draggedFolderId && draggedFolderId !== targetFolderId) {
+      if (isFolderDescendant(allTreeFolders, draggedFolderId, targetFolderId)) {
+        alert("Cannot move a folder into its own subfolder.");
+        return;
+      }
       moveFolder(draggedFolderId, { type: "folder", folderId: targetFolderId }).catch((err) => {
         alert(err.message || "Failed to move folder.");
       });
@@ -95,79 +191,136 @@ export function ChildFolderList({
   };
 
   return (
-    <div data-testid="child-folder-list" className="border-b border-line bg-ink-850/60 p-4">
-      <div className="mb-2.5 flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-white/40">
-          Folders ({childFolders.length})
-        </span>
-        {onOpenNewFolderModal && (
-          <button
-            type="button"
-            onClick={onOpenNewFolderModal}
-            className="flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-white/50 hover:bg-white/10 hover:text-white transition"
-          >
-            <FolderPlus className="h-3 w-3" />
-            <span>New</span>
-          </button>
+    <div className="border-b border-line bg-ink-900/60 select-none">
+      {/* Collapsible Section Header (approx 32-36px high) */}
+      <button
+        type="button"
+        onClick={toggleExpanded}
+        aria-expanded={expanded}
+        className="flex h-8 w-full items-center gap-1.5 px-4 text-xs font-medium text-white/60 transition hover:bg-white/5 hover:text-white"
+      >
+        {expanded ? (
+          <ChevronDown className="h-3.5 w-3.5 text-white/50" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 text-white/50" />
         )}
-      </div>
+        <span className="text-white/80">Folders</span>
+        <span className="rounded-full bg-white/10 px-1.5 py-0.2 text-[10px] tabular-nums text-white/60">
+          {childFolders.length}
+        </span>
+      </button>
 
-      {/* Grid of child folder cards */}
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-2.5">
-        {childFolders.map((folder) => {
-          const count = getFolderCount(folder.id);
-          const isDragOver = dragOverFolderId === folder.id;
+      {/* Expanded Compact Folder Tiles */}
+      {expanded && (
+        <div
+          data-testid="child-folder-list"
+          className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3 pt-1 border-t border-line/40"
+        >
+          {childFolders.map((folder) => {
+            const count = getFolderCount(folder.id);
+            const isDragOver = dragOverFolderId === folder.id;
+            const glyphColorClass = getFolderColorClass(folder.color);
 
-          return (
-            <div
-              key={folder.id}
-              draggable={renamingFolderId !== folder.id}
-              onDragStart={(e) => {
-                e.dataTransfer.setData("text/folderId", folder.id);
-                e.dataTransfer.effectAllowed = "move";
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOverFolderId(folder.id);
-              }}
-              onDragLeave={() => setDragOverFolderId(null)}
-              onDrop={handleDropOnFolder(folder.id)}
-              onClick={() => setActiveFolder(folder.id)}
-              className={cn(
-                "group relative flex flex-col justify-between rounded-xl border border-line bg-ink-800/80 p-3 transition hover:border-white/20 hover:bg-ink-750 cursor-pointer select-none",
-                isDragOver && "border-brand bg-brand/10 ring-1 ring-brand"
-              )}
-            >
-              <div className="flex items-start justify-between gap-1">
-                <FolderClosed className="h-5 w-5 text-amber-400/90 group-hover:text-amber-300 transition shrink-0" />
-                <div onClick={(e) => e.stopPropagation()}>
+            return (
+              <div
+                key={folder.id}
+                draggable={renamingFolderId !== folder.id}
+                onDragStart={(e) => {
+                  setFolderDragData(e.dataTransfer, folder.id, folder.name);
+                }}
+                onDragEnd={() => {
+                  clearFolderDragData();
+                }}
+                onDragEnter={handleDragEnter(folder.id)}
+                onDragOver={handleDragOver(folder.id)}
+                onDragLeave={handleDragLeave(folder.id)}
+                onDrop={handleDropOnFolder(folder.id)}
+                onClick={() => setActiveFolder(folder.id)}
+                className={cn(
+                  "group relative flex h-11 items-center gap-2 rounded-lg border border-line bg-ink-800/80 px-2.5 py-1.5 transition hover:border-white/20 hover:bg-ink-750 cursor-pointer select-none min-w-0",
+                  isDragOver &&
+                    (dragOverFolderValid
+                      ? "border-brand bg-brand/10 ring-1 ring-brand text-brand"
+                      : "border-red-500/80 bg-red-500/10 text-red-300 ring-1 ring-red-500/40 cursor-not-allowed")
+                )}
+              >
+                {/* Folder icon with custom color token */}
+                <FolderClosed className={cn("h-4 w-4 shrink-0 transition", glyphColorClass)} />
+
+                {/* Name & Count */}
+                <div className="flex-1 min-w-0">
+                  {renamingFolderId === folder.id ? (
+                    <InlineFolderNameEditor
+                      initialName={folder.name}
+                      label="Rename folder"
+                      onCommit={(name) => renameFolder(folder.projectId, folder.id, name)}
+                      onClose={() => setRenamingFolderId(null)}
+                    />
+                  ) : (
+                    <p className="truncate text-xs font-medium text-white/90 group-hover:text-white leading-tight">
+                      {folder.name}
+                    </p>
+                  )}
+                  <p className="text-[10px] text-white/40 tabular-nums leading-tight">
+                    {count} {count === 1 ? "asset" : "assets"}
+                  </p>
+                </div>
+
+                {/* Hover Context Menu */}
+                <div onClick={(e) => e.stopPropagation()} className="shrink-0">
                   <Dropdown
                     label={`Card folder actions: ${folder.name}`}
                     align="right"
                     trigger={(open) => (
                       <span
                         className={cn(
-                          "grid h-6 w-6 place-items-center rounded-md text-white/40 opacity-0 group-hover:opacity-100 transition hover:bg-white/10 hover:text-white",
+                          "grid h-5 w-5 place-items-center rounded text-white/40 opacity-0 group-hover:opacity-100 transition hover:bg-white/10 hover:text-white",
                           open && "opacity-100 bg-white/10 text-white"
                         )}
                       >
-                        <MoreVertical className="h-3.5 w-3.5" />
+                        <MoreVertical className="h-3 w-3" />
                       </span>
                     )}
                   >
                     {(close) => (
-                      <div className="py-1">
+                      <div className="py-1 min-w-[160px]">
+                        {/* Finder-style Color Picker Palette */}
+                        <div className="px-2.5 py-1.5 border-b border-line">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block mb-1.5">
+                            Color
+                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {FOLDER_COLOR_OPTIONS.map((opt) => (
+                              <button
+                                key={opt.id}
+                                type="button"
+                                title={opt.label}
+                                onClick={() => {
+                                  close();
+                                  setFolderColor(folder.id, opt.id === "default" ? null : opt.id);
+                                }}
+                                className={cn(
+                                  "grid h-4 w-4 place-items-center rounded-full transition hover:scale-125",
+                                  (folder.color || "default") === opt.id &&
+                                    "ring-2 ring-white ring-offset-1 ring-offset-ink-750"
+                                )}
+                              >
+                                <span className={cn("h-2.5 w-2.5 rounded-full", opt.dotClass)} />
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
                         <MenuItem
                           onClick={() => {
                             close({ restoreFocus: false });
                             setRenamingFolderId(folder.id);
-
-
                           }}
                         >
                           <Pencil className="h-3.5 w-3.5 text-white/50" />
                           <span>Rename</span>
                         </MenuItem>
+
                         {onOpenMoveModal && (
                           <MenuItem
                             onClick={() => {
@@ -179,11 +332,17 @@ export function ChildFolderList({
                             <span>Move...</span>
                           </MenuItem>
                         )}
+
                         <div className="my-1 h-px bg-line" />
+
                         <MenuItem
                           onClick={() => {
                             close();
-                            if (window.confirm(`Delete folder "${folder.name}"? Only empty folders can be deleted.`)) {
+                            if (
+                              window.confirm(
+                                `Delete folder "${folder.name}"? Only empty folders can be deleted.`
+                              )
+                            ) {
                               deleteFolder(folder.projectId, folder.id).catch((err) => {
                                 alert(err.message || "Failed to delete folder.");
                               });
@@ -199,29 +358,10 @@ export function ChildFolderList({
                   </Dropdown>
                 </div>
               </div>
-
-              <div className="mt-2 min-w-0">
-                {renamingFolderId === folder.id ? (
-                  <InlineFolderNameEditor
-                    initialName={folder.name}
-                    label="Rename folder"
-                    onCommit={(name) => renameFolder(folder.projectId, folder.id, name)}
-                    onClose={() => setRenamingFolderId(null)}
-                  />
-                ) : (
-                  <p className="truncate text-xs font-semibold text-white/90 group-hover:text-white">
-                    {folder.name}
-                  </p>
-                )}
-                <p className="mt-0.5 text-[11px] text-white/40">
-                  {count} {count === 1 ? "asset" : "assets"}
-                  {folder.children?.length > 0 && ` · ${folder.children.length} sub`}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

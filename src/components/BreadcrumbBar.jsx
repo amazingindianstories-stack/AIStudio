@@ -17,6 +17,8 @@ import { apiFetch } from "@/lib/api";
 import { UNSORTED } from "@/lib/feed-scope";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
+import { getFolderColorClass, FOLDER_COLOR_OPTIONS } from "@/lib/folder-colors";
+import { cn } from "@/lib/utils";
 
 export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   const activeProjectId = useStore((s) => s.activeProjectId);
@@ -27,6 +29,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   const setActiveFolder = useStore((s) => s.setActiveFolder);
   const renameFolder = useStore((s) => s.renameFolder);
   const deleteFolder = useStore((s) => s.deleteFolder);
+  const setFolderColor = useStore((s) => s.setFolderColor);
 
   const [ancestry, setAncestry] = useState([]);
   const [, setLoadingAncestry] = useState(false);
@@ -156,7 +159,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
                   />
                 ) : (
                   <div className="flex items-center gap-1 rounded-md bg-white/5 px-2 py-1 font-semibold text-white">
-                    <FolderClosed className="h-3.5 w-3.5 text-amber-400/90" />
+                    <FolderClosed className={cn("h-3.5 w-3.5", getFolderColorClass(crumb.color))} />
                     <span className="truncate max-w-[160px]">{crumb.name}</span>
                   </div>
                 )
@@ -166,7 +169,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
                   onClick={() => setActiveFolder(crumb.id)}
                   className="flex items-center gap-1 rounded-md px-1.5 py-1 text-white/60 transition hover:bg-white/10 hover:text-white"
                 >
-                  <FolderClosed className="h-3.5 w-3.5 text-white/40" />
+                  <FolderClosed className={cn("h-3.5 w-3.5", getFolderColorClass(crumb.color))} />
                   <span className="truncate max-w-[140px]">{crumb.name}</span>
                 </button>
               )}
@@ -205,7 +208,34 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
             )}
           >
             {(close) => (
-              <div className="py-1">
+              <div className="py-1 min-w-[160px]">
+                {/* Finder-style Color Picker Palette */}
+                <div className="px-2.5 py-1.5 border-b border-line">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block mb-1.5">
+                    Color
+                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {FOLDER_COLOR_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        title={opt.label}
+                        onClick={() => {
+                          close();
+                          setFolderColor(currentFolder.id, opt.id === "default" ? null : opt.id);
+                        }}
+                        className={cn(
+                          "grid h-4 w-4 place-items-center rounded-full transition hover:scale-125",
+                          (currentFolder.color || "default") === opt.id &&
+                            "ring-2 ring-white ring-offset-1 ring-offset-ink-750"
+                        )}
+                      >
+                        <span className={cn("h-2.5 w-2.5 rounded-full", opt.dotClass)} />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <MenuItem
                   onClick={() => {
                     close({ restoreFocus: false });

@@ -11,8 +11,6 @@ import {
   Trash2,
   Search as SearchIcon,
   Loader2,
-  Plus,
-  ChevronDown,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
@@ -24,8 +22,12 @@ import { FolderTree } from "./FolderTree";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { ChildFolderList } from "./ChildFolderList";
 import { DestinationPickerModal } from "./DestinationPickerModal";
-import { Dropdown, MenuItem } from "./Dropdown";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
+import {
+  getAssetDragData,
+  getFolderDragData,
+  isFolderDragEvent,
+} from "@/lib/asset-drag-contract";
 
 export function ProjectPanel({ cardWidth = 160 }) {
   const projects = useStore((s) => s.projects);
@@ -39,14 +41,17 @@ export function ProjectPanel({ cardWidth = 160 }) {
   const filterKind = useStore((s) => s.filterKind);
   const setActiveProject = useStore((s) => s.setActiveProject);
   const setActiveFolder = useStore((s) => s.setActiveFolder);
-  const createProject = useStore((s) => s.createProject);
+  const renameProject = useStore((s) => s.renameProject);
+  const deleteProject = useStore((s) => s.deleteProject);
   const createFolder = useStore((s) => s.createFolder);
-  const moveItem = useStore((s) => s.moveItem);
   const moveFolder = useStore((s) => s.moveFolder);
+  const moveGenerationsToDestination = useStore((s) => s.moveGenerationsToDestination);
 
   const [briefView, setBriefView] = useState(false);
   const [addingScope, setAddingScope] = useState(null); // { projectId, parentId } or null
   const [dragOverRoot, setDragOverRoot] = useState(null);
+  const [dragOverValid, setDragOverValid] = useState(true);
+  const rootCounterMap = useRef(new Map());
 
   // Move Modal State
   const [moveModalOpen, setMoveModalOpen] = useState(false);
@@ -73,17 +78,66 @@ export function ProjectPanel({ cardWidth = 160 }) {
     />
   );
 
-  const handleDropOnRoot = (dest) => (e) => {
+  const isRootDropValid = (dest, e) => {
+    const isFolder = isFolderDragEvent(e) || Boolean(getFolderDragData(e));
+    if (isFolder) {
+      if (dest.type === "global_unsorted" || dest.type === "project_unsorted") {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const handleDragEnterRoot = (key, dest) => (e) => {
+    rootCounterMap.current.set(key, (rootCounterMap.current.get(key) || 0) + 1);
+    const valid = isRootDropValid(dest, e);
+    setDragOverRoot(key);
+    setDragOverValid(valid);
+  };
+
+  const handleDragOverRoot = (key, dest) => (e) => {
     e.preventDefault();
     e.stopPropagation();
-    setDragOverRoot(null);
-    const itemId = e.dataTransfer.getData("text/itemId");
-    const folderId = e.dataTransfer.getData("text/folderId");
+    const valid = isRootDropValid(dest, e);
+    e.dataTransfer.dropEffect = valid ? "move" : "none";
+    if (dragOverRoot !== key) setDragOverRoot(key);
+    if (dragOverValid !== valid) setDragOverValid(valid);
+  };
 
-    if (itemId) {
-      moveItem(itemId, dest).catch((err) => alert(err.message || "Failed to move item."));
+  const handleDragLeaveRoot = (key) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const count = Math.max(0, (rootCounterMap.current.get(key) || 0) - 1);
+    rootCounterMap.current.set(key, count);
+    if (count === 0 && dragOverRoot === key) {
+      setDragOverRoot(null);
+      setDragOverValid(true);
+    }
+  };
+
+  const handleDropOnRoot = (dest, _key) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    rootCounterMap.current.clear();
+    setDragOverRoot(null);
+    setDragOverValid(true);
+
+    if (!isRootDropValid(dest, e)) {
+      alert("Folders cannot be moved into Unsorted.");
+      return;
+    }
+
+    const assetPayload = getAssetDragData(e, useStore.getState());
+    const folderId = getFolderDragData(e);
+
+    if (assetPayload.ids.length > 0) {
+      moveGenerationsToDestination(assetPayload.ids, dest).catch((err) =>
+        alert(err.message || "Failed to move items.")
+      );
     } else if (folderId) {
-      moveFolder(folderId, dest).catch((err) => alert(err.message || "Failed to move folder."));
+      moveFolder(folderId, dest).catch((err) =>
+        alert(err.message || "Failed to move folder.")
+      );
     }
   };
 
@@ -161,12 +215,11 @@ export function ProjectPanel({ cardWidth = 160 }) {
               icon={<Layers className="h-4 w-4" />}
               active={!briefView && activeProjectId === null && activeFolderId === null}
               dragOver={dragOverRoot === "global_root"}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOverRoot("global_root");
-              }}
-              onDragLeave={() => setDragOverRoot(null)}
-              onDrop={handleDropOnRoot({ type: "global_root" })}
+              dragOverValid={dragOverValid}
+              onDragEnter={handleDragEnterRoot("global_root", { type: "global_root" })}
+              onDragOver={handleDragOverRoot("global_root", { type: "global_root" })}
+              onDragLeave={handleDragLeaveRoot("global_root")}
+              onDrop={handleDropOnRoot({ type: "global_root" }, "global_root")}
               onClick={() => {
                 setBriefView(false);
                 setActiveProject(null);
@@ -206,12 +259,11 @@ export function ProjectPanel({ cardWidth = 160 }) {
               icon={<Inbox className="h-4 w-4" />}
               active={!briefView && activeProjectId === null && activeFolderId === UNSORTED}
               dragOver={dragOverRoot === "global_unsorted"}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOverRoot("global_unsorted");
-              }}
-              onDragLeave={() => setDragOverRoot(null)}
-              onDrop={handleDropOnRoot({ type: "global_unsorted" })}
+              dragOverValid={dragOverValid}
+              onDragEnter={handleDragEnterRoot("global_unsorted", { type: "global_unsorted" })}
+              onDragOver={handleDragOverRoot("global_unsorted", { type: "global_unsorted" })}
+              onDragLeave={handleDragLeaveRoot("global_unsorted")}
+              onDrop={handleDropOnRoot({ type: "global_unsorted" }, "global_unsorted")}
               onClick={() => {
                 setBriefView(false);
                 setActiveProject(null);
@@ -220,159 +272,138 @@ export function ProjectPanel({ cardWidth = 160 }) {
             />
           </div>
 
-          {/* ── PROJECTS SECTION ── */}
-          <div className="border-t border-line/60 pt-3 space-y-1">
-            <div className="flex items-center justify-between px-1.5 py-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                Projects
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  const name = window.prompt("New project name");
-                  if (name?.trim()) createProject(name.trim());
-                }}
-                className="grid h-5 w-5 place-items-center rounded text-white/40 transition hover:bg-white/10 hover:text-white"
-                title="Create a project"
-                aria-label="Create a project"
-              >
-                <Plus className="h-3.5 w-3.5" />
-              </button>
-            </div>
-
-            {/* Current Active Project Picker */}
-            {projects.length > 0 && (
-              <div className="mb-2">
-                <Dropdown
-                  label="Select library project"
-                  align="left"
-                  trigger={(_open) => (
-                    <div
-                      className={cn(
-                        "flex items-center justify-between rounded-lg border border-line/60 bg-ink-800/80 px-2 py-1.5 text-xs text-white transition hover:bg-ink-750 cursor-pointer",
-                        project && activeProjectId && "border-brand/40 text-brand font-medium"
-                      )}
-                    >
-                      <span className="truncate">{project ? project.name : "Select project..."}</span>
-                      <ChevronDown className="h-3 w-3 shrink-0 text-white/40" />
-                    </div>
-                  )}
+          {/* ── ACTIVE PROJECT WORKSPACE SECTION ── */}
+          {project ? (
+            <div className="border-t border-line/60 pt-3 space-y-1">
+              <div className="flex items-center justify-between px-1.5 py-1">
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-wider text-white/40 truncate max-w-[8.5rem]"
+                  title={`Active Project: ${project.name}`}
                 >
-                  {(close) => (
-                    <div className="py-1">
-                      {projects.map((p) => (
-                        <MenuItem
-                          key={p.id}
-                          active={p.id === activeProjectId}
-                          onClick={() => {
-                            setActiveProject(p.id);
-                            close();
-                          }}
-                        >
-                          <Layers className="h-3.5 w-3.5 text-white/45" />
-                          <span className="truncate">{p.name}</span>
-                        </MenuItem>
-                      ))}
-                    </div>
-                  )}
-                </Dropdown>
+                  {project.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openFolderEditor({ projectId: project.id, parentId: null })}
+                  className="grid h-5 w-5 place-items-center rounded text-white/40 transition hover:bg-white/10 hover:text-white"
+                  title="New project folder"
+                  aria-label="New project folder"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                </button>
               </div>
-            )}
 
-            {/* If a project is selected, show its contents */}
-            {project && (
-              <div className="space-y-1">
-                <FolderRow
-                  label="All in project"
-                  count={counts.project?.total}
-                  icon={<Layers className="h-4 w-4" />}
-                  active={!briefView && activeProjectId === project.id && activeFolderId === null}
-                  dragOver={dragOverRoot === "project_root"}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDragOverRoot("project_root");
-                  }}
-                  onDragLeave={() => setDragOverRoot(null)}
-                  onDrop={handleDropOnRoot({ type: "project_root", projectId: project.id })}
-                  onClick={() => {
-                    setBriefView(false);
-                    setActiveProject(project.id);
-                    setActiveFolder(null);
-                  }}
-                />
+              {/* Active Project Root / All Assets */}
+              <FolderRow
+                label="All Assets"
+                count={counts.project?.total}
+                icon={<Layers className="h-4 w-4" />}
+                active={!briefView && activeFolderId === null}
+                dragOver={dragOverRoot === `project_${project.id}`}
+                dragOverValid={dragOverValid}
+                onDragEnter={handleDragEnterRoot(`project_${project.id}`, { type: "project_root", projectId: project.id })}
+                onDragOver={handleDragOverRoot(`project_${project.id}`, { type: "project_root", projectId: project.id })}
+                onDragLeave={handleDragLeaveRoot(`project_${project.id}`)}
+                onDrop={handleDropOnRoot({ type: "project_root", projectId: project.id }, `project_${project.id}`)}
+                onClick={() => {
+                  setBriefView(false);
+                  setActiveProject(project.id);
+                  setActiveFolder(null);
+                }}
+                onRename={() => {
+                  const newName = window.prompt("Rename project", project.name);
+                  if (newName?.trim() && newName.trim() !== project.name) {
+                    renameProject(project.id, newName.trim());
+                  }
+                }}
+                onDelete={() => {
+                  if (window.confirm(`Delete project "${project.name}"? Generations will be moved to Global Library.`)) {
+                    deleteProject(project.id);
+                  }
+                }}
+              />
 
-                <FolderRow
-                  label="Project brief"
-                  icon={<FileText className="h-4 w-4" />}
-                  active={briefView && activeProjectId === project.id}
-                  onClick={() => {
-                    setActiveProject(project.id);
-                    setBriefView(true);
-                  }}
-                />
+              {/* Project Brief */}
+              <FolderRow
+                label="Project brief"
+                icon={<FileText className="h-3.5 w-3.5" />}
+                active={briefView}
+                onClick={() => {
+                  setActiveProject(project.id);
+                  setBriefView(true);
+                }}
+              />
 
-                <div className="flex items-center justify-between px-1.5 pt-2 pb-0.5">
-                  <span className="text-[10px] font-medium uppercase tracking-wide text-white/35">
-                    Folders
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => openFolderEditor({ projectId: project.id, parentId: null })}
-                    className="grid h-5 w-5 place-items-center rounded text-white/45 transition hover:bg-white/10 hover:text-white"
-                    aria-label="New project folder"
-                    title="New project folder"
-                  >
-                    <FolderPlus className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                {/* Adding root project folder input */}
-                {addingScope && addingScope.projectId === project.id && addingScope.parentId === null && (
-                  folderEditor
-                )}
-
-                {/* Hierarchical Project Folders Tree */}
-                <FolderTree
-                  folders={projectFoldersTree}
-                  activeFolderId={activeProjectId === project.id ? activeFolderId : null}
-                  countsByFolder={counts.project?.byFolder ?? {}}
-                  projectId={project.id}
-                  onSelectFolder={(fId) => {
-                    setBriefView(false);
-                    setActiveProject(project.id);
-                    setActiveFolder(fId);
-                  }}
-                  onOpenMoveModal={openMoveModalForFolder}
-                  onOpenNewFolderModal={(opts) => openFolderEditor(opts)}
-                />
-
-                {/* Adding subfolder input */}
-                {addingScope && addingScope.projectId === project.id && addingScope.parentId !== null && (
-                  folderEditor
-                )}
-
-                {/* Project Unsorted */}
-                <FolderRow
-                  label="Unsorted"
-                  count={counts.project?.unsorted ?? 0}
-                  icon={<Inbox className="h-4 w-4" />}
-                  active={!briefView && activeProjectId === project.id && activeFolderId === UNSORTED}
-                  dragOver={dragOverRoot === "project_unsorted"}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDragOverRoot("project_unsorted");
-                  }}
-                  onDragLeave={() => setDragOverRoot(null)}
-                  onDrop={handleDropOnRoot({ type: "project_unsorted", projectId: project.id })}
-                  onClick={() => {
-                    setBriefView(false);
-                    setActiveProject(project.id);
-                    setActiveFolder(UNSORTED);
-                  }}
-                />
+              {/* Folders Section Subheader */}
+              <div className="flex items-center justify-between px-1.5 pt-1.5 pb-0.5">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-white/35">
+                  Folders
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openFolderEditor({ projectId: project.id, parentId: null })}
+                  className="grid h-4 w-4 place-items-center rounded text-white/45 transition hover:bg-white/10 hover:text-white"
+                  aria-label="New project folder"
+                  title="New project folder"
+                >
+                  <FolderPlus className="h-3 w-3" />
+                </button>
               </div>
-            )}
-          </div>
+
+              {/* Adding root project folder input */}
+              {addingScope && addingScope.projectId === project.id && addingScope.parentId === null && (
+                folderEditor
+              )}
+
+              {/* Hierarchical Project Folders Tree */}
+              <FolderTree
+                folders={projectFoldersTree}
+                activeFolderId={activeFolderId}
+                countsByFolder={counts.project?.byFolder ?? {}}
+                projectId={project.id}
+                onSelectFolder={(fId) => {
+                  setBriefView(false);
+                  setActiveProject(project.id);
+                  setActiveFolder(fId);
+                }}
+                onOpenMoveModal={openMoveModalForFolder}
+                onOpenNewFolderModal={(opts) => openFolderEditor(opts)}
+              />
+
+              {/* Adding subfolder input */}
+              {addingScope && addingScope.projectId === project.id && addingScope.parentId !== null && (
+                folderEditor
+              )}
+
+              {/* Project Unsorted */}
+              <FolderRow
+                label="Unsorted"
+                count={counts.project?.unsorted ?? 0}
+                icon={<Inbox className="h-3.5 w-3.5" />}
+                active={!briefView && activeFolderId === UNSORTED}
+                dragOver={dragOverRoot === "project_unsorted"}
+                dragOverValid={dragOverValid}
+                onDragEnter={handleDragEnterRoot("project_unsorted", { type: "project_unsorted", projectId: project.id })}
+                onDragOver={handleDragOverRoot("project_unsorted", { type: "project_unsorted", projectId: project.id })}
+                onDragLeave={handleDragLeaveRoot("project_unsorted")}
+                onDrop={handleDropOnRoot({ type: "project_unsorted", projectId: project.id }, "project_unsorted")}
+                onClick={() => {
+                  setBriefView(false);
+                  setActiveProject(project.id);
+                  setActiveFolder(UNSORTED);
+                }}
+              />
+            </div>
+          ) : (
+            <div className="border-t border-line/60 pt-3 px-1.5 space-y-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                Workspace
+              </span>
+              <p className="text-xs text-white/40 leading-relaxed">
+                Global Library is active. Switch to a project using the selector above to open a project workspace.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Main Content Area */}
@@ -421,20 +452,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
                   />
                 }
                 renderItem={(item) => (
-                  <div
-                    draggable
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData("text/itemId", item.id);
-                      e.dataTransfer.setData("text/plain", item.url || "");
-                      e.dataTransfer.effectAllowed = "copy";
-                      useStore.getState().setDraggedItem(item);
-                    }}
-                    onDragEnd={() => {
-                      useStore.getState().setDraggedItem(null);
-                    }}
-                  >
-                    <MediaCard item={item} selectable />
-                  </div>
+                  <MediaCard key={item.id} item={item} selectable />
                 )}
               />
             </div>
@@ -510,7 +528,9 @@ function FolderRow({
   icon,
   active,
   dragOver,
+  dragOverValid = true,
   onClick,
+  onDragEnter,
   onDragOver,
   onDragLeave,
   onDrop,
@@ -520,6 +540,7 @@ function FolderRow({
   return (
     <div
       onClick={onClick}
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -527,7 +548,10 @@ function FolderRow({
       className={cn(
         "group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition",
         active ? "bg-brand/15 text-white font-medium" : "text-white/65 hover:bg-white/5",
-        dragOver && "bg-brand/20 ring-1 ring-brand/60"
+        dragOver &&
+          (dragOverValid !== false
+            ? "bg-brand/20 ring-1 ring-brand/60 text-white font-medium"
+            : "bg-red-500/20 ring-1 ring-red-500/60 text-red-300 cursor-not-allowed")
       )}
     >
       <span className={cn("shrink-0", active ? "text-brand" : "text-white/45")}>
@@ -577,7 +601,7 @@ function FolderRow({
   );
 }
 
-function BriefEditor({ projectId, brief }) {
+export function BriefEditor({ projectId, brief }) {
   const [text, setText] = useState(brief);
   const [state, setState] = useState("idle");
   const initial = useRef(brief);

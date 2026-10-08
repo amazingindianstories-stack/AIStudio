@@ -4,6 +4,8 @@ import { middleware } from "../middleware.js";
 
 function request(sessionValue) {
   return {
+    url: "https://www.veevee.ai/api/uploads/presign",
+    method: "POST",
     nextUrl: {
       pathname: "/api/uploads/presign",
       clone() { return new URL("https://www.veevee.ai/api/uploads/presign"); },

@@ -25,6 +25,7 @@ import { encodeBlobWithBudget } from "@/lib/client-image-budget";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { PortraitLightbox } from "./PortraitLightbox";
+import { getAssetDragData, validatePortraitDrop } from "@/lib/asset-drag-contract";
 
 export function PortraitGallery() {
   const open = useStore((s) => s.portraitGalleryOpen);
@@ -48,6 +49,9 @@ export function PortraitGallery() {
 
   const fileInputRef = useRef(null);
   const [dragOver, setDragOver] = useState(false);
+  const [dragValid, setDragValid] = useState(true);
+  const [dragMessage, setDragMessage] = useState("");
+  const dragEnterCountRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [uploadCount, setUploadCount] = useState(0);
   const [syncing, setSyncing] = useState(false);
@@ -205,22 +209,76 @@ export function PortraitGallery() {
     [uploadDirect, selectedGroupId, activeProjectId]
   );
 
-  const onDrop = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-    if (e.dataTransfer?.files?.length) {
-      handleFiles(e.dataTransfer.files);
+  const onDragEnter = (e) => {
+    dragEnterCountRef.current += 1;
+    if (dragEnterCountRef.current === 1) {
+      setDragOver(true);
     }
+    const val = validatePortraitDrop(e, useStore.getState());
+    setDragValid(val.valid);
+    setDragMessage(val.reason || "");
   };
 
   const onDragOver = (e) => {
     e.preventDefault();
-    setDragOver(true);
+    const val = validatePortraitDrop(e, useStore.getState());
+    setDragValid(val.valid);
+    setDragMessage(val.reason || "");
+    e.dataTransfer.dropEffect = val.valid ? "copy" : "none";
+    if (!dragOver) setDragOver(true);
   };
 
-  const onDragLeave = (e) => {
+  const onDragLeave = (_e) => {
+    dragEnterCountRef.current = Math.max(0, dragEnterCountRef.current - 1);
+    if (dragEnterCountRef.current === 0) {
+      setDragOver(false);
+      setDragValid(true);
+      setDragMessage("");
+    }
+  };
+
+  const onDrop = async (e) => {
     e.preventDefault();
+    dragEnterCountRef.current = 0;
     setDragOver(false);
+
+    const val = validatePortraitDrop(e, useStore.getState());
+    if (!val.valid) {
+      setError(val.reason || "Portrait Gallery only accepts images.");
+      setDragValid(true);
+      setDragMessage("");
+      return;
+    }
+    setDragValid(true);
+    setDragMessage("");
+
+    if (e.dataTransfer?.files?.length) {
+      handleFiles(e.dataTransfer.files);
+      return;
+    }
+    const assetPayload = getAssetDragData(e, useStore.getState());
+    if (assetPayload.items.length > 0) {
+      const files = [];
+      for (const item of assetPayload.items) {
+        if (item.kind === "image" && item.url) {
+          try {
+            const res = await fetch(item.url);
+            const blob = await res.blob();
+            const file = new File(
+              [blob],
+              `${(item.prompt || "portrait").slice(0, 30)}.jpg`,
+              { type: blob.type || "image/jpeg" }
+            );
+            files.push(file);
+          } catch (err) {
+            console.warn("Could not load asset blob for portrait", err);
+          }
+        }
+      }
+      if (files.length > 0) {
+        handleFiles(files);
+      }
+    }
   };
 
   const startRenamingAsset = (asset, e) => {
@@ -517,13 +575,16 @@ export function PortraitGallery() {
 
                 {/* Dropzone / Upload area */}
                 <div
-                  onDrop={onDrop}
+                  onDragEnter={onDragEnter}
                   onDragOver={onDragOver}
                   onDragLeave={onDragLeave}
+                  onDrop={onDrop}
                   onClick={() => !uploading && fileInputRef.current?.click()}
                   className={`group relative flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition ${
                     dragOver
-                      ? "border-brand bg-brand/10 shadow-lg"
+                      ? dragValid
+                        ? "border-brand bg-brand/10 shadow-lg ring-1 ring-brand/40"
+                        : "border-red-500/80 bg-red-500/10 text-red-400 ring-1 ring-red-500/40 cursor-not-allowed"
                       : "border-white/15 bg-ink-800/60 hover:border-brand/50 hover:bg-ink-800"
                   }`}
                 >
@@ -553,15 +614,31 @@ export function PortraitGallery() {
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-2">
-                      <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand/10 text-brand group-hover:scale-105 transition">
-                        <Upload className="h-5 w-5" />
-                      </div>
+                      {dragOver && !dragValid ? (
+                        <div className="grid h-10 w-10 place-items-center rounded-xl bg-red-500/15 text-red-400 ring-1 ring-red-500/40">
+                          <AlertCircle className="h-5 w-5" />
+                        </div>
+                      ) : (
+                        <div className="grid h-10 w-10 place-items-center rounded-xl bg-brand/10 text-brand group-hover:scale-105 transition">
+                          <Upload className="h-5 w-5" />
+                        </div>
+                      )}
                       <div>
-                        <p className="text-sm font-medium text-white">
-                          <span className="text-brand font-semibold">Click to upload</span> or drag and drop portrait images
-                          {activeGroup ? (
-                            <span className="text-white/70"> for <strong className="text-white">{activeGroup.name}</strong></span>
-                          ) : ""}
+                        <p className={`text-sm font-medium ${dragOver && !dragValid ? "text-red-300" : "text-white"}`}>
+                          {dragOver ? (
+                            dragValid ? (
+                              dragMessage || "Drop images to add portraits"
+                            ) : (
+                              dragMessage || "Portrait Gallery only accepts images — videos cannot be added"
+                            )
+                          ) : (
+                            <>
+                              <span className="text-brand font-semibold">Click to upload</span> or drag and drop portrait images
+                              {activeGroup ? (
+                                <span className="text-white/70"> for <strong className="text-white">{activeGroup.name}</strong></span>
+                              ) : ""}
+                            </>
+                          )}
                         </p>
                         <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-white/45">
                           <span className="rounded bg-white/5 px-1.5 py-0.5 border border-white/10">PNG</span>

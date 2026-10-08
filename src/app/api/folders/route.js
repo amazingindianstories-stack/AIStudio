@@ -3,6 +3,7 @@ import { getSession } from "@/lib/auth";
 import {
   createFolder,
   renameFolder,
+  setFolderColor,
   moveFolder,
   deleteFolder,
   getFolderAncestry,
@@ -75,7 +76,7 @@ export async function POST(req) {
   }
 
   const body = await req.json().catch(() => ({}));
-  const { name, projectId, parentId } = body;
+  const { name, projectId, parentId, color } = body;
   const idempotencyKey =
     body.idempotencyKey ||
     req.headers.get("x-idempotency-key") ||
@@ -85,6 +86,7 @@ export async function POST(req) {
   try {
     const folder = await createFolder({
       name,
+      color: color ?? null,
       projectId: projectId || null,
       parentId: parentId || null,
       idempotencyKey,
@@ -108,10 +110,11 @@ export async function POST(req) {
 
 /**
  * PATCH /api/folders
- * Rename or move a folder.
+ * Rename, recolor, or move a folder.
  * Body options:
  * 1. Rename: { id: string, name: string, projectId?: string, expectedVersion?: number }
- * 2. Move: { id: string, destination: { type: 'global_root' | 'project_root' | 'folder', projectId?: string, folderId?: string }, expectedVersion?: number }
+ * 2. Recolor: { id: string, color: string | null }
+ * 3. Move: { id: string, destination: { type: 'global_root' | 'project_root' | 'folder', projectId?: string, folderId?: string }, expectedVersion?: number }
  */
 export async function PATCH(req) {
   const user = await getSession();
@@ -132,6 +135,16 @@ export async function PATCH(req) {
   }
 
   try {
+    if ("color" in body && typeof body.name !== "string" && !body.destination) {
+      const folder = await setFolderColor({
+        folderId,
+        color: body.color,
+        idempotencyKey,
+        actorId: user.id,
+      });
+      return NextResponse.json({ folder });
+    }
+
     if (typeof body.name === "string") {
       const folder = await renameFolder({
         folderId,
@@ -156,7 +169,7 @@ export async function PATCH(req) {
     }
 
     return NextResponse.json(
-      { error: "Must specify 'name' to rename or 'destination' to move." },
+      { error: "Must specify 'name' to rename, 'color' to recolor, or 'destination' to move." },
       { status: 400 }
     );
   } catch (error) {

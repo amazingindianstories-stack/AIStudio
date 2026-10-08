@@ -14,6 +14,7 @@ import {
   Loader2,
   ChevronDown,
   Info,
+  AlertCircle,
 } from "lucide-react";
 import { useStore, findItem } from "@/lib/store";
 import {
@@ -24,6 +25,7 @@ import {
 } from "@/lib/providers/magnific";
 import { cn } from "@/lib/utils";
 import { uploadContentType, uploadOriginalReference } from "@/lib/client-reference-upload";
+import { getAssetDragData, validateUpscalerDrop } from "@/lib/asset-drag-contract";
 import { Dropdown, MenuItem } from "./Dropdown";
 
 const MODELS = [
@@ -57,6 +59,9 @@ export function UpscalerComposer() {
   const generating = s.generating;
 
   const [dragging, setDragging] = useState(false);
+  const [dragValid, setDragValid] = useState(true);
+  const [dragMessage, setDragMessage] = useState("");
+  const dragEnterCountRef = useRef(0);
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
@@ -89,30 +94,76 @@ export function UpscalerComposer() {
     }
   };
 
-  const onDragOver = (e) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    setDragging(true);
+  const onDragEnter = (e) => {
+    dragEnterCountRef.current += 1;
+    if (dragEnterCountRef.current === 1) {
+      setDragging(true);
+    }
+    const val = validateUpscalerDrop(e, s);
+    setDragValid(val.valid);
+    setDragMessage(val.reason || "");
   };
 
-  const onDragLeave = (e) => {
-    if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false);
+  const onDragOver = (e) => {
+    e.preventDefault();
+    const val = validateUpscalerDrop(e, s);
+    setDragValid(val.valid);
+    setDragMessage(val.reason || "");
+    e.dataTransfer.dropEffect = val.valid ? "copy" : "none";
+    if (!dragging) setDragging(true);
+  };
+
+  const onDragLeave = (_e) => {
+    dragEnterCountRef.current = Math.max(0, dragEnterCountRef.current - 1);
+    if (dragEnterCountRef.current === 0) {
+      setDragging(false);
+      setDragValid(true);
+      setDragMessage("");
+    }
   };
 
   const onDrop = (e) => {
     e.preventDefault();
+    dragEnterCountRef.current = 0;
     setDragging(false);
+    const val = validateUpscalerDrop(e, s);
+    if (!val.valid) {
+      alert(val.reason || "Upscaler only accepts images.");
+      setDragValid(true);
+      setDragMessage("");
+      return;
+    }
+    setDragValid(true);
+    setDragMessage("");
 
     // Check for internal generation drag (from chat or library)
-    const itemId = e.dataTransfer.getData("text/itemId");
-    const item = (itemId ? findItem(s, itemId) : null) || s.draggedItem;
-    if (item && item.url) {
+    const assetPayload = getAssetDragData(e, s);
+    let itemsToProcess = [];
+    if (assetPayload.items && assetPayload.items.length > 0) {
+      itemsToProcess = [...assetPayload.items];
+    } else if (assetPayload.ids && assetPayload.ids.length > 0) {
+      itemsToProcess = assetPayload.ids
+        .map((id) => findItem(s, id))
+        .filter(Boolean);
+    } else if (s.draggedItem) {
+      itemsToProcess = [s.draggedItem];
+    }
+
+    if (itemsToProcess.length > 0) {
+      const firstItem = itemsToProcess[0];
+      if (firstItem.kind !== "image") {
+        alert("Upscaler only accepts image generations.");
+        return;
+      }
       setUpscalerImage({
-        url: item.url,
-        name: item.prompt ? item.prompt.slice(0, 50) : "Generation reference",
-        aspectRatio: item.aspectRatio,
-        item,
+        url: firstItem.url,
+        name: firstItem.prompt ? firstItem.prompt.slice(0, 50) : "Generation reference",
+        aspectRatio: firstItem.aspectRatio,
+        item: firstItem,
       });
+      if (itemsToProcess.length > 1) {
+        alert(`Upscaler only accepts 1 source image. Selected the first of ${itemsToProcess.length} dropped assets.`);
+      }
       return;
     }
 
@@ -154,6 +205,7 @@ export function UpscalerComposer() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 260, damping: 28 }}
       className="mx-auto w-full max-w-3xl rounded-2xl border border-line bg-ink-800/95 p-3.5 shadow-panel backdrop-blur-xl sm:p-5"
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -266,19 +318,48 @@ export function UpscalerComposer() {
             className={cn(
               "group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all duration-200",
               dragging
-                ? "border-brand bg-brand/10 text-brand"
+                ? dragValid
+                  ? "border-brand bg-brand/10 text-brand ring-1 ring-brand/40"
+                  : "border-red-500/80 bg-red-500/10 text-red-400 ring-1 ring-red-500/40 cursor-not-allowed"
                 : "border-line bg-ink-900/40 text-white/60 hover:border-brand/60 hover:bg-ink-900/80 hover:text-white"
             )}
           >
-            <div className="grid h-10 w-10 place-items-center rounded-full bg-white/5 ring-1 ring-line group-hover:bg-brand/20 group-hover:ring-brand/40">
-              <UploadCloud className="h-5 w-5 text-brand" />
-            </div>
+            {dragging && !dragValid ? (
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-red-500/15 ring-1 ring-red-500/40">
+                <AlertCircle className="h-5 w-5 text-red-400" />
+              </div>
+            ) : (
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-white/5 ring-1 ring-line group-hover:bg-brand/20 group-hover:ring-brand/40">
+                <UploadCloud className="h-5 w-5 text-brand" />
+              </div>
+            )}
             <div>
-              <p className="text-xs font-semibold text-white">
-                Drop an image here or <span className="text-brand underline underline-offset-2">browse</span>
+              <p
+                className={cn(
+                  "text-xs font-semibold",
+                  dragging && !dragValid ? "text-red-300" : "text-white"
+                )}
+              >
+                {dragging
+                  ? dragValid
+                    ? dragMessage || "Drop image here to upscale"
+                    : dragMessage || "Upscaler only accepts images"
+                  : (
+                    <>
+                      Drop an image here or{" "}
+                      <span className="text-brand underline underline-offset-2">browse</span>
+                    </>
+                  )}
               </p>
-              <p className="mt-1 text-[11px] text-white/40">
-                Or drag any generation directly from the chat feed or library · PNG, JPEG, WebP
+              <p
+                className={cn(
+                  "mt-1 text-[11px]",
+                  dragging && !dragValid ? "text-red-400/80" : "text-white/40"
+                )}
+              >
+                {dragging && !dragValid
+                  ? "Videos and depth maps cannot be upscaled. Select an image generation."
+                  : "Or drag any generation directly from the chat feed or library · PNG, JPEG, WebP"}
               </p>
             </div>
           </div>

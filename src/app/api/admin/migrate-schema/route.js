@@ -103,6 +103,7 @@ const HIERARCHICAL_FOLDER_STATEMENTS = [
   "ALTER TABLE folders ADD COLUMN IF NOT EXISTS name_normalized TEXT",
   "ALTER TABLE folders ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
   "ALTER TABLE folders ADD COLUMN IF NOT EXISTS updated_at BIGINT NOT NULL DEFAULT 0",
+  "ALTER TABLE folders ADD COLUMN IF NOT EXISTS color TEXT",
   "ALTER TABLE generations ADD COLUMN IF NOT EXISTS location_version INTEGER NOT NULL DEFAULT 1",
   `DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'folders'::regclass AND conname = 'folders_project_id_fkey') THEN
@@ -510,7 +511,7 @@ export async function POST(request) {
         select count(*)::int as count
         from information_schema.columns
         where table_name = 'folders'
-          and column_name in ('parent_id', 'name_normalized', 'version', 'updated_at');
+          and column_name in ('parent_id', 'name_normalized', 'version', 'updated_at', 'color');
       `);
 
       const generationNamingTablesVerification = await tx.execute(sql`
@@ -569,7 +570,7 @@ export async function POST(request) {
       };
 
       // verified: coordCount === 21
-      verified = coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 4 && namingCount === 2;
+      verified = coordCount === 21 && portCount === 2 && mediaExportCount === 2 && folderColCount === 5 && namingCount === 2;
       if (!verified) {
         throw new Error(`Verification count mismatch: ${JSON.stringify(counts)}`);
       }

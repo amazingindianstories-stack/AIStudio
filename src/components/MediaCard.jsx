@@ -26,6 +26,7 @@ import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { ProgressiveImage } from "./ProgressiveImage";
 import { GenerationStatus } from "./GenerationStatus";
+import { setAssetDragData } from "@/lib/asset-drag-contract";
 
 // Grid cards render at ~160–320 CSS px; request a modest fixed width
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
@@ -85,7 +86,17 @@ export function MediaCard({
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const selected = useStore((s) => s.selectedIds.includes(item.id));
+  const focusedAssetId = useStore((s) => s.focusedAssetId);
+  const isFocused = focusedAssetId === item.id;
+  const isRovingTabTarget = useStore((s) =>
+    s.focusedAssetId ? s.focusedAssetId === item.id : s.items[0]?.id === item.id
+  );
+  const setFocusedAssetId = useStore((s) => s.setFocusedAssetId);
+  const singleSelect = useStore((s) => s.singleSelect);
   const toggleSelect = useStore((s) => s.toggleSelect);
+  const selectRange = useStore((s) => s.selectRange);
+  const isDraggingRef = useRef(false);
+  const [isCardDragging, setIsCardDragging] = useState(false);
   const creator = useStore((s) =>
     item.userId ? s.usersById[item.userId] : undefined
   );
@@ -111,43 +122,114 @@ export function MediaCard({
   const cardRef = useRef(null);
   const nearViewport = useNearViewport(cardRef);
 
+  const handleDragStart = (e) => {
+    isDraggingRef.current = true;
+    setIsCardDragging(true);
+
+    const s = useStore.getState();
+    const selectedIds = s.selectedIds;
+    const isMulti = selectedIds.includes(item.id) && selectedIds.length > 1;
+    const dragItems = isMulti
+      ? s.items.filter((i) => selectedIds.includes(i.id))
+      : [item];
+
+    setAssetDragData(e.dataTransfer, dragItems, item);
+    s.setDraggedAssets({ items: dragItems, primaryItem: item });
+  };
+
+  const handleDragEnd = () => {
+    setIsCardDragging(false);
+    useStore.getState().clearDraggedAssets();
+    setTimeout(() => {
+      isDraggingRef.current = false;
+    }, 120);
+  };
+
+  const handleClick = (e) => {
+    if (isDraggingRef.current) return;
+
+    if (selectable) {
+      if (e.metaKey || e.ctrlKey) {
+        toggleSelect(item.id);
+      } else if (e.shiftKey) {
+        const itemIds = useStore.getState().items.map((i) => i.id);
+        selectRange(item.id, itemIds);
+      } else {
+        singleSelect(item.id);
+      }
+    } else if (done) {
+      setActiveId(item.id);
+    }
+  };
+
+  const handleDoubleClick = () => {
+    if (done) {
+      setActiveId(item.id);
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      if (done) {
+        e.preventDefault();
+        e.stopPropagation();
+        setActiveId(item.id);
+      }
+    } else if (e.key === " " && selectable) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleSelect(item.id);
+    }
+  };
+
+  const handleContextMenu = () => {
+    if (selectable && !useStore.getState().selectedIds.includes(item.id)) {
+      singleSelect(item.id);
+    }
+  };
+
   return (
     <>
-    {/* No `layout` prop, deliberately. It made every card FLIP-animate to any
-        new position, so each appended page of an infinite scroll set the entire
-        grid sliding around under the pointer. Hover lift is CSS-composited for
-        the same reason: it cannot move a neighbouring card. */}
     <motion.div
       ref={cardRef}
+      data-asset-card-id={item.id}
+      data-testid={`media-card-${item.id}`}
+      tabIndex={selectable ? (isRovingTabTarget ? 0 : -1) : undefined}
+      role={selectable ? "button" : undefined}
+      aria-selected={selectable ? selected : undefined}
+      data-selected={selected ? "true" : undefined}
+      draggable={done && Boolean(item.url)}
+      onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
+      onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
+      onKeyDown={handleKeyDown}
+      onFocus={() => {
+        if (selectable && focusedAssetId !== item.id) {
+          setFocusedAssetId(item.id);
+        }
+      }}
+      onContextMenu={handleContextMenu}
       initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.96 }}
       transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-      onClick={() => {
-        if (selectable && useStore.getState().selectedIds.length > 0) {
-          toggleSelect(item.id);
-        } else if (done) {
-          setActiveId(item.id);
-        }
-      }}
-      // `contain-intrinsic-size: auto <fallback>` — the `auto` keyword is what
-      // makes the browser remember each card's last rendered height and reuse
-      // it when the card scrolls back out of range. Without it every skipped
-      // card collapsed to a flat 200px placeholder, so the scroll container's
-      // height changed as cards entered and left the rendering window and the
-      // viewport visibly jumped. The fallback only applies before a card has
-      // ever been rendered.
       style={{ contentVisibility: "auto", containIntrinsicSize: "auto 240px" }}
       className={cn(
-        "group relative cursor-pointer overflow-hidden rounded-xl bg-ink-750 ring-1 transition duration-200 hover:-translate-y-0.5 hover:shadow-pop motion-reduce:hover:translate-y-0",
+        "group relative cursor-pointer overflow-hidden rounded-xl bg-ink-750 select-none transition duration-150",
+        "hover:-translate-y-0.5 hover:shadow-pop motion-reduce:hover:translate-y-0",
         selected
-          ? "ring-2 ring-brand"
-          : "ring-line hover:ring-lineStrong"
+          ? "ring-2 ring-brand bg-brand/10 shadow-sm"
+          : "ring-1 ring-line hover:ring-lineStrong",
+        isFocused && "outline outline-2 outline-white ring-2 ring-white/40 ring-offset-2 ring-offset-ink-900 z-20",
+        isCardDragging && "opacity-40 scale-[0.98]"
       )}
     >
       {/* selection checkbox */}
       {selectable && (
         <button
+          type="button"
+          tabIndex={-1}
           onClick={(e) => {
             e.stopPropagation();
             toggleSelect(item.id);
@@ -155,7 +237,7 @@ export function MediaCard({
           className={cn(
             "absolute left-2 top-2 z-30 grid h-6 w-6 place-items-center rounded-md border backdrop-blur-sm transition",
             selected
-              ? "border-brand bg-brand text-ink-900"
+              ? "border-brand bg-brand text-ink-900 shadow-sm"
               : "border-white/50 bg-black/40 text-transparent opacity-0 hover:border-white group-hover:opacity-100"
           )}
           aria-label={selected ? "Deselect" : "Select"}

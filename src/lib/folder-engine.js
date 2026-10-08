@@ -9,6 +9,7 @@ import {
   DEFAULT_IDEMPOTENCY_TTL_MS,
 } from "./idempotency.js";
 import { namespaceFor, reassignNamingForMove } from "./generation-naming.js";
+import { normalizeFolderColor, isValidFolderColor } from "./folder-colors.js";
 
 export { OrganizationError };
 export const IDEMPOTENCY_TTL_MS = DEFAULT_IDEMPOTENCY_TTL_MS;
@@ -182,6 +183,7 @@ export async function getDescendants(tx, rootFolderId) {
  */
 export async function createFolder({
   name,
+  color = null,
   projectId = null,
   parentId = null,
   actorId = null,
@@ -192,6 +194,10 @@ export async function createFolder({
   if (!norm.valid) {
     throw new OrganizationError("INVALID_NAME", norm.error, 400);
   }
+  if (!isValidFolderColor(color)) {
+    throw new OrganizationError("INVALID_COLOR", "Invalid folder color token.", 400);
+  }
+  const normColor = normalizeFolderColor(color);
 
   const db = tx ? null : await getDb();
   return executeWithIdempotency(
@@ -201,7 +207,7 @@ export async function createFolder({
       key: idempotencyKey,
       actorId,
       operation: "create_folder",
-      payload: { name, projectId, parentId },
+      payload: { name, color: normColor, projectId, parentId },
     },
     async (tx) => {
       let resolvedProjectId = projectId ? String(projectId) : null;
@@ -312,6 +318,7 @@ export async function createFolder({
         .values({
           name: norm.displayName,
           nameNormalized: norm.normalizedName,
+          color: normColor,
           projectId: resolvedProjectId,
           parentId: resolvedParentId,
           version: 1,
@@ -334,6 +341,7 @@ export async function createFolder({
           {
             folderId: inserted.id,
             name: inserted.name,
+            color: inserted.color ?? null,
             projectId: resolvedProjectId,
             parentId: resolvedParentId,
           },
@@ -344,6 +352,7 @@ export async function createFolder({
       return {
         id: inserted.id,
         name: inserted.name,
+        color: inserted.color ?? null,
         projectId: inserted.projectId,
         parentId: inserted.parentId,
         version: inserted.version,
@@ -512,6 +521,111 @@ export async function renameFolder({
       return {
         id: updated.id,
         name: updated.name,
+        color: updated.color ?? null,
+        projectId: updated.projectId,
+        parentId: updated.parentId,
+        version: updated.version,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      };
+    }
+  );
+}
+
+/**
+ * Updates a folder's Finder-style color tag.
+ * Valid color tokens: 'gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink', or null (default).
+ * Unified Lock Order:
+ * 1. Scope lock FIRST
+ * 2. Folder row lock FOR UPDATE SECOND
+ */
+export async function setFolderColor({
+  folderId,
+  color = null,
+  actorId = null,
+  idempotencyKey = null,
+  tx = null,
+}) {
+  if (!isValidFolderColor(color)) {
+    throw new OrganizationError("INVALID_COLOR", "Invalid folder color token.", 400);
+  }
+  const normColor = normalizeFolderColor(color);
+
+  const db = tx ? null : await getDb();
+  return executeWithIdempotency(
+    {
+      db,
+      tx,
+      key: idempotencyKey,
+      actorId,
+      operation: "set_folder_color",
+      payload: { folderId, color: normColor },
+    },
+    async (tx) => {
+      // Pre-read to discover scope
+      const [folderPeek] = await tx
+        .select({ projectId: folders.projectId })
+        .from(folders)
+        .where(eq(folders.id, folderId))
+        .limit(1);
+
+      if (!folderPeek) {
+        throw new OrganizationError("FOLDER_NOT_FOUND", "Folder not found.", 404);
+      }
+
+      // 1. Acquire scope lock FIRST
+      const scopeKey = getScopeKey(folderPeek.projectId);
+      await acquireScopeLocks(tx, scopeKey);
+
+      // 2. Lock folder row FOR UPDATE SECOND
+      const [folder] = await tx
+        .select()
+        .from(folders)
+        .where(eq(folders.id, folderId))
+        .for("update")
+        .limit(1);
+
+      if (!folder) {
+        throw new OrganizationError("FOLDER_NOT_FOUND", "Folder not found.", 404);
+      }
+
+      // Revalidate scope
+      if (getScopeKey(folder.projectId) !== scopeKey) {
+        throw new OrganizationError("SCOPE_MISMATCH", "Folder scope changed concurrently.", 409);
+      }
+
+      const now = Date.now();
+      const [updated] = await tx
+        .update(folders)
+        .set({
+          color: normColor,
+          version: sql`${folders.version} + 1`,
+          updatedAt: now,
+        })
+        .where(eq(folders.id, folderId))
+        .returning();
+
+      if (!updated) {
+        throw new OrganizationError("VERSION_CONFLICT", "Folder has been modified by another operation.", 409);
+      }
+
+      if (actorId) {
+        await logActivity(
+          actorId,
+          "set_folder_color",
+          {
+            folderId,
+            oldColor: folder.color ?? null,
+            newColor: normColor,
+          },
+          tx
+        );
+      }
+
+      return {
+        id: updated.id,
+        name: updated.name,
+        color: updated.color ?? null,
         projectId: updated.projectId,
         parentId: updated.parentId,
         version: updated.version,
@@ -807,6 +921,7 @@ export async function moveFolder({
         folder: {
           id: moved.id,
           name: moved.name,
+          color: moved.color ?? null,
           projectId: moved.projectId,
           parentId: moved.parentId,
           version: moved.version,
@@ -1163,6 +1278,7 @@ export async function getFolderAncestry(folderId) {
       .select({
         id: folders.id,
         name: folders.name,
+        color: folders.color,
         projectId: folders.projectId,
         parentId: folders.parentId,
       })
@@ -1174,6 +1290,7 @@ export async function getFolderAncestry(folderId) {
     breadcrumbs.unshift({
       id: folder.id,
       name: folder.name,
+      color: folder.color ?? null,
       projectId: folder.projectId,
       parentId: folder.parentId,
     });
@@ -1240,6 +1357,7 @@ export async function getLibraryTree() {
         return {
           id: c.id,
           name: c.name,
+          color: c.color ?? null,
           projectId: c.projectId,
           parentId: c.parentId,
           version: c.version,
@@ -1253,6 +1371,7 @@ export async function getLibraryTree() {
       return {
         id: c.id,
         name: c.name,
+        color: c.color ?? null,
         projectId: c.projectId,
         parentId: c.parentId,
         version: c.version,

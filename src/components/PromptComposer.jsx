@@ -38,6 +38,7 @@ import {
 import { useStore, restoreComposerDraft, findItem } from "@/lib/store";
 import { UNSORTED } from "@/lib/feed-scope";
 import { validateGenerationReference } from "@/lib/generation-reference-drag";
+import { getAssetDragData, isAssetDragEvent } from "@/lib/asset-drag-contract";
 import { parseMentionIndices } from "@/lib/mentions";
 import { limitDefinition } from "@/lib/limits";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
@@ -385,52 +386,127 @@ export function PromptComposer() {
     }
   };
 
+  const dragEnterCountRef = useRef(0);
+
   // Drag & drop image files from the OS file manager or generations from library/chat.
   const isFileDrag = (e) =>
     Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
-  const isAssetDrag = (e) =>
-    Array.from(e.dataTransfer?.types ?? []).includes("text/itemid") ||
-    Boolean(s.draggedItem);
+  const isAssetDrag = (e) => {
+    return (
+      isAssetDragEvent(e) ||
+      Boolean(s.draggedItem) ||
+      Boolean(s.draggedAssets?.length)
+    );
+  };
+
+  const onDragEnter = (e) => {
+    const isFiles = isFileDrag(e);
+    const isAsset = isAssetDrag(e);
+    if (!isFiles && !isAsset) return;
+    dragEnterCountRef.current += 1;
+    if (dragEnterCountRef.current === 1) {
+      setDragging(true);
+    }
+  };
 
   const onDragOver = (e) => {
     const isFiles = isFileDrag(e);
     const isAsset = isAssetDrag(e);
     if (!isFiles && !isAsset) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    setDragging(true);
+
+    let valid = true;
+    if (isAsset) {
+      const primaryItem = s.draggedItem || (s.draggedAssets && s.draggedAssets[0]);
+      if (primaryItem) {
+        const val = validateGenerationReference(primaryItem, {
+          mode: s.mode,
+          model: s.model,
+          referenceImages: s.referenceImages,
+          referenceVideos: s.referenceVideos,
+        });
+        valid = val.valid;
+      }
+    }
+    e.dataTransfer.dropEffect = valid ? "copy" : "none";
+    if (!dragging) setDragging(true);
   };
 
-  const onDragLeave = (e) => {
-    if (!e.currentTarget.contains(e.relatedTarget )) setDragging(false);
+  const onDragLeave = (_e) => {
+    dragEnterCountRef.current = Math.max(0, dragEnterCountRef.current - 1);
+    if (dragEnterCountRef.current === 0) {
+      setDragging(false);
+    }
   };
 
   const onDrop = async (e) => {
+    dragEnterCountRef.current = 0;
     setDragging(false);
-    const itemId = e.dataTransfer.getData("text/itemId");
-    const item = (itemId ? findItem(s, itemId) : null) || s.draggedItem;
+    const assetPayload = getAssetDragData(e, s);
 
-    if (item) {
+    let itemsToProcess = [];
+    if (assetPayload.items && assetPayload.items.length > 0) {
+      itemsToProcess = [...assetPayload.items];
+    } else if (assetPayload.ids && assetPayload.ids.length > 0) {
+      itemsToProcess = assetPayload.ids
+        .map((id) => findItem(s, id))
+        .filter(Boolean);
+    } else if (s.draggedItem) {
+      itemsToProcess = [s.draggedItem];
+    }
+
+    if (itemsToProcess.length > 0) {
       e.preventDefault();
-      const validation = validateGenerationReference(item, {
-        mode: s.mode,
-        model: s.model,
-        referenceImages: s.referenceImages,
-        referenceVideos: s.referenceVideos,
-      });
+      let addedImagesCount = 0;
+      let addedVideosCount = 0;
+      let skippedCount = 0;
+      let lastErrorMessage = null;
 
-      if (!validation.valid) {
-        showDragNotice("error", validation.reason);
-        return;
+      let currentRefImages = [...s.referenceImages];
+      let currentRefVideos = [...s.referenceVideos];
+
+      for (const item of itemsToProcess) {
+        const validation = validateGenerationReference(item, {
+          mode: s.mode,
+          model: s.model,
+          referenceImages: currentRefImages,
+          referenceVideos: currentRefVideos,
+        });
+
+        if (!validation.valid) {
+          skippedCount++;
+          lastErrorMessage = validation.reason;
+          continue;
+        }
+
+        if (validation.action === "add-image-ref") {
+          currentRefImages.push(item.url);
+          addedImagesCount++;
+          await s.addReferenceFromUrl(item.url);
+        } else if (validation.action === "add-video-ref") {
+          currentRefVideos.push(item.url);
+          addedVideosCount++;
+          s.addReferenceVideo(item.url, item.prompt || "Video reference");
+        }
       }
 
-      if (validation.action === "add-image-ref") {
-        showDragNotice("success", `Added reference image for ${s.model}.`);
-        await s.addReferenceFromUrl(item.url);
-      } else if (validation.action === "add-video-ref") {
-        showDragNotice("success", `Added reference clip for ${s.model}.`);
-        s.addReferenceVideo(item.url, item.prompt || "Video reference");
+      if (addedImagesCount === 0 && addedVideosCount === 0) {
+        showDragNotice("error", lastErrorMessage || "Cannot add reference.");
+      } else if (skippedCount > 0) {
+        const addedTotal = addedImagesCount + addedVideosCount;
+        showDragNotice(
+          "success",
+          `Added ${addedTotal} reference${addedTotal > 1 ? "s" : ""}. ${skippedCount} skipped: ${lastErrorMessage}`
+        );
+      } else {
+        const total = addedImagesCount + addedVideosCount;
+        showDragNotice(
+          "success",
+          total === 1
+            ? (addedVideosCount === 1 ? `Added reference clip for ${s.model}.` : `Added reference image for ${s.model}.`)
+            : `Added ${total} references for ${s.model}.`
+        );
       }
       return;
     }
@@ -459,6 +535,7 @@ export function PromptComposer() {
       transition={{ type: "spring", stiffness: 260, damping: 28 }}
       style={{ width: `min(100%, ${preferredWidth}px)` }}
       onPaste={onPaste}
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -466,8 +543,10 @@ export function PromptComposer() {
     >
       {/* drop overlay */}
       {dragging && (() => {
-        const dragValidation = s.draggedItem
-          ? validateGenerationReference(s.draggedItem, {
+        const primaryItem = s.draggedItem || (s.draggedAssets && s.draggedAssets[0]);
+        const dragCount = s.draggedAssets?.length || (primaryItem ? 1 : 0);
+        const dragValidation = primaryItem
+          ? validateGenerationReference(primaryItem, {
               mode: s.mode,
               model: s.model,
               referenceImages: s.referenceImages,
@@ -496,7 +575,9 @@ export function PromptComposer() {
               )}
               <p className="text-sm font-semibold text-white/95">
                 {dragValidation.valid
-                  ? `Drop to use as ${dragValidation.action === "add-video-ref" ? "video" : "image"} reference for ${s.model}`
+                  ? dragCount > 1
+                    ? `Drop to use ${dragCount} references for ${s.model}`
+                    : `Drop to use as ${dragValidation.action === "add-video-ref" ? "video" : "image"} reference for ${s.model}`
                   : "Cannot add reference"}
               </p>
               {!dragValidation.valid && (
@@ -504,9 +585,9 @@ export function PromptComposer() {
                   {dragValidation.reason}
                 </p>
               )}
-              {dragValidation.valid && s.draggedItem?.prompt && (
+              {dragValidation.valid && primaryItem?.prompt && (
                 <p className="max-w-md truncate text-xs text-white/60">
-                  &ldquo;{s.draggedItem.prompt}&rdquo;
+                  &ldquo;{primaryItem.prompt}&rdquo;
                 </p>
               )}
             </div>

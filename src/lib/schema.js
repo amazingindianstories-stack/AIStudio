@@ -49,6 +49,7 @@ export const folders = pgTable("folders", {
   name: text("name").notNull(),
   nameNormalized: text("name_normalized").notNull().default(""),
   version: integer("version").notNull().default(1),
+  color: text("color"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull().default(0),
 }, (table) => [

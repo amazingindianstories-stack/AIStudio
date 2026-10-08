@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { UploadCloud, Loader2, X, Users } from "lucide-react";
+import { UploadCloud, Loader2, X, Users, AlertCircle } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { DEPTH_ENCODERS, DEPTH_ENCODER_LABELS as ENCODER_LABELS } from "@/lib/config";
 import { cn } from "@/lib/utils";
-import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
+import { validateDepthDrop } from "@/lib/asset-drag-contract";
 
 /**
  * The composer for depth-map jobs (mode="depth") — a different shape from
@@ -25,6 +25,9 @@ export function DepthComposer() {
   const [encoder, setEncoder] = useState(DEPTH_ENCODERS[1]); // "vitb"
   const [trackCharacters, setTrackCharacters] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [dragValid, setDragValid] = useState(true);
+  const [dragMessage, setDragMessage] = useState("");
+  const dragEnterCountRef = useRef(0);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState(null);
   const fileRef = useRef(null);
@@ -49,9 +52,49 @@ export function DepthComposer() {
     setFile(f);
   };
 
+  const onDragEnter = (e) => {
+    dragEnterCountRef.current += 1;
+    if (dragEnterCountRef.current === 1) {
+      setDragging(true);
+    }
+    const val = validateDepthDrop(e, s);
+    setDragValid(val.valid);
+    setDragMessage(val.reason || "");
+  };
+
+  const onDragOver = (e) => {
+    e.preventDefault();
+    const val = validateDepthDrop(e, s);
+    setDragValid(val.valid);
+    setDragMessage(val.reason || "");
+    e.dataTransfer.dropEffect = val.valid ? "copy" : "none";
+    if (!dragging) setDragging(true);
+  };
+
+  const onDragLeave = (_e) => {
+    dragEnterCountRef.current = Math.max(0, dragEnterCountRef.current - 1);
+    if (dragEnterCountRef.current === 0) {
+      setDragging(false);
+      setDragValid(true);
+      setDragMessage("");
+    }
+  };
+
   const onDrop = (e) => {
     e.preventDefault();
+    dragEnterCountRef.current = 0;
     setDragging(false);
+
+    const val = validateDepthDrop(e, s);
+    if (!val.valid) {
+      setError(val.reason || "Depth Map mode only accepts direct video uploads from your computer.");
+      setDragValid(true);
+      setDragMessage("");
+      return;
+    }
+    setDragValid(true);
+    setDragMessage("");
+
     pickFile(e.dataTransfer?.files?.[0]);
   };
 
@@ -93,20 +136,36 @@ export function DepthComposer() {
 
       {!file ? (
         <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
+          onDragEnter={onDragEnter}
+          onDragOver={onDragOver}
+          onDragLeave={onDragLeave}
           onDrop={onDrop}
           onClick={() => fileRef.current?.click()}
           className={cn(
-            "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line bg-ink-900/50 px-4 py-10 text-center transition-colors hover:border-lineStrong",
-            dragging && "border-brand/60 bg-brand/5"
+            "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line bg-ink-900/50 px-4 py-10 text-center transition-all duration-200 hover:border-lineStrong",
+            dragging &&
+              (dragValid
+                ? "border-brand/80 bg-brand/10 text-brand ring-1 ring-brand/40"
+                : "border-red-500/80 bg-red-500/10 text-red-400 ring-1 ring-red-500/40 cursor-not-allowed")
           )}
         >
-          <UploadCloud className="h-6 w-6 text-white/40" />
-          <p className="text-sm text-white/70">Drop a video here, or click to choose one</p>
+          {dragging && !dragValid ? (
+            <AlertCircle className="h-6 w-6 text-red-400" />
+          ) : (
+            <UploadCloud className={cn("h-6 w-6", dragging && dragValid ? "text-brand" : "text-white/40")} />
+          )}
+          <p
+            className={cn(
+              "text-sm font-medium",
+              dragging && !dragValid ? "text-red-300" : "text-white/70"
+            )}
+          >
+            {dragging
+              ? dragValid
+                ? "Drop video file to generate depth map"
+                : dragMessage || "Direct video file uploads only — Asset Library generations cannot be used here"
+              : "Drop a video here, or click to choose one"}
+          </p>
           <input
             ref={fileRef}
             type="file"

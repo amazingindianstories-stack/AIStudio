@@ -22,10 +22,11 @@ import { maxReferenceImagesForVideoModel } from "@/lib/config";
 import { extractFrame, isVideoFile } from "@/lib/video-frame";
 import { REF_BATCH_BUDGET_BYTES, REF_BUDGET_STEPS, dataUrlBytes, downscaleBlob } from "@/lib/client-image-budget";
 import { ReferenceStrip, SettingsToolbar } from "./ComposerControls";
-import { Dropdown, MenuItem } from "./Dropdown";
+import { getAssetDragData, isAssetDragEvent } from "@/lib/asset-drag-contract";
 import { MentionTextarea, } from "./MentionTextarea";
 import { MediaCard } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
+import { Dropdown, MenuItem } from "./Dropdown";
 import { cn } from "@/lib/utils";
 
 const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
@@ -246,19 +247,31 @@ export function StudioChat({ conversationId }) {
       addImageFiles(files);
     }
   };
+  const dragEnterCountRef = useRef(0);
   const isFileDrag = (e) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
-  // Same "text/itemId" payload ProjectPanel's drag-to-folder already sets on
-  // asset cards (HistoryPanel now sets it too — see its renderItem) — the
-  // browser lowercases DataTransfer type strings, so check lowercase here.
-  const isAssetDrag = (e) =>
-    Array.from(e.dataTransfer?.types ?? []).includes("text/itemid");
+  const isAssetDrag = (e) => {
+    return (
+      isAssetDragEvent(e) ||
+      Boolean(useStore.getState().draggedItem) ||
+      Boolean(useStore.getState().draggedAssets?.length)
+    );
+  };
+  const onDragEnter = (e) => {
+    if (!isFileDrag(e) && !isAssetDrag(e)) return;
+    dragEnterCountRef.current += 1;
+    if (dragEnterCountRef.current === 1) {
+      setDragging(true);
+    }
+  };
   const onDragOver = (e) => {
     if (!isFileDrag(e) && !isAssetDrag(e)) return;
     e.preventDefault();
-    setDragging(true);
+    e.dataTransfer.dropEffect = "copy";
+    if (!dragging) setDragging(true);
   };
-  const onDragLeave = (e) => {
-    if (!e.currentTarget.contains(e.relatedTarget )) setDragging(false);
+  const onDragLeave = (_e) => {
+    dragEnterCountRef.current = Math.max(0, dragEnterCountRef.current - 1);
+    if (dragEnterCountRef.current === 0) setDragging(false);
   };
   const addAssetReference = async (itemId) => {
     const item = findItem(itemId);
@@ -269,12 +282,15 @@ export function StudioChat({ conversationId }) {
       await addReferenceFromUrl(item.url);
     }
   };
-  const onDrop = (e) => {
+  const onDrop = async (e) => {
+    dragEnterCountRef.current = 0;
     setDragging(false);
-    const itemId = e.dataTransfer.getData("text/itemId");
-    if (itemId) {
+    const assetPayload = getAssetDragData(e, useStore.getState());
+    if (assetPayload.ids.length > 0) {
       e.preventDefault();
-      void addAssetReference(itemId);
+      for (const id of assetPayload.ids) {
+        await addAssetReference(id);
+      }
       return;
     }
     if (!isFileDrag(e)) return;
@@ -286,6 +302,7 @@ export function StudioChat({ conversationId }) {
     <div
       className="relative flex min-h-0 flex-1 flex-col"
       onPaste={onPaste}
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
