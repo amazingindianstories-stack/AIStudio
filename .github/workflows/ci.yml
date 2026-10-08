@@ -144,6 +144,7 @@ jobs:
       - run: node scripts/check-backend-ownership.mjs
         env:
           BACKEND_OWNERSHIP_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+      - run: node scripts/django-migration/status-report.mjs --check
       - run: python backend/manage.py check
       - run: python backend/manage.py makemigrations --check --dry-run
       - run: python backend/manage.py migrate --noinput
