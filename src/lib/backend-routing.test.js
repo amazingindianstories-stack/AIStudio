@@ -35,3 +35,12 @@ test('history counts switch is exact and opt-in',()=>{
   assert.equal(djangoDestination(url,'POST',config),null);
   assert.equal(djangoDestination('https://frontend.example/api/history','GET',config),null);
 });
+
+test('update polling switch preserves watermarks and leaves other history methods selected separately',()=>{
+  const url='https://frontend.example/api/history/updates?since=2&since=1';
+  const config={...configured,methods:'GET /api/history/updates'};
+  assert.equal(djangoDestination(url,'GET',config).href,'https://django.example/api/history/updates?since=2&since=1');
+  assert.equal(djangoDestination(url,'GET',configured),null);
+  assert.equal(djangoDestination(url,'POST',config),null);
+  assert.equal(djangoDestination('https://frontend.example/api/history','GET',config),null);
+});

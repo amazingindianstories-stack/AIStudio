@@ -1797,7 +1797,7 @@
             "scripts/django-migration/settings-http-parity.py: nine update polling cases; two invalid-operand empty-500 cases under production Gunicorn"
           ],
           "remaining_qualification": [
-                        "Full application browser and hosted preview",
+                        "Full application browser polling/store merge and hosted HTTPS preview",
             "Performance plans and authorized canary/rollback"
           ]
         }

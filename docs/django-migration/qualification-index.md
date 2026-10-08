@@ -408,3 +408,20 @@ the new error boundary regression test. No traceback bodies are printed by the
 harness. This closes representative fractional/overflow HTTP error qualification;
 extreme Number formatting, browser/hosted polling, performance and production
 route transfer are still unqualified. Updates remain IMPLEMENTING/Next-owned.
+
+Update polling now has opt-in exact-method routing and controlled Chromium
+qualification through the real local Next middleware proxy. Three new browser
+cases pass: repeated since values, future watermark retaining in-flight items,
+and fractional-operand empty 500. Returned items match the direct Django fixture
+response; server watermark is bounded by browser request start/end. Each fetch
+remains on the frontend origin and returns Django's request ID. Aged HttpOnly
+Lax sessions renew for success, remain unchanged for 500. All seven controlled
+browser cases (including settings/Canvas/counts), real HTTP comparisons and six
+routing unit tests pass. CI's existing --browser harness includes these cases.
+
+Routing remains unset by default and ownership remains Next/IMPLEMENTING. This
+is a minimal controlled fetch document on local HTTP, not full application
+polling/store merge acceptance, Secure-cookie HTTPS, Vercel/Railway behavior or
+production traffic. Those gates, performance and extreme Number operand text
+parity remain pending. No backend route business implementation or user UI was
+changed, no deployment performed, and no shared credentials loaded.

@@ -1,5 +1,5 @@
 // Server-only method routing. Browser API URLs remain same-origin /api.
-const IMPLEMENTED_METHODS = new Set(['GET /api/settings', 'GET /api/canvas-boards', 'GET /api/history/counts']);
+const IMPLEMENTED_METHODS = new Set(['GET /api/settings', 'GET /api/canvas-boards', 'GET /api/history/counts', 'GET /api/history/updates']);
 
 export function djangoDestination(requestUrl, method, configuration = {}) {
   const selected = new Set((configuration.methods || '').split(',').map(value => value.trim()).filter(Boolean));
