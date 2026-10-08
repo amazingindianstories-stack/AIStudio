@@ -68,3 +68,12 @@ The settings container variant also passes against the entire current Drizzle
 declared table set (21 tables) on disposable PostgreSQL 16.15. This replaces
 partial-table DDL for that variant. Migration-script invariants, old-schema
 upgrades and Django schema equivalence remain unqualified.
+
+The container schema variant can now install the current exported hierarchy
+(38) and naming (17) SQL statements atomically per domain and apply each twice.
+A run passed with four public functions/five non-internal triggers and settings
+contracts. An initial run failed at the settings subprocess without sufficient
+stderr diagnostics; its cause remains unresolved, so stable qualification is
+not established. Diagnostics now retain synthetic-container stderr. Behavioral
+invariant tests, other migration scripts and upgrade/equivalence gates remain
+pending.

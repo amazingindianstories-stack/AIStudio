@@ -33,13 +33,17 @@ print(json.dumps({'application_file_count':len(files),'unexpected_files':unexpec
         suffix = uuid.uuid4().hex[:12]
         network, database, api = [f'veevee-qualification-{kind}-{suffix}' for kind in ('net','pg','api')]
         def run(args, **kwargs):
-            return subprocess.run(docker + args, env=env, check=True, capture_output=True, text=True, **kwargs).stdout.strip()
+            result = subprocess.run(docker + args, env=env, capture_output=True, text=True, **kwargs)
+            if result.returncode:
+                # All targets/credentials here are explicitly synthetic containers.
+                raise RuntimeError(result.stderr.strip() or 'Disposable Docker command failed')
+            return result.stdout.strip()
         def wait_for(callback, seconds=45):
             deadline = time.monotonic() + seconds
             while time.monotonic() < deadline:
                 try:
                     return callback()
-                except (subprocess.CalledProcessError, AssertionError):
+                except (RuntimeError, AssertionError):
                     time.sleep(.5)
             raise RuntimeError('Disposable container readiness deadline exceeded')
         probe = '''import json, urllib.request, urllib.error
@@ -94,6 +98,15 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
                     sql(migrations[0].read_text())
                 table_count = int(sql("SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"))
                 assert table_count == 21, table_count
+                if '--invariants' in sys.argv:
+                    exported = subprocess.run(['node','--import','tsx','scripts/django-migration/invariant-statements.mjs'],
+                                              env=env,check=True,capture_output=True,text=True)
+                    statements = json.loads(exported.stdout)
+                    for _ in range(2):
+                        for domain in ('hierarchy','naming'):
+                            sql('BEGIN;\n' + ';\n'.join(statements[domain]) + ';\nCOMMIT;')
+                    invariant_counts = json.loads(sql("SELECT jsonb_build_object('functions',(SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public'),'triggers',(SELECT count(*) FROM pg_trigger WHERE NOT tgisinternal));"))
+                    assert invariant_counts['functions'] > 0 and invariant_counts['triggers'] > 0, invariant_counts
                 sql("INSERT INTO users (id,email,password_hash,password_salt,name,role,is_active,auth_version,created_at) VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','fixture@example.invalid','synthetic-unused','synthetic-unused','Fixture','user',true,0,0);")
             else:
                 sql('''CREATE TABLE users (id uuid PRIMARY KEY,email text,name text,role text,color text,avatar_url text,is_active boolean,auth_version integer);
@@ -149,6 +162,11 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'secure_renewal'
             if '--declared-schema' in sys.argv:
                 print(json.dumps({'declared_schema_tables':table_count,'schema_source':'current src/lib/schema.js',
                                   'advanced_migration_invariants_qualified':False,'upgrade_coverage':False}))
+                if '--invariants' in sys.argv:
+                    print(json.dumps({'hierarchy_statements':len(statements['hierarchy']),
+                                      'naming_statements':len(statements['naming']),
+                                      'repeated_apply_passed':True,'catalog_counts':invariant_counts,
+                                      'behavioral_invariants_qualified':False}))
         finally:
             for name in reversed(created):
                 subprocess.run(docker + ['rm','--force',name], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

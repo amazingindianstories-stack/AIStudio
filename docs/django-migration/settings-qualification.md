@@ -84,3 +84,19 @@ production equivalence. Additional invariants implemented by migration scripts
 (functions, triggers and advanced constraints) are not installed by this step.
 Django-only schema creation, complete ORM coverage and exact catalog equivalence
 remain pending. Drizzle remains the recorded schema authority.
+
+## Hierarchy/naming SQL installation evidence
+
+`--invariants` additionally reads the current migration modules' exported SQL
+arrays without running their DB entrypoints. The verified isolated copy contains
+no checkout dotenv credentials. Statements are applied inside transactions to
+the new tmpfs container, twice per domain: hierarchy 38, naming 17. One complete
+run passed with four public functions and five non-internal triggers present,
+followed by all five settings contracts. This does not prove trigger behavior,
+equivalence or upgrade coverage, nor install every migration script's invariants.
+
+An initial attempt failed in the settings probe subprocess; its stderr was not
+reported by the original harness, and its cause remains unresolved. Improved
+synthetic-container diagnostics are committed. The later pass establishes
+successful installation/execution evidence, not repeatable readiness acceptance.
+Investigate the initial failure before treating this variant as a stable gate.
