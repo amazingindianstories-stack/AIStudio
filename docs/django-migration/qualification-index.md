@@ -440,3 +440,16 @@ and integer overflow; six generation tests pass. CI uses the expanded oracle.
 This finite corpus does not prove Number-to-text identity for every IEEE double;
 full browser application, hosted/performance and production ownership gates
 remain pending. No shared database, provider or deployment was used.
+
+Main history read preparation adds cursor and page-limit parsing from the actual
+current route/store decoder. Forty-one cases match Node: malformed cursor resets,
+first-dot splitting, UUID text/case validation, finite signed/radix/exponent sort
+values, decimal-prefix parseInt behavior, Unicode whitespace, clamp 1..100 and
+default 20 including overflow. The oracle imports the actual Node decodeCursor
+without executing database queries and runs in CI. Shared Number parsing is
+extracted from watermark parsing; all existing 44 watermark oracle cases pass.
+No history HTTP endpoint or traffic selection is introduced by this prerequisite.
+History requires composite PostgreSQL keysets, favorites ordering, lookahead,
+filter semantics and canonical filename resolution; these must be implemented
+and qualified together before claiming the route. History status/ownership
+remains unchanged. No shared credentials or production resources were used.

@@ -6,7 +6,7 @@ WHITESPACE = '\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002
 DECIMAL = re.compile(r'^[+-]?(?:(?:[0-9]+(?:\.[0-9]*)?)|(?:\.[0-9]+))(?:[eE][+-]?[0-9]+)?$')
 
 
-def since_watermark(raw, now):
+def number_value(raw):
     text = (raw or '').strip(WHITESPACE)
     parsed = 0.0
     try:
@@ -22,4 +22,9 @@ def since_watermark(raw, now):
             parsed = float('nan')
     except (ValueError, OverflowError):
         parsed = float('nan')
+    return parsed
+
+
+def since_watermark(raw, now):
+    parsed = number_value(raw)
     return parsed if math.isfinite(parsed) and parsed > 0 else now - 300000
