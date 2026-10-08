@@ -94,3 +94,11 @@ for documented methods. Five guard rejection tests pass, and the complete
 65-route/85-method check reports zero errors in a newly verified isolated copy.
 These are documentation/structural checks; other methods remain inventoried
 with pending contract review, and no parity or traffic state was promoted.
+
+Request observability now includes `user_id` only after active/auth-version DB
+session validation or successful password verification at login. The outer
+middleware reads identity from the underlying DRF HttpRequest; anonymous/invalid
+sessions do not contribute an actor. Email, cookies and query values remain
+excluded. The full 28-test Django suite passed after adding actor/privacy tests
+in the fresh verified disposable session (Python 3.14/local PostgreSQL 18).
+Production-image Python 3.12 and hosted observability remain separate evidence.

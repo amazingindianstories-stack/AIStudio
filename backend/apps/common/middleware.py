@@ -14,5 +14,8 @@ class RequestLogMiddleware:
         request_id = str(uuid.uuid4())
         response = self.get_response(request)
         response['X-Request-ID'] = request_id
-        logger.info(json.dumps({'event': 'request', 'request_id': request_id, 'route': request.resolver_match.route if request.resolver_match else 'unmatched', 'status': response.status_code, 'duration_ms': round((time.monotonic() - started) * 1000, 2)}))
+        event = {'event': 'request', 'request_id': request_id, 'route': request.resolver_match.route if request.resolver_match else 'unmatched', 'status': response.status_code, 'duration_ms': round((time.monotonic() - started) * 1000, 2)}
+        if hasattr(request, 'validated_actor_id'):
+            event['user_id'] = request.validated_actor_id
+        logger.info(json.dumps(event))
         return response

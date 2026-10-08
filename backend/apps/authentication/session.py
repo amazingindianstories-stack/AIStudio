@@ -40,6 +40,10 @@ def lookup(request):
         user = User.objects.only('id','email','name','role','color','avatar_url','is_active','auth_version').filter(id=uid, is_active=True, auth_version=version).first()
     except (ValueError, models_validation_error):
         return None
+    if user:
+        # Only the DB-validated actor may enter request logs. DRF wraps the
+        # underlying HttpRequest that outer middleware receives.
+        getattr(request, '_request', request).validated_actor_id = str(user.id)
     if user and expiry - now < TTL_MS - 24 * 60 * 60 * 1000:
         # Current getSession renews on authenticated reads. Compatible issuance
         # during qualification is temporary; sole issuer transfers in auth wave.

@@ -51,6 +51,7 @@ def login(request):
     if user is None or not user.is_active or not verify_password(str(password),user.password_hash,user.password_salt):
         record_failure(email)
         return Response({'error':'Invalid email or password.'},status=401)
+    getattr(request, '_request', request).validated_actor_id = str(user.id)
     response=Response({'user':{'id':str(user.id),'email':user.email,'name':user.name,
                                'role':user.role,'color':user.color,'avatarUrl':user.avatar_url}})
     response.set_cookie('veevee_session',sign_session(user),max_age=2592000,

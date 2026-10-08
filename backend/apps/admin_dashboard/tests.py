@@ -60,8 +60,17 @@ class SettingsTests(TransactionTestCase):
         self.assertEqual(event['request_id'], response['X-Request-ID'])
         self.assertEqual(event['route'], 'api/settings')
         self.assertEqual(event['status'], 200)
+        self.assertEqual(event['user_id'], UID)
         self.assertNotIn('DO_NOT_LOG', capture.records[0].getMessage())
         self.assertNotIn(self.client.cookies['veevee_session'].value, capture.records[0].getMessage())
+        self.assertNotIn('fixture@example.invalid', capture.records[0].getMessage())
+
+    def test_request_log_excludes_actor_from_invalid_session(self):
+        self.cookie(version=1)
+        with self.assertLogs('veevee.requests', level='INFO') as capture:
+            response = self.client.get('/api/settings')
+        self.assertEqual(response.status_code,401)
+        self.assertNotIn('user_id',json.loads(capture.records[0].getMessage()))
 
     def test_disabled_user(self):
         with connection.cursor() as c:
