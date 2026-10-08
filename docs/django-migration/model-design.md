@@ -726,3 +726,11 @@ complete physical equivalence; it does not close the baseline gate. SQL UUID
 and other defaults, complete indexes, functions, triggers, constraint behavior,
 and production catalog comparison must still be represented and verified before
 Django becomes schema authority. Runtime/API/provider/worker ownership is unchanged.
+
+The declaration guard checks 205 columns, primary keys and foreign-key targets
+and deletion policies in both runtime and migration state. Folder project and
+parent relationships and GenerationNaming's generation relationship now match
+current Drizzle declarations (RESTRICT, RESTRICT and CASCADE respectively).
+The unmanaged library 0003 migration changes model state only. The guard does
+not claim equivalence of physical constraint deferrability or SQL defaults;
+those remain the catalog/baseline gate's responsibility.

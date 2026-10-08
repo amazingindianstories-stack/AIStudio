@@ -2,8 +2,8 @@ from django.db import models
 
 class Folder(models.Model):
     id = models.UUIDField(primary_key=True)
-    project_id = models.UUIDField(null=True)
-    parent_id = models.UUIDField(null=True)
+    project = models.ForeignKey('projects.Project', on_delete=models.RESTRICT, db_column='project_id', null=True)
+    parent = models.ForeignKey('self', on_delete=models.RESTRICT, db_column='parent_id', null=True)
     name = models.TextField()
     name_normalized = models.TextField()
     version = models.IntegerField()
@@ -41,9 +41,7 @@ class NamingCounter(models.Model):
 
 
 class GenerationNaming(models.Model):
-    # Physical FK/CASCADE is currently owned by Drizzle/migration SQL. The
-    # generation model/relation and physical baseline remain a separate gate.
-    generation_id = models.UUIDField(primary_key=True)
+    generation = models.OneToOneField('generation.Generation', on_delete=models.CASCADE, db_column='generation_id', primary_key=True)
     namespace = models.TextField()
     sequence = models.BigIntegerField()
     assigned_at = models.BigIntegerField()

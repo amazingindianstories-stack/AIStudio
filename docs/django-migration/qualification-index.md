@@ -160,3 +160,18 @@ current-shaped disposable tables; these are not schema baseline or worker
 execution proofs. CI labels now include all newly registered domain apps;
 remote CI/PostgreSQL 16 evidence remains pending. No external providers, storage,
 GPU workers, production schema or routing were invoked.
+
+Declared schema guard (`model-columns.py` + `declared-columns.mjs`) now compares
+all 21 tables and 205 physical columns against both runtime models and disk
+migration state: SQL types, nullability, ordered primary keys, FK source/target
+columns and deletion policies. It imports Drizzle metadata without opening a
+Node connection and loads Django disk migration state without executing SQL.
+The first FK check exposed missing folder project/parent and generation-naming
+relationships; these are corrected in unmanaged state migration library 0003.
+SQL inspection confirms every operation is no-op for application DDL. Column/FK
+guard and model drift check pass. All 34 Django tests and five negative-control
+guard tests pass in the verified disposable local session. CI now runs the guard
+after npm ci; remote CI execution is pending. Defaults, index/check/unique
+constraint details, FK deferrability/update policies, triggers/functions and
+actual production catalog equivalence remain unproven. This is declared metadata
+coverage, not the Django schema-authority takeover gate.
