@@ -1,11 +1,18 @@
-from django.db.models import Q
+from django.db.models import Q, BooleanField
+from django.db.models.expressions import RawSQL
 from .models import Generation
 from .serialization import generation_item
 
 
+def operand_text(value):
+    # PostgreSQL receives Node Number's integer or fractional text. Avoid
+    # Django IntegerField's truncation and out-of-range predicate shortcuts.
+    return str(int(value)) if value == int(value) else str(value)
+
+
 def read_generation_updates(since, limit=100):
     rows = Generation.objects.exclude(kind='audio').filter(
-        Q(status__in=['queued', 'running']) | Q(updated_at__gt=since)
+        Q(status__in=['queued', 'running']) | Q(RawSQL('"generations"."updated_at" > %s::bigint', [operand_text(since)], output_field=BooleanField()))
     ).order_by('-updated_at')[:limit]
     return [generation_item(row) for row in rows]
 

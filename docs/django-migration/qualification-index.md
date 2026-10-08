@@ -352,3 +352,14 @@ different clock; consistent fixture creation corrected it. No actual update
 HTTP Node/Django parity, fractional/out-of-range PostgreSQL binding comparison,
 full browser or hosted qualification is claimed. Node remains traffic owner;
 route is not added to the routing allowlist. CI runs the parser oracle.
+
+Update operand qualification found Node's postgres-js bigint comparison rejects
+fractional since values (22P02) and oversized integers (22003). Django's normal
+IntegerField preparation could truncate or optimize these values. Update query
+now uses a parameterized explicit bigint cast, keeping PostgreSQL responsible
+for operand validation. Six read-only Node-driver/Django-binding comparisons
+pass for valid integers, fractional and scientific-small values, large valid
+integer and overflow. CI runs this comparison. Exact driver text formatting for
+all extreme doubles and actual HTTP error body/cookie parity remain pending;
+this does not prove complete update route parity or authorize traffic selection.
+No production database or provider was used.
