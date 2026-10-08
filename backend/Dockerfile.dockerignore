@@ -1,7 +1,7 @@
 # API-specific context; root worker builds retain their own configuration.
 **
 !backend/
-!backend/**/
+backend/**
 !backend/**/*.py
 !backend/requirements.txt
 !backend/Dockerfile

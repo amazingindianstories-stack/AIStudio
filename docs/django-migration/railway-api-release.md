@@ -138,3 +138,25 @@ the frontend's same-origin `/api/auth/login`. This narrows the API-base gap for
 the observed login page. It does not verify runtime browser requests, all app
 chunks, edge forwarding, authenticated responses or the Railway backend's role.
 No production qualification tests were run; this was public asset inspection.
+
+## Local container build qualification
+
+Docker Desktop was started on 2026-10-08; its daemon reports 29.5.3. The
+isolated runner verified the dedicated PostgreSQL process and clean source copy
+before running `scripts/django-migration/container-build.py`. That script uses
+an empty temporary Docker configuration, bundled buildx discovery and explicit
+BuildKit build, then inspects the image with networking disabled.
+
+The first legacy build sent 390.3 MB of the sanitized copy and did not establish
+context exclusion coverage. A subsequent image inventory caught `railway.toml`
+being included by the broad backend directory exception. The final ignore file
+explicitly re-excludes backend descendants before allowing Python/requirements
+and build instructions. Final BuildKit context transfer was 71.21 kB; image
+inspection passed with 56 application files and no unexpected file extensions.
+Runtime imports report Django 5.2.18, DRF 3.18.3 and Gunicorn 23.0.0.
+
+Image config digest: `sha256:882524b0d2474dd6cf84336d7c45d7e52f1e07f3ee6bcd33e93b2f1d30522fb9`.
+This is a local ARM64 build/import/file-inventory check. Container HTTP startup,
+disposable PG16 connectivity, failure/readiness behavior, Railway architecture
+and hosted TLS remain unqualified. Earlier daemon-unavailable statements above
+describe the initial observation and are superseded by this build evidence.

@@ -46,3 +46,8 @@ External deployment reconciliation now identifies existing Django-like Railway
 services with runtime versions different from this checkout. Declared ownership
 has not changed, but actual live routing/source remain unproven. See
 railway-api-release.md; do not interpret the manifest as deployed-source evidence.
+
+Local API BuildKit image build and network-disabled file/import inspection pass:
+56 application files, no unexpected files, Django 5.2.18 / DRF 3.18.3 /
+Gunicorn 23.0.0. The check corrected a broad Docker ignore exception. Container
+HTTP/database qualification and hosted deployment remain pending.
