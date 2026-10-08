@@ -152,3 +152,4 @@ jobs:
       - run: npm ci
       - run: node node_modules/playwright-core/cli.js install --with-deps chromium
       - run: python scripts/django-migration/settings-http-parity.py --browser
+      - run: python scripts/django-migration/settings-http-parity.py --gunicorn

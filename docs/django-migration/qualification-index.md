@@ -28,3 +28,10 @@ coverage remains pending; see password-change-qualification.md for exact scope.
 Local real Chromium settings transport passes through the Next/Django rewrite,
 including HttpOnly/Lax renewal receipt. This controlled-page contract does not
 replace the full application browser suite or hosted preview qualification.
+
+Gunicorn production-settings qualification passes the full HTTP harness with
+two WSGI workers, explicit trusted origins/allowed hosts and disposable local
+PostgreSQL. Health checks process/database readiness; login and password cookies
+carry Secure. CI includes this runtime variant. It is not a container/Railway
+or hosted TLS qualification; Secure-cookie browser forwarding needs HTTPS and
+cannot be inferred from manually supplied cookies over local HTTP.

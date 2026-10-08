@@ -39,6 +39,8 @@ def get(url,cookie,body=None,method=None,extra_headers=None):
 
 
 def main():
+    if '--gunicorn' in sys.argv and '--browser' in sys.argv:
+        raise SystemExit('Production Secure-cookie browser qualification requires an HTTPS harness')
     target=urlsplit(os.environ.get('DATABASE_URL',''))
     if os.environ.get('MIGRATION_TEST_ISOLATED')!='1' or target.hostname!='127.0.0.1' or target.path!='/veevee_django_migration':
         raise SystemExit('Disposable loopback database required')
@@ -73,10 +75,15 @@ def main():
                 return result
         try:
             next_port,django_port=port(),port()
-            for command,name in [(['node','node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port',str(next_port)],'next'),([sys.executable,'backend/manage.py','runserver',f'127.0.0.1:{django_port}','--noreload'],'django')]:
+            django_command=[sys.executable,'backend/manage.py','runserver',f'127.0.0.1:{django_port}','--noreload']
+            if '--gunicorn' in sys.argv:
+                django_command=[sys.executable,'-m','gunicorn','--chdir','backend','config.wsgi:application','--bind',f'127.0.0.1:{django_port}','--workers','2','--error-logfile','-']
+            for command,name in [(['node','node_modules/next/dist/bin/next','dev','--hostname','127.0.0.1','--port',str(next_port)],'next'),(django_command,'django')]:
                 log=open(root.parent/(name+'-settings-parity.log'),'w')
                 server_env=dict(os.environ)
-                if name=='django': server_env['DJANGO_BROWSER_ORIGINS']='https://frontend.example'
+                if name=='django':
+                    server_env['DJANGO_BROWSER_ORIGINS']='https://frontend.example'
+                    if '--gunicorn' in sys.argv: server_env['DJANGO_SETTINGS_MODULE']='config.settings.production'
                 processes.append((subprocess.Popen(command,env=server_env,stdout=log,stderr=subprocess.STDOUT),log))
             urls=[f'http://127.0.0.1:{p}/api/settings' for p in (next_port,django_port)]
             for url in urls:
@@ -87,6 +94,9 @@ def main():
                         if time.monotonic()>deadline: raise RuntimeError('Server readiness timed out')
                         if any(p.poll() is not None for p,_ in processes): raise RuntimeError('Server exited')
                         time.sleep(.2)
+            health=get(f'http://127.0.0.1:{django_port}/api/health','')
+            assert health[:2]==(200,{'ok':True,'django':'ready','database':'ready'})
+            assert health[2].get('Cache-Control')=='no-store'
             cases=[('anonymous',''),('bad-signature','invalid'),('defaults',token()),('wrong-version',token(1)),('renewal',token(age=172800000)),('overrides',token()),('disabled',token())]
             report=[]
             for name,cookie in cases:
@@ -141,6 +151,7 @@ def main():
                 jar=SimpleCookie();jar.load(success[2]['Set-Cookie'])
                 assert jar['veevee_session']['httponly'] and jar['veevee_session']['samesite'].lower()=='lax'
                 assert str(jar['veevee_session']['max-age'])=='2592000'
+                if runtime=='django' and '--gunicorn' in sys.argv: assert jar['veevee_session']['secure']
                 for target_url in urls:
                     assert get(target_url,jar['veevee_session'].value)[0]==200
                 for attempt in range(5):
@@ -245,6 +256,7 @@ def main():
                 assert changed[:2]==(200,{'ok':True})
                 jar=SimpleCookie();jar.load(changed[2]['Set-Cookie'])
                 assert str(jar['veevee_session']['max-age'])=='2592000'
+                if runtime=='django' and '--gunicorn' in sys.argv: assert jar['veevee_session']['secure']
                 assert jar['veevee_session']['httponly'] and jar['veevee_session']['samesite'].lower()=='lax'
                 for target_url in urls:
                     assert get(target_url,old_cookie)[0]==401
@@ -342,7 +354,7 @@ def main():
             if '--browser' in sys.argv:
                 result=subprocess.run(['node','scripts/django-migration/settings-browser.mjs'],input=json.dumps({'url':urls[0],'cookie':token(age=172800000),'expected':response[1]}),text=True,capture_output=True,check=True)
                 browser_report=json.loads(result.stdout)
-            print(json.dumps({'browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()
