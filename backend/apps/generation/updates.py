@@ -18,6 +18,9 @@ def read_generation_updates(since, limit=100):
 
 
 import time
+import logging
+from django.db import DataError
+from django.http import HttpResponse
 from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
@@ -34,7 +37,19 @@ def generation_updates(request):
     values = request.query_params.getlist('since')
     raw = values[0] if values else None
     since = since_watermark(raw, int(time.time() * 1000))
-    response = Response({'items': read_generation_updates(since), 'now': int(time.time() * 1000)})
+    try:
+        items = read_generation_updates(since)
+    except DataError as error:
+        code = getattr(error.__cause__, 'sqlstate', None)
+        if code not in ('22P02', '22003'):
+            raise
+        # Current Node emits an empty 500 and no renewed cookie when its
+        # bigint operand fails. Do not expose database or framework details.
+        logging.getLogger(__name__).warning('update_operand_rejected sqlstate=%s', code)
+        response = HttpResponse(b'', status=500)
+        del response['Content-Type']
+        return response
+    response = Response({'items': items, 'now': int(time.time() * 1000)})
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,
             httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')

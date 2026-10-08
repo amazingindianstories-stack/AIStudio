@@ -29,14 +29,15 @@ def token(version=0, age=0):
     return payload+'.'+enc(hmac.new(os.environ['AUTH_SECRET'].encode(),payload.encode(),hashlib.sha256).digest())
 
 
-def get(url,cookie,body=None,method=None,extra_headers=None):
+def get(url,cookie,body=None,method=None,extra_headers=None,raw=False):
     headers={'Cookie':'veevee_session='+cookie} if cookie else {}
     if extra_headers: headers.update(extra_headers)
     if body is not None: headers['Content-Type']='application/json'
     request=urllib.request.Request(url,data=json.dumps(body).encode() if body is not None else None,headers=headers,method=method)
     try: response=urllib.request.urlopen(request,timeout=20)
     except urllib.error.HTTPError as error: response=error
-    return response.status,json.loads(response.read()),response.headers
+    payload = response.read()
+    return response.status,payload if raw else json.loads(payload),response.headers
 
 
 def main():
@@ -297,6 +298,18 @@ def main():
                 assert bool(jars[0]) == bool(jars[1]), ('updates renewal',query)
                 assert before == snapshot(), 'updates read mutated DB'
                 update_report.append({'query':query,'authenticated':bool(cookie),'status':responses[0][0],'items_equal':True,'server_watermark_bounded':responses[0][0]==200,'renewal_presence_equal':True,'database_unchanged':True})
+            update_error_report = []
+            for query in ('?since=1.5', '?since=1e20'):
+                before = snapshot()
+                responses = [get(url.replace('/api/settings','/api/history/updates')+query,token(age=172800000),raw=True) for url in urls]
+                assert all(response[0] == 500 for response in responses), ('updates invalid operand',query,[response[0] for response in responses])
+                assert before == snapshot(), 'updates invalid operand mutated DB'
+                assert all(response[1] == b'' and response[2].get('Content-Type') is None and not response[2].get('Set-Cookie') for response in responses), ('updates invalid operand response',query)
+                # Assert the public failure contract without emitting error payloads.
+                update_error_report.append({'query':query,'status_equal':True,'database_unchanged':True,
+                    'body_equal':responses[0][1]==responses[1][1],
+                    'content_types':[response[2].get('Content-Type') for response in responses],
+                    'renewal_present':[bool(SimpleCookie(response[2].get('Set-Cookie',''))) for response in responses]})
             origin_report=[]
             before=snapshot()
             with db.cursor() as c:
@@ -434,7 +447,7 @@ def main():
                 if result.returncode:
                     raise RuntimeError(result.stderr[-4000:])
                 browser_report=json.loads(result.stdout)
-            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
+            print(json.dumps({'django_runtime':'gunicorn_production' if '--gunicorn' in sys.argv else 'runserver_test','browser_settings_contract':browser_report,'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'canvas_metadata_http_parity': canvas_report, 'history_counts_http_parity':history_count_report,'generation_updates_http_parity':update_report,'generation_updates_error_http_parity':update_error_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report,'empty_project_contract':default_project_report,'mixed_runtime_default_creation':'passed','login_http_contract':login_report,'password_http_contract':password_report,'origin_security_contract':origin_report,'mixed_runtime_password_update':'one_winner'},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

@@ -394,3 +394,17 @@ the separately qualified full-schema PG16 container probe. Fractional/overflow
 HTTP error bodies/cookies, browser polling, hosted qualification and performance
 remain pending. Node owns traffic; updates remain IMPLEMENTING and are absent
 from the routing allowlist. No production resources or providers were accessed.
+
+Production-settings Gunicorn HTTP comparison exposed a real error contract
+difference: Node sent an empty 500 without Content-Type or renewal for fractional
+since=1.5 and overflowing since=1e20, while Django emitted an HTML error page.
+Django now handles only database DataError SQLSTATE 22P02/22003 in update
+selection, preserving the empty 500 and omitting renewal; other errors propagate.
+Logs record only the rejection SQLSTATE, alongside existing structured request
+logs. Both actual HTTP error cases now match status/body/content type/cookie
+absence with unchanged database snapshots. All nine successful/auth cases and
+existing HTTP comparisons pass again. Six generation-app tests pass, including
+the new error boundary regression test. No traceback bodies are printed by the
+harness. This closes representative fractional/overflow HTTP error qualification;
+extreme Number formatting, browser/hosted polling, performance and production
+route transfer are still unqualified. Updates remain IMPLEMENTING/Next-owned.

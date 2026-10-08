@@ -28,3 +28,17 @@ class UpdateEndpointTests(TransactionTestCase):
                 response = self.client.get('/api/history/updates'+query)
                 self.assertEqual(response.status_code,200)
                 select.assert_called_once_with(1699999700000)
+
+    def test_invalid_database_operands_keep_empty_failure_and_no_renewal(self):
+        from django.db import DataError
+        for code in ('22P02', '22003'):
+            cause = Exception('synthetic database failure')
+            cause.sqlstate = code
+            error = DataError('synthetic wrapped failure')
+            error.__cause__ = cause
+            self.cookie(age=2*86400000)
+            with patch('apps.generation.updates.read_generation_updates',side_effect=error):
+                response = self.client.get('/api/history/updates?since=1.5')
+            self.assertEqual((response.status_code,response.content),(500,b''))
+            self.assertNotIn('Content-Type',response)
+            self.assertNotIn('veevee_session',response.cookies)
