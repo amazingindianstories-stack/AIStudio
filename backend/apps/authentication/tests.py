@@ -73,3 +73,18 @@ class LoginThrottleTests(TransactionTestCase):
         self.assertEqual(LoginAttempt.objects.count(),1)
         for raw,expected in [('0',0),('',0),('5.9',5),('0x10',16),('invalid',5),('-1',5)]:
             self.assertEqual(maximum_attempts(raw),expected)
+
+
+class ThrottleSourceParityTests(TransactionTestCase):
+    def test_current_node_configuration_parsing(self):
+        import json
+        import subprocess
+        from pathlib import Path
+        from .throttle import maximum_attempts, retry_after, admits
+        values=[None,'','0','5.9','.5','1e1','0x10','0b10','-0x10','Infinity','NaN','1_0','１２','\ufeff2','\u001c2','-1',' 3 ']
+        request={'values':values,'retries':[[None,1000],[1000,2000],[1000,1000000]],'admissions':[{'maxAttempts':0,'recentFailureCount':9},{'maxAttempts':5,'recentFailureCount':5},{'maxAttempts':5,'recentFailureCount':4}]}
+        result=subprocess.run(['node','--import','tsx','scripts/django-migration/throttle-oracle.mjs'],input=json.dumps(request),text=True,capture_output=True,check=True,cwd=Path(__file__).resolve().parents[3])
+        expected=json.loads(result.stdout)
+        self.assertEqual([maximum_attempts(value) for value in values],expected['maximums'])
+        self.assertEqual([retry_after(oldest,now) for oldest,now in request['retries']],expected['retries'])
+        self.assertEqual([admits(value['maxAttempts'],value['recentFailureCount']) for value in request['admissions']],expected['admissions'])

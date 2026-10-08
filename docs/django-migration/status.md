@@ -146,3 +146,8 @@ identifier failures, expiry boundary cleanup, retry timing and disabled gate
 without cleanup. Unmanaged migration state is recorded; no schema DDL is
 issued for this model. Direct Node throttle parity and login HTTP qualification
 remain pending. Authentication issuer and traffic authority remain Next.
+
+Throttle source parity: seventeen environment parsing cases, retry boundaries
+and admission decisions agree directly with current Node login-throttle.js.
+Corrected Python-only acceptance of numeric underscores/non-JS whitespace.
+Three focused source/database tests pass. Login HTTP behavior remains pending.
