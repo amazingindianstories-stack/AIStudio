@@ -311,3 +311,13 @@ the comparison after npm ci. UUID runtime formatting is handled in Django; this
 fixture compares Node wire-shaped values. Full public-field fixture coverage,
 actual history/update endpoints, pagination/naming and hosted traffic remain
 pending. No route ownership or production artifact changed.
+
+Generation serialization parity now adds an independently generated populated
+fixture from all 60 concrete model columns, including actual UUID objects,
+true booleans, integer values and structured JSON. This closes the previous
+fixture's dependency on the serializer's own field lists: an omitted populated
+public field now differs from Node's actual rowToItem output. All four cases
+pass, including UUID-to-string formatting; provider diagnostics remain excluded.
+Django setup uses the verified runner's disposable settings, but this comparison
+executes no database query, storage call, worker or provider request. It remains
+serializer evidence, not history/update HTTP qualification or production cutover.

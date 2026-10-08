@@ -5,6 +5,7 @@ from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
+from uuid import UUID
 
 if os.environ.get('MIGRATION_TEST_ISOLATED') != '1':
     raise SystemExit('Isolated runner required')
@@ -21,11 +22,33 @@ rows = [base, dict(base, generate_audio=False,draft_mode=False,duration=0,seed=0
     reference_images=[],reference_videos=[],moderation_blocked=False,continuation_frame_url='/fixture/frame.png'),
     dict(base,cost_basis='reconciled',source_generation_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
          draft_task_id='fixture-draft',judge_score={'identity':0.5},reference_audios=[{'url':'/fixture/audio.wav'}])]
-wire = [{camel(key): item for key, item in row.items()} for row in rows]
+# Build an independent full-column case from model metadata, rather than the
+# serializer's own lists: omissions in those lists must fail against Node.
+import django
+django.setup()
+from apps.generation.models import Generation
+full = {}
+for field in Generation._meta.concrete_fields:
+    name = field.attname
+    kind = field.get_internal_type()
+    if kind in ('UUIDField', 'ForeignKey', 'OneToOneField'):
+        item = UUID('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
+    elif kind == 'BooleanField':
+        item = True
+    elif kind in ('IntegerField', 'BigIntegerField'):
+        item = 123
+    elif kind == 'JSONField':
+        item = {'fixture': name}
+    else:
+        item = 'fixture-' + name
+    full[name] = item
+full['cost_basis'] = 'reconciled'
+rows.append(full)
+wire = [{camel(key): str(item) if isinstance(item, UUID) else item for key, item in row.items()} for row in rows]
 result = subprocess.run(['node','--import','tsx','scripts/django-migration/generation-serialization-oracle.mjs'],
     input=json.dumps(wire),text=True,capture_output=True,check=True)
 node = json.loads(result.stdout)
 python = [generation_item(SimpleNamespace(**row)) for row in rows]
 assert node == python, (node,python)
 assert all('providerResponses' not in row for row in python)
-print(json.dumps({'public_generation_shape_cases':len(rows),'node_django_equal':True,'provider_diagnostics_excluded':True,'database_calls':0,'provider_calls':0}))
+print(json.dumps({'independent_model_columns':len(full),'public_generation_shape_cases':len(rows),'node_django_equal':True,'provider_diagnostics_excluded':True,'database_calls':0,'provider_calls':0}))
