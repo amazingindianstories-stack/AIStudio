@@ -126,3 +126,9 @@ direct SQL group deletion cascades to assets under the fixture's current-schema
 FK. These use explicitly created disposable tables, not Django-created physical
 schema, and invoke no portrait provider or storage service. Migration baseline
 equivalence and portrait API behavior remain pending.
+
+Pricing now has an unmanaged current-schema declaration: text model primary key,
+integer unit_cost_cents, unit and nullable notes. Model-state drift check passes;
+SQL inspection confirms its state migration is a no-op for application DDL.
+Declaration coverage is 14/21. Pricing admission/business behavior and physical
+schema baseline remain pending; no pricing HTTP route or authority transferred.

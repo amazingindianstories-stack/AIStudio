@@ -8,7 +8,7 @@ Implementation counts do not prove qualification or deployment.
 | Django traffic-owned API methods | 0 / 85 |
 | Node route files with retained implementations | 65 |
 | Methods started | 8 / 85 |
-| Tables with Django model declarations | 13 / 21; partial/unmanaged, not schema acceptance |
+| Tables with Django model declarations | 14 / 21; partial/unmanaged, not schema acceptance |
 | Schema authority | DRIZZLE |
 | Auth authority | NEXT |
 | Export worker | NODE |
@@ -31,6 +31,7 @@ Implementation counts do not prove qualification or deployment.
 
 ## Model declarations
 
+- admin_dashboard.Pricing: pricing
 - admin_dashboard.AppSetting: settings
 - admin_dashboard.UserLimit: user_limits
 - assets.Asset: assets
