@@ -10,6 +10,16 @@ catalog have not been verified.** No production credential has been used.
 Reconcile this checkout with the deployed release before any production cutover;
 this document must not be presented as proof of the live schema.
 
+2026-10-08 external reconciliation: read-only Railway metadata and selected
+build/startup logs reveal an existing production `backend` running Gunicorn
+26.0.0 and a historical Django preview associated by deployment message with
+local Git object `4c98320`. Neither deployed source nor frontend traffic owner
+is verified. This contradicts treating the diagram below as a proven live
+deployment; it describes the current checkout's declared architecture.
+See `railway-api-release.md` for service/deployment IDs, runtime fingerprints,
+historical object evidence and remaining provenance/routing gates. No production
+database credentials or application secrets were retrieved or used.
+
 Read the original scope in `source-request.txt` and mandatory isolation rule in
 `isolation-requirement.txt`. `history-evidence.txt` records all locally reachable
 branches and full graph, plus backend, API and schema histories. Remote refs are

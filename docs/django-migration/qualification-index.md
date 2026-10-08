@@ -41,3 +41,8 @@ restricting global/personal reads to registered keys. A fixture with 4,000
 unrelated rows verifies three queries and correct limits. The production-settings
 Gunicorn HTTP harness passed again after this change. Hosted/load baselines
 remain pending; see settings-qualification.md for the precise evidence scope.
+
+External deployment reconciliation now identifies existing Django-like Railway
+services with runtime versions different from this checkout. Declared ownership
+has not changed, but actual live routing/source remain unproven. See
+railway-api-release.md; do not interpret the manifest as deployed-source evidence.

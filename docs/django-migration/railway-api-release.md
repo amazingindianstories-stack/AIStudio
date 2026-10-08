@@ -69,3 +69,29 @@ this migration. Reconcile deployed source/configuration and routing before
 choosing a new service or reusing an existing service. Do not overwrite either
 service based on its name or SUCCESS status. Existing generation, export and
 maintenance workers were also observed and must be preserved.
+
+## Runtime/source reconciliation follow-up
+
+Read-only build/startup log inspection on 2026-10-08 yielded:
+
+- Production deployment startup explicitly reports Gunicorn 26.0.0 and workers
+  booting on 2026-10-06. This checkout pins Gunicorn below 24. Its source cannot
+  be identified from that runtime version or deployment message.
+- Preview build installs Django 5.2.17, DRF 3.18.0 and Gunicorn 26.0.0, matching
+  the requirements at local Git object
+  `4c983208f4ab0eed59c558eab31a05c73f496c80`. The deployment message names
+  `4c98320`, but a CLI message is not a cryptographic source attestation.
+- That historical object has a multi-domain Django backend and Vite files.
+  Its configured `./run-service.sh api` does not exist in that commit, so the
+  deployed upload is not demonstrated to be the exact committed tree.
+- `git branch -a --contains 4c98320` returns no refs; the object exists locally
+  but is not reachable from the currently listed branches. `git log --all`
+  alone therefore missed this deployment-linked historical evidence. Its merge
+  base with current HEAD is `7539967cda49b1f285931e136583b2432b689e39`.
+
+These services are established deployment infrastructure, but not qualification
+evidence for the current Django implementation. Next action: reconcile deployed
+source provenance and actual frontend rewrite destination. Do not infer that
+all live traffic is Node-owned solely from the repository ownership manifest;
+it records this migration's declared state, while live routing remains unproven.
+No DB query, secret retrieval, request mutation or deployment was performed.
