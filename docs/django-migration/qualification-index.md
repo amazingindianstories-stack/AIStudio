@@ -57,3 +57,9 @@ PostgreSQL 16.15 on an internal Docker network: readiness 200, DB outage 503,
 recovery 200, no-store/request IDs and sanitized structured logs. Cleanup was
 verified. This supersedes the preceding container-HTTP-pending statement for
 health only; business/schema/hosted qualification remains incomplete.
+
+Container settings qualification now passes five scenarios on PostgreSQL 16.15,
+including unchanged DB snapshots and Secure renewal accepted by follow-up HTTP.
+This supersedes business-pending for this minimal settings fixture only; full
+schema, browser TLS and hosted qualification remain incomplete. Details are in
+settings-qualification.md.

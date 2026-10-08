@@ -82,6 +82,48 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
             run(['start',database])
             wait_for(lambda: run(['exec',database,'pg_isready','-U','migration','-d','veevee_django_migration']))
             recovered = wait_for(lambda: health(200))
+            def sql(statement):
+                return run(['exec','--interactive',database,'psql','-U','migration','-d','veevee_django_migration','-v','ON_ERROR_STOP=1','-At'], input=statement)
+            sql('''CREATE TABLE users (id uuid PRIMARY KEY,email text,name text,role text,color text,avatar_url text,is_active boolean,auth_version integer);
+CREATE TABLE settings (key text PRIMARY KEY,value text NOT NULL,updated_at bigint NOT NULL);
+CREATE TABLE user_limits (user_id uuid,key text,value text NOT NULL,updated_at bigint NOT NULL,PRIMARY KEY(user_id,key));
+INSERT INTO users VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','fixture@example.invalid','Fixture','user',NULL,NULL,true,0);''')
+            settings_probe = '''import base64, hashlib, hmac, json, time, urllib.request, urllib.error
+from http.cookies import SimpleCookie
+encode=lambda b:base64.urlsafe_b64encode(b).decode().rstrip('=')
+payload=encode(json.dumps({'uid':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','ver':0,'exp':int(time.time()*1000)+28*86400000}).encode())
+token=payload+'.'+encode(hmac.new(b'disposable-session-secret',payload.encode(),hashlib.sha256).digest())
+headers={'Cookie':'veevee_session='+token}
+request=urllib.request.Request('http://127.0.0.1:8000/api/settings',headers=headers)
+try:
+ r=urllib.request.urlopen(request,timeout=10)
+except urllib.error.HTTPError as e:
+ r=e
+cookie=SimpleCookie(r.headers.get('Set-Cookie',''))
+renewal=cookie.get('veevee_session')
+flags=bool(renewal and renewal['secure'] and renewal['httponly'] and renewal['samesite']=='Lax' and renewal['path']=='/' and renewal['max-age']=='2592000')
+accepted=False
+if renewal:
+ follow=urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/api/settings',headers={'Cookie':'veevee_session='+renewal.value}),timeout=10)
+ accepted=follow.status==200 and not follow.headers.get('Set-Cookie')
+print(json.dumps({'status':r.status,'body':json.loads(r.read()),'secure_renewal':flags,'renewal_accepted':accepted}))'''
+            snapshot_sql = "SELECT jsonb_build_object('users',(SELECT jsonb_agg(to_jsonb(u)) FROM users u),'settings',(SELECT jsonb_agg(to_jsonb(s) ORDER BY key) FROM settings s),'limits',(SELECT jsonb_agg(to_jsonb(l) ORDER BY user_id,key) FROM user_limits l));"
+            cases = [
+                ('defaults','',200,{'maxPromptLength':30000,'maxConcurrentJobs':4}),
+                ('overrides',"INSERT INTO settings VALUES ('maxPromptLength','12000',0),('maxConcurrentJobs','3',0); INSERT INTO user_limits VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','maxConcurrentJobs','2',0);",200,{'maxPromptLength':12000,'maxConcurrentJobs':2}),
+                ('invalid-personal',"INSERT INTO user_limits VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','maxPromptLength','invalid',0); UPDATE user_limits SET value='9tail' WHERE key='maxConcurrentJobs';",200,{'maxPromptLength':30000,'maxConcurrentJobs':4}),
+                ('version-mismatch','UPDATE users SET auth_version=1;',401,{'error':'UNAUTHENTICATED'}),
+                ('disabled','UPDATE users SET auth_version=0,is_active=false;',401,{'error':'UNAUTHENTICATED'}),
+            ]
+            for name, mutation, status, body in cases:
+                if mutation:
+                    sql(mutation)
+                before = sql(snapshot_sql)
+                result = json.loads(run(['exec',api,'python','-c',settings_probe]))
+                assert result['status'] == status and result['body'] == body, name
+                assert result['secure_renewal'] == (status == 200), name
+                assert result['renewal_accepted'] == (status == 200), name
+                assert sql(snapshot_sql) == before, name
             logs = run(['logs',api])
             events = [json.loads(line) for line in logs.splitlines() if line.startswith('{')]
             assert any(e.get('status') == 200 for e in events)
@@ -89,7 +131,9 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
             assert 'DO_NOT_LOG' not in logs and 'disposable-only' not in logs
             print(json.dumps({'postgres_version':version,'container_health_ready':ready['status'],
                               'container_health_database_failure':failed['status'],
-                              'container_health_recovered':recovered['status'],'sanitized_structured_logs':True}))
+                              'container_health_recovered':recovered['status'],'sanitized_structured_logs':True,
+                              'settings_contract_cases':[case[0] for case in cases],
+                              'settings_database_unchanged':True,'secure_renewal_followup':True}))
         finally:
             for name in reversed(created):
                 subprocess.run(docker + ['rm','--force',name], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

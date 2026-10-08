@@ -47,3 +47,22 @@ by the complete Node/Django HTTP harness under two-worker production-settings
 Gunicorn, including the same-origin rewrite. This establishes a bounded query
 shape; it does not establish hosted latency, production query plans or a
 Node-versus-Django load baseline. No schema or traffic ownership changed.
+
+## Production image and PostgreSQL 16 — 2026-10-08
+
+The isolated runner's `container-build.py --runtime` now exercises the actual
+API image's default production Gunicorn startup against a newly created
+internal-only PostgreSQL 16.15 container with tmpfs data. Actual image/network/
+mount categories are verified before database commands. Five settings scenarios
+pass: defaults, global/personal overrides, invalid personal fallback plus clamp,
+auth-version mismatch and disabled user. Each uses a synthetic aged session;
+successful reads issue Secure/HttpOnly/Lax/path/max-age-compatible renewal cookies
+and a follow-up request accepts the renewed token without immediate renewal.
+Users/settings/user_limits JSON snapshots are unchanged by every read/follow-up.
+
+This uses a minimal three-table fixture, manually supplied cookies over container
+loopback HTTP, and the current Django image. It is not Node/Django comparison
+inside containers, full-schema integration, schema baselining, browser Secure
+cookie transport, hosted preview or production acceptance. The Node/Django
+comparison remains the separate real-server harness. No service or ownership
+was transferred. Readiness/outage/recovery checks also passed in the same run.
