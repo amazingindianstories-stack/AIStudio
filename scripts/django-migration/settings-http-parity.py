@@ -112,6 +112,13 @@ def main():
                 report.append({'case':name,'status':responses[0][0],'json_equal':True,'database_unchanged':True,'cookie_flags_equal':True})
             with db.cursor() as c:
                 c.execute('UPDATE users SET is_active=true')
+            project_report = []
+            for name,cookie in [('anonymous',''),('authenticated',token())]:
+                before=snapshot()
+                responses=[get(url.replace('/api/settings','/api/projects'),cookie) for url in urls]
+                assert responses[0][:2]==responses[1][:2],('projects',name,responses[0][:2],responses[1][:2])
+                assert before==snapshot(),'populated project read mutated DB'
+                project_report.append({'case':name,'status':responses[0][0],'json_equal':True,'database_unchanged':True})
             me_report = []
             for name, cookie in [('anonymous',''),('invalid','invalid'),('authenticated',token()),('wrong-version',token(1)),('renewal',token(age=172800000))]:
                 before = snapshot()
@@ -169,7 +176,7 @@ def main():
                 time.sleep(.2)
             assert response[:2] == get(urls[1], token())[:2]
             assert response[2].get('X-Request-ID'), 'Django request ID proves rewrite reached Django'
-            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report},indent=2))
+            print(json.dumps({'settings_http_parity':report, 'same_origin_rewrite': 'passed', 'folder_http_parity': folder_report, 'asset_http_parity': asset_report, 'current_user_http_parity': me_report, 'project_http_parity':project_report},indent=2))
         finally:
             for process,log in processes:
                 process.terminate()

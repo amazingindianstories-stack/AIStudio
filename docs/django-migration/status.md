@@ -119,3 +119,10 @@ pass, plus five actual current-user HTTP comparisons: anonymous/invalid/version
 mismatch returns 200 user:null and clears cookie, public user fields match,
 renewal max-age/flags match, DB snapshots unchanged. Other HTTP suites still
 pass. Auth issuer/production traffic remain Next; profile PATCH is not ported.
+
+Project GET implemented with current advisory lock 815042 and default creation
+semantics. Fifteen Django tests pass, including twelve concurrent empty-table
+calls producing exactly one default. Two populated-fixture HTTP comparisons
+match Next status/JSON with unchanged DB. Empty-database cross-runtime parity,
+project-folder association coverage, browser and production remain pending.
+Project mutations remain Next-owned; no route selection changed.
