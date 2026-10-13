@@ -23,7 +23,7 @@ MIGRATION_ROWS = 60
 API_ROLE = 'goal4_green_preview_api'
 PROVIDER_KEYS = {'ARK_API_KEY', 'ARK_BASE_URL', 'GOOGLE_API_KEY', 'SEEDANCE_MODEL', 'SEEDANCE_MODEL_FAST'}
 BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPLUS_ARK_REGION', 'BYTEPLUS_ARK_HOST', 'BYTEPLUS_ARK_BASE_URL'}
-PASS_THROUGH = ('PATH', 'PORT', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID',
+PASS_THROUGH = ('PATH', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID',
                 'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE')
 
 
@@ -85,7 +85,8 @@ def translate(component, env):
         out = _common(cfg, env, browser_origins=env.get('GOAL4_PREVIEW_BROWSER_ORIGINS', ''),
                       app_origin=env.get('GOAL4_PREVIEW_APP_ORIGIN', ''))
         out['VEEVEE_INGRESS_SECRET'] = cfg['ingress_secret']
-        out['PORT'] = env.get('PORT') or '18081'
+        # The old launcher always served the gateway on 18081 (Railway's health check and domain target it).
+        out['PORT'] = '18081'
         if cfg.get('new_exports'):
             out['VEEVEE_EXPORT_ADMISSION'] = '1'
         portraits = json.loads(env['GOAL4_PREVIEW_PORTRAIT_CONFIGURATION']) if env.get('GOAL4_PREVIEW_PORTRAIT_CONFIGURATION') else None

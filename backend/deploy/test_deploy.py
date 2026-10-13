@@ -76,7 +76,7 @@ class LegacyConfigTests(SimpleTestCase):
         config = {**self.base, 'role': 'goal4_green_preview_api', 'ingress_secret': 'i' * 64, 'paid': self.paid,
                   'new_exports': {'scope': 'x'}, **cfg}
         return {'GOAL4_PREVIEW_CONFIGURATION': json.dumps(config), 'GOAL4_PREVIEW_BROWSER_ORIGINS': 'https://veevee.ai',
-                'GOAL4_PREVIEW_APP_ORIGIN': 'https://old-preview.example', 'PATH': '/usr/bin', 'RAILWAY_DEPLOYMENT_ID': 'dep',
+                'GOAL4_PREVIEW_APP_ORIGIN': 'https://old-preview.example', 'PATH': '/usr/bin', 'RAILWAY_DEPLOYMENT_ID': 'dep', 'PORT': '8080',
                 'GOAL4_PREVIEW_LAUNCHER': 'code-that-must-not-reach-django',
                 'GOAL4_PREVIEW_PORTRAIT_CONFIGURATION': json.dumps({'read_environment': {'BYTEPLUS_ACCESS_KEY_ID': 'k', 'BYTEPLUS_SECRET_ACCESS_KEY': 's'}})}
 
