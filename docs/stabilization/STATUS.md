@@ -79,7 +79,7 @@ Deployment needs owner approval (gate **A0-depth**).
 | P3.1 Overlays ported | PASS | Folded into source: shared READY reads, finalize, bounded thumbnails, no-store redirects (`189826a`); prefixed GCS namespace (`50be4c5`); Seedance policy copy, Seedream 240 s transport + diagnostics, Gallery registration guard (`0dd731c`); worker portrait/asset projections, stale-portrait GetAsset pre-queue guard (`e24ccd9`). Reviewed runtime app `apps/production_runtime`: paid guard (`b9aef60`), export admission (`5a806b5`), lease/naming namespaces + read-only pricing (`bcb5c1e`), portrait lifecycle — list-only sync, tombstones, create-once registration, remote-first delete (`b2e0c29`). All Railway/DB identity and source-hash pins removed; infra identifiers come from settings. |
 | P3.2 Image + entrypoint | PASS (local) | `2fb7d4b`: `deploy/entrypoint.py` + ported ingress gateway (now with depth routes); `backend/Dockerfile` CMD → entrypoint. Matches production process model (gunicorn 1×8, timeout 25, graceful 5). Local smoke on PostgreSQL 18.6: readiness 200, no ingress header 403, health 200, blocked route 403, depth status reaches Django, all three workers start; fresh `migrate` applies the 26 migrations. Logs now go to stdout (production currently writes them to a private file). |
 | P3.3 Staging | PARTIAL | Green backup restored into disposable PostgreSQL 18.6 with production roles, RLS and ledger functions. Verified ledger contract as the real roles: worker cannot see unregistered rows or call `reserve`; API `reserve` registers once, replay rejected; worker sees registered row; RESERVED→ATTEMPTING→SUBMITTING once, second claim refused. **NOT VERIFIED:** a full staged enqueue→worker run through the new image — blocked by the session permission classifier as a potential paid transaction even though no provider keys exist; needs owner permission to run. Portrait registration/delete behaviour tests with a fake BytePlus client are still missing (logic unchanged from production). |
-| P3.4 Cutover | API **PASS** (2026-10-13 11:51 UTC, deployment `b189c1f6`, commit `086e8aa`); workers PENDING | Three harmless failed attempts first (start command ignored from railway.json; health check on $PORT). Added service variable `PORT=18081`, start command set on the instance. Public health/me/history verified through veevee.ai; live logs: 200/401/307 only, no errors. Rollback: redeploy `488d4b18` + restore launcher start command. |
+| P3.4 Cutover | **PASS — all four services** on the versioned image (API 11:51 UTC; export 12:06; scheduler 12:11; generation worker 12:59 at an idle moment). API later redeployed with `DEPTH_WORKER_TOKEN` (F-04 fixed) and `549df6e` (rejected-portrait delete) | Three harmless failed attempts first (start command ignored from railway.json; health check on $PORT). Added service variable `PORT=18081`, start command set on the instance. Public health/me/history verified through veevee.ai; live logs: 200/401/307 only, no errors. Rollback: redeploy `488d4b18` + restore launcher start command. |
 
 Known deliberate differences to verify at cutover: `config/wsgi.py` adds the repo's slow-request
 and terminated-body wrappers (production called `get_wsgi_application()` directly); API logs go
@@ -112,6 +112,12 @@ Compared the Blue production dump (Blue unchanged since 2026-10-12 11:14 UTC) wi
   on 2026-10-12 18:59 IST and partly re-created).
 - **Left as is:** shared rows where Green is newer (portrait statuses, folder colours, one canvas);
   one folder move made on Blue (folder `cd6a30f1`) not applied; 189 Blue-only activity-log rows.
+
+## Portraits — BytePlus quota (2026-10-13)
+Registrations fail since 18:21 IST with `QuotaSharedPoolExceeded`. Remote assets still held: 59 Active
++ 51 locally archived (PreviewDeleted without remote delete). Freeing the 51 needs remote DeleteAsset
+calls — irreversible on BytePlus — **owner decision pending**. Fixed: definitively rejected
+registrations can now be deleted (`549df6e`).
 
 ## F-07 — gateway blocks features in production (kept for parity)
 The live ingress gateway refuses `POST /api/generate/upscale`, `/api/audio/transcribe`, admin writes
