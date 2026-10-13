@@ -1,5 +1,6 @@
 "use client";
 import { uploadFileDirect, uploadOriginalReference, uploadContentType } from "@/lib/client-reference-upload";
+import { useDirectMediaUrl } from "@/lib/media-resolver";
 
 import {
   useEffect,
@@ -1441,6 +1442,17 @@ function Segment({
   );
 }
 
+
+const REFERENCE_SESSION_TOKEN = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+
+/** Split a /api/media thumbnail URL into its media reference and requested width. */
+export function splitMediaThumb(src) {
+  if (typeof src !== "string" || !src.startsWith("/api/media/")) return { ref: null, width: undefined };
+  const [path, query = ""] = src.split("#")[0].split("?");
+  const width = Number(new URLSearchParams(query).get("w")) || undefined;
+  return { ref: path, width };
+}
+
 export function referenceThumbnailUrl(url, portraitAssets = []) {
   const display = referenceDisplayUrl(url, portraitAssets);
   return display?.startsWith("/api/media/uploads/image-reference/") ? thumbUrl(display, 512) : display;
@@ -1468,16 +1480,18 @@ export function referenceSource(ref, kind, portraitAssets = []) {
  * thumbnail never shifts @imgN numbering or replaces another occurrence. */
 function ReferenceThumbnail({ src, alt, className, portrait = false }) {
   const [failed, setFailed] = useState(false);
-  // Private upload redirects expire sooner than a cached media response. Give
-  // each mounted reference occurrence a fresh request, without changing the
-  // durable composer reference or retrying on render/error.
-  const [requestToken] = useState(() => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`);
+  // Private upload redirects expire; one token per page session keeps a fresh
+  // first request without re-fetching on every remount.
   const displaySrc = useMemo(() => {
     if (!src?.startsWith("/api/media/uploads/image-reference/")) return src;
     const [path, fragment] = src.split("#");
-    const fresh = `${path}${path.includes("?") ? "&" : "?"}reference_request=${encodeURIComponent(requestToken)}`;
+    const fresh = `${path}${path.includes("?") ? "&" : "?"}reference_request=${encodeURIComponent(REFERENCE_SESSION_TOKEN)}`;
     return fragment ? `${fresh}#${fragment}` : fresh;
-  }, [src, requestToken]);
+  }, [src]);
+  // Prefer a direct storage URL when the backend can resolve one.
+  const { ref: mediaRef, width: mediaWidth } = splitMediaThumb(src);
+  const direct = useDirectMediaUrl(mediaRef, mediaWidth);
+  const imageSrc = mediaRef && direct.src !== (mediaWidth ? thumbUrl(mediaRef, mediaWidth) : mediaRef) ? direct.src : displaySrc;
   useEffect(() => setFailed(false), [src]);
   if (!src || failed) {
     const [text, hint] = portrait
@@ -1485,7 +1499,7 @@ function ReferenceThumbnail({ src, alt, className, portrait = false }) {
       : ["Reference unavailable", "This image is no longer available. Remove it and select another image."];
     return <span className={`${className} flex items-center justify-center bg-ink-950 p-1 text-center text-[10px] text-white/55`} role="img" aria-label={`${alt || "Reference"}: ${text}`} title={hint}>{text}</span>;
   }
-  return <img src={displaySrc} alt={alt} draggable={false} className={className} onError={() => setFailed(true)} />;
+  return <img src={imageSrc} alt={alt} draggable={false} className={className} onError={() => { if (!direct.onError()) setFailed(true); }} />;
 }
 
 /** Pointer sorting is confined to the grip; the strip itself remains a native

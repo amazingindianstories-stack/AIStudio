@@ -17,3 +17,10 @@ test('manual uploads and materials are distinguished from portraits', () => {
   assert.equal(referenceSource('/api/media/assets/a.png', 'material', portraits).type, 'material');
   assert.equal(referenceSource(null, undefined, portraits).type, null);
 });
+
+test('media thumbnail URLs split into reference and width', async () => {
+  const { splitMediaThumb } = await import('./PromptComposer.jsx');
+  assert.deepEqual(splitMediaThumb('/api/media/uploads/image-reference/a?w=512'), { ref: '/api/media/uploads/image-reference/a', width: 512 });
+  assert.deepEqual(splitMediaThumb('/api/media/generated/a.png#x'), { ref: '/api/media/generated/a.png', width: undefined });
+  assert.deepEqual(splitMediaThumb('https://elsewhere.example/a.png'), { ref: null, width: undefined });
+});
