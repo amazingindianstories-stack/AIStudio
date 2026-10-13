@@ -3,7 +3,7 @@
 #
 #   REHEARSAL_DB=<pg container on network veevee-rehearsal holding a restored Green copy>
 #   REHEARSAL_DB_HOST=<its IP on that network>  REHEARSAL_API_PASSWORD=...  REHEARSAL_WORKER_PASSWORD=...
-#   REHEARSAL_USER=<email of a user in the copy>  REHEARSAL_PREFIX=<32-hex namespace used by the copy's RLS>
+#   REHEARSAL_OBSERVER_URL=<owner DSN of the local copy, read-only use>  REHEARSAL_USER=<email of a user in the copy>  REHEARSAL_PREFIX=<32-hex namespace used by the copy's RLS>
 #   scripts/stabilization/rehearse_local.sh [commit]
 #
 # API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway).
@@ -12,13 +12,14 @@
 set -eu
 COMMIT=$(git rev-parse --verify "${1:-HEAD}^{commit}"); SHORT=$(printf %.12s "$COMMIT")
 ROOT=$(git rev-parse --show-toplevel)
-: "${REHEARSAL_DB:?}" "${REHEARSAL_DB_HOST:?}" "${REHEARSAL_API_PASSWORD:?}" "${REHEARSAL_WORKER_PASSWORD:?}" "${REHEARSAL_USER:?}" "${REHEARSAL_PREFIX:?}"
+: "${REHEARSAL_OBSERVER_URL:?}" "${REHEARSAL_DB:?}" "${REHEARSAL_DB_HOST:?}" "${REHEARSAL_API_PASSWORD:?}" "${REHEARSAL_WORKER_PASSWORD:?}" "${REHEARSAL_USER:?}" "${REHEARSAL_PREFIX:?}"
 NET=veevee-rehearsal; IMAGE="veevee-backend:rehearse-$SHORT"; VOL="veevee-rehearsal-media-$SHORT"
 BASE=$(mktemp -d "${TMPDIR:-/tmp}/veevee-rehearse-$SHORT.XXXX"); WORK="$BASE/src"
 NAMES="vr-api vr-gen vr-export vr-sched"
 cleanup() { for n in $NAMES; do docker rm -f "$n" >/dev/null 2>&1 || true; done; docker volume rm "$VOL" >/dev/null 2>&1 || true
   git -C "$ROOT" worktree remove --force "$WORK" >/dev/null 2>&1 || true; rm -rf "$BASE"; }
 trap cleanup EXIT INT TERM
+for n in $NAMES; do docker rm -f "$n" >/dev/null 2>&1 || true; done
 git -C "$ROOT" worktree add --quiet --detach "$WORK" "$COMMIT"
 docker build -q -f "$WORK/backend/Dockerfile" -t "$IMAGE" "$WORK" >/dev/null
 docker network inspect "$NET" --format '{{.Internal}}' | grep -qx true || { echo "network $NET must be --internal"; exit 1; }
@@ -50,7 +51,7 @@ docker run -d --name vr-sched --network "$NET" -v "$VOL:/media" -v "$WORK/script
 until docker exec vr-api python -c "import http.client as h;c=h.HTTPConnection('127.0.0.1',18081,timeout=3);c.request('GET','/__g4_readiness');exit(c.getresponse().status!=200)" 2>/dev/null; do sleep 1; done
 STATUS=0
 # shellcheck disable=SC2086
-docker exec $COMMON -e DATABASE_URL="$API_DB" -e PYTHONPATH=/app -w /app vr-api python /scripts/stabilization/rehearsal_probe.py "$SECRET" "$REHEARSAL_USER" > "$BASE/probe.txt" 2>&1 || STATUS=$?
+docker exec $COMMON -e DATABASE_URL="$API_DB" -e REHEARSAL_OBSERVER_URL="$REHEARSAL_OBSERVER_URL" -e PYTHONPATH=/app -w /app vr-api python /scripts/stabilization/rehearsal_probe.py "$SECRET" "$REHEARSAL_USER" > "$BASE/probe.txt" 2>&1 || STATUS=$?
 grep -v '^{"event": "request"' "$BASE/probe.txt" || true
 for n in vr-gen vr-export vr-sched; do
   if [ "$(docker inspect -f '{{.State.Running}}' "$n")" != true ]; then echo "FAIL $n exited"; STATUS=1; fi

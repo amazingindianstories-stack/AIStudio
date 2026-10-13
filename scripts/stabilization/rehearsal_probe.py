@@ -23,7 +23,6 @@ from apps.authentication.session import sign_session  # noqa: E402
 from apps.generation.models import Generation  # noqa: E402
 from apps.library.models import GenerationNaming  # noqa: E402
 from apps.projects.models import Project  # noqa: E402
-from django.db import connection  # noqa: E402
 
 SECRET, EMAIL = sys.argv[1], sys.argv[2]
 user = User.objects.get(email=EMAIL)
@@ -52,9 +51,10 @@ def check(name, condition, detail=''):
 
 
 def ledger(identifier):
-    with connection.cursor() as cursor:
-        cursor.execute('SELECT state FROM goal4_preview_paid_budget.jobs WHERE generation_id=%s', [identifier])
-        row = cursor.fetchone()
+    # The API role cannot read the paid ledger (by design); observe it with the local copy's owner.
+    import psycopg
+    with psycopg.connect(os.environ['REHEARSAL_OBSERVER_URL']) as observer:
+        row = observer.execute('SELECT state FROM goal4_preview_paid_budget.jobs WHERE generation_id=%s', [identifier]).fetchone()
     return row[0] if row else None
 
 
