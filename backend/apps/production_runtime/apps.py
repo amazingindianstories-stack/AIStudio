@@ -27,9 +27,24 @@ class ProductionRuntimeConfig(AppConfig):
         if getattr(settings, 'VEEVEE_EXPORT_ADMISSION', False) and component in ('api', 'export'):
             from . import export_admission
             export_admission.install('api' if component == 'api' else 'worker')
+        if getattr(settings, 'VEEVEE_PORTRAIT_LIFECYCLE', False) and component == 'api':
+            install_portrait_lifecycle()
         paid = getattr(settings, 'VEEVEE_PAID_GUARD', None)
         if paid:
             from . import paid_guard
             from apps.generation.services import enqueue
             if not getattr(enqueue, '_goal4_paid_guard_installed', False):
                 paid_guard.install_paid_guard(paid)
+
+
+def install_portrait_lifecycle():
+    """Same order as the production launcher: each step builds on the previous one."""
+    from apps.assets import portraits as route
+    from .portraits import presence, registration, remote_delete, tombstones
+    if getattr(route, '_veevee_portrait_lifecycle_installed', False):
+        return
+    presence.install()
+    tombstones.install()
+    registration.install(route, registration.native_client)
+    remote_delete.install(route)
+    route._veevee_portrait_lifecycle_installed = True

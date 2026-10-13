@@ -119,7 +119,7 @@ class StalePortraitGuardTests(SimpleTestCase):
                              (good_url, {'Id': 'a b', 'ProjectName': 'default'})):
             with self.assertRaises(ValueError):
                 transport.request('POST', url, raw_body=_json.dumps(payload).encode())
-        self.assertTrue(transport.unbilled_readonly)
+        self.assertTrue(transport.paid_guard_exempt)
 
 
 class ProviderProjectionTests(__import__('django.test', fromlist=['TransactionTestCase']).TransactionTestCase):

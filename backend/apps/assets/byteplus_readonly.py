@@ -10,7 +10,7 @@ ASSET_ID = re.compile(r'[A-Za-z0-9_-]{1,256}')
 
 class ReadOnlyGetAssetTransport(HttpTransport):
     """Permits only POST /?Action=GetAsset&Version=2024-01-01 with {Id, ProjectName}."""
-    unbilled_readonly = True
+    paid_guard_exempt = True
 
     def request(self, method, url, **kwargs):
         parts = urlsplit(url)

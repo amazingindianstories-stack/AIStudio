@@ -210,6 +210,6 @@ class UnbilledReadonlyExemptionTests(OneClaimPerPostTests):
         sent = []
         with self.installed({}, sent):
             class ReadOnly(HttpTransport):
-                unbilled_readonly = True
+                paid_guard_exempt = True
             ReadOnly(allowed_hosts=['x']).request('POST', 'https://ark.ap-southeast-1.byteplusapi.com/?Action=GetAsset', body={})
         self.assertEqual(len(sent), 1)

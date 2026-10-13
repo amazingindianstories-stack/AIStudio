@@ -115,3 +115,6 @@ VEEVEE_EXPORT_ADMISSION = os.environ.get('VEEVEE_EXPORT_ADMISSION') == '1'
 # apps/production_runtime/namespacing.py). Empty means no namespace.
 VEEVEE_LEASE_PREFIX = os.environ.get('VEEVEE_LEASE_PREFIX', '')
 VEEVEE_NAMING_PREFIX = os.environ.get('VEEVEE_NAMING_PREFIX', '')
+# BytePlus portrait lifecycle (list-only sync, tombstones, create-once
+# registration, remote-first delete); API process only.
+VEEVEE_PORTRAIT_LIFECYCLE = os.environ.get('VEEVEE_PORTRAIT_LIFECYCLE') == '1'
