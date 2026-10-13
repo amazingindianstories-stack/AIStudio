@@ -28,6 +28,15 @@ The staged directory holds only `backend/` from `git archive` and a generated `r
 (Dockerfile `backend/Dockerfile`, start command, health/overlap). The repository's
 `railway.toml` files are never uploaded — the root one would start the generation worker.
 
+**Learned on the API cutover (2026-10-13):** Railway ignored the uploaded `railway.json` start
+command (deployment meta had no file manifest), so the new image first ran the old launcher and
+failed its health check harmlessly. The start command must be set on the service instance
+(`serviceInstanceUpdate … startCommand`) immediately before `railway up`; running deployments keep
+their own snapshot. Railway health checks target `$PORT` (injected as 8080), not the domain's
+target port, so the API needed `PORT=18081` (old launcher ignores it). The previous API
+deployment never had a health check at all. Always confirm the applied start command in the new
+deployment's `meta.serviceManifest`.
+
 ## Order (one service at a time; verify before the next)
 1. **API** (health check `/__g4_readiness`, overlap 20 s, drain 30 s). A failed start or
    failed preflight never takes traffic; the old deployment keeps serving.
