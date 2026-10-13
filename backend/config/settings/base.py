@@ -55,7 +55,11 @@ if _media_backend == 'filesystem':
         raise ImproperlyConfigured('Filesystem media requires an explicit VEEVEE_MEDIA_ROOT')
     VEEVEE_MEDIA_CONFIG = {'backend': 'filesystem', 'root': os.environ['VEEVEE_MEDIA_ROOT']}
 elif _media_backend == 'gcs' or (not _media_backend and _media_bucket):
-    VEEVEE_MEDIA_CONFIG = {'backend': 'gcs', 'bucket': _media_bucket,
+    _media_prefix = os.environ.get('VEEVEE_MEDIA_PREFIX', '')
+    if _media_prefix and (len(_media_prefix) < 16 or not _media_prefix.endswith('/') or _media_prefix.startswith('/')
+                          or any(part in ('.', '..') for part in _media_prefix.split('/'))):
+        raise ImproperlyConfigured('VEEVEE_MEDIA_PREFIX must be a relative path of at least 16 characters ending in /')
+    VEEVEE_MEDIA_CONFIG = {'backend': 'gcs', 'bucket': _media_bucket, 'prefix': _media_prefix,
         'project': os.environ.get('GCP_PROJECT_ID'), 'cdn_url': GCP_MEDIA_CDN_URL,
         'service_account_email': os.environ.get('GCP_SERVICE_ACCOUNT_EMAIL'),
         'fallback_bucket': os.environ.get('GCP_MEDIA_READ_FALLBACK_BUCKET'),

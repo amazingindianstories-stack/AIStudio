@@ -380,6 +380,91 @@ class GCSAdapter:
             raise
 
 
+class PrefixedGCSAdapter(GCSAdapter):
+    """Production media namespace inside a shared bucket.
+
+    Writes always go under ``prefix``. Reads try the canonical key first so
+    objects written before the namespace existed keep working, then the
+    prefixed key. Browser URLs are short-lived signed reads, cached briefly.
+    """
+    READ_URL_SECONDS = 900
+    READ_URL_CACHE_SECONDS = 45
+    READ_URL_CACHE_SIZE = 128
+
+    def __init__(self, client, bucket, *, prefix, **kwargs):
+        super().__init__(client, bucket, **kwargs)
+        self.prefix = prefix
+        import collections, threading
+        self._read_cache = collections.OrderedDict()
+        self._read_cache_lock = threading.Lock()
+
+    def private_key(self, key):
+        if not isinstance(key, str) or key.startswith('/') or '\x00' in key or any(p in ('', '..', '.') for p in key.split('/')):
+            raise ValueError('Invalid media object key')
+        return self.prefix + key
+
+    def open(self, key, range_header=None):
+        self.private_key(key)
+        try:
+            return super().open(key, range_header)
+        except MediaNotFoundError:
+            return super().open(self.private_key(key), range_header)
+
+    def read_key(self, key):
+        try:
+            self.private_key(key)
+            media = super().open(key)
+            media.stream.close()
+            return key
+        except MediaNotFoundError:
+            return self.private_key(key)
+
+    def put(self, key, *args, **kwargs):
+        return super().put(self.private_key(key), *args, **kwargs)
+
+    def put_create_only(self, key, *args, **kwargs):
+        return super().put_create_only(self.private_key(key), *args, **kwargs)
+
+    def put_stream(self, key, *args, **kwargs):
+        return super().put_stream(self.private_key(key), *args, **kwargs)
+
+    def delete(self, key):
+        return super().delete(self.private_key(key))
+
+    def signed_upload_url(self, key, *args, **kwargs):
+        return super().signed_upload_url(self.private_key(key), *args, **kwargs)
+
+    def signed_download_url(self, key, *args, **kwargs):
+        return super().signed_download_url(self.read_key(key), *args, **kwargs)
+
+    def signed_read_url(self, key, *args, **kwargs):
+        return super().signed_read_url(self.read_key(key), *args, **kwargs)
+
+    def browser_url(self, key):
+        import time
+        with self._read_cache_lock:
+            now = time.monotonic()
+            item = self._read_cache.get(key)
+            if item and item[0] > now:
+                self._read_cache.move_to_end(key)
+                return item[1]
+            url = super().signed_read_url(self.read_key(key), self.READ_URL_SECONDS)
+            self._read_cache[key] = (now + self.READ_URL_CACHE_SECONDS, url)
+            self._read_cache.move_to_end(key)
+            while len(self._read_cache) > self.READ_URL_CACHE_SIZE:
+                self._read_cache.popitem(last=False)
+            return url
+
+    def create_resumable_upload_session(self, key):
+        return super().create_resumable_upload_session(self.private_key(key))
+
+    def begin_reference_upload(self, key, *args, **kwargs):
+        return super().begin_reference_upload(self.private_key(key), *args, **kwargs)
+
+    def upload_metadata(self, key):
+        return super().upload_metadata(self.private_key(key))
+
+
 class S3Adapter:
     def __init__(self, client, bucket):
         self.client, self.bucket = client, bucket
@@ -629,7 +714,14 @@ def configured_storage():
         from google.cloud import storage
         client = storage.Client(project=config.get('project'))
         signing = {'service_account_email':config.get('service_account_email')}
-        primary = GCSAdapter(client, config['bucket'], cdn_url=config.get('cdn_url', ''),**signing)
+        if config.get('prefix'):
+            # Credentials that can sign locally do not need IAM signBlob.
+            from google.auth.credentials import Signing
+            if isinstance(client._credentials, Signing):
+                signing = {'service_account_email': None}
+            primary = PrefixedGCSAdapter(client, config['bucket'], prefix=config['prefix'], **signing)
+        else:
+            primary = GCSAdapter(client, config['bucket'], cdn_url=config.get('cdn_url', ''),**signing)
         fallback = GCSAdapter(client, config['fallback_bucket'],**signing) if config.get('fallback_bucket') else None
         if config.get('legacy_s3_bucket'):
             import boto3
