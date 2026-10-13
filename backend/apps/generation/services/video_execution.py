@@ -88,10 +88,15 @@ def to_provider_data_urls(references, signal, *, read=None, prepare=None, portra
         try:
             portrait = portrait_lookup(ref) if isinstance(ref, str) else None
         except Exception:
-            portrait = None
+            # Without the lookup we cannot tell a Gallery portrait from a plain image.
+            raise ValueError('Portrait registration lookup unavailable; submission stopped before provider execution.') from None
         if portrait and portrait.get('byteplusAssetId') and (portrait.get('status') or '').lower() == 'active':
             output.append('asset://' + portrait['byteplusAssetId'])
             continue
+        if portrait:
+            # Sending an unregistered portrait as raw pixels trips BytePlus face filters and bills a doomed job.
+            raise ValueError('This Gallery portrait is not registered and Active in BytePlus. Register and verify the '
+                             'existing portrait before Seedance submission; no generation was submitted.')
         raw = read(ref)
         prepared = prepare(raw['mimeType'], raw['data'])
         mime, data = prepared['mimeType'], prepared['data']

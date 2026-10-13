@@ -74,11 +74,12 @@ def seedream_payload(input, env=None):
     return payload
 
 
-def generate_image(input, *, transport=None, env=None, signal=None, fetcher=None):
+def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=None):
     env = os.environ if env is None else env
     key = required_key(env, 'ARK_API_KEY', 'Seedream is not configured: ARK_API_KEY is missing or redacted.')
     payload = seedream_payload(input, env)
-    transport = transport or HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com'])
+    # Seedream renders can take minutes; the default 60 s timeout cut off accepted work.
+    transport = transport or HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com'], timeout=SEEDREAM_TIMEOUT_SECONDS)
     endpoint = env.get('ARK_BASE_URL', 'https://ark.ap-southeast.bytepluses.com/api/v3').rstrip('/')
     try:
         response = transport.request('POST', endpoint + '/images/generations',
@@ -115,3 +116,35 @@ def generate_image(input, *, transport=None, env=None, signal=None, fetcher=None
     if signal:
         signal.check()
     return content[0] if isinstance(content, tuple) else content
+
+
+SEEDREAM_TIMEOUT_SECONDS = 240
+_DIAGNOSTIC_CODES = {'ambiguous_submission', 'request_deadline', 'response_deadline', 'response_deadline_unavailable',
+                     'queue_execution_deadline', 'invalid_provider_endpoint', 'output_download_failed', 'provider_error', 'ModelNotOpen'}
+
+
+def failure_diagnostic(error, elapsed):
+    """Bounded, secret-free description of a failed Seedream call for operators."""
+    chain, seen, node = [], set(), error
+    while node is not None and id(node) not in seen and len(chain) < 4:
+        seen.add(id(node))
+        name = type(node).__name__
+        code = getattr(node, 'code', None)
+        chain.append({'class': name if name.isidentifier() and len(name) <= 80 else 'Exception',
+                      'code': code if code in _DIAGNOSTIC_CODES else 'OTHER'})
+        node = node.__cause__
+    return {'event': 'SEEDREAM_OPERATIONAL_FAILURE', 'elapsed_seconds': round(elapsed, 3), 'causes': chain}
+
+
+def generate_image(*args, **kwargs):
+    import json
+    import time
+    started = time.monotonic()
+    try:
+        return _generate_image(*args, **kwargs)
+    except Exception as error:
+        try:
+            print(json.dumps(failure_diagnostic(error, time.monotonic() - started)), flush=True)
+        except Exception:
+            pass  # diagnostics never change the provider lifecycle
+        raise

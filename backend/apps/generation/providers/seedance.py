@@ -26,6 +26,10 @@ def is_moderation_message(text):
     return bool(re.search('SensitiveContent|Privacy|real person|portrait|sensitive',text or '',re.I))
 
 
+TEXT_POLICY_MESSAGE = 'BytePlus rejected the prompt under its text content policy. Review the prompt before submitting a new request.'
+NEUTRAL_POLICY_MESSAGE = 'BytePlus rejected the input under its content policy. Review the provider rejection details before submitting a new request.'
+
+
 def friendly_error(status,body):
     code,message = '',''
     try:
@@ -34,9 +38,20 @@ def friendly_error(status,body):
     except (ValueError,AttributeError):
         pass
     if code != 'InvalidEndpointOrModel.NotFound' and status != 404 and is_moderation_message(code+message):
-        return SeedanceError(MODERATION_MESSAGE,code='moderation',status=status)
-    return SeedanceError(f'Seedance error ({status} {code}): {message or body[:300]}' if code else
-        f'Seedance create error {status}: {body[:400]}',code='seedance_error',status=status)
+        result = SeedanceError(MODERATION_MESSAGE,code='moderation',status=status)
+    else:
+        result = SeedanceError(f'Seedance error ({status} {code}): {message or body[:300]}' if code else
+            f'Seedance create error {status}: {body[:400]}',code='seedance_error',status=status)
+    if status == 404 or code == 'InvalidEndpointOrModel.NotFound':
+        return result
+    # Name the policy that rejected the request; code/status stay unchanged.
+    if code == 'InputTextSensitiveContentDetected' or code.startswith('InputTextSensitiveContentDetected.'):
+        result.args = (TEXT_POLICY_MESSAGE, *result.args[1:])
+    elif code == 'InputImageSensitiveContentDetected.PrivacyInformation':
+        result.args = (MODERATION_MESSAGE, *result.args[1:])
+    elif result.code == 'moderation':
+        result.args = (NEUTRAL_POLICY_MESSAGE, *result.args[1:])
+    return result
 
 
 def pick_model(display,env=None):
