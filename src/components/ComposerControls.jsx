@@ -28,6 +28,7 @@ import {
   VIDEO_TASK_MODES,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import { askText } from "@/lib/ask-text";
 
 /**
  * Reference-image strip + settings toolbar, extracted verbatim (behavior
@@ -389,9 +390,9 @@ export function SettingsToolbar() {
                   </MenuItem>
                 ))}
                 <MenuItem
-                  onClick={() => {
-                    const name = window.prompt("New project name");
-                    if (name?.trim()) s.createProject(name.trim());
+                  onClick={async () => {
+                    const name = await askText({ title: "New project", label: "Project name", confirmLabel: "Create" });
+                    if (name) s.createProject(name);
                   }}
                 >
                   <Plus className="h-4 w-4 text-white/60" />

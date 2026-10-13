@@ -17,6 +17,7 @@ import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { StudioView } from "@/components/StudioView";
 import { Toaster } from "@/components/Toaster";
+import { TextPromptDialog } from "@/components/TextPromptDialog";
 import { useDesktopLayout } from "@/lib/use-desktop-layout";
 
 export default function Page() {
@@ -240,6 +241,7 @@ export default function Page() {
         <PortraitGallery />
       </div>
       <Toaster />
+      <TextPromptDialog />
     </MotionConfig>
   );
 }

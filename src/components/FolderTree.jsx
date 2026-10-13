@@ -29,6 +29,7 @@ import {
   getFolderColorClass,
   FOLDER_COLOR_OPTIONS,
 } from "@/lib/folder-colors";
+import { askConfirm } from "@/lib/ask-text";
 
 export function FolderTree({
   folders = [],
@@ -358,12 +359,10 @@ export function FolderTree({
                   )}
                   <div className="my-1 h-px bg-line" />
                   <MenuItem
-                    onClick={() => {
+                    onClick={async () => {
                       close();
                       if (
-                        window.confirm(
-                          `Delete folder "${folder.name}"? Only empty folders can be deleted.`
-                        )
+                        await askConfirm({ title: `Delete folder "${folder.name}"?`, description: "Only empty folders can be deleted.", confirmLabel: "Delete", destructive: true })
                       ) {
                         deleteFolder(folder.projectId, folder.id).catch((err) => {
                           notify(err.message || "Failed to delete folder.");

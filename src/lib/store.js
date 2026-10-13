@@ -71,6 +71,7 @@ import {
   patchMaterialCaches,
   putMaterialCache,
 } from "./material-cache";
+import { askText } from "./ask-text";
 
 const EMPTY_COUNTS = {
   project: { total: 0, unsorted: 0, byFolder: {} },
@@ -1233,8 +1234,7 @@ export const useStore = create((set, get) => ({
   // Lightweight quality feedback signal (Phase 3.5) — independent of
   // toggleFavorite above (see schema.js's `flagged` comment for why these
   // are two separate booleans). Unflagging never asks for a reason; flagging
-  // does, via window.prompt — same convention this file already uses for
-  // folder/project naming (ProjectPanel.jsx, ProjectMenu.jsx). An empty or
+  // does, via the in-app text dialog (askText). An empty or
   // cancelled prompt still flags the row (a null reason is a valid flag,
   // just an unexplained one) — only an explicit Cancel-with-no-flag case
   // doesn't happen here because the flag itself isn't gated on the prompt.
@@ -1244,7 +1244,7 @@ export const useStore = create((set, get) => ({
 
     const nextFlagged = !item.flagged;
     const reason = nextFlagged
-      ? window.prompt("Flag this generation — what's wrong with it? (optional)") || null
+      ? (await askText({ title: "Flag this generation", label: "What's wrong with it? (optional)", confirmLabel: "Flag", optional: true, maxLength: 500 })) || null
       : null;
     const flaggedAt = nextFlagged ? Date.now() : undefined;
     patchEverywhere(set, id, (i) => ({

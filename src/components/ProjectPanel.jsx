@@ -29,6 +29,7 @@ import {
   getFolderDragData,
   isFolderDragEvent,
 } from "@/lib/asset-drag-contract";
+import { askConfirm, askText } from "@/lib/ask-text";
 
 export function ProjectPanel({ cardWidth = 160 }) {
   const projects = useStore((s) => s.projects);
@@ -295,14 +296,14 @@ export function ProjectPanel({ cardWidth = 160 }) {
                   setActiveProject(project.id);
                   setActiveFolder(null);
                 }}
-                onRename={() => {
-                  const newName = window.prompt("Rename project", project.name);
-                  if (newName?.trim() && newName.trim() !== project.name) {
-                    renameProject(project.id, newName.trim());
+                onRename={async () => {
+                  const newName = await askText({ title: "Rename project", label: "Project name", defaultValue: project.name, confirmLabel: "Rename" });
+                  if (newName && newName !== project.name) {
+                    renameProject(project.id, newName);
                   }
                 }}
-                onDelete={() => {
-                  if (window.confirm(`Delete project "${project.name}"? Generations will be moved to Global Library.`)) {
+                onDelete={async () => {
+                  if (await askConfirm({ title: `Delete project "${project.name}"?`, description: "Its items move to the Global Library.", confirmLabel: "Delete project", destructive: true })) {
                     deleteProject(project.id);
                   }
                 }}

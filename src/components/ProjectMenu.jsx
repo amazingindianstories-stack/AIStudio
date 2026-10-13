@@ -4,6 +4,7 @@ import { useState, useMemo } from "react";
 import { Check, Layers, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { MenuItem } from "./Dropdown";
+import { askConfirm, askText } from "@/lib/ask-text";
 
 /**
  * Authoritative workspace / project switcher menu.
@@ -102,9 +103,9 @@ export function ProjectMenu({ close }) {
       <div data-testid="project-actions-footer" aria-busy={pending} inert={pending ? true : undefined} className="shrink-0 border-t border-line bg-ink-900 pt-1">
       {/* Project Actions */}
       <MenuItem
-        onClick={() => {
-          const name = window.prompt("New project name");
-          if (name?.trim()) void mutate(() => createProject(name.trim()));
+        onClick={async () => {
+          const name = await askText({ title: "New project", label: "Project name", confirmLabel: "Create" });
+          if (name) void mutate(() => createProject(name));
         }}
       >
         <Plus className="h-4 w-4 text-white/60" />
@@ -114,20 +115,18 @@ export function ProjectMenu({ close }) {
       {project && (
         <>
           <MenuItem
-            onClick={() => {
-              const name = window.prompt("Rename project", project.name);
-              if (name?.trim()) void mutate(() => renameProject(project.id, name.trim()));
+            onClick={async () => {
+              const name = await askText({ title: "Rename project", label: "Project name", defaultValue: project.name, confirmLabel: "Rename" });
+              if (name && name !== project.name) void mutate(() => renameProject(project.id, name));
             }}
           >
             <Pencil className="h-4 w-4 text-white/60" />
             <span className="flex-1">Rename current project</span>
           </MenuItem>
           <MenuItem
-            onClick={() => {
+            onClick={async () => {
               if (
-                window.confirm(
-                  `Delete project "${project.name}"? Its items return to Global Library.`
-                )
+                await askConfirm({ title: `Delete project "${project.name}"?`, description: "Its items move to the Global Library.", confirmLabel: "Delete project", destructive: true })
               )
                 void mutate(() => deleteProject(project.id));
             }}

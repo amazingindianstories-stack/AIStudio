@@ -39,6 +39,7 @@ import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 import { UNSORTED } from "@/lib/feed-scope";
 import { cn } from "@/lib/utils";
 import { apiErrorMessage } from "@/lib/api-error";
+import { askConfirm } from "@/lib/ask-text";
 
 const ZOOM_KEY = "veevee-asset-zoom-v1";
 const ZOOM_MIN = 120;
@@ -698,12 +699,10 @@ export function HistoryPanel() {
                       </MenuItem>
                     )}
                     <MenuItem
-                      onClick={() => {
+                      onClick={async () => {
                         close();
                         if (
-                          window.confirm(
-                            `Delete ${selectedIds.length} items? This cannot be undone.`
-                          )
+                          await askConfirm({ title: `Delete ${selectedIds.length} ${selectedIds.length === 1 ? "item" : "items"}?`, description: "This can't be undone.", confirmLabel: "Delete", destructive: true })
                         ) {
                           deleteGenerations(selectedIds);
                         }

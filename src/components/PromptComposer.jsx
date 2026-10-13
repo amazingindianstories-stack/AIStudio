@@ -79,6 +79,7 @@ import { isProviderModel } from "@/lib/model-registry";
 import {
   downscaleBlob,
 } from "@/lib/client-image-budget";
+import { askText } from "@/lib/ask-text";
 
 const MODE_ICONS = {
   Image: ImageIcon,
@@ -1333,9 +1334,9 @@ export function PromptComposer() {
                   </MenuItem>
                 ))}
                 <MenuItem
-                  onClick={() => {
-                    const name = window.prompt("New project name");
-                    if (name?.trim()) s.createProject(name.trim());
+                  onClick={async () => {
+                    const name = await askText({ title: "New project", label: "Project name", confirmLabel: "Create" });
+                    if (name) s.createProject(name);
                   }}
                 >
                   <Plus className="h-4 w-4 text-white/60" />

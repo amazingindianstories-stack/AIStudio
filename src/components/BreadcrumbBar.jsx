@@ -20,6 +20,7 @@ import { Dropdown, MenuItem } from "./Dropdown";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 import { getFolderColorClass, FOLDER_COLOR_OPTIONS } from "@/lib/folder-colors";
 import { cn } from "@/lib/utils";
+import { askConfirm } from "@/lib/ask-text";
 
 export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   const activeProjectId = useStore((s) => s.activeProjectId);
@@ -93,12 +94,10 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
 
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!currentFolder) return;
     if (
-      window.confirm(
-        `Delete folder "${currentFolder.name}"? Only empty folders can be deleted.`
-      )
+      await askConfirm({ title: `Delete folder "${currentFolder.name}"?`, description: "Only empty folders can be deleted.", confirmLabel: "Delete", destructive: true })
     ) {
       deleteFolder(currentFolder.projectId, currentFolder.id).catch((err) => {
         notify(err.message || "Failed to delete folder.");
