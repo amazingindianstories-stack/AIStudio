@@ -51,6 +51,7 @@ EXPECTED = {'/api/admin/activity': ['GET'],
  '/api/generate/video': ['POST'],
  '/api/generate/video/status': ['GET'],
  '/api/generations/[id]/download': ['GET', 'HEAD'],
+ '/api/media-resolve': ['POST'],
  '/api/history/counts': ['GET'],
  '/api/history/exports/[id]/download': ['GET'],
  '/api/history/exports/[id]/finalize': ['POST'],
@@ -115,9 +116,10 @@ def leaves(patterns,prefix=''):
 
 @override_settings(ROOT_URLCONF='config.urls')
 class CompleteApiCoverageTests(SimpleTestCase):
-    def test_all_90_explicit_methods_resolve_to_the_declared_python_handlers(self):
-        self.assertEqual(len(EXPECTED),70)
-        self.assertEqual(sum(map(len,EXPECTED.values())),90)
+    def test_all_91_explicit_methods_resolve_to_the_declared_python_handlers(self):
+        # 90 migrated methods plus the stabilization media resolver.
+        self.assertEqual(len(EXPECTED),71)
+        self.assertEqual(sum(map(len,EXPECTED.values())),91)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -181,6 +183,7 @@ NEGATIVE_STATUS = {
  '/api/generate/video': {'POST':401},
  '/api/generate/video/status': {'GET':401},
  '/api/generations/[id]/download': {'GET':401,'HEAD':401},
+ '/api/media-resolve': {'POST':401},
  '/api/history/counts': {'GET':401},
  '/api/history/exports/[id]/download': {'GET':401},
  '/api/history/exports/[id]/finalize': {'POST':401},
@@ -294,7 +297,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*90)
+            self.assertEqual(len(seen),3*91)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):
