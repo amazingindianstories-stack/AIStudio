@@ -57,4 +57,7 @@ for n in vr-gen vr-export vr-sched; do
   if [ "$(docker inspect -f '{{.State.Running}}' "$n")" != true ]; then echo "FAIL $n exited"; STATUS=1; fi
   docker logs "$n" 2>&1 | grep -E "Traceback|Error|rehearsal_worker_ready" | sed "s/^/  [$n] /" | head -5
 done
-[ "$STATUS" = 0 ] && echo "== REHEARSAL PASSED for $SHORT" || { echo "== REHEARSAL FAILED for $SHORT"; exit 1; }
+[ "$STATUS" = 0 ] || { echo "== REHEARSAL FAILED for $SHORT"; exit 1; }
+PASS_DIR="${VEEVEE_GATE_DIR:-$HOME/Library/Application Support/Veevee/release-gate}"; mkdir -p "$PASS_DIR"
+grep -E '^(PASS|FAIL) ' "$BASE/probe.txt" | python3 -c 'import json,sys,datetime; print(json.dumps({"commit":sys.argv[1],"passed_at":datetime.datetime.utcnow().isoformat()+"Z","checks":[l.strip() for l in sys.stdin]}))' "$COMMIT" > "$PASS_DIR/$COMMIT.rehearsal.json"
+echo "== REHEARSAL PASSED for $SHORT"
