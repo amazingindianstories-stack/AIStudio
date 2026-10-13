@@ -209,7 +209,56 @@ def verify_registered_portraits(item, body, client_factory=None):
         raise InvalidRequest('Portrait unavailable or remote registration could not be verified. No generation was queued.') from None
 
 
+class PortraitUnavailable(InvalidRequest):
+    def __init__(self, message, reference_index=None):
+        super().__init__(message)
+        self.reference_index = reference_index
+
+
+def portrait_reference_problem(portrait):
+    """Why a Gallery portrait cannot be sent to Seedance, or None when it can."""
+    if portrait is None:
+        return None
+    status = str(portrait.get('status') or '').lower()
+    if portrait.get('byteplusAssetId') and status == 'active':
+        return None
+    if status in ('previewdeleted', 'deleted'):
+        return 'was removed from the Portrait Gallery'
+    if status in ('failed', 'error', 'rejected'):
+        return 'could not be prepared for video'
+    return 'is not ready for video yet'
+
+
+def verify_portrait_references(item, body, lookup=None):
+    """Refuse at submit time what the worker would refuse later (deleted or unready portraits).
+
+    Plain portrait URLs are looked up locally; nothing is sent to a provider.
+    Applies to the native Seedance path, the one that resolves Gallery portraits.
+    """
+    model = item.get('model') or ''
+    if is_provider_model(model, 'omni') or is_provider_model(model, 'higgsfield'):
+        return
+    if lookup is None:
+        from apps.assets.portrait_db import get_portrait_asset_by_image_url as lookup
+    labelled = [(f'Reference {index}', value, index) for index, value in enumerate(body.get('referenceImages') or [], start=1)]
+    labelled += [(label, item.get(key), None) for key, label in (('firstFrame', 'The first frame'), ('lastFrame', 'The last frame'),
+                                                                 ('continuationFrame', 'The continuation frame'))]
+    for label, value, index in labelled:
+        if not isinstance(value, str) or not value or value.startswith(('asset://', 'data:')) or re.search(r'[?&#]bp[-_]asset', value):
+            continue
+        try:
+            portrait = lookup(value)
+            problem = portrait_reference_problem(portrait)
+        except Exception:
+            raise InvalidRequest('Portraits could not be checked right now. Try again; nothing was queued.') from None
+        if problem:
+            name = portrait.get('name')
+            named = f'{label} ("{str(name)[:80]}")' if name else label
+            raise PortraitUnavailable(f'{named} {problem}. Remove it from the references and try again; nothing was queued.', index)
+
+
 def prepare_video(item, body, identifier):
+    verify_portrait_references(item, body)
     verify_registered_portraits(item, body)
     result = {'costCents':compute_cost(item,read_pricing())}
     if has_length(body.get('referenceImages')): result['referenceImages'] = save_reference_images(body['referenceImages'],identifier)

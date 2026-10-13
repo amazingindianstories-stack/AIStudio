@@ -312,6 +312,8 @@ export const useStore = create((set, get) => ({
   firstFrameMode: false,
   prompt: "",
   referenceImages: [],
+  // Reference values the server refused as removed/unready portraits; shown on their cards.
+  unavailableReferences: [],
   referenceIds: [],
   referenceReorderUndo: null,
   recentSubmission: null,
@@ -567,6 +569,7 @@ export const useStore = create((set, get) => ({
       referenceKinds: s.referenceKinds.filter((_, i) => i !== index),
       referenceLabels: (s.referenceLabels || []).filter((_, i) => i !== index),
       referenceTags: (s.referenceTags || []).filter((_, i) => i !== index),
+      unavailableReferences: (s.unavailableReferences || []).filter((ref) => ref !== s.referenceImages[index]),
     })),
   reorderReferencesByIds: (ids) => set((s) => {
     const { patch, mapping } = referencePermutation(s, ids);
@@ -924,6 +927,10 @@ export const useStore = create((set, get) => ({
       notify("Please select a first frame or toggle First Frame off.");
       return [];
     }
+    if ((s.unavailableReferences || []).some((ref) => s.referenceImages.includes(ref))) {
+      notify("Remove the reference marked Unavailable before generating.");
+      return [];
+    }
 
     set({ generating: true });
     try {
@@ -1001,6 +1008,11 @@ export const useStore = create((set, get) => ({
           throw new Error(`Server error (${res.status}): the server returned an empty or invalid response.`);
         }
         if (!res.ok) {
+          const unavailable = item?.code === "PORTRAIT_UNAVAILABLE" && Number.isInteger(item.referenceIndex)
+            ? s.referenceImages?.[item.referenceIndex - 1] : null;
+          if (typeof unavailable === "string") {
+            set((state) => ({ unavailableReferences: [...new Set([...(state.unavailableReferences || []), unavailable])] }));
+          }
           throw new Error(apiErrorMessage(item, res.status));
         }
         if (item?.id) {

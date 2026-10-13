@@ -1607,6 +1607,12 @@ export function ReferenceStrip({ store: s, insertTag }) {
                 <Sparkles className="h-2.5 w-2.5" />
               </span>
             )}
+            {s.unavailableReferences?.includes(s.referenceImages[sourceIndex]) && (
+              <span data-reference-unavailable title="This portrait was removed or isn't ready for video. Remove it to generate."
+                className="pointer-events-none absolute inset-0 grid place-items-center rounded bg-red-950/75 text-[10px] font-semibold text-red-100 ring-2 ring-inset ring-red-400">
+                Unavailable
+              </span>
+            )}
             <button type="button" aria-label={`Remove reference ${sourceIndex + 1}`} onClick={() => s.removeReference(sourceIndex)} className="absolute right-0 top-0 grid h-6 w-6 place-items-center rounded bg-ink-950/90 text-white"><X className="h-3 w-3" /></button>
           </div>
           <p title={label} className="truncate text-[10px] text-white/65">{label}</p>

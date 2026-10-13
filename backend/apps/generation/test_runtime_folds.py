@@ -45,8 +45,11 @@ class PortraitRegistrationGuardTests(SimpleTestCase):
 
     def test_unregistered_portrait_stops_before_provider_submission(self):
         lookup = lambda ref: {'byteplusAssetId': None, 'status': 'Processing'}  # noqa: E731
-        with self.assertRaisesRegex(ValueError, 'not registered and Active'):
+        with self.assertRaisesRegex(ValueError, 'is not ready for video yet.*not charged'):
             self.convert(['/api/media/uploads/portrait/a'], lookup)
+        deleted = lambda ref: {'byteplusAssetId': 'asset-1', 'status': 'PreviewDeleted', 'name': 'R01_SC008'}  # noqa: E731
+        with self.assertRaisesRegex(ValueError, 'Portrait "R01_SC008" was removed from the Portrait Gallery'):
+            self.convert(['/api/media/uploads/portrait/a'], deleted)
 
     def test_lookup_failure_stops_submission(self):
         def lookup(ref):
@@ -137,3 +140,30 @@ class ProviderProjectionTests(__import__('django.test', fromlist=['TransactionTe
         self.assertEqual(found['byteplusAssetId'], 'asset-9')
         self.assertEqual(found['createdById'], str(user.id))
         self.assertNotIn('uploader', found)
+
+
+class SubmitTimePortraitCheckTests(SimpleTestCase):
+    def body(self, *refs):
+        return {'referenceImages': list(refs)}
+
+    def test_deleted_or_unready_portraits_are_refused_before_queueing(self):
+        from .services.enqueue import InvalidRequest, verify_portrait_references
+        portraits = {'/api/media/uploads/portrait/gone': {'byteplusAssetId': 'a1', 'status': 'PreviewDeleted', 'name': 'R01_SC008_0008 (1)'},
+                     '/api/media/uploads/portrait/new': {'byteplusAssetId': None, 'status': 'Processing'},
+                     '/api/media/uploads/portrait/ok': {'byteplusAssetId': 'a2', 'status': 'Active'}}
+        lookup = portraits.get
+        item = {'model': 'Seedance 2.5'}
+        verify_portrait_references(item, self.body('/api/media/uploads/image-reference/x', '/api/media/uploads/portrait/ok',
+                                                   'asset://a3', 'data:image/png;base64,AA'), lookup=lookup)
+        with self.assertRaisesRegex(InvalidRequest, r'^Reference 3 \("R01_SC008_0008 \(1\)"\) was removed from the Portrait Gallery'):
+            verify_portrait_references(item, self.body('/x', '/api/media/uploads/portrait/ok', '/api/media/uploads/portrait/gone'), lookup=lookup)
+        with self.assertRaisesRegex(InvalidRequest, '^The first frame is not ready for video yet'):
+            verify_portrait_references({**item, 'firstFrame': '/api/media/uploads/portrait/new'}, self.body(), lookup=lookup)
+
+    def test_lookup_failure_refuses_and_other_providers_are_untouched(self):
+        from .services.enqueue import InvalidRequest, verify_portrait_references
+        def broken(ref):
+            raise RuntimeError('db down')
+        with self.assertRaisesRegex(InvalidRequest, 'could not be checked'):
+            verify_portrait_references({'model': 'Seedance 2.5'}, self.body('/api/media/uploads/portrait/a'), lookup=broken)
+        verify_portrait_references({'model': 'Higgsfield Seedance 2.0'}, self.body('/api/media/uploads/portrait/a'), lookup=broken)

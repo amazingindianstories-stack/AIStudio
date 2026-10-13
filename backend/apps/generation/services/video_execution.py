@@ -95,8 +95,12 @@ def to_provider_data_urls(references, signal, *, read=None, prepare=None, portra
             continue
         if portrait:
             # Sending an unregistered portrait as raw pixels trips BytePlus face filters and bills a doomed job.
-            raise ValueError('This Gallery portrait is not registered and Active in BytePlus. Register and verify the '
-                             'existing portrait before Seedance submission; no generation was submitted.')
+            from .enqueue import portrait_reference_problem
+            name = portrait.get('name')
+            named = f'Portrait "{str(name)[:80]}"' if name else 'A Gallery portrait'
+            problem = portrait_reference_problem(portrait) or 'is not ready for video yet'
+            raise ValueError(f'{named} {problem}. Remove it from the references and try again; '
+                             'nothing was sent to the provider, so this was not charged.')
         raw = read(ref)
         prepared = prepare(raw['mimeType'], raw['data'])
         mime, data = prepared['mimeType'], prepared['data']
