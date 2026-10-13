@@ -104,3 +104,10 @@ if _paid_guard_raw:
         raise ImproperlyConfigured('VEEVEE_PAID_GUARD must be JSON') from None
     if not isinstance(VEEVEE_PAID_GUARD, dict) or not VEEVEE_PAID_GUARD.get('approved_scope'):
         raise ImproperlyConfigured('VEEVEE_PAID_GUARD requires an approved_scope')
+
+# Which production process this is; selects the runtime behaviour installed by
+# apps.production_runtime (api, generation, export or scheduler).
+VEEVEE_RUNTIME_COMPONENT = os.environ.get('VEEVEE_RUNTIME_COMPONENT') or None
+if VEEVEE_RUNTIME_COMPONENT not in (None, 'api', 'generation', 'export', 'scheduler'):
+    raise ImproperlyConfigured('VEEVEE_RUNTIME_COMPONENT must be api, generation, export or scheduler')
+VEEVEE_EXPORT_ADMISSION = os.environ.get('VEEVEE_EXPORT_ADMISSION') == '1'

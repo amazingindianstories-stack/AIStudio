@@ -13,6 +13,10 @@ class ProductionRuntimeConfig(AppConfig):
     label = 'production_runtime'
 
     def ready(self):
+        component = getattr(settings, 'VEEVEE_RUNTIME_COMPONENT', None)
+        if getattr(settings, 'VEEVEE_EXPORT_ADMISSION', False) and component in ('api', 'export'):
+            from . import export_admission
+            export_admission.install('api' if component == 'api' else 'worker')
         paid = getattr(settings, 'VEEVEE_PAID_GUARD', None)
         if paid:
             from . import paid_guard
