@@ -7,6 +7,17 @@ from apps.generation.models import Generation
 from apps.generation.history import query_history
 from apps.library.models import Folder
 from apps.library.filenames import batch_resolve_generation_filenames
+
+
+def case_folded_filenames(value):
+    """Historical Node outputs lower-cased folder names in filenames; since
+    2026-10-13 filenames keep the folder's case (owner decision). Compare
+    everything else exactly and filenames without letter case."""
+    if isinstance(value, dict):
+        return {k: (v.lower() if k == 'filename' and isinstance(v, str) else case_folded_filenames(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [case_folded_filenames(v) for v in value]
+    return value
 from testsupport.frozen_oracle import run as oracle_run
 
 
@@ -52,7 +63,7 @@ class HistoricalHistoryPlanTests(TransactionTestCase):
                 return execute(statement, bindings, many, context)
             with connection.execute_wrapper(capture):
                 page=query_history(params)
-            self.assertEqual(page, historical['page'])
+            self.assertEqual(case_folded_filenames(page), case_folded_filenames(historical['page']))
             statement, bindings=captured[0]
             self.assertTrue(statement.lstrip().upper().startswith('SELECT'))
             with connection.cursor() as cursor:
@@ -68,5 +79,7 @@ class HistoricalHistoryPlanTests(TransactionTestCase):
         expected=json.loads(oracle_run(['node','--import','tsx','scripts/django-migration/batch-filename-oracle.mjs'],
             input=json.dumps(batches),capture_output=True,text=True,check=True).stdout)
         before=list(Generation.objects.values_list('id','location_version','folder_id'))
-        self.assertEqual([batch_resolve_generation_filenames(batch) for batch in batches], expected)
+        actual=[batch_resolve_generation_filenames(batch) for batch in batches]
+        self.assertEqual(case_folded_filenames(actual), case_folded_filenames(expected))
+        self.assertEqual(actual[2][str(self.ids[0])]['filename'].split('_')[0], self.root.name.strip().replace(' ', '_').split('_')[0])
         self.assertEqual(list(Generation.objects.values_list('id','location_version','folder_id')), before)
