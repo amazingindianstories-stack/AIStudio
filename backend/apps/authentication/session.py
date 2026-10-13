@@ -1,4 +1,4 @@
-"""Read-compatible current Node session contract; issuer ownership stays Next."""
+"""Node-compatible HMAC sessions for the local Django implementation."""
 import base64
 import hashlib
 import hmac
@@ -45,11 +45,11 @@ def lookup(request):
         # underlying HttpRequest that outer middleware receives.
         getattr(request, '_request', request).validated_actor_id = str(user.id)
     if user and expiry - now < TTL_MS - 24 * 60 * 60 * 1000:
-        # Current getSession renews on authenticated reads. Compatible issuance
-        # during qualification is temporary; sole issuer transfers in auth wave.
+        # Renew after one day using the original wire format and 30-day TTL.
         payload = encode(json.dumps({'uid': str(user.id), 'ver': user.auth_version, 'exp': now + TTL_MS}, separators=(',', ':')).encode())
         signature = encode(hmac.new(settings.AUTH_SECRET.encode(), payload.encode(), hashlib.sha256).digest())
         request.renewed_session = payload + '.' + signature
+        getattr(request, '_request', request).renewed_session = request.renewed_session
     return user
 
 from django.core.exceptions import ValidationError as models_validation_error

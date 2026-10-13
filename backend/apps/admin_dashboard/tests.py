@@ -1,3 +1,4 @@
+from testsupport.frozen_oracle import run as oracle_run
 import hashlib
 import hmac
 import json
@@ -11,12 +12,17 @@ UID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 
 class SettingsTests(TransactionTestCase):
     def setUp(self):
-        with connection.cursor() as c:
-            c.execute('CREATE TABLE IF NOT EXISTS users (id uuid PRIMARY KEY, email text, name text, role text, color text, avatar_url text, is_active boolean, auth_version integer)')
-            c.execute('CREATE TABLE IF NOT EXISTS settings (key text PRIMARY KEY, value text NOT NULL, updated_at bigint NOT NULL)')
-            c.execute('CREATE TABLE IF NOT EXISTS user_limits (user_id uuid, key text, value text NOT NULL, updated_at bigint NOT NULL, PRIMARY KEY(user_id,key))')
-            c.execute('TRUNCATE users, settings, user_limits')
-            c.execute("INSERT INTO users VALUES (%s,'fixture@example.invalid','Fixture','user',NULL,NULL,true,0)", [UID])
+        # Browser cookie fixtures explicitly model same-origin Fetch Metadata.
+        # Origin-denial tests override/clear this header deliberately.
+        self.client.defaults['HTTP_SEC_FETCH_SITE'] = 'same-origin'
+        from apps.authentication.models import User
+        from apps.authentication.password import hash_password
+        credentials = hash_password('fixture-password')
+        User.objects.create(
+            id=UID, email='fixture@example.invalid', name='Fixture', role='user',
+            password_hash=credentials['hash'], password_salt=credentials['salt'],
+            created_at=1, color=None, avatar_url=None, is_active=True, auth_version=0,
+        )
 
     def cookie(self, version=0, age=0):
         payload = encode(json.dumps({'uid': UID, 'ver': version, 'exp': int(time.time()*1000)+30*24*60*60*1000-age}).encode())
@@ -105,7 +111,7 @@ class CurrentNodeLimitParityTests(TransactionTestCase):
                  '\ufeff3', '\u00a02', '\u20282', '\u001c2', '１２',
                  '9007199254740993', '9'*400, '1e3', 'Infinity']
         root = Path(__file__).resolve().parents[3]
-        result = subprocess.run(['node', 'scripts/django-migration/limits-oracle.mjs'],
+        result = oracle_run(['node', 'scripts/django-migration/limits-oracle.mjs'],
                                 input=json.dumps(cases), text=True, capture_output=True,
                                 check=True, cwd=root)
         expected = json.loads(result.stdout)

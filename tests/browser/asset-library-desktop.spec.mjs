@@ -1,16 +1,9 @@
 import { test, expect } from "@playwright/test";
 import { createHmac } from "node:crypto";
-import fs from "node:fs";
-import path from "node:path";
 
 function getAuthSecret() {
   if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
-  try {
-    const envFile = fs.readFileSync(path.resolve(process.cwd(), ".env.local"), "utf8");
-    const match = envFile.match(/AUTH_SECRET=["']?([^"'\r\n]+)/);
-    if (match) return match[1];
-  } catch {}
-  return "dev-secret";
+  throw new Error('The isolated browser runner must provide its synthetic AUTH_SECRET.');
 }
 
 const USER_ID = "e33e1832-9e29-427f-af61-796b842a4b37";
@@ -26,6 +19,9 @@ function signSession(userId, authVersion = 0) {
 }
 
 async function setupPage(page, context, baseURL) {
+  if (process.env.MIGRATION_TEST_ISOLATED !== '1' || !['127.0.0.1', 'localhost'].includes(new URL(baseURL).hostname)) {
+    throw new Error('Desktop browser tests require the disposable local Django harness.');
+  }
   const sessionCookie = signSession(USER_ID, 0);
   await context.addCookies([
     {
@@ -35,45 +31,35 @@ async function setupPage(page, context, baseURL) {
     },
   ]);
 
+  // Initial hydration can load Global Library before the scope click. Track
+  // that successful feed as well as a later fetch; cached scope selection
+  // does not have to issue a duplicate request.
+  let globalFeedLoaded = false;
+  page.on('response', response => {
+    const url = new URL(response.url());
+    if (url.pathname === '/api/history' && url.searchParams.get('projectId') === 'none'
+        && response.request().method() === 'GET' && response.ok()) globalFeedLoaded = true;
+  });
   await page.goto(baseURL, { waitUntil: "domcontentloaded" });
-  await page.waitForTimeout(1000);
 
-  // Ensure desktop history panel is open
-  const toggleBtn = page.locator('button[aria-controls="desktop-history-panel"]').first();
-  if (await toggleBtn.count() > 0) {
-    const isExpanded = await toggleBtn.getAttribute("aria-expanded");
-    if (isExpanded !== "true") {
-      await toggleBtn.click();
-      await page.waitForTimeout(1000);
-    }
-  }
+  await expect(page.getByRole("button", { name: /Desktop fixture/ })).toBeVisible();
+  // Wait for hydration before toggling the initially collapsed desktop panel.
+  const toggleBtn = page.locator('button[aria-controls="desktop-history-panel"]');
+  await expect(toggleBtn).toBeVisible();
+  if (await toggleBtn.getAttribute("aria-expanded") !== "true") await toggleBtn.click();
   const panel = page.locator("#desktop-history-panel");
-
-  // Wait for projects to arrive
-  await page.waitForFunction(() => (window.useStore?.getState?.().projects?.length ?? 0) > 0, { timeout: 15000 }).catch(() => {});
-
-  // Ensure project workspace with assets is selected
-  // If the top scope shows Global Library, use top switcher to switch to NAISHA - PRODUCTION
-  const scopeProject = panel.locator(".scope-project-name").first();
-  await scopeProject.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
-  const currentScopeText = await scopeProject.innerText().catch(() => "");
-  if (!currentScopeText.includes("NAISHA")) {
-    const switchBtn = panel.locator('button[aria-label="Switch project"]').first();
-    if (await switchBtn.count() > 0) {
-      await switchBtn.click();
-      const naishaOption = page.locator('[role="menuitem"]').filter({ hasText: "NAISHA - PRODUCTION" }).first();
-      await naishaOption.waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
-      if (await naishaOption.count() > 0) {
-        await naishaOption.click();
-        await page.waitForTimeout(600);
-      }
-    }
-  }
+  await expect(panel).toHaveAttribute("aria-hidden", "false");
+  await panel.getByRole('button', { name: 'Global library', exact: true }).click();
+  await expect.poll(() => globalFeedLoaded).toBeTruthy();
+  await expect(panel.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Global Library');
 
   // Wait for asset grid and cards
   const grid = page.locator('[data-testid="asset-grid"]').first();
   await expect(grid).toBeVisible({ timeout: 30000 });
   await page.waitForSelector('[data-asset-card-id]', { timeout: 30000 });
+  // The prior scope can remain visible while the new feed loads. Keyboard
+  // interaction starts only after this feed has its one roving tab stop.
+  await expect(panel.locator('[data-asset-card-id][tabindex="0"]')).toHaveCount(1);
   return { panel, grid };
 }
 

@@ -10,10 +10,30 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 ROOT_FILES = {'package.json', 'package-lock.json', 'jsconfig.json', 'next.config.js',
-              'drizzle.config.js', 'eslint.config.mjs', 'playwright.config.mjs',
+              'eslint.config.mjs', 'playwright.config.mjs',
               'postcss.config.js', 'tailwind.config.js', 'vercel.json', 'AGENTS.md',
-              'CLAUDE.md', 'DEPLOYMENT_RUNBOOK.md', 'BACKEND_AUDIT.md', 'progress.md', '.gitignore'}
-DIRECTORIES = {'src', 'scripts', 'tests', 'backend', 'docs', '.github'}
+              'CLAUDE.md', 'DEPLOYMENT_RUNBOOK.md', 'BACKEND_AUDIT.md', 'progress.md', '.gitignore',
+              'public/logo.png', 'Dockerfile.worker', 'Dockerfile.worker.dockerignore',
+              'railway.toml'}
+DIRECTORIES = {'src', 'scripts', 'tests', 'backend', 'docs', '.github', 'infra'}
+DOCUMENT_SOURCE_SUFFIXES = {'.md', '.json', '.yaml', '.yml', '.txt', '.py', '.mjs', '.js', '.sql', '.sh', '.toml'}
+
+
+def copy_source_path(path):
+    """Copy source contracts, never prior browser archives/runtime recordings.
+
+    Raw traces remain at their original evidence paths. They are not inputs to
+    qualification, and copying/indexing gigabytes of them obscures source identity.
+    """
+    if not path.parts or (path.parts[0] not in DIRECTORIES and str(path) not in ROOT_FILES):
+        return False
+    if any(part.startswith('.env') or part in {'__pycache__', '.venv', 'venv', 'node_modules', 'screenshots', 'support', 'test-results', 'playwright-report'} for part in path.parts):
+        return False
+    if path.suffix in {'.zip', '.zip.tmp', '.pyc', '.pem', '.key'}:
+        return False
+    if path.parts[0] == 'docs' and path.suffix not in DOCUMENT_SOURCE_SUFFIXES:
+        return False
+    return True
 
 
 def refresh(session):
@@ -22,9 +42,7 @@ def refresh(session):
     files = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
     for name in files:
         p = Path(name)
-        if not name or (p.parts[0] not in DIRECTORIES and name not in ROOT_FILES):
-            continue
-        if any(part.startswith('.env') or part in {'__pycache__', '.venv', 'screenshots', 'support'} for part in p.parts):
+        if not name or not copy_source_path(p):
             continue
         source = ROOT / p
         if not source.is_file() or source.is_symlink():
@@ -43,16 +61,24 @@ def refresh(session):
                 raise SystemExit('Copied source path escapes isolated checkout')
             if stale.is_file() or stale.is_symlink():
                 stale.unlink()
+        for directory in sorted((p for p in target.rglob('*') if p.is_dir() and '.git' not in p.parts and 'node_modules' not in p.parts), key=lambda p: len(p.parts), reverse=True):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
+    # npm ci follows/removes an inherited node_modules symlink's contents.
+    # Qualification must install its own dependencies, never mutate checkout
+    # dependencies through a shared link.
     modules = target / 'node_modules'
-    if not modules.exists():
-        modules.symlink_to(ROOT / 'node_modules', target_is_directory=True)
+    if modules.is_symlink():
+        modules.unlink()
     # Independent local metadata lets packaging/documentation tests inspect the
     # copied source without sharing or touching the user's Git index.
     git_env = {'PATH': '/opt/homebrew/bin:/usr/bin:/bin', 'HOME': str(session / 'home')}
     if not (target / '.git').exists():
         subprocess.run(['git', 'init', '--quiet'], cwd=target, env=git_env, check=True)
     subprocess.run(['git', 'add', '-u'], cwd=target, env=git_env, check=True)
-    subprocess.run(['git', 'add', '--', *copied], cwd=target, env=git_env, check=True)
+    subprocess.run(['git', 'add', '--force', '--', *copied], cwd=target, env=git_env, check=True)
     return target
 
 
@@ -60,7 +86,7 @@ def environment(session, port):
     # Child HOME is isolated; the user's HOME and credential files are unchanged.
     # No inherited provider/cloud credentials, preload hooks, proxy or DB settings.
     return {
-        'PATH': '/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+        'PATH': '/opt/homebrew/opt/node@22/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
         'HOME': str(session / 'home'), 'TMPDIR': str(session / 'tmp'),
         'LANG': 'en_US.UTF-8', 'LC_ALL': 'en_US.UTF-8',
         'DATABASE_BACKEND': 'postgres',

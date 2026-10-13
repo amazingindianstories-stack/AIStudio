@@ -1,95 +1,33 @@
 import { NextResponse } from "next/server";
 import { djangoDestination } from "./lib/backend-routing";
 
-/**
- * Lightweight gate (runs on the edge — can't touch the DB/Node crypto).
- * It does a cheap session-cookie presence check for UX:
- *  - no cookie + protected page → redirect to /login
- *  - no cookie + protected API → 401
- *  - has cookie + /login → redirect to /
- * Real enforcement (signature + DB + role) happens server-side in the route
- * handlers/pages via getSession()/requireUser()/requireAdmin().
- */
-const SESSION_COOKIE = "veevee_session";
-
+/** Same-origin transport only: all API authorization happens in Django. */
 export function middleware(req) {
   const { pathname } = req.nextUrl;
   try {
     const destination = djangoDestination(req.url, req.method, {
-      methods: process.env.DJANGO_API_METHODS,
       origin: process.env.DJANGO_API_ORIGIN,
       allowLocal: process.env.DJANGO_API_ALLOW_LOCAL,
     });
     if (destination) return NextResponse.rewrite(destination);
   } catch {
-    // A selected Django domain must fail closed, never silently execute its
-    // retained Node implementation when deployment configuration is invalid.
     return NextResponse.json({ error: "BACKEND_ROUTING_UNAVAILABLE" }, { status: 503 });
   }
 
-  // Always allow auth endpoints and Next internals/static assets.
-  // /api/admin/set-token is also exempt: it accepts either an admin session
-  // OR an x-setup-secret header (token re-seeding from a script with no
-  // cookie), and enforces both itself.
-  // /api/media-grant is exempt because its whole purpose is to be fetched by an
-  // external provider that has no session — BytePlus reading a reference clip.
-  // It is NOT unauthenticated: the request carries a short-lived HMAC-signed
-  // grant naming exactly one object, which the route verifies itself, and the
-  // object path comes out of the signature rather than the querystring. Without
-  // this exemption the 401 below would fire before the route ever ran.
-  // /api/worker/depth/* is exempt for the same reason — the caller is the
-  // depth-map worker Python process (see depth-worker-auth.js), which has no
-  // browser and no session cookie. It is NOT unauthenticated: every request
-  // carries its own DEPTH_WORKER_TOKEN bearer auth, verified by the route.
-  // /api/cron/* is invoked by Vercel without a browser session. Each cron
-  // route fails closed on its own CRON_SECRET bearer token before touching
-  // data, so the edge cookie-presence gate must let that token reach it.
-  // /api/webhooks/seedance is invoked by BytePlus without a browser session;
-  // the Node route verifies its callback token before accepting the payload.
-  // /api/queue/execute and /api/worker/exports/* are invoked by the persistent generation worker without
-  // a browser session; the Node route verifies x-generation-worker-secret
-  // before accepting the job. Keeping this route behind the cookie gate makes
-  // every server-owned generation fail with 401 before its own auth runs.
-  if (
-    pathname.startsWith("/api/auth") ||
-    pathname === "/api/admin/set-token" ||
-    pathname === "/api/admin/migrate-schema" ||
-    pathname === "/api/media-grant" ||
-    pathname.startsWith("/api/worker/depth/") ||
-    pathname.startsWith("/api/worker/exports/") ||
-    pathname.startsWith("/api/cron/") ||
-    pathname === "/api/webhooks/seedance" ||
-    pathname === "/api/queue/execute" ||
-    pathname.startsWith("/_next") ||
-    pathname === "/favicon.ico"
-  ) {
-    return NextResponse.next();
-  }
-
-  const hasSession = !!req.cookies.get(SESSION_COOKIE)?.value;
-  const isLogin = pathname === "/login";
-
-  if (!hasSession && !isLogin) {
-    if (pathname.startsWith("/api")) {
-      return NextResponse.json({ error: "UNAUTHENTICATED" }, { status: 401 });
-    }
-    const url = req.nextUrl.clone();
+  // This presence check is only a page-navigation convenience. Django verifies
+  // the session when the page loads data, including disabled/revoked users.
+  if (!req.cookies.get("veevee_session")?.value && pathname !== "/login") {
+    const url = new URL(req.url);
+    // next.config preserves the incoming URL so the redirect keeps its origin.
     url.pathname = "/login";
     url.search = `?next=${encodeURIComponent(pathname)}`;
     return NextResponse.redirect(url);
   }
-
-  if (hasSession && isLogin) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/";
-    url.search = "";
-    return NextResponse.redirect(url);
-  }
-
+  // A stale cookie must be allowed to reach login; its presence cannot prove
+  // authentication and must never bounce /login back to an authenticated page.
   return NextResponse.next();
 }
 
 export const config = {
-  // Run on everything except static files (which contain a dot, e.g. .png).
-  matcher: ["/((?!_next/static|_next/image|.*\\.).*)"],
+  matcher: ["/api/:path*", "/((?!api(?:/|$)|_next/static|_next/image|.*\\.).*)"],
 };

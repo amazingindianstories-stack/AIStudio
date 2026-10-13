@@ -14,7 +14,7 @@ class Folder(models.Model):
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField(db_default=0)
     class Meta:
-        managed = False
+        managed = True
         db_table = 'folders'
         constraints = [models.CheckConstraint(name='folders_color_check', condition=models.Q(color__isnull=True) | models.Q(color__in=['gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink']))]
         indexes = [
@@ -37,7 +37,7 @@ class OrganizationIdempotencyKey(models.Model):
     expires_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'organization_idempotency_keys'
         indexes = [
             PostgreSQLIndex(models.F('created_at').asc(nulls_last=True), name='organization_idempotency_keys_created_idx'),
@@ -52,7 +52,7 @@ class NamingCounter(models.Model):
     updated_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'naming_counters'
 
 
@@ -63,7 +63,7 @@ class GenerationNaming(models.Model):
     assigned_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'generation_naming'
         constraints = [models.CheckConstraint(name='generation_naming_sequence_check', condition=models.Q(sequence__gt=0))]
         indexes = [

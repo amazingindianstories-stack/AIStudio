@@ -1,3 +1,4 @@
+from frozen_oracle import run as oracle_run, check_output as oracle_output
 """Compile Django indexes into a transactional temporary PostgreSQL table.
 
 No persistent application DDL. Require the verified disposable qualification
@@ -18,7 +19,7 @@ from django.apps import apps
 from django.db import connection, transaction
 from django.db.migrations.loader import MigrationLoader
 
-expected = json.loads(subprocess.check_output(['node', 'scripts/django-migration/declared-generation-indexes.mjs'], text=True))
+expected = json.loads(oracle_output(['node', 'scripts/django-migration/declared-generation-indexes.mjs'], text=True))
 expected = {index['name']: index for index in expected}
 checks = 0
 negative_checks = 0

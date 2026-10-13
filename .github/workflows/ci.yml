@@ -13,103 +13,25 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  web:
+  frontend:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      AUTH_SECRET: ci-only-secret
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/veevee_ci
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run lint
-      - run: npm test
-      - run: npm run build
-
-  database:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: veevee_ci
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d veevee_ci"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      AUTH_SECRET: ci-only-secret
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/veevee_ci
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run test:db:setup
-      - run: npm run db:migrate:cost-basis
-      - run: npm run db:migrate:hierarchical-folders
-      - run: npm run db:migrate:folder-color
-      - run: npm run db:migrate:generation-naming
-      - run: npm run db:verify:production-schema
-      - run: npm run db:optimize
-      - run: npm run test:db
-
-  browser:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: veevee_codex_regression
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d veevee_codex_regression"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
-    env:
-      AUTH_SECRET: ci-browser-fixture-only
-      DATABASE_BACKEND: postgres
-      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/veevee_codex_regression
-      E2E_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/veevee_codex_regression
-      E2E_START_SERVER: "1"
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:db:setup
-      - run: npm run db:migrate:hierarchical-folders
-      - run: npm run db:migrate:folder-color
-      - run: npm run db:migrate:generation-naming
-      - run: npm run test:browser
+      - name: Frontend lint, unit tests and production build without backend credentials
+        run: python scripts/django-migration/ci-qualification.py web
 
-  django-foundation:
+  django:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 40
     services:
       postgres:
         image: postgres:16
@@ -118,58 +40,94 @@ jobs:
           POSTGRES_PASSWORD: disposable-ci-only
           POSTGRES_DB: veevee_django_migration
         ports:
-          - 5432:5432
+          - 5432/tcp
         options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=2g
           --health-cmd "pg_isready -U migration -d veevee_django_migration"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    env:
-      DJANGO_SETTINGS_MODULE: config.settings.test
-      MIGRATION_TEST_ISOLATED: "1"
-      AUTH_SECRET: disposable-ci-cookie-secret
-      DJANGO_SECRET_KEY: disposable-ci-framework-secret
-      DATABASE_URL: postgresql://migration:disposable-ci-only@127.0.0.1:5432/veevee_django_migration
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/constraints-qualified.txt
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pip install -r backend/requirements.txt
-      - run: node scripts/check-backend-ownership.mjs
-        env:
-          BACKEND_OWNERSHIP_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-      - run: node scripts/django-migration/status-report.mjs --check
-      - run: python backend/manage.py check
-      - run: python backend/manage.py makemigrations --check --dry-run
-      - run: python backend/manage.py migrate --noinput
-      - run: python backend/manage.py test apps.common apps.admin_dashboard apps.library apps.assets apps.authentication apps.projects apps.canvas apps.agents apps.generation apps.exports apps.workers
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libvips42
+      - run: python -m pip install -c backend/constraints-qualified.txt -r backend/requirements.txt
       - run: npm ci
-      - run: python scripts/django-migration/model-columns.py
-      - run: python scripts/django-migration/index-state.py
-      - run: python scripts/django-migration/index-ddl-probe.py
-      - run: python scripts/django-migration/check-constraint-probe.py
-      - run: python scripts/django-migration/default-probe.py
-      - run: python scripts/django-migration/pattern-index-probe.py
-      - run: python scripts/django-migration/foreign-key-probe.py
-      - run: python scripts/django-migration/field-order-probe.py
-      - run: python scripts/django-migration/schema-reproduction-probe.py --require-equivalent
-      - run: python scripts/django-migration/schema-reproduction-probe.py --migration-executor --require-equivalent
-      - run: python scripts/django-migration/generation-index-state.py
-      - run: python scripts/django-migration/generation-index-ddl-probe.py
-      - run: python scripts/django-migration/generation-serialization-parity.py
-      - run: python scripts/django-migration/watermark-parity.py
-      - run: python scripts/django-migration/history-parameters-parity.py
-      - run: python scripts/django-migration/filename-parity.py
-      - run: python scripts/django-migration/update-operand-parity.py
-      - run: python -m unittest discover -s scripts/django-migration -p "test_*.py"
-      - run: node node_modules/playwright-core/cli.js install --with-deps chromium
-      - run: python scripts/django-migration/settings-http-parity.py --browser
-      - run: python scripts/django-migration/settings-http-parity.py --gunicorn --browser
+      - name: Verify service target, qualify PG16 baseline/adoption and run every Django app test
+        env:
+          CI_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          CI_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          CI_POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
+        run: >-
+          python scripts/django-migration/ci-qualification.py backend
+          --postgres-container "$CI_POSTGRES_CONTAINER"
+          --network "$CI_POSTGRES_NETWORK"
+          --port "$CI_POSTGRES_PORT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: django-pg16-qualification
+          path: ${{ runner.temp }}/veevee-ci-artifacts
+          if-no-files-found: ignore
+
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: migration
+          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_DB: veevee_django_migration
+        ports:
+          - 5432/tcp
+        options: >-
+          --tmpfs /var/lib/postgresql/data:rw,size=2g
+          --health-cmd "pg_isready -U migration -d veevee_django_migration"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/constraints-qualified.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libvips42
+      - run: python -m pip install -c backend/constraints-qualified.txt -r backend/requirements.txt
+      - run: npm ci
+      - run: npx playwright install-deps chromium
+      - name: Browser suite through Django and independent Python workers
+        env:
+          CI_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+          CI_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          CI_POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
+        run: >-
+          python scripts/django-migration/ci-qualification.py browser
+          --postgres-container "$CI_POSTGRES_CONTAINER"
+          --network "$CI_POSTGRES_NETWORK"
+          --port "$CI_POSTGRES_PORT"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: django-browser-qualification
+          path: ${{ runner.temp }}/veevee-ci-artifacts
+          if-no-files-found: ignore

@@ -11,6 +11,7 @@ import {
   Pencil,
   Move,
   Trash2,
+  Loader2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -48,6 +49,7 @@ export function FolderTree({
   const setFolderColor = useStore((s) => s.setFolderColor);
   const moveGenerationsToDestination = useStore((s) => s.moveGenerationsToDestination);
 
+  const operations = useStore((s) => s.operations);
   const treeId = useId();
   const treeRef = useRef(null);
 
@@ -179,16 +181,20 @@ export function FolderTree({
     const isDragOver = dragOverId === folder.id;
     const count = countsByFolder[folder.id] ?? 0;
     const isEditing = renamingFolderId === folder.id;
+    const busy = isFolderOperationBusy(operations, folder.id);
 
     return (
       <div key={folder.id} className="flex flex-col">
         <div
+          aria-level={depth + 1}
           role="treeitem"
           tabIndex={0}
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-selected={isSelected}
           onKeyDown={(e) => onKeyDown(folder, hasChildren, isExpanded, e)}
-          draggable={!isEditing}
+          title={folder.name}
+          aria-busy={busy}
+          draggable={!isEditing && !busy}
           onDragStart={(e) => {
             setFolderDragData(e.dataTransfer, folder.id, folder.name);
           }}
@@ -202,7 +208,7 @@ export function FolderTree({
           onClick={() => onSelectFolder(folder.id)}
           style={{ paddingLeft: `${depth * 0.75 + 0.35}rem` }}
           className={cn(
-            "group relative flex items-center gap-1 rounded-md py-1 pr-1.5 text-xs transition cursor-pointer select-none outline-none focus-visible:ring-1 focus-visible:ring-brand",
+            "group relative flex min-w-max items-center gap-1 rounded-md py-1 pr-1.5 text-xs transition cursor-pointer select-none outline-none focus-visible:ring-1 focus-visible:ring-brand",
             isSelected
               ? "bg-brand/20 font-medium text-white"
               : "text-white/70 hover:bg-white/5 hover:text-white",
@@ -216,6 +222,7 @@ export function FolderTree({
           {hasChildren ? (
             <button
               type="button"
+              aria-label={`${isExpanded ? "Collapse" : "Expand"} ${folder.name}`}
               tabIndex={-1}
               onClick={(e) => toggleExpand(folder.id, e)}
               className="grid h-4 w-4 shrink-0 place-items-center rounded text-white/40 hover:text-white"
@@ -256,14 +263,14 @@ export function FolderTree({
               onClose={() => setRenamingFolderId(null)}
             />
           ) : (
-            <span className="min-w-0 flex-1 truncate">{folder.name}</span>
+            <span className="flex-1 whitespace-nowrap">{folder.name}</span>
           )}
 
           {/* Count Badge */}
           {count > 0 && !isEditing && (
             <span
               className={cn(
-                "ml-auto text-[10px] tabular-nums text-white/40 group-hover:text-white/60",
+                "sticky right-6 ml-auto bg-ink-850 px-1 text-[10px] tabular-nums text-white/40 group-hover:text-white/60",
                 isSelected && "text-brand/90"
               )}
             >
@@ -271,15 +278,16 @@ export function FolderTree({
             </span>
           )}
 
+          {busy && <Loader2 aria-label="Folder operation pending" className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />}
           {/* Folder context menu */}
-          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+          <div inert={busy ? true : undefined} onClick={(e) => e.stopPropagation()} className="sticky right-0 shrink-0 bg-ink-850">
             <Dropdown
               label={`Tree folder actions: ${folder.name}`}
               align="right"
               trigger={(open) => (
                 <span
                   className={cn(
-                    "grid h-5 w-5 place-items-center rounded text-white/40 opacity-0 group-hover:opacity-100 transition hover:bg-white/10 hover:text-white",
+                    "grid h-5 w-5 place-items-center rounded text-white/40 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100 transition hover:bg-white/10 hover:text-white",
                     open && "opacity-100 bg-white/10 text-white"
                   )}
                 >
@@ -374,7 +382,7 @@ export function FolderTree({
 
         {/* Children */}
         {hasChildren && isExpanded && (
-          <div className="flex flex-col">
+          <div role="group" className="flex flex-col">
             {folder.children.map((child) => renderNode(child, depth + 1))}
           </div>
         )}
@@ -383,14 +391,62 @@ export function FolderTree({
   };
 
   return (
+    <div className="min-w-0 max-w-full">
+      <div className="flex justify-end gap-1 text-[10px] text-white/50">
+        <button type="button" aria-label="Scroll folder names left" onClick={() => treeRef.current?.parentElement.scrollBy({ left: -160 })} className="rounded px-2 hover:bg-white/10">←</button>
+        <button type="button" aria-label="Scroll folder names right" onClick={() => treeRef.current?.parentElement.scrollBy({ left: 160 })} className="rounded px-2 hover:bg-white/10">→</button>
+      </div>
+      <div data-testid="folder-hierarchy-viewport" tabIndex={0} aria-label="Scroll full folder names" className="scroll-thin max-w-full overflow-x-auto overscroll-x-contain" style={{ scrollbarGutter: "stable" }} onKeyDown={(e) => {
+        if (e.target === e.currentTarget && ["ArrowLeft", "ArrowRight"].includes(e.key)) { e.preventDefault(); e.currentTarget.scrollBy({ left: e.key === "ArrowLeft" ? -160 : 160 }); }
+      }}>
     <div
       ref={treeRef}
       id={treeId}
       role="tree"
       aria-label="Folder Hierarchy"
-      className="flex flex-col gap-0.5"
+      className="flex min-w-full w-max flex-col gap-0.5"
     >
       {folders.map((rootFolder) => renderNode(rootFolder, 0))}
-    </div>
+    </div></div></div>
   );
+}
+
+/** Bounded retained store history; no synthetic percentages or retry payloads. */
+export function FolderOperationRail() {
+  const operations = useStore((s) => s.operations);
+  const loadLibraryTree = useStore((s) => s.loadLibraryTree);
+  const cancelOperation = useStore((s) => s.cancelFolderOperation);
+  const recent = Object.entries(operations || {}).slice(-3);
+  const [retryError, setRetryError] = useState("");
+  const retry = async (logical) => {
+    try {
+      const [actor, action, args] = JSON.parse(logical);
+      const state = useStore.getState();
+      if (actor !== (state.currentUser?.id || "anonymous") || typeof state[action] !== "function") return;
+      setRetryError("");
+      await state[action](...args);
+    } catch (error) { setRetryError(error.message || "Retry failed."); }
+  };
+  if (!recent.length) return null;
+  return <div role="status" aria-live="polite" className="shrink-0 border-t border-line px-2 py-1 text-[10px] text-white/60">
+    {recent.map(([logical, op]) => <div key={op.key} className="flex items-start gap-1 py-0.5">
+      {["queued", "pending"].includes(op.status) && <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />}
+      <span className="min-w-0 flex-1 break-words">{op.operation === "moveGenerationsToDestination" ? (op.status === "confirmed" ? `Moved ${op.committedCount ?? 0} of ${op.total} assets` : `Moving ${op.total} assets`) : op.operation?.replace(/([A-Z])/g, " $1")} · {op.status} {op.attempt > 1 ? `(attempt ${op.attempt})` : ""}{op.error ? `: ${op.error}` : ""}</span>
+      {op.status === "queued" && <button type="button" className="underline" onClick={() => cancelOperation(logical)}>Cancel queued</button>}
+      {["failed", "conflicted"].includes(op.status) && <span className="flex shrink-0 gap-1"><button type="button" className="underline" onClick={() => void retry(logical)}>Retry</button><button type="button" className="underline" onClick={() => loadLibraryTree().catch(() => {})}>Refresh folders</button></span>}
+    </div>)}
+    {retryError && <p role="alert" className="text-red-400">{retryError}</p>}
+  </div>;
+}
+
+export function isFolderOperationBusy(operations, folderId) {
+  return Object.entries(operations || {}).some(([logical, op]) => {
+    if (!["pending", "queued"].includes(op.status)) return false;
+    try {
+      const entity = JSON.parse(op.entity || "[]");
+      if (entity[1] === folderId) return true;
+      const [, action, args] = JSON.parse(logical);
+      return ["renameFolder", "deleteFolder"].includes(action) && (args[0] === folderId || args[1] === folderId);
+    } catch { return false; }
+  });
 }

@@ -9,5 +9,5 @@ class Project(models.Model):
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
     class Meta:
-        managed = False
+        managed = True
         db_table = 'projects'

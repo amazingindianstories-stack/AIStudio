@@ -1,13 +1,11 @@
 /**
  * Process-scoped coordination for the client store.
  *
- * These values intentionally do not live in Zustand: timer handles, active
- * poll IDs, and request sequence counters coordinate side effects but are
+ * These values intentionally do not live in Zustand: timer handles and request sequence counters coordinate side effects but are
  * never rendered UI state. Keeping them here also gives logout, teardown, and
  * isolated tests one deterministic disposal boundary.
  */
 export const storeRuntime = {
-  polling: new Set(),
   timers: new Set(),
   epoch: 0,
   sequences: { feed: 0, counts: 0, thread: 0 },
@@ -51,7 +49,6 @@ export function clearStoreTimeout(timer) {
 export function disposeStoreRuntime() {
   for (const timer of storeRuntime.timers) clearTimeout(timer);
   storeRuntime.timers.clear();
-  storeRuntime.polling.clear();
   // Invalidates reads already in flight before counters restart at zero, so a
   // late response from the prior session cannot share a sequence with the
   // first request in the next session.
@@ -74,7 +71,6 @@ export function disposeStoreRuntime() {
 
 export function storeRuntimeSnapshot() {
   return {
-    pollingIds: [...storeRuntime.polling],
     timerCount: storeRuntime.timers.size,
     sequences: { ...storeRuntime.sequences },
     liveRunning: storeRuntime.liveRunning,

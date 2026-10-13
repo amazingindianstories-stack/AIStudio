@@ -1,4 +1,5 @@
-"""Compare history pagination parsing with the actual current Node decoder."""
+from frozen_oracle import run as oracle_run, check_output as oracle_output
+"""Compare history pagination parsing with the frozen historical Node decoder."""
 import json
 import os
 from pathlib import Path
@@ -23,7 +24,7 @@ const input=JSON.parse(readFileSync(0,'utf8'));
 console.log(JSON.stringify({cursors:input.cursors.map(x=>decodeCursor(x)??null),limits:input.limits.map(x=>{const n=parseInt(x??'',10);return Number.isFinite(n)?Math.min(Math.max(n,1),100):20;})}));
 process.exit(0);
 """
-expected=json.loads(subprocess.run(['node','--import','tsx','--input-type=module','-e',source],input=json.dumps({'cursors':cursors,'limits':limits}),text=True,capture_output=True,check=True).stdout)
+expected=json.loads(oracle_run(['node','--import','tsx','--input-type=module','-e',source],input=json.dumps({'cursors':cursors,'limits':limits}),text=True,capture_output=True,check=True).stdout)
 actual={'cursors':[decode_cursor(raw) for raw in cursors],'limits':[page_limit(raw) for raw in limits]}
 assert actual==expected,(actual,expected)
-print(json.dumps({'history_parameter_cases':len(cursors)+len(limits),'node_equal':True,'database_queries':0}))
+print(json.dumps({'history_parameter_cases':len(cursors)+len(limits),'frozen_node_equal':True,'database_queries':0}))

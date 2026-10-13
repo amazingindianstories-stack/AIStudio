@@ -91,10 +91,48 @@ export function checkApiContracts(contract, manifest) {
   return errors;
 }
 
+// Source retirement is independent of deployed traffic ownership. Never mark the
+// historical production manifest cut over merely to qualify this local branch.
+export function checkLocalImplementation(root, local, manifest) {
+  const errors = [];
+  const expected = new Set(Object.entries(manifest.routes).flatMap(([url, route]) => Object.keys(route.methods).map(method => `${method} ${url}`)));
+  const additions = new Set(['POST /api/uploads/init','GET /api/uploads/[id]/status',
+    'POST /api/uploads/[id]/finalize','POST /api/uploads/[id]/cancel','PUT /api/uploads/[id]/local']);
+  for (const item of local.additions ?? []) {
+    const key = `${item.method} ${item.path}`;
+    if (!additions.has(key)) errors.push(`Unreviewed local addition: ${key}`);
+    else expected.add(key);
+  }
+  for (const key of additions) if (!expected.has(key)) errors.push(`Missing Goal 2 local addition: ${key}`);
+  const seen = new Set();
+  for (const item of [...(local.methods ?? []), ...(local.additions ?? [])]) {
+    const key = `${item.method} ${item.path}`;
+    if (!expected.has(key) || seen.has(key)) errors.push(`Unexpected or duplicate local method: ${key}`);
+    seen.add(key);
+    if (!['DJANGO_IMPLEMENTED_LOCAL', 'INTENTIONALLY_RETIRED_LOCAL'].includes(item.state)) errors.push(`Unqualified local method: ${key}`);
+    if (!item.evidence?.length || item.evidence.some(file => !existsSync(path.join(root, file)))) errors.push(`Missing local evidence: ${key}`);
+    if (item.state === 'INTENTIONALLY_RETIRED_LOCAL' && !item.reason) errors.push(`Missing retirement reason: ${key}`);
+  }
+  for (const key of expected) if (!seen.has(key)) errors.push(`Missing local method: ${key}`);
+  if (local.schema_authority_local !== 'DJANGO_MANAGED' || local.source_retirement !== 'COMPLETE') errors.push('Local schema/source retirement is incomplete');
+  for (const name of ['src/app/api', 'src/lib/providers', 'src/worker', 'src/lib/db.js', 'src/lib/schema.js', 'drizzle.config.js']) {
+    if (existsSync(path.join(root, name))) errors.push(`Retired Node backend remains: ${name}`);
+  }
+  const pkg = JSON.parse(readFileSync(path.join(root, 'package.json')));
+  for (const name of Object.keys({...pkg.dependencies, ...pkg.devDependencies})) {
+    if (/^(?:pg|postgres|drizzle-orm|drizzle-kit|google-auth-library|dotenv|sharp|@google-cloud\/|@aws-sdk\/|@ffmpeg-installer\/|@vercel\/oidc)/.test(name)) errors.push(`Backend dependency remains: ${name}`);
+  }
+  for (const [name, command] of Object.entries(pkg.scripts)) if (/drizzle|src\/worker|tsx.*(?:migrate|seed|recover|reconcile)/.test(command)) errors.push(`Retired backend command remains: ${name}`);
+  const crons = JSON.parse(readFileSync(path.join(root, 'vercel.json'))).crons ?? [];
+  if (crons.length) errors.push('Vercel backend crons remain in new source');
+  return errors;
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = process.cwd();
   const manifest = JSON.parse(readFileSync('docs/django-migration/route-ownership.yaml'));
-  const errors = checkOwnership(root, manifest);
+  const local = JSON.parse(readFileSync('docs/django-migration/local-implementation.json'));
+  const errors = local.source_retirement === 'COMPLETE' ? checkLocalImplementation(root, local, manifest) : checkOwnership(root, manifest);
   errors.push(...checkApiContracts(JSON.parse(readFileSync('docs/django-migration/api-contract.yaml')), manifest));
   const base = process.env.BACKEND_OWNERSHIP_BASE;
   if (base) {
@@ -114,6 +152,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     }
   }
   for (const error of errors) console.error(error);
-  console.log(JSON.stringify({ routes: Object.keys(manifest.routes).length, methods: Object.values(manifest.routes).reduce((n, r) => n + Object.keys(r.methods).length, 0), django_authoritative: Object.values(manifest.routes).flatMap(r => Object.values(r.methods)).filter(m => m.owner === 'django').length, errors: errors.length }));
+  console.log(JSON.stringify({ routes: Object.keys(manifest.routes).length, methods: Object.values(manifest.routes).reduce((n, r) => n + Object.keys(r.methods).length, 0), local_implemented_or_retired: local.methods.filter(m => ['DJANGO_IMPLEMENTED_LOCAL','INTENTIONALLY_RETIRED_LOCAL'].includes(m.state)).length, historical_django_traffic_owner: Object.values(manifest.routes).flatMap(r => Object.values(r.methods)).filter(m => m.owner === 'django').length, errors: errors.length }));
   process.exitCode = errors.length ? 1 : 0;
 }

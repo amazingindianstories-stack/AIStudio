@@ -1,9 +1,9 @@
-"""Current hierarchy/naming functions and triggers for baseline qualification.
+"""Frozen hierarchy/naming functions and triggers for the managed baseline.
 
 Source: scripts/migrate-hierarchical-folders.js and migrate-generation-naming.js.
-Frozen SQL; future approved changes must use a new version. Not applied by the
-active unmanaged migration graph. The baseline gate must integrate these through
-RunSQL after table creation and before Django becomes schema authority.
+Frozen SQL; future changes must use a new version. The active managed graph
+applies this through RunSQL after all tables exist. Production adoption remains
+a separately reviewed deployment operation.
 """
 
 STATEMENTS = (

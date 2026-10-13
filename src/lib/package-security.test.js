@@ -2,16 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import os from "node:os";
+import { execFileSync } from "node:child_process";
 
 test("package-project-zip never packages secret credentials or runtime .env files", () => {
-  const zipPath = path.resolve(process.cwd(), "image-video-project.zip");
-  if (!fs.existsSync(zipPath)) {
-    execSync("python3 scripts/package-project-zip.py", { stdio: "ignore" });
-  }
-
-  // Inspect zip table of contents using unzip -l
-  const output = execSync(`unzip -l "${zipPath}"`, { encoding: "utf8" });
+  const temporary = fs.mkdtempSync(path.join(os.tmpdir(), "veevee-package-guard-"));
+  const zipPath = path.join(temporary, "source.zip");
+  try {
+  // Always inspect this tested source, never a stale archive from another release.
+  execFileSync("python3", ["scripts/package-project-zip.py", "--output", zipPath,
+    "--limit-bytes", "20000000"], { stdio: "pipe" });
+  const output = execFileSync("unzip", ["-l", zipPath], { encoding: "utf8" });
   const lines = output.split("\n");
 
   const forbiddenFiles = [];
@@ -33,4 +34,7 @@ test("package-project-zip never packages secret credentials or runtime .env file
   }
 
   assert.deepEqual(forbiddenFiles, [], `Forbidden files found in zip handoff: ${forbiddenFiles.join(", ")}`);
+  } finally {
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
 });

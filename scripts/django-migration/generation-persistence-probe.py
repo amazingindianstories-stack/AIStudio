@@ -16,7 +16,7 @@ django.setup()
 from django.db import transaction
 from apps.generation.models import Generation
 
-assert len(Generation._meta.concrete_fields) == 60
+assert len(Generation._meta.concrete_fields) == 61
 identifiers = []
 cases = []
 with transaction.atomic():
@@ -26,7 +26,7 @@ with transaction.atomic():
         values = {'id': identifier, 'kind': kind, 'status': 'queued', 'prompt': 'दृश्य fixture',
                   'model': 'fixture-only', 'aspect_ratio': '16:9', 'created_at': 9007199254740993,
                   'updated_at': 9007199254740995, 'reference_images': [{'url': '/fixture/reference.png'}],
-                  'provider_responses': {'fixture': True}, 'seed': 2147483647}
+                  'submission_input': {'version':1,'fixture':True}, 'provider_responses': {'fixture': True}, 'seed': 2147483647}
         if kind == 'video':
             values.update(generate_audio=False, draft_mode=False, bitrate_mode='high', video_task_mode='edit',
                           reference_videos=[{'url': '/fixture/source.mov'}], reference_audios=[],
@@ -221,7 +221,7 @@ with transaction.atomic():
             'execution_ms':plan['Execution Time'],'nodes':plan_nodes(plan['Plan'])})
     transaction.set_rollback(True)
 assert not Generation.objects.filter(pk__in=identifiers).exists()
-print(json.dumps({'generation_orm_kinds': cases, 'generation_columns': 60,
+print(json.dumps({'generation_orm_kinds': cases, 'generation_columns': 61,
                   'fixture_rows_rolled_back': True, 'provider_calls': 0,
                   'history_count_full_schema_checks': 5,
                   'history_query_measurements':query_measurements,

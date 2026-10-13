@@ -11,10 +11,12 @@ class BoardMetadataReadTests(TransactionTestCase):
 
     def setUp(self):
         settings_fixtures.SettingsTests.setUp(self)
-        with connection.cursor() as cursor:
-            cursor.execute('CREATE TABLE IF NOT EXISTS canvas_boards (id uuid PRIMARY KEY, project_id uuid NOT NULL, name text NOT NULL, data jsonb NOT NULL, created_by uuid, created_at bigint NOT NULL, updated_at bigint NOT NULL)')
-            cursor.execute('TRUNCATE canvas_boards')
-            cursor.execute("INSERT INTO canvas_boards VALUES ('cccccccc-cccc-4ccc-8ccc-cccccccccccc',%s,'दृश्य','{\"private_graph\":\"fixture\"}',NULL,1,2),('dddddddd-dddd-4ddd-8ddd-dddddddddddd','eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','Other','{}',NULL,3,4)",[self.project])
+        from .models import CanvasBoard
+        CanvasBoard.objects.create(id='cccccccc-cccc-4ccc-8ccc-cccccccccccc', project_id=self.project,
+                                   name='दृश्य', data={'private_graph': 'fixture'}, created_at=1, updated_at=2)
+        CanvasBoard.objects.create(id='dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+                                   project_id='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+                                   name='Other', data={}, created_at=3, updated_at=4)
 
     def test_auth_precedes_missing_project_and_first_query_value(self):
         self.assertEqual(self.client.get('/api/canvas-boards').status_code,401)

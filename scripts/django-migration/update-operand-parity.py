@@ -1,4 +1,5 @@
-"""Compare actual Node driver and Django's explicit bigint operand binding."""
+from frozen_oracle import run as oracle_run, check_output as oracle_output
+"""Compare frozen historical Node driver and Django's explicit bigint operand binding."""
 import json
 import os
 from pathlib import Path
@@ -13,7 +14,7 @@ django.setup()
 from django.db import connection
 from apps.generation.updates import operand_text
 
-result = subprocess.run(['node','--import','tsx','scripts/django-migration/update-operand-oracle.mjs'],capture_output=True,text=True,check=True)
+result = oracle_run(['node','--import','tsx','scripts/django-migration/update-operand-oracle.mjs'],capture_output=True,text=True,check=True)
 expected = json.loads(result.stdout)
 actual = []
 for case in expected:

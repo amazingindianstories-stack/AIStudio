@@ -14,7 +14,7 @@ class AgentConversation(models.Model):
     updated_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'agent_conversations'
         indexes = [
             PostgreSQLIndex(models.F('project_id').asc(nulls_last=True), name='agent_conversations_project_id_idx'),
@@ -32,7 +32,7 @@ class AgentConversationMessage(models.Model):
     created_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'agent_conversation_messages'
         indexes = [
             PostgreSQLIndex(models.F('conversation_id').asc(nulls_last=True), name='agent_conversation_messages_conversation_id_idx'),

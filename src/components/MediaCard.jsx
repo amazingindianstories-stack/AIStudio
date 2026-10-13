@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   Play,
   AlertCircle,
@@ -18,6 +18,7 @@ import {
   MoreHorizontal,
 } from "lucide-react";
 
+import { UNSORTED } from "@/lib/feed-scope";
 import { useStore } from "@/lib/store";
 import { aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
 import { useNearViewport } from "@/lib/use-near-viewport";
@@ -32,7 +33,7 @@ import { setAssetDragData } from "@/lib/asset-drag-contract";
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
 // full-resolution original.
 const CARD_THUMB_WIDTH = 480;
-import { formatCost } from "@/lib/pricing";
+import { formatCost } from "@/lib/format-cost";
 import { costBasisForGeneration } from "@/lib/cost-basis";
 
 /** Fixed milestone sequence worker.py's _report_progress calls send, in
@@ -79,6 +80,7 @@ export function MediaCard({
 }
 
 ) {
+  const reducedMotion = useReducedMotion();
   const setActiveId = useStore((s) => s.setActiveId);
   const removeItem = useStore((s) => s.removeItem);
   const retryTextToVideo = useStore((s) => s.retryTextToVideo);
@@ -210,10 +212,10 @@ export function MediaCard({
         }
       }}
       onContextMenu={handleContextMenu}
-      initial={{ opacity: 0, scale: 0.96 }}
+      initial={reducedMotion ? false : { opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.96 }}
-      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+      exit={{ opacity: 0, scale: reducedMotion ? 1 : 0.96 }}
+      transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.22, 1, 0.36, 1] }}
       style={{ contentVisibility: "auto", containIntrinsicSize: "auto 240px" }}
       className={cn(
         "group relative cursor-pointer overflow-hidden rounded-xl bg-ink-750 select-none transition duration-150",
@@ -597,6 +599,9 @@ export function MediaCard({
           {item.kind}
         </div>}
 
+        <div className="absolute left-2 bottom-2 right-2 z-20 rounded bg-black/65 p-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+          <GenerationFolderCue item={item} /><GenerationTimestamp timestamp={item.createdAt} />
+        </div>
         {/* hover prompt + delete */}
         {!failed && <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 translate-y-2 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-2.5 pt-10 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
           <p className="line-clamp-2 pl-7 pr-9 text-[11px] leading-snug text-white/90">
@@ -618,4 +623,48 @@ export function MediaCard({
       <ConfirmActionDialog {...confirmation.dialogProps} />
     </>
   );
+}
+
+export function resolveGenerationFolder(item, tree) {
+  const project = item.projectId ? tree.projects?.find((p) => p.id === item.projectId) : null;
+  if (item.projectId && !project) return { label: "Project unavailable", navigable: false };
+  const root = project ? project.name : "Global";
+  if (!item.folderId) return { label: `${root} / Unsorted`, navigable: true };
+  const find = (nodes, parents = []) => {
+    for (const node of nodes || []) {
+      const path = [...parents, node.name];
+      if (node.id === item.folderId) return path;
+      const result = find(node.children, path);
+      if (result) return result;
+    }
+    return null;
+  };
+  const path = find(project ? project.folders : tree.globalFolders);
+  return { label: `${root} / ${path ? path.join(" / ") : "Folder unavailable"}`, navigable: Boolean(path) };
+}
+
+export function GenerationFolderCue({ item }) {
+  const tree = useStore((state) => state.libraryTree);
+  const setProject = useStore((state) => state.setActiveProject);
+  const setFolder = useStore((state) => state.setActiveFolder);
+  const resolved = resolveGenerationFolder(item, tree);
+  return <button type="button" disabled={!resolved.navigable} title={resolved.label} onClick={(e) => { e.stopPropagation(); setProject(item.projectId || null); setFolder(item.folderId || UNSORTED); }} className="block max-w-full truncate text-left text-[11px] text-white/55 hover:text-brand disabled:cursor-default disabled:hover:text-white/55">▱ {resolved.label}</button>;
+}
+
+export function relativeGenerationTime(timestamp, now = Date.now()) {
+  if (timestamp === null || timestamp === undefined || timestamp === "") return null;
+  const time = new Date(timestamp).getTime();
+  if (!Number.isFinite(time)) return null;
+  const seconds = Math.round((time - now) / 1000);
+  const [amount, unit] = Math.abs(seconds) < 60 ? [seconds, "second"] : Math.abs(seconds) < 3600 ? [Math.round(seconds / 60), "minute"] : Math.abs(seconds) < 86400 ? [Math.round(seconds / 3600), "hour"] : [Math.round(seconds / 86400), "day"];
+  return new Intl.RelativeTimeFormat(undefined, { numeric: "auto", style: "short" }).format(amount, unit);
+}
+
+export function GenerationTimestamp({ timestamp }) {
+  const [now, setNow] = useState(null);
+  useEffect(() => { setNow(Date.now()); const interval = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(interval); }, []);
+  const label = relativeGenerationTime(timestamp, now || 0);
+  if (!label) return <span className="text-[11px] text-white/40">Time unavailable</span>;
+  const date = new Date(timestamp);
+  return <time dateTime={date.toISOString()} title={now ? date.toLocaleString() : date.toISOString()} className="text-[11px] text-white/60">{now ? label : date.toISOString()}</time>;
 }

@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 
 FROM base AS builder
 WORKDIR /app
@@ -7,7 +7,7 @@ RUN npm ci
 COPY . .
 # Disable telemetry during build
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN npm run build
+RUN npm run build && mkdir -p public
 
 FROM base AS runner
 WORKDIR /app

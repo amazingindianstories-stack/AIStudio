@@ -4,14 +4,6 @@ from .models import PortraitAsset, PortraitGroup
 
 
 class PortraitPersistenceTests(TransactionTestCase):
-    def setUp(self):
-        # Disposable fixture: physical constraints match current declarations;
-        # this is not evidence of Django baseline schema creation.
-        with connection.cursor() as cursor:
-            cursor.execute("CREATE TABLE IF NOT EXISTS portrait_groups (id uuid PRIMARY KEY,byteplus_group_id text UNIQUE,name text NOT NULL,description text,group_type text NOT NULL DEFAULT 'AIGC',project_name text NOT NULL DEFAULT 'default',primary_asset_id text,project_id uuid,created_at bigint NOT NULL,updated_at bigint NOT NULL)")
-            cursor.execute("CREATE TABLE IF NOT EXISTS portrait_assets (id uuid PRIMARY KEY,group_id uuid NOT NULL REFERENCES portrait_groups(id) ON DELETE CASCADE,byteplus_asset_id text UNIQUE,name text,asset_type text NOT NULL DEFAULT 'Image',role text NOT NULL DEFAULT 'reference',image_url text NOT NULL,status text NOT NULL DEFAULT 'Processing',status_message text,created_at bigint NOT NULL,updated_at bigint NOT NULL)")
-            cursor.execute('TRUNCATE portrait_assets,portrait_groups')
-
     def group(self, identifier, **kwargs):
         return PortraitGroup.objects.create(id=identifier,name='संदर्भ',created_at=1,updated_at=2,**kwargs)
 

@@ -4,6 +4,7 @@ from django.db import models
 
 class Asset(models.Model):
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    created_by_id = models.UUIDField(null=True)
     kind = models.TextField()
     name = models.TextField()
     slug = models.TextField()
@@ -13,7 +14,7 @@ class Asset(models.Model):
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
     class Meta:
-        managed = False
+        managed = True
         db_table = 'assets'
         indexes = [
             PostgreSQLIndex(models.F('project_id').asc(nulls_last=True), name='assets_project_id_idx'),
@@ -33,13 +34,14 @@ class PortraitGroup(models.Model):
     updated_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'portrait_groups'
         indexes = [models.Index(fields=['project_id'], name='portrait_groups_project_id_idx')]
 
 
 class PortraitAsset(models.Model):
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    created_by_id = models.UUIDField(null=True)
     group = models.ForeignKey(PortraitGroup, on_delete=models.CASCADE, db_column='group_id', db_index=False)
     byteplus_asset_id = models.TextField(null=True, unique=True)
     name = models.TextField(null=True)
@@ -52,5 +54,5 @@ class PortraitAsset(models.Model):
     updated_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'portrait_assets'

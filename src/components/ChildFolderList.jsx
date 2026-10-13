@@ -13,6 +13,7 @@ import {
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { isFolderOperationBusy } from "./FolderTree";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 import {
   getAssetDragData,
@@ -34,6 +35,9 @@ export function ChildFolderList({
   onOpenMoveModal,
   onOpenNewFolderModal: _onOpenNewFolderModal,
 }) {
+  const operations = useStore((s) => s.operations);
+  const actorId = useStore((s) => s.currentUser?.id);
+  const preferenceKey = `${FOLDERS_EXPANDED_KEY}:${actorId || "anonymous"}`;
   const libraryTree = useStore((s) => s.libraryTree);
   const counts = useStore((s) => s.counts);
   const setActiveFolder = useStore((s) => s.setActiveFolder);
@@ -44,6 +48,7 @@ export function ChildFolderList({
   const moveGenerationsToDestination = useStore((s) => s.moveGenerationsToDestination);
 
   const [expanded, setExpanded] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
   const [dragOverFolderValid, setDragOverFolderValid] = useState(true);
   const dragCounterMap = useRef(new Map());
@@ -52,20 +57,22 @@ export function ChildFolderList({
   // Restore expanded state from localStorage (default collapsed)
   useEffect(() => {
     try {
-      const stored = localStorage.getItem(FOLDERS_EXPANDED_KEY);
-      if (stored === "true") {
-        setExpanded(true);
-      }
+      const stored = localStorage.getItem(preferenceKey);
+      setExpanded(stored === "true");
+      setHidden(localStorage.getItem(`${preferenceKey}:hidden`) === "true");
     } catch {
       /* ignore */
     }
-  }, []);
+  }, [preferenceKey]);
 
+  const toggleHidden = () => {
+    setHidden((previous) => { const next = !previous; try { localStorage.setItem(`${preferenceKey}:hidden`, String(next)); } catch {} return next; });
+  };
   const toggleExpanded = () => {
     setExpanded((prev) => {
       const next = !prev;
       try {
-        localStorage.setItem(FOLDERS_EXPANDED_KEY, String(next));
+        localStorage.setItem(preferenceKey, String(next));
       } catch {
         /* ignore */
       }
@@ -192,12 +199,15 @@ export function ChildFolderList({
 
   return (
     <div className="border-b border-line bg-ink-900/60 select-none">
+      <div className="flex items-center">
+      {hidden ? <button type="button" aria-label="Show folders" onClick={toggleHidden} className="h-8 px-4 text-xs text-white/60 hover:text-white">Show folders ({childFolders.length})</button> : <>
       {/* Collapsible Section Header (approx 32-36px high) */}
       <button
         type="button"
         onClick={toggleExpanded}
+        aria-label={expanded ? "Collapse folders" : "Expand folders"}
         aria-expanded={expanded}
-        className="flex h-8 w-full items-center gap-1.5 px-4 text-xs font-medium text-white/60 transition hover:bg-white/5 hover:text-white"
+        className="flex h-8 flex-1 items-center gap-1.5 px-4 text-xs font-medium text-white/60 transition hover:bg-white/5 hover:text-white"
       >
         {expanded ? (
           <ChevronDown className="h-3.5 w-3.5 text-white/50" />
@@ -209,14 +219,19 @@ export function ChildFolderList({
           {childFolders.length}
         </span>
       </button>
+      <button type="button" aria-label="Hide folders" onClick={toggleHidden} className="shrink-0 px-3 text-xs text-white/50 hover:text-white">Hide folders</button>
+      </>}
+      </div>
 
       {/* Expanded Compact Folder Tiles */}
-      {expanded && (
+      {!hidden && expanded && (
         <div
           data-testid="child-folder-list"
-          className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 p-3 pt-1 border-t border-line/40"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 160px), 1fr))" }}
+          className="grid min-w-0 max-h-64 gap-2 overflow-y-auto overscroll-contain p-3 pt-1 border-t border-line/40 scroll-thin"
         >
           {childFolders.map((folder) => {
+            const busy = isFolderOperationBusy(operations, folder.id);
             const count = getFolderCount(folder.id);
             const isDragOver = dragOverFolderId === folder.id;
             const glyphColorClass = getFolderColorClass(folder.color);
@@ -224,7 +239,12 @@ export function ChildFolderList({
             return (
               <div
                 key={folder.id}
-                draggable={renamingFolderId !== folder.id}
+                role="button"
+                tabIndex={0}
+                title={folder.name}
+                onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); setActiveFolder(folder.id); } }}
+                aria-busy={busy}
+                draggable={renamingFolderId !== folder.id && !busy}
                 onDragStart={(e) => {
                   setFolderDragData(e.dataTransfer, folder.id, folder.name);
                 }}
@@ -248,7 +268,7 @@ export function ChildFolderList({
                 <FolderClosed className={cn("h-4 w-4 shrink-0 transition", glyphColorClass)} />
 
                 {/* Name & Count */}
-                <div className="flex-1 min-w-0">
+                <div className="min-w-0 flex-1 overflow-hidden">
                   {renamingFolderId === folder.id ? (
                     <InlineFolderNameEditor
                       initialName={folder.name}
@@ -267,14 +287,14 @@ export function ChildFolderList({
                 </div>
 
                 {/* Hover Context Menu */}
-                <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+                <div inert={busy ? true : undefined} onClick={(e) => e.stopPropagation()} className="relative shrink-0">
                   <Dropdown
                     label={`Card folder actions: ${folder.name}`}
                     align="right"
                     trigger={(open) => (
                       <span
                         className={cn(
-                          "grid h-5 w-5 place-items-center rounded text-white/40 opacity-0 group-hover:opacity-100 transition hover:bg-white/10 hover:text-white",
+                          "grid h-5 w-5 place-items-center rounded text-white/40 opacity-60 group-hover:opacity-100 group-focus-within:opacity-100 transition hover:bg-white/10 hover:text-white",
                           open && "opacity-100 bg-white/10 text-white"
                         )}
                       >
@@ -295,6 +315,8 @@ export function ChildFolderList({
                                 key={opt.id}
                                 type="button"
                                 title={opt.label}
+                                aria-label={`${opt.label} folder color`}
+                                aria-pressed={(folder.color || "default") === opt.id}
                                 onClick={() => {
                                   close();
                                   setFolderColor(folder.id, opt.id === "default" ? null : opt.id);

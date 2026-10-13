@@ -1,0 +1,17 @@
+{
+  "request": {
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      "import {normalizeSeedreamReference} from './src/lib/seedream-reference.js';let s='';for await(const c of process.stdin)s+=c;const r=[];for(const v of JSON.parse(s)){try{const n=await normalizeSeedreamReference(Buffer.from(v,'base64'));r.push({ext:n.ext,changed:n.changed})}catch(e){r.push({error:e.message})}}console.log(JSON.stringify(r));"
+    ],
+    "input": "[\"iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAIAAAAlC+aJAAAAgElEQVR4nNXOQREAIAzAsFJxiEAJ8hGxB9coyNrnUiZxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEidxEufvwNQDB60BmBNJkeoAAAAASUVORK5CYII=\",\"iVBORw0KGgoAAAANSUhEUgAAAA4AAAAeCAIAAACT/LgdAAAAJElEQVR4nGN0i6pgIA4wEamOYVQpw2hgMYwmF6bRDMMwdIoMAB0eAVRXLTo0AAAAAElFTkSuQmCC\",\"iVBORw0KGgoAAAANSUhEUgAAABAAAAEsCAIAAABFXqRUAAAA0UlEQVR4nO3LsRHDQACEQJniXIQrUfnKNBfyqYeN4fP93dcJjuqrwUF2rwYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1WNBgNVjQYDVY0GA1X92fAAV1gDcM2uiiYAAAAASUVORK5CYII=\",\"Z2FyYmFnZQ==\",\"R0lGODdhHgAeAIEAAP8AAAAAAAAAAAAAACwAAAAAHgAeAAAIMgABCBxIsKDBgwgTKlzIsKHDhxAjSpxIsaLFixgzatzIsaPHjyBDihxJsqTJkyhTngwIACH5BAEAAAEALAAAAAAeAB4AgQAA/wAAAAAAAAAAAAgyAAEIHEiwoMGDCBMqXMiwocOHECNKnEixosWLGDNq3Mixo8ePIEOKHEmypMmTKFOeDAgAOw==\"]"
+  },
+  "stdout": "[{\"ext\":\"png\",\"changed\":false},{\"error\":\"Reference dimensions must exceed 14 pixels with an aspect ratio between 1:16 and 16:1.\"},{\"error\":\"Reference dimensions must exceed 14 pixels with an aspect ratio between 1:16 and 16:1.\"},{\"error\":\"Reference is corrupt, animated, unsupported, or too large to decode. Use a still PNG, JPEG, WebP, or TIFF image.\"},{\"error\":\"Reference is corrupt, animated, unsupported, or too large to decode. Use a still PNG, JPEG, WebP, or TIFF image.\"}]\n",
+  "stdout_sha256": "1cdb83efb5f64dbd49cdc0905c0a4ba40d6f1bf122045a21b8cfebcbbf695f66",
+  "source_revision": "d9ef93947910a65bec5fa33d3f2311d888f6a2f4",
+  "source_tree_sha256": "39ce8b2abb6a4440afa5f1d0b944c07717c691839eba171c49a941823e1ff6b9"
+}

@@ -1,4 +1,5 @@
-"""Compare current Drizzle columns with Django runtime AND disk migration state.
+from frozen_oracle import run as oracle_run, check_output as oracle_output
+"""Compare frozen historical Drizzle columns with Django runtime AND disk migration state.
 
 This is declared column/PK coverage, not physical schema equivalence. Declared FK targets and deletion policies are also compared. No SQL is
 executed. Defaults, indexes, constraints, triggers and production catalogs belong
@@ -62,7 +63,7 @@ def main():
     from django.apps import apps
     from django.db import connection
     from django.db.migrations.loader import MigrationLoader
-    expected = json.loads(subprocess.check_output(['node', str(ROOT / 'scripts/django-migration/declared-columns.mjs')], cwd=ROOT, text=True))
+    expected = json.loads(oracle_output(['node', str(ROOT / 'scripts/django-migration/declared-columns.mjs')], cwd=ROOT, text=True))
     runtime = inventory(apps, connection)
     state = inventory(MigrationLoader(None).project_state().apps, connection)
     errors = [f'{label}: {error}' for label, actual in [('runtime', runtime), ('migration state', state)] for error in compare(expected, actual)]

@@ -1,27 +1,52 @@
+import json
 from django.conf import settings
+from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.response import Response
 from apps.authentication.session import lookup
+from . import services
 from .models import CanvasBoard
+from .serialization import JS_WHITESPACE, js_json, json_length, validate_state
+
+MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
 
 
-@api_view(['GET'])
-@authentication_classes([])
-@permission_classes([])
-def board_metadata_reads(request):
-    if lookup(request) is None:
-        return Response({'error': 'UNAUTHENTICATED'}, status=401)
-    values = request.query_params.getlist('projectId')
-    project = values[0] if values else None
-    if not project:
-        return with_renewal(request, Response({'error': 'projectId required.'}, status=400))
-    # The switcher must never load the potentially 2 MB graph blob.
-    rows = CanvasBoard.objects.filter(project_id=project).values(
-        'id', 'project_id', 'name', 'created_by', 'created_at', 'updated_at')
-    response = Response({'boards': [{'id': str(row['id']), 'projectId': str(row['project_id']),
-        'name': row['name'], 'createdBy': str(row['created_by']) if row['created_by'] else None,
-        'createdAt': row['created_at'], 'updatedAt': row['updated_at']} for row in rows]})
-    return with_renewal(request, response)
+def node_route(methods):
+    """Preserve Next's implicit HEAD/OPTIONS and empty unsupported-method body."""
+    allowed = list(methods) + (['HEAD'] if 'GET' in methods else []) + ['OPTIONS']
+
+    def decorate(handler):
+        def dispatch(request, *args, **kwargs):
+            if request.method == 'OPTIONS':
+                response = HttpResponse(status=204)
+                del response['Content-Type']
+                response['Allow'] = ', '.join(sorted(allowed))
+                return response
+            if request.method not in ('GET', 'HEAD'):
+                # Generation routes share this JSON reader. Bound the stream
+                # before decoding, including unknown-length request bodies.
+                limit = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+                if limit is not None:
+                    try:
+                        declared = int(request.META.get('CONTENT_LENGTH') or 0)
+                    except (ValueError, TypeError):
+                        return HttpResponse('{"error":"INVALID_CONTENT_LENGTH"}', status=400, content_type='application/json')
+                    if declared > limit:
+                        return HttpResponse('{"error":"REQUEST_TOO_LARGE"}', status=413, content_type='application/json')
+                    raw = request.read(limit + 1)
+                    if len(raw) > limit:
+                        return HttpResponse('{"error":"REQUEST_TOO_LARGE"}', status=413, content_type='application/json')
+                    request.bounded_json_body = raw
+            return handler(request, *args, **kwargs)
+        dispatch.__name__ = handler.__name__
+        view = api_view(allowed)(permission_classes([])(authentication_classes([])(dispatch)))
+        def unsupported(self, request, *args, **kwargs):
+            response = HttpResponse(status=405)
+            del response['Content-Type']
+            return response
+        view.cls.http_method_not_allowed = unsupported
+        view.cls.default_response_headers = property(lambda self: {})
+        return view
+    return decorate
 
 
 def with_renewal(request, response):
@@ -29,3 +54,157 @@ def with_renewal(request, response):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,
             httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')
     return response
+
+
+def reply(request, payload, status=200):
+    return with_renewal(request, HttpResponse(js_json(payload), status=status, content_type='application/json'))
+
+
+def failure():
+    response = HttpResponse(status=500)
+    del response['Content-Type']
+    return response
+
+
+def body(request):
+    # The transport cap bounds allocation; canvas additionally checks its
+    # source JSON.stringify(data).length limit measured in UTF-16 units.
+    try:
+        raw = getattr(request, 'bounded_json_body', None)
+        if raw is None:
+            limit = settings.DATA_UPLOAD_MAX_MEMORY_SIZE
+            raw = request.read(limit + 1 if limit is not None else None)
+            if limit is not None and len(raw) > limit:
+                raise ValueError('Request body exceeds the configured limit.')
+        return json.loads(raw.decode('utf-8', errors='replace'), parse_int=float,
+                          parse_float=float, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value)))
+    except (ValueError, UnicodeError):
+        return {}
+
+
+def property_of(value, key):
+    if value is None:
+        raise TypeError('Cannot read a property of null')
+    return value.get(key) if isinstance(value, dict) else None
+
+
+def truthy(value):
+    # Empty arrays/objects are truthy in JavaScript.
+    return value is not None and value is not False and value != 0 and value != ''
+
+
+def name_value(value):
+    value = value if truthy(value) else ''
+    if not isinstance(value, str):
+        raise TypeError('Name must support trim')
+    return value.strip(JS_WHITESPACE)
+
+
+@node_route(['GET', 'POST'])
+def board_metadata_reads(request):
+    user = lookup(request)
+    if user is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        if request.method in ('GET', 'HEAD'):
+            values = request.query_params.getlist('projectId')
+            project = values[0] if values else None
+            if not project:
+                return reply(request, {'error': 'projectId required.'}, 400)
+            return reply(request, {'boards': services.list_boards(project)})
+        data = body(request)
+        operation = property_of(data, 'op')
+        if operation == 'createBoard':
+            name = name_value(property_of(data, 'name'))
+            project = property_of(data, 'projectId')
+            if not truthy(project):
+                return reply(request, {'error': 'projectId required.'}, 400)
+            if not name:
+                return reply(request, {'error': 'Name required.'}, 400)
+            board = services.create_board(project, name, user)
+            return reply(request, {'boards': services.list_boards(project), 'board': board})
+        if operation in ('renameBoard', 'deleteBoard'):
+            identifier = property_of(data, 'id')
+            if not truthy(identifier):
+                return reply(request, {'error': 'id required.'}, 400)
+            existing = services.get_board(identifier)
+            if existing is None:
+                return reply(request, {'error': 'Board not found.'}, 404)
+            if not services.can_manage(user, existing['createdBy']):
+                return reply(request, {'error': 'FORBIDDEN'}, 403)
+            if operation == 'renameBoard':
+                services.rename_board(identifier, name_value(property_of(data, 'name')))
+            else:
+                services.delete_board(identifier)
+            return reply(request, {'boards': services.list_boards(existing['projectId'])})
+        return reply(request, {'error': 'Unknown op.'}, 400)
+    except Exception:
+        # Next returns an empty 500 for uncaught DB/body-type failures.
+        return failure()
+
+
+@node_route(['GET', 'PUT'])
+def board_detail(request, identifier):
+    if lookup(request) is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        if request.method in ('GET', 'HEAD'):
+            board = services.get_board(identifier)
+            return reply(request, board) if board else reply(request, {'error': 'Board not found.'}, 404)
+        data = property_of(body(request), 'data')
+        if not isinstance(data, dict):
+            return reply(request, {'error': 'Invalid board data.'}, 400)
+        if json_length(data) > MAX_BOARD_JSON_UNITS:
+            return reply(request, {'error': 'Board is too large to save.'}, 413)
+        updated = services.save_board(identifier, validate_state(data))
+        if updated is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        return reply(request, {'ok': True, 'updatedAt': updated})
+    except Exception:
+        return failure()
+
+
+@node_route(['POST'])
+def board_upload(request, identifier):
+    actor = lookup(request)
+    if actor is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        import re
+        if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', identifier) or not CanvasBoard.objects.filter(pk=identifier).exists():
+            return reply(request, {'error': 'Board not found.'}, 404)
+        payload = body(request)
+        reference_id = property_of(payload, 'referenceId')
+        if reference_id:
+            from apps.media.uploads import resolve_ready_upload, UploadError
+            from apps.media.storage import get_storage, MIME
+            import tempfile
+            from uuid import uuid4
+            try:
+                upload = resolve_ready_upload(str(actor.id), reference_id, purposes={'canvas'})
+                storage = get_storage()
+                ext = next((ext for ext, mime in MIME.items() if mime == upload.content_type), 'png')
+                key = f'canvas/{identifier}/{uuid4()}.{ext}'
+                media = storage.open(upload.key)
+                try:
+                    with tempfile.TemporaryFile() as staged:
+                        for chunk in media.stream:
+                            staged.write(chunk)
+                        staged.seek(0)
+                        storage.upload_stream(staged, key, upload.content_type, 'private, max-age=0')
+                finally:
+                    media.stream.close()
+                return reply(request, {'url': '/api/media/' + key})
+            except UploadError as error:
+                return reply(request, {'error': str(error)}, error.status)
+        data_url = property_of(payload, 'dataUrl')
+        if not isinstance(data_url, str) or not data_url.startswith('data:'):
+            return reply(request, {'error': 'dataUrl required.'}, 400)
+        try:
+            from apps.media.images import save_canvas_asset
+            url = save_canvas_asset(data_url, identifier)
+        except Exception:
+            return reply(request, {'error': 'Upload failed.'}, 400)
+        return reply(request, {'url': url})
+    except Exception:
+        return failure()

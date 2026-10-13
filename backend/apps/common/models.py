@@ -9,7 +9,7 @@ class ActivityLog(models.Model):
     detail = models.JSONField(null=True)
     created_at = models.BigIntegerField()
     class Meta:
-        managed = False
+        managed = True
         db_table = 'activity_logs'
         indexes = [
             PostgreSQLIndex(models.F('created_at').asc(nulls_last=True), name='activity_logs_created_at_idx'),

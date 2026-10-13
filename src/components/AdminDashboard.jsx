@@ -39,7 +39,7 @@ import {
   AlertTriangle,
   SlidersHorizontal,
 } from "lucide-react";
-import { formatCost } from "@/lib/pricing";
+import { formatCost } from "@/lib/format-cost";
 import { LIMIT_DEFINITIONS, } from "@/lib/limits";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";

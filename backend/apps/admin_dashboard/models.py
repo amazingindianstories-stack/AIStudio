@@ -8,7 +8,7 @@ class Pricing(models.Model):
     notes = models.TextField(null=True)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'pricing'
 
 class AppSetting(models.Model):
@@ -16,7 +16,7 @@ class AppSetting(models.Model):
     value = models.TextField()
     updated_at = models.BigIntegerField()
     class Meta:
-        managed = False
+        managed = True
         db_table = 'settings'
 
 class UserLimit(models.Model):
@@ -26,5 +26,5 @@ class UserLimit(models.Model):
     value = models.TextField()
     updated_at = models.BigIntegerField()
     class Meta:
-        managed = False
+        managed = True
         db_table = 'user_limits'

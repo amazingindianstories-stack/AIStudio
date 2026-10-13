@@ -20,4 +20,8 @@ class BrowserOriginMiddleware:
                     return JsonResponse({'error':'FORBIDDEN_ORIGIN'},status=403)
             elif request.headers.get('Sec-Fetch-Site') in ('cross-site','same-site'):
                 return JsonResponse({'error':'FORBIDDEN_ORIGIN'},status=403)
+            elif request.COOKIES.get('veevee_session') and request.headers.get('Sec-Fetch-Site') != 'same-origin':
+                # Cookie-authenticated mutations need explicit browser origin
+                # evidence. Headerless machines must use route token auth.
+                return JsonResponse({'error':'FORBIDDEN_ORIGIN'},status=403)
         return self.get_response(request)

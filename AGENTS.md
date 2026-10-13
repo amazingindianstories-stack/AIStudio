@@ -1,63 +1,96 @@
 # Repository operating rules
 
-## Output quality preference
+## Output quality
 
-Prioritize the best supported output quality for production assets. Future
-Seedance 2.5 requests, including Generate, Edit, Extend, Draft and draft-to-final,
-must request native MOV (`output_format: "mov"`) and preserve the original bytes
-through storage and downloads. Keep Final and High bitrate as the normal defaults.
-Do not silently downgrade colour precision, recompress masters, or substitute a
-renamed MP4 for native MOV. Respect explicit user choices for resolution, Draft,
-bitrate and audio; ask before changing settings that materially increase cost.
-Browser preview compatibility must not reduce the quality of the master download.
+Prioritize production master quality. Seedance 2.5 Generate, Edit, Extend, Draft
+and draft-to-final requests must request native MOV (`output_format: "mov"`) and
+preserve original bytes through storage and downloads. Final and High bitrate
+are the normal defaults. Respect explicit resolution, Draft, bitrate and audio
+choices; ask before changing settings that materially increase cost. Never
+rename an MP4 to MOV, recompress a master, or lower master quality for browser
+preview compatibility.
 
-## Database changes and deployments
+## Backend and schema authority
 
-Production deploys do **not** apply Drizzle schema changes. Vercel builds and
-deploys application code only. `npm run test:db:setup` is also not migration
-coverage: it creates the final schema from scratch, so it cannot prove that an
-existing production database can be upgraded to that schema.
+`Veevee_Django_Migration_Blueprint_2026-10-08.md` and
+`docs/architecture/ADR-django-authoritative-backend.md` govern this branch.
+Django/DRF under `backend/` owns local API behavior, providers, persistence and
+workers. Next.js is a frontend with same-origin `/api` transport. New backend
+functionality and schema changes belong in Python and the single managed Django
+migration graph under `backend/apps/*/migrations`.
 
-When a change adds, removes, renames, or changes a column/index/table:
+Do not restore Node business routes, Drizzle schema ownership, or a browser-driven
+generation executor to fix parity failures. Historical source outputs under
+`backend/testsupport/goldens/` are inert comparison evidence, not an executable
+second backend. Keep provenance and output hashes when updating goldens.
 
-1. Add an additive, idempotent migration in `scripts/` and expose it as a
-   `db:migrate:*` package script. Never rely on editing `src/lib/schema.js`
-   alone.
-2. Update `src/app/api/admin/migrate-schema/route.js` when the online admin
-   migration path owns the affected table. Its verification query and expected
-   count must change with its statements.
-3. Add the migration to the database CI job and test upgrading an old schema,
-   not only creating the latest schema with `drizzle-kit push`.
-4. Run the additive migration **before** deploying code that reads or writes
-   the new shape. Then run `npm run db:verify:production-schema`. A failed
-   verifier is a deployment blocker.
-5. Keep migrations backward-compatible for the currently deployed application
-   so the required order is always expand schema, deploy code, then optionally
-   clean up in a later release.
+Local authority is distinct from deployed ownership. The production history in
+`docs/django-migration/route-ownership.yaml` remains unchanged until a separately
+authorized cutover is actually executed and verified. This implementation goal
+does not authorize shared database access, provider/cloud calls, deployment,
+push, merge, or production migration.
 
-Do not put `drizzle-kit push` in a Vercel build command. Preview builds may use
-production-connected environment variables, builds can run more than once,
-and an application build is not a controlled migration phase.
-
-Generation inserts are especially sensitive: `itemToValues()` in
-`src/lib/store-db.js` writes a wide row, so one missing `generations` column can
-break only the generation kinds that exercise that path. Before releasing a
-generation feature, test one non-billed enqueue for every affected kind after
-the production-schema verifier passes.
-
-## Django migration governance
-
-Django + DRF is the committed backend destination; see
-`docs/architecture/ADR-django-authoritative-backend.md`. Current traffic and
-schema ownership remain recorded in `docs/django-migration/route-ownership.yaml`.
-New backend functionality belongs in Django. Node business route changes require
-an explicit, issue-linked, exact-content migration exception. Do not retire
-Django to resolve parity failures or restore stale historical behavior.
+## Qualification isolation
 
 Before tests, Django commands, migrations, servers or workers, verify actual
-targets without printing credentials. Use disposable local PostgreSQL and mock
-storage/providers; never load shared checkout credentials for qualification.
-The isolated runner in `scripts/django-migration/isolated.py` creates a clean
-source copy and allowlisted environment. Schema authority remains Drizzle until
-the reviewed Django equivalence/baselining gate; existing migration rules above
-continue to apply during this transitional period.
+targets without printing credentials. Use disposable PostgreSQL and explicit
+mock providers/storage. Never load shared checkout credentials or personal cloud
+credentials for qualification.
+
+- Local macOS: `scripts/django-migration/isolated.py` prepares a clean source copy,
+  empty credential home, allowlisted environment and a dedicated loopback cluster.
+- GitHub-hosted Linux: `scripts/django-migration/ci-qualification.py` inspects the
+  job service container identity, PostgreSQL 16 image/live version, job network,
+  published port and tmpfs data mount before database qualification. A flag or
+  environment-variable name alone is not target verification.
+- Run the full Django suite, including `apps.media`, and the Django browser
+  harness. Frontend tests/lint/build run without backend credentials.
+- Live-provider acceptance is separate evidence; synthetic qualification must
+  never be described as a live provider result.
+
+## Database changes and releases
+
+Schema changes require reviewed Django migrations, a fresh-database test and an
+upgrade test from the previous supported migration state. Prefer additive,
+backward-compatible changes; expand schema, deploy compatible code, and clean up
+only in a later reviewed release. Preserve indexes, defaults, foreign keys,
+triggers, naming counters and data invariants, not merely model columns.
+
+For populated legacy databases, ordinary `CreateModel` migrations are unsafe.
+Require an actual catalog/history audit, backup/PITR, exact equivalence and row
+preservation before reviewed history-only baseline adoption. Never use blind
+`--fake-initial`. The disposable adoption probes are not production tools.
+
+Vercel builds, Django image startup and worker startup must not migrate the
+database. A controlled migration release must finish and pass verification before
+code or workers relying on the new shape are promoted. Preserve native media,
+organization IDs/scopes and frozen export names. Follow
+`docs/django-migration/cutover-runbook.md`; every live step remains UNEXECUTED
+until its release evidence is recorded.
+
+## Goal 2 local contracts
+
+Django upload init/status/finalize/cancel owns metadata and authorization. Browser
+large-file chunks go directly to native resumable GCS; isolated filesystem tests
+use the authenticated local chunk endpoint. READY reference IDs are durable and
+actor-checked. Expired-upload cleanup excludes READY and shared originals.
+`LOCAL_DATA_MODE=read_only_viewer` rejects write verbs, read-triggered writes and
+writer CLI startup; it still requires a separately verified authorized reader.
+Draft metadata is actor/project-scoped with occurrence IDs; no binary or bearer
+URL persistence. Goal 2 local qualification does not authorize hosted acceptance.
+
+## Deployment origins
+
+For every authorized Preview deployment, verify its actual Vercel project,
+target and hostname, then reconcile that exact HTTPS origin with Green's Django
+browser/CSRF origin configuration before handing over the URL. Preserve existing
+authorized origins and unrelated configuration. Verify real browser login and a
+CSRF-protected request; a READY frontend build alone does not establish integration.
+Never fix a forbidden-origin error with wildcard origins, disabled CSRF checks,
+client-supplied ingress credentials or a fallback to Blue.
+
+During a separately approved Production cutover, perform the same verification
+for the exact Production domains and aliases. This rule does not authorize
+Production changes or promotion. Record origin reconciliation and authentication
+evidence alongside the deployment receipt so the check is repeated automatically
+as part of each release procedure.

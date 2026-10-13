@@ -1,3 +1,4 @@
+from frozen_oracle import run as oracle_run, check_output as oracle_output
 """All declared index DDL on disposable transactional temporary tables only."""
 import json
 import os
@@ -15,7 +16,7 @@ from django.apps import apps
 from django.db import connection, transaction, IntegrityError
 from django.db.migrations.loader import MigrationLoader
 
-expected = json.loads(subprocess.check_output(['node', 'scripts/django-migration/declared-indexes.mjs'], text=True))
+expected = json.loads(oracle_output(['node', 'scripts/django-migration/declared-indexes.mjs'], text=True))
 checks = 0
 behavior_checks = 0
 quote = connection.ops.quote_name

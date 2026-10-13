@@ -1,0 +1,115 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import React, { act } from "react";
+import { JSDOM } from "jsdom";
+import { createRoot } from "react-dom/client";
+import { useStore } from "../lib/store.js";
+import { FolderTree, FolderOperationRail, isFolderOperationBusy } from "./FolderTree.jsx";
+import { ChildFolderList } from "./ChildFolderList.jsx";
+import { ProjectMenu } from "./ProjectMenu.jsx";
+import { InlineFolderNameEditor } from "./InlineFolderNameEditor.jsx";
+
+async function withDom(run) {
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
+  const keys = ["window", "document", "HTMLElement", "localStorage", "React", "IS_REACT_ACT_ENVIRONMENT"];
+  const prior = Object.fromEntries(keys.map((key) => [key, globalThis[key]]));
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, localStorage: dom.window.localStorage, React, IS_REACT_ACT_ENVIRONMENT: true });
+  dom.window.HTMLElement.prototype.attachEvent = function () {};
+  dom.window.HTMLElement.prototype.detachEvent = function () {};
+  const root = createRoot(document.querySelector("#root"));
+  const original = useStore.getState();
+  try { await run({ dom, root, render: async (component) => act(async () => root.render(component)) }); }
+  finally { await act(async () => root.unmount()); useStore.setState(original, true); Object.assign(globalThis, prior); dom.window.close(); }
+}
+
+test("three-level full names remain accessible, horizontal controls scroll the contained viewport, and tree keyboard selects", async () => {
+  await withDom(async ({ dom, render }) => {
+    const name = "Extremely long folder name with an entire descriptive shot sequence";
+    const folders = [{ id: "a", name, children: [{ id: "b", name: `${name} second`, children: [{ id: "c", name: `${name} third` }] }] }];
+    useStore.setState({ operations: {} });
+    const selected = [];
+    await render(React.createElement(FolderTree, { folders, activeFolderId: "c", onSelectFolder: (id) => selected.push(id) }));
+    assert.equal(document.querySelectorAll('[role="treeitem"]').length, 3);
+    assert.equal(document.querySelector('[aria-level="3"]').title, `${name} third`);
+    assert.equal(document.querySelector('[aria-level="3"] span.whitespace-nowrap').textContent, `${name} third`);
+    const viewport = document.querySelector('[data-testid="folder-hierarchy-viewport"]');
+    const scrolls = []; viewport.scrollBy = (value) => scrolls.push(value.left);
+    await act(async () => document.querySelector('[aria-label="Scroll folder names right"]').click());
+    await act(async () => viewport.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
+    assert.deepEqual(scrolls, [160, -160]);
+    const third = document.querySelector('[aria-level="3"]'); third.focus();
+    await act(async () => third.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    assert.deepEqual(selected, ["c"]);
+    await act(async () => third.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Home", bubbles: true })));
+    assert.equal(document.activeElement.getAttribute("aria-level"), "1");
+  });
+});
+
+test("folder visibility is non-destructive, compact, and isolated per authenticated actor across remount", async () => {
+  await withDom(async ({ render }) => {
+    useStore.setState({ currentUser: { id: "actor-one" }, libraryTree: { globalFolders: [{ id: "folder", name: "Folder" }], projects: [] }, counts: {}, operations: {} });
+    await render(React.createElement(ChildFolderList));
+    assert.equal(document.querySelector('[data-testid="child-folder-list"]'), null);
+    await act(async () => document.querySelector('[aria-label="Expand folders"]').click());
+    assert.equal(localStorage.getItem("veevee_folders_expanded:actor-one"), "true");
+    assert.ok(document.querySelector('[data-testid="child-folder-list"]'));
+    await act(async () => document.querySelector('[aria-label="Hide folders"]').click());
+    await render(null); await render(React.createElement(ChildFolderList));
+    assert.equal(document.querySelector('[data-testid="child-folder-list"]'), null);
+    await act(async () => document.querySelector('[aria-label="Show folders"]').click());
+    assert.ok(document.querySelector('[data-testid="child-folder-list"]'));
+    await act(async () => useStore.setState({ currentUser: { id: "actor-two" } }));
+    assert.equal(document.querySelector('[data-testid="child-folder-list"]'), null);
+    assert.equal(useStore.getState().libraryTree.globalFolders.length, 1);
+  });
+});
+
+test("200 projects have an independent scrolling list and pinned action footer", async () => {
+  await withDom(async ({ render }) => {
+    useStore.setState({ projects: Array.from({ length: 200 }, (_, i) => ({ id: `p${i}`, name: `Project ${i}` })), activeProjectId: "p0" });
+    await render(React.createElement(ProjectMenu, { close() {} }));
+    assert.equal(document.querySelectorAll('[role="menuitem"]') .length, 204);
+    const footer = document.querySelector('[data-testid="project-actions-footer"]');
+    assert.match(footer.textContent, /New project.*Rename current project.*Delete current project/);
+    assert.ok(footer.classList.contains("shrink-0"));
+    const projectItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find((node) => node.textContent === "Project 199");
+    assert.ok(projectItem.parentElement.classList.contains("overflow-y-auto"));
+    assert.equal(projectItem.parentElement.contains(footer), false);
+  });
+});
+
+test("operation feedback blocks only the matching folder and retry replays the same logical mutation", async () => {
+  await withDom(async ({ render }) => {
+    const logical = JSON.stringify(["actor", "moveFolder", ["folder", { type: "global_root" }]]);
+    const calls = [];
+    useStore.setState({ currentUser: { id: "actor" }, operations: { [logical]: { key: "same-idempotency", operation: "moveFolder", entity: JSON.stringify(["actor", "folder"]), status: "pending", attempt: 1 } }, moveFolder: async (...args) => calls.push(args), loadLibraryTree: async () => {} });
+    assert.equal(isFolderOperationBusy(useStore.getState().operations, "folder"), true);
+    assert.equal(isFolderOperationBusy(useStore.getState().operations, "independent"), false);
+    await render(React.createElement(FolderTree, { folders: [{ id: "folder", name: "Pending folder" }], onSelectFolder() {} }));
+    assert.equal(document.querySelector('[role="treeitem"]').getAttribute("draggable"), "false");
+    assert.ok(document.querySelector('[inert]'));
+    await act(async () => useStore.setState({ operations: { [logical]: { ...useStore.getState().operations[logical], status: "conflicted", error: "Changed elsewhere", attempt: 2 } } }));
+    await render(React.createElement(FolderOperationRail));
+    assert.match(document.querySelector('[role="status"]').textContent, /conflicted.*attempt 2.*Changed elsewhere/);
+    await act(async () => Array.from(document.querySelectorAll("button")).find((node) => node.textContent === "Retry").click());
+    assert.deepEqual(calls, [["folder", { type: "global_root" }]]);
+  });
+});
+
+test("inline editor permits one pending commit and explicitly retries failure", async () => {
+  await withDom(async ({ dom, render }) => {
+    let reject; let calls = 0;
+    await render(React.createElement(InlineFolderNameEditor, { initialName: "", label: "Folder name", onCommit: () => { calls++; return new Promise((_, fail) => { reject = fail; }); }, onClose() {} }));
+    const input = document.querySelector("input");
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set;
+    await act(async () => { setter.call(input, "New folder"); input.dispatchEvent(new dom.window.Event("input", { bubbles: true })); input.dispatchEvent(new dom.window.KeyboardEvent("keyup", { key: "r", bubbles: true })); });
+    await act(async () => document.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    await act(async () => document.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(calls, 1); assert.equal(input.readOnly, true);
+    await act(async () => reject(new Error("Offline")));
+    assert.match(document.querySelector('[role="alert"]').textContent, /Offline/);
+    await act(async () => document.querySelector("form").dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true })));
+    assert.equal(calls, 2);
+    await act(async () => reject(new Error("Offline")));
+  });
+});

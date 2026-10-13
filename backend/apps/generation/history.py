@@ -4,7 +4,7 @@ from django.core.exceptions import ValidationError
 from django.db import DataError
 from django.http import HttpResponse
 from django.conf import settings
-from django.db.models import BooleanField
+from django.db.models import BooleanField, F
 from django.db.models.expressions import RawSQL
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
@@ -35,7 +35,11 @@ def query_history(params):
         rows = rows.filter(RawSQL(f'("generations"."{sort}", "generations"."id") < (%s::bigint, %s::uuid)',
             [operand_text(cursor['sort']), cursor['id']], output_field=BooleanField()))
     limit = page_limit(first(params, 'limit'))
-    selected = list(rows.order_by('-'+sort, '-id')[:limit+1])
+    # Match the declared composite indexes. created_at/id cannot be NULL;
+    # a favorite cursor comparison also excludes NULL. The first favorite
+    # page retains the historical NULL-first behavior for legacy rows.
+    ordering = [F(sort).desc(nulls_last=True), F('id').desc(nulls_last=True)] if not favorite or cursor else ['-'+sort, '-id']
+    selected = list(rows.order_by(*ordering)[:limit+1])
     more = len(selected) > limit
     page = selected[:limit]
     items = [generation_item(row) for row in page]
@@ -51,12 +55,17 @@ def query_history(params):
     return {'items':items, 'nextCursor':next_cursor}
 
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH', 'DELETE'])
 @authentication_classes([])
 @permission_classes([])
 def history_reads(request):
-    if lookup(request) is None:
+    user = lookup(request)
+    if user is None:
         return Response({'error':'UNAUTHENTICATED'}, status=401)
+    if request.method != 'GET':
+        from .history_writes import history_mutation
+        from apps.common.responses import renew_session
+        return renew_session(request, history_mutation(request, user))
     try:
         page = query_history(request.query_params)
     except (ValidationError, DataError) as error:

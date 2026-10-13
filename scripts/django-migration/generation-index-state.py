@@ -1,3 +1,4 @@
+from frozen_oracle import run as oracle_run, check_output as oracle_output
 """Declared generation index comparison; does not apply index DDL."""
 import json
 import os
@@ -13,7 +14,7 @@ django.setup()
 from django.apps import apps
 from django.db import connection
 from django.db.migrations.loader import MigrationLoader
-expected=json.loads(subprocess.run(['node','scripts/django-migration/declared-generation-indexes.mjs'],capture_output=True,text=True,check=True).stdout)
+expected=json.loads(oracle_run(['node','scripts/django-migration/declared-generation-indexes.mjs'],capture_output=True,text=True,check=True).stdout)
 pending=set()
 expected={index['name']:index for index in expected if index['name'] not in pending}
 def normalize(predicate):

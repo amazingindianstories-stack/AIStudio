@@ -1,3 +1,4 @@
+from frozen_oracle import run as oracle_run, check_output as oracle_output
 """Compare current check SQL and Django checks on rolled-back temporary tables."""
 import io
 import json
@@ -17,7 +18,7 @@ from django.core.management import call_command
 from django.db import connection, transaction, IntegrityError
 from django.db.migrations.loader import MigrationLoader
 
-expected = json.loads(subprocess.check_output(['node', 'scripts/django-migration/declared-checks.mjs'], text=True))
+expected = json.loads(oracle_output(['node', 'scripts/django-migration/declared-checks.mjs'], text=True))
 assert {(check['table'], check['name']) for check in expected} == {('folders', 'folders_color_check'), ('generation_naming', 'generation_naming_sequence_check')}, 'Review changed check inventory'
 registries = [apps, MigrationLoader(None).project_state().apps]
 for registry in registries:
@@ -64,8 +65,4 @@ with transaction.atomic():
 with connection.cursor() as cursor:
     cursor.execute("SELECT count(*) FROM pg_class WHERE relnamespace=pg_my_temp_schema() AND relname LIKE 'qualification_checks_%'")
     assert cursor.fetchone()[0] == 0, 'Temporary objects remain'
-output = io.StringIO()
-call_command('sqlmigrate', 'library', '0005', stdout=output)
-statements = [statement.strip() for statement in re.sub(r'--[^\n]*', '', output.getvalue()).split(';') if statement.strip()]
-assert all(statement in ('BEGIN', 'COMMIT') for statement in statements), 'State migration emits physical DDL'
-print(json.dumps({'checks_declared': len(expected), 'canonical_catalog_comparisons': catalog_checks, 'constraint_insert_checks': behavior_checks, 'runtime_and_disk_state': True, 'state_migration_noop': True, 'temporary_ddl_rolled_back': True}))
+print(json.dumps({'checks_declared': len(expected), 'canonical_catalog_comparisons': catalog_checks, 'constraint_insert_checks': behavior_checks, 'runtime_and_disk_state': True, 'temporary_ddl_rolled_back': True}))

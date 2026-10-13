@@ -54,6 +54,7 @@ def generation_updates(request):
         # bigint operand fails. Do not expose database or framework details.
         logging.getLogger(__name__).warning('update_operand_rejected sqlstate=%s', code)
         response = HttpResponse(b'', status=500)
+        response.skip_session_renewal = True
         del response['Content-Type']
         return response
     response = Response({'items': items, 'now': int(time.time() * 1000)})

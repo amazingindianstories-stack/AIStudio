@@ -1,3 +1,4 @@
+from frozen_oracle import run as oracle_run, check_output as oracle_output, schema_sql
 """Build/inspect the API image only from the isolation runner's clean copy."""
 import json
 import os
@@ -15,6 +16,10 @@ if '--orm-generations' in sys.argv and not {'--runtime', '--declared-schema'}.is
 
 if '--baseline' in sys.argv and not {'--runtime', '--declared-schema', '--invariants'}.issubset(sys.argv):
     raise SystemExit('Baseline qualification requires runtime, declared schema and invariants')
+if '--tests' in sys.argv and '--runtime' not in sys.argv:
+    raise SystemExit('Full test qualification requires the disposable runtime network')
+if '--roles' in sys.argv and '--baseline' not in sys.argv:
+    raise SystemExit('Role qualification requires the verified PG16 baseline runtime')
 
 root = Path.cwd()
 home = Path(os.environ['HOME'])
@@ -32,7 +37,7 @@ digest = hashlib.sha256()
 for source in sorted(Path('backend').rglob('*')):
     if not source.is_file() or source.is_symlink() or any(part in {'__pycache__','.venv','venv'} for part in source.parts):
         continue
-    if source.suffix != '.py' and source.name not in {'requirements.txt','Dockerfile','Dockerfile.dockerignore'}:
+    if source.suffix != '.py' and not (source.suffix == '.json' and 'testsupport/goldens' in source.as_posix()) and source.name not in {'requirements.txt','constraints-qualified.txt','Dockerfile','Dockerfile.dockerignore'}:
         continue
     digest.update(source.as_posix().encode() + b'\0' + hashlib.sha256(source.read_bytes()).digest())
 fingerprint = digest.hexdigest()
@@ -50,8 +55,8 @@ with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'], prefix='docker-config
     print(json.dumps({'source_revision':revision,'api_source_sha256':fingerprint,'image_id':metadata['Id']}))
     inspection = '''import json, pathlib, django, rest_framework, gunicorn
 files=[p.relative_to('/app').as_posix() for p in pathlib.Path('/app').rglob('*') if p.is_file()]
-allowed={'requirements.txt','Dockerfile','Dockerfile.dockerignore'}
-unexpected=[p for p in files if not p.endswith('.py') and p not in allowed]
+allowed={'requirements.txt','constraints-qualified.txt','Dockerfile','Dockerfile.dockerignore'}
+unexpected=[p for p in files if not p.endswith('.py') and not (p.startswith('testsupport/goldens/') and p.endswith('.json')) and p not in allowed]
 assert not unexpected, unexpected
 assert 'manage.py' in files and 'config/wsgi.py' in files
 print(json.dumps({'application_file_count':len(files),'unexpected_files':unexpected,'django':django.get_version(),'drf':rest_framework.VERSION,'gunicorn':gunicorn.__version__}))'''
@@ -73,14 +78,14 @@ print(json.dumps({'application_file_count':len(files),'unexpected_files':unexpec
                 except (RuntimeError, AssertionError):
                     time.sleep(.5)
             raise RuntimeError('Disposable container readiness deadline exceeded')
-        probe = '''import json, urllib.request, urllib.error
+        health_probe = '''import json, urllib.request, urllib.error
 try:
  r=urllib.request.urlopen('http://127.0.0.1:8000/api/health?private=DO_NOT_LOG',timeout=10)
 except urllib.error.HTTPError as e:
  r=e
 print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.headers.get('Cache-Control'),'request_id':r.headers.get('X-Request-ID')}))'''
         def health(expected):
-            result = json.loads(run(['exec', api, 'python', '-c', probe]))
+            result = json.loads(run(['exec', api, 'python', '-c', health_probe]))
             assert result['status'] == expected, result
             assert result['cache'] == 'no-store' and result['request_id'], result
             assert result['body'] == {'ok':expected == 200,'django':'ready','database':'ready' if expected == 200 else 'unavailable'}, result
@@ -118,17 +123,11 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
             def sql(statement):
                 return run(['exec','--interactive',database,'psql','-U','migration','-d','veevee_django_migration','-v','ON_ERROR_STOP=1','-At'], input=statement)
             if '--declared-schema' in sys.argv:
-                with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'], prefix='drizzle-schema-') as output:
-                    subprocess.run(['node','node_modules/drizzle-kit/bin.cjs','generate',
-                                    '--dialect=postgresql','--schema=./src/lib/schema.js',f'--out={output}'],
-                                   env=env, check=True)
-                    migrations = sorted(Path(output).glob('*.sql'))
-                    assert len(migrations) == 1, 'Expected a fresh declared-schema migration'
-                    sql(migrations[0].read_text())
+                sql(schema_sql())
                 table_count = int(sql("SELECT count(*) FROM information_schema.tables WHERE table_schema='public' AND table_type='BASE TABLE';"))
                 assert table_count == 21, table_count
                 if '--invariants' in sys.argv:
-                    exported = subprocess.run(['node','--import','tsx','scripts/django-migration/invariant-statements.mjs'],
+                    exported = oracle_run(['node','--import','tsx','scripts/django-migration/invariant-statements.mjs'],
                                               env=env,check=True,capture_output=True,text=True)
                     statements = json.loads(exported.stdout)
                     for _ in range(2):
@@ -139,7 +138,7 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
                     sql(Path('scripts/django-migration/invariant-behavior.sql').read_text())
                 if '--baseline' in sys.argv:
                     # Source check is read from the current additive migration.
-                    checks = json.loads(subprocess.check_output(['node','scripts/django-migration/declared-checks.mjs'], env=env, text=True))
+                    checks = json.loads(oracle_output(['node','scripts/django-migration/declared-checks.mjs'], env=env, text=True))
                     color = next(check for check in checks if check['name'] == 'folders_color_check')
                     sql(f"ALTER TABLE folders ADD CONSTRAINT folders_color_check CHECK ({color['sql']});")
                     import importlib.util
@@ -162,13 +161,21 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'cache':r.header
                     behavior = Path('scripts/django-migration/invariant-behavior.sql').read_text()
                     run(['exec','--interactive',database,'psql','-U','migration','-d','veevee_django_baseline','-v','ON_ERROR_STOP=1','-At'], input=behavior)
                     evidence['invariant_behavior_both_databases'] = True
+                    adoption_probe = Path('scripts/django-migration/baseline-adoption-probe.py').read_text()
+                    adoption_payload = json.dumps({'queries': catalog.QUERIES, 'expected_catalog': candidate['catalog'], 'legacy_history': json.loads(Path('docs/django-migration/transitional-migration-history.json').read_text())['migrations'], 'populated_fixture_source': Path('scripts/django-migration/populated-adoption-fixture.py').read_text()})
+                    adoption = json.loads(run(['exec','--interactive','-e','VEEVEE_BASELINE_TEST=1',api,'python','-c',adoption_probe], input=adoption_payload))
+                    evidence['populated_database_adoption'] = adoption
+                    upgrade_probe = Path('scripts/django-migration/additive-upgrade-probe.py').read_text()
+                    for target_env in (None, baseline_url):
+                        arguments = ['exec','--interactive','-e','VEEVEE_BASELINE_TEST=1']
+                        if target_env: arguments += ['-e',target_env]
+                        arguments += [api,'python','-c',upgrade_probe]
+                        upgraded = json.loads(run(arguments,input=payload))
+                        assert upgraded['application_rows_preserved'] and upgraded['exact_additive_catalog_verified']
+                    evidence['additive_upgrade'] = upgraded
                     orm_probe = Path('scripts/django-migration/generation-persistence-probe.py').read_text()
                     print(run(['exec','-e','VEEVEE_GENERATION_PERSISTENCE_TEST=1','-e','VEEVEE_BASELINE_TEST=1','-e',baseline_url,api,'python','-c',orm_probe]))
                     evidence['generation_orm_qualified_on_django_baseline'] = True
-                    adoption_probe = Path('scripts/django-migration/baseline-adoption-probe.py').read_text()
-                    adoption_payload = json.dumps({'queries': catalog.QUERIES, 'expected_catalog': candidate['catalog']})
-                    adoption = json.loads(run(['exec','--interactive','-e','VEEVEE_BASELINE_TEST=1',api,'python','-c',adoption_probe], input=adoption_payload))
-                    evidence['populated_database_adoption'] = adoption
 
                     Path('/private/tmp/veevee-pg16-baseline-evidence.json').write_text(json.dumps(evidence, indent=2) + '\n')
                     print(json.dumps(evidence))
@@ -226,6 +233,81 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'secure_renewal'
             if '--orm-generations' in sys.argv:
                 probe = Path('scripts/django-migration/generation-persistence-probe.py').read_text()
                 print(run(['exec','-e','VEEVEE_GENERATION_PERSISTENCE_TEST=1',api,'python','-c',probe]))
+            if '--roles' in sys.argv:
+                worker_image = 'veevee-django-worker-qualification:local'
+                worker_digest = hashlib.sha256(fingerprint.encode())
+                for filename in ('Dockerfile.worker', 'Dockerfile.worker.dockerignore'):
+                    worker_digest.update(filename.encode() + b'\0' + hashlib.sha256(Path(filename).read_bytes()).digest())
+                worker_fingerprint = worker_digest.hexdigest()
+                subprocess.run(docker + ['buildx', 'build', '--load', '--file', 'Dockerfile.worker', '--tag', worker_image,
+                    '--label', f'org.opencontainers.image.revision={revision}',
+                    '--label', f'io.veevee.worker-source-sha256={worker_fingerprint}', '.'], env=env, check=True)
+                worker_metadata = json.loads(run(['image', 'inspect', worker_image]))[0]
+                assert worker_metadata['Config']['Labels']['io.veevee.worker-source-sha256'] == worker_fingerprint
+                assert worker_metadata['Config']['Labels']['org.opencontainers.image.revision'] == revision
+                assert worker_metadata['Config']['Cmd'] == ['python', 'manage.py', 'generation_worker']
+                subprocess.run(docker + ['run', '--rm', '--network', 'none', '--entrypoint', 'python', worker_image, '-c', inspection], env=env, check=True)
+                # Schema/history snapshots prove role startup does not migrate.
+                # Maintenance may legitimately modify disposable application rows.
+                def schema_snapshot():
+                    def baseline_sql(query):
+                        return run(['exec', '--interactive', database, 'psql', '-U', 'migration',
+                                    '-d', 'veevee_django_baseline', '-v', 'ON_ERROR_STOP=1', '-At'], input=query)
+                    return {category: baseline_sql(query) for category, query in catalog.QUERIES.items()} | {
+                        'migration_history': baseline_sql('SELECT app,name FROM django_migrations ORDER BY app,name')}
+                before_roles = schema_snapshot()
+                role_results = []
+                for role, command, role_image in (
+                    ('generation', 'generation_worker', worker_image),
+                    ('export', 'media_export_worker', image),
+                    ('scheduler', 'run_scheduler', image),
+                ):
+                    name = f'veevee-qualification-{role}-{suffix}'
+                    values = {
+                        'DATABASE_URL': f'postgresql://migration:disposable-only@{database}:5432/veevee_django_baseline',
+                        'DJANGO_SECRET_KEY': 'disposable-framework-secret', 'AUTH_SECRET': 'disposable-session-secret',
+                        'DJANGO_ALLOWED_HOSTS': '127.0.0.1', 'DJANGO_BROWSER_ORIGINS': 'https://frontend.example',
+                        'MOCK_GENERATION': '1', 'MOCK_ASSET_PROVIDER': '1', 'AWS_EC2_METADATA_DISABLED': 'true',
+                        'VEEVEE_MEDIA_BACKEND': 'filesystem', 'VEEVEE_MEDIA_ROOT': '/tmp/disposable-media',
+                    }
+                    arguments = ['--network', network]
+                    for key, value in values.items():
+                        arguments += ['--env', key + '=' + value]
+                    # A successful tick proves database/schema/config readiness;
+                    # a running PID alone would allow an endless exception loop.
+                    tick_output = run(['run', '--rm', *arguments, '--entrypoint', 'python', role_image,
+                                       'manage.py', command, '--once'])
+                    tick_result = json.loads(tick_output.splitlines()[-1])
+                    def failed_tick(value):
+                        if isinstance(value, dict):
+                            return value.get('ok') is False or bool(value.get('errors')) or bool(value.get('worker_error')) or any(failed_tick(item) for item in value.values())
+                        return isinstance(value, list) and any(failed_tick(item) for item in value)
+                    assert not failed_tick(tick_result), f'{role} tick reported failure'
+                    run(['run', '--detach', '--name', name, *arguments, role_image, 'python', 'manage.py', command])
+                    created.append(name)
+                    time.sleep(1)
+                    state = json.loads(run(['inspect', name]))[0]
+                    assert state['State']['Running'] and state['Config']['Cmd'] == ['python', 'manage.py', command]
+                    assert set(state['NetworkSettings']['Networks']) == {network} and not state['Mounts']
+                    run(['restart', '--time', '10', name])
+                    time.sleep(1)
+                    restarted = json.loads(run(['inspect', name]))[0]
+                    assert restarted['State']['Running']
+                    assert restarted['State']['StartedAt'] != state['State']['StartedAt']
+                    run(['stop', '--time', '10', name])
+                    assert json.loads(run(['inspect', name]))[0]['State']['ExitCode'] == 0
+                    role_log_result = subprocess.run(docker + ['logs', name], env=env, check=True,
+                                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                    role_logs = role_log_result.stdout
+                    assert not any(marker in role_logs for marker in ('Traceback', 'worker_error', 'worker operation failed', 'Maintenance task failed')), f'{role} runtime logged failure'
+                    role_results.append({'role': role, 'command': ['python', 'manage.py', command],
+                                         'successful_tick': tick_result, 'started': True, 'restarted': True, 'graceful_stop': True})
+                # Role clients use the baseline database, so compare that target.
+                assert schema_snapshot() == before_roles, 'Role startup changed database schema/history'
+                print(json.dumps({'distinct_worker_roles': role_results, 'worker_image_id': worker_metadata['Id'],
+                                  'worker_source_sha256': worker_fingerprint, 'source_revision': revision,
+                                  'mock_providers': True, 'storage': 'container-local filesystem',
+                                  'startup_schema_history_unchanged': True}))
             logs = run(['logs',api])
             events = [json.loads(line) for line in logs.splitlines() if line.startswith('{')]
             assert any(e.get('status') == 200 for e in events)
@@ -237,7 +319,7 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'secure_renewal'
                               'settings_contract_cases':[case[0] for case in cases],
                               'settings_database_unchanged':True,'secure_renewal_followup':True}))
             if '--declared-schema' in sys.argv:
-                print(json.dumps({'declared_schema_tables':table_count,'schema_source':'current src/lib/schema.js',
+                print(json.dumps({'declared_schema_tables':table_count,'schema_source':'frozen historical source-schema.json',
                                   'advanced_migration_invariants_qualified':False,'upgrade_coverage':False}))
                 if '--invariants' in sys.argv:
                     print(json.dumps({'hierarchy_statements':len(statements['hierarchy']),
@@ -245,6 +327,45 @@ print(json.dumps({'status':r.status,'body':json.loads(r.read()),'secure_renewal'
                                       'repeated_apply_passed':True,'catalog_counts':invariant_counts,
                                       'hierarchy_naming_behavior_cases':11,
                                       'complete_behavioral_invariants_qualified':False}))
+            if '--tests' in sys.argv:
+                # Exercise production Python/libvips/FFmpeg against PG16. Only the
+                # password interoperability test needs Node's standard crypto;
+                # copy its binary into an ephemeral test container, not the API
+                # image. No Node application implementation or dependencies exist.
+                crypto = f'veevee-qualification-crypto-{suffix}'
+                runner = f'veevee-qualification-tests-{suffix}'
+                run(['create','--name',crypto,'node:22-bookworm-slim','node','--version'])
+                created.append(crypto)
+                binary = Path(config) / 'node'
+                run(['cp',f'{crypto}:/usr/local/bin/node',str(binary)])
+                run(['run','--detach','--name',runner,'--network',f'container:{database}',
+                     '--env','DATABASE_URL=postgresql://migration:disposable-only@127.0.0.1:5432/veevee_django_migration',
+                     '--env','DJANGO_SECRET_KEY=disposable-framework-secret',
+                     '--env','AUTH_SECRET=disposable-session-secret',
+                     '--env','DJANGO_SETTINGS_MODULE=config.settings.test',
+                     '--env','MIGRATION_TEST_ISOLATED=1',
+                     '--env','MOCK_GENERATION=1','--env','MOCK_ASSET_PROVIDER=1',
+                     '--env','AWS_EC2_METADATA_DISABLED=true',
+                     '--entrypoint','sleep',image,'infinity'])
+                created.append(runner)
+                actual = json.loads(run(['inspect',runner]))[0]
+                assert actual['HostConfig']['NetworkMode'] == f'container:{database}' or actual['HostConfig']['NetworkMode'] == 'container:'+target['Id']
+                assert not actual['Mounts'] and not actual['HostConfig']['Privileged']
+                assert run(['exec',database,'psql','-U','migration','-d','veevee_django_migration','-Atc','SHOW server_version']).startswith('16.')
+                run(['cp',str(binary),f'{runner}:/usr/local/bin/node'])
+                run(['exec',runner,'mkdir','-p','/scripts/django-migration'])
+                for filename in ('password-oracle.mjs','schema-catalog.py'):
+                    run(['cp',f'scripts/django-migration/{filename}',f'{runner}:/scripts/django-migration/{filename}'])
+                labels = ['apps.common','apps.admin_dashboard','apps.library','apps.assets',
+                          'apps.authentication','apps.projects','apps.canvas','apps.agents',
+                          'apps.generation','apps.exports','apps.workers','apps.media','testsupport']
+                result = subprocess.run(docker + ['exec',runner,'python','manage.py','test',*labels,'--noinput'],
+                                        env=env,capture_output=True,text=True)
+                print(result.stdout)
+                print(result.stderr, file=sys.stderr)
+                result.check_returncode()
+                print(json.dumps({'full_django_suite_pg16':True,'network':'internal database namespace; no ports',
+                                  'node_usage':'standard crypto interoperability only','native_libvips_ffmpeg':True}))
         finally:
             for name in reversed(created):
                 subprocess.run(docker + ['rm','--force',name], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

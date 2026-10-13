@@ -1,231 +1,99 @@
-# Free-Form Hierarchical Library & Internal Naming: Deployment & Rollback Runbook
+# Django backend release runbook
 
-> **Strict Operational Notice (`AGENTS.md` Rule Adherence)**:  
-> Production deploys do **not** apply Drizzle schema changes automatically. Vercel builds and deploys application code only. Schema migrations must be applied and verified against the target database **before** releasing application code.
->
-> **Compatibility statement**: The migration is additive and read-compatible with the previous release. Some legacy organizational mutation paths, particularly destructive folder/project operations, are not guaranteed to remain compatible after the new constraints are installed. Therefore the controlled organizational-write freeze (Section 2) is mandatory until the new application release is confirmed serving.
+Status: **UNEXECUTED — implementation and disposable qualification only.**
+This document is a prepared release procedure, not permission to access shared
+systems or deploy. The detailed gates and evidence ledger are in
+[the cutover runbook](docs/django-migration/cutover-runbook.md).
 
----
+## Release topology
 
-## 1. Release Inventory
+| Service | Build/config | Start command | Responsibilities |
+|---|---|---|---|
+| Railway API | `backend/Dockerfile`, `backend/railway.toml` | Image Gunicorn command | Django/DRF HTTP API and health |
+| Railway generation worker | `Dockerfile.worker`, root `railway.toml` | `python manage.py generation_worker` | Admission, durable receipts, providers and polling |
+| Railway export worker | `backend/Dockerfile`, `backend/railway-export.toml` | `python manage.py media_export_worker` | Frozen manifests and private archive production |
+| Railway scheduler | `backend/Dockerfile`, `backend/railway-scheduler.toml` | `python manage.py run_scheduler` | Reconciliation and maintenance |
+| Vercel frontend | `package.json`, `next.config.js` | Next.js frontend | UI and same-origin API transport |
 
-- **Repair Branch**: `fix/preview-regressions-codex`; deploy the exact commit qualified on the isolated preview, never a moving branch head.
-- **Pre-Migration Backup**: Cloud SQL / Managed PostgreSQL Point-In-Time Recovery (PITR) checkpoint
-- **Organization Snapshot Utility**: `scripts/snapshot-organization.js` (`npm run db:snapshot:organization`)
-- **Pre-Migration Audit Scripts**:
-  - `scripts/audit-folder-migration.js` (`npm run db:audit:hierarchical-folders`)
-  - `scripts/audit-generation-naming.js` (`npm run db:audit:generation-naming`)
-- **Additive Migration Scripts**:
-  - `scripts/migrate-hierarchical-folders.js` (`npm run db:migrate:hierarchical-folders`)
-  - `scripts/migrate-generation-naming.js` (`npm run db:migrate:generation-naming`)
-- **Schema Verifier**: `scripts/verify-production-schema.js` (`npm run db:verify:production-schema`)
-- **Online Migration Coordinator**: `src/app/api/admin/migrate-schema/route.js`
+All Railway roles use the same reviewed Python source revision. The external
+GPU depth process remains a separate authenticated client. Database migrations
+run as a controlled release action, never from these start commands or a Vercel
+build. No Node generation/export worker remains in the proposed deployment.
 
----
+## Before a separately authorized cutover
 
-## 2. Controlled Write-Freeze Protocol
+1. Record exact source revision, image digest, local qualification results and
+   remaining live-provider evidence. Require PostgreSQL 16 fresh-schema,
+   populated-adoption, full Django (including media), frontend lint/unit/build,
+   and browser-through-Django results. Do not substitute a final-schema setup for
+   an upgrade/adoption rehearsal.
+2. Verify actual target database, storage primary/fallback, Railway service roles,
+   Vercel environment and callback/public origins without printing secrets.
+   Historical production ownership remains unchanged until transfer is executed.
+3. Create and verify backup/PITR and rehearse recovery to a separate database.
+   Capture protected catalog/history and full organization/media/name snapshots.
+4. Drain generation/export work and freeze mutations across *all* old writers,
+   including Node routes, old workers, scheduler, callbacks, admin tools and depth
+   claims. Keep provider receipts for in-flight remote tasks; do not resubmit them.
+5. Reconcile actual production catalog and migration history with the reviewed
+   baseline. Block on unknown history, missing/default-altered columns, invalid
+   indexes, changed triggers/functions or differing constraints. Never run fresh
+   CreateModel migrations on populated tables or blind `--fake-initial`.
+6. Perform the separately reviewed history-only baseline adoption, then any
+   additive Django migrations. Reopen connections and verify the committed graph,
+   exact schema and unchanged existing rows before application promotion.
+7. Deploy the Python API and workers with one authoritative writer set. Switch the
+   frontend transport only after readiness and contract smoke checks pass. Stop
+   old execution paths before enabling new worker ownership.
+8. Verify hosted cookies/origin forwarding, signed media and uploads, organization
+   writes, every generation kind, callbacks, depth claim fencing, archive v1/v2
+   handling and frozen names. Confirm real Seedance MOV container/colour/bytes on
+   an explicitly authorized provider acceptance run; mocks cannot prove it.
+9. Verify release identity/logs and remove backend secrets from Vercel. Record
+   evidence for traffic/schema ownership transfer, then lift the write freeze.
 
-The expanded hierarchy schema enforces bidirectional foreign key, sibling uniqueness, and trigger constraints. To prevent write skew or partial state while old and new components transition, the migration window requires a short **controlled organizational-write freeze**:
+Organization preservation requires zero unapproved additions/losses or changes
+to existing project/folder/generation IDs, parent/project/folder assignments,
+global/project unsorted membership, durable media references, naming namespaces,
+serials/counters and frozen export items. Counts alone are insufficient.
 
-### Prohibited Operations During Freeze Window:
-During the maintenance window (between Step 2 and Step 18 below), the following mutations are prohibited:
-1. **Project Deletion**: Do not delete any existing projects.
-2. **Folder Deletion**: Do not delete any existing folders.
-3. **Folder Creation**: Do not create new folders.
-4. **Folder Movement**: Do not move, reparent, or rename folders.
-5. **Generation Movement**: Do not move generations between folders, projects, or Unsorted.
+## Rollback and failure handling
 
-### Snapshot-window Generation Pause:
-- Before the BEFORE snapshot, block new enqueueing and drain generation/provider/polling/export/portrait-sync writes; then suspend worker and cron writers.
-- Verify enforcement covers old application instances and all write paths. A UI banner alone does not enforce the freeze. If an effective infrastructure maintenance restriction is unavailable, STOP before migration.
-- Gallery GET currently reconciles data; do not call it during the strict snapshot window. Admin `GET /api/assets/portraits?inventory=1` is read-only and excludes signed URLs.
-- Resume generation processing only after the strict snapshot comparison passes. Keep general-user organizational mutations restricted until production smoke checks pass; operator-only disposable smoke content is the documented exception.
-- No project, folder, or generation additions are allowed between the organization snapshots. There is no additions allowlist.
+A migration or preservation failure blocks promotion; keep writers frozen.
+Roll back application images/transport only to a previously qualified compatible
+release. Preserve additive schema and accepted provider task receipts. Do not
+run destructive down-migrations, delete production records or roll an export
+worker back to a version that cannot read queued/finalized manifests.
 
-### Operational Procedure:
-Operators schedule a brief maintenance window (estimated < 5 minutes) during low-traffic periods. If an application maintenance banner or gateway write-lock is configured, activate it before Step 2 and deactivate it after Step 18.
+Reactivating historical Node writers after Django adoption is not a default
+rollback. It requires an explicitly reviewed compatibility plan and write freeze;
+otherwise restore a prior compatible Django release. For corruption, restore
+PITR into an isolated recovery database, verify full invariants, then perform an
+authorized target switch. Never overwrite the original database as a diagnostic.
 
----
+## Environment separation
 
-## 3. Step-by-Step Deployment Procedure (Strict Sequence)
+`.env.local.example` contains only frontend transport/public UI settings.
+`backend/.env.example` lists backend configuration names without credentials.
+Neither file is automatically loaded by Django. Inject reviewed runtime values
+through the platform secret store. Keep provider/storage/session/database keys
+off Vercel and out of logs, source archives and image build contexts.
 
-Execute the rollout following this exact 18-step checklist:
+Railway-to-PostgreSQL TLS/IAM connectivity must be independently verified. A
+historical Node Cloud SQL connector configuration does not establish a working
+Python connection. Configure explicit HTTPS browser origins and allowed hosts;
+never replace them with wildcards to bypass proxy/cookie problems.
 
-### Step 1: Verify Production Backup / PITR Restore Point
-Confirm an immediate, valid restore point exists before touching the database:
-- Create an on-demand snapshot in the Cloud SQL / managed database console.
-- Confirm continuous transaction archiving / Point-In-Time Recovery (PITR) is active and note the exact timestamp.
+## Goal 2 prepared local changes — external steps UNEXECUTED
 
-### Step 2: Enter Controlled Organizational-Write Freeze
-- Announce or activate the scheduled write freeze window.
-- Prohibit project/folder creation, deletion, and relocation.
-
-### Step 3: Run Organization BEFORE Snapshot
-Capture a deterministic pre-migration snapshot of all existing projects, folders, and generation assignments:
-```bash
-npm run db:snapshot:organization
-```
-Record the counts (total projects, total folders, total generations, project unsorted, global unsorted).
-Use `npm run db:snapshot:organization -- --output /secure/path/before.json` to retain machine-readable evidence. Output files are created exclusively with mode 0600. Capture a separate portrait group/asset ID and scope inventory; omit media URLs and credentials.
-
-### Step 4: Run Hierarchical-Folder Audit
-Execute the read-only preflight audit for folders:
-```bash
-npm run db:audit:hierarchical-folders
-```
-
-### Step 5: Require Zero Blockers on Folder Audit
-- The command must exit with code 0 and output: `[SUCCESS] Preflight audit passed: Database is clean and ready for additive migration.`
-- If exit code is non-zero or anomalies exist, **STOP** rollout immediately and resolve anomalies before proceeding.
-
-### Step 6: Run Generation-Naming Audit
-Execute the read-only preflight audit for generation naming:
-```bash
-npm run db:audit:generation-naming
-```
-
-### Step 7: Require Zero Blockers on Naming Audit
-- The command must exit with code 0 and output: `Preflight audit passed with 0 blocking anomalies. Ready for migration.`
-- If exit code is non-zero or anomalies exist, **STOP** rollout immediately and resolve before proceeding.
-
-### Step 8: Run Hierarchy Additive Migration
-Execute the atomic hierarchical folders schema migration:
-```bash
-npm run db:migrate:hierarchical-folders
-```
-*Note: All DDL statements and verification execute atomically in one transaction and roll back on any error.*
-
-### Step 9: Run Naming Additive Migration
-Execute the atomic generation naming schema migration:
-```bash
-npm run db:migrate:generation-naming
-```
-*Note: All tables, counters, triggers, backfills, and verification execute atomically in one transaction.*
-
-### Step 10: Run Production Schema Verifier
-Execute the authoritative production schema verifier (Deployment Blocker):
-```bash
-npm run db:verify:production-schema
-```
-- Must output: `"production schema matches all Drizzle-owned tables and hierarchy invariants"` and exit 0.
-- **If this verifier fails, do NOT proceed to application code deployment.**
-
-### Step 11: Run Organization AFTER Snapshot
-Capture the post-migration organization snapshot:
-```bash
-npm run db:snapshot:organization
-```
-
-### Step 12: Compare Preservation Invariants
-Run `npm run db:compare:organization -- /secure/path/before.json /secure/path/after.json`; require exit 0. The comparator rejects malformed snapshots, duplicate IDs, any added/lost IDs, folder project/parent changes, and the existing generation/name/media invariants. Counts alone are insufficient.
-Compare the before and after snapshots. The following invariants must hold with ZERO unexpected differences:
-- `projects lost = 0`
-- `folders lost = 0`
-- `generations lost = 0`
-- `existing project IDs changed = 0`
-- `existing folder IDs changed = 0`
-- `existing generation IDs changed = 0`
-- `unexpected projects/folders/generations added = 0`
-- `folder project assignments changed = 0`
-- `folder parent assignments changed = 0`
-- `generation project assignments changed = 0`
-- `generation folder assignments changed = 0`
-- `project-Unsorted membership changed = 0`
-- `global-Unsorted membership changed = 0`
-- `media/storage references changed = 0`
-- `legacy folders with non-null parent = 0` (all legacy folders retain `parent_id = NULL`)
-
-### Step 13: Hard Gate — STOP If Any Organizational Assignments Changed
-If any existing project, folder, or generation assignment changed unexpectedly:
-- **STOP immediately.**
-- Do not proceed to application or worker deployment.
-- Investigate diffs against pre-migration snapshot.
-
-### Step 14: Deploy Updated Railway Media Export Worker (FIRST)
-Deploy the media export worker on Railway before updating the web application:
-- Worker natively processes `manifest_version: 2` exports with frozen verbatim filenames.
-- Worker remains strictly backward-compatible with legacy `manifest_version: 1` jobs.
-- Deploying the worker first ensures that when the web application begins issuing version-2 manifests, the live worker will process them seamlessly.
-
-### Step 15: Deploy Vercel Application (SECOND)
-Deploy the web application from the exact qualified repair commit to Vercel:
-- Schema changes are additive and read-compatible with the previous release.
-- Older running instances may continue serving reads during the transition; the organizational-write freeze remains in effect because legacy mutation paths are not guaranteed compatible with the new constraints.
-- Newly deployed instances activate hierarchical navigation, container-scoped serial naming, signed downloads, and frozen ZIP exports.
-
-### Step 16: Verify Expected Vercel Release Is Serving
-- Check Vercel deployment identity and confirm the exact qualified repair commit is serving.
-- Probe `/api/admin/status` or health endpoint to confirm response from the newly deployed commit.
-
-### Step 17: Run Production Smoke Tests
-Perform live browser smoke verification:
-1. **Hierarchical Folders**: Create a test global root folder, create a child subfolder, verify breadcrumb navigation, move a generation into the subfolder, move to Global Unsorted, and clean up test folders.
-2. **Direct Signed Downloads**: Click Download on an image and video card. Verify download URL requests signed mode (`/api/generations/<id>/download?signed=1`), streams directly from cloud storage, and yields a folder-path filename such as `R01_SC001_0001.png`. Project names and internal ID tokens must be absent; serials remain stable and padded to four digits.
-3. **ZIP Exports**: Select multiple generations across different folders and export as ZIP. Verify export completes via Railway worker and extracted filenames match canonical assignments without duplicates or double extensions. Identical compact filenames across scopes must be rejected before enqueue; already-finalized manifests retain their original frozen names.
-
-### Step 18: Exit Write Freeze
-Once all smoke tests pass, deactivate the maintenance window / write freeze and return to normal operations.
-
-## Updated preview qualification (mandatory before production)
-
-Production quality preference: Seedance 2.5 always requests native MOV, including
-draft finalization. Final/High remain normal defaults; explicit artist choices
-for resolution, Draft, bitrate and audio remain respected. Preserve native bytes,
-`.mov` names and `video/quicktime` metadata in individual and ZIP downloads.
-Some browsers cannot decode the provider's MOV codec; show a download fallback
-instead of recompressing the master. For a format-contract change, qualify a real
-provider MOV result before production, inspecting its container and colour format.
-
-The old acceptance checks were insufficient: server-rendered component tests cannot detect browser focus/blur/layout behavior; Seedance mocks accepted missing source videos and asserted the old unverified tag syntax; portrait checks covered CRUD/auth/mock fallback rather than project visibility or remote pagination; export checks replaced the deployed transport with mocks. None of those results establishes browser/provider/worker acceptance.
-
-1. Run `npm test`, `npm run test:db`, lint, and build on Node 22. Database tests require a disposable database and retain the true legacy-upgrade suites; `test:db:setup` is not migration coverage.
-2. Run `npm run test:browser` against a local server with `E2E_DATABASE_URL` pointing at a localhost `veevee_codex_regression` database and matching `AUTH_SECRET`; use mock providers. Set `E2E_START_SERVER=1` to let Playwright start the server. This fixture suite refuses remote databases/deployments and cleans only its disposable records.
-3. Verify the Vercel preview database and Railway worker both target the isolated preview environment before deploying. Never inherit an unverified shared preview database setting. Both must use the same dedicated `GCP_MEDIA_BUCKET`; the worker supports `GCP_SERVICE_ACCOUNT_JSON` while Vercel keeps its existing WIF identity. For a preview database containing historical media keys, set `GCP_MEDIA_READ_FALLBACK_BUCKET` only on the web app to the existing historical bucket. The fallback is read-only, excludes protected namespaces, and is used only after a primary miss. Uploads, thumbnails and deletes remain in the dedicated primary bucket. Give the web identity access to the preview bucket, without granting the worker historical-bucket access. Configure exact preview origins in the preview bucket CORS allowlist and prove a browser upload before running a provider probe.
-4. On the actual deployed preview, exercise tree/card/breadcrumb root and subfolder rename, every creation entry point, typing/spaces/Enter/Escape/blur, retained errors, genuine conflict recovery, and 15-level scrolling at 1024px and 1440px. Verify keyboard menu focus and focus restoration.
-5. Capture read-only local/remote portrait inventories before Sync. Open restored global portraits in multiple projects, switch with a selected group, reopen, Sync, and verify gallery/lightbox image loading. Compare local IDs, remote IDs, membership, ownership, and durable references afterward. No historical records may be deleted; ambiguous remote identities require reviewed reconciliation.
-6. Run the exact Seedance 2.5 Generate + motion video + character image flow once, at 4 seconds and the lowest supported resolution/draft setting. Require explicit `reference` classification and a terminal successful result. Do not repeat billable probes automatically. First-frame tasks omit the omni hint; 2.0 never receives it.
-7. Download real image/video/depth samples with canonical names. Create, download, open and integrity-check a real ZIP through the deployed preview worker; verify manifest-v2 frozen names.
-8. Review browser, Vercel, Railway and DB logs. Missing live evidence or unexplained errors means `PREVIEW_FAIL`; production remains untouched. Record exact commit, URLs, worker revision, provider task/result, counts/ID preservation and all test outcomes.
-
----
-
-## 4. Data-Preserving Rollback Runbook
-
-If application code issues arise post-deployment, execute the following data-preserving rollback:
-
-### 4.1 Application Code Rollback (Zero Data Loss)
-1. **Revert Vercel Web Application**:
-   - Roll back deployment in Vercel to the previous stable production release as a temporary emergency measure.
-   - The migration is additive and read-compatible, so read traffic is safe under the rolled-back application.
-   - However, legacy organizational mutation operations (moving folders, deleting projects, reordering/migrating folders) are NOT guaranteed compatible with the new schema triggers, foreign keys, or naming invariants.
-   - Organizational mutation operations must remain frozen/restricted while running the rolled-back application until compatibility is explicitly evaluated or fixed.
-   - While the trigger `trg_check_generation_location_naming` automatically maintains `generation_naming` for single-generation inserts/moves, broader legacy batch mutations must not be executed without verification.
-
-2. **Railway Export Worker Consideration**:
-   - **Do NOT roll back the Railway export worker to a pre-v2 image while `manifest_version >= 2` jobs exist or are draining.**
-   - Pre-v2 worker code cannot handle version-2 manifests and will fail jobs.
-   - The new worker code is strictly backward-compatible with version-1 manifests, so it is safe and recommended to keep the updated worker running even if web application code is rolled back.
-   - Only roll back the worker if there is an explicit worker-internal bug, and only after confirming no version-2 export jobs are queued or running in `media_exports`.
-
-### 4.2 Non-Destructive Schema State
-- **NEVER execute destructive drop-column or drop-table SQL (`DROP COLUMN`, `DROP TABLE`, `DELETE`) on production.**
-- The columns `parent_id`, `name_normalized`, `version`, `updated_at`, `location_version`, `manifest_version`, and tables `generation_naming`, `naming_counters`, and `media_exports` are additive and read-compatible with the legacy schema.
-- Because database constraints and triggers now enforce container-scoped integrity, do not attempt to revert database tables or drop migration artifacts. Keep the schema intact to preserve data and avoid corrupting container-scoped naming state.
-
-### 4.3 Catastrophic Disaster Recovery (Emergency Fallback Only)
-In the event of an unrecoverable database corruption event (unrelated to standard rollback):
-1. Do not attempt ad-hoc manual SQL deletion.
-2. Restore an isolated recovery database from the pre-migration PITR snapshot taken in Step 1.
-3. Verify data integrity and checksums on the restored instance.
-4. Point application database connection strings to the restored instance during an authorized maintenance window.
-
-## Django migration overlay — 2026-10-07
-
-The committed destination is Django/DRF API and Python workers on Railway,
-Next.js frontend on Vercel, existing PostgreSQL/GCS persistence. The hierarchy
-release procedure above still governs current Node authority. Ownership has not
-transferred yet. Follow docs/django-migration/cutover-runbook.md for staged gates;
-backend/railway.toml prepares a separate API service and must not replace the
-existing root worker service configuration. Service creation and production
-traffic require review at the documented authorization boundary. No production
-migration is part of a Vercel build or Django container startup.
+Review assets.0004_uploader_provenance and media.0001_uploadsession with the existing
+generation additive migration before a controlled release. Local PG16 fresh and
+upgrade probes preserve historic rows and independently compare full catalogs.
+Never migrate at API, worker or Vercel startup. Native resumable GCS still needs
+separate authorized CORS/session/finalize/ingress acceptance. Schedule bounded
+`cleanup_uploads` only after operator review: it collects expired incomplete
+private uploads, excludes READY references and shared catalog originals. READY
+references remain durable for restored drafts/history; no age-only deletion of
+READY files is permitted. AUTH_SECRET rotation invalidates unfinished encrypted
+resume sessions. Read-only viewer requires target and database-role verification
+in addition to the application guard. No deployment/cutover was executed here.

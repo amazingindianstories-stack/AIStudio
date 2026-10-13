@@ -1,7 +1,7 @@
 /** Shared @imgN reference-tag logic (used by client UI and server routes). */
 
 /** Match @img1, @IMG2, etc. (ad-hoc one-off uploads). */
-export const MENTION_REGEX = /@img(\d+)/gi;
+export const MENTION_REGEX = /@img([1-9]\d*)(?![a-z0-9_-])/gi;
 
 /** Match @vid1, @VID2 … — attached reference CLIPS (video-to-video).
  *  A separate namespace from @imgN because the two travel to the provider by
@@ -353,7 +353,7 @@ export function renumberImgMentions(prompt, mapping) {
   return prompt.replace(re, (match, digits) => {
     const oldIndex = parseInt(digits, 10) - 1;
     const newIndex = mapping[oldIndex];
-    return newIndex === undefined ? match : `@img${newIndex + 1}`;
+    return newIndex === undefined || newIndex < 0 ? match : `${match.slice(0, 4)}${newIndex + 1}`;
   });
 }
 

@@ -1,4 +1,5 @@
-"""Pure filename comparison with the current Node production resolver."""
+from frozen_oracle import run as oracle_run, check_output as oracle_output
+"""Pure filename comparison with the frozen historical Node resolver."""
 import json
 import os
 from pathlib import Path
@@ -26,7 +27,7 @@ if(process.env.MIGRATION_TEST_ISOLATED!=='1')throw new Error('Isolated runner re
 const {resolveGenerationFilename}=await import('./src/lib/filename-resolver.js');
 console.log(JSON.stringify(JSON.parse(readFileSync(0,'utf8')).map(x=>resolveGenerationFilename(x))));
 """
-expected=json.loads(subprocess.run(['node','--import','tsx','--input-type=module','-e',source],input=json.dumps(cases),capture_output=True,text=True,check=True).stdout)
+expected=json.loads(oracle_run(['node','--import','tsx','--input-type=module','-e',source],input=json.dumps(cases),capture_output=True,text=True,check=True).stdout)
 actual=[resolve_generation_filename(**{ {'mediaKey':'media_key','contentType':'content_type'}.get(k,k):v for k,v in case.items()}) for case in cases]
 assert actual==expected,[(case,a,b) for case,a,b in zip(cases,actual,expected) if a!=b]
-print(json.dumps({'filename_cases':len(cases),'node_equal':True,'database_queries':0}))
+print(json.dumps({'filename_cases':len(cases),'frozen_node_equal':True,'database_queries':0}))

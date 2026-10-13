@@ -20,6 +20,7 @@ class Generation(models.Model):
     poster = models.TextField(null=True)
     error = models.TextField(null=True)
     provider_responses = models.JSONField(null=True)
+    submission_input = models.JSONField(null=True)
     moderation_blocked = models.BooleanField(null=True)
     reference_images = models.JSONField(null=True)
     reference_videos = models.JSONField(null=True)
@@ -70,7 +71,7 @@ class Generation(models.Model):
     updated_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'generations'
         indexes = [
             PostgreSQLIndex(name='generations_created_at_idx', fields=['created_at']),

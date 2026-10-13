@@ -3,10 +3,13 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 from .session import lookup
 
-@api_view(['GET'])
+@api_view(['GET', 'PATCH'])
 @authentication_classes([])
 @permission_classes([])
 def current_user(request):
+    if request.method == 'PATCH':
+        from .profile import update_profile
+        return update_profile(request)
     user = lookup(request)
     if user is None:
         response = Response({'user': None})
@@ -20,6 +23,20 @@ def current_user(request):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,
                             httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')
     return response
+
+
+@api_view(['GET'])
+@authentication_classes([])
+@permission_classes([])
+def list_users(request):
+    from .models import User
+    from apps.common.responses import renew_session
+    if lookup(request) is None:
+        return Response({'error': 'UNAUTHENTICATED'}, status=401)
+    rows = User.objects.values('id', 'email', 'name', 'color', 'avatar_url')
+    return renew_session(request, Response({'users': [
+        {'id': str(row['id']), 'email': row['email'], 'name': row['name'],
+         'color': row['color'], 'avatarUrl': row['avatar_url']} for row in rows]}))
 
 @api_view(['POST'])
 @authentication_classes([])
@@ -48,7 +65,12 @@ def login(request):
         return Response({'error':'Too many failed attempts. Try again later.'},status=429,
                         headers={'Retry-After':str(math.ceil(throttle['retryAfterMs']/1000))})
     user=User.objects.filter(email=str(email).lower().strip()).first()
-    if user is None or not user.is_active or not verify_password(str(password),user.password_hash,user.password_salt):
+    # Equalize the expensive password work for nonexistent/disabled accounts;
+    # the throttle still runs first. This hardens timing without changing JSON.
+    active = user is not None and user.is_active
+    verified = verify_password(str(password), user.password_hash if active else '00' * 64,
+                               user.password_salt if active else 'veevee-dummy-scrypt-salt')
+    if not active or not verified:
         record_failure(email)
         return Response({'error':'Invalid email or password.'},status=401)
     getattr(request, '_request', request).validated_actor_id = str(user.id)

@@ -1,16 +1,34 @@
-// Server-only method routing. Browser API URLs remain same-origin /api.
-const IMPLEMENTED_METHODS = new Set(['GET /api/settings', 'GET /api/canvas-boards', 'GET /api/history/counts', 'GET /api/history/updates', 'GET /api/history']);
-
-export function djangoDestination(requestUrl, method, configuration = {}) {
-  const selected = new Set((configuration.methods || '').split(',').map(value => value.trim()).filter(Boolean));
-  const request = new URL(requestUrl);
-  const key = `${method.toUpperCase()} ${request.pathname}`;
-  if (!selected.has(key)) return null;
-  if (!IMPLEMENTED_METHODS.has(key)) throw new Error('Unqualified Django route selection');
+// Transport only. Django owns authentication and every /api method.
+export function djangoOrigin(configuration = {}) {
+  if (!configuration.origin) throw new Error("Django API origin is required");
   const origin = new URL(configuration.origin);
-  if (origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) throw new Error('Django API origin must be a bare origin');
-  const local = ['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname);
-  if (origin.protocol !== 'https:' && !(configuration.allowLocal === '1' && local && origin.protocol === 'http:')) throw new Error('Django API requires HTTPS');
-  if (origin.origin === request.origin) throw new Error('Django routing would loop');
-  return new URL(request.pathname + request.search, origin.origin);
+  if (origin.username || origin.password || origin.pathname !== "/" || origin.search || origin.hash) {
+    throw new Error("Django API origin must be a bare origin");
+  }
+  const local = ["127.0.0.1", "localhost", "[::1]"].includes(origin.hostname);
+  if (origin.protocol !== "https:" && !(configuration.allowLocal === "1" && local && origin.protocol === "http:")) {
+    throw new Error("Django API requires HTTPS");
+  }
+  return origin.origin;
+}
+
+export function djangoDestination(requestUrl, _method, configuration = {}) {
+  const request = new URL(requestUrl);
+  if (request.pathname !== "/api" && !request.pathname.startsWith("/api/")) return null;
+  const origin = djangoOrigin(configuration);
+  if (origin === request.origin) throw new Error("Django routing would loop");
+  return new URL(request.pathname + request.search, origin);
+}
+
+export async function fetchDjangoSession(cookieHeader, configuration = {}, fetchImpl = fetch) {
+  const response = await fetchImpl(`${djangoOrigin(configuration)}/api/auth/me`, {
+    method: "GET",
+    headers: { Cookie: cookieHeader || "" },
+    cache: "no-store",
+    redirect: "error",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (response.status === 401) return null;
+  if (!response.ok) throw new Error("Django session lookup unavailable");
+  return (await response.json()).user || null;
 }

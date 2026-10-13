@@ -1,20 +1,14 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Reorder } from "framer-motion";
 import {
   Plus,
-  Clapperboard,
   Settings2,
   ChevronDown,
   Check,
-  X,
   Box,
   FolderClosed,
   Layers,
   Inbox,
-  Sparkles,
-  User,
   Volume2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -33,8 +27,7 @@ import {
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
 } from "@/lib/config";
-import { cn, referenceDisplayUrl } from "@/lib/utils";
-import { isProviderModel } from "@/lib/model-registry";
+import { cn } from "@/lib/utils";
 
 /**
  * Reference-image strip + settings toolbar, extracted verbatim (behavior
@@ -51,122 +44,6 @@ import { isProviderModel } from "@/lib/model-registry";
  * No mode chip in the toolbar — the tab already fixes `s.mode`, so offering
  * a mode switch here would just contradict which tab you're looking at.
  */
-export function ReferenceStrip({ onInsertTag }) {
-  const s = useStore();
-
-  // See the original comment in PromptComposer's history: Reorder.Group's
-  // drag physics expect `values` to update synchronously within the same
-  // render as the gesture — buffering locally keeps every tick synchronous;
-  // only the settled result is committed to the store.
-  const [dragRefs, setDragRefs] = useState(s.referenceImages);
-  const dragRefsRef = useRef(dragRefs);
-  useEffect(() => {
-    dragRefsRef.current = s.referenceImages;
-    setDragRefs(s.referenceImages);
-  }, [s.referenceImages]);
-
-  if (s.referenceVideos.length === 0 && dragRefs.length === 0) return null;
-
-  return (
-    <div className="flex flex-col gap-2">
-      {s.referenceVideos.length > 0 && (
-        <div className="flex flex-wrap gap-2 px-1">
-          {s.referenceVideos.map((ref, i) => (
-            <span
-              key={ref}
-              className="flex items-center gap-1.5 rounded-lg bg-ink-750 py-1 pl-2 pr-1 text-xs text-white/75 ring-1 ring-line"
-              title={`Reference clip ${i + 1} — type @vid${i + 1} to point at it`}
-            >
-              <Clapperboard className="h-3.5 w-3.5 text-brand" />
-              @vid{i + 1}
-              <button
-                onClick={() => s.removeReferenceVideo(i)}
-                className="grid h-4 w-4 place-items-center rounded text-white/40 hover:bg-white/10 hover:text-white"
-                aria-label={`Remove reference clip ${i + 1}`}
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-
-      {dragRefs.length > 0 && (
-        <Reorder.Group
-          as="div"
-          axis="x"
-          values={dragRefs}
-          onReorder={(newOrder) => {
-            dragRefsRef.current = newOrder;
-            setDragRefs(newOrder);
-          }}
-          className="scroll-none flex gap-2 overflow-x-auto px-1 pb-1"
-        >
-          {dragRefs.map((src, i) => (
-            <Reorder.Item
-              key={src}
-              value={src}
-              as="div"
-              style={{ touchAction: "none" }}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              whileDrag={{ scale: 1.05, zIndex: 1 }}
-              onDragEnd={() => s.reorderReferences(dragRefsRef.current)}
-              title={`Insert @img${i + 1} — drag to reorder`}
-              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing bg-ink-800 flex items-center justify-center"
-              onClick={() => onInsertTag(`@img${i + 1}`)}
-            >
-              <div className="absolute inset-0 grid place-items-center bg-ink-800 text-white/20 pointer-events-none">
-                <User className="h-6 w-6" />
-              </div>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={referenceDisplayUrl(src, s.portraitAssets)}
-                alt=""
-                draggable={false}
-                style={{ WebkitUserDrag: "none" }}
-                className="relative z-10 h-full w-full object-cover"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
-              />
-              <span className="absolute inset-x-0 bottom-0 z-20 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
-                @img{i + 1}
-              </span>
-              <button
-                type="button"
-                aria-label={`Remove reference ${i + 1}`}
-                onPointerDown={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  s.removeReference(i);
-                }}
-                className="absolute right-1 top-1 z-30 grid h-5 w-5 place-items-center rounded-full bg-ink-950/85 text-white/90 shadow-md backdrop-blur-sm transition hover:bg-red-600 hover:text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
-              >
-                <X className="h-3 w-3 pointer-events-none" />
-              </button>
-            </Reorder.Item>
-          ))}
-        </Reorder.Group>
-      )}
-
-      {s.mode === "video" && isProviderModel(s.model, "higgsfield") && s.referenceImages.length > 1 && (
-        <div className="flex items-start gap-2 rounded-lg border border-brand/30 bg-brand/10 px-2.5 py-1.5 text-[11px] leading-snug text-brand/90">
-          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-          <span>
-            All {s.referenceImages.length} references will be used — Seedance 2.0 composes them
-            into one shot. Tag them in your prompt as <b>@img1, @img2…</b> for left/right
-            placement and roles.
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function SettingsToolbar() {
   const s = useStore();
   const audioApplies = s.mode === "video" && supportsAudio(s.model);

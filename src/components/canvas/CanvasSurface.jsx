@@ -12,6 +12,7 @@ import {
 import { Shapes, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
+import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { useStore } from "@/lib/store";
 import { useCanvasStore, hasClipboard } from "@/lib/canvas-store";
 import { getAssetDragData } from "@/lib/asset-drag-contract";
@@ -944,16 +945,11 @@ function MultiSelectBox({ nodes }) {
 
 export async function uploadImageFile(file, boardId) {
   try {
-    const dataUrl = await new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(r.result );
-      r.onerror = reject;
-      r.readAsDataURL(file);
-    });
+    const uploaded = await uploadFileDirect(file, "canvas");
     const res = await apiFetch(`/api/canvas-boards/${boardId}/upload`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dataUrl }),
+      body: JSON.stringify({ referenceId: uploaded.referenceId }),
     });
     if (!res.ok) return null;
     const json = await res.json();

@@ -23,7 +23,7 @@ class MediaExport(models.Model):
     expires_at = models.BigIntegerField(null=True)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'media_exports'
         indexes = [
             PostgreSQLIndex(models.F('user_id').asc(nulls_last=True), models.F('created_at').desc(nulls_last=True), name='media_exports_user_created_idx'),
@@ -39,7 +39,7 @@ class MediaExportItem(models.Model):
     filename = models.TextField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'media_export_items'
         indexes = [
             PostgreSQLIndex(models.F('export').asc(nulls_last=True), models.F('position').asc(nulls_last=True), name='media_export_items_order_idx'),

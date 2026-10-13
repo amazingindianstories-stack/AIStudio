@@ -1,4 +1,3 @@
-from django.db import connection
 from django.test import TransactionTestCase
 from apps.admin_dashboard.tests import SettingsTests
 
@@ -10,12 +9,11 @@ class FolderReadTests(TransactionTestCase):
     cookie = SettingsTests.cookie
     def setUp(self):
         SettingsTests.setUp(self)
-        with connection.cursor() as c:
-            c.execute('CREATE TABLE IF NOT EXISTS projects (id uuid PRIMARY KEY,name text,brief text,created_by uuid,created_at bigint,updated_at bigint)')
-            c.execute('CREATE TABLE IF NOT EXISTS folders (id uuid PRIMARY KEY,project_id uuid,parent_id uuid,name text,name_normalized text,version integer,color text,created_at bigint,updated_at bigint)')
-            c.execute('TRUNCATE folders,projects')
-            c.execute("INSERT INTO projects VALUES (%s,'Project',NULL,NULL,1,2)",[PROJECT])
-            c.execute("INSERT INTO folders VALUES (%s,NULL,NULL,'Root','root',1,'blue',1,2),(%s,NULL,%s,'Child','child',2,NULL,3,4)",[ROOT,CHILD,ROOT])
+        from apps.projects.models import Project
+        from .models import Folder
+        Project.objects.create(id=PROJECT, name='Project', created_at=1, updated_at=2)
+        Folder.objects.create(id=ROOT, name='Root', version=1, color='blue', created_at=1, updated_at=2)
+        Folder.objects.create(id=CHILD, parent_id=ROOT, name='Child', version=2, created_at=3, updated_at=4)
 
     def test_scope_and_ancestry(self):
         self.assertEqual(self.client.get('/api/folders').status_code,401)

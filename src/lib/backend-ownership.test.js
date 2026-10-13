@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { checkOwnership, checkApiContracts } from '../../scripts/check-backend-ownership.mjs';
+import { checkOwnership, checkApiContracts, checkLocalImplementation } from '../../scripts/check-backend-ownership.mjs';
 
 function fixture(source, run) {
   const root = mkdtempSync(path.join(tmpdir(), 'ownership-test-'));
@@ -46,5 +46,18 @@ test('retired implementation cannot be restored even by resetting its baseline',
     const errors=checkOwnership(root,m);
     assert.ok(errors.some(e=>e.includes('Retired implementation restored')));
     assert.ok(errors.some(e=>e.includes('Missing cutover evidence')));
+  });
+});
+
+test('local retirement cannot restore Node routes or dependencies while preserving historical ownership',()=>{
+  fixture('export async function GET() {}',(root,m)=>{
+    writeFileSync(path.join(root,'package.json'),JSON.stringify({dependencies:{pg:'1'},scripts:{}}));
+    writeFileSync(path.join(root,'vercel.json'),'{}');
+    const local={schema_authority_local:'DJANGO_MANAGED',source_retirement:'COMPLETE',methods:[{method:'GET',path:'/api/settings',state:'DJANGO_IMPLEMENTED_LOCAL',evidence:['package.json']}]};
+    const errors=checkLocalImplementation(root,local,m);
+    assert.ok(errors.some(e=>e.includes('Retired Node backend remains')));
+    assert.ok(errors.some(e=>e.includes('Backend dependency remains: pg')));
+    assert.equal(m.routes['/api/settings'].methods.GET.owner,'next');
+    assert.ok(checkLocalImplementation(root,{...local,methods:[]},m).some(e=>e.includes('Missing local method')));
   });
 });

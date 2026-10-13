@@ -5,6 +5,7 @@ import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { LocalDataStatus } from "@/components/LocalDataStatus";
 import { TopBar } from "@/components/TopBar";
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { PromptComposer } from "@/components/PromptComposer";
@@ -119,10 +120,11 @@ export default function Page() {
   return (
     <MotionConfig
       reducedMotion="user"
-      transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
     >
       <div className="flex h-[100dvh] flex-col overflow-hidden bg-ink-900">
         <TopBar />
+        <LocalDataStatus />
 
         <div className="flex min-h-0 flex-1">
           {view === "canvas" ? (

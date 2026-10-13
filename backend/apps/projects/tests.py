@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from django.db import connection, connections
+from django.db import connections
 from django.test import TransactionTestCase
 from apps.library.tests import FolderReadTests
 from apps.admin_dashboard.tests import SettingsTests
@@ -21,8 +21,11 @@ class ProjectReadTests(TransactionTestCase):
         self.assertEqual(Project.objects.count(),1)
 
     def test_concurrent_empty_reads_create_one_default(self):
-        with connection.cursor() as cursor:
-            cursor.execute('TRUNCATE folders,projects')
+        from apps.library.models import Folder
+        # Delete leaves before roots: production folder FKs deliberately RESTRICT.
+        Folder.objects.filter(parent_id__isnull=False).delete()
+        Folder.objects.all().delete()
+        Project.objects.all().delete()
         def call():
             try:
                 ensure_default_project()

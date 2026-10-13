@@ -16,7 +16,7 @@ class User(models.Model):
     auth_version = models.IntegerField(db_default=0)
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'users'
 
 class LoginAttempt(models.Model):
@@ -24,7 +24,7 @@ class LoginAttempt(models.Model):
     identifier = models.TextField()
     created_at = models.BigIntegerField()
     class Meta:
-        managed = False
+        managed = True
         db_table = 'login_attempts'
         indexes = [
             PostgreSQLIndex(models.F('identifier').asc(nulls_last=True), models.F('created_at').asc(nulls_last=True), name='login_attempts_identifier_created_idx'),

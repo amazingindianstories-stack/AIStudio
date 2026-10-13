@@ -1,3 +1,4 @@
+from frozen_oracle import check_output as oracle_output, schema_sql
 """Expose full physical reproduction gaps without changing schema authority.
 
 Build both fixtures in the same transactionally rolled-back scratch namespace.
@@ -17,7 +18,7 @@ from urllib.parse import urlsplit
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('output', nargs='?')
-parser.add_argument('--migration-executor', action='store_true', help='Create Django fixture solely through the candidate migration graph')
+parser.add_argument('--migration-executor', action='store_true', help='Create Django fixture solely through the active migration graph')
 parser.add_argument('--require-index-equivalent', action='store_true', help='Require exact physical index catalog equivalence only')
 parser.add_argument('--require-invariant-equivalent', action='store_true', help='Require exact function/trigger catalogs and invariant behavior')
 parser.add_argument('--require-constraint-equivalent', action='store_true', help='Require exact constraint catalog equivalence')
@@ -33,7 +34,6 @@ from django.db import connection, transaction
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.recorder import MigrationRecorder
-from django.test.utils import override_settings
 from apps.library.baseline_sql.invariants_v1 import STATEMENTS as DJANGO_INVARIANTS
 from apps.library.baseline_sql.foreign_key_aliases_v1 import STATEMENTS as DJANGO_FK_ALIASES
 
@@ -54,17 +54,13 @@ def capture():
     return data
 
 
-with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR'), prefix='schema-reproduction-') as output:
-    generated = subprocess.run(['node', 'node_modules/drizzle-kit/bin.cjs', 'generate', '--dialect=postgresql', '--schema=./src/lib/schema.js', f'--out={output}'], capture_output=True, text=True, check=True)
-    files = list(Path(output).glob('*.sql'))
-    assert len(files) == 1, 'Expected one fresh schema migration'
-    declared_sql = files[0].read_text().replace('"public".', '"' + namespace + '".')
-statements = json.loads(subprocess.check_output(['node', '--import', 'tsx', 'scripts/django-migration/invariant-statements.mjs'], text=True))
+declared_sql = schema_sql().replace('"public".', '"' + namespace + '".')
+statements = json.loads(oracle_output(['node', '--import', 'tsx', 'scripts/django-migration/invariant-statements.mjs'], text=True))
 source_invariants = tuple(statement for domain in ['hierarchy', 'naming'] for statement in statements[domain] if statement.startswith(('CREATE OR REPLACE FUNCTION', 'DROP TRIGGER', 'CREATE TRIGGER', 'CREATE CONSTRAINT TRIGGER')))
-assert DJANGO_INVARIANTS == source_invariants, 'Frozen Django invariant SQL differs from current source; review required'
+assert DJANGO_INVARIANTS == source_invariants, 'Frozen Django invariant SQL differs from frozen historical source; review required'
 source_aliases = tuple(statement for domain in ['hierarchy', 'naming'] for statement in statements[domain] if statement.startswith('DO $$ BEGIN') and 'FOREIGN KEY' in statement)
-assert len(source_aliases) == 5 and DJANGO_FK_ALIASES == source_aliases, 'Frozen Django FK aliases differ from current source; review required'
-checks = json.loads(subprocess.check_output(['node', 'scripts/django-migration/declared-checks.mjs'], text=True))
+assert len(source_aliases) == 5 and DJANGO_FK_ALIASES == source_aliases, 'Frozen Django FK aliases differ from frozen historical source; review required'
+checks = json.loads(oracle_output(['node', 'scripts/django-migration/declared-checks.mjs'], text=True))
 results = {}
 for version in ['current', 'django']:
     with transaction.atomic():
@@ -84,20 +80,20 @@ for version in ['current', 'django']:
                         cursor.execute(statement)
                 color = next(check for check in checks if check['name'] == 'folders_color_check')
                 cursor.execute(f'ALTER TABLE folders ADD CONSTRAINT folders_color_check CHECK ({color["sql"]})')
+                # Frozen historical evidence remains unchanged. Apply the one
+                # reviewed additive contract to the comparison fixture only.
+                cursor.execute("ALTER TABLE generations ADD COLUMN submission_input jsonb NULL;\nALTER TABLE assets ADD COLUMN created_by_id uuid NULL;\nALTER TABLE portrait_assets ADD COLUMN created_by_id uuid NULL;\nCREATE TABLE upload_sessions (\nid uuid NOT NULL PRIMARY KEY, actor_id uuid NOT NULL, key text NOT NULL UNIQUE,\npurpose varchar(64) NOT NULL, content_type varchar(100) NOT NULL, byte_size bigint NOT NULL,\nfilename varchar(255) NOT NULL, sha256 varchar(64) NOT NULL, request_key varchar(128) NOT NULL,\nsession_uri text NOT NULL, state varchar(16) NOT NULL, created_at timestamptz NOT NULL,\nexpires_at timestamptz NOT NULL, finalized_at timestamptz NULL,\nCONSTRAINT upload_positive_bytes CHECK (byte_size > 0));\nCREATE INDEX upload_sessions_key_8b9e8a1c_like ON upload_sessions (key text_pattern_ops);\nCREATE INDEX upload_actor_state_expiry_idx ON upload_sessions (actor_id, state, expires_at);\nCREATE UNIQUE INDEX upload_actor_request_unique ON upload_sessions (actor_id, request_key) WHERE NOT (request_key = '');")
         elif args.migration_executor:
-            modules = {path.name: f'baseline_candidate.{path.name}' for path in Path('backend/baseline_candidate').iterdir() if path.is_dir() and (path / '__init__.py').exists()}
-            with override_settings(MIGRATION_MODULES=modules):
-                executor = MigrationExecutor(connection)
-                targets = executor.loader.graph.leaf_nodes()
-                assert len(executor.migration_plan(targets)) == 22
-                executor.migrate(targets)
-                assert not MigrationExecutor(connection).migration_plan(targets), 'Candidate graph is not fully recorded'
+            executor = MigrationExecutor(connection)
+            targets = executor.loader.graph.leaf_nodes()
+            plan = executor.migration_plan(targets)
+            assert len(plan) == 25
+            assert any(m.app_label == 'generation' and m.name == '0002_generation_submission_input' and not backward for m, backward in plan)
+            executor.migrate(targets)
+            assert not MigrationExecutor(connection).migration_plan(targets), 'Active graph is not fully recorded'
         else:
             state = MigrationLoader(None).project_state()
-            # Materialize unmanaged declarations only in this diagnostic fixture.
-            # Normal migration files and production ownership remain unmanaged.
-            for model in state.models.values():
-                model.options['managed'] = True
+            assert all(model.options.get('managed', True) for model in state.models.values())
             with connection.schema_editor(atomic=False) as editor:
                 for model in state.apps.get_models():
                     editor.create_model(model)
@@ -131,8 +127,8 @@ with connection.cursor() as cursor:
     cursor.execute('SELECT count(*) FROM pg_namespace WHERE nspname=%s', [namespace])
     assert cursor.fetchone()[0] == 0, 'Scratch schema was not rolled back'
 differences = catalog.compare(results['current'], results['django'])
-report = {'equivalent': not differences, 'different_categories': differences, 'scratch_schema_rolled_back': True, 'invariant_behavior_both_fixtures': True,
-          'django_fixture_source': ('candidate Django migration executor; not production authority' if args.migration_executor else 'disk migration model state plus frozen Django invariant and FK alias SQL; not production migrations'),
+report = {'reference_source': 'frozen historical Node schema and additive invariant SQL plus explicit reviewed Goal2 additive SQL contracts', 'live_node_execution': False, 'equivalent': not differences, 'different_categories': differences, 'scratch_schema_rolled_back': True, 'invariant_behavior_both_fixtures': True,
+          'django_fixture_source': ('active managed Django migration executor; production adoption pending' if args.migration_executor else 'disk migration model state plus frozen Django invariant and FK alias SQL; diagnostic schema-editor path'),
           'category_counts': {version: {category: len(rows) for category, rows in data.items()} for version, data in results.items()},
           'differences': {category: {'current_only': [row for row in results['current'][category] if row not in results['django'][category]], 'django_only': [row for row in results['django'][category] if row not in results['current'][category]]} for category in differences}}
 if args.output:

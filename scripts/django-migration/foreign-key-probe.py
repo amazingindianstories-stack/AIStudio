@@ -1,3 +1,4 @@
+from frozen_oracle import run as oracle_run, check_output as oracle_output
 """Current SQL FK policies on rolled-back scratch tables, including ADD COLUMN."""
 import json
 import os
@@ -15,7 +16,7 @@ from django.apps import apps
 from django.db import connection, transaction, IntegrityError
 from django.db.migrations.loader import MigrationLoader
 from config.db.backends.postgresql.schema import CURRENT_FOREIGN_KEYS
-expected = json.loads(subprocess.check_output(['node', 'scripts/django-migration/declared-foreign-keys.mjs'], text=True))
+expected = json.loads(oracle_output(['node', 'scripts/django-migration/declared-foreign-keys.mjs'], text=True))
 assert len(expected) == len(CURRENT_FOREIGN_KEYS)
 for item in expected:
     assert len(item['columns']) == len(item['target_columns']) == 1

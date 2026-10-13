@@ -1,4 +1,5 @@
-"""Compare actual Node rowToItem with Django without DB/provider execution."""
+from frozen_oracle import run as oracle_run, check_output as oracle_output
+"""Compare frozen historical Node rowToItem with Django without DB/provider execution."""
 import json
 import os
 from pathlib import Path
@@ -45,10 +46,10 @@ for field in Generation._meta.concrete_fields:
 full['cost_basis'] = 'reconciled'
 rows.append(full)
 wire = [{camel(key): str(item) if isinstance(item, UUID) else item for key, item in row.items()} for row in rows]
-result = subprocess.run(['node','--import','tsx','scripts/django-migration/generation-serialization-oracle.mjs'],
+result = oracle_run(['node','--import','tsx','scripts/django-migration/generation-serialization-oracle.mjs'],
     input=json.dumps(wire),text=True,capture_output=True,check=True)
 node = json.loads(result.stdout)
 python = [generation_item(SimpleNamespace(**row)) for row in rows]
 assert node == python, (node,python)
 assert all('providerResponses' not in row for row in python)
-print(json.dumps({'independent_model_columns':len(full),'public_generation_shape_cases':len(rows),'node_django_equal':True,'provider_diagnostics_excluded':True,'database_calls':0,'provider_calls':0}))
+print(json.dumps({'independent_model_columns':len(full),'public_generation_shape_cases':len(rows),'frozen_node_django_equal':True,'provider_diagnostics_excluded':True,'database_calls':0,'provider_calls':0}))

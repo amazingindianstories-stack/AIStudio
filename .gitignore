@@ -24,6 +24,8 @@ depth-worker/.venv
 depth-worker/.worker-id
 .vercel
 .env*
+!.env.local.example
+!backend/.env.example
 vercel-gcp-cred.json
 test.json
 tsconfig.tsbuildinfo
@@ -42,13 +44,13 @@ build*.log
 # Local Claude Code / Cowork session settings — machine-specific, not shared repo config.
 .claude/
 
-# OAuth tokens written by `npm run hf:login`. NEVER commit — this repo is
+# Historical local OAuth caches must NEVER be committed — this repo is
 # public, and the file holds a live access_token/refresh_token pair. Runtime
 # reads it only as a local fallback (object storage and env vars come first in
 # loadToken), so untracking it costs production nothing.
 .higgsfield-mcp-token.json
 
-# scripts/eval-regression.js fixtures (Phase 3.4) — real face-identity test
+# Historical evaluation fixtures — real face-identity test
 # images and the fixture files that reference them. This repo is public;
 # real people's faces do not belong in git history regardless of consent.
 # README.md and example.fixture.json (no real image, template only) are the

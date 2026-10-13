@@ -1,9 +1,12 @@
 # ADR: Django is the authoritative backend destination
 
-Date: 2026-10-07. Status: Accepted architecture; implementation in progress.
+Date: 2026-10-07. Updated: 2026-10-08. Status: Accepted architecture; local implementation qualified, production cutover pending.
 
-The current production repository and verified live schema define product
-behavior. Historical Django implementations are reference material only.
+The source-derived checkpoint and frozen fixtures define this local implementation
+contract. Actual deployed identity, schema and migration history still require a
+separately authorized audit. Historical Django implementations are reference
+material only. The implementation blueprint governs source retirement on this
+undeployed branch; the historical production ownership manifest remains unchanged.
 
 | Responsibility | Final owner |
 |---|---|
@@ -18,11 +21,13 @@ behavior. Historical Django implementations are reference material only.
 Django cannot be retired to resolve parity issues. New backend features belong
 in Django. Transfer route methods incrementally through same-origin `/api`;
 never globally switch browser API origins. A domain has one traffic owner.
-Duplicated Node/Django implementations are temporary qualification/rollback
-infrastructure. After measured production stability and the recorded rollback
-window, remove the Node owner. Subsequently use normal release restoration.
+The local implementation now contains only the Django backend; Node source is
+retained through Git/checkpoint recovery evidence and inert golden fixtures. Live
+writer retirement and rollback compatibility must be verified during the separate
+cutover. Never run restored Node and Python writers concurrently.
 
-Drizzle remains temporary schema authority until fresh Django migrations,
+Django is the sole managed schema authority in this local branch. Live authority
+remains historical until fresh Django migrations,
 complete catalog equivalence, production schema review, backup/PITR and safe
 migration-history baselining pass. Do not fake migrations merely because tables
 exist. After takeover Django migrations are the sole schema authority; no new

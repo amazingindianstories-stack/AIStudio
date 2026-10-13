@@ -1,3 +1,4 @@
+from frozen_oracle import run as oracle_run, check_output as oracle_output
 """Current defaults vs Django runtime/disk state on transactional temp tables."""
 import io
 import json
@@ -18,7 +19,7 @@ from django.core.management import call_command
 from django.db import connection, transaction
 from django.db.migrations.loader import MigrationLoader
 
-expected = json.loads(subprocess.check_output(['node', 'scripts/django-migration/declared-defaults.mjs'], text=True))
+expected = json.loads(oracle_output(['node', 'scripts/django-migration/declared-defaults.mjs'], text=True))
 loader = MigrationLoader(None)
 registries = [apps, loader.project_state().apps]
 for registry in registries:
@@ -102,13 +103,4 @@ with transaction.atomic():
 with connection.cursor() as cursor:
     cursor.execute("SELECT count(*) FROM pg_class WHERE relnamespace=pg_my_temp_schema() AND relname LIKE 'qualification_defaults_%'")
     assert cursor.fetchone()[0] == 0, 'Temporary objects remain'
-noop_migrations = 0
-for app, migration in sorted(loader.disk_migrations):
-    if not migration.endswith('_declared_default_state'):
-        continue
-    output = io.StringIO()
-    call_command('sqlmigrate', app, migration, stdout=output)
-    statements = [statement.strip() for statement in re.sub(r'--[^\n]*', '', output.getvalue()).split(';') if statement.strip()]
-    assert all(statement in ('BEGIN', 'COMMIT') for statement in statements), 'Unexpected physical DDL'
-    noop_migrations += 1
-print(json.dumps({'tables': len(expected), 'declared_defaults': sum(default['kind'] != 'none' for columns in expected.values() for default in columns.values()), 'canonical_column_default_checks': catalog_checks, 'omitted_field_value_checks': insert_checks, 'uuid_fallback_checks': uuid_checks, 'orm_default_checks': orm_checks, 'state_only_migrations': noop_migrations, 'temporary_ddl_rolled_back': True}))
+print(json.dumps({'tables': len(expected), 'declared_defaults': sum(default['kind'] != 'none' for columns in expected.values() for default in columns.values()), 'canonical_column_default_checks': catalog_checks, 'omitted_field_value_checks': insert_checks, 'uuid_fallback_checks': uuid_checks, 'orm_default_checks': orm_checks, 'temporary_ddl_rolled_back': True}))

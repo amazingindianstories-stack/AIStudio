@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Sparkles,
@@ -22,10 +22,11 @@ import {
   MAGNIFIC_ENGINES,
   MAGNIFIC_PRECISION_FLAVORS,
   MAGNIFIC_SCALE_FACTORS,
-} from "@/lib/providers/magnific";
+} from "@/lib/magnific-ui";
 import { cn } from "@/lib/utils";
-import { uploadContentType, uploadOriginalReference } from "@/lib/client-reference-upload";
+import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 import { getAssetDragData, validateUpscalerDrop } from "@/lib/asset-drag-contract";
+import { ProgressiveImage } from "./ProgressiveImage";
 import { Dropdown, MenuItem } from "./Dropdown";
 
 const MODELS = [
@@ -44,8 +45,8 @@ const MODELS = [
   {
     id: "Magnific Precision V1",
     label: "Precision V1",
-    badge: "Zero Hallucination",
-    desc: "Faithful 2x super-resolution for UI, logos, and product photos",
+    badge: "Image Enhancement",
+    desc: "Image enhancement with sharpen, grain and detail controls",
   },
 ];
 
@@ -62,35 +63,46 @@ export function UpscalerComposer() {
   const [dragValid, setDragValid] = useState(true);
   const [dragMessage, setDragMessage] = useState("");
   const dragEnterCountRef = useRef(0);
-  const [showAdvanced, setShowAdvanced] = useState(true);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [lastResult, setLastResult] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const uploadAttemptRef = useRef(0);
 
+  useEffect(() => { uploadAttemptRef.current += 1; setUploading(false); setLastResult(null); }, [s.activeProjectId]);
+
+  const resultItem = lastResult ? findItem(s, lastResult.item.id) || lastResult.item : null;
   const activeModelId = params.model || "Magnific Creative";
 
   const handleSelectFile = async (file) => {
     if (!file) return;
     const contentType = uploadContentType(file);
     if (!["image/png", "image/jpeg", "image/webp"].includes(contentType)) {
-      alert("Please upload a valid image file (PNG, JPEG, WebP).");
+      setUploadError("Magnific accepts PNG, JPEG or WebP images. Video upscaling is unsupported.");
       return;
     }
     if (file.size > 20 * 1024 * 1024) {
-      alert("Source images must be 20 MB or smaller.");
+      setUploadError("Source images must be 20 MB or smaller.");
       return;
     }
+    const attempt = ++uploadAttemptRef.current;
+    const projectId = s.activeProjectId;
     setUploading(true);
+    setUploadError("");
     try {
-      const url = await uploadOriginalReference(file);
+      const ready = await uploadFileDirect(file, "image-reference");
+      if (attempt !== uploadAttemptRef.current || useStore.getState().activeProjectId !== projectId) return;
+      const url = ready.ref;
       setUpscalerImage({
         url,
         name: file.name,
         size: file.size,
       });
     } catch (error) {
-      alert(error?.message || "Could not upload the source image. Please try again.");
+      if (attempt === uploadAttemptRef.current) setUploadError(error?.message || "Could not upload the source image. Please try again.");
     } finally {
-      setUploading(false);
+      if (attempt === uploadAttemptRef.current) setUploading(false);
     }
   };
 
@@ -128,7 +140,7 @@ export function UpscalerComposer() {
     setDragging(false);
     const val = validateUpscalerDrop(e, s);
     if (!val.valid) {
-      alert(val.reason || "Upscaler only accepts images.");
+      setUploadError(val.reason || "Magnific accepts images. Video upscaling is unsupported.");
       setDragValid(true);
       setDragMessage("");
       return;
@@ -205,10 +217,6 @@ export function UpscalerComposer() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 260, damping: 28 }}
       className="mx-auto w-full max-w-3xl rounded-2xl border border-line bg-ink-800/95 p-3.5 shadow-panel backdrop-blur-xl sm:p-5"
-      onDragEnter={onDragEnter}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
     >
       {/* Hidden file input */}
       <input
@@ -216,7 +224,7 @@ export function UpscalerComposer() {
         type="file"
         accept="image/png,image/jpeg,image/webp"
         className="hidden"
-        onChange={(e) => handleSelectFile(e.target.files?.[0])}
+        onChange={(e) => { handleSelectFile(e.target.files?.[0]); e.target.value = ""; }}
       />
 
       {/* Model selection tabs */}
@@ -270,15 +278,20 @@ export function UpscalerComposer() {
       </div>
 
       {/* Image Input Section */}
-      <div className="mb-4">
+      <div className="mb-4" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
         {upscalerImage ? (
           <div className="relative flex items-center gap-4 rounded-xl border border-line bg-ink-900/60 p-3 shadow-inner">
-            <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-ink-950 ring-1 ring-line">
+            <div className="relative h-36 w-36 shrink-0 overflow-hidden rounded-lg bg-ink-950 ring-1 ring-line">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={typeof upscalerImage === "string" ? upscalerImage : upscalerImage.url}
                 alt="Source preview"
-                className="h-full w-full object-cover"
+                onLoad={(e) => {
+                  if (typeof upscalerImage !== "string" && !upscalerImage.width && useStore.getState().upscalerImage === upscalerImage) {
+                    setUpscalerImage({ ...upscalerImage, width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight });
+                  }
+                }}
+                className="h-full w-full object-contain"
               />
             </div>
             <div className="min-w-0 flex-1">
@@ -293,6 +306,7 @@ export function UpscalerComposer() {
               <p className="mt-0.5 truncate text-xs text-white/60">
                 {upscalerImage.name || "Image ready to upscale"}
               </p>
+              <p className="mt-1 text-[11px] text-white/40">{upscalerImage.width && upscalerImage.height ? `${upscalerImage.width} × ${upscalerImage.height}` : "Dimensions verified by Django before submission"} · Drag here to replace</p>
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
@@ -739,10 +753,9 @@ export function UpscalerComposer() {
             <div className="flex items-start gap-2.5 rounded-xl border border-blue-500/20 bg-blue-950/30 p-3 text-xs text-blue-200/90">
               <Info className="h-4 w-4 shrink-0 text-blue-400 mt-0.5" />
               <div>
-                <p className="font-semibold text-blue-100">Faithful 2x Super-Resolution</p>
+                <p className="font-semibold text-blue-100">Precision image enhancement</p>
                 <p className="mt-0.5 text-[11px] text-blue-200/70 leading-relaxed">
-                  Precision V1 doubles image resolution while maintaining 100% fidelity without hallucinating new
-                  elements. Recommended for UI assets, screenshots, vector logos, and small text.
+                  Precision V1 accepts sharpening, grain and detail settings. It does not accept a configurable scale or prompt.
                 </p>
               </div>
             </div>
@@ -820,8 +833,11 @@ export function UpscalerComposer() {
           </>
         )}
 
+        {uploadError && <p role="alert" className="text-xs text-red-300">{uploadError}</p>}
+        {lastResult && <div className="rounded-xl border border-line p-3"><p className="text-xs text-white/60">Original and output · Job {lastResult.item.id}</p><div className="mt-2 grid grid-cols-2 gap-3"><ProgressiveImage alt="Original upscale source" src={typeof lastResult.source === "string" ? lastResult.source : lastResult.source.url} className="h-32 w-full object-contain" />{resultItem.url ? <ProgressiveImage alt="Magnific output" src={resultItem.url} className="h-32 w-full object-contain" /> : <p className="text-xs text-white/50">{resultItem.status || "Queued"} · Output appears in the library when complete</p>}</div></div>}
         {/* NSFW Filter & Submit Action */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+        <p className="text-[11px] text-white/40">Cost estimate unavailable for this account. Django validates the selected model and source before submission.</p>
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-ink-800 py-3">
           <label className="flex cursor-pointer items-center gap-2 text-xs text-white/60 hover:text-white transition">
             <input
               type="checkbox"
@@ -835,7 +851,7 @@ export function UpscalerComposer() {
 
           <button
             type="button"
-            onClick={generateUpscale}
+            onClick={async () => { setUploadError(""); const source = upscalerImage; const projectId = s.activeProjectId; const item = await generateUpscale(); if (useStore.getState().activeProjectId !== projectId) return; if (item?.id) setLastResult({ source, item }); else setUploadError("Could not start the upscale. Check the source and retry."); }}
             disabled={!upscalerImage || generating || uploading}
             className={cn(
               "flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-ink-950 shadow-md transition duration-200",

@@ -20,6 +20,7 @@ import {
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { GenerationFolderCue, GenerationTimestamp } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
@@ -169,7 +170,7 @@ function PromptText({ text }) {
   );
 }
 
-function FeedBlock({ item, index }) {
+export function FeedBlock({ item, index }) {
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
@@ -182,6 +183,7 @@ function FeedBlock({ item, index }) {
   return (
     <>
     <motion.div
+      data-generation-id={item.id}
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 240, damping: 26 }}
@@ -196,6 +198,10 @@ function FeedBlock({ item, index }) {
         {label} {index}
       </span>
 
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <GenerationFolderCue item={item} />
+        <GenerationTimestamp timestamp={item.createdAt} />
+      </div>
       <PromptText text={item.prompt} />
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">

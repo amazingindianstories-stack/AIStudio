@@ -1,6 +1,9 @@
 "use client";
 
 import { create } from "zustand";
+import { installOperationTracking } from "./operation-state";
+import { snapshotScope, composerMetadata, metadataToDraft, saveComposerSnapshot, loadComposerSnapshot } from "./composer-snapshots";
+import { newReferenceId, referenceIdsFor, referencePermutation } from "./reference-order";
 
 import {
   DEFAULTS,
@@ -18,11 +21,9 @@ import {
   supportsVideoReference,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
-  MAX_REFERENCE_VIDEOS,
-  maxReferenceVideosForVideoModel,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
-import { renumberImgMentions, normalizePromptMentions } from "./mentions";
+import { renumberImgMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch } from "./api";
@@ -52,8 +53,7 @@ import {
   setStoreTimeout,
   storeRuntime,
 } from "./store-runtime";
-import { videoPollClientDecision } from "./video-poll-backoff";
-import { magnificParamsForModel } from "./providers/magnific";
+import { magnificParamsForModel } from "./magnific-ui";
 import {
   clearMaterialCache,
   dedupeMaterialRequest,
@@ -72,10 +72,6 @@ const EMPTY_COUNTS = {
   favorites: 0,
 };
 
-// Exported for store.test.js only, so adoptOrphanedJobs's "already being
-// driven by this tab" skip branch is directly testable (pre-populate an id,
-// assert startPolling is not re-triggered) without faking a real poll cycle.
-export const polling = storeRuntime.polling;
 
 // ── scoped feed cache ───────────────────────────────────────────────────────
 // Each library view (a project, a folder, Favourites, All assets, each with its
@@ -119,8 +115,7 @@ function currentScope(s) {
  *
  * `patch` receives the current row so callers can merge conditionally.
  *
- * Exported (along with dropEverywhere/findItem/mergeLiveItems/
- * adoptOrphanedJobs below) purely for unit testing — see store.test.js.
+ * Exported (along with dropEverywhere/findItem/mergeLiveItems) purely for unit testing — see store.test.js.
  * Nothing outside this module is meant to call these directly; every real
  * caller goes through the store's own actions.
  */
@@ -195,35 +190,10 @@ function insertNewItem(
   });
 }
 
-// ── shared live-update poll ─────────────────────────────────────────────────
-// The per-item pollers below only ever attach to items THIS tab already knows
-// about — startPolling is called on submit and from loadHistory, nowhere else.
-// History is team-wide, so a job started in another tab, on another device, or
-// by a teammate was never observed here and only appeared on a manual refresh.
-//
-// One shared poll fixes all of those at once, and costs a single request no
-// matter how many jobs are in flight. It only OBSERVES: the per-item pollers
-// still own execution (pollQueue is what posts /api/queue/execute), so nothing
-// here can double-submit work.
-const LIVE_MS_ACTIVE = 30000; // callback is authoritative; poll as a fallback
-const LIVE_MS_IDLE = 20000; // nothing running — just watch for teammates
-
-// A queued job is driven entirely by the tab that created it: pollQueue is what
-// posts /api/queue/execute. Close that tab and nobody ever runs the job — and
-// the server-side reaper only sweeps "running", so it sits queued forever,
-// permanently inflating the position of everything queued behind it.
-//
-// Any client that can see a stale queued job can adopt it. lockJob is a
-// conditional UPDATE (status='queued' only), so if several tabs adopt the same
-// job exactly one wins and the losers get a clean 400 — adoption cannot
-// double-run work.
-//
-// The delay is what makes this a fallback rather than a race: the owning tab
-// polls every 1–3s, so it has long since claimed anything healthy. Adopting
-// early would just add losing execute calls. Note that adopting is not the same
-// as executing: pollQueue still respects queue position, so an adopted job that
-// is legitimately waiting its turn is merely observed, not jumped ahead.
-const ADOPT_QUEUED_AFTER_MS = 30_000;
+// One read-only feed observes work performed by Django workers, including jobs
+// submitted by another browser or continuing after this browser closes.
+const LIVE_MS_ACTIVE = 3000;
+const LIVE_MS_IDLE = 20000;
 async function apiFetch(input, init) {
   const response = await crossOriginFetch(input, init);
   if (response.status === 401) {
@@ -235,6 +205,21 @@ async function apiFetch(input, init) {
     throw new Error("UNAUTHENTICATED");
   }
   return response;
+}
+
+async function uploadDraftBinaryReferences(state) {
+  const { uploadOriginalReference } = await import("./client-reference-upload");
+  const upload = async (ref, label = "reference") => {
+    if (typeof ref !== "string" || !ref.startsWith("data:")) return ref;
+    const blob = await (await fetch(ref)).blob();
+    return uploadOriginalReference(new File([blob], label, {type:blob.type}));
+  };
+  const references = [];
+  for (let i = 0; i < state.referenceImages.length; i++) references.push(await upload(state.referenceImages[i], state.referenceLabels?.[i] || "reference"));
+  return { referenceImages: references, referenceIds: referenceIdsFor(state),
+    firstFrame: await upload(state.firstFrame, "first-frame"),
+    lastFrame: await upload(state.lastFrame, "last-frame"),
+    continuationFrame: await upload(state.continuationFrame, "continuation-frame") };
 }
 
 export const CLEAR_SELECTION_PATCH = {
@@ -279,6 +264,9 @@ export const useStore = create((set, get) => ({
   firstFrameMode: false,
   prompt: "",
   referenceImages: [],
+  referenceIds: [],
+  referenceReorderUndo: null,
+  recentSubmission: null,
   // Parallel to referenceImages, same length/order — "image" | "video",
   // recording whether each entry was a real image upload or a frame
   // extracted from a video file (addImageFiles/addReferenceFromVideo).
@@ -500,6 +488,7 @@ export const useStore = create((set, get) => ({
   setPrompt: (prompt) => set({ prompt }),
   addReference: (dataUrl, kind = "image", label = "", tag = "") =>
     set((s) => {
+      if (s.referenceImages.length + s.referenceVideos.length + s.referenceAudios.length >= 50) return {draftStorageWarning:"Stage at most 50 references. Remove an attachment before adding another."};
       const referenceImages = [...s.referenceImages, dataUrl];
       // Attaching a reference can itself invalidate the chosen resolution:
       // Kling Image 2.1 does 2K in text-to-image but not from a reference
@@ -511,6 +500,8 @@ export const useStore = create((set, get) => ({
       const referenceTags = Array.isArray(s.referenceTags) ? [...s.referenceTags, tag] : [tag];
       return {
         referenceImages,
+        referenceIds: [...referenceIdsFor(s), newReferenceId()],
+        referenceReorderUndo: null,
         referenceKinds: [...s.referenceKinds, kind],
         referenceLabels,
         referenceTags,
@@ -522,41 +513,49 @@ export const useStore = create((set, get) => ({
   removeReference: (index) =>
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
+      referenceIds: referenceIdsFor(s).filter((_, i) => i !== index),
+      referenceReorderUndo: null,
+      prompt: renumberImgMentions(s.prompt, s.referenceImages.map((_, i) => i === index ? undefined : i > index ? i - 1 : i)),
       referenceKinds: s.referenceKinds.filter((_, i) => i !== index),
       referenceLabels: (s.referenceLabels || []).filter((_, i) => i !== index),
       referenceTags: (s.referenceTags || []).filter((_, i) => i !== index),
     })),
-  // Drag-reorder from the composer. Diffs old vs. new position per image
-  // (by value — reference images are treated as distinct, so an exact
-  // byte-identical duplicate upload is the one case this can misnumber) and
-  // renumbers any @imgN already typed in the prompt so it keeps pointing at
-  // the same image rather than silently drifting to whatever else lands in
-  // that slot. referenceKinds is carried along by the same index mapping so
-  // a reordered video-derived reference keeps its badge.
-  reorderReferences: (newOrder) =>
-    set((s) => {
-      const mapping = s.referenceImages.map((img) => newOrder.indexOf(img));
-      const newKinds = new Array(newOrder.length);
-      const newLabels = new Array(newOrder.length);
-      const newTags = new Array(newOrder.length);
-      mapping.forEach((newIndex, oldIndex) => {
-        if (newIndex >= 0) {
-          newKinds[newIndex] = s.referenceKinds[oldIndex];
-          if (s.referenceLabels) newLabels[newIndex] = s.referenceLabels[oldIndex];
-          if (s.referenceTags) newTags[newIndex] = s.referenceTags[oldIndex];
-        }
-      });
-      return {
-        referenceImages: newOrder,
-        referenceKinds: newKinds,
-        referenceLabels: newLabels,
-        referenceTags: newTags,
-        prompt: renumberImgMentions(s.prompt, mapping),
-      };
-    }),
+  reorderReferencesByIds: (ids) => set((s) => {
+    const { patch, mapping } = referencePermutation(s, ids);
+    return { ...patch, prompt: renumberImgMentions(s.prompt, mapping),
+      referenceReorderUndo: { ids: referenceIdsFor(s), afterIds: [...ids] } };
+  }),
+  moveReference: ({ id, toIndex }) => {
+    const ids = referenceIdsFor(get());
+    const from = ids.indexOf(id);
+    if (from < 0 || !Number.isInteger(toIndex) || toIndex < 0 || toIndex >= ids.length || from === toIndex) return;
+    ids.splice(from, 1); ids.splice(toIndex, 0, id);
+    get().reorderReferencesByIds(ids);
+  },
+  undoReferenceReorder: () => {
+    const s = get(); const undo = s.referenceReorderUndo;
+    if (!undo || JSON.stringify(referenceIdsFor(s)) !== JSON.stringify(undo.afterIds)) return;
+    const { patch, mapping } = referencePermutation(s, undo.ids);
+    set({ ...patch, prompt: renumberImgMentions(s.prompt, mapping), referenceReorderUndo: null });
+  },
+  // Compatibility for old callers: match occurrences once, never indexOf equality.
+  reorderReferences: (newOrder) => {
+    const s = get(); const ids = referenceIdsFor(s); const used = new Set();
+    const order = newOrder.map(ref => {
+      const index = s.referenceImages.findIndex((value, i) => value === ref && !used.has(i));
+      if (index < 0) throw new Error("Unknown reference occurrence");
+      used.add(index); return ids[index];
+    });
+    set({ referenceIds: ids }); get().reorderReferencesByIds(order);
+  },
+  clearComposerDraft: () => set({ prompt: "", referenceImages: [], referenceIds: [], referenceKinds: [], referenceLabels: [], referenceTags: [], referenceVideos: [], referenceAudios: [], videoNotes: [], audioNotes: [], referenceReorderUndo: null }),
+  restoreRecentSubmission: () => {
+    const recent = get().recentSubmission;
+    if (recent) set(structuredClone(recent));
+  },
   addReferenceVideo: (ref, note) =>
     set((s) => {
-      const maxAllowed = maxReferenceVideosForVideoModel(s.model) ?? MAX_REFERENCE_VIDEOS;
+      const maxAllowed = 50 - s.referenceImages.length - s.referenceAudios.length;
       if (s.referenceVideos.includes(ref) || s.referenceVideos.length >= maxAllowed) {
         return {};
       }
@@ -576,9 +575,9 @@ export const useStore = create((set, get) => ({
     })),
 
   // See audioNotes' comment above — filename only, no real attachment.
-  addAudioNote: (audio) => set((s) => ({ audioNotes: [...s.audioNotes, audio] })),
+  addAudioNote: (audio) => set((s) => s.referenceImages.length + s.referenceVideos.length + s.referenceAudios.length >= 50 ? {draftStorageWarning:"Stage at most 50 references."} : ({ audioNotes: [...s.audioNotes, audio], referenceAudios: audio?.ref ? [...s.referenceAudios, audio.ref] : s.referenceAudios })),
   removeAudioNote: (index) =>
-    set((s) => ({ audioNotes: s.audioNotes.filter((_, i) => i !== index) })),
+    set((s) => ({ audioNotes: s.audioNotes.filter((_, i) => i !== index), referenceAudios: s.referenceAudios.filter((_, i) => i !== index) })),
 
   setRightTab: (rightTab) =>
     set((s) => ({
@@ -691,7 +690,6 @@ export const useStore = create((set, get) => ({
         feedKey: key,
       });
       // Resume driving anything still in flight that this page revealed.
-      for (const it of items) startPolling(it, set, get);
     } catch (error) {
       if (seq !== currentStoreRequestSequence("feed")) return;
       set({ loading: false, refreshing: false, feedError: error?.message || "Could not load assets." });
@@ -731,7 +729,6 @@ export const useStore = create((set, get) => ({
         putFeedCache(key, { items: appended, nextCursor, at: Date.now() });
         return { items: appended, hasMoreHistory: nextCursor !== null };
       });
-      for (const it of newItems) startPolling(it, set, get);
     } catch (e) {
       if (seq === currentStoreRequestSequence("feed")) {
         set({ paginationError: e?.message || "Could not load more assets." });
@@ -791,7 +788,6 @@ export const useStore = create((set, get) => ({
       // single fetch.
       const threadItems = (json.items ?? []).filter((it) => it.kind !== "depth" && it.kind !== "audio");
       set({ threadItems, threadLoading: false });
-      for (const it of threadItems) startPolling(it, set, get);
     } catch {
       if (seq !== currentStoreRequestSequence("thread")) return;
       set({ threadLoading: false });
@@ -856,15 +852,32 @@ export const useStore = create((set, get) => ({
   },
 
   generate: async () => {
-    const s = get();
-    const prompt = normalizePromptMentions(s.prompt.trim());
+    let s = get();
+    const prompt = s.prompt.trim();
     if (!prompt || s.generating) return [];
+    if (s.referenceImages.some(ref => !ref)) {
+      set({ generationError: "Attach the missing draft references again before generating." });
+      return [];
+    }
     if (s.mode === "video" && s.firstFrameMode && !s.firstFrame && !s.continuationFrame) {
       alert("Please select a first frame or toggle First Frame off.");
       return [];
     }
 
     set({ generating: true });
+    try {
+      const uploaded = await uploadDraftBinaryReferences(s);
+      const current = get();
+      if (current.currentUser?.id !== s.currentUser?.id || current.activeProjectId !== s.activeProjectId) {
+        set({ generating: false, generationError: "The user or project changed during upload. Review the draft before submitting." });
+        return [];
+      }
+      if (current.referenceImages === s.referenceImages) set(uploaded);
+      s = { ...s, ...uploaded };
+    } catch (error) {
+      set({ generating: false, generationError: error.message || "Could not upload draft references." });
+      return [];
+    }
     const endpoint =
       s.mode === "image" ? "/api/generate/image" : "/api/generate/video";
     const videoTaskMode = s.mode === "video" ? s.videoTaskMode : "generate";
@@ -884,7 +897,7 @@ export const useStore = create((set, get) => ({
       duration: videoTaskMode === "edit" ? undefined : s.duration,
       referenceImages: s.referenceImages,
       referenceVideos: s.referenceVideos,
-      referenceAudios: s.audioNotes.map((a) => typeof a === "string" ? null : a?.ref).filter(Boolean),
+      referenceAudios: s.referenceAudios,
       generateAudio: s.generateAudio,
       draftMode: s.draftMode,
       bitrateMode: s.bitrateMode,
@@ -933,10 +946,13 @@ export const useStore = create((set, get) => ({
           insertNewItem(set, item);
           // Clear seed/continuationFrame/firstFrame/lastFrame here, not just prompt:
           // these are one-shot flags, not standing composer preferences.
-          set({ prompt: "", seed: null, continuationFrame: null, firstFrame: null, lastFrame: null, firstFrameMode: false });
+          set({ recentSubmission: structuredClone({ prompt: s.prompt, referenceImages: s.referenceImages,
+            referenceIds: referenceIdsFor(s), referenceKinds: s.referenceKinds, referenceLabels: s.referenceLabels,
+            referenceTags: s.referenceTags, referenceVideos: s.referenceVideos, referenceAudios: s.referenceAudios,
+            videoNotes: s.videoNotes, audioNotes: s.audioNotes }), referenceReorderUndo: null,
+            seed: null, continuationFrame: null, firstFrame: null, lastFrame: null, firstFrameMode: false });
           // The server coordinator owns execution. The live feed/history
           // resync is the only client-side recovery path.
-          startPolling(item, set, get);
           created.push(item);
         }
       }
@@ -944,7 +960,7 @@ export const useStore = create((set, get) => ({
       console.error("Generation request failed:", e);
       // The batch loop above is sequential (awaited one at a time), so a
       // failure on request K of N leaves 1..K-1 already submitted, already
-      // in the feed, and already polling. Reporting only "failed" here reads
+      // in the feed, and tracked by the worker. Reporting only "failed" here reads
       // as "nothing happened" and invites a re-click that doubles up the
       // jobs that already went through — say how many actually started.
       const message = e.message || "Failed to start generation.";
@@ -997,7 +1013,6 @@ export const useStore = create((set, get) => ({
       if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
       if (item?.id) {
         insertNewItem(set, item);
-        startPolling(item, set, get);
       }
       return item;
     } catch (e) {
@@ -1051,7 +1066,7 @@ export const useStore = create((set, get) => ({
 
       if (item?.id) {
         insertNewItem(set, item);
-        startPolling(item, set, get);
+        if (get().upscalerImage === s.upscalerImage) set({ upscalerImage: null });
       }
       return item;
     } catch (e) {
@@ -1234,7 +1249,6 @@ export const useStore = create((set, get) => ({
           newItem.kind === "video" &&
           (newItem.status === "running" || newItem.status === "queued")
         ) {
-          startPolling(newItem, set, get);
         }
         return { ok: true };
       }
@@ -1254,23 +1268,8 @@ export const useStore = create((set, get) => ({
   },
 
   addReferenceFromUrl: async (url) => {
-    if (get().model === "Seedream 5.0 Pro" || get().model === "seedream-5-pro") { get().addReference(url); return; }
-    // Fetch a generated image and add it to the composer as a reference (data
-    // URL so every provider works) — enables the hero-first crowd workflow.
-    // Generated images can be full-resolution (well over Vercel's 4.5MB body
-    // limit once base64-encoded), so this must go through the same downscale
-    // budget ladder as file uploads (addImageFiles in PromptComposer.tsx) —
-    // skipping it previously produced an oversized generate() payload that
-    // Vercel rejected with a non-JSON 413, surfacing as "server returned an
-    // empty or invalid response".
-    try {
-      const res = await fetch(inlineMediaUrl(url));
-      const blob = await res.blob();
-      const dataUrl = await encodeBlobWithBudget(blob);
-      get().addReference(dataUrl);
-    } catch (e) {
-      console.error("Failed to add reference from URL:", e);
-    }
+    // Durable stored references are resolved and authorized by Django.
+    get().addReference(url);
   },
 
   regenerate: async (id) => {
@@ -1370,7 +1369,6 @@ export const useStore = create((set, get) => ({
       const item = await res.json().catch(() => ({}));
       if (!res.ok) return { ok: false, error: item.error || `Server error: ${res.status}` };
       insertNewItem(set, item);
-      startPolling(item, set, get);
       return { ok: true, item };
     } catch (error) {
       return { ok: false, error: error?.message || "Could not start the final render." };
@@ -1384,7 +1382,9 @@ export const useStore = create((set, get) => ({
     try {
       const { extractFrame } = await import("./video-frame");
       const { dataUrl } = await extractFrame(inlineMediaUrl(url), atSeconds);
-      get().addReference(dataUrl, "video");
+      const { uploadOriginalReference } = await import("./client-reference-upload");
+      const blob = await (await fetch(dataUrl)).blob();
+      get().addReference(await uploadOriginalReference(new File([blob], "video-frame.png", {type:blob.type})), "video");
     } catch (e) {
       console.error("Failed to take a frame from video:", e);
       alert(e?.message || "Could not read a frame from this video.");
@@ -1488,6 +1488,7 @@ export const useStore = create((set, get) => ({
       destinationFolderId: item.folderId ?? null,
         referenceVideos: item.referenceVideos ?? [],
         referenceAudios: item.referenceAudios ?? [],
+        audioNotes: (item.referenceAudios ?? []).map((ref, i) => ({ref,name:`Audio ${i+1}`})),
       stagedReferenceVideos: [],
       stagedContinuationFrame: null,
       aspectRatio: item.aspectRatio,
@@ -1510,34 +1511,9 @@ export const useStore = create((set, get) => ({
       referenceImages: [],
       referenceKinds: [],
     });
-    // Restore the stored reference images as data URLs so every provider works.
     const paths = item.referenceImages ?? [];
-    if (paths.length && (item.model === "Seedream 5.0 Pro" || item.model === "seedream-5-pro")) {
-      set({ referenceImages: paths, referenceKinds: paths.map(() => "image") });
-      return { ok: true };
-    }
-    if (paths.length) {
-      const dataUrls = await Promise.all(
-        paths.map(async (p) => {
-          try {
-            const res = await fetch(inlineMediaUrl(p));
-            const blob = await res.blob();
-            return await new Promise((resolve) => {
-              const r = new FileReader();
-              r.onload = () => resolve(r.result );
-              r.readAsDataURL(blob);
-            });
-          } catch {
-            return null;
-          }
-        })
-      );
-      const restored = dataUrls.filter((d) => !!d);
-      // Original upload kind isn't stored on the saved generation, so a
-      // cloned reference always defaults to "image" (no video badge) —
-      // cosmetic-only consequence, same as the restoreComposerDraft case.
-      set({ referenceImages: restored, referenceKinds: restored.map(() => "image") });
-    }
+    set({ referenceImages: [...paths], referenceIds: paths.map(() => newReferenceId()),
+      referenceKinds: paths.map(() => "image"), referenceLabels: paths.map(() => ""), referenceTags: paths.map(() => "") });
     return { ok: true };
   },
 
@@ -1803,13 +1779,13 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  uploadPortraitImageDirect: async ({ dataUrl, name, role = "reference", groupId, projectId }) => {
+  uploadPortraitImageDirect: async ({ referenceId, dataUrl, name, role = "reference", groupId, projectId }) => {
     try {
       const pid = projectId !== undefined ? projectId : get().activeProjectId;
       const res = await apiFetch("/api/assets/portraits/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataUrl, name, role, groupId, projectId: pid ?? undefined }),
+        body: JSON.stringify({ referenceId, dataUrl, name, role, groupId, projectId: pid ?? undefined }),
       });
       if (!res.ok) {
         if (res.status === 413) {
@@ -1880,7 +1856,6 @@ export const useStore = create((set, get) => ({
   },
 
   attachPortraitToComposer: (asset, characterName = "Character") => {
-    const s = get();
     // Prioritize imageUrl for visual preview in the composer.
     // If byteplusAssetId exists, append it as a hash fragment (#bp_asset_id=) so:
     // 1. Browsers never send the fragment in HTTP requests (preserving BytePlus TOS HMAC-SHA256 signatures and avoiding HTTP 403 Forbidden).
@@ -1905,27 +1880,17 @@ export const useStore = create((set, get) => ({
       refUrl = `${refUrl}#bp_asset_id=${encodeURIComponent(asset.byteplusAssetId)}`;
     }
 
-    const currentRefs = Array.isArray(s.referenceImages) ? [...s.referenceImages] : [];
-    const currentKinds = Array.isArray(s.referenceKinds) ? [...s.referenceKinds] : [];
-    const currentLabels = Array.isArray(s.referenceLabels) ? [...s.referenceLabels] : [];
-
-    if (currentRefs.includes(refUrl)) {
-      set({ portraitGalleryOpen: false });
-      return;
-    }
-
-    currentRefs.push(refUrl);
-    currentKinds.push("portrait");
-    currentLabels.push(characterName);
-
-    set({
-      referenceImages: currentRefs,
-      referenceKinds: currentKinds,
-      referenceLabels: currentLabels,
-      portraitGalleryOpen: false,
-    });
+    get().addReference(refUrl, "portrait", characterName);
+    set({portraitGalleryOpen:false});
   },
 
+  attachPortraitsToComposer: (assets) => {
+    const unique = [...new Map(assets.map(asset => [asset.id || asset.byteplusAssetId || asset.imageUrl, asset])).values()];
+    const state = get();
+    if (state.referenceImages.length + state.referenceVideos.length + state.referenceAudios.length + unique.length > 50) return {ok:false,error:"Stage at most 50 references; remove some attachments first."};
+    for (const asset of unique) get().attachPortraitToComposer(asset, asset.groupName || asset.name || "Character");
+    return {ok:true,count:unique.length};
+  },
   loadProjects: async () => {
     try {
       // GET ensures a default project server-side (atomic — no duplicate races).
@@ -2115,7 +2080,7 @@ export const useStore = create((set, get) => ({
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       if (err.code === "VERSION_CONFLICT") await get().loadLibraryTree();
-      throw Object.assign(new Error(err.error || "Failed to rename folder"), { code: err.code });
+      throw Object.assign(new Error(err.error || "Failed to rename folder"), { code: err.code, status: res.status });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
   },
@@ -2132,7 +2097,7 @@ export const useStore = create((set, get) => ({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw Object.assign(new Error(err.error || "Failed to set folder color"), { code: err.code });
+      throw Object.assign(new Error(err.error || "Failed to set folder color"), { code: err.code, status: res.status });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
   },
@@ -2197,7 +2162,7 @@ export const useStore = create((set, get) => ({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "Failed to move folder");
+      throw Object.assign(new Error(err.error || "Failed to move folder"), {code:err.code,status:res.status});
     }
     invalidateFeedCache();
     await Promise.all([
@@ -2237,15 +2202,16 @@ export const useStore = create((set, get) => ({
       invalidateFeedCache();
       void get().loadFeed({ force: true });
       void get().loadCounts();
-      throw new Error(err.error || "Failed to move items.");
+      throw Object.assign(new Error(err.error || "Failed to move items."), {code:err.code,status:res.status});
     }
+    const committed = await res.json();
     invalidateFeedCache();
     set({ selectedIds: [] });
     await Promise.all([
       get().loadFeed({ force: true }),
       get().loadCounts(),
     ]);
-    return true;
+    return {ok:true,...committed};
   },
 
   moveItem: async (itemId, destinationOrFolderId) => {
@@ -2366,47 +2332,14 @@ export const useStore = create((set, get) => ({
   },
 }));
 
-function _pollVideo(
-  id,
-  set,
-  _get
-) {
-  if (polling.has(id)) return;
-  polling.add(id);
+installOperationTracking(useStore);
 
-  const tick = async () => {
-    let retryAfterMs = 30000;
-    try {
-      const res = await apiFetch(
-        `/api/generate/video/status?id=${encodeURIComponent(id)}`,
-        { cache: "no-store" }
-      );
-      const payload = await res.json();
-      if (!polling.has(id)) return; // disposed while the request was in flight
-      const decision = videoPollClientDecision(payload);
-      retryAfterMs = decision.retryAfterMs;
-      if (decision.transient) {
-        patchEverywhere(set, id, (item) => ({
-          ...item,
-          pollErrorCount: decision.pollErrorCount,
-          pollWarning: decision.warning,
-        }));
-      } else if (decision.item?.id) {
-        const item = decision.item;
-        patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
-        if (item.status === "succeeded" || item.status === "failed") {
-          polling.delete(id);
-          return;
-        }
-      }
-    } catch {
-      /* keep trying */
-    }
-    if (polling.has(id)) setStoreTimeout(tick, retryAfterMs);
-  };
-
-  setStoreTimeout(tick, 30000);
-}
+// Normalize legacy clone/restore paths as they enter shared draft state.
+useStore.subscribe((state, previous) => {
+  if (state.referenceImages === previous.referenceImages && state.referenceIds === previous.referenceIds) return;
+  const ids = referenceIdsFor(state);
+  if (JSON.stringify(ids) !== JSON.stringify(state.referenceIds)) useStore.setState({ referenceIds: ids });
+});
 
 /**
  * Merge server rows into the store without losing local truth — and without
@@ -2414,8 +2347,7 @@ function _pollVideo(
  *
  * Rules, each guarding a specific way this could go wrong:
  *  - Only overwrite when the incoming row is strictly newer by updatedAt, so a
- *    slow live poll can't clobber a fresher result that a per-item poller just
- *    wrote from /api/queue/execute.
+ *    slow live poll can't clobber a fresher result already received from Django.
  *  - Preserve queueNote, which is client-only and transient (it never round
  *    trips through the DB), but drop it once the item leaves the queue.
  *  - Only consider rows that belong in the scope on screen. The feed is a
@@ -2512,37 +2444,6 @@ export function mergeLiveItems(
   });
 }
 
-/**
- * Take over queued jobs nobody is driving.
- *
- * `polling` is per-tab, so "not in our polling set" means this tab is not
- * driving it — which is the whole point: the tab that WAS driving it may be
- * gone. See ADOPT_QUEUED_AFTER_MS for why staleness is required first, and why
- * concurrent adoption by several tabs is safe.
- *
- * Uses the server's clock (`now`) rather than Date.now() for the staleness
- * test, so a client whose clock runs fast can't decide every fresh job is
- * already orphaned.
- *
- * Running jobs are left alone: an image job runs inside its originating
- * request and cannot be resumed by anyone, and a running video is already
- * submitted remotely — the live feed alone will carry it to completion.
- */
-export function adoptOrphanedJobs(
-  incoming,
-  serverNow,
-  set,
-  get
-) {
-  const now = typeof serverNow === "number" ? serverNow : Date.now();
-  for (const item of incoming) {
-    if (item.status !== "queued") continue;
-    if (polling.has(item.id)) continue;
-    if (now - item.updatedAt < ADOPT_QUEUED_AFTER_MS) continue;
-    startPolling(item, set, get);
-  }
-}
-
 /** One poll of the live feed, then reschedule at a cadence that matches how
  *  much is actually happening. */
 async function liveTick(
@@ -2557,23 +2458,23 @@ async function liveTick(
     scheduleLive(set, get, LIVE_MS_IDLE);
     return;
   }
+  const epoch = storeRuntime.epoch;
   try {
     const res = await apiFetch(
       `/api/history/updates?since=${encodeURIComponent(String(storeRuntime.liveSince))}`,
       { cache: "no-store" }
     );
     const data = await res.json();
-    if (!storeRuntime.liveRunning) return; // disposed while the request was in flight
+    if (!storeRuntime.liveRunning || epoch !== storeRuntime.epoch) return; // session disposed while in flight
     if (Array.isArray(data.items)) {
       mergeLiveItems(data.items, set);
-      adoptOrphanedJobs(data.items, data.now, set, get);
     }
     // Watermark comes from the server so client clock skew can't skip changes.
     if (typeof data.now === "number") storeRuntime.liveSince = data.now;
   } catch {
     /* transient — the next tick retries, and 401 already redirects in apiFetch */
   }
-  const busy = get().items.some(
+  const busy = [...get().items, ...get().threadItems, ...get().pendingItems].some(
     (i) => i.status === "queued" || i.status === "running"
   );
   scheduleLive(set, get, busy ? LIVE_MS_ACTIVE : LIVE_MS_IDLE);
@@ -2589,203 +2490,6 @@ function scheduleLive(
   storeRuntime.liveTimer = setStoreTimeout(() => liveTick(set, get), ms);
 }
 
-/** Route a fresh/resumed item to the right poller: queued jobs of BOTH kinds
- *  wait in the capped queue (pollQueue executes at position 0); running
- *  videos are already submitted remotely and just need status polling. */
-function startPolling(
-  item,
-  set,
-  get
-) {
-  if (item?.model?.startsWith("Magnific") && item?.status === "running") {
-    _pollUpscaleStatus(item.id, set, get);
-    return;
-  }
-  // Kept as a compatibility shim for callers from older store actions. It
-  // intentionally does not call a provider/status endpoint or schedule a
-  // repeating timer: the server worker advances the row and liveTick is only
-  // a low-frequency read-only resynchronization feed.
-  if (item?.status === "queued" && item?.updatedAt === 0) {
-    setStoreTimeout(() => {}, 0);
-  }
-}
-
-/** Magnific upscale poller — polls /api/generate/upscale/status?id=... until completed/failed */
-function _pollUpscaleStatus(
-  id,
-  set,
-  get
-) {
-  if (polling.has(id)) return;
-  polling.add(id);
-
-  const tick = async () => {
-    try {
-      const res = await apiFetch(`/api/generate/upscale/status?id=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      const item = await res.json();
-      if (!polling.has(id)) return;
-      if (item?.id) {
-        patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
-        if (item.status === "succeeded" || item.status === "failed") {
-          polling.delete(id);
-          void get().loadCounts();
-          return;
-        }
-      }
-    } catch {
-      /* keep trying */
-    }
-    if (polling.has(id)) setStoreTimeout(tick, 2500);
-  };
-
-  setStoreTimeout(tick, 2000);
-}
-
-/** Depth jobs' own poller — a plain read (see generate/depth/status/route.js's
- *  docstring for why there's nothing to "advance" server-side here, unlike
- *  pollVideo). Shorter interval than pollVideo's 4s: progressPercent/
- *  progressMessage update frequently while a job is running (see
- *  reportDepthProgress) and the composer is meant to show that moving. */
-function _pollDepthStatus(
-  id,
-  set,
-  get
-) {
-  if (polling.has(id)) return;
-  polling.add(id);
-
-  const tick = async () => {
-    try {
-      const res = await apiFetch(`/api/generate/depth/status?id=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      const item = await res.json();
-      if (!polling.has(id)) return; // disposed while the request was in flight
-      if (item?.id) {
-        patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
-        if (item.status === "succeeded" || item.status === "failed") {
-          polling.delete(id);
-          void get().loadCounts();
-          return;
-        }
-      }
-    } catch {
-      /* keep trying */
-    }
-    if (polling.has(id)) setStoreTimeout(tick, 2500);
-  };
-
-  setStoreTimeout(tick, 1500);
-}
-
-function _pollQueue(
-  id,
-  set,
-  get
-) {
-  if (polling.has(id)) return;
-  polling.add(id);
-
-  const tick = async () => {
-    try {
-      const res = await apiFetch(`/api/queue/status?id=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      const data = await res.json();
-      if (!polling.has(id)) return; // disposed while the request was in flight
-
-      if (data.status === "queued" && data.position === 0) {
-        // It's our turn!
-        const execRes = await apiFetch(`/api/queue/execute`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        });
-        const finalItem = await execRes.json();
-        if (!polling.has(id)) return; // disposed while execution was in flight
-
-        if (finalItem?.notAdmitted) {
-          // Lost a race with the server's own admission check — the
-          // concurrency cap or spend window filled between our /status read
-          // and this call. This is the same "held" state /api/queue/status
-          // itself reports (see getQueuePosition), so handle it identically
-          // rather than treating the call as done.
-          if (finalItem.heldForBudget) {
-            patchEverywhere(set, id, (i) => ({ ...i, queueNote: finalItem.heldReason }));
-            if (polling.has(id)) {
-              setStoreTimeout(
-                tick,
-                Math.min(Math.max(Number(finalItem.retryAfterMs) || 5000, 5000), 60_000)
-              );
-            }
-          } else if (polling.has(id)) {
-            setStoreTimeout(tick, 3000);
-          }
-          return;
-        }
-
-        if (finalItem?.id) {
-          patchEverywhere(set, finalItem.id, (i) => ({
-            ...i,
-            ...finalItem,
-            queueNote: undefined,
-          }));
-          // Cost lands with the finished row, and the counts endpoint is what
-          // the folder rail reads.
-          void get().loadCounts();
-          // Videos come back "running" with a provider taskId — hand off to
-          // the remote-render status poller.
-          if (finalItem.kind === "video" && finalItem.status === "running") {
-            _pollVideo(finalItem.id, set, get);
-          }
-        }
-        // A response with neither `id` nor `notAdmitted` means execute
-        // genuinely failed to run this job — it vanished, or another tab's
-        // execute call won the same race after admission was already
-        // granted to both ("Job is already running or invalid."). Either
-        // way this tab is no longer driving it: don't guess at a status
-        // here, the live feed (mergeLiveItems) reconciles the real outcome
-        // shortly, and overwriting status to "failed" client-side would be
-        // actively wrong if the other caller's execute succeeds.
-        polling.delete(id);
-        return; // done
-      } else if (data.heldForBudget) {
-        // Held by the spend gate, not by a backlog. Surface why, and pace the
-        // next poll off the server's hint — the window frees on a schedule the
-        // server knows and the client can't guess, so polling every 3s here
-        // would be pure noise (and each poll is a DB round trip).
-        patchEverywhere(set, id, (i) => ({ ...i, queueNote: data.heldReason }));
-        if (polling.has(id)) {
-          setStoreTimeout(tick, Math.min(Math.max(Number(data.retryAfterMs) || 5000, 5000), 60_000));
-        }
-        return;
-      } else if (data.status === "succeeded" || data.status === "failed") {
-        // Finished (or failed) since our last check — merge the real item
-        // (url/cost/etc.) rather than just noting the status string, so a
-        // client that resumed polling on a "running" item actually sees it
-        // complete without needing a manual refresh.
-        if (data.item?.id) {
-          patchEverywhere(set, data.item.id, (i) => ({
-            ...i,
-            ...data.item,
-            queueNote: undefined,
-          }));
-        }
-        polling.delete(id);
-        return;
-      }
-      // Still queued and position > 0, wait and poll again
-    } catch {
-      /* keep trying */
-    }
-    if (polling.has(id)) setStoreTimeout(tick, 3000);
-  };
-
-  setStoreTimeout(tick, 1000);
-}
-
 // ── composer draft + UI-state persistence ────────────────────────────────────
 // The prompt is written on a short debounce (it changes per keystroke); the
 // reference images are written only when they actually change (they can be
@@ -2796,7 +2500,7 @@ const DRAFT_REFS_KEY = "veevee-draft-refs-v1";
 /** Past this, restoring the draft is not worth a multi-megabyte synchronous
  *  write that the ~5MB origin quota would likely reject anyway. Measured in
  *  characters of base64, which is close enough to bytes for a guard. */
-const DRAFT_REFS_MAX_BYTES = 2_000_000;
+
 const DRAFT_SETTINGS_KEY = "veevee-draft-settings-v1";
 
 /** Restore the locally cached composer draft (prompt + reference images) and
@@ -2871,37 +2575,38 @@ export function restoreComposerDraft() {
       useStore.setState(patch);
     }
 
-    const s = useStore.getState();
-    if (s.prompt || s.referenceImages.length) return;
-    const prompt = localStorage.getItem(DRAFT_PROMPT_KEY) ?? "";
-    const refsRaw = localStorage.getItem(DRAFT_REFS_KEY);
-    const refs = refsRaw ? JSON.parse(refsRaw) : [];
-    if (!prompt && !(Array.isArray(refs) && refs.length)) return;
-    const restoredRefs = Array.isArray(refs)
-      ? refs
-          .filter((r) => typeof r === "string")
-          .map((r) => {
-            if (r.startsWith("http") && /[?&]bp[-_]asset(?:_id)?=/.test(r)) {
-              const match = r.match(/[?&]bp[-_]asset(?:_id)?=([^&#]+)/);
-              if (match) {
-                const stripped = r
-                  .replace(/([?&])bp[-_]asset(?:_id)?=[^&#]+(&?)/, (m, p, s) => (p === "?" && s ? "?" : ""))
-                  .replace(/[?&]$/, "");
-                return `${stripped}#bp_asset_id=${match[1]}`;
-              }
-            }
-            return r;
-          })
-      : [];
-    useStore.setState({
-      prompt,
-      referenceImages: restoredRefs,
-      // Kind isn't persisted to the draft cache — defaults to "image", same
-      // cosmetic-only tradeoff as cloneToComposer.
-      referenceKinds: restoredRefs.map(() => "image"),
-    });
+    // Legacy caches were unscoped and could contain binary/signed references.
+    localStorage.removeItem(DRAFT_PROMPT_KEY);
+    localStorage.removeItem(DRAFT_REFS_KEY);
+    void restoreScopedComposerDraft();
   } catch {
     /* corrupt or unavailable draft — start clean */
+  }
+}
+
+let restoringDraft = false;
+let draftRestoreEpoch = 0;
+
+async function restoreScopedComposerDraft() {
+  const epoch = ++draftRestoreEpoch;
+  restoringDraft = true;
+  const initial = useStore.getState(); const scope = snapshotScope(initial);
+  if (!scope) { restoringDraft = false; return; }
+  try {
+    const draft = await loadComposerSnapshot(scope);
+    const now = useStore.getState();
+    if (!draft || scope !== snapshotScope(now) || now.prompt || now.referenceImages.length) return;
+    // Missing refs must be reattached; keep positions so mentions never bind to another file.
+    const refs = Array.isArray(draft.refs) ? draft.refs.slice(0, 50) : [];
+    useStore.setState({ ...metadataToDraft(draft,newReferenceId),
+      recentSubmission: draft.recent ? metadataToDraft(draft.recent,newReferenceId) : null,
+      draftStorageWarning: refs.some(r => !r.mediaRef) ? "Some references need to be attached again." : null });
+  } catch { /* storage denied/quota: visible draft still works */ }
+  finally {
+    if (epoch === draftRestoreEpoch) {
+      restoringDraft = false;
+      if (scope === snapshotScope(useStore.getState())) void saveComposerSnapshot(scope, composerMetadata(useStore.getState())).catch(() => {});
+    }
   }
 }
 
@@ -2963,37 +2668,20 @@ if (typeof window !== "undefined") {
   });
 
   useStore.subscribe((s, prev) => {
-    if (s.prompt !== prev.prompt) {
+    if (snapshotScope(s) !== snapshotScope(prev)) {
+      restoringDraft = true;
+      useStore.setState({ prompt: "", referenceImages: [], referenceIds: [], referenceKinds: [], referenceLabels: [], referenceTags: [], referenceVideos: [], referenceAudios: [], recentSubmission: null });
+      void restoreScopedComposerDraft();
+    } else if (!restoringDraft && (s.prompt !== prev.prompt || s.referenceImages !== prev.referenceImages || s.referenceIds !== prev.referenceIds || s.referenceVideos !== prev.referenceVideos || s.referenceAudios !== prev.referenceAudios)) {
       storeRuntime.promptTimer = clearStoreTimeout(storeRuntime.promptTimer);
-      storeRuntime.promptTimer = setStoreTimeout(() => {
-        try {
-          localStorage.setItem(DRAFT_PROMPT_KEY, s.prompt);
-        } catch {}
-      }, 400);
-    }
-    if (s.referenceImages !== prev.referenceImages) {
-      // References are base64 data URLs sized against a ~4MB upload budget, so
-      // this is the largest thing the app ever writes — and localStorage is
-      // synchronous, main-thread and disk-backed. Serialising several MB on
-      // the spot janks the UI at exactly the moment the user is adding or
-      // reordering images. Debounced like the prompt beside it, and skipped
-      // outright past a size the quota would reject anyway (typically 5MB for
-      // the whole origin, shared with the prompt and settings drafts): the
-      // stringify is most of the cost, so checking first avoids doing the
-      // expensive part only to throw it away.
-      storeRuntime.refsTimer = clearStoreTimeout(storeRuntime.refsTimer);
-      storeRuntime.refsTimer = setStoreTimeout(() => {
-        const bytes = s.referenceImages.reduce((n, r) => n + r.length, 0);
-        try {
-          if (bytes > DRAFT_REFS_MAX_BYTES) localStorage.removeItem(DRAFT_REFS_KEY);
-          else localStorage.setItem(DRAFT_REFS_KEY, JSON.stringify(s.referenceImages));
-        } catch {
-          // Quota exceeded anyway — drop the cached refs but keep the prompt.
-          try {
-            localStorage.removeItem(DRAFT_REFS_KEY);
-          } catch {}
-        }
-      }, 400);
+      const scope = snapshotScope(s);
+      const persist = () => {
+        if (scope === snapshotScope(useStore.getState())) void saveComposerSnapshot(scope, composerMetadata(useStore.getState())).catch(() => {
+          useStore.setState({ draftStorageWarning: "Draft could not be saved on this device." });
+        });
+      };
+      if (s.referenceImages !== prev.referenceImages || s.referenceIds !== prev.referenceIds || s.referenceVideos !== prev.referenceVideos || s.referenceAudios !== prev.referenceAudios) persist();
+      else storeRuntime.promptTimer = setStoreTimeout(persist, 400);
     }
     if (
       s.view !== prev.view ||

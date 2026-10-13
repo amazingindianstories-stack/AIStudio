@@ -1,3 +1,7 @@
+> Historical Node evaluation fixture documentation. Its executable was retired
+> with the Node backend; use the Django provider qualification and separately
+> authorized live acceptance plan in docs/django-migration/provider-parity-matrix.md.
+
 # Regression eval fixtures
 
 Fixtures for `npm run eval:regression` (`scripts/eval-regression.js`). Each

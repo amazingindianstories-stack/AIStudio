@@ -1,5 +1,6 @@
 """Current rowToItem public shape; provider_responses is never exposed."""
 from uuid import UUID
+import re
 
 REQUIRED = ('id', 'kind', 'status', 'prompt', 'model', 'aspect_ratio',
             'depth_reap_attempts', 'is_favorite', 'flagged', 'created_at', 'updated_at')
@@ -29,7 +30,7 @@ def generation_item(row):
     for name in OPTIONAL:
         item = value(row, name)
         if item is not None:
-            result[camel(name)] = item
+            result[camel(name)] = public_error(row, item) if name == 'error' else item
     for name in ('source_generation_id', 'draft_task_id'):
         result[camel(name)] = value(row, name)
     for name, fallback in [('poll_attempts', 0), ('poll_error_count', 0), ('location_version', 1)]:
@@ -39,3 +40,32 @@ def generation_item(row):
     if row.continuation_frame_url is not None:
         result['firstFrameUrl'] = row.continuation_frame_url
     return result
+
+
+def public_error(row, diagnostic):
+    """Provider/transport diagnostics are private, including historical rows.
+
+    A provider can echo credentials in any spelling, so pattern redaction cannot
+    establish a safe public message. Only exact backend messages are retained.
+    """
+    from .providers.seedance import MODERATION_MESSAGE
+    if diagnostic == MODERATION_MESSAGE:
+        return MODERATION_MESSAGE
+    if row.moderation_blocked:
+        return 'Generation was blocked by provider moderation. Adjust the prompt or references.'
+    if isinstance(diagnostic, str) and re.fullmatch(
+            r'Generation exceeded the [0-9]{1,5}-second internal deadline\.', diagnostic):
+        return diagnostic
+    if diagnostic in (
+        'Provider reported success but returned no video.',
+        'Omni reported success but returned no video.',
+        'All candidates failed to generate.',
+    ):
+        return diagnostic
+    if row.model.startswith('Magnific '):
+        return 'Upscale generation failed.'
+    if row.kind == 'audio':
+        return 'Audio transcription failed.'
+    if row.kind == 'depth':
+        return 'Depth generation failed.'
+    return 'Video generation failed.' if row.kind == 'video' else 'Image generation failed.'

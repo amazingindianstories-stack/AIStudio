@@ -35,9 +35,9 @@ export function InlineFolderNameEditor({ initialName = "", label, onCommit, onCl
   };
 
   return (
-    <form className="min-w-0 flex-1" onClick={(e) => e.stopPropagation()}
+    <form className="min-w-0 w-[180px] max-w-[180px] flex-1" onClick={(e) => e.stopPropagation()}
       onSubmit={(e) => { e.preventDefault(); void commit(true); }}>
-      <input autoFocus aria-label={label} aria-invalid={Boolean(error)}
+      <input title={name} aria-busy={saving} autoFocus aria-label={label} aria-invalid={Boolean(error)}
         value={name} readOnly={saving}
         onChange={(e) => { setName(e.target.value); setError(""); }}
         onBlur={() => void commit()}
@@ -50,7 +50,8 @@ export function InlineFolderNameEditor({ initialName = "", label, onCommit, onCl
           }
         }}
         className="my-1 w-full rounded border border-brand/60 bg-ink-900 px-1 py-0.5 text-xs text-white outline-none focus:border-brand" />
-      {error && <span role="alert" className="block text-[10px] text-red-400">{error}</span>}
+      {saving && <span role="status" className="block text-[10px] text-white/60">Saving folder…</span>}
+      {error && <span role="alert" className="block max-w-full whitespace-normal break-words text-[10px] leading-relaxed text-red-400">{error}</span>}
     </form>
   );
 }

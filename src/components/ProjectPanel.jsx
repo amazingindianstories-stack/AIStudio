@@ -18,7 +18,7 @@ import { MediaCard } from "./MediaCard";
 import { AssetGrid } from "./AssetGrid";
 import { UNSORTED } from "@/lib/feed-scope";
 import { cn } from "@/lib/utils";
-import { FolderTree } from "./FolderTree";
+import { FolderTree, FolderOperationRail } from "./FolderTree";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { ChildFolderList } from "./ChildFolderList";
 import { DestinationPickerModal } from "./DestinationPickerModal";
@@ -190,7 +190,8 @@ export function ProjectPanel({ cardWidth = 160 }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1">
         {/* Navigation Rail */}
-        <div className="scroll-thin flex w-[clamp(9rem,28%,12.5rem)] shrink-0 flex-col overflow-y-auto border-r border-line p-2 select-none">
+        <div className="flex min-h-0 w-[290px] max-w-[45vw] shrink-0 flex-col border-r border-line select-none">
+        <div className="scroll-thin min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-2">
           {/* ── GLOBAL LIBRARY SECTION ── */}
           <div className="mb-4 space-y-1">
             <div className="flex items-center justify-between px-1.5 py-1">
@@ -252,24 +253,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
               folderEditor
             )}
 
-            {/* Global Unsorted */}
-            <FolderRow
-              label="Unsorted"
-              count={counts.globalLibrary?.unsorted ?? 0}
-              icon={<Inbox className="h-4 w-4" />}
-              active={!briefView && activeProjectId === null && activeFolderId === UNSORTED}
-              dragOver={dragOverRoot === "global_unsorted"}
-              dragOverValid={dragOverValid}
-              onDragEnter={handleDragEnterRoot("global_unsorted", { type: "global_unsorted" })}
-              onDragOver={handleDragOverRoot("global_unsorted", { type: "global_unsorted" })}
-              onDragLeave={handleDragLeaveRoot("global_unsorted")}
-              onDrop={handleDropOnRoot({ type: "global_unsorted" }, "global_unsorted")}
-              onClick={() => {
-                setBriefView(false);
-                setActiveProject(null);
-                setActiveFolder(UNSORTED);
-              }}
-            />
+
           </div>
 
           {/* ── ACTIVE PROJECT WORKSPACE SECTION ── */}
@@ -375,6 +359,39 @@ export function ProjectPanel({ cardWidth = 160 }) {
                 folderEditor
               )}
 
+
+            </div>
+          ) : (
+            <div className="border-t border-line/60 pt-3 px-1.5 space-y-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                Workspace
+              </span>
+              <p className="text-xs text-white/40 leading-relaxed">
+                Global Library is active. Switch to a project using the selector above to open a project workspace.
+              </p>
+            </div>
+          )}
+        </div>
+        <div data-testid="sticky-unsorted-rail" className="shrink-0 border-t border-line bg-ink-850 p-2">
+            {/* Global Unsorted */}
+            <FolderRow
+              label="Unsorted"
+              count={counts.globalLibrary?.unsorted ?? 0}
+              icon={<Inbox className="h-4 w-4" />}
+              active={!briefView && activeProjectId === null && activeFolderId === UNSORTED}
+              dragOver={dragOverRoot === "global_unsorted"}
+              dragOverValid={dragOverValid}
+              onDragEnter={handleDragEnterRoot("global_unsorted", { type: "global_unsorted" })}
+              onDragOver={handleDragOverRoot("global_unsorted", { type: "global_unsorted" })}
+              onDragLeave={handleDragLeaveRoot("global_unsorted")}
+              onDrop={handleDropOnRoot({ type: "global_unsorted" }, "global_unsorted")}
+              onClick={() => {
+                setBriefView(false);
+                setActiveProject(null);
+                setActiveFolder(UNSORTED);
+              }}
+            />
+{project && <>
               {/* Project Unsorted */}
               <FolderRow
                 label="Unsorted"
@@ -393,17 +410,9 @@ export function ProjectPanel({ cardWidth = 160 }) {
                   setActiveFolder(UNSORTED);
                 }}
               />
-            </div>
-          ) : (
-            <div className="border-t border-line/60 pt-3 px-1.5 space-y-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                Workspace
-              </span>
-              <p className="text-xs text-white/40 leading-relaxed">
-                Global Library is active. Switch to a project using the selector above to open a project workspace.
-              </p>
-            </div>
-          )}
+</>}
+        </div>
+        <FolderOperationRail />
         </div>
 
         {/* Main Content Area */}
@@ -539,6 +548,9 @@ function FolderRow({
 }) {
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); onClick?.(); } }}
       onClick={onClick}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}

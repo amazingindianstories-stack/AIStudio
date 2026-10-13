@@ -83,6 +83,18 @@ export const MentionTextarea = forwardRef(
   ) {
     const taRef = useRef(null);
     const highlightRef = useRef(null);
+    const previousValue = useRef(value);
+    const savedSelection = useRef({ start: value.length, end: value.length });
+    useEffect(() => {
+      const before = previousValue.current;
+      if (before !== value && before.replace(/@img[1-9]\d*\b/gi, "@img") === value.replace(/@img[1-9]\d*\b/gi, "@img")) {
+        const start = mapMentionSelection(before, value, savedSelection.current.start);
+        const end = mapMentionSelection(before, value, savedSelection.current.end);
+        taRef.current?.setSelectionRange(start, end);
+        savedSelection.current = { start, end };
+      }
+      previousValue.current = value;
+    }, [value]);
     const [menuOpen, setMenuOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [activeIdx, setActiveIdx] = useState(0);
@@ -142,7 +154,7 @@ export const MentionTextarea = forwardRef(
       const ta = taRef.current;
       if (!ta) return;
       ta.style.height = "auto";
-      ta.style.height = Math.min(ta.scrollHeight, 180) + "px";
+      ta.style.height = Math.min(ta.scrollHeight, 240) + "px";
     };
 
     useEffect(() => {
@@ -271,7 +283,7 @@ export const MentionTextarea = forwardRef(
           ref={highlightRef}
           aria-hidden
           className={cn(
-            "pointer-events-none absolute inset-0 max-h-[180px] overflow-hidden text-white/90",
+            "pointer-events-none absolute inset-0 max-h-[240px] overflow-hidden text-white/90",
             TYPO,
             className
           )}
@@ -296,13 +308,14 @@ export const MentionTextarea = forwardRef(
             detectMention(value, e.currentTarget.selectionStart);
           }}
           onBlur={() => setTimeout(() => setMenuOpen(false), 120)}
-          rows={2}
+          onSelect={(e) => { savedSelection.current = { start: e.currentTarget.selectionStart, end: e.currentTarget.selectionEnd }; }}
+          rows={3}
           placeholder={placeholder}
           className={cn(
             // Deliberately NOT scroll-thin: a visible scrollbar (any width)
             // narrows this element's text-wrapping width relative to the
             // overlay div above, which never shows one — see TYPO's comment.
-            "relative max-h-[180px] min-h-[58px] w-full resize-none bg-transparent text-transparent caret-white outline-none placeholder:text-white/35",
+            "relative max-h-[240px] min-h-[76px] w-full resize-none bg-transparent text-transparent caret-white outline-none placeholder:text-white/35",
             TYPO,
             className
           )}
@@ -411,7 +424,7 @@ function classifyMentionToken(raw) {
     return {
       type: canonicalMatch[1].toLowerCase(),
       index: parseInt(canonicalMatch[2], 10),
-      isCanonical: true,
+      isCanonical: canonicalMatch[1].toLowerCase() !== "img" || /^[1-9]\d*$/.test(canonicalMatch[2]),
     };
   }
 
@@ -456,7 +469,7 @@ function classifyMentionToken(raw) {
 }
 
 const HIGHLIGHT_TOKEN_REGEX =
-  /@(?:image|pic|img|video|vid|audio)[\s_-]*\d+|@([a-z][a-z0-9_-]*)/gi;
+  /@(?:image|pic|img|video|vid|audio)[\s_-]*\d+(?![a-z0-9_-])|@([a-z][a-z0-9_-]*)/gi;
 
 /** Split text into plain runs and @tag tokens; valid tags get a brand highlight,
  *  unknown ones go red, recognized non-canonical tags get an amber hint. */
@@ -493,12 +506,15 @@ function renderHighlighted(
       isValid = assetSlugs.has(info.slug);
     }
 
+    const reservedImage = /^@(?:img|imgg|image|pic)(?:$|[\s\d_-])/i.test(raw);
+    const imageWarning = reservedImage && (!isValid || isInformal || !info?.isCanonical);
     out.push(
       <span
         key={key++}
+        title={imageWarning ? "Literal image-reference text. Attach the exact numbered reference or use a valid @imgN tag; this warning does not block submission." : undefined}
         className={cn(
           "rounded-sm",
-          isValid
+          imageWarning ? "bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/40" : isValid
             ? isInformal
               ? "bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/40"
               : "bg-brand/25 text-brand"
@@ -549,4 +565,20 @@ export function attachedMediaSuggestions(query, videoCount, audioCount) {
     }));
 
   return [...vids, ...audios];
+}
+
+
+/** Keep a saved caret at the same literal-text boundary when indexed mentions
+ * change width (for example @img1 becomes @img50 after an occurrence move). */
+export function mapMentionSelection(before, after, position) {
+  const oldTokens = [...before.matchAll(/@img[1-9]\d*\b/gi)];
+  const newTokens = [...after.matchAll(/@img[1-9]\d*\b/gi)];
+  let delta = 0;
+  for (let i = 0; i < oldTokens.length && i < newTokens.length; i++) {
+    const old = oldTokens[i], next = newTokens[i];
+    if (position < old.index) break;
+    if (position <= old.index + old[0].length) return next.index + Math.min(position - old.index, next[0].length);
+    delta += next[0].length - old[0].length;
+  }
+  return Math.min(after.length, position + delta);
 }

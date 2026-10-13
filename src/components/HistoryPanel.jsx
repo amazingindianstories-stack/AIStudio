@@ -20,6 +20,7 @@ import {
   SlidersHorizontal,
   Trash2,
   AlertCircle,
+  Inbox,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
@@ -28,7 +29,8 @@ import { EmptyState, BriefEditor } from "./ProjectPanel";
 import { AssetGrid } from "./AssetGrid";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { ProjectMenu } from "./ProjectMenu";
-import { FolderTree } from "./FolderTree";
+import { getAssetDragData, isFolderDragEvent } from "@/lib/asset-drag-contract";
+import { FolderTree, FolderOperationRail } from "./FolderTree";
 import { BreadcrumbBar } from "./BreadcrumbBar";
 import { ChildFolderList } from "./ChildFolderList";
 import { DestinationPickerModal } from "./DestinationPickerModal";
@@ -42,6 +44,7 @@ const ZOOM_MAX = 260;
 const ACTIVE_EXPORT_KEY = "veevee-active-media-export-v1";
 
 export function HistoryPanel() {
+  const actorId = useStore((s) => s.currentUser?.id);
   const items = useStore((s) => s.items);
   const loading = useStore((s) => s.loading);
   const refreshing = useStore((s) => s.refreshing);
@@ -68,13 +71,18 @@ export function HistoryPanel() {
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
+  const [unsortedDrop, setUnsortedDrop] = useState(false);
+  const [folderDropError, setFolderDropError] = useState("");
   const [briefView, setBriefView] = useState(false);
   const [addingScope, setAddingScope] = useState(null); // { projectId, parentId } or null
   const [isDownloadingZip, setIsDownloadingZip] = useState(false);
   const [activeExport, setActiveExport] = useState(null);
   const [moveModalOpen, setMoveModalOpen] = useState(false);
   const [movingFolder, setMovingFolder] = useState(null);
-  const autoDownloaded = useRef(null);
+  const exportBusy = useRef(false);
+  const downloadFrame = useRef(null);
+  const exportStorageKey = actorId ? `${ACTIVE_EXPORT_KEY}:${actorId}` : null;
+  const displayedExport = activeExport?.actorId === actorId ? activeExport : null;
 
   // Switching project closes brief view and folder creation
   useEffect(() => {
@@ -82,56 +90,53 @@ export function HistoryPanel() {
     setAddingScope(null);
   }, [activeProjectId]);
 
-  // Active export restoration & polling
+  // Only identifiers are persisted, isolated by actor; grants require a click.
   useEffect(() => {
+    setActiveExport(null);
+    if (!exportStorageKey) return;
     try {
-      const id = localStorage.getItem(ACTIVE_EXPORT_KEY);
-      if (id) {
-        setActiveExport({
-          id,
-          status: "queued",
-          totalItems: 0,
-          processedItems: 0,
-          skippedItems: 0,
-        });
-      }
-    } catch {
-      /* ignore */
-    }
-  }, []);
+      localStorage.removeItem(ACTIVE_EXPORT_KEY); // Discard legacy unscoped state.
+      const id = localStorage.getItem(exportStorageKey);
+      if (id) setActiveExport({ id, actorId, status: "queued", totalItems: 0, processedItems: 0 });
+    } catch {}
+  }, [actorId, exportStorageKey]);
 
   useEffect(() => {
-    if (!activeExport?.id || !["queued", "running"].includes(activeExport.status)) return;
+    if (!displayedExport?.id || !["queued", "running"].includes(displayedExport.status)) return;
     let cancelled = false;
     const poll = async () => {
-      const response = await apiFetch(`/api/history/exports/${activeExport.id}`);
-      if (!response.ok) {
-        if (response.status === 404) {
-          try {
-            localStorage.removeItem(ACTIVE_EXPORT_KEY);
-          } catch {}
+      try {
+        const response = await apiFetch(`/api/history/exports/${displayedExport.id}`, { cache: "no-store" });
+        if (cancelled) return;
+        if (!response.ok) {
+          if ([401, 403, 404].includes(response.status)) {
+            try { localStorage.removeItem(exportStorageKey); } catch {}
+            setActiveExport(null);
+          } else if (response.status === 410) {
+            setActiveExport((value) => ({ ...value, status: "expired", error: "ZIP expired. Select the items and create a new ZIP." }));
+          } else {
+            setActiveExport((value) => ({ ...value, pollError: "Cannot check ZIP status. Retrying…" }));
+          }
+          return;
         }
-        return;
-      }
-      const next = await response.json();
-      if (!cancelled) setActiveExport(next);
-      if (next.status === "ready" && autoDownloaded.current !== next.id) {
-        autoDownloaded.current = next.id;
-        window.location.assign(`/api/history/exports/${next.id}/download`);
-        try {
-          localStorage.removeItem(ACTIVE_EXPORT_KEY);
-        } catch {
-          /* ignore */
+        const next = await response.json();
+        if (next.status === "draft") {
+          next.status = "failed";
+          next.canRetry = false;
+          next.error = "ZIP selection was interrupted. Select the items and create a new ZIP.";
+        } else if (next.status === "ready" && next.expiresAt && next.expiresAt <= Date.now()) {
+          next.status = "expired";
+          next.error = "ZIP expired. Select the items and create a new ZIP.";
         }
+        if (!cancelled) setActiveExport({ ...next, actorId });
+      } catch {
+        if (!cancelled) setActiveExport((value) => ({ ...value, pollError: "Cannot check ZIP status. Retrying…" }));
       }
     };
     poll();
     const timer = setInterval(poll, 2000);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [activeExport?.id, activeExport?.status]);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [displayedExport?.id, displayedExport?.status, actorId, exportStorageKey]);
 
   // Thumbnail size zoom control
   const [assetCardWidth, setAssetCardWidth] = useState(160);
@@ -181,7 +186,10 @@ export function HistoryPanel() {
     filterKind === "all" ? "All types" : filterKind === "image" ? "Images" : "Videos";
 
   const downloadSelectedZip = async () => {
-    if (!selectedExportableIds.length || isDownloadingZip) return;
+    if (!selectedExportableIds.length || exportBusy.current || !actorId) return;
+    exportBusy.current = true;
+    const ids = [...selectedExportableIds];
+    const stillActor = () => useStore.getState().currentUser?.id === actorId;
     setIsDownloadingZip(true);
     try {
       const res = await apiFetch("/api/history/exports", { method: "POST" });
@@ -191,50 +199,85 @@ export function HistoryPanel() {
       }
       const job = await res.json();
       try {
-        localStorage.setItem(ACTIVE_EXPORT_KEY, job.id);
+        localStorage.setItem(exportStorageKey, job.id);
       } catch {
         /* ignore */
       }
+      if (!stillActor()) return;
+      setActiveExport({ id: job.id, actorId, status: "draft", totalItems: ids.length });
       let rejected = 0;
-      for (let offset = 0; offset < selectedExportableIds.length; offset += 500) {
+      for (let offset = 0; offset < ids.length; offset += 500) {
         const chunkResponse = await apiFetch(`/api/history/exports/${job.id}/items`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: selectedExportableIds.slice(offset, offset + 500) }),
+          body: JSON.stringify({ ids: ids.slice(offset, offset + 500) }),
         });
         const body = await chunkResponse.json().catch(() => ({}));
         if (!chunkResponse.ok) throw new Error(body.error || "Failed to add items to export.");
         rejected += body.rejected?.length || 0;
       }
+      if (rejected) {
+        const error = new Error(`${rejected} selected items are unavailable. Review the selection and create a new ZIP.`);
+        error.canRetry = false;
+        throw error;
+      }
+      if (!stillActor()) return;
       const finalize = await apiFetch(`/api/history/exports/${job.id}/finalize`, {
         method: "POST",
       });
-      if (!finalize.ok) throw new Error("Failed to queue export.");
+      const finalized = await finalize.json().catch(() => ({}));
+      if (!finalize.ok) throw new Error(finalized.error || "Failed to queue export.");
+      if (!stillActor()) return;
       setActiveExport({
         id: job.id,
+        actorId,
         status: "queued",
-        totalItems: selectedExportableIds.length - rejected,
+        totalItems: ids.length - rejected,
         processedItems: 0,
         skippedItems: rejected,
       });
     } catch (error) {
-      alert(error?.message || "Failed to download ZIP.");
+      if (stillActor()) setActiveExport((value) => ({ ...value, actorId, status: "failed", error: error?.message || "Failed to create ZIP.", canRetry: Boolean(value?.id) && error.canRetry !== false }));
     } finally {
+      exportBusy.current = false;
       setIsDownloadingZip(false);
     }
   };
 
   const retryExport = async () => {
-    if (!activeExport?.id) return;
-    const response = await apiFetch(`/api/history/exports/${activeExport.id}/finalize`, {
-      method: "POST",
-    });
-    if (response.ok) {
-      try {
-        localStorage.setItem(ACTIVE_EXPORT_KEY, activeExport.id);
-      } catch {}
+    if (!displayedExport?.id || exportBusy.current) return;
+    exportBusy.current = true;
+    setIsDownloadingZip(true);
+    try {
+      const response = await apiFetch(`/api/history/exports/${displayedExport.id}/finalize`, { method: "POST" });
+      const result = await response.json().catch(() => ({}));
+      if (useStore.getState().currentUser?.id !== actorId) return;
+      if (!response.ok) throw new Error(result.error || "Could not retry ZIP. Try again.");
+      try { localStorage.setItem(exportStorageKey, displayedExport.id); } catch {}
       setActiveExport((value) => ({ ...value, status: "queued", error: null }));
-    }
+    } catch (error) {
+      if (useStore.getState().currentUser?.id === actorId) setActiveExport((value) => ({ ...value, error: error.message }));
+    } finally { exportBusy.current = false; setIsDownloadingZip(false); }
+  };
+
+  const downloadExport = async (event) => {
+    event.preventDefault();
+    if (!displayedExport?.id || exportBusy.current) return;
+    exportBusy.current = true;
+    try {
+      const response = await apiFetch(`/api/history/exports/${displayedExport.id}`, { cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (useStore.getState().currentUser?.id !== actorId) return;
+      if (!response.ok) throw new Error("ZIP is unavailable. Refresh the selection and try again.");
+      if (result.expiresAt && result.expiresAt <= Date.now()) {
+        setActiveExport((value) => ({ ...value, status: "expired", error: "ZIP expired. Select the items and create a new ZIP." }));
+        return;
+      }
+      if (result.status !== "ready") throw new Error(result.error || "ZIP is not ready. Check its status and try again.");
+      downloadFrame.current.src = `/api/history/exports/${displayedExport.id}/download`;
+    } catch (error) {
+      if (useStore.getState().currentUser?.id === actorId) setActiveExport((value) => ({ ...value, downloadError: error.message }));
+    } finally { exportBusy.current = false; }
   };
 
   const handlePanelKeyDown = (e) => {
@@ -284,21 +327,19 @@ export function HistoryPanel() {
   return (
     <div
       onKeyDown={handlePanelKeyDown}
-      className="flex h-full w-full overflow-hidden bg-ink-850"
+      className="history-panel flex h-full w-full overflow-hidden bg-ink-850"
     >
       {/* ══════════════════════════════════════════════════════════════════════
           LEFT: PERSISTENT NAVIGATION SIDEBAR (w-60 shrink-0)
           ══════════════════════════════════════════════════════════════════════ */}
-      <aside className="flex w-60 shrink-0 flex-col border-r border-line bg-ink-850 select-none">
+      <aside className="history-navigation flex min-h-0 shrink-0 flex-col border-r border-line bg-ink-850 select-none">
         {/* Workspace Switcher (~40-44px high) */}
         <Dropdown
           align="left"
           label="Switch workspace"
           className="w-full shrink-0"
           trigger={(open) => (
-            <button
-              type="button"
-              aria-label="Switch project"
+            <span
               className={cn(
                 "flex h-11 w-full items-center justify-between border-b border-line px-3.5 text-left transition hover:bg-white/5 outline-none",
                 open && "bg-white/5"
@@ -320,14 +361,14 @@ export function HistoryPanel() {
                   open && "rotate-180"
                 )}
               />
-            </button>
+            </span>
           )}
         >
           {(close) => <ProjectMenu close={close} />}
         </Dropdown>
 
         {/* Scrollable Navigation Hierarchy */}
-        <div className="scroll-thin flex flex-1 flex-col overflow-y-auto p-2 space-y-4">
+        <div className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-2 space-y-4">
           {/* ── SECTION 1: LIBRARY ── */}
           <div className="space-y-0.5">
             <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">
@@ -463,6 +504,17 @@ export function HistoryPanel() {
             )}
           </div>
         </div>
+        <div data-testid="sticky-unsorted-rail" className="shrink-0 border-t border-line bg-ink-850 p-2">
+          <button type="button" aria-label={`${project?.name || "Global"} Unsorted`} onClick={() => { setRightTab("project"); setBriefView(false); setActiveFolder(UNSORTED); }}
+            onDragOver={(e) => { e.preventDefault(); const valid = !isFolderDragEvent(e); e.dataTransfer.dropEffect = valid ? "move" : "none"; setUnsortedDrop(valid); }}
+            onDragLeave={() => setUnsortedDrop(false)}
+            onDrop={(e) => { e.preventDefault(); setUnsortedDrop(false); if (isFolderDragEvent(e)) return; const { ids } = getAssetDragData(e, useStore.getState()); if (!ids.length) return; setFolderDropError(""); void moveGenerationsToDestination(ids, activeProjectId ? { type: "project_unsorted", projectId: activeProjectId } : { type: "global_unsorted" }).catch((err) => setFolderDropError(err.message)); }}
+            className={cn("flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-white/70", activeFolderId === UNSORTED && rightTab === "project" && "bg-brand/15 text-white", unsortedDrop && "ring-1 ring-brand bg-brand/20")}>
+            <Inbox className="h-4 w-4" /><span className="flex-1 text-left">Unsorted</span><span>{activeProjectId ? counts.project?.unsorted ?? 0 : counts.globalLibrary?.unsorted ?? 0}</span>
+          </button>
+          {folderDropError && <p role="alert" className="text-xs text-red-400">{folderDropError}</p>}
+        </div>
+        <FolderOperationRail />
       </aside>
 
       {/* ══════════════════════════════════════════════════════════════════════
@@ -589,8 +641,7 @@ export function HistoryPanel() {
                 align="right"
                 label="More actions"
                 trigger={(open) => (
-                  <button
-                    type="button"
+                  <span
                     className={cn(
                       "flex items-center gap-1 rounded-full border border-line bg-ink-700/80 px-2.5 py-1 text-white/75 transition hover:text-white",
                       open && "border-brand/40 text-white"
@@ -600,7 +651,7 @@ export function HistoryPanel() {
                     <ChevronDown
                       className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
                     />
-                  </button>
+                  </span>
                 )}
               >
                 {(close) => (
@@ -697,8 +748,7 @@ export function HistoryPanel() {
                 align="right"
                 label="Filter by type"
                 trigger={(open) => (
-                  <button
-                    type="button"
+                  <span
                     className={cn(
                       "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
                       open && "border-brand/40 text-white"
@@ -708,7 +758,7 @@ export function HistoryPanel() {
                     <ChevronDown
                       className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
                     />
-                  </button>
+                  </span>
                 )}
               >
                 {(close) =>
@@ -735,8 +785,7 @@ export function HistoryPanel() {
                 align="right"
                 label="View settings"
                 trigger={(open) => (
-                  <button
-                    type="button"
+                  <span
                     className={cn(
                       "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
                       open && "border-brand/40 text-white"
@@ -747,7 +796,7 @@ export function HistoryPanel() {
                     <ChevronDown
                       className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
                     />
-                  </button>
+                  </span>
                 )}
               >
                 {() => (
@@ -860,55 +909,60 @@ export function HistoryPanel() {
       {/* ══════════════════════════════════════════════════════════════════════
           FLOATING ANCHORED ZIP PROGRESS TOAST (BOTTOM-RIGHT, NEVER PUSHES GRID)
           ══════════════════════════════════════════════════════════════════════ */}
-      {activeExport && (
+      {displayedExport && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-5 right-5 z-50 flex items-center gap-3 rounded-xl border border-line bg-ink-750/95 px-4 py-2.5 shadow-2xl backdrop-blur-xl text-xs text-white select-none animate-in fade-in slide-in-from-bottom-2 duration-200"
+          className="fixed bottom-5 right-5 left-5 sm:left-auto z-50 max-w-[calc(100vw-2.5rem)] flex-wrap flex items-center gap-3 rounded-xl border border-line bg-ink-750/95 px-4 py-2.5 shadow-2xl backdrop-blur-xl text-xs text-white select-none animate-in fade-in slide-in-from-bottom-2 duration-200"
         >
-          {["queued", "running"].includes(activeExport.status) && (
+          {["queued", "running"].includes(displayedExport.status) && (
             <>
               <Loader2 className="h-4 w-4 animate-spin text-brand" />
               <span>
-                {activeExport.status === "queued"
+                {displayedExport.status === "queued"
                   ? "ZIP queued…"
-                  : `Building ZIP ${activeExport.processedItems} / ${activeExport.totalItems}`}
-                {activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""}
+                  : `Building ZIP ${displayedExport.processedItems} / ${displayedExport.totalItems}`}
+                {displayedExport.skippedItems ? ` · ${displayedExport.skippedItems} skipped` : ""}
               </span>
             </>
           )}
-          {activeExport.status === "ready" && (
+          {displayedExport.status === "ready" && (
             <>
               <Check className="h-4 w-4 text-emerald-400" />
               <span>
-                ZIP ready{activeExport.skippedItems ? ` · ${activeExport.skippedItems} skipped` : ""}
+                ZIP ready{displayedExport.skippedItems ? ` · ${displayedExport.skippedItems} skipped` : ""}
               </span>
               <a
-                href={`/api/history/exports/${activeExport.id}/download`}
+                href={`/api/history/exports/${displayedExport.id}/download`}
+                onClick={downloadExport}
+                download
                 className="font-semibold text-brand hover:underline"
               >
                 Download
               </a>
             </>
           )}
-          {activeExport.status === "failed" && (
+          {["failed", "expired"].includes(displayedExport.status) && (
             <>
               <AlertCircle className="h-4 w-4 text-rose-400" />
-              <span className="text-rose-300">{activeExport.error || "ZIP export failed."}</span>
-              <button
+              <span className="text-rose-300">{displayedExport.error || "ZIP export failed."}</span>
+              {displayedExport.status === "failed" && displayedExport.id && displayedExport.canRetry !== false && <button
                 type="button"
+                disabled={isDownloadingZip}
                 onClick={retryExport}
                 className="font-semibold text-brand hover:underline"
               >
                 Retry
-              </button>
+              </button>}
             </>
           )}
+          {displayedExport.pollError && <span className="text-amber-300">{displayedExport.pollError}</span>}
+          {displayedExport.downloadError && <span className="text-rose-300">{displayedExport.downloadError}</span>}
           <button
             type="button"
             onClick={() => {
               try {
-                localStorage.removeItem(ACTIVE_EXPORT_KEY);
+                localStorage.removeItem(exportStorageKey);
               } catch {}
               setActiveExport(null);
             }}
@@ -919,6 +973,16 @@ export function HistoryPanel() {
           </button>
         </div>
       )}
+      <iframe ref={downloadFrame} hidden title="ZIP download response" onLoad={() => {
+        // Local API errors remain readable; cross-origin attachment grants never
+        // enter persisted state and cannot navigate or open a tab over the app.
+        try {
+          const text = downloadFrame.current.contentDocument?.body?.textContent;
+          const response = text ? JSON.parse(text) : null;
+          if (response?.error) setActiveExport((value) => value?.actorId === actorId
+            ? { ...value, downloadError: "ZIP download is unavailable. Try again or create a new ZIP." } : value);
+        } catch {}
+      }} />
 
       {/* Destination Picker Modal for Moving Assets or Folders */}
       <DestinationPickerModal

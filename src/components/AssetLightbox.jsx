@@ -21,6 +21,7 @@ import { inlineMediaUrl } from "@/lib/utils";
 import { KIND_ICON, KIND_LABEL } from "./AssetLibrary";
 
 export function AssetLightbox({
+  embedded = false,
   asset,
   assets = [],
   onClose,
@@ -33,6 +34,7 @@ export function AssetLightbox({
   const [attached, setAttached] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
   const containerRef = useRef(null);
+  const dialogRef = useRef(null);
 
   const currentIndex = assets.findIndex((a) => a.id === asset?.id);
   const hasPrev = currentIndex > 0;
@@ -52,22 +54,39 @@ export function AssetLightbox({
     }
   }, [hasNext, onSelectAsset, assets, currentIndex]);
 
-  // Keyboard navigation & escape key
+  // The inspector owns its focus while open; portal confirmations own theirs.
   useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        onClose();
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        goToPrev();
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        goToNext();
+    const dialog = dialogRef.current;
+    if (!dialog) return undefined;
+    const previousFocus = document.activeElement;
+    const childModalOpen = () => Array.from(document.querySelectorAll('[role="alertdialog"][aria-modal="true"]'))
+      .some((element) => !element.hidden && element.getClientRects().length > 0);
+    const controls = () => Array.from(dialog.querySelectorAll('button:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'))
+      .filter((element) => !element.closest('[hidden], [inert]') && element.getClientRects().length > 0);
+    const focusFirst = () => (controls()[0] || dialog).focus();
+    const frame = requestAnimationFrame(focusFirst);
+    const onKeyDown = (event) => {
+      if (event.defaultPrevented || childModalOpen()) return;
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
+      else if (event.key === "ArrowLeft") { event.preventDefault(); goToPrev(); }
+      else if (event.key === "ArrowRight") { event.preventDefault(); goToNext(); }
+      else if (event.key === "Tab") {
+        const focusable = controls(), first = focusable[0], last = focusable[focusable.length - 1];
+        if (!first) { event.preventDefault(); dialog.focus(); }
+        else if (!dialog.contains(document.activeElement) || (event.shiftKey && document.activeElement === first)) {
+          event.preventDefault(); (event.shiftKey ? last : first).focus();
+        } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    const onFocusIn = (event) => { if (!childModalOpen() && !dialog.contains(event.target)) focusFirst(); };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("focusin", onFocusIn);
+      if (previousFocus?.isConnected) previousFocus.focus?.();
+    };
   }, [onClose, goToPrev, goToNext]);
 
   // Reset zoom and feedback when active asset changes
@@ -120,25 +139,28 @@ export function AssetLightbox({
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label="Material Sheet Full View"
-      className="fixed inset-0 z-[120] flex flex-col items-center justify-between bg-black/95 p-3 sm:p-5 backdrop-blur-md"
+      className={embedded ? "absolute inset-y-0 right-0 z-20 flex w-full max-w-xl flex-col items-center justify-between overflow-hidden border-l border-line bg-ink-950 p-3" : "fixed inset-0 z-[120] flex flex-col items-center justify-between bg-black/95 p-3 sm:p-5 backdrop-blur-md"}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
+      <p className="mb-1 shrink-0 self-start text-[11px] text-white/50">{asset.uploader?.name || "Unknown uploader"}</p>
       {/* Top Header Controls Bar */}
-      <header className="relative z-10 flex w-full max-w-6xl items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-2xl backdrop-blur-lg">
+      <header className="relative z-10 flex w-full max-w-6xl shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-2xl backdrop-blur-lg">
         {/* Left: Metadata info & badges */}
-        <div className="flex min-w-0 items-center gap-3">
+        <div className={embedded ? "flex w-full min-w-0 items-center gap-3" : "flex min-w-0 flex-1 items-center gap-3"}>
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/10 text-white">
             <Icon className="h-4 w-4" />
           </div>
 
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <h3 className="truncate text-sm font-semibold text-white">
+              <h3 title={asset.name} className="min-w-0 truncate text-sm font-semibold text-white">
                 {asset.name}
               </h3>
               <span className="hidden rounded bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/70 sm:inline-block">
@@ -150,14 +172,14 @@ export function AssetLightbox({
               <button
                 type="button"
                 onClick={handleCopySlug}
-                title="Click to copy @mention tag"
-                className="flex items-center gap-1 font-mono text-xs font-semibold text-white/80 transition hover:text-white"
+                title={`Copy @${asset.slug}`}
+                className="flex min-w-0 max-w-full items-center gap-1 font-mono text-xs font-semibold text-white/80 transition hover:text-white"
               >
-                <span>{`@${asset.slug}`}</span>
+                <span className="truncate">{`@${asset.slug}`}</span>
                 {copiedSlug ? (
                   <Check className="h-3 w-3 text-emerald-400" />
                 ) : (
-                  <Copy className="h-3 w-3 text-white/40" />
+                  <Copy className="h-3 w-3 shrink-0 text-white/40" />
                 )}
               </button>
               {copiedSlug && (
@@ -168,7 +190,7 @@ export function AssetLightbox({
         </div>
 
         {/* Right: Action Buttons */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
           {/* Attach / Use in Prompt */}
           <button
             type="button"
@@ -295,7 +317,7 @@ export function AssetLightbox({
               className={`select-none transition-all duration-200 ${
                 isZoomed
                   ? "max-w-none origin-center transform p-8"
-                  : "max-h-[76dvh] max-w-[88vw] object-contain"
+                  : embedded ? "max-h-full max-w-full object-contain" : "max-h-[76dvh] max-w-[88vw] object-contain"
               }`}
             />
           </AnimatePresence>
@@ -315,28 +337,19 @@ export function AssetLightbox({
       </div>
 
       {/* Bottom Counter & Guidance Footer */}
-      <footer className="relative z-10 flex w-full max-w-6xl items-center justify-between px-4 py-2 text-xs text-white/50">
+      <footer className="relative z-10 flex w-full max-w-6xl shrink-0 flex-wrap items-center justify-between gap-2 px-1 py-2 text-xs text-white/50">
         <div className="flex items-center gap-2">
           {assets.length > 1 && (
             <span className="rounded-md bg-white/10 px-2 py-0.5 font-medium text-white/80">
               {currentIndex + 1} of {assets.length}
             </span>
           )}
-          <span className="hidden sm:inline">
-            Use ← → arrows to navigate • Esc to close • Click image to toggle 2x zoom
-          </span>
+          {!embedded && <span className="hidden sm:inline">← → Navigate · Esc Close · Click Zoom</span>}
         </div>
 
-        <div className="flex items-center gap-3 max-w-md truncate">
-          {asset.description ? (
-            <span className="truncate text-white/70" title={asset.description}>
-              Visual Guidance: <strong className="text-white/90 font-normal">{asset.description}</strong>
-            </span>
-          ) : asset.createdAt ? (
-            <span className="hidden sm:inline">
-              Added {new Date(asset.createdAt).toLocaleDateString()}
-            </span>
-          ) : null}
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          {asset.createdAt != null && <span className="shrink-0 whitespace-nowrap">Added {new Date(asset.createdAt).toLocaleDateString()}</span>}
+          {asset.description && <span className="max-w-[240px] truncate text-white/70" title={asset.description}>{asset.description}</span>}
         </div>
       </footer>
     </div>

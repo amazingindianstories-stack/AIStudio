@@ -17,5 +17,5 @@ class DepthWorker(models.Model):
     created_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'depth_workers'

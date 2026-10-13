@@ -1,3 +1,7 @@
+> Historical staged-release review. Superseded for the complete local migration by
+> [cutover-runbook.md](cutover-runbook.md). The coexistence instructions below are
+> retained as history and must not be used as the new release procedure.
+
 # Early Django API release review — 2026-10-08
 
 Release scope: a separate Railway Django API service, initially receiving no

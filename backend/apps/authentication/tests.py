@@ -1,3 +1,4 @@
+from testsupport.frozen_oracle import run as oracle_run
 from django.test import TransactionTestCase
 from apps.admin_dashboard.tests import SettingsTests
 
@@ -46,12 +47,6 @@ class PasswordCompatibilityTests(TransactionTestCase):
         self.assertFalse(verify_password('fixture','malformed','salt'))
 
 class LoginThrottleTests(TransactionTestCase):
-    def setUp(self):
-        from django.db import connection
-        with connection.cursor() as c:
-            c.execute('CREATE TABLE IF NOT EXISTS login_attempts (id uuid PRIMARY KEY,identifier text NOT NULL,created_at bigint NOT NULL)')
-            c.execute('TRUNCATE login_attempts')
-
     def test_unknown_identifier_failures_expiry_and_retry(self):
         from .throttle import check, record_failure, WINDOW_MS
         from .models import LoginAttempt
@@ -83,25 +78,14 @@ class ThrottleSourceParityTests(TransactionTestCase):
         from .throttle import maximum_attempts, retry_after, admits
         values=[None,'','0','5.9','.5','1e1','0x10','0b10','-0x10','Infinity','NaN','1_0','１２','\ufeff2','\u001c2','-1',' 3 ']
         request={'values':values,'retries':[[None,1000],[1000,2000],[1000,1000000]],'admissions':[{'maxAttempts':0,'recentFailureCount':9},{'maxAttempts':5,'recentFailureCount':5},{'maxAttempts':5,'recentFailureCount':4}]}
-        result=subprocess.run(['node','--import','tsx','scripts/django-migration/throttle-oracle.mjs'],input=json.dumps(request),text=True,capture_output=True,check=True,cwd=Path(__file__).resolve().parents[3])
+        result=oracle_run(['node','--import','tsx','scripts/django-migration/throttle-oracle.mjs'],input=json.dumps(request),text=True,capture_output=True,check=True,cwd=Path(__file__).resolve().parents[3])
         expected=json.loads(result.stdout)
         self.assertEqual([maximum_attempts(value) for value in values],expected['maximums'])
         self.assertEqual([retry_after(oldest,now) for oldest,now in request['retries']],expected['retries'])
         self.assertEqual([admits(value['maxAttempts'],value['recentFailureCount']) for value in request['admissions']],expected['admissions'])
 
 class LoginApiTests(TransactionTestCase):
-    def setUp(self):
-        import json
-        from django.db import connection
-        from .password import hash_password
-        SettingsTests.setUp(self)
-        LoginThrottleTests.setUp(self)
-        credentials=hash_password('fixture-password')
-        with connection.cursor() as c:
-            c.execute('ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text, ADD COLUMN IF NOT EXISTS password_salt text, ADD COLUMN IF NOT EXISTS created_at bigint')
-            c.execute('UPDATE users SET password_hash=%s,password_salt=%s,created_at=1',[credentials['hash'],credentials['salt']])
-            c.execute('CREATE TABLE IF NOT EXISTS activity_logs (id uuid PRIMARY KEY,user_id uuid,action text,detail jsonb,created_at bigint)')
-            c.execute('TRUNCATE activity_logs')
+    setUp = SettingsTests.setUp
 
     def test_login_success_and_failure_throttle(self):
         from .models import LoginAttempt

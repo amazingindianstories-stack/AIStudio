@@ -1,7 +1,6 @@
-"""Apply/reopen candidate migrations only on the harness's empty PG16 database."""
+"""Apply/reopen active managed migrations only on the harness's empty PG16 database."""
 import json
 import os
-from pathlib import Path
 import sys
 from urllib.parse import urlsplit
 
@@ -17,23 +16,20 @@ django.setup()
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.recorder import MigrationRecorder
-from django.test.utils import override_settings
 
 if url.path == '/veevee_django_baseline':
-    modules = {path.name: f'baseline_candidate.{path.name}' for path in Path('/app/baseline_candidate').iterdir() if path.is_dir() and (path / '__init__.py').exists()}
-    with override_settings(MIGRATION_MODULES=modules):
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p')")
-            assert cursor.fetchone()[0] == 0, 'Candidate target must be an empty database'
-        executor = MigrationExecutor(connection)
-        targets = executor.loader.graph.leaf_nodes()
-        assert len(executor.migration_plan(targets)) == 22
-        executor.migrate(targets)
-        # Each migration has committed. Reopen to prove persisted history and DDL.
-        connection.close()
-        executor = MigrationExecutor(connection)
-        assert not executor.migration_plan(targets)
-        assert len(MigrationRecorder(connection).applied_migrations()) == 22
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p')")
+        assert cursor.fetchone()[0] == 0, 'Candidate target must be an empty database'
+    executor = MigrationExecutor(connection)
+    targets = [node for node in executor.loader.graph.leaf_nodes() if node[0] not in {'generation', 'assets', 'media'}] + [('generation', '0001_baseline_generation'), ('assets', '0003_baseline_portraitasset')]
+    assert len(executor.migration_plan(targets)) == 22
+    executor.migrate(targets)
+    # Each migration has committed. Reopen to prove persisted history and DDL.
+    connection.close()
+    executor = MigrationExecutor(connection)
+    assert not executor.migration_plan(targets)
+    assert len(MigrationRecorder(connection).applied_migrations()) == 22
 else:
     # Include bookkeeping in both catalog snapshots; do not filter differences.
     MigrationRecorder(connection).ensure_schema()

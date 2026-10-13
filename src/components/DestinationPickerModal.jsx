@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FolderClosed,
   FolderOpen,
@@ -14,6 +14,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { getFolderColorClass } from "@/lib/folder-colors";
 import { cn } from "@/lib/utils";
 
 /**
@@ -46,6 +47,13 @@ export function DestinationPickerModal({
   movingFolderCurrentParentId = null,
   onConfirm,
 }) {
+  const dialogRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement;
+    dialogRef.current?.querySelector("input")?.focus();
+    return () => previous?.focus?.();
+  }, [open]);
   const libraryTree = useStore((s) => s.libraryTree);
   const loadLibraryTree = useStore((s) => s.loadLibraryTree);
   const [selectedDest, setSelectedDest] = useState(null);
@@ -56,7 +64,7 @@ export function DestinationPickerModal({
 
   useEffect(() => {
     if (open) {
-      loadLibraryTree();
+      void loadLibraryTree().catch(() => setError("Could not refresh folders. Try reopening the picker."));
       setSelectedDest(null);
       setError(null);
       setFilterQuery("");
@@ -124,6 +132,11 @@ export function DestinationPickerModal({
       <div key={folder.id} className="flex flex-col">
         {matchesFilter && (
           <div
+            role="button"
+            tabIndex={isValid ? 0 : -1}
+            aria-disabled={!isValid}
+            title={folder.name}
+            onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key) && isValid) { e.preventDefault(); handleSelect({ type: "folder", folderId: folder.id, projectId: folder.projectId }); } }}
             onClick={() => isValid && handleSelect({ type: "folder", folderId: folder.id, projectId: folder.projectId })}
             style={{ paddingLeft: `${depth * 1.25 + 0.5}rem` }}
             className={cn(
@@ -152,12 +165,12 @@ export function DestinationPickerModal({
             )}
 
             {isExpanded ? (
-              <FolderOpen className={cn("h-4 w-4 shrink-0", isSelected ? "text-brand" : "text-amber-400/80")} />
+              <FolderOpen className={cn("h-4 w-4 shrink-0", getFolderColorClass(folder.color))} />
             ) : (
-              <FolderClosed className={cn("h-4 w-4 shrink-0", isSelected ? "text-brand" : "text-amber-400/80")} />
+              <FolderClosed className={cn("h-4 w-4 shrink-0", getFolderColorClass(folder.color))} />
             )}
 
-            <span className="flex-1 truncate">{folder.name}</span>
+            <span className="min-w-0 flex-1 break-words">{folder.name}</span>
 
             {!isValid && movingFolderId && (
               <span className="text-[10px] text-white/30 italic">
@@ -167,7 +180,7 @@ export function DestinationPickerModal({
           </div>
         )}
 
-        {hasChildren && isExpanded && (
+        {hasChildren && (isExpanded || filterQuery.trim()) && (
           <div className="flex flex-col">
             {folder.children.map((child) => renderFolderItem(child, depth + 1))}
           </div>
@@ -179,10 +192,20 @@ export function DestinationPickerModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
       <div
+        ref={dialogRef}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && !submitting) { e.stopPropagation(); onClose(); }
+          if (e.key === "Tab") {
+            const items = Array.from(dialogRef.current?.querySelectorAll('button:not([disabled]), input, [tabindex="0"]') || []);
+            const first = items[0], last = items[items.length - 1];
+            if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+            else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+          }
+        }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="destination-picker-title"
-        className="flex max-h-[85vh] w-full max-w-md flex-col rounded-2xl border border-line bg-ink-900 shadow-2xl overflow-hidden"
+        className="flex max-h-[85dvh] w-full max-w-md flex-col rounded-2xl border border-line bg-ink-900 shadow-2xl overflow-hidden"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
@@ -206,6 +229,7 @@ export function DestinationPickerModal({
               type="text"
               value={filterQuery}
               onChange={(e) => setFilterQuery(e.target.value)}
+              aria-label="Search destination folders"
               placeholder="Search folders..."
               className="w-full rounded-lg border border-line bg-ink-800 py-1.5 pl-8 pr-3 text-xs text-white placeholder:text-white/35 outline-none focus:border-brand/40"
             />
@@ -221,7 +245,7 @@ export function DestinationPickerModal({
         )}
 
         {/* Tree Container */}
-        <div className="scroll-thin min-h-[240px] max-h-[380px] overflow-y-auto p-3 space-y-4">
+        <div className="scroll-thin min-h-0 flex-1 max-h-[380px] overflow-y-auto p-3 space-y-4">
           {/* Global Library Section */}
           <div className="space-y-1">
             <div className="flex items-center justify-between px-2 py-1">
@@ -232,6 +256,9 @@ export function DestinationPickerModal({
 
             {/* Global Root Target */}
             <div
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); handleSelect({ type: "global_root" }); } }}
               onClick={() => handleSelect({ type: "global_root" })}
               className={cn(
                 "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition cursor-pointer select-none",
@@ -247,7 +274,10 @@ export function DestinationPickerModal({
             {/* Global Unsorted Target (generations only) */}
             {!movingFolderId && (
               <div
-                onClick={() => handleSelect({ type: "global_unsorted" })}
+                role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); handleSelect({ type: "global_unsorted" }); } }}
+              onClick={() => handleSelect({ type: "global_unsorted" })}
                 className={cn(
                   "flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs transition cursor-pointer select-none",
                   selectedDest?.type === "global_unsorted"
@@ -281,7 +311,10 @@ export function DestinationPickerModal({
                 <div key={proj.id} className="space-y-0.5 rounded-lg bg-ink-800/40 p-1.5">
                   {/* Project Root Destination */}
                   <div
-                    onClick={() => handleSelect({ type: "project_root", projectId: proj.id })}
+                    role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); handleSelect({ type: "project_root", projectId: proj.id }); } }}
+              onClick={() => handleSelect({ type: "project_root", projectId: proj.id })}
                     className={cn(
                       "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition cursor-pointer select-none",
                       selectedDest?.type === "project_root" && selectedDest?.projectId === proj.id
@@ -296,7 +329,10 @@ export function DestinationPickerModal({
                   {/* Project Unsorted (generations only) */}
                   {!movingFolderId && (
                     <div
-                      onClick={() => handleSelect({ type: "project_unsorted", projectId: proj.id })}
+                      role="button"
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); handleSelect({ type: "project_unsorted", projectId: proj.id }); } }}
+              onClick={() => handleSelect({ type: "project_unsorted", projectId: proj.id })}
                       className={cn(
                         "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs transition cursor-pointer select-none",
                         selectedDest?.type === "project_unsorted" && selectedDest?.projectId === proj.id

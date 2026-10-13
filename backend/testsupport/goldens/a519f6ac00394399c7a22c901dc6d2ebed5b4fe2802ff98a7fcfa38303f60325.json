@@ -1,0 +1,17 @@
+{
+  "request": {
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "-e",
+      "\nimport {readFileSync} from 'node:fs';\nif(process.env.MIGRATION_TEST_ISOLATED!=='1')throw new Error('Isolated runner required');\nconst {decodeCursor}=await import('./src/lib/store-db.js');\nconst input=JSON.parse(readFileSync(0,'utf8'));\nconsole.log(JSON.stringify({cursors:input.cursors.map(x=>decodeCursor(x)??null),limits:input.limits.map(x=>{const n=parseInt(x??'',10);return Number.isFinite(n)?Math.min(Math.max(n,1),100):20;})}));\nprocess.exit(0);\n"
+    ],
+    "input": "{\"cursors\":[null,\"\",\"junk\",\".ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"1.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"0.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"-1.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"0x10.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"0b10.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"1e3.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"1e-3.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"1e21.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"Infinity.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"NaN.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"1e309.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"\\ufeff2\\ufeff.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\" .ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\",\"2.bad\",\"2.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef.extra\",\"1.5.ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"],\"limits\":[null,\"\",\"junk\",\"0\",\"-2\",\"1\",\"20\",\"100\",\"101\",\"2tail\",\"+3\",\"  4.5\",\"1e3\",\"0x10\",\"\\ufeff5tail\",\"\\u00855\",\"\\u0662\",\"\\uff19\",\"9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999\",\"999999999999999999999999999999\",\"-9-9-9-9-9-9-9-9-9-9-9-9-9-9-9-9-9-9-9-9\"]}"
+  },
+  "stdout": "{\"cursors\":[null,null,null,null,{\"sort\":1,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},{\"sort\":0,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},{\"sort\":-1,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},{\"sort\":16,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},{\"sort\":2,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},{\"sort\":1000,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},{\"sort\":0.001,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},{\"sort\":1e+21,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},null,null,null,{\"sort\":2,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},{\"sort\":0,\"id\":\"ABCDEFAB-abcd-4abc-8abc-abcdefabcdef\"},null,null,null],\"limits\":[20,20,20,1,1,1,20,100,100,2,3,4,1,1,5,20,20,20,20,100,1]}\n",
+  "stdout_sha256": "ffe274b69c6745f039fe352c3917a3da4a5e94f9f4a6817b0c1f383eb2c355d9",
+  "source_revision": "d9ef93947910a65bec5fa33d3f2311d888f6a2f4",
+  "source_tree_sha256": "39ce8b2abb6a4440afa5f1d0b944c07717c691839eba171c49a941823e1ff6b9"
+}

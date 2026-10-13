@@ -9,11 +9,6 @@ class ExportPersistenceTests(TransactionTestCase):
     generation_id = UUID('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
 
     def setUp(self):
-        # Current Drizzle-shaped disposable fixture, not a Django baseline.
-        with connection.cursor() as cursor:
-            cursor.execute("CREATE TABLE IF NOT EXISTS media_exports (id uuid PRIMARY KEY,user_id uuid NOT NULL,status text NOT NULL DEFAULT 'draft',total_items integer NOT NULL DEFAULT 0,processed_items integer NOT NULL DEFAULT 0,skipped_items integer NOT NULL DEFAULT 0,warnings jsonb NOT NULL DEFAULT '[]',attempt_count integer NOT NULL DEFAULT 0,lease_owner text,lease_until bigint,output_key text,output_bytes bigint,error text,manifest_version integer NOT NULL DEFAULT 1,created_at bigint NOT NULL,updated_at bigint NOT NULL,expires_at bigint)")
-            cursor.execute('CREATE TABLE IF NOT EXISTS media_export_items (export_id uuid NOT NULL REFERENCES media_exports(id) ON DELETE CASCADE,generation_id uuid NOT NULL,position integer NOT NULL,source_key text NOT NULL,filename text NOT NULL,PRIMARY KEY(export_id,generation_id))')
-            cursor.execute('TRUNCATE media_export_items,media_exports')
         self.export = MediaExport.objects.create(id=self.export_id,user_id=self.generation_id,created_at=1,updated_at=2)
 
     def item(self, **kwargs):

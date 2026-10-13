@@ -12,6 +12,6 @@ class CanvasBoard(models.Model):
     updated_at = models.BigIntegerField()
 
     class Meta:
-        managed = False
+        managed = True
         db_table = 'canvas_boards'
         indexes = [models.Index(fields=['project_id'], name='canvas_boards_project_id_idx')]

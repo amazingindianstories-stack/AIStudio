@@ -1,47 +1,11 @@
 {
-  "source_revision": "8f703398ceeb4dd5f1784f50433edcaae01b887e",
-  "api_source_sha256": "730765b8101543f08a4241f8d1706d03a53ec0eee153a62f1354d1447920ff83",
-  "image_id": "sha256:627bf2de259bf6ae27c6569f0ce1c9efab97c4512d004859007ab3f80b16c143",
+  "source_revision": "d9ef93947910a65bec5fa33d3f2311d888f6a2f4",
+  "api_source_sha256": "34cdaf99c8618c55a0a3e19246dea0d76145583f90318e4058ca5f5838ae140c",
+  "image_id": "sha256:2d96c26aa856eafb1ecef5580e0ba4349b6920051bad23cd6b82a17991b59e9e",
+  "scope": "Uncommitted local source fingerprint; not a committed release or deployment",
   "platform": "linux/arm64",
-  "runtime": {
-    "python": "3.12",
-    "django": "5.2.18",
-    "drf": "3.18.3",
-    "gunicorn": "23.0.0"
-  },
-  "application_files": 84,
-  "unexpected_files": [],
-  "postgres_version": "16.15 (Debian 16.15-1.pgdg13+2)",
-  "health_statuses": [
-    200,
-    503,
-    200
-  ],
-  "settings_cases": [
-    "defaults",
-    "overrides",
-    "invalid-personal",
-    "version-mismatch",
-    "disabled"
-  ],
-  "secure_renewal_followup": true,
-  "settings_database_unchanged": true,
-  "fixture_schema_sha256": "3ab6a50a89404fea11ac0253491f26e2775b5beb51887ff0d2f0d0ddf5d04bfb",
-  "fixture_schema_source": "current worktree src/lib/schema.js, including preexisting user changes; not revision attestation",
-  "declared_tables": 21,
-  "hierarchy_statements": 38,
-  "naming_statements": 17,
-  "invariants_reapplied": true,
-  "functions": 4,
-  "triggers": 5,
-  "hierarchy_naming_cases": 11,
-  "schema_authority": "DRIZZLE",
-  "limits": [
-    "local image, not hosted deployment",
-    "ARM64 only",
-    "renewal HTTP followup is not browser Secure-cookie TLS proof",
-    "not full schema equivalence or old-schema upgrade proof",
-    "not complete invariant coverage",
-    "no production target accessed"
-  ]
+  "django_tests": 340,
+  "browser_tests": 50,
+  "frontend_tests": 397,
+  "deployed": false
 }

@@ -67,3 +67,33 @@ ESLint and the Next production build. Installed Node dependencies were reused;
 no clean `npm ci` claim is made. Evidence and complete sanitized logs are under
 `evidence/g0-*`. No shared service was accessed. G1 now consolidates the two
 Django graphs and replaces partial-table test fixtures with migrated-schema tests.
+
+## G1 active managed graph and ongoing API work
+
+The sole active migration graph now contains 21 CreateModel operations and one
+invariant RunSQL migration; all 21 runtime models are managed. The old 49-record
+state-only graph is retained as hashed history evidence, not executable source.
+PostgreSQL 16.15 fresh creation and rich populated adoption passed. All 21
+application tables contained data (40 rows total); adoption preserved rows and
+49 historical records, added 22 records without application DDL, and was a no-op
+after reconnect/repeat. Missing index/trigger, different default and unknown
+history all rejected. Exact PG18 catalog comparison and all 42 existing Django
+tests also passed. Index/default/check probes passed again after consolidation.
+Evidence is under evidence/veevee-g1-* and evidence/veevee-pg16-baseline-evidence.json.
+The registry is generated as model-registry.md.
+
+The user briefly requested a pause ZIP (1,810,328 bytes), then explicitly resumed
+the full goal and requested no checkpoint stops. The ZIP is historical. Current
+work continues with profile/auth foundations and independent Canvas/library/media
+workstreams. Integration routing/schema ownership stays with the parent agent.
+No production ownership, adoption or deployment has occurred. Concurrent domain
+invariants and full endpoint/worker/browser gates remain in progress.
+
+## G2–G9 final local completion
+
+All 85 methods are implemented or intentionally retired, Python providers/workers
+replace the Node backend, and all 346 retirement files are absent. Final qualification
+passed 340 Django tests on PG16,397 frontend tests,50 browser cases, lint/build,
+14 tooling tests and PG16/18 catalog equivalence. See qualification-index.md and
+completion-audit.md for exact evidence and boundaries. Source remains uncommitted
+and undeployed; production adoption and all live acceptance remain pending.

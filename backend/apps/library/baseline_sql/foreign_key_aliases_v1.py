@@ -1,7 +1,8 @@
-"""Frozen additive-migration FK aliases for the pending Django baseline.
+"""Frozen additive-migration FK aliases for the managed Django baseline.
 
 Preserve existing constraint names until the production catalog audit. These
-statements do not change the active unmanaged migration graph or authority.
+statements are applied by the active RunSQL baseline. Production adoption is
+separate from this local implementation.
 """
 
 STATEMENTS = (

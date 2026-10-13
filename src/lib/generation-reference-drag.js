@@ -1,10 +1,5 @@
-import { isProviderModel, capability } from "./model-registry";
 import {
-  maxReferenceImagesForVideoModel,
   supportsVideoReference,
-  maxReferenceVideosForVideoModel,
-  MAX_REFERENCE_VIDEOS,
-  KLING_MAX_REFERENCE_IMAGES,
 } from "./config";
 
 /**
@@ -64,13 +59,7 @@ export function validateGenerationReference(item, {
   // 1. Dragged generation is an IMAGE
   if (item.kind === "image") {
     if (mode === "image") {
-      const isSeedream = isProviderModel(model, "seedream");
-      const isKling = isProviderModel(model, "kling");
-      const maxAllowed = isSeedream
-        ? 10
-        : isKling
-        ? (capability(model, "maxReferenceImages", KLING_MAX_REFERENCE_IMAGES) ?? KLING_MAX_REFERENCE_IMAGES)
-        : (capability(model, "maxReferenceImages", 14) ?? 14);
+      const maxAllowed = 50;
 
       if (referenceImages.length >= maxAllowed) {
         return {
@@ -92,7 +81,7 @@ export function validateGenerationReference(item, {
     }
 
     if (mode === "video") {
-      const maxAllowed = maxReferenceImagesForVideoModel(model) ?? 9;
+      const maxAllowed = 50;
       if (referenceImages.length >= maxAllowed) {
         return {
           valid: false,
@@ -132,7 +121,7 @@ export function validateGenerationReference(item, {
         };
       }
 
-      const maxVideos = maxReferenceVideosForVideoModel(model) ?? MAX_REFERENCE_VIDEOS;
+      const maxVideos = 50;
       if (referenceVideos.length >= maxVideos) {
         return {
           valid: false,

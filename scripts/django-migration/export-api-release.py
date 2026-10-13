@@ -19,7 +19,8 @@ def allowed(name):
     path = PurePosixPath(name)
     return (len(path.parts) > 1 and path.parts[0] == 'backend'
             and not any(part in {'.', '..', '__pycache__', '.venv', 'venv'} or part.startswith('.env') for part in path.parts)
-            and (path.suffix == '.py' or path.name in BUILD_INPUTS or name == 'backend/railway.toml'))
+            and (path.suffix == '.py' or path.name in BUILD_INPUTS or name == 'backend/railway.toml'
+                 or (path.parent == PurePosixPath('backend/testsupport/goldens') and path.suffix == '.json')))
 
 
 def fingerprint(files):

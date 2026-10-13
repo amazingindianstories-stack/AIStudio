@@ -126,8 +126,8 @@ test("renumberImgMentions leaves out-of-range tags untouched", () => {
   );
 });
 
-test("renumberImgMentions is case-insensitive on input, normalizes output", () => {
-  assert.equal(renumberImgMentions("@IMG2 stays put", [1, 0]), "@img1 stays put");
+test("renumberImgMentions is case-insensitive and preserves token case", () => {
+  assert.equal(renumberImgMentions("@IMG2 stays put", [1, 0]), "@IMG1 stays put");
 });
 
 test("renumberImgMentions renumbers every occurrence of a repeated tag", () => {

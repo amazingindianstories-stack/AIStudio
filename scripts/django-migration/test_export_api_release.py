@@ -24,6 +24,8 @@ class ReleaseExportTests(unittest.TestCase):
                      'src/app/page.jsx', 'backend/credentials.json', 'backend/archive.zip']:
             self.assertFalse(module.allowed(name), name)
         self.assertTrue(module.allowed('backend/config/settings/production.py'))
+        self.assertTrue(module.allowed('backend/testsupport/goldens/source-schema.json'))
+        self.assertFalse(module.allowed('backend/testsupport/credentials.json'))
 
     def test_fingerprint_order_and_configuration_scope(self):
         self.assertEqual(module.fingerprint(self.files), module.fingerprint(dict(reversed(list(self.files.items())))))
