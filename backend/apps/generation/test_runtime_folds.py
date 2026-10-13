@@ -167,3 +167,21 @@ class SubmitTimePortraitCheckTests(SimpleTestCase):
         with self.assertRaisesRegex(InvalidRequest, 'could not be checked'):
             verify_portrait_references({'model': 'Seedance 2.5'}, self.body('/api/media/uploads/portrait/a'), lookup=broken)
         verify_portrait_references({'model': 'Higgsfield Seedance 2.0'}, self.body('/api/media/uploads/portrait/a'), lookup=broken)
+
+
+class WorkerAssetReadTests(__import__('django.test', fromlist=['TransactionTestCase']).TransactionTestCase):
+    """The worker path that loads @asset references must run for real (regression: missing import)."""
+
+    def test_video_and_image_read_assets_return_projections(self):
+        import uuid
+        from apps.assets.models import Asset
+        from apps.projects.models import Project
+        from .services import image_execution, video_execution
+        project = Project.objects.create(id=uuid.uuid4(), name='P', created_at=1, updated_at=1)
+        Asset.objects.create(id=uuid.uuid4(), kind='character', name='Sati', slug='sati', images=['/api/media/a.png'],
+                             project_id=project.id, created_at=1, updated_at=1)
+        for module in (video_execution, image_execution):
+            with self.subTest(module=module.__name__):
+                rows = module.read_assets(project.id)
+                self.assertEqual([(r['slug'], r['images']) for r in rows], [('sati', ['/api/media/a.png'])])
+                self.assertEqual(module.read_assets(None)[0]['slug'], 'sati')
