@@ -109,11 +109,12 @@ if draft and Generation.objects.get(pk=draft).status == 'succeeded':
 done = [identifier for identifier in results.values() if Generation.objects.get(pk=identifier).status == 'succeeded']
 if done:
     status, export, _ = call('POST', '/api/history/exports', {})
-    check('export created', status == 200 and export.get('id'), str(export)[:200])
-    if status == 200:
-        call('POST', f'/api/history/exports/{export["id"]}/items', {'ids': done})
+    check('export created', status in (200, 201) and export.get('id'), f'{status} {str(export)[:200]}')
+    if status in (200, 201):
+        status, added, _ = call('POST', f'/api/history/exports/{export["id"]}/items', {'ids': done})
+        check('export items added', status in (200, 201), f'{status} {str(added)[:200]}')
         status, finalized, _ = call('POST', f'/api/history/exports/{export["id"]}/finalize')
-        check('export queued', status == 200, str(finalized)[:200])
+        check('export queued', status in (200, 201, 202), f'{status} {str(finalized)[:200]}')
         deadline, state = time.time() + 180, None
         while time.time() < deadline:
             _, state, _ = call('GET', f'/api/history/exports/{export["id"]}')
