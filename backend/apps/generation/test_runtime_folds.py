@@ -185,3 +185,35 @@ class WorkerAssetReadTests(__import__('django.test', fromlist=['TransactionTestC
                 rows = module.read_assets(project.id)
                 self.assertEqual([(r['slug'], r['images']) for r in rows], [('sati', ['/api/media/a.png'])])
                 self.assertEqual(module.read_assets(None)[0]['slug'], 'sati')
+
+
+class RealVideoDependencyWiringTests(__import__('django.test', fromlist=['TransactionTestCase']).TransactionTestCase):
+    """Runs submit_video with the real Dependencies up to the provider call; no key, no network."""
+
+    def test_seedance_path_reaches_the_provider_boundary(self):
+        import os
+        import uuid
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from apps.assets.models import Asset
+        from apps.projects.models import Project
+        from .providers.transport import HttpTransport, ProviderError
+        from .services.deadline import Cancellation
+        from .services.video_execution import submit_video
+        project = Project.objects.create(id=uuid.uuid4(), name='P', created_at=1, updated_at=1)
+        Asset.objects.create(id=uuid.uuid4(), kind='character', name='Sati', slug='sati', images=[], project_id=project.id, created_at=1, updated_at=1)
+        item = SimpleNamespace(id=uuid.uuid4(), task_id=None, draft_task_id=None, model='Seedance 2.5', prompt='a quiet courtyard at dawn',
+            aspect_ratio='16:9', duration=5, resolution='480p', project_id=project.id, user_id=None, reference_images=[], reference_videos=[],
+            reference_audios=[], continuation_frame_url=None, last_frame_url=None, generate_audio=False, draft_mode=True, seed=None,
+            bitrate_mode='high', video_task_mode=None, track_characters=False)
+        env = {k: v for k, v in os.environ.items() if k not in ('ARK_API_KEY', 'MOCK_GENERATION')}
+        def no_network(*args, **kwargs):
+            raise AssertionError('test must not reach the network')
+        from django.test import override_settings
+        from apps.media.storage import MemoryAdapter, StorageService
+        with patch.dict(os.environ, env, clear=True), patch.object(HttpTransport, 'request', no_network), \
+                override_settings(VEEVEE_MEDIA_STORAGE=StorageService(MemoryAdapter())):
+            with self.assertRaises((ProviderError, ValueError)) as caught:
+                submit_video(item, signal=Cancellation(), on_task=lambda *a: None, env={})
+        self.assertNotIsInstance(caught.exception, NameError)
+        self.assertIn('ARK_API_KEY', str(caught.exception))
