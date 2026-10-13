@@ -2,90 +2,90 @@ export const MEDIA_ACTION_COPY = {
   retryTextToVideo: {
     title: "Retry without references?",
     description:
-      "This starts a new billable video generation. All reference images, clips, and @reference tags will be removed from the retry.",
+      "Starts a new paid generation with all references and @tags removed.",
     confirmLabel: "Start retry",
   },
   regenerate: {
     title: "Generate this again?",
     description:
-      "This immediately starts another billable generation using the saved prompt, settings, and references.",
+      "Starts a new paid generation with the same prompt, settings and references.",
     confirmLabel: "Generate again",
   },
   regenerateWithSameSeed: {
     title: "Regenerate with the same seed?",
     description:
-      "This immediately starts another billable generation using the original seed, prompt, settings, and references.",
+      "Starts a new paid generation with the same seed, prompt, settings and references.",
     confirmLabel: "Regenerate",
   },
   cloneToComposer: {
     title: "Replace the current composer?",
     description:
-      "This loads the saved prompt, settings, and references into the composer and replaces any unsaved draft. It does not start a generation.",
+      "Loads this prompt, settings and references, replacing your current draft. Nothing is generated yet.",
     confirmLabel: "Replace composer",
   },
   editRetry: {
     title: "Edit and retry?",
     description:
-      "This loads the saved prompt, references, and settings into the composer so you can change them, replacing any unsaved draft. Nothing is generated until you press Generate.",
+      "Loads this prompt, settings and references for editing, replacing your current draft. Nothing is generated until you press Generate.",
     confirmLabel: "Load into composer",
   },
   downloadOriginal: {
     title: "Download the original?",
-    description: "This downloads the original file with its native format and filename.",
+    description: "Downloads the original file in its native format.",
     confirmLabel: "Download",
   },
   addFavorite: {
     title: "Add to favourites?",
-    description: "This adds the generation to Favourites.",
+    description: "Adds this generation to Favourites.",
     confirmLabel: "Add to favourites",
   },
   removeFavorite: {
     title: "Remove from favourites?",
-    description: "This removes the generation from Favourites. The generation itself is kept.",
+    description: "Removes it from Favourites. The generation is kept.",
     confirmLabel: "Remove",
   },
   editPrompt: {
     title: "Replace the current prompt?",
     description:
-      "This loads the saved prompt into the composer and replaces the current unsaved prompt. It does not start a generation.",
+      "Replaces your current prompt with this one. Nothing is generated yet.",
     confirmLabel: "Load prompt",
   },
   continueShot: {
     title: "Prepare a continuation?",
     description:
-      "This replaces the current composer with this clip's final frame and clears the prompt so you can write the next shot. It does not start a generation.",
+      "Uses this clip's last frame as the start of a new shot and clears the prompt. Nothing is generated yet.",
     confirmLabel: "Replace composer",
   },
   finalizeDraft: {
     title: "Generate the 1080p final?",
     description:
-      "This immediately starts a new billable 1080p generation from the provider draft. The original 480p draft will remain in your library.",
+      "Starts a new paid 1080p generation from this draft. The draft stays in your library.",
     confirmLabel: "Generate final",
   },
   deleteGeneration: {
     title: "Delete this generation?",
-    description: "This permanently removes the generation from your history. This cannot be undone.",
+    description: "Removes it from your history. This can't be undone.",
     confirmLabel: "Delete",
     destructive: true,
   },
   deleteAsset: {
     title: "Delete this saved asset?",
     description:
-      "This permanently removes the saved asset and its stored reference images. This cannot be undone.",
+      "Removes the asset and its reference images. This can't be undone.",
     confirmLabel: "Delete asset",
     destructive: true,
   },
   deletePortrait: {
     title: "Delete this portrait?",
     description:
-      "This permanently removes the portrait reference from your character gallery. This cannot be undone.",
+      "Removes the portrait from the gallery. This can't be undone.",
     confirmLabel: "Delete portrait",
     destructive: true,
   },
   deletePortraitGroup: {
     title: "Delete this character group?",
     description:
-      "This permanently removes the character group and all associated portrait references from BytePlus ModelArk and your library. This cannot be undone.",
+      "Removes the character and all of its portraits. This can't be undone.",
     confirmLabel: "Delete character",
     destructive: true,
   },

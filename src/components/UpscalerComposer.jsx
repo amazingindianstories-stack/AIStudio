@@ -307,7 +307,7 @@ export function UpscalerComposer() {
               <p className="mt-0.5 truncate text-xs text-white/60">
                 {upscalerImage.name || "Image ready to upscale"}
               </p>
-              <p className="mt-1 text-[11px] text-white/40">{upscalerImage.width && upscalerImage.height ? `${upscalerImage.width} × ${upscalerImage.height}` : "Dimensions verified by Django before submission"} · Drag here to replace</p>
+              <p className="mt-1 text-[11px] text-white/40">{upscalerImage.width && upscalerImage.height ? `${upscalerImage.width} × ${upscalerImage.height} · ` : ""}Drag here to replace</p>
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
@@ -393,7 +393,7 @@ export function UpscalerComposer() {
                   <Wand2 className="h-3.5 w-3.5 text-brand" />
                   Prompt guidance (optional)
                 </span>
-                <span className="text-[10px] text-white/40">Re-prompting helps hallucinate sharp details</span>
+                <span className="text-[10px] text-white/40">Optional — describe details to sharpen</span>
               </label>
               <textarea
                 value={params.prompt || ""}
@@ -756,7 +756,7 @@ export function UpscalerComposer() {
               <div>
                 <p className="font-semibold text-blue-100">Precision image enhancement</p>
                 <p className="mt-0.5 text-[11px] text-blue-200/70 leading-relaxed">
-                  Precision V1 accepts sharpening, grain and detail settings. It does not accept a configurable scale or prompt.
+                  Adjust sharpening, grain and detail. Scale and prompt are not used by this model.
                 </p>
               </div>
             </div>
@@ -837,7 +837,7 @@ export function UpscalerComposer() {
         {uploadError && <p role="alert" className="text-xs text-red-300">{uploadError}</p>}
         {lastResult && <div className="rounded-xl border border-line p-3"><p className="text-xs text-white/60">Original and output · Job {lastResult.item.id}</p><div className="mt-2 grid grid-cols-2 gap-3"><ProgressiveImage alt="Original upscale source" src={typeof lastResult.source === "string" ? lastResult.source : lastResult.source.url} className="h-32 w-full object-contain" />{resultItem.url ? <ProgressiveImage alt="Magnific output" src={resultItem.url} className="h-32 w-full object-contain" /> : <p className="text-xs text-white/50">{resultItem.status || "Queued"} · Output appears in the library when complete</p>}</div></div>}
         {/* NSFW Filter & Submit Action */}
-        <p className="text-[11px] text-white/40">Cost estimate unavailable for this account. Django validates the selected model and source before submission.</p>
+        <p className="text-[11px] text-white/40">Cost estimate unavailable.</p>
         <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-ink-800 py-3">
           <label className="flex cursor-pointer items-center gap-2 text-xs text-white/60 hover:text-white transition">
             <input

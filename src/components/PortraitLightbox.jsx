@@ -196,7 +196,7 @@ export function PortraitLightbox({
                   <span>•</span>
                   <button
                     onClick={handleCopyId}
-                    title="Copy BytePlus ModelArk Asset ID"
+                    title="Copy asset ID"
                     className="flex items-center gap-1 font-mono text-[10px] text-white/60 hover:text-brand"
                   >
                     <span>{asset.byteplusAssetId}</span>

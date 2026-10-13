@@ -1496,7 +1496,7 @@ function ReferenceThumbnail({ src, alt, className, portrait = false }) {
   useEffect(() => setFailed(false), [src]);
   if (!src || failed) {
     const [text, hint] = portrait
-      ? ["Portrait removed", "This portrait is no longer in the Portrait Gallery or BytePlus. Remove it and pick a current portrait."]
+      ? ["Portrait removed", "This portrait is no longer available. Remove it and pick a current portrait."]
       : ["Reference unavailable", "This image is no longer available. Remove it and select another image."];
     return <span className={`${className} flex items-center justify-center bg-ink-950 p-1 text-center text-[10px] text-white/55`} role="img" aria-label={`${alt || "Reference"}: ${text}`} title={hint}>{text}</span>;
   }
@@ -1574,7 +1574,7 @@ export function ReferenceStrip({ store: s, insertTag }) {
   const activeIndex = preview ? ids.indexOf(preview.id) : -1;
   return <div className="mb-2" aria-label="Attached image references">
     <div className="mb-1 flex items-center justify-between text-[11px] text-white/55">
-      <span>{ids.length} references · use grip, arrows or Alt + arrow keys to arrange</span>
+      <span>{ids.length} {ids.length === 1 ? "reference" : "references"}</span>
       {undoVisible && <button type="button" className="flex items-center gap-1 text-brand" onClick={() => { s.undoReferenceReorder(); setUndoVisible(false); setAnnouncement("Reference reorder undone"); }}><Undo2 className="h-3 w-3" />Undo reorder</button>}
     </div>
     <div ref={strip}
@@ -1615,7 +1615,7 @@ export function ReferenceStrip({ store: s, insertTag }) {
               className="grid h-11 w-11 cursor-grab touch-none place-items-center rounded hover:bg-white/10 active:cursor-grabbing"><GripVertical className="h-5 w-5" /></button>
             <button type="button" aria-label={`Move reference ${sourceIndex + 1} right`} disabled={sourceIndex === ids.length - 1} onClick={() => move(id, sourceIndex + 1)} className="grid h-8 w-6 place-items-center disabled:opacity-20"><ArrowRight className="h-3 w-3" /></button>
           </div>
-          <button type="button" aria-label={`Move reference ${sourceIndex + 1} to position`} onClick={() => { setPositionId(id); setPosition(sourceIndex + 1); }} className="w-full rounded text-[10px] text-white/60 hover:text-brand">Move to position…</button>
+          <button type="button" aria-label={`Move reference ${sourceIndex + 1} to position`} onClick={() => { setPositionId(id); setPosition(sourceIndex + 1); }} className="sr-only w-full rounded text-[10px] text-white/60 focus:not-sr-only focus:text-brand">Move to position…</button>
         </motion.div>;
       })}
     </div>

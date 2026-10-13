@@ -4,19 +4,19 @@ export function portraitReadiness(asset = {}) {
   const status = String(asset.status || "").trim().toLowerCase();
   const registered = typeof asset.byteplusAssetId === "string" && asset.byteplusAssetId.trim().length > 0;
   if (["previewdeleted", "deleted"].includes(status)) return {state:"removed", remoteReady:false, label:"Removed", detail:"This portrait has been removed from the gallery."};
-  if (["failed", "error", "rejected"].includes(status)) return {state:"error", remoteReady:false, label:"Registration failed", detail:"BytePlus registration has not completed successfully."};
+  if (["failed", "error", "rejected"].includes(status)) return {state:"error", remoteReady:false, label:"Failed", detail:"This portrait could not be prepared for video. Upload it again."};
   if (Object.prototype.hasOwnProperty.call(asset, "remoteVerification")) {
     const verification = String(asset.remoteVerification || "").toLowerCase();
-    if (verification === "absent") return {state:"missing",remoteReady:false,label:"Not in BytePlus catalog",detail:"The registered ID was absent from the verified remote catalog. View and download remain available."};
-    if (verification === "unverified" || !["active","processing","failed","local_only"].includes(verification)) return {state:"unverified",remoteReady:false,label:"Remote registration unverified",detail:"Remote availability has not been verified. Wait before attaching this portrait."};
-    if (verification === "processing") return {state:"pending",remoteReady:false,label:"Registration pending",detail:"BytePlus is processing this portrait."};
-    if (verification === "failed") return {state:"error",remoteReady:false,label:"Registration failed",detail:"BytePlus reports that registration failed."};
-    if (verification === "local_only") return {state:"local",remoteReady:false,label:"Local image only",detail:"No remote portrait registration exists."};
+    if (verification === "absent") return {state:"missing",remoteReady:false,label:"Unavailable for video",detail:"The video service no longer has this portrait. You can still view and download it."};
+    if (verification === "unverified" || !["active","processing","failed","local_only"].includes(verification)) return {state:"unverified",remoteReady:false,label:"Checking",detail:"Still checking whether this portrait is ready. Try again shortly."};
+    if (verification === "processing") return {state:"pending",remoteReady:false,label:"Processing",detail:"This portrait is being prepared for video."};
+    if (verification === "failed") return {state:"error",remoteReady:false,label:"Failed",detail:"This portrait could not be prepared for video. Upload it again."};
+    if (verification === "local_only") return {state:"local",remoteReady:false,label:"Image only",detail:"This portrait can be viewed but isn't ready for video."};
   }
-  if (registered && status === "active") return {state:"registered", remoteReady:true, label:"Registered with BytePlus", detail:"Remote registration is active. Generation remains subject to the model's validation."};
-  if (["processing", "pending", "queued"].includes(status)) return {state:"pending", remoteReady:false, label:"Registration pending", detail:"Wait for confirmed active remote registration before using this as a registered portrait."};
-  if (registered) return {state:"pending", remoteReady:false, label:"Registration unconfirmed", detail:"A remote ID exists, but active registration has not been confirmed."};
-  return {state:"local", remoteReady:false, label:"Local image only", detail:"This image is in the gallery but has no registered BytePlus portrait ID."};
+  if (registered && status === "active") return {state:"registered", remoteReady:true, label:"Ready", detail:"Ready to use in video generations."};
+  if (["processing", "pending", "queued"].includes(status)) return {state:"pending", remoteReady:false, label:"Processing", detail:"This portrait is being prepared for video."};
+  if (registered) return {state:"pending", remoteReady:false, label:"Checking", detail:"Still checking whether this portrait is ready. Try again shortly."};
+  return {state:"local", remoteReady:false, label:"Image only", detail:"This portrait can be viewed but isn't ready for video."};
 }
 
 // The fragment carries catalog identity without changing signed query bytes.
@@ -36,15 +36,15 @@ export function portraitAttachAllowed(asset) {
 export function portraitRegistrationWarning(error, code) {
   if (!error && !code) return null;
   const known = {
-    dimensions_out_of_bounds: "Original saved. BytePlus registration requires image width and height between 300 and 6000 pixels.",
-    QuotaSharedPoolExceeded: "BytePlus asset capacity is full. The original was saved locally.",
-    registration_outcome_unknown: "Registration outcome is uncertain. Do not retry until it is reconciled.",
-    group_registration_outcome_unknown: "Character registration outcome is uncertain. Do not retry until it is reconciled.",
-    registration_validation_failed: "BytePlus registration could not be verified.",
+    dimensions_out_of_bounds: "Saved, but not ready for video: width and height must be 300–6000 pixels.",
+    QuotaSharedPoolExceeded: "Saved, but not ready for video: portrait storage is full.",
+    registration_outcome_unknown: "Saved. Video readiness is still being confirmed — don't upload it again yet.",
+    group_registration_outcome_unknown: "Character setup is still being confirmed — don't retry yet.",
+    registration_validation_failed: "Saved, but video readiness could not be confirmed.",
   };
   if (typeof code === "string" && known[code]) return known[code];
   if (typeof error === "string" && known[error]) return known[error];
-  return "BytePlus registration did not complete. The original remains saved locally; check its Gallery status before retrying.";
+  return "Saved, but not ready for video. Check its status in the Gallery before retrying.";
 }
 
 /** Hide only a registered group explicitly absent in a complete remote inventory. */
