@@ -28,12 +28,22 @@ class Goal2UploadManifestTests(TransactionTestCase):
             result = resolve_submission_references({'referenceImages': [value], 'firstFrame': value, 'image': value}, actor)
             self.assertEqual(result, {'referenceImages': [canonical], 'firstFrame': canonical, 'image': canonical})
 
-    def test_other_actor_cannot_bypass_manifest_with_canonical_url(self):
+    def test_other_actor_ready_upload_is_a_shared_reference(self):
+        # Shared studio policy: any signed-in user may reference a READY upload.
         row = self.session(uuid4())
-        for value in ({'referenceId': str(row.id)}, '/api/media/' + row.key):
-            with self.assertRaises(UploadError) as caught:
-                resolve_submission_references({'referenceImages': [value]}, uuid4())
-            self.assertEqual(caught.exception.code, 'UPLOAD_NOT_FOUND')
+        canonical = '/api/media/' + row.key
+        for value in ({'referenceId': str(row.id)}, canonical):
+            self.assertEqual(resolve_submission_references({'referenceImages': [value]}, uuid4()), {'referenceImages': [canonical]})
+
+    def test_other_actor_unready_or_wrong_purpose_upload_still_rejected(self):
+        unready = self.session(uuid4(), ready=False)
+        with self.assertRaises(UploadError) as caught:
+            resolve_submission_references({'referenceImages': [{'referenceId': str(unready.id)}]}, uuid4())
+        self.assertEqual(caught.exception.code, 'UPLOAD_NOT_READY')
+        video = self.session(uuid4(), purpose='video-reference')
+        with self.assertRaises(UploadError) as caught:
+            resolve_submission_references({'referenceImages': [{'referenceId': str(video.id)}]}, uuid4())
+        self.assertEqual(caught.exception.code, 'UPLOAD_PURPOSE_MISMATCH')
 
     def test_not_ready_and_wrong_media_purpose_fail(self):
         actor = uuid4()
@@ -53,9 +63,8 @@ class Goal2UploadManifestTests(TransactionTestCase):
         Asset.objects.create(kind='style', name='Shared fixture', slug='shared-fixture',
             images=[canonical], created_at=1, updated_at=1)
         self.assertEqual(resolve_submission_references({'referenceImages': [canonical]}, uuid4()), {'referenceImages': [canonical]})
-        # A private manifest does not itself grant shared access.
-        with self.assertRaises(UploadError):
-            resolve_submission_references({'referenceImages': [{'referenceId': str(row.id)}]}, uuid4())
+        # READY uploads are shared references whether passed by manifest or URL.
+        self.assertEqual(resolve_submission_references({'referenceImages': [{'referenceId': str(row.id)}]}, uuid4()), {'referenceImages': [canonical]})
 
     def test_legacy_shared_reference_unchanged_and_invalid_manifest_actionable(self):
         actor = uuid4()

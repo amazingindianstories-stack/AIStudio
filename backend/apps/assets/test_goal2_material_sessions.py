@@ -32,10 +32,17 @@ class MaterialSessionTests(TransactionTestCase):
         self.assertEqual(response.json()['uploader']['name'], actor.name)
         self.assertEqual(Asset.objects.get().created_by_id, actor.id)
 
-    def test_other_actor_wrong_purpose_unready_and_url_bypass_rejected(self):
+    def test_other_actor_ready_material_is_shared(self):
+        self.cookie()
+        upload = self.upload(uuid4())
+        response = self.save({'referenceId': str(upload.id)})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['images'], ['/api/media/' + upload.key])
+
+    def test_wrong_purpose_and_unready_rejected(self):
         self.cookie()
         actor = User.objects.get(email='fixture@example.invalid')
-        for upload, status in [(self.upload(uuid4()), 404), (self.upload(actor.id, 'image-reference'), 403), (self.upload(actor.id, state='uploading'), 409)]:
+        for upload, status in [(self.upload(uuid4(), 'image-reference'), 403), (self.upload(actor.id, 'image-reference'), 403), (self.upload(actor.id, state='uploading'), 409), (self.upload(uuid4(), state='uploading'), 409)]:
             self.assertEqual(self.save({'referenceId': str(upload.id)}).status_code, status)
             self.assertEqual(self.save('/api/media/' + upload.key).status_code, status)
         self.assertFalse(Asset.objects.exists())

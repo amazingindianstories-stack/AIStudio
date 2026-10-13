@@ -26,6 +26,9 @@ class CanvasManifestUploadTests(TestCase):
                 self.assertEqual(result.status_code, 200)
                 self.assertTrue(result.json()['url'].startswith(f'/api/media/canvas/{board.id}/'))
                 self.assertEqual(storage.read(result.json()['url'].removeprefix('/api/media/')), original)
+                # Shared studio: another actor's READY canvas upload can be placed too.
                 session.actor_id=uuid4(); session.save(update_fields=['actor_id'])
-                rejected = self.client.post(path, {'referenceId':str(session.id)}, content_type='application/json')
-                self.assertEqual(rejected.status_code, 404)
+                shared = self.client.post(path, {'referenceId':str(session.id)}, content_type='application/json')
+                self.assertEqual(shared.status_code, 200)
+                session.state='uploading'; session.finalized_at=None; session.save(update_fields=['state','finalized_at'])
+                self.assertEqual(self.client.post(path, {'referenceId':str(session.id)}, content_type='application/json').status_code, 409)

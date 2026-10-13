@@ -55,8 +55,8 @@ class Goal2PortraitTests(TestCase):
             with tempfile.TemporaryDirectory() as directory:
                 storage = StorageService(FileSystemAdapter(directory))
                 storage.primary.put(ready.key,b'fixture!', 'image/png','private')
-                with self.assertRaises(ValueError):
-                    storage.signed_read_url(ready.key,3600,actor_id=uuid.uuid4())
+                # READY uploads are readable (signed) by any actor under the shared policy.
+                self.assertTrue(storage.signed_read_url(ready.key,3600,actor_id=uuid.uuid4()))
                 provider = Mock(is_mock=True)
                 provider.create_asset_group.return_value={'Id':'group-mock'}
                 provider.create_asset.return_value={'Id':f'asset-{route}', 'Status':'Active'}

@@ -123,6 +123,12 @@ class MemoryAdapter:
     def put(self, key, data, content_type, cache_control):
         self.objects[key] = bytes(data), content_type
 
+    def put_create_only(self, key, data, content_type, cache_control):
+        if key in self.objects:
+            return False
+        self.put(key, data, content_type, cache_control)
+        return True
+
     def put_stream(self, key, stream, content_type, cache_control):
         chunks = []
         while chunk := stream.read(256*1024):
@@ -186,6 +192,12 @@ class FileSystemAdapter:
         metadata.parent.mkdir(parents=True, exist_ok=True)
         metadata.write_text(json.dumps({'content_type':content_type, 'cache_control':cache_control,
                                        'sha256': hashlib.sha256(data).hexdigest()}))
+
+    def put_create_only(self, key, data, content_type, cache_control):
+        if self._path(key).exists():
+            return False
+        self.put(key, data, content_type, cache_control)
+        return True
 
     def open(self, key, range_header=None):
         path = self._path(key)
@@ -285,6 +297,19 @@ class GCSAdapter:
         blob = self.client.bucket(self.bucket).blob(key)
         blob.cache_control = cache_control
         blob.upload_from_string(data, content_type=content_type, checksum='crc32c', timeout=self.timeout)
+
+    def put_create_only(self, key, data, content_type, cache_control):
+        """Write only when no object exists; a concurrent writer wins silently."""
+        blob = self.client.bucket(self.bucket).blob(key)
+        blob.cache_control = cache_control
+        try:
+            blob.upload_from_string(data, content_type=content_type, checksum='crc32c',
+                                    if_generation_match=0, timeout=self.timeout)
+        except Exception as error:
+            if type(error).__name__ == 'PreconditionFailed' or getattr(error, 'code', None) == 412:
+                return False
+            raise
+        return True
 
     def put_stream(self, key, stream, content_type, cache_control):
         start = stream.tell()

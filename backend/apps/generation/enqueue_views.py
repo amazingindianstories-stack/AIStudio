@@ -69,8 +69,8 @@ def finalize(request):
         source_id = data.get('sourceGenerationId')
         if not isinstance(source_id,str) or not source_id: return reply(request,{'error':'sourceGenerationId is required.'},400)
         source = Generation.objects.filter(pk=source_id).first()
-        if source is not None and str(source.user_id) != str(user.id) and user.role != 'admin':
-            return reply(request,{'error':'FORBIDDEN'},403)
+        # Shared studio: any signed-in user may finalize an eligible draft; the
+        # final is a new generation billed to the requesting user.
         error = enqueue.validate_draft(source)
         if error: return reply(request,{'error':error},400 if source else 404)
     except Exception:

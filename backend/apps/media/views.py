@@ -16,7 +16,8 @@ from .keys import validate_key, InvalidMediaKey, media_key_from_ref, is_export_k
 from .storage import get_storage, MediaNotFoundError, InvalidMediaRangeError, FileSystemAdapter
 from .uploads import (create_upload_presign, verify_upload, initialize_upload,
     upload_status, finalize_upload, stream_local_chunk, cancel_upload, UploadError)
-from .images import is_thumbnailable, thumb_key, thumbnail_bytes
+from .images import is_thumbnailable
+from .derivatives import bounded_derivative, ready_upload_is_image
 
 
 def _body(request):
@@ -49,10 +50,10 @@ def _stream_response(media, *, head=False, cache='private, max-age=31536000, imm
 
 
 def _redirect(url, cache=None):
+    """Signed storage URLs expire; a cached redirect would outlive its signature."""
     response = HttpResponse(status=307)
     response['Location'] = url
-    if cache:
-        response['Cache-Control'] = cache
+    response['Cache-Control'] = 'private, no-store'
     return response
 
 
@@ -71,24 +72,16 @@ def media(request, path):
         return JsonResponse({'error':'UNAUTHENTICATED'},status=401)
     try:
         key = validate_key(path)
-        # New staging objects are private. Published material/portrait rows keep
-        # the existing shared-studio read policy; historical objects are unchanged.
+        # Shared studio: any signed-in user may read a READY upload. Unfinished
+        # uploads stay unreadable; session mutations remain owner-only elsewhere.
         original_key = key
         while match := re.fullmatch(r'thumbs/[0-9]+/(.+)\.webp', original_key):
             original_key = match[1]
         if original_key.startswith('uploads/'):
             from .models import UploadSession
-            from apps.assets.models import Asset, PortraitAsset
-            staged = UploadSession.objects.filter(key=original_key).first()
-            if staged:
-                if not staged.finalized_at or staged.state != 'ready':
-                    return HttpResponse('Not Found', status=404)
-                if str(staged.actor_id) != str(user.id):
-                    canonical = '/api/media/'+original_key
-                    published = (Asset.objects.filter(images__contains=[canonical]).exists()
-                        or PortraitAsset.objects.filter(image_url=canonical).exists())
-                    if not published:
-                        return HttpResponse('Not Found', status=404)
+            staged = UploadSession.objects.filter(key=original_key).only('state', 'finalized_at').first()
+            if staged and (not staged.finalized_at or staged.state != 'ready'):
+                return HttpResponse('Not Found', status=404)
         # ZIPs have per-owner access and expiry checks at the export endpoint.
         # The shared-library cookie route must not bypass either check.
         if is_export_key(key):
@@ -99,28 +92,13 @@ def media(request, path):
         storage = get_storage()
         target, fresh = key, None
         width = _width(request.GET.get('w'))
-        step = next((step for step in (512,1280) if width and step >= width), None) if is_thumbnailable(key) else None
+        eligible = is_thumbnailable(key) or ready_upload_is_image(key)
+        step = next((step for step in (512,1280) if width and step >= width), None) if eligible else None
         if step and settings.LOCAL_DATA_MODE != 'read_only_viewer':
-            derivative = thumb_key(key,step)
-            try:
-                if storage.exists(derivative):
-                    target = derivative
-                else:
-                    original = storage.open(key)
-                    try:
-                        if original.content_type.startswith('image/'):
-                            fresh = thumbnail_bytes(b''.join(original.stream),step)
-                            storage.primary.put(derivative,fresh,'image/webp','public, max-age=31536000, immutable')
-                            target = derivative
-                    finally:
-                        original.stream.close()
-            except MediaNotFoundError:
-                raise
-            except Exception:
-                fresh = None
+            target, fresh = bounded_derivative(storage, key, step)
         direct = storage.browser_url(target) if request.GET.get('inline') != '1' else None
         if direct:
-            return _redirect(direct,'private, max-age=21600')
+            return _redirect(direct)
         if fresh:
             response = HttpResponse(fresh,content_type='image/webp')
             response['Content-Length'] = str(len(fresh))

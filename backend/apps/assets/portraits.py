@@ -3,7 +3,7 @@ import base64
 import uuid
 from django.db import transaction
 from django.conf import settings
-from apps.media.uploads import resolve_ready_upload, UploadError
+from apps.media.uploads import resolve_owned_ready_upload as resolve_ready_upload, UploadError
 from .models import PortraitAsset, PortraitGroup
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response

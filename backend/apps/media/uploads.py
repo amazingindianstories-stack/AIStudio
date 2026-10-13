@@ -6,6 +6,7 @@ import re
 import base64
 from uuid import uuid4
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from .keys import validate_key
 
 PURPOSES = {
@@ -267,8 +268,34 @@ def finalize_upload(actor_id, session_id, storage):
         return session_result(row, storage)
 
 
+def resolve_owned_ready_upload(actor_id, reference_id, *, purposes=None):
+    """Owner-only resolution for flows that register an upload under the actor (portraits)."""
+    row = _owned_session(actor_id, reference_id)
+    if not row.finalized_at or row.state != 'ready':
+        raise UploadError('UPLOAD_NOT_READY', 409)
+    if purposes and row.purpose not in purposes:
+        raise UploadError('UPLOAD_PURPOSE_MISMATCH', 403)
+    return row
+
+
 def resolve_ready_upload(actor_id, reference_id, *, purposes=None):
-    """Small typed manifests resolve here; shared published catalog policy stays separate."""
+    """Resolve a READY upload for use as a reference by any authenticated actor.
+
+    The owner path keeps its cancelled/expired errors. Mutations (finalize,
+    cancel, status) still go through ``_owned_session`` and stay owner-only.
+    """
+    try:
+        shared = _session_model().objects.filter(id=reference_id).first()
+    except (ValueError, ValidationError):
+        shared = None
+    if shared is not None and str(shared.actor_id) != str(actor_id):
+        if shared.state == 'cancelled':
+            raise UploadError('UPLOAD_CANCELLED', 410)
+        if not shared.finalized_at or shared.state != 'ready':
+            raise UploadError('UPLOAD_NOT_READY', 409)
+        if purposes and shared.purpose not in purposes:
+            raise UploadError('UPLOAD_PURPOSE_MISMATCH', 403)
+        return shared
     row = _owned_session(actor_id, reference_id)
     if not row.finalized_at or row.state != 'ready':
         raise UploadError('UPLOAD_NOT_READY', 409)

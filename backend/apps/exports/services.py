@@ -6,7 +6,7 @@ from apps.generation.models import Generation
 from .zip_paths import resolve_archive_paths, MAX_ITEMS
 from apps.library.services.idempotency import now_ms
 from apps.media.keys import media_key_from_ref, is_export_key
-from apps.media.grants import authorize_upload_read
+from apps.media.grants import authorize_owned_upload_read as authorize_upload_read
 from .models import MediaExport, MediaExportItem
 
 CHUNK_LIMIT = 500

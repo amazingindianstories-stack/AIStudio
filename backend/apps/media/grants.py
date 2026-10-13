@@ -33,7 +33,22 @@ def authorize_upload_read(key, actor_id):
     row = _upload_session(key)
     if not row:
         return None
-    if not row.finalized_at or row.state != 'ready' or not actor_id:
+    # Shared studio: every READY upload is readable by any authenticated actor.
+    if not row.finalized_at or row.state != 'ready':
+        raise ValueError('Uploaded reference is not authorized and ready.')
+    return row
+
+
+def authorize_owned_upload_read(key, actor_id):
+    """Owner-only check for personal flows such as ZIP exports.
+
+    Shared READY reads do not extend to selecting another actor's private
+    upload into an export; published catalog material stays shareable.
+    """
+    row = authorize_upload_read(key, actor_id)
+    if row is None:
+        return None
+    if not actor_id:
         raise ValueError('Uploaded reference is not authorized and ready.')
     if str(row.actor_id) != str(actor_id):
         from apps.assets.models import Asset, PortraitAsset

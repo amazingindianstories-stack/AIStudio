@@ -247,15 +247,20 @@ class EnqueueContractTests(TransactionTestCase):
         self.assertEqual(response.json(),{'error':'Failed to queue the final render.'})
         self.assertEqual(Generation.objects.count(),1)
 
-    def test_video_job_owner_checks_precede_status_and_paid_finalization(self):
+    def test_shared_finalization_is_billed_to_requester_while_status_stays_owner_only(self):
+        # Shared studio: any signed-in user may finalize an eligible draft; the
+        # final is built for (and billed to) the requesting user.
         self.cookie()
         for owner in [uuid.uuid4(),None]:
             source=self.row(user_id=owner)
-            before=Generation.objects.count()
-            with patch('apps.generation.enqueue_views.enqueue.build_final') as build:
-                self.assertEqual(self.post('video/finalize',{'sourceGenerationId':str(source.id)}).status_code,403)
-                build.assert_not_called()
-            self.assertEqual(Generation.objects.count(),before)
+            item={'id':str(uuid.uuid4()),'kind':'video','costCents':0}
+            with patch('apps.generation.enqueue_views.enqueue.build_final',return_value=item) as build, \
+                 patch('apps.generation.enqueue_views.enqueue.persist') as persist:
+                response=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
+                self.assertEqual(response.status_code,200,response.content)
+                build.assert_called_once()
+                self.assertEqual(str(build.call_args.args[1]),str(session_fixtures.UID))
+                persist.assert_called_once_with(item)
             self.assertEqual(self.client.get('/api/generate/video/status',{'id':str(source.id)}).status_code,403)
         from apps.authentication.models import User
         User.objects.filter(pk=session_fixtures.UID).update(role='admin')

@@ -99,7 +99,8 @@ class ResumableUploadTests(TransactionTestCase):
         self.assertCode('UPLOAD_NOT_READY', resolve_ready_upload, self.user.id, session['referenceId'])
         self.chunk(session, PNG)
         finalize_upload(self.user.id, session['uploadId'], self.storage)
-        self.assertCode('UPLOAD_NOT_FOUND', resolve_ready_upload, self.other.id, session['referenceId'])
+        # Shared READY reference for other actors; status/finalize above stay owner-only.
+        self.assertEqual(str(resolve_ready_upload(self.other.id, session['referenceId']).id), session['referenceId'])
         self.assertCode('UPLOAD_PURPOSE_MISMATCH', resolve_ready_upload, self.user.id, session['referenceId'], purposes={'portrait'})
         expired, _ = self.begin()
         UploadSession.objects.filter(id=expired['uploadId']).update(expires_at=timezone.now()-timedelta(seconds=1))
@@ -183,10 +184,8 @@ class ResumableUploadTests(TransactionTestCase):
             sign_media_grant(session['key'], actor_id=self.user.id)
         self.chunk(session, PNG)
         finalize_upload(self.user.id, session['uploadId'], self.storage)
-        with self.assertRaises(ValueError):
-            sign_media_grant(session['key'])
-        with self.assertRaises(ValueError):
-            sign_media_grant(session['key'], actor_id=self.other.id)
+        # Shared READY policy: other actors may obtain a read grant once the upload is READY.
+        self.assertEqual(verify_media_grant(sign_media_grant(session['key'], actor_id=self.other.id)), session['key'])
         token = sign_media_grant(session['key'], actor_id=self.user.id)
         self.assertEqual(len(token.split('.')), 4)
         self.assertEqual(verify_media_grant(token), session['key'])
@@ -208,7 +207,9 @@ class ResumableUploadTests(TransactionTestCase):
             self.assertEqual(response.status_code, 200)
             response.close()
             self.client.cookies['veevee_session'] = sign_session(self.other)
-            self.assertEqual(self.client.get('/api/media/'+session['key']).status_code, 404)
+            shared = self.client.get('/api/media/'+session['key'])
+            self.assertEqual(shared.status_code, 200)
+            shared.close()
             from apps.assets.models import Asset
             Asset.objects.create(id=uuid4(), name='Published material', slug='published', kind='other',
                 images=['/api/media/'+session['key']], created_at=1, updated_at=1)
@@ -258,8 +259,7 @@ class ResumableUploadTests(TransactionTestCase):
         self.chunk(session, PNG)
         finalize_upload(self.user.id, session['uploadId'], self.storage)
         derivative = 'thumbs/512/'+session['key']+'.webp'
-        with self.assertRaises(ValueError):
-            sign_media_grant(derivative, actor_id=self.other.id)
+        self.assertTrue(sign_media_grant(derivative, actor_id=self.other.id))
         token = sign_media_grant(derivative, actor_id=self.user.id, ttl_seconds=300, now=1000)
         self.assertEqual(verify_media_grant(token, now=301000), derivative)
         self.assertIsNone(verify_media_grant(token, now=301001))
