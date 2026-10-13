@@ -18,11 +18,11 @@ Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs 
 | Phase | State | Notes |
 |---|---|---|
 | P0 Baselines / rollback | PASS (rollback execution NOT VERIFIED) | see below |
-| P1 Git baseline | IN PROGRESS | P1.1, P1.3 PASS; backend suite PASS |
-| P2 Correctness fixes | IN PROGRESS | P2.1, P2.2, P2.4, P2.5 PASS; P2.3 partial |
-| P3 Versioned image + cutover | P3.1–P3.2 PASS; P3.3 PARTIAL; cutover BLOCKED (gate A1) | see P3 |
-| P4 Media off Vercel | PENDING (release = gate A2) | |
-| P5 UI perf + copy | IN PROGRESS (release = gate A3) | single panel, polling, draft marker done |
+| P1 Git baseline | PASS | migrations restored from image; backend byte-identical; suites green |
+| P2 Correctness fixes | P2.1, P2.2, P2.4, P2.5 PASS; P2.3 PARTIAL | idempotent enqueue + submit-time portrait check added |
+| P3 Versioned image + cutover | P3.1–P3.2 PASS; P3.3 PASS (local, worker hand-off NOT VERIFIED); cutover PENDING (owner OK'd, needs manual-mode session) | see P3 |
+| P4 Media off Vercel | Code PASS (local); release with A1/A3 | resolver + direct URLs; frame extraction still via /api/media (no CORS needed yet) |
+| P5 UI perf + copy | Code PASS (local); release = A3 | notices, dialogs, error copy, portrait labels, confirmations |
 | P6 Retire Blue | PENDING (gate A5) | |
 | Credentials | BLOCKED (gate A4) | Higgsfield token exposed |
 
@@ -68,7 +68,7 @@ Deployment needs owner approval (gate **A0-depth**).
 |---|---|---|
 | P2.1 Non-skipping updates | PASS | `d768416`. `backend/apps/generation/updates.py`: oldest-first `(updated_at,id)` cursor, `next`/`more`, 30 s commit lag, active rows always included; `src/lib/live-cursor.js` drains pages, backs off on errors, ignores rows stuck >30 min for cadence. Tests: 250 changes in one interval, 150 identical timestamps, late commit, active rows (DB-backed); frontend unit tests. |
 | P2.2 Media/finalize permissions | PASS | `189826a`. READY uploads readable/referencable by any signed-in user (live parity); unready/cancelled/export hidden; upload mutations, portrait registration and ZIP exports owner-only (live parity — those call sites imported the original function). Finalize-for-all. Allow/deny suite `apps/media/test_shared_access_policy.py`. |
-| P2.3 Paid-job safety | PARTIAL | Audit (read-only): **fixed** Gemini re-submits after billed 200/ambiguous 5xx (`ab720df`, `providers/gemini.py`); **fixed** duplicate in-flight finals — finalize serializes on the draft row and reuses a queued/running final, re-finalizing after completion stays allowed per owner (`ab720df`, `enqueue_views.py`); **fixed** ambiguous failures now carry an `uncertainSubmission` marker + artist-facing warning (`82ff6be`). **Open:** no idempotency key on enqueue POST (double click = two rows); orphaned task id after lease loss is not ledgered; Higgsfield preset re-call; duplicate callbacks may re-run best-of judge calls. **Overlay-only protections that must be ported before any overlay removal (P3):** one-shot RESERVED→ATTEMPTING and ATTEMPTING→SUBMITTING DB transitions per POST (stops retry loops and extra best-of POSTs), DB-enforced no-resubmit, endpoint allowlist per active execution, payload limits (candidateCount 1, Seedance MOV, duration ≤15), new-jobs-only reservation, worker RLS. |
+| P2.3 Paid-job safety | PARTIAL | Audit (read-only): **fixed** Gemini re-submits after billed 200/ambiguous 5xx (`ab720df`, `providers/gemini.py`); **fixed** duplicate in-flight finals — finalize serializes on the draft row and reuses a queued/running final, re-finalizing after completion stays allowed per owner (`ab720df`, `enqueue_views.py`); **fixed** ambiguous failures now carry an `uncertainSubmission` marker + artist-facing warning (`82ff6be`). **Fixed (`a1da3c2`):** optional `Idempotency-Key` on enqueue — a re-sent POST returns the first generation (receipt under advisory lock in the insert transaction; concurrent test: 4 POSTs → 1 row). **Open:** orphaned task id after lease loss is not ledgered; Higgsfield preset re-call; duplicate callbacks may re-run best-of judge calls. **Overlay-only protections that must be ported before any overlay removal (P3):** one-shot RESERVED→ATTEMPTING and ATTEMPTING→SUBMITTING DB transitions per POST (stops retry loops and extra best-of POSTs), DB-enforced no-resubmit, endpoint allowlist per active execution, payload limits (candidateCount 1, Seedance MOV, duration ≤15), new-jobs-only reservation, worker RLS. |
 | P2.4 Bounded thumbnails | PASS | `189826a`, `apps/media/derivatives.py` (ported live overlay: 32 MB/20 MP caps, one decoder per process, create-only, fallback to original) + `private, no-store` redirects. |
 | P2.5 Canvas durability | PASS | `aaa33ad`. Pending draft per board until server ack; keepalive only < 60 KiB; recovery on reopen. Tests for failed save→unmount→reopen and keepalive sizing. |
 | Live risk noted | — | Production now allows finalize-for-all (owner request) **without** the in-flight dedupe; until the P3 release, a double finalize from two tabs could submit two paid finals. The confirmation dialog mitigates single-tab double clicks. |
@@ -88,9 +88,27 @@ to stdout; API gets `PUBLIC_APP_URL=https://veevee.ai` (F-01) and `DEPTH_WORKER_
 RLS the scheduler may not see them for depth reconciliation.
 **F-06:** the gateway forces `Cache-Control: no-store` on every response (kept for parity).
 
+## Incident 2026-10-13 10:27–10:33 UTC — failed Seedance jobs
+Investigated read-only. Jobs `f0d8c76f`, `423ac2b7` (and `e0f57d0b` with the same references) carried
+reference 12, Gallery portrait "R01_SC008_0008 (1)", soft-deleted (PreviewDeleted) at 07:42 UTC. The
+worker guard refused it before any provider call (no charge; admin spend counts only succeeded rows).
+Gaps: no submit-time check for plain portrait URLs, message did not name the portrait, composer could
+not show it. **Fixed (`f925a7e`):** enqueue refuses removed/unready portraits with 400
+`PORTRAIT_UNAVAILABLE` + reference index; worker message names the portrait; composer marks the card
+"Unavailable" and blocks resubmit until removed. Verified in the local image rehearsal.
+
+## F-07 — gateway blocks features in production (kept for parity)
+The live ingress gateway refuses `POST /api/generate/upscale`, `/api/audio/transcribe`, admin writes
+(`/api/admin/*` POST/PATCH/DELETE: user create/edit/delete, limits, pricing), agent message POSTs and
+`/api/queue/execute`. Unchanged by the cutover; enabling them is a separate owner decision.
+
 ## P5 — UI performance (progress)
 - `5cae45a`: one mounted assets panel (desktop only when open; drawer on mobile); ZIP status poll backs off, pauses when hidden, stops after 2 h; depth status 12 s only in Depth mode, else 60 s.
 - `de7c76c`: draft videos marked with a dashed amber border + "Draft" label (owner request).
+- `766cafd` watchdog/lazy chat video; `73fbd99`/`0bab3e9` cross-scope cache + page-1 merge; `4122c1e` bounded uploads.
+- `9bb5d23` alert() → in-app notices; `2228407` prompt()/confirm() → in-app dialogs; `e02aee1` concise copy,
+  neutral portrait labels, quieter reference strip; central API error copy (codes never shown raw).
+- Frontend suite 469/469, lint clean, `next build` OK.
 - Frontend suite 452/452, lint clean, build OK.
 
 ## Owner approval gates
@@ -102,4 +120,6 @@ RLS the scheduler may not see them for depth reconciliation.
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
-P4 media resolver + direct GCS URLs (behind a fallback), remaining P5 copy/UX items; then owner gates A1 (cutover), A2, A3, A4, A5.
+Owner approved deploying when safe (2026-10-13). Production steps need a manual-permission session
+(auto mode refuses production reads/deploys). Order: A1 API → generation → export → scheduler per
+`CUTOVER.md` (no variable changes), then frontend (A3), then F-04/F-01 single-variable steps, A4, A5.

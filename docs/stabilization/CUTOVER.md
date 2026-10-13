@@ -1,55 +1,53 @@
 # Green cutover to the versioned image (gate A1) — runbook
 
-Replaces env-injected launcher code with the image built from this branch
-(`backend/Dockerfile`, entrypoint `python -m deploy.entrypoint <component>`).
-**Do not execute without explicit owner approval.** No values belong in this
-file; values are moved privately from the current launcher configuration.
+Replaces the env-injected launcher code with the image built from this branch. The image's
+entrypoint (`python -m deploy.entrypoint <component>`) reads the services' **existing**
+configuration variables (`deploy/legacy_config.py`), so the cutover changes only the image and
+start command — **no variable is added, removed or edited**. No values belong in this file.
 
 ## Preconditions
-- P0 backups present and restore-verified (Green + Blue); rollback set recorded per service
-  (deployment id, image digest, start command, exact variable values, hash-pinned, private).
-- Branch tests green: backend suite in the production-equivalent image, frontend suite, build.
-- Migration graph: `migrate --plan` → no operations against a fresh restore of production.
-- A quiet window: no queued/running generations, no active exports (check before each service).
+- P0 backups present and restore-verified; rollback set recorded per service (deployment id,
+  image digest, start command, variable-value hashes) in the private baseline.
+- Branch green: backend suite (649/650, the Node interop test needs Node), frontend suite, lint,
+  build; `makemigrations --check` and `migrate --plan` → no changes / no operations against the
+  restored production copy.
+- Local rehearsal of the exact image on an internal (no-internet) network against the restored
+  copy with the production roles: all four services start; readiness, ingress refusal, session,
+  history, counts, paged updates, portraits, media-resolve, idempotent enqueue and the
+  removed-portrait refusal pass.
+- Quiet window, checked immediately before each service (read-only):
+  `SELECT status, count(*) FROM generations WHERE status IN ('queued','running') GROUP BY 1;`
+  `SELECT status, count(*) FROM media_exports WHERE status IN ('queued','running') GROUP BY 1;`
 
-## Variables per service (names only)
-Common (all four):
-`DATABASE_URL` (runtime role: API → api role, workers → worker role; internal host),
-`VEEVEE_DATABASE_CA_PEM`, `GCP_ADC_JSON`, `DJANGO_SECRET_KEY`, `AUTH_SECRET`,
-`DJANGO_ALLOWED_HOSTS=127.0.0.1`, `DJANGO_BROWSER_ORIGINS` (veevee.ai, www.veevee.ai, current
-frontend deployment origins), `PUBLIC_APP_URL=https://veevee.ai` (fixes F-01),
-`VEEVEE_MEDIA_BACKEND=gcs`, `GCP_MEDIA_BUCKET`, `GCP_PROJECT_ID`, `GCP_SERVICE_ACCOUNT_EMAIL`,
-`VEEVEE_MEDIA_PREFIX`, `MOCK_GENERATION=0`, `MOCK_ASSET_PROVIDER=0`, `AWS_EC2_METADATA_DISABLED=true`,
-`VEEVEE_PAID_GUARD` (JSON: unlimited scope + `unlimited_new_jobs: true`).
+## Staging an upload
+```
+python3 scripts/stabilization/stage_railway_deploy.py <commit> <component> <empty-dir>
+railway up <dir> --path-as-root -p <project> -e <environment> -s <service-id> -c
+```
+The staged directory holds only `backend/` from `git archive` and a generated `railway.json`
+(Dockerfile `backend/Dockerfile`, start command, health/overlap). The repository's
+`railway.toml` files are never uploaded — the root one would start the generation worker.
 
-API only: `PORT=18081`, `VEEVEE_INGRESS_SECRET` (same value the Vercel middleware sends),
-`VEEVEE_EXPORT_ADMISSION=1`, `VEEVEE_PORTRAIT_LIFECYCLE=1`, provider keys
-(`ARK_API_KEY`, `ARK_BASE_URL`, `GOOGLE_API_KEY`, `SEEDANCE_MODEL`, `SEEDANCE_MODEL_FAST`),
-BytePlus asset-library keys (`BYTEPLUS_ACCESS_KEY_ID`, `BYTEPLUS_SECRET_ACCESS_KEY`,
-`BYTEPLUS_ARK_REGION`), `DEPTH_WORKER_TOKEN` (fixes F-04 with the gateway depth routes).
+## Order (one service at a time; verify before the next)
+1. **API** (health check `/__g4_readiness`, overlap 20 s, drain 30 s). A failed start or
+   failed preflight never takes traffic; the old deployment keeps serving.
+   Verify: deployment meta shows the new start command and image; readiness; `/api/health`
+   through veevee.ai; login; history; a media redirect (`private, no-store`); portraits list;
+   `/api/media-resolve` returns signed URLs; no new 5xx.
+2. **Generation worker** (overlap 0, drain 120 s): only with no queued/running jobs. Verify the
+   startup log reaches the worker loop (preflight passed) and the next real job is claimed once.
+3. **Export worker**, then **scheduler**: verify startup, then an export ZIP (filenames, MOV
+   bytes) and the scheduler lease.
+4. Watch the rollback thresholds in `STATUS.md` for a full reconciliation window.
 
-Generation worker: provider keys as above, `VEEVEE_LEASE_PREFIX`, `VEEVEE_NAMING_PREFIX`
-(exact current values — they are live state).
-Export worker: `VEEVEE_EXPORT_ADMISSION=1`, `VEEVEE_LEASE_PREFIX`, `VEEVEE_NAMING_PREFIX`.
-Scheduler: `VEEVEE_LEASE_PREFIX`, `VEEVEE_NAMING_PREFIX`.
+Separate later single-variable steps: `DEPTH_WORKER_TOKEN` on the API (F-04),
+`VEEVEE_PUBLIC_APP_URL_OVERRIDE=https://veevee.ai` (F-01).
 
-Start commands: `python -m deploy.entrypoint api|generation|export|scheduler`.
-API health check stays `/__g4_readiness`; API overlap 20 s / drain 30 s; generation worker
-overlap 0 / drain 120 s (one claimant at a time).
-
-## Order (one service at a time, verify before the next)
-1. Build the image from this branch; record its digest.
-2. **API**: stage variables with `--skip-deploys`, verify exact readback (names + value hashes),
-   set start command and source image, deploy. Verify readiness, `/api/health` through
-   veevee.ai, login, history, media redirect (`private, no-store`), a portrait list, depth
-   status, enqueue path for an owner-approved single test generation.
-3. **Generation worker**: confirm no queued/running jobs; deploy (overlap 0). Verify admission
-   log, that a queued job is claimed exactly once (ledger RESERVED→ATTEMPTING→SUBMITTING).
-4. **Export worker**, then **scheduler**: deploy; verify an export ZIP (filenames, MOV hash) and
-   scheduler leader lease.
-5. Watch the rollback thresholds in `STATUS.md` for at least one full reconciliation window.
-
-## Rollback (per service, as a set — never source alone)
-Restore the recorded variable values (`railway variable set --skip-deploys --stdin`), restore the
-recorded start command and source image, then redeploy/rollback to the recorded deployment.
+## Rollback (per service)
+Primary: dashboard **Rollback** to the recorded previous deployment id, which restores its image.
+Then confirm the active deployment's start command is the old launcher command; variables were not
+changed, so nothing else needs restoring.
+Fallback (if the rollback kept the new start command): stage the extracted previous image source
+(private baseline `image-source/full` as `backend/`) with `backend/Dockerfile` and a `railway.json`
+whose start command is the recorded launcher command, and `railway up` it.
 Never re-run provider requests; uncertain jobs stay uncertain.
