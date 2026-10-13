@@ -1,0 +1,823 @@
+{
+  "version": 2,
+  "scope": "local undeployed implementation only; production state remains in route-ownership.yaml",
+  "schema_authority_local": "DJANGO_MANAGED",
+  "schema_adoption_production": "PENDING_SEPARATE_AUTHORIZATION",
+  "methods": [
+    {
+      "path": "/api/admin/activity",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/audit/runtime",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/data",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/limits",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/logs",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/migrate-schema",
+      "method": "POST",
+      "state": "INTENTIONALLY_RETIRED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ],
+      "reason": "Authenticated 410; schema changes require controlled offline Django release commands."
+    },
+    {
+      "path": "/api/admin/pricing",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/set-token",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/status",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/user-limits",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/users",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/users",
+      "method": "PATCH",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/admin/users",
+      "method": "DELETE",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/agent-conversations/[id]/messages/[messageId]",
+      "method": "PATCH",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/agents/test_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/agent-conversations/[id]/messages",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/agents/test_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/agent-conversations/[id]",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/agents/test_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/agent-conversations",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/agents/test_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/agent-conversations",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/agents/test_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/assets/portraits/[id]/assets",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/test_portrait_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/assets/portraits/[id]/assets",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/test_portrait_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/assets/portraits/[id]/assets",
+      "method": "DELETE",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/test_portrait_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/assets/portraits",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/test_portrait_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/assets/portraits",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/test_portrait_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/assets/portraits",
+      "method": "PATCH",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/test_portrait_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/assets/portraits",
+      "method": "DELETE",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/test_portrait_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/assets/portraits/upload",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/test_portrait_contracts.py"
+      ]
+    },
+    {
+      "path": "/api/assets",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/tests.py"
+      ]
+    },
+    {
+      "path": "/api/assets",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/tests.py"
+      ]
+    },
+    {
+      "path": "/api/assets",
+      "method": "DELETE",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/assets/tests.py"
+      ]
+    },
+    {
+      "path": "/api/audio/transcribe",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/media/test_media.py"
+      ]
+    },
+    {
+      "path": "/api/auth/login",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/authentication/tests.py"
+      ]
+    },
+    {
+      "path": "/api/auth/logout",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/authentication/tests.py"
+      ]
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/authentication/tests.py"
+      ]
+    },
+    {
+      "path": "/api/auth/me",
+      "method": "PATCH",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/authentication/tests.py"
+      ]
+    },
+    {
+      "path": "/api/auth/password",
+      "method": "PATCH",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/authentication/tests.py"
+      ]
+    },
+    {
+      "path": "/api/canvas-boards/[id]",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/canvas/tests.py"
+      ]
+    },
+    {
+      "path": "/api/canvas-boards/[id]",
+      "method": "PUT",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/canvas/tests.py"
+      ]
+    },
+    {
+      "path": "/api/canvas-boards/[id]/upload",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/canvas/tests.py"
+      ]
+    },
+    {
+      "path": "/api/canvas-boards",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/canvas/tests.py"
+      ]
+    },
+    {
+      "path": "/api/canvas-boards",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/canvas/tests.py"
+      ]
+    },
+    {
+      "path": "/api/cron/depth-reconciliation",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/cron/login-attempts",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/cron/video-reconciliation",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/folders",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/library/test_organization.py"
+      ]
+    },
+    {
+      "path": "/api/folders",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/library/test_organization.py"
+      ]
+    },
+    {
+      "path": "/api/folders",
+      "method": "PATCH",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/library/test_organization.py"
+      ]
+    },
+    {
+      "path": "/api/folders",
+      "method": "DELETE",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/library/test_organization.py"
+      ]
+    },
+    {
+      "path": "/api/generate/depth",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/generate/depth/status",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/generate/image",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/test_enqueue.py"
+      ]
+    },
+    {
+      "path": "/api/generate/upscale",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/test_enqueue.py"
+      ]
+    },
+    {
+      "path": "/api/generate/upscale/status",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/test_enqueue.py"
+      ]
+    },
+    {
+      "path": "/api/generate/video/finalize",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/test_enqueue.py"
+      ]
+    },
+    {
+      "path": "/api/generate/video",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/test_enqueue.py"
+      ]
+    },
+    {
+      "path": "/api/generate/video/status",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/test_enqueue.py"
+      ]
+    },
+    {
+      "path": "/api/generations/[id]/download",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/media/test_media.py"
+      ]
+    },
+    {
+      "path": "/api/generations/[id]/download",
+      "method": "HEAD",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/media/test_media.py"
+      ]
+    },
+    {
+      "path": "/api/history/counts",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/tests.py"
+      ]
+    },
+    {
+      "path": "/api/history/exports/[id]/download",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/exports/tests.py"
+      ]
+    },
+    {
+      "path": "/api/history/exports/[id]/finalize",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/exports/tests.py"
+      ]
+    },
+    {
+      "path": "/api/history/exports/[id]/items",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/exports/tests.py"
+      ]
+    },
+    {
+      "path": "/api/history/exports/[id]",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/exports/tests.py"
+      ]
+    },
+    {
+      "path": "/api/history/exports",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/exports/tests.py"
+      ]
+    },
+    {
+      "path": "/api/history/move",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/library/test_organization.py"
+      ]
+    },
+    {
+      "path": "/api/history",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/tests.py"
+      ]
+    },
+    {
+      "path": "/api/history",
+      "method": "PATCH",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/library/test_organization.py"
+      ]
+    },
+    {
+      "path": "/api/history",
+      "method": "DELETE",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/library/test_organization.py"
+      ]
+    },
+    {
+      "path": "/api/history/updates",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/tests.py"
+      ]
+    },
+    {
+      "path": "/api/media/[...path]",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/media/test_media.py"
+      ]
+    },
+    {
+      "path": "/api/media-grant",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/media/test_media.py"
+      ]
+    },
+    {
+      "path": "/api/projects",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/projects/tests.py"
+      ]
+    },
+    {
+      "path": "/api/projects",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/projects/tests.py"
+      ]
+    },
+    {
+      "path": "/api/queue/execute",
+      "method": "POST",
+      "state": "INTENTIONALLY_RETIRED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/test_execution.py"
+      ],
+      "reason": "Authenticated 410; independent Python generation worker calls executor directly."
+    },
+    {
+      "path": "/api/queue/status",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/tests.py"
+      ]
+    },
+    {
+      "path": "/api/settings",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/admin_dashboard/tests.py"
+      ]
+    },
+    {
+      "path": "/api/uploads/presign",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/media/test_media.py"
+      ]
+    },
+    {
+      "path": "/api/users",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/authentication/tests.py"
+      ]
+    },
+    {
+      "path": "/api/webhooks/seedance",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/generation/test_execution.py"
+      ]
+    },
+    {
+      "path": "/api/worker/depth/claim",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/worker/depth/complete",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/worker/depth/heartbeat",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/worker/depth/progress",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/worker/depth/status",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/worker/depth/upload-url",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/workers/tests.py"
+      ]
+    },
+    {
+      "path": "/api/worker/exports/access",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/common/test_api_coverage.py",
+        "backend/apps/exports/tests.py"
+      ]
+    }
+  ],
+  "source_retirement": "COMPLETE",
+  "additions": [
+    {
+      "path": "/api/uploads/init",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/media/test_resumable_uploads.py",
+        "backend/apps/common/test_api_coverage.py"
+      ]
+    },
+    {
+      "path": "/api/uploads/[id]/status",
+      "method": "GET",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/media/test_resumable_uploads.py",
+        "backend/apps/common/test_api_coverage.py"
+      ]
+    },
+    {
+      "path": "/api/uploads/[id]/finalize",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/media/test_resumable_uploads.py",
+        "backend/apps/common/test_api_coverage.py"
+      ]
+    },
+    {
+      "path": "/api/uploads/[id]/cancel",
+      "method": "POST",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/media/test_resumable_uploads.py",
+        "backend/apps/common/test_api_coverage.py"
+      ]
+    },
+    {
+      "path": "/api/uploads/[id]/local",
+      "method": "PUT",
+      "state": "DJANGO_IMPLEMENTED_LOCAL",
+      "evidence": [
+        "backend/apps/media/test_resumable_uploads.py",
+        "backend/apps/common/test_api_coverage.py"
+      ]
+    }
+  ]
+}

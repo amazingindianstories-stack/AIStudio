@@ -108,7 +108,9 @@ test("referenceDisplayUrl cleanly prepares references for browser <img> tags", (
   );
 
   // 4. Fallback for unresolvable or empty
-  assert.equal(referenceDisplayUrl("asset://unknown-asset", []), "asset://unknown-asset");
+  // An unresolvable portrait asset has no displayable image; the strip shows its
+  // "Portrait removed" state instead of handing <img> a non-URL.
+  assert.equal(referenceDisplayUrl("asset://unknown-asset", []), "");
   assert.equal(referenceDisplayUrl("data:image/png;base64,AAAA"), "data:image/png;base64,AAAA");
   assert.equal(referenceDisplayUrl(null), "");
   assert.equal(referenceDisplayUrl(undefined), "");
