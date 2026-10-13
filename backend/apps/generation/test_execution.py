@@ -464,3 +464,16 @@ class ExecutionPersistenceTests(TransactionTestCase):
         self.assertEqual(self.client.post('/api/queue/execute', data={'id': str(uuid4())}, content_type='application/json').status_code, 401)
         response = self.client.post('/api/queue/execute', data={'id': str(uuid4())}, content_type='application/json', HTTP_X_GENERATION_WORKER_SECRET='worker-fixture')
         self.assertEqual((response.status_code, response.json()['error']), (410, 'QUEUE_EXECUTION_MOVED'))
+
+
+class SubmissionUncertaintyTests(TransactionTestCase):
+    def test_classification_is_conservative_for_definite_rejections(self):
+        from .services.executor import submission_uncertain
+        from .providers.transport import ProviderError
+        self.assertTrue(submission_uncertain(TimeoutError('read timed out')))
+        self.assertTrue(submission_uncertain(ProviderError('gateway', status=502)))
+        self.assertTrue(submission_uncertain(ProviderError('timeout', status=408)))
+        self.assertTrue(submission_uncertain(ProviderError('no response')))
+        self.assertFalse(submission_uncertain(ProviderError('safety', status=400)))
+        self.assertFalse(submission_uncertain(ProviderError('server', status=503, may_have_submitted=False)))
+        self.assertFalse(submission_uncertain(ValueError('local validation')))

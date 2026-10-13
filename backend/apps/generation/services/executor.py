@@ -203,9 +203,17 @@ def execute_admitted(item, *, owner, signal=None, image_execute=None, video_subm
             return {'kind': 'pending', 'item': current}
         failure = {'status': 'failed', 'error': str(error) or ('Video task creation failed.' if item.kind == 'video' else 'Image generation failed.'),
             'moderation_blocked': getattr(error, 'code', None) == 'moderation', 'completed_at': now_ms(), 'updated_at': now_ms()}
+        responses = []
         if getattr(error, 'provider_response', None):
             response = error.provider_response
-            failure['provider_responses'] = response if isinstance(response, list) else [response]
+            responses = response if isinstance(response, list) else [response]
+        if submission_uncertain(error):
+            # The provider may have accepted (and billed) this request. Keep the
+            # evidence and say so; nothing here ever re-submits automatically.
+            failure['error'] = (failure['error'].rstrip('. ') + '. It may still have been accepted by the provider; check before retrying.')
+            responses = [*responses, {'uncertainSubmission': True, 'errorType': type(error).__name__, 'recordedAt': now_ms()}]
+        if responses:
+            failure['provider_responses'] = responses
         try:
             failed = _fenced_update(expected, owner, failure)
         except LeaseLost:
@@ -284,3 +292,14 @@ def process_generation(identifier, *, owner=None, signal=None, image_execute=Non
         return execute_admitted(item, owner=owner, signal=signal, image_execute=image_execute, video_submit=video_submit, env=env)
     finally:
         coordinator.release_generation(identifier, owner)
+
+def submission_uncertain(error):
+    """True when a failed provider call might still have created a billable job."""
+    if getattr(error, 'may_have_submitted', True) is False:
+        return False
+    if isinstance(error, (TimeoutError, ConnectionError)):
+        return True
+    status = getattr(error, 'status', None)
+    if status is None:
+        return type(error).__name__ in ('ProviderError', 'QueueExecutionDeadlineError', 'ReadTimeout', 'ConnectTimeout', 'ChunkedEncodingError')
+    return status == 408 or status >= 500
