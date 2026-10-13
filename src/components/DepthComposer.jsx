@@ -6,6 +6,7 @@ import { useStore } from "@/lib/store";
 import { DEPTH_ENCODERS, DEPTH_ENCODER_LABELS as ENCODER_LABELS } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { validateDepthDrop } from "@/lib/asset-drag-contract";
+import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 
 /**
  * The composer for depth-map jobs (mode="depth") — a different shape from
