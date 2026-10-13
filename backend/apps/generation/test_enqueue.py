@@ -304,6 +304,53 @@ class EnqueueContractTests(TransactionTestCase):
         User.objects.filter(pk=session_fixtures.UID).update(role='admin')
         self.assertEqual(self.client.get('/api/generate/video/status',{'id':str(source.id)}).status_code,200)
 
+    def test_idempotency_key_replays_one_generation(self):
+        self.cookie()
+        headers={'HTTP_IDEMPOTENCY_KEY':'submit-1234-0'}
+        first=self.client.post('/api/generate/image',{'prompt':'a red kite'},content_type='application/json',**headers)
+        self.assertEqual(first.status_code,200,first.content)
+        with patch('apps.generation.services.enqueue.persist') as persist:
+            second=self.client.post('/api/generate/image',{'prompt':'a red kite'},content_type='application/json',**headers)
+            persist.assert_not_called()
+        self.assertEqual(second.status_code,200)
+        self.assertEqual(second.json()['id'],first.json()['id'])
+        self.assertEqual(Generation.objects.filter(prompt='a red kite').count(),1)
+        changed=self.client.post('/api/generate/image',{'prompt':'a blue kite'},content_type='application/json',**headers)
+        self.assertEqual((changed.status_code,changed.json()['code']),(409,'IDEMPOTENCY_PAYLOAD_MISMATCH'))
+        # Without a key (older clients) every POST is a new submission, as before.
+        for _ in range(2):
+            self.assertEqual(self.post('image',{'prompt':'no key'}).status_code,200)
+        self.assertEqual(Generation.objects.filter(prompt='no key').count(),2)
+        self.assertEqual(self.client.post('/api/generate/image',{'prompt':'x'},content_type='application/json',HTTP_IDEMPOTENCY_KEY='bad key!').status_code,400)
+
+    def test_failed_submission_leaves_the_key_reusable(self):
+        self.cookie()
+        headers={'HTTP_IDEMPOTENCY_KEY':'submit-5678-0'}
+        with patch('apps.generation.services.enqueue.assign_generation_naming',side_effect=RuntimeError('synthetic naming failure')):
+            self.assertEqual(self.client.post('/api/generate/image',{'prompt':'retry me'},content_type='application/json',**headers).status_code,500)
+        again=self.client.post('/api/generate/image',{'prompt':'retry me'},content_type='application/json',**headers)
+        self.assertEqual(again.status_code,200,again.content)
+        self.assertEqual(Generation.objects.filter(prompt='retry me').count(),1)
+
+    def test_concurrent_duplicate_submissions_create_one_generation(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from django.db import connections
+        self.cookie()
+        cookie=self.client.cookies['veevee_session'].value
+        def go(_):
+            from django.test import Client
+            client=Client(HTTP_SEC_FETCH_SITE='same-origin')
+            client.cookies['veevee_session']=cookie
+            try:
+                return client.post('/api/generate/image',data=json.dumps({'prompt':'double click'}),content_type='application/json',
+                    HTTP_IDEMPOTENCY_KEY='submit-dbl-0').json()['id']
+            finally:
+                connections.close_all()
+        with ThreadPoolExecutor(4) as pool:
+            ids=list(pool.map(go,range(4)))
+        self.assertEqual(len(set(ids)),1)
+        self.assertEqual(Generation.objects.filter(prompt='double click').count(),1)
+
     def test_image_refs_seed_limits_and_atomic_failure(self):
         self.cookie()
         storage=StorageService(MemoryAdapter())

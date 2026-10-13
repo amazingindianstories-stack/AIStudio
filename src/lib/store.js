@@ -226,6 +226,10 @@ async function apiFetch(input, init) {
   return response;
 }
 
+function submissionId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+}
+
 /** Upload each distinct inline image once, at most UPLOAD_CONCURRENCY at a time. */
 const UPLOAD_CONCURRENCY = 3;
 
@@ -980,11 +984,14 @@ export const useStore = create((set, get) => ({
     // Batch: enqueue N independent jobs with the same payload. The queue's
     // per-kind concurrency cap decides how many actually run at once.
     const count = Math.min(4, Math.max(1, s.batchCount || 1));
+    // One key per batch slot: a re-sent POST returns the same generation
+    // instead of queueing a second paid job.
+    const submissionKey = submissionId();
     try {
       for (let i = 0; i < count; i++) {
         const res = await apiFetch(endpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(submissionKey ? { "Idempotency-Key": `${submissionKey}-${i}` } : {}) },
           body: JSON.stringify(payload),
         });
         let item;
@@ -1286,10 +1293,11 @@ export const useStore = create((set, get) => ({
     if (!cleanPrompt) return { ok: false, error: "No prompt remains after removing references." };
 
     set({ generating: true });
+    const submissionKey = submissionId();
     try {
       const res = await apiFetch("/api/generate/video", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(submissionKey ? { "Idempotency-Key": submissionKey } : {}) },
         body: JSON.stringify({
           prompt: cleanPrompt,
           model: item.model,

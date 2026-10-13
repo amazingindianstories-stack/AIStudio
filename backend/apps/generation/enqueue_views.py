@@ -1,5 +1,7 @@
 from django.conf import settings
 from django.db import transaction
+import copy
+import re
 import uuid
 import logging
 from apps.authentication.session import lookup
@@ -18,6 +20,7 @@ from apps.media.uploads import UploadError
 from .services.pricing import read_pricing
 from .services.poller import advance_magnific
 from .services.deadline import with_queue_execution_deadline, QueueExecutionCapacityError
+from apps.library.services import idempotency
 from .services.upscale_validation import validate_upscale_request, validate_source, inspect_image, aspect_ratio, validate_output_area, InvalidUpscaleRequest, MAX_BYTES
 
 
@@ -25,6 +28,20 @@ def json_body(request):
     value = body(request)
     if value is None: raise TypeError('Cannot read properties of null')
     return value if isinstance(value,dict) else {}
+
+
+IDEMPOTENCY_KEY = re.compile(r'^[A-Za-z0-9_.:-]{8,128}$')
+
+
+def enqueue_idempotency_key(request, user_id):
+    """Per-user receipt key for a submission; a replay returns the first result."""
+    raw = request.headers.get('idempotency-key') or request.headers.get('x-idempotency-key')
+    if not raw:
+        return None
+    raw = raw.strip()
+    if not IDEMPOTENCY_KEY.match(raw):
+        raise enqueue.InvalidRequest('Invalid Idempotency-Key header.')
+    return f'generation-enqueue:{user_id}:{raw}'
 
 
 def no_store(request, value):
@@ -39,6 +56,7 @@ def generate(request, kind):
     if user is None: return reply(request,{'error':'UNAUTHENTICATED'},401)
     try:
         data = json_body(request)
+        submitted = copy.deepcopy(data)
         data = resolve_submission_references(data, user.id)
         item = enqueue.image_input(data,user.id) if kind == 'image' else enqueue.video_input(data,user.id if user else None)
     except UploadError as error:
@@ -47,6 +65,10 @@ def generate(request, kind):
         return reply(request,{'error':str(error)},400)
     except Exception:
         return failure()
+    try:
+        receipt_key = enqueue_idempotency_key(request, user.id)
+    except enqueue.InvalidRequest as error:
+        return reply(request,{'error':str(error)},400)
     identifier, now = uuid.uuid4(), now_ms()
     try:
         prepared = enqueue.prepare_image(item,data,str(identifier),user.id) if kind == 'image' else enqueue.prepare_video(item,data,str(identifier))
@@ -55,7 +77,21 @@ def generate(request, kind):
     except Exception:
         return reply(request,{'error':'Failed to prepare the generation request.'},500)
     try:
-        return reply(request,enqueue.finish_enqueue(item,prepared,identifier,now,user.id if user else None))
+        # A repeated submission (double click, transport retry) with the same key
+        # waits for the first one and returns its generation instead of queueing
+        # a second billable job. Prepared values are not part of the fingerprint.
+        created = {}
+        def submit():
+            created['item'] = enqueue.finish_enqueue(item,prepared,identifier,now,user.id if user else None)
+            return {'id': created['item']['id']}
+        receipt = idempotency.execute('GENERATION_ENQUEUE_' + kind.upper(), submitted, submit,
+            actor_id=user.id, idempotency_key=receipt_key)
+        if 'item' in created:
+            return reply(request,created['item'])
+        # The receipt holds only the id; reply with the generation's current state.
+        return reply(request,generation_item(Generation.objects.get(pk=receipt['id'])))
+    except idempotency.OrganizationError as error:
+        return reply(request,{'error':str(error),'code':error.code},error.status)
     except Exception:
         message = 'Failed to save the generation request. Please try again or contact an administrator.' if kind == 'video' else 'Failed to save the generation request.'
         return reply(request,{'error':message},500)
