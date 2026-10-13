@@ -97,6 +97,22 @@ not show it. **Fixed (`f925a7e`):** enqueue refuses removed/unready portraits wi
 `PORTRAIT_UNAVAILABLE` + reference index; worker message names the portrait; composer marks the card
 "Unavailable" and blocks resubmit until removed. Verified in the local image rehearsal.
 
+## Data reconciliation Blue → Green (2026-10-13, owner request)
+Compared the Blue production dump (Blue unchanged since 2026-10-12 11:14 UTC) with Green.
+- **Restored:** 21 generations created on Blue between 2026-10-10 18:46 and 2026-10-12 16:43 IST
+  (20 images, 1 Seedance MOV) that never reached Green. Their media were already in the Green
+  bucket under canonical keys (70/70 objects, 360 MB; Green reads canonical first). Imported in
+  one transaction after a full pre-restore backup (private `backups/`), refusing on any existing
+  id or missing user/project/folder. Naming clashes (20 of 21 Blue serials were already used in
+  Green) resolved by appending after Green's highest serial per namespace; counters bumped; Green's
+  existing names unchanged. Verified: 21 present + named, counters = max+1, rerun refused.
+- **Not restored (owner decision / deliberate deletions):** 12 portraits + 12 portrait groups (owner:
+  do not restore; Green copies of the same BytePlus assets were bulk-deleted by a user on
+  2026-10-12 19:17 IST); 12 material assets (present in Green, edited, then deleted by their creator
+  on 2026-10-12 18:59 IST and partly re-created).
+- **Left as is:** shared rows where Green is newer (portrait statuses, folder colours, one canvas);
+  one folder move made on Blue (folder `cd6a30f1`) not applied; 189 Blue-only activity-log rows.
+
 ## F-07 — gateway blocks features in production (kept for parity)
 The live ingress gateway refuses `POST /api/generate/upscale`, `/api/audio/transcribe`, admin writes
 (`/api/admin/*` POST/PATCH/DELETE: user create/edit/delete, limits, pricing), agent message POSTs and
