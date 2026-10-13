@@ -159,3 +159,46 @@ class ExportAdmissionTests(TransactionTestCase):
         finally:
             for name, function in originals.items():
                 setattr(services, name, function)
+
+
+class NamespacingTests(TransactionTestCase):
+    def test_private_naming_namespace_is_seeded_from_canonical_counter(self):
+        from types import SimpleNamespace as Module
+        from apps.library.models import NamingCounter
+        from apps.library.services import naming
+        from . import namespacing
+        NamingCounter.objects.create(namespace='project:abc', next_sequence=42, updated_at=1)
+        module = Module(allocate_next_sequence=naming.allocate_next_sequence, now_ms=lambda: 5)
+        namespacing.install_naming(module, 'private-ns:')
+        self.assertEqual(module.allocate_next_sequence('project:abc'), 42)
+        self.assertEqual(module.allocate_next_sequence('project:abc'), 43)
+        self.assertEqual(NamingCounter.objects.get(namespace='project:abc').next_sequence, 42)  # canonical untouched
+        self.assertEqual(NamingCounter.objects.get(namespace='private-ns:project:abc').next_sequence, 44)
+        self.assertEqual(module.allocate_next_sequence('fresh'), 1)
+
+    def test_lease_keys_are_prefixed_and_validated(self):
+        from types import SimpleNamespace as Module
+        from . import namespacing
+        seen = []
+        module = Module(**{name: (lambda key, *a, _n=name, **k: seen.append((_n, key))) for name in ('claim', 'read', 'release', 'delete_expired')})
+        namespacing.install_leases(module, 'lease:private:')
+        module.claim('lease:generation:1', 'owner')
+        module.read('lease:depth')
+        self.assertEqual(seen, [('claim', 'lease:private:generation:1'), ('read', 'lease:private:depth')])
+        with self.assertRaises(ValueError):
+            module.release('not-a-lease', 'owner')
+
+    def test_pricing_reads_never_write(self):
+        from apps.admin_dashboard import queries
+        from apps.admin_dashboard.models import Pricing
+        from . import namespacing
+        original = queries.price_rows
+        try:
+            namespacing.install_readonly_pricing('generation')
+            self.assertEqual(queries.price_rows(), [])
+            self.assertEqual(Pricing.objects.count(), 0)
+            namespacing.install_readonly_pricing('api')
+            self.assertEqual(len(queries.price_rows()), len(queries.DEFAULT_PRICING))
+            self.assertEqual(Pricing.objects.count(), 0)
+        finally:
+            queries.price_rows = original

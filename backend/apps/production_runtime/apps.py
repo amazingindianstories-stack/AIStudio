@@ -14,6 +14,16 @@ class ProductionRuntimeConfig(AppConfig):
 
     def ready(self):
         component = getattr(settings, 'VEEVEE_RUNTIME_COMPONENT', None)
+        if component:
+            from . import namespacing
+            namespacing.install_readonly_pricing(component)
+            if component in ('generation', 'export', 'scheduler'):
+                from apps.common import leases
+                from apps.library.services import naming
+                if settings.VEEVEE_LEASE_PREFIX:
+                    namespacing.install_leases(leases, settings.VEEVEE_LEASE_PREFIX)
+                if settings.VEEVEE_NAMING_PREFIX:
+                    namespacing.install_naming(naming, settings.VEEVEE_NAMING_PREFIX)
         if getattr(settings, 'VEEVEE_EXPORT_ADMISSION', False) and component in ('api', 'export'):
             from . import export_admission
             export_admission.install('api' if component == 'api' else 'worker')
