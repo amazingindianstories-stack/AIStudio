@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   Play,
@@ -13,16 +13,14 @@ import {
   Pencil,
   Check,
   Star,
-  Copy,
   Download,
-  MoreHorizontal,
 } from "lucide-react";
 
 import { UNSORTED } from "@/lib/feed-scope";
 import { useStore } from "@/lib/store";
 import { aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
 import { useNearViewport } from "@/lib/use-near-viewport";
-import { Dropdown, MenuItem } from "./Dropdown";
+import { CardActionPanel } from "./CardActionPanel";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { ProgressiveImage } from "./ProgressiveImage";
@@ -84,7 +82,6 @@ export function MediaCard({
   const setActiveId = useStore((s) => s.setActiveId);
   const removeItem = useStore((s) => s.removeItem);
   const retryTextToVideo = useStore((s) => s.retryTextToVideo);
-  const editInComposer = useStore((s) => s.editInComposer);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const selected = useStore((s) => s.selectedIds.includes(item.id));
@@ -104,6 +101,22 @@ export function MediaCard({
   );
   const confirmation = useConfirmedAction();
   const [unplayableUrl, setUnplayableUrl] = useState(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const panelTimer = useRef(null);
+  const openPanel = useCallback(() => {
+    clearTimeout(panelTimer.current);
+    if (!isDraggingRef.current) setPanelOpen(true);
+  }, []);
+  const closePanel = useCallback(() => {
+    clearTimeout(panelTimer.current);
+    setPanelOpen(false);
+  }, []);
+  // Short grace period so the pointer can cross the gap into the panel.
+  const schedulePanelClose = useCallback(() => {
+    clearTimeout(panelTimer.current);
+    panelTimer.current = setTimeout(() => setPanelOpen(false), 160);
+  }, []);
+  useEffect(() => () => clearTimeout(panelTimer.current), []);
 
   const pending = item.status === "running" || item.status === "queued";
   const failed = item.status === "failed";
@@ -156,11 +169,18 @@ export function MediaCard({
       } else if (e.shiftKey) {
         const itemIds = useStore.getState().items.map((i) => i.id);
         selectRange(item.id, itemIds);
+      } else if (done) {
+        // A normal card click opens the viewer. Selection stays explicit via
+        // the checkbox, keyboard Space or modifier clicks.
+        setActiveId(item.id);
       } else {
         singleSelect(item.id);
+        openPanel();
       }
     } else if (done) {
       setActiveId(item.id);
+    } else {
+      openPanel();
     }
   };
 
@@ -171,6 +191,7 @@ export function MediaCard({
   };
 
   const handleKeyDown = (e) => {
+    if (e.target !== e.currentTarget) return;
     if (e.key === "Enter") {
       if (done) {
         e.preventDefault();
@@ -190,6 +211,59 @@ export function MediaCard({
     }
   };
 
+  const cardActions = [
+    // Depth rows have no image/video-shaped prompt/reference fields to restore.
+    item.kind !== "depth" && {
+      key: "edit",
+      label: "Edit & retry",
+      hint: "Load prompt, references and settings into the composer",
+      icon: Pencil,
+      onSelect: () => confirmation.ask("editRetry", () => cloneToComposer(item.id)),
+    },
+    failed && item.moderationBlocked && item.kind === "video" && {
+      key: "retry-text",
+      label: "Retry without references",
+      hint: "Starts a new billable generation with all references removed",
+      icon: Wand2,
+      onSelect: () => confirmation.ask("retryTextToVideo", () => retryTextToVideo(item.id)),
+    },
+    done && {
+      key: "favorite",
+      label: item.isFavorite ? "Unfavourite" : "Favourite",
+      icon: Star,
+      active: item.isFavorite,
+      onSelect: () => confirmation.ask(item.isFavorite ? "removeFavorite" : "addFavorite", async () => {
+        await toggleFavorite(item.id);
+        return true;
+      }),
+    },
+    done && item.url && {
+      key: "download",
+      label: "Download",
+      hint: item.filename ? `Download ${item.filename}` : "Download",
+      icon: Download,
+      onSelect: () => confirmation.ask("downloadOriginal", () => {
+        const link = document.createElement("a");
+        link.href = generationDownloadUrl(item.id);
+        link.download = item.filename || "";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        return true;
+      }),
+    },
+    {
+      key: "delete",
+      label: "Delete",
+      icon: Trash2,
+      destructive: true,
+      // Accepted provider work is billed; it can be deleted once it finishes.
+      disabled: pending,
+      hint: pending ? "Still rendering — delete after it finishes" : "Delete",
+      onSelect: () => confirmation.ask("deleteGeneration", () => removeItem(item.id)),
+    },
+  ].filter(Boolean);
+
   return (
     <>
     <motion.div
@@ -201,12 +275,15 @@ export function MediaCard({
       aria-selected={selectable ? selected : undefined}
       data-selected={selected ? "true" : undefined}
       draggable={done && Boolean(item.url)}
-      onDragStart={handleDragStart}
+      onDragStart={(e) => { closePanel(); handleDragStart(e); }}
       onDragEnd={handleDragEnd}
+      onMouseEnter={openPanel}
+      onMouseLeave={schedulePanelClose}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
-      onFocus={() => {
+      onFocus={(e) => {
+        if (e.target === e.currentTarget && e.currentTarget.matches?.(":focus-visible")) openPanel();
         if (selectable && focusedAssetId !== item.id) {
           setFocusedAssetId(item.id);
         }
@@ -412,7 +489,10 @@ export function MediaCard({
         {/* failed */}
         {failed && (
           <div
-            onClick={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              openPanel();
+            }}
             className="absolute inset-0 flex cursor-default flex-col items-center justify-center gap-1.5 bg-red-950/30 p-3 text-center"
           >
             {item.moderationBlocked ? (
@@ -423,122 +503,18 @@ export function MediaCard({
             <span className="line-clamp-3 text-[11px] text-red-100/80">
               {item.error || "Failed"}
             </span>
-
-            <div className="mt-1 flex max-w-full items-center justify-center gap-1.5">
-              {item.moderationBlocked && item.kind === "video" && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    confirmation.ask("retryTextToVideo", () => retryTextToVideo(item.id));
-                  }}
-                  className="flex h-7 min-w-0 items-center gap-1 rounded-md bg-brand/20 px-2 text-[11px] font-semibold text-brand transition hover:bg-brand/30"
-                >
-                  <Wand2 className="h-3 w-3 shrink-0" /> Retry
-                </button>
-              )}
-              {/* cloneToComposer/editInComposer restore prompt/references
-                  from image/video-shaped fields (referenceImages, prompt as
-                  free text) that a depth row doesn't have in a usable form —
-                  it has referenceVideos and a placeholder label instead, so
-                  both would silently just switch to an empty DepthComposer
-                  rather than actually cloning anything. Suppressed for depth
-                  rather than shipping a dead-end button. */}
-              {!item.moderationBlocked && item.kind !== "depth" && (
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    confirmation.ask("editPrompt", () => editInComposer(item.id));
-                  }}
-                  className="flex h-7 min-w-0 items-center gap-1 rounded-md bg-brand/20 px-2 text-[11px] font-semibold text-brand transition hover:bg-brand/30"
-                >
-                  <Pencil className="h-3 w-3 shrink-0" /> Edit
-                </button>
-              )}
-              <Dropdown
-                align="right"
-                side="bottom"
-                label="Generation actions"
-                panelClassName="w-56"
-                trigger={(open) => (
-                  <span
-                    className={cn(
-                      "grid h-7 w-7 place-items-center rounded-md bg-black/45 text-white/70 transition hover:bg-white/15 hover:text-white",
-                      open && "bg-white/15 text-white"
-                    )}
-                  >
-                    <MoreHorizontal className="h-4 w-4" />
-                  </span>
-                )}
-              >
-                {(close) => (
-                  <>
-                    {item.kind !== "depth" && (
-                      <MenuItem
-                        onClick={() => {
-                          close();
-                          confirmation.ask("cloneToComposer", () => cloneToComposer(item.id));
-                        }}
-                      >
-                        <Copy className="h-4 w-4" /> Clone &amp; try
-                      </MenuItem>
-                    )}
-                    {item.moderationBlocked && item.kind !== "depth" && (
-                      <MenuItem
-                        onClick={() => {
-                          close();
-                          confirmation.ask("editPrompt", () => editInComposer(item.id));
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" /> Edit prompt
-                      </MenuItem>
-                    )}
-                    <MenuItem
-                      onClick={() => {
-                        close();
-                        confirmation.ask("deleteGeneration", () => removeItem(item.id));
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-300" />
-                      <span className="text-red-200">Delete</span>
-                    </MenuItem>
-                  </>
-                )}
-              </Dropdown>
-            </div>
           </div>
         )}
 
-        {/* favourite toggle */}
-        {!failed && <button
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleFavorite(item.id);
-          }}
-          className={cn(
-            "absolute right-2 top-2 z-30 grid h-7 w-7 place-items-center rounded-md bg-black/55 backdrop-blur-sm transition",
-            item.isFavorite
-              ? "text-amber-300 opacity-100 hover:bg-amber-400/20"
-              : "text-white/70 opacity-0 hover:bg-white/15 hover:text-white group-hover:opacity-100"
-          )}
-          aria-label={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
-          title={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
-        >
-          <Star
-            className={cn("h-3.5 w-3.5", item.isFavorite && "fill-current")}
-          />
-        </button>}
-
-        {done && item.url && (
-          <a
-            href={generationDownloadUrl(item.id)}
-            download={item.filename || true}
-            onClick={(e) => e.stopPropagation()}
-            className="absolute right-10 top-2 z-30 grid h-7 w-7 place-items-center rounded-md bg-black/55 text-white/70 opacity-0 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35 group-hover:opacity-100"
-            aria-label={item.filename ? `Download ${item.filename}` : "Download"}
-            title={item.filename ? `Download ${item.filename}` : "Download"}
+        {/* favourite indicator; toggling lives in the hover action panel */}
+        {item.isFavorite && (
+          <span
+            className="pointer-events-none absolute right-2 top-2 z-30 grid h-7 w-7 place-items-center rounded-md bg-black/55 text-amber-300 backdrop-blur-sm"
+            aria-label="Favourite"
+            title="Favourite"
           >
-            <Download className="h-3.5 w-3.5" />
-          </a>
+            <Star className="h-3.5 w-3.5 fill-current" />
+          </span>
         )}
 
         {/* creator attribution — small circle; hover for who/cost/when */}
@@ -608,18 +584,17 @@ export function MediaCard({
             {item.prompt}
           </p>
         </div>}
-        {!failed && <button
-          onClick={(e) => {
-            e.stopPropagation();
-            confirmation.ask("deleteGeneration", () => removeItem(item.id));
-          }}
-          className="absolute bottom-2 right-2 z-20 grid h-7 w-7 place-items-center rounded-md bg-black/55 text-white/70 opacity-0 backdrop-blur-sm transition hover:bg-red-500/80 hover:text-white group-hover:opacity-100"
-          aria-label="Delete"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>}
       </div>
     </motion.div>
+      {panelOpen && (
+        <CardActionPanel
+          anchor={cardRef.current}
+          actions={cardActions}
+          onPointerEnter={openPanel}
+          onPointerLeave={schedulePanelClose}
+          onClose={closePanel}
+        />
+      )}
       <ConfirmActionDialog {...confirmation.dialogProps} />
     </>
   );

@@ -737,6 +737,8 @@ export function DetailModal() {
                     </a>
                   )}
                   <button
+                    disabled={item.status === "queued" || item.status === "running"}
+                    title={item.status === "queued" || item.status === "running" ? "Still rendering — delete after it finishes" : "Delete"}
                     onClick={() => {
                       confirmation.ask("deleteGeneration", async () => {
                         const result = await removeItem(item.id);
@@ -745,7 +747,7 @@ export function DetailModal() {
                         return true;
                       });
                     }}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-line bg-ink-700 px-4 py-2.5 text-sm text-red-300/80 hover:bg-red-500/10 hover:text-red-300"
+                    className="flex items-center justify-center gap-2 rounded-xl border border-line bg-ink-700 px-4 py-2.5 text-sm text-red-300/80 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

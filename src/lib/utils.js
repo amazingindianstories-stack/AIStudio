@@ -75,7 +75,7 @@ export function referenceDisplayUrl(url, portraitAssets = []) {
     if (match?.imageUrl) {
       return referenceDisplayUrl(match.imageUrl, portraitAssets);
     }
-    return url;
+    return "";
   }
 
   // 2. Strip hash fragment for <img> display
@@ -91,6 +91,35 @@ export function referenceDisplayUrl(url, portraitAssets = []) {
       .replace(/[?&]$/, "");
   }
 
+  // Display only: renew owned-object access through Django. Submission refs
+  // and occurrence IDs remain untouched; unknown external hosts stay external.
+  const safeKey = (key) => {
+    let probe = key;
+    for (let i = 0; i < 5; i += 1) {
+      if (!probe || /[\\\x00-\x1f\x7f]/.test(probe) || probe.split("/").some((part) => !part || part === "." || part === "..")) return false;
+      try {
+        const decoded = decodeURIComponent(probe);
+        if (decoded === probe) return /^(generated|assets|uploads|thumbs)\//.test(probe);
+        probe = decoded;
+      } catch { return false; }
+    }
+    return false;
+  };
+  if (safeKey(clean)) return `/api/media/${clean}`;
+  if (/^https?:\/\//i.test(clean)) {
+    try {
+      const parsed = new URL(clean);
+      if (parsed.username || parsed.password) return "";
+      const host = parsed.hostname.toLowerCase();
+      const path = parsed.pathname.replace(/^\//, "");
+      let key = null;
+      if (host === "aistudio-media-bucket.storage.googleapis.com") key = path;
+      if (host === "storage.googleapis.com" && path.startsWith("aistudio-media-bucket/")) key = path.slice("aistudio-media-bucket/".length);
+      if (/^ais-film-platform-media\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(host)) key = path;
+      if (/^s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.test(host) && path.startsWith("ais-film-platform-media/")) key = path.slice("ais-film-platform-media/".length);
+      if (key && safeKey(key)) return `/api/media/${key}`;
+    } catch { return ""; }
+  }
   return clean;
 }
 

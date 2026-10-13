@@ -1,5 +1,8 @@
 "use client";
 
+import { portraitRegistrationWarning, portraitAttachAllowed, portraitReferenceUrl } from "./portrait-readiness";
+
+
 import { create } from "zustand";
 import { installOperationTracking } from "./operation-state";
 import { snapshotScope, composerMetadata, metadataToDraft, saveComposerSnapshot, loadComposerSnapshot } from "./composer-snapshots";
@@ -1111,7 +1114,9 @@ export const useStore = create((set, get) => ({
         throw new Error(
           res.status === 403
             ? "You don't have permission to delete this."
-            : body.error || `Delete failed (${res.status}).`
+            : body.error === "GENERATION_REQUIRES_RECONCILIATION"
+              ? "This generation is still rendering. Wait for it to finish, then delete it."
+              : body.error || `Delete failed (${res.status}).`
         );
       }
       return { ok: true };
@@ -1796,33 +1801,27 @@ export const useStore = create((set, get) => ({
       }
       const json = await res.json();
       await get().loadAllPortraitAssets(pid);
-      return { ok: true, asset: json.asset };
+      return { ok: true, asset: json.asset, registrationError: portraitRegistrationWarning(json.registrationError, json.registrationErrorCode) };
     } catch (err) {
       return { ok: false, error: err?.message || "Network error uploading portrait." };
     }
   },
 
   deletePortraitAssetDirect: async (assetId) => {
-    const prev = get().portraitAssets;
-    set((s) => ({
-      portraitAssets: s.portraitAssets.filter(
-        (a) => a.id !== assetId && a.byteplusAssetId !== assetId
-      ),
-    }));
+    const asset = get().portraitAssets.find(a => a.id === assetId);
+    if (!asset) return {ok:false,error:"This portrait is no longer available. Refresh the Gallery."};
+    const group = get().portraitGroups.find(g => g.id === asset.groupId);
+    if (!asset.groupId || !group) return {ok:false,error:"The portrait character scope is unavailable. Refresh the Gallery."};
+    const query = new URLSearchParams({assetId:asset.id,groupId:asset.groupId});
+    if (group?.projectId) query.set("projectId",group.projectId);
     try {
-      const res = await apiFetch(`/api/assets/portraits?assetId=${encodeURIComponent(assetId)}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error || "Delete failed");
-      }
-      await get().loadAllPortraitAssets();
-      return { ok: true };
-    } catch (err) {
-      set({ portraitAssets: prev });
-      return { ok: false, error: err?.message || "Delete failed" };
-    }
+      const res = await apiFetch(`/api/assets/portraits?${query}`, {method:"DELETE"});
+      const ack = await res.json().catch(()=>null);
+      if (!res.ok || ack?.ok !== true) return {ok:false,error:ack?.error || "Deletion was not confirmed. Refresh before retrying."};
+      if (ack.assetId !== asset.id || ack.groupId !== asset.groupId || !["confirmed","already_absent","not_registered","already_archived"].includes(ack.remoteDeletion)) return {ok:false,error:"Deletion acknowledgement did not match this portrait. Refresh before retrying."};
+      set(state => ({portraitAssets:state.portraitAssets.filter(a => a.id !== asset.id)}));
+      return {ok:true};
+    } catch { return {ok:false,error:"Deletion response is uncertain. Refresh before retrying."}; }
   },
 
   renamePortraitAssetDirect: async (assetId, name) => {
@@ -1856,29 +1855,9 @@ export const useStore = create((set, get) => ({
   },
 
   attachPortraitToComposer: (asset, characterName = "Character") => {
-    // Prioritize imageUrl for visual preview in the composer.
-    // If byteplusAssetId exists, append it as a hash fragment (#bp_asset_id=) so:
-    // 1. Browsers never send the fragment in HTTP requests (preserving BytePlus TOS HMAC-SHA256 signatures and avoiding HTTP 403 Forbidden).
-    // 2. Queue execution resolves the asset via regex to asset://${asset.byteplusAssetId}.
-    let refUrl = asset.imageUrl;
-    if (!refUrl && asset.byteplusAssetId) {
-      refUrl = `asset://${asset.byteplusAssetId}`;
-    }
+    if (!portraitAttachAllowed(asset)) return {ok:false,error:"This portrait is not verified active in BytePlus."};
+    const refUrl = portraitReferenceUrl(asset);
     if (!refUrl) return;
-
-    // Clean any prior query param bp_asset_id if present
-    if (refUrl.startsWith("http") && /[?&]bp[-_]asset(?:_id)?=/.test(refUrl)) {
-      refUrl = refUrl
-        .replace(/([?&])bp[-_]asset(?:_id)?=[^&#]+(&?)/, (match, prefix, suffix) => {
-          if (prefix === "?" && suffix) return "?";
-          return "";
-        })
-        .replace(/[?&]$/, "");
-    }
-
-    if (asset.byteplusAssetId && !refUrl.includes("bp_asset_id=")) {
-      refUrl = `${refUrl}#bp_asset_id=${encodeURIComponent(asset.byteplusAssetId)}`;
-    }
 
     get().addReference(refUrl, "portrait", characterName);
     set({portraitGalleryOpen:false});
@@ -1886,6 +1865,7 @@ export const useStore = create((set, get) => ({
 
   attachPortraitsToComposer: (assets) => {
     const unique = [...new Map(assets.map(asset => [asset.id || asset.byteplusAssetId || asset.imageUrl, asset])).values()];
+    if (unique.some(asset => !portraitAttachAllowed(asset))) return {ok:false,error:"Selected portraits include an unverified or unavailable BytePlus registration."};
     const state = get();
     if (state.referenceImages.length + state.referenceVideos.length + state.referenceAudios.length + unique.length > 50) return {ok:false,error:"Stage at most 50 references; remove some attachments first."};
     for (const asset of unique) get().attachPortraitToComposer(asset, asset.groupName || asset.name || "Character");

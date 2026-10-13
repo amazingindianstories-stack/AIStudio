@@ -9,7 +9,18 @@ export function middleware(req) {
       origin: process.env.DJANGO_API_ORIGIN,
       allowLocal: process.env.DJANGO_API_ALLOW_LOCAL,
     });
-    if (destination) return NextResponse.rewrite(destination);
+    if (destination) {
+      // Acceptance-only server credential: overwrite any caller-supplied value.
+      const ingressSecret = process.env.GOAL4_PRIVATE_INGRESS_SECRET;
+      if (!ingressSecret || ingressSecret.length < 48) throw new Error("Private ingress unavailable");
+      const headers = new Headers(req.headers);
+      headers.delete("x-vercel-protection-bypass");
+      headers.delete("x-vercel-set-bypass-cookie");
+      const cookie = headers.get("cookie");
+      if (cookie) headers.set("cookie", cookie.split(";").filter((part) => !["_vercel_jwt", "_vercel_protection_bypass"].includes(part.trim().split("=")[0])).join(";"));
+      headers.set("x-veevee-g4-ingress", ingressSecret);
+      return NextResponse.rewrite(destination, { request: { headers } });
+    }
   } catch {
     return NextResponse.json({ error: "BACKEND_ROUTING_UNAVAILABLE" }, { status: 503 });
   }

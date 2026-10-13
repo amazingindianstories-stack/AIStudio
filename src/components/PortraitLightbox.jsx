@@ -17,6 +17,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { inlineMediaUrl } from "@/lib/utils";
+import { portraitAttachAllowed, portraitReadiness } from "@/lib/portrait-readiness";
 
 export function PortraitLightbox({
   asset,
@@ -81,6 +82,7 @@ export function PortraitLightbox({
   }, [asset]);
 
   if (!asset) return null;
+  const readiness = portraitReadiness(asset);
 
   const handleCopyId = () => {
     const idToCopy = asset.byteplusAssetId || asset.id;
@@ -215,6 +217,7 @@ export function PortraitLightbox({
           {/* Use in Prompt */}
           <button
             type="button"
+            disabled={!portraitAttachAllowed(asset)}
             onClick={handleAttach}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
               addedPrompt
@@ -326,28 +329,16 @@ export function PortraitLightbox({
           {!isZoomed && (
             <div className="absolute left-3 top-3 flex items-center gap-2 pointer-events-none">
               <span
+                title={readiness.detail}
+                aria-label={`Portrait registration: ${readiness.label}`}
                 className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold backdrop-blur-md shadow-md ${
-                  asset.status === "Processing"
-                    ? "bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/40"
-                    : asset.status === "Failed"
-                    ? "bg-red-500/25 text-red-300 ring-1 ring-red-500/40"
-                    : "bg-ink-950/85 text-emerald-400 ring-1 ring-emerald-500/40"
+                  readiness.state === "registered" ? "bg-ink-950/85 text-emerald-400 ring-1 ring-emerald-500/40"
+                    : readiness.state === "error" ? "bg-red-500/25 text-red-300 ring-1 ring-red-500/40"
+                    : "bg-ink-950/85 text-amber-200 ring-1 ring-amber-500/40"
                 }`}
               >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    asset.status === "Processing"
-                      ? "bg-amber-400 animate-ping"
-                      : asset.status === "Failed"
-                      ? "bg-red-400"
-                      : "bg-emerald-400"
-                  }`}
-                />
-                {asset.status === "Processing"
-                  ? "Syncing with BytePlus"
-                  : asset.status === "Failed"
-                  ? "Sync Failed"
-                  : "Active • ModelArk Ready"}
+                <span className={`h-1.5 w-1.5 rounded-full ${readiness.state === "registered" ? "bg-emerald-400" : readiness.state === "error" ? "bg-red-400" : "bg-amber-300"}`} />
+                {readiness.label}
               </span>
             </div>
           )}

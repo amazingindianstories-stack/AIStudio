@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useMemo,
 
 } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -70,7 +71,7 @@ import {
   VIDEO_TASK_MODES,
   MAX_REFERENCE_VIDEOS,
 } from "@/lib/config";
-import { cn, referenceDisplayUrl } from "@/lib/utils";
+import { cn, referenceDisplayUrl, thumbUrl } from "@/lib/utils";
 import { isProviderModel } from "@/lib/model-registry";
 
 import {
@@ -1440,6 +1441,53 @@ function Segment({
   );
 }
 
+export function referenceThumbnailUrl(url, portraitAssets = []) {
+  const display = referenceDisplayUrl(url, portraitAssets);
+  return display?.startsWith("/api/media/uploads/image-reference/") ? thumbUrl(display, 512) : display;
+}
+
+/** Where a reference came from, for the strip badge and failure copy. Portrait
+ * Gallery references arrive as asset://, a provider URL carrying bp_asset_id,
+ * or a stored portrait upload; materials keep their composer kind. */
+export function referenceSource(ref, kind, portraitAssets = []) {
+  const value = typeof ref === "string" ? ref : "";
+  const assetId = value.startsWith("asset://")
+    ? value.slice("asset://".length).split(/[?&#]/)[0]
+    : value.match(/[#?&]bp[-_]asset(?:_id)?=([^&#]+)/)?.[1];
+  const path = value.split("#")[0];
+  const portrait = (Array.isArray(portraitAssets) ? portraitAssets : []).find((a) =>
+    (assetId && (a?.byteplusAssetId === assetId || a?.id === assetId)) || (a?.imageUrl && a.imageUrl.split("#")[0] === path));
+  if (kind === "portrait" || assetId || portrait || path.includes("/uploads/portrait/")) {
+    return { type: "portrait", name: portrait?.name || null };
+  }
+  if (kind === "material" || path.includes("/uploads/material/")) return { type: "material", name: null };
+  return { type: null, name: null };
+}
+
+/** Failed references stay in their original occurrence slots; a missing
+ * thumbnail never shifts @imgN numbering or replaces another occurrence. */
+function ReferenceThumbnail({ src, alt, className, portrait = false }) {
+  const [failed, setFailed] = useState(false);
+  // Private upload redirects expire sooner than a cached media response. Give
+  // each mounted reference occurrence a fresh request, without changing the
+  // durable composer reference or retrying on render/error.
+  const [requestToken] = useState(() => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`);
+  const displaySrc = useMemo(() => {
+    if (!src?.startsWith("/api/media/uploads/image-reference/")) return src;
+    const [path, fragment] = src.split("#");
+    const fresh = `${path}${path.includes("?") ? "&" : "?"}reference_request=${encodeURIComponent(requestToken)}`;
+    return fragment ? `${fresh}#${fragment}` : fresh;
+  }, [src, requestToken]);
+  useEffect(() => setFailed(false), [src]);
+  if (!src || failed) {
+    const [text, hint] = portrait
+      ? ["Portrait removed", "This portrait is no longer in the Portrait Gallery or BytePlus. Remove it and pick a current portrait."]
+      : ["Reference unavailable", "This image is no longer available. Remove it and select another image."];
+    return <span className={`${className} flex items-center justify-center bg-ink-950 p-1 text-center text-[10px] text-white/55`} role="img" aria-label={`${alt || "Reference"}: ${text}`} title={hint}>{text}</span>;
+  }
+  return <img src={displaySrc} alt={alt} draggable={false} className={className} onError={() => setFailed(true)} />;
+}
+
 /** Pointer sorting is confined to the grip; the strip itself remains a native
  * scroll surface. Only a completed gesture changes the draft's mention order. */
 export function ReferenceStrip({ store: s, insertTag }) {
@@ -1521,15 +1569,28 @@ export function ReferenceStrip({ store: s, insertTag }) {
       {visibleIds.map((id, i) => {
         const sourceIndex = ids.indexOf(id);
         const tag = s.referenceTags?.[sourceIndex] || `@img${sourceIndex + 1}`;
-        const label = s.referenceLabels?.[sourceIndex] || (s.referenceKinds?.[sourceIndex] === "portrait" ? "Portrait" : `Reference ${sourceIndex + 1}`);
+        const source = referenceSource(s.referenceImages[sourceIndex], s.referenceKinds?.[sourceIndex], s.portraitAssets);
+        const label = s.referenceLabels?.[sourceIndex] || source.name || (source.type === "portrait" ? "Portrait" : `Reference ${sourceIndex + 1}`);
         return <motion.div key={id} data-reference-id={id} data-reference-position={i + 1} layout={!gesture.current && !reducedMotion} transition={{ duration: reducedMotion ? 0 : 0.16 }}
           onKeyDown={(e) => { if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); move(id, sourceIndex + (e.key === "ArrowLeft" ? -1 : 1)); } }}
           className={cn("group relative w-24 shrink-0 rounded-lg border bg-ink-800 p-1 focus-within:ring-2 focus-within:ring-brand", preview?.id === id ? "border-brand border-l-4 ring-2 ring-brand/70 opacity-50" : "border-line")}>
           <div className="relative">
             <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag(tag)} className="block h-20 w-full overflow-hidden rounded focus-visible:outline-brand">
-              <img src={referenceDisplayUrl(s.referenceImages[sourceIndex], s.portraitAssets)} alt={label} draggable={false} className="h-full w-full object-cover" />
+              <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[sourceIndex], s.portraitAssets)} alt={label} portrait={source.type === "portrait"} className="h-full w-full object-cover" />
               <span className="absolute bottom-0 left-0 right-0 truncate bg-black/65 text-[11px] font-semibold text-brand">{tag}</span>
             </button>
+            {source.type === "portrait" && (
+              <span data-reference-source="portrait" title={source.name ? `Portrait Gallery: ${source.name}` : "From the Portrait Gallery"}
+                className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-brand text-black shadow-sm">
+                <UserRound className="h-2.5 w-2.5" />
+              </span>
+            )}
+            {source.type === "material" && (
+              <span data-reference-source="material" title={s.referenceLabels?.[sourceIndex] ? `Material: ${s.referenceLabels[sourceIndex]}` : "Material Library asset"}
+                className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-purple-600 text-white shadow-sm">
+                <Sparkles className="h-2.5 w-2.5" />
+              </span>
+            )}
             <button type="button" aria-label={`Remove reference ${sourceIndex + 1}`} onClick={() => s.removeReference(sourceIndex)} className="absolute right-0 top-0 grid h-6 w-6 place-items-center rounded bg-ink-950/90 text-white"><X className="h-3 w-3" /></button>
           </div>
           <p title={label} className="truncate text-[10px] text-white/65">{label}</p>
@@ -1544,7 +1605,7 @@ export function ReferenceStrip({ store: s, insertTag }) {
       })}
     </div>
     {preview && <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-24 rounded-lg border-2 border-brand bg-ink-800 p-1 shadow-xl" style={{ left: preview.x - 48, top: preview.y - 80 }}>
-      <img src={referenceDisplayUrl(s.referenceImages[activeIndex], s.portraitAssets)} alt="" draggable={false} className="h-20 w-full rounded object-cover" />
+      <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[activeIndex], s.portraitAssets)} alt="Reference" className="h-20 w-full rounded object-cover" />
       <span className="text-xs text-brand">Position {preview.ids.indexOf(preview.id) + 1}</span>
     </div>}
     {positionId && <form className="flex items-center gap-2 rounded border border-line p-2" onSubmit={(e) => { e.preventDefault(); move(positionId, Number(position) - 1); setPositionId(null); }}>

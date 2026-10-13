@@ -23,6 +23,27 @@ export const MEDIA_ACTION_COPY = {
       "This loads the saved prompt, settings, and references into the composer and replaces any unsaved draft. It does not start a generation.",
     confirmLabel: "Replace composer",
   },
+  editRetry: {
+    title: "Edit and retry?",
+    description:
+      "This loads the saved prompt, references, and settings into the composer so you can change them, replacing any unsaved draft. Nothing is generated until you press Generate.",
+    confirmLabel: "Load into composer",
+  },
+  downloadOriginal: {
+    title: "Download the original?",
+    description: "This downloads the original file with its native format and filename.",
+    confirmLabel: "Download",
+  },
+  addFavorite: {
+    title: "Add to favourites?",
+    description: "This adds the generation to Favourites.",
+    confirmLabel: "Add to favourites",
+  },
+  removeFavorite: {
+    title: "Remove from favourites?",
+    description: "This removes the generation from Favourites. The generation itself is kept.",
+    confirmLabel: "Remove",
+  },
   editPrompt: {
     title: "Replace the current prompt?",
     description:

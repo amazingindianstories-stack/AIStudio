@@ -21,9 +21,18 @@ export function djangoDestination(requestUrl, _method, configuration = {}) {
 }
 
 export async function fetchDjangoSession(cookieHeader, configuration = {}, fetchImpl = fetch) {
-  const response = await fetchImpl(`${djangoOrigin(configuration)}/api/auth/me`, {
+  const origin = djangoOrigin(configuration);
+  const ingressSecret = configuration.ingressSecret;
+  if (typeof ingressSecret !== "string" || ingressSecret.length < 48) {
+    throw new Error("Private ingress unavailable");
+  }
+  // Only server configuration supplies ingress; no caller headers are copied.
+  const cookie = (cookieHeader || "").split(";").filter((part) =>
+    !["_vercel_jwt", "_vercel_protection_bypass"].includes(part.trim().split("=")[0])
+  ).join(";");
+  const response = await fetchImpl(`${origin}/api/auth/me`, {
     method: "GET",
-    headers: { Cookie: cookieHeader || "" },
+    headers: { Cookie: cookie, "x-veevee-g4-ingress": ingressSecret },
     cache: "no-store",
     redirect: "error",
     signal: AbortSignal.timeout(15_000),

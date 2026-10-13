@@ -6,6 +6,7 @@ export async function currentDjangoUser() {
   const jar = await cookies();
   return fetchDjangoSession(jar.toString(), {
     origin: process.env.DJANGO_API_ORIGIN,
+    ingressSecret: process.env.GOAL4_PRIVATE_INGRESS_SECRET,
     allowLocal: process.env.DJANGO_API_ALLOW_LOCAL,
   });
 }
