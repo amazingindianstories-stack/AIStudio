@@ -131,6 +131,8 @@ def serve(secret,port,paid_initial_routes=False,new_exports=False):
     if len(secret)<48 or not (1024<=int(port)<=65535) or int(port)==18080:raise ValueError('Ingress binding invalid')
     server=ThreadingHTTPServer(('0.0.0.0',port),handler(secret,paid_initial_routes,new_exports))
     server.daemon_threads=True
+    import sys
+    print(json.dumps({'event':'gateway_listening','port':int(port),'paid_routes':paid_initial_routes,'new_exports':new_exports}),file=sys.stderr,flush=True)
     try:server.serve_forever()
     finally:server.server_close()
 if __name__=='__main__':

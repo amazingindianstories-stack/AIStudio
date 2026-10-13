@@ -65,6 +65,8 @@ def _common(cfg, env, *, browser_origins, app_origin):
         'MOCK_GENERATION': '1',
         'MOCK_ASSET_PROVIDER': '1',
         'AWS_EC2_METADATA_DISABLED': 'true',
+        'PYTHONUNBUFFERED': '1',
+        'LANG': 'C.UTF-8',
     })
     out.pop('VEEVEE_PUBLIC_APP_URL_OVERRIDE', None)
     paid = cfg.get('paid')
