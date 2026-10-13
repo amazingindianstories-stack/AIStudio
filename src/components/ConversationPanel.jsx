@@ -251,6 +251,8 @@ export function FeedBlock({ item, index }) {
               poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
               controls
               playsInline
+              // A thread can hold dozens of clips; fetch nothing until played.
+              preload="none"
               className="absolute inset-0 h-full w-full bg-black object-contain"
             />
           )}

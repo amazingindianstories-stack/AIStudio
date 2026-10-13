@@ -37,6 +37,8 @@ const MAX_RECORDS = 20;
 const records = [];
 let timer = null;
 let expected = 0;
+let skipNextTick = false;
+let visibilityHandler = null;
 let longTasks = 0;
 let longTaskObserver = null;
 
@@ -66,10 +68,25 @@ function snapshot(stalledMs) {
   return rec;
 }
 
+/** Console output is for admins and explicit debugging only; records are always kept. */
+export function freezeDebugEnabled() {
+  try {
+    if (localStorage.getItem("veevee-debug") === "1") return true;
+  } catch {
+    /* storage blocked */
+  }
+  return useStore.getState().currentUser?.role === "admin";
+}
+
 function tick() {
   const now = performance.now();
   const drift = now - expected;
   expected = now + TICK_MS;
+  // Returning from a background tab: the throttled gap is not a stall.
+  if (skipNextTick) {
+    skipNextTick = false;
+    return;
+  }
 
   // A backgrounded tab has its timers throttled to about once a minute, which
   // is not a stall and would otherwise report one every time the user comes
@@ -78,7 +95,7 @@ function tick() {
     const rec = snapshot(drift);
     records.push(rec);
     if (records.length > MAX_RECORDS) records.shift();
-    console.warn(
+    if (freezeDebugEnabled()) console.warn(
       `[freeze-watchdog] main thread blocked ~${rec.stalledMs}ms`,
       rec,
       "— run __freezeReport() for the full history"
@@ -90,6 +107,11 @@ export function startFreezeWatchdog() {
   if (timer || typeof window === "undefined") return;
   expected = performance.now() + TICK_MS;
   timer = setInterval(tick, TICK_MS);
+  visibilityHandler = () => {
+    expected = performance.now() + TICK_MS;
+    skipNextTick = true;
+  };
+  document.addEventListener("visibilitychange", visibilityHandler);
 
   // Long tasks name the *duration* of individual blocking work between ticks,
   // which separates "one 6s task" (a loop) from "hundreds of small ones"
@@ -113,6 +135,9 @@ export function startFreezeWatchdog() {
 export function stopFreezeWatchdog() {
   if (timer) clearInterval(timer);
   timer = null;
+  if (visibilityHandler) document.removeEventListener("visibilitychange", visibilityHandler);
+  visibilityHandler = null;
+  skipNextTick = false;
   longTaskObserver?.disconnect();
   longTaskObserver = null;
 }
