@@ -76,5 +76,5 @@ export function portraitLibraryFull(assets = [], { fullAt = 0, freedAt = 0, now 
     if (asset?.status === "Active" && asset.byteplusAssetId) registered = Math.max(registered, Number(asset.updatedAt || asset.createdAt) || 0);
   }
   const full = rejected > 0 && rejected > registered && rejected > (Number(freedAt) || 0) && now - rejected < QUOTA_WINDOW_MS;
-  return { full, since: full ? rejected : null, freedSince: !full && rejected > 0 && (Number(freedAt) || 0) > rejected };
+  return { full, since: full ? rejected : null, freedSince: !full && rejected > 0 && (Number(freedAt) || 0) >= rejected };
 }
