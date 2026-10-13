@@ -224,19 +224,44 @@ async function apiFetch(input, init) {
   return response;
 }
 
+/** Upload each distinct inline image once, at most UPLOAD_CONCURRENCY at a time. */
+const UPLOAD_CONCURRENCY = 3;
+
+export async function uploadInlineReferences(entries, uploadOne, concurrency = UPLOAD_CONCURRENCY) {
+  const byValue = new Map();
+  const queue = [];
+  for (const { value, label } of entries) {
+    if (typeof value !== "string" || !value.startsWith("data:") || byValue.has(value)) continue;
+    let release;
+    byValue.set(value, new Promise((resolve, reject) => { release = { resolve, reject }; }));
+    queue.push({ value, label, release });
+  }
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    while (queue.length) {
+      const job = queue.shift();
+      try { job.release.resolve(await uploadOne(job.value, job.label)); } catch (error) { job.release.reject(error); }
+    }
+  });
+  await Promise.all(workers);
+  return Promise.all(entries.map(({ value }) => (byValue.has(value) ? byValue.get(value) : value)));
+}
+
 async function uploadDraftBinaryReferences(state) {
   const { uploadOriginalReference } = await import("./client-reference-upload");
-  const upload = async (ref, label = "reference") => {
-    if (typeof ref !== "string" || !ref.startsWith("data:")) return ref;
+  const uploadOne = async (ref, label) => {
     const blob = await (await fetch(ref)).blob();
     return uploadOriginalReference(new File([blob], label, {type:blob.type}));
   };
-  const references = [];
-  for (let i = 0; i < state.referenceImages.length; i++) references.push(await upload(state.referenceImages[i], state.referenceLabels?.[i] || "reference"));
-  return { referenceImages: references, referenceIds: referenceIdsFor(state),
-    firstFrame: await upload(state.firstFrame, "first-frame"),
-    lastFrame: await upload(state.lastFrame, "last-frame"),
-    continuationFrame: await upload(state.continuationFrame, "continuation-frame") };
+  const references = state.referenceImages.map((value, i) => ({ value, label: state.referenceLabels?.[i] || "reference" }));
+  const frames = [
+    { value: state.firstFrame, label: "first-frame" },
+    { value: state.lastFrame, label: "last-frame" },
+    { value: state.continuationFrame, label: "continuation-frame" },
+  ];
+  const uploaded = await uploadInlineReferences([...references, ...frames], uploadOne);
+  const [firstFrame, lastFrame, continuationFrame] = uploaded.slice(references.length);
+  return { referenceImages: uploaded.slice(0, references.length), referenceIds: referenceIdsFor(state),
+    firstFrame, lastFrame, continuationFrame };
 }
 
 export const CLEAR_SELECTION_PATCH = {
