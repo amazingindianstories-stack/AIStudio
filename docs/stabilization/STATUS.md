@@ -18,7 +18,7 @@ Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs 
 | Phase | State | Notes |
 |---|---|---|
 | P0 Baselines / rollback | PASS (rollback execution NOT VERIFIED) | see below |
-| P1 Git baseline | IN PROGRESS | P1.1 PASS |
+| P1 Git baseline | IN PROGRESS | P1.1, P1.3 PASS; backend suite PASS |
 | P2 Correctness fixes | PENDING | |
 | P3 Versioned image + cutover | PENDING (cutover = gate A1) | |
 | P4 Media off Vercel | PENDING (release = gate A2) | |
@@ -48,8 +48,23 @@ login failures > 3× baseline; media 403/404 > 2× baseline; any duplicate provi
 | Gate | State | Evidence |
 |---|---|---|
 | P1.1 Applied migration graph in Git | PASS | **Finding F-03:** production's applied app migrations are the 26 `*_railway_v2_*` / `0001_uploadsession` / `0002_generation_submission_input` / `0004_uploader_provenance` files that existed **only inside the deployed image** — neither HEAD's 49 files nor the WIP tree's 26 recreated `*_baseline_*` files. 16 further `django_migrations` rows are legacy history with no files (ignored by Django, preserved untouched). Branch rebased onto the WIP snapshot (which matches the image's application code) and the image's migration files restored verbatim. Backend now byte-identical to the deployed image for all 291 image files. Against the restored Green clone: `migrate --plan` → "No planned migration operations"; `makemigrations --check --dry-run` → "No changes detected"; 26 applied / 0 unapplied. |
+| P1.2 Bring forward intended edits | PASS | Branch is rebased on the WIP snapshot, whose application code is byte-identical to the deployed image (291/291 files after migration restore). |
+| P1.3 Deployed frontend imported | PASS | `1950972`: exact Vercel `782d0bd` source (179 files, all byte-identical). Test-contract fixes `c12c31f`: middleware tests set the server-only ingress value and assert caller headers are replaced + fail-closed; unresolvable `asset://` → no display URL; API inventory fixture added. `npm test` 440/440, `eslint src --max-warnings=0` clean, `next build` OK. |
+| Backend suite | PASS | Local venv + isolated PG 18.4: 586/590 (4 need libvips/pyvips, absent locally). Production-equivalent image built from `backend/Dockerfile` (Python 3.12, ffmpeg, libvips) + disposable `postgres:18.6`: 588/590; the 2 errors need repo `scripts/` and Node, absent from the image, and pass locally. Every test passes in at least one faithful environment. |
+| P1.4 Overlay inventory + contract tests | PENDING | |
+| P1.5 Node remnants | PASS (already removed on WIP base) | Live frontend imports none; routing tests confirm no Node fallback. |
+
+**Finding F-04 (production bug, depth maps):** the Green ingress gateway rejects every depth-worker
+route (`POST /api/worker/depth/{claim,heartbeat,progress,upload-url,complete}`) and artist depth
+enqueue/status (`/api/generate/depth`, `/api/generate/depth/status`) with
+`PREVIEW_OPERATION_DISABLED`/`PREVIEW_PAID_PROVIDER_DISABLED` (403), and the API process has no
+`DEPTH_WORKER_TOKEN`. Depth has been unusable since the Green cutover. Hotfix prepared privately
+(gateway allowlist + token pass-through, launcher inner sha `287ca2fc…`); allowlist unit-checked.
+Depth enqueue writes rows directly (`apps/workers/views.py`) and never reaches paid providers.
+Deployment needs owner approval (gate **A0-depth**).
 
 ## Owner approval gates
+- **A0-depth** Depth hotfix: gateway allowlist for depth routes + `DEPTH_WORKER_TOKEN` (value from the existing depth-worker config, never printed) on the Green API, then API redeploy.
 - **A1** Green cutover to versioned image (P3), one service at a time.
 - **A2** Bucket CORS + direct-media release (P4).
 - **A3** Frontend release(s) (P5).
