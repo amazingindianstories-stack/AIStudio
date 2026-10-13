@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
 
 const inputClass =
   "w-full rounded-lg border border-line bg-ink-700 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-white/25 focus:ring-2 focus:ring-white/10 disabled:cursor-not-allowed disabled:opacity-55";
@@ -202,7 +203,7 @@ export function AccountSettings({
 
       const response = await apiFetch("/api/auth/me", { method: "PATCH", headers, body });
       const json = await responseJson(response);
-      if (!response.ok) throw new Error(json.error || "Could not update your profile.");
+      if (!response.ok) throw new Error(apiErrorMessage(json, response.status, "Could not update your profile."));
 
       const updated = json.user ;
       setName(updated.name);
@@ -251,7 +252,7 @@ export function AccountSettings({
         }),
       });
       const json = await responseJson(response);
-      if (!response.ok) throw new Error(json.error || "Could not change your password.");
+      if (!response.ok) throw new Error(apiErrorMessage(json, response.status, "Could not change your password."));
 
       setPasswords({ current: "", next: "", confirm: "" });
       setPasswordNotice({ kind: "success", text: "Password changed." });

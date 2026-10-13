@@ -1,5 +1,7 @@
 "use client";
 
+import { apiErrorMessage } from "./api-error";
+
 const MIME_BY_EXTENSION = Object.freeze({
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
   gif: "image/gif", tif: "image/tiff", tiff: "image/tiff", heic: "image/heic", heif: "image/heif",
@@ -20,9 +22,10 @@ export function uploadContentType(file) {
 
 const CHUNK_BYTES = 8 * 1024 * 1024;
 
-function uploadError(message, retryable = false) {
+function uploadError(message, retryable = false, code = null) {
   const error = new Error(message);
   error.retryable = retryable;
+  if (code) error.code = code;
   return error;
 }
 
@@ -69,8 +72,9 @@ async function jsonRequest(fetchImpl, url, body, signal, timeoutMs) {
   const response = await request(fetchImpl, url, { method: "POST", credentials: "same-origin",
     headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, signal, timeoutMs);
   const value = await response.json().catch(() => ({}));
-  if (!response.ok) throw uploadError(value.error || `Upload metadata failed (${response.status}).`,
-    response.status === 408 || response.status === 429 || response.status >= 500);
+  if (!response.ok) throw uploadError(apiErrorMessage(value, response.status, "Upload failed. Try again."),
+    response.status === 408 || response.status === 429 || response.status >= 500,
+    typeof value.code === "string" ? value.code : typeof value.error === "string" ? value.error : null);
   return value;
 }
 
@@ -112,7 +116,7 @@ export async function uploadFileDirect(file, purpose, {
       session = await status.json();
       if (!status.ok || session.byteSize !== file.size || session.contentType !== contentType || session.purpose !== purpose
         || (session.filename && session.filename !== String(file.name || "upload").slice(0, 255))) {
-        throw uploadError(session.error || "This file does not match the upload being resumed.");
+        throw uploadError(apiErrorMessage(session, status.status, "This file does not match the upload being resumed."));
       }
     }
     for (let attempt = 0; attempt < attempts; attempt += 1) {

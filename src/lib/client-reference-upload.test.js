@@ -19,7 +19,7 @@ test('negotiation rejects without a storage PUT', async () => {
   let requests = 0;
   await assert.rejects(uploadOriginalReference(new Blob(['file'], {type: 'image/png'}), {
     fetchImpl: async () => { requests++; return reply(400, {error: 'INVALID_UPLOAD_CONTENT_TYPE'}); },
-  }), /INVALID_UPLOAD_CONTENT_TYPE/);
+  }), (error) => error.code === 'INVALID_UPLOAD_CONTENT_TYPE' && error.message === "That file type isn't supported.");
   assert.equal(requests, 1);
 });
 
@@ -79,7 +79,7 @@ test('checksum/signature verification failure preserves error and never returns 
     if (url === '/api/uploads/init') return reply(200, session);
     if (url.endsWith('/finalize')) return reply(422, {error: 'UPLOAD_CHECKSUM_MISMATCH'});
     return ++storage === 1 ? reply(308, {}, 'bytes=0-8388607') : reply(200);
-  } }), /UPLOAD_CHECKSUM_MISMATCH/);
+  } }), (error) => error.code === 'UPLOAD_CHECKSUM_MISMATCH' && !/UPLOAD_/.test(error.message));
 });
 
 test('ambiguous finalize retries only finalize using same session', async () => {

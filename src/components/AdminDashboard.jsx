@@ -44,6 +44,7 @@ import { LIMIT_DEFINITIONS, } from "@/lib/limits";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
  *  because that module pulls in the db client, which cannot be bundled for the
@@ -315,7 +316,7 @@ function HiggsfieldTokenCard() {
         body: JSON.stringify(parsed),
       });
       const j = await res.json();
-      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error(apiErrorMessage(j, res.status));
       setState("ok");
       setMessage("Token seeded — Higgsfield generations should work now.");
       setValue("");
@@ -400,7 +401,7 @@ function UsersTab({
         body: JSON.stringify(form),
       });
       const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json.error || "Could not create the user.");
+      if (!response.ok) throw new Error(apiErrorMessage(json, response.status, "Could not create the user."));
       setForm({ email: "", password: "", name: "", role: "user" });
       setAdding(false);
       setNotice({ kind: "success", text: "User created." });
@@ -428,7 +429,7 @@ function UsersTab({
         body: JSON.stringify({ id, ...body }),
       });
       const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json.error || "Could not update the user.");
+      if (!response.ok) throw new Error(apiErrorMessage(json, response.status, "Could not update the user."));
       setNotice({ kind: "success", text: successMessage });
       reload();
       return true;
@@ -448,7 +449,7 @@ function UsersTab({
         method: "DELETE",
       });
       const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json.error || "Could not delete the user.");
+      if (!response.ok) throw new Error(apiErrorMessage(json, response.status, "Could not delete the user."));
       setNotice({ kind: "success", text: `${user.name || user.email} was deleted.` });
       reload();
       return true;
@@ -719,7 +720,7 @@ function UsersTab({
                   body: JSON.stringify({ id: resetUser.id, password }),
                 });
                 const json = await response.json().catch(() => ({}));
-                if (!response.ok) return json.error || "Could not reset the password.";
+                if (!response.ok) return apiErrorMessage(json, response.status, "Could not reset the password.");
                 setNotice({ kind: "success", text: "Password reset." });
                 setResetUser(null);
                 reload();
@@ -960,7 +961,7 @@ function UserLimitsModal({
         body: JSON.stringify({ userId: user.id, key: def.key, value: nextValue }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Could not update the limit.");
+      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not update the limit."));
       setSavedOverrides((s) => ({ ...s, [def.key]: nextValue }));
       onSaved();
       setSavedKey(def.key);

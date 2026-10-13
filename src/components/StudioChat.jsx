@@ -32,6 +32,7 @@ import { GenerationStatus } from "./GenerationStatus";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { normalizePromptMentions } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
 
 const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
 
@@ -166,7 +167,7 @@ export function StudioChat({ conversationId }) {
         body: JSON.stringify({ content, images: referenceImages }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.error) throw new Error(data.error || `Request failed (${res.status}).`);
+      if (!res.ok || data.error) throw new Error(apiErrorMessage(data, res.status));
       const assistantMessage = data.assistantMessage;
       setMessages((cur) => [...cur.filter((m) => m.id !== optimistic.id), data.userMessage, assistantMessage]);
       if (assistantMessage.toolTrace && GENERATE_TOOLS.has(assistantMessage.toolTrace.tool)) {

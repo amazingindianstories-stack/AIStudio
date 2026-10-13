@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { Loader2, LogIn } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { loginNextPath } from "@/lib/login-next";
+import { apiErrorMessage } from "@/lib/api-error";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
@@ -25,7 +26,7 @@ export default function LoginPage() {
       });
       const json = await res.json();
       if (!res.ok) {
-        setError(json.error || "Login failed.");
+        setError(apiErrorMessage(json, res.status, "Login failed."));
         setLoading(false);
         return;
       }

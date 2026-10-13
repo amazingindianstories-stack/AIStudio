@@ -38,6 +38,7 @@ import { DestinationPickerModal } from "./DestinationPickerModal";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 import { UNSORTED } from "@/lib/feed-scope";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
 
 const ZOOM_KEY = "veevee-asset-zoom-v1";
 const ZOOM_MIN = 120;
@@ -225,7 +226,7 @@ export function HistoryPanel() {
       const res = await apiFetch("/api/history/exports", { method: "POST" });
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
-        throw new Error(json.error || "Failed to create export.");
+        throw new Error(apiErrorMessage(json, res.status, "Failed to create export."));
       }
       const job = await res.json();
       try {
@@ -243,7 +244,7 @@ export function HistoryPanel() {
           body: JSON.stringify({ ids: ids.slice(offset, offset + 500) }),
         });
         const body = await chunkResponse.json().catch(() => ({}));
-        if (!chunkResponse.ok) throw new Error(body.error || "Failed to add items to export.");
+        if (!chunkResponse.ok) throw new Error(apiErrorMessage(body, chunkResponse.status, "Failed to add items to export."));
         rejected += body.rejected?.length || 0;
       }
       if (rejected) {
@@ -256,7 +257,7 @@ export function HistoryPanel() {
         method: "POST",
       });
       const finalized = await finalize.json().catch(() => ({}));
-      if (!finalize.ok) throw new Error(finalized.error || "Failed to queue export.");
+      if (!finalize.ok) throw new Error(apiErrorMessage(finalized, finalize.status, "Failed to queue export."));
       if (!stillActor()) return;
       setActiveExport({
         id: job.id,
@@ -282,7 +283,7 @@ export function HistoryPanel() {
       const response = await apiFetch(`/api/history/exports/${displayedExport.id}/finalize`, { method: "POST" });
       const result = await response.json().catch(() => ({}));
       if (useStore.getState().currentUser?.id !== actorId) return;
-      if (!response.ok) throw new Error(result.error || "Could not retry ZIP. Try again.");
+      if (!response.ok) throw new Error(apiErrorMessage(result, response.status, "Could not retry ZIP. Try again."));
       try { localStorage.setItem(exportStorageKey, displayedExport.id); } catch {}
       setActiveExport((value) => ({ ...value, status: "queued", error: null }));
     } catch (error) {

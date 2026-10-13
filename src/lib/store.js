@@ -1169,7 +1169,7 @@ export const useStore = create((set, get) => ({
             ? "You don't have permission to delete this."
             : body.error === "GENERATION_REQUIRES_RECONCILIATION"
               ? "This generation is still rendering. Wait for it to finish, then delete it."
-              : body.error || `Delete failed (${res.status}).`
+              : apiErrorMessage(body, res.status)
         );
       }
       return { ok: true };
@@ -1304,7 +1304,7 @@ export const useStore = create((set, get) => ({
         }),
       });
       const newItem = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(newItem.error || `Retry failed (${res.status}).`);
+      if (!res.ok) throw new Error(apiErrorMessage(newItem, res.status));
       if (newItem?.id) {
         insertNewItem(set, newItem);
         if (
@@ -1429,7 +1429,7 @@ export const useStore = create((set, get) => ({
         body: JSON.stringify({ sourceGenerationId: id }),
       });
       const item = await res.json().catch(() => ({}));
-      if (!res.ok) return { ok: false, error: item.error || `Server error: ${res.status}` };
+      if (!res.ok) return { ok: false, error: apiErrorMessage(item, res.status) };
       insertNewItem(set, item);
       return { ok: true, item };
     } catch (error) {
@@ -1620,7 +1620,7 @@ export const useStore = create((set, get) => ({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.id) {
-        return { ok: false, error: data?.error || `Failed to save asset (${res.status})` };
+        return { ok: false, error: apiErrorMessage(data, res.status) };
       }
       set((s) => ({
         assets: [data, ...s.assets.filter((a) => a.id !== data.id)],
@@ -1644,7 +1644,7 @@ export const useStore = create((set, get) => ({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Delete failed (${res.status}).`);
+        throw new Error(apiErrorMessage(body, res.status));
       }
       return { ok: true };
     } catch (e) {
@@ -1723,7 +1723,7 @@ export const useStore = create((set, get) => ({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        return { ok: false, error: err.error || "Failed to create character group." };
+        return { ok: false, error: apiErrorMessage(err, res.status, "Failed to create character group.") };
       }
       const group = await res.json();
       set((s) => ({
@@ -1795,7 +1795,7 @@ export const useStore = create((set, get) => ({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        return { ok: false, error: err.error || "Failed to upload portrait asset." };
+        return { ok: false, error: apiErrorMessage(err, res.status, "Failed to upload portrait asset.") };
       }
       const asset = await res.json();
       await get().loadPortraitAssets(groupId);
@@ -1827,7 +1827,7 @@ export const useStore = create((set, get) => ({
       const url = pid ? `/api/assets/portraits?projectId=${encodeURIComponent(pid)}` : "/api/assets/portraits";
       const res = await apiFetch(url, { cache: "no-store" });
       const json = await res.json();
-      if (!res.ok || json.error) throw new Error(json.error || "Could not load portraits.");
+      if (!res.ok || json.error) throw new Error(apiErrorMessage(json, res.status, "Could not load portraits."));
       if (get().portraitRequestId !== requestId || get().activeProjectId !== pid) return [];
       const assets = json.assets ?? [];
       set({ portraitAssets: assets, portraitGroups: json.groups ?? [],
@@ -1854,7 +1854,7 @@ export const useStore = create((set, get) => ({
           return { ok: false, error: "Image file is too large for the server (HTTP 413). Please select an image under 25MB." };
         }
         const err = await res.json().catch(() => ({}));
-        return { ok: false, error: err.error || "Failed to upload portrait." };
+        return { ok: false, error: apiErrorMessage(err, res.status, "Failed to upload portrait.") };
       }
       const json = await res.json();
       await get().loadAllPortraitAssets(pid);
@@ -1874,7 +1874,7 @@ export const useStore = create((set, get) => ({
     try {
       const res = await apiFetch(`/api/assets/portraits?${query}`, {method:"DELETE"});
       const ack = await res.json().catch(()=>null);
-      if (!res.ok || ack?.ok !== true) return {ok:false,error:ack?.error || "Deletion was not confirmed. Refresh before retrying."};
+      if (!res.ok || ack?.ok !== true) return {ok:false,error:apiErrorMessage(ack, res.status, "Deletion was not confirmed. Refresh before retrying.")};
       if (ack.assetId !== asset.id || ack.groupId !== asset.groupId || !["confirmed","already_absent","not_registered","already_archived"].includes(ack.remoteDeletion)) return {ok:false,error:"Deletion acknowledgement did not match this portrait. Refresh before retrying."};
       set(state => ({portraitAssets:state.portraitAssets.filter(a => a.id !== asset.id)}));
       return {ok:true};
@@ -2066,7 +2066,7 @@ export const useStore = create((set, get) => ({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "Failed to create folder");
+      throw new Error(apiErrorMessage(err, res.status, "Failed to create folder"));
     }
     const json = await res.json();
     if (json.folder?.id) {
@@ -2117,7 +2117,7 @@ export const useStore = create((set, get) => ({
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       if (err.code === "VERSION_CONFLICT") await get().loadLibraryTree();
-      throw Object.assign(new Error(err.error || "Failed to rename folder"), { code: err.code, status: res.status });
+      throw Object.assign(new Error(apiErrorMessage(err, res.status, "Failed to rename folder")), { code: err.code, status: res.status });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
   },
@@ -2134,7 +2134,7 @@ export const useStore = create((set, get) => ({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw Object.assign(new Error(err.error || "Failed to set folder color"), { code: err.code, status: res.status });
+      throw Object.assign(new Error(apiErrorMessage(err, res.status, "Failed to set folder color")), { code: err.code, status: res.status });
     }
     await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
   },
@@ -2162,7 +2162,7 @@ export const useStore = create((set, get) => ({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || "Failed to delete folder");
+      throw new Error(apiErrorMessage(err, res.status, "Failed to delete folder"));
     }
     set((s) => ({
       activeFolderId: s.activeFolderId === folderId ? null : s.activeFolderId,
@@ -2199,7 +2199,7 @@ export const useStore = create((set, get) => ({
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw Object.assign(new Error(err.error || "Failed to move folder"), {code:err.code,status:res.status});
+      throw Object.assign(new Error(apiErrorMessage(err, res.status, "Failed to move folder")), {code:err.code,status:res.status});
     }
     invalidateFeedCache();
     await Promise.all([
@@ -2239,7 +2239,7 @@ export const useStore = create((set, get) => ({
       invalidateFeedCache();
       void get().loadFeed({ force: true });
       void get().loadCounts();
-      throw Object.assign(new Error(err.error || "Failed to move items."), {code:err.code,status:res.status});
+      throw Object.assign(new Error(apiErrorMessage(err, res.status, "Failed to move items.")), {code:err.code,status:res.status});
     }
     const committed = await res.json();
     invalidateFeedCache();
