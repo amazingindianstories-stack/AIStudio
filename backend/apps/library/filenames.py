@@ -12,11 +12,26 @@ MIME_EXTENSIONS = {'image/jpeg':'jpg', 'image/jpg':'jpg', 'image/png':'png',
     'video/quicktime':'mov', 'audio/mpeg':'mp3', 'audio/mp3':'mp3', 'audio/wav':'wav'}
 
 
+MAX_TOKEN_CHARS = 120
+
+
 def slugify_token(raw, fallback='folder'):
-    if not isinstance(raw, str) or not raw.strip(WHITESPACE):
+    """Portable filename token that keeps the folder name's letter case.
+
+    Leading/trailing whitespace (including no-break and zero-width spaces) is
+    trimmed, accents are folded to ASCII, control/format characters and every
+    run of anything other than letters and digits become one ``_``, and edge
+    ``_``/``.`` are dropped so names never end in a space or dot.
+    """
+    if not isinstance(raw, str):
         return fallback
-    normalized = re.sub('[\u0300-\u036f]', '', unicodedata.normalize('NFKD', raw)).lower()
-    return re.sub('[^a-z0-9]+', '_', normalized).strip('_') or fallback
+    text = ''.join(' ' if unicodedata.category(c) in ('Cc', 'Cf', 'Zs', 'Zl', 'Zp') else c
+                   for c in unicodedata.normalize('NFKC', raw)).strip(WHITESPACE + ' ')
+    if not text:
+        return fallback
+    folded = re.sub('[\u0300-\u036f]', '', unicodedata.normalize('NFKD', text))
+    token = re.sub('[^A-Za-z0-9]+', '_', folded).strip('_.')[:MAX_TOKEN_CHARS].rstrip('_')
+    return token or fallback
 
 
 def resolve_extension(kind='image', url='', media_key='', content_type=''):
@@ -59,12 +74,11 @@ def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequ
     if namespace.startswith('folder:'):
         tokens = []
         for folder in ancestry or []:
-            token = slugify_token(folder.get('name'))
-            tokens.append(token.upper() if re.fullmatch(r'(?:r|sc)[0-9]+', token, re.I) else token)
+            tokens.append(slugify_token(folder.get('name')))
         if not tokens:
             tokens = ['folder']
     prefix = '_'.join(tokens)
-    if prefix.upper() in RESERVED:
+    if prefix.split('.')[0].upper() in RESERVED:
         prefix = '_' + prefix
     return bound_filename(prefix, format_serial(sequence), resolve_extension(kind, url, media_key, content_type))
 

@@ -53,7 +53,7 @@ class ZIPHierarchyTests(TransactionTestCase):
         global_folder = self.folder('Folder_X')
         _, paths = self.paths([self.generation(a), self.generation(b), self.generation(a, shot), self.generation(folder=global_folder), self.generation()])
         self.assertEqual(paths, ['Projects/A/Unsorted/unsorted_0001.mov', 'Projects/B/Unsorted/unsorted_0001.mov',
-            'Projects/A/Scene_01/Shot_02/shot_02_0001.mov', 'Global/Folder_X/folder_x_0001.mov', 'Global/Unsorted/unsorted_0001.mov'])
+            'Projects/A/Scene_01/Shot_02/Shot_02_0001.mov', 'Global/Folder_X/Folder_X_0001.mov', 'Global/Unsorted/unsorted_0001.mov'])
 
     def test_project_folder_casefold_sanitize_and_virtual_unsorted_collision(self):
         a, b = self.project('Café'), self.project('CAFE\u0301')

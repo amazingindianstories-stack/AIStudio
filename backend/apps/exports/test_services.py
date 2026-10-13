@@ -71,13 +71,13 @@ class ExportServicesTests(TransactionTestCase):
         generation = self.generation(folder_id=folder['id'])
         job = self.queued([generation])
         item = MediaExportItem.objects.get(export=job)
-        self.assertEqual((job.manifest_version, item.filename), (3, 'Global/Original/original_0001.png'))
+        self.assertEqual((job.manifest_version, item.filename), (3, 'Global/Original/Original_0001.png'))
         rename_folder(folder_id=folder['id'], name='Renamed')
         generation.delete()
         MediaExport.objects.filter(pk=job.id).update(status='failed', attempt_count=3)
         queued = services.finalize_export(job.id, self.user, self.clock + 10)
         item.refresh_from_db()
-        self.assertEqual((queued.attempt_count, item.filename), (0, 'Global/Original/original_0001.png'))
+        self.assertEqual((queued.attempt_count, item.filename), (0, 'Global/Original/Original_0001.png'))
         with self.assertRaisesMessage(services.ExportError, 'EXPORT_NOT_DRAFT'):
             services.append_items(job.id, self.user, [str(uuid.uuid4())])
 

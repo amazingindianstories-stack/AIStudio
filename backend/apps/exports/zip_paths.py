@@ -33,6 +33,9 @@ def safe_zip_member_path(value):
 
 def component(raw, fallback):
     raw = unicodedata.normalize('NFC', str(raw or ''))
+    # Invisible spacing (no-break, zero-width, BOM) counts as space so edges trim cleanly.
+    raw = ''.join(' ' if unicodedata.category(c) in ('Cf', 'Zs', 'Zl', 'Zp') else c for c in raw)
+    raw = re.sub(' {2,}', ' ', raw)
     raw = ''.join('_' if unicodedata.category(c).startswith('C') or c in '/\\:<>"|?*' else c for c in raw).strip(' .')
     raw = raw if raw and raw not in ('.', '..') else fallback
     if unicodedata.normalize('NFKC', raw.split('.')[0]).rstrip(' ').upper() in RESERVED:
@@ -130,7 +133,7 @@ def resolve_archive_paths(items):
             fid = row['parent_id']
         parts.extend(ancestry or ['Unsorted'])
         prefix = slugify_token(folders[g.folder_id]['name']) if g.folder_id else 'unsorted'
-        if prefix.upper() in RESERVED:
+        if prefix.split('.')[0].upper() in RESERVED:
             prefix = '_' + prefix
         leaf = bound_filename(prefix, format_serial(naming[gid]['sequence']), naming[gid]['extension'])
         paths[gid] = '/'.join(parts + [leaf])
