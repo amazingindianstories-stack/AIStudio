@@ -168,6 +168,17 @@ export function findItem(s, id) {
   );
 }
 
+/** Put a row back where it sorts (failed delete rollback), not at the head. */
+function restoreItemInPlace(set, item) {
+  set((s) => {
+    const scope = currentScope(s);
+    if (!matchesScope(item, scope) || s.items.some((i) => i.id === item.id)) return {};
+    const items = [...s.items, item].sort((a, b) => compareInScope(a, b, scope));
+    writeCachedItems(scopeKey(scope), items);
+    return { items };
+  });
+}
+
 /** Insert a freshly created row into the pools it belongs in. */
 function insertNewItem(
   set,
@@ -643,6 +654,9 @@ export const useStore = create((set, get) => ({
     }
     const key = scopeKey(scope);
     const cached = getCached(key);
+    // Revalidating the scope already on screen keeps the pages loaded beyond
+    // page 1 (and their scroll position) instead of collapsing to page 1.
+    const onScreen = key === get().feedKey ? get().items : null;
 
     // Serve the cache first. Re-entering a scope is the common case (clicking
     // between folders, flipping tabs), and re-rendering identical rows behind a
@@ -682,8 +696,16 @@ export const useStore = create((set, get) => ({
       });
       if (seq !== currentStoreRequestSequence("feed")) return; // superseded
 
-      const items = json.items ?? [];
-      const nextCursor = json.nextCursor ?? null;
+      let items = json.items ?? [];
+      let nextCursor = json.nextCursor ?? null;
+      const loadedTail = onScreen && nextCursor !== null && items.length
+        ? onScreen.filter((row) => !items.some((fresh) => fresh.id === row.id)
+            && compareInScope(items[items.length - 1], row, scope) < 0)
+        : [];
+      if (loadedTail.length) {
+        items = [...items, ...loadedTail];
+        nextCursor = cached?.nextCursor ?? nextCursor;
+      }
       putFeedCache(key, { items, nextCursor, at: Date.now() });
       set({
         items,
@@ -1134,7 +1156,7 @@ export const useStore = create((set, get) => ({
       // rollback below. insertNewItem's head-of-list placement is a rough
       // approximation of where the row was — loadFeed corrects the exact
       // position/scope membership right after.
-      if (item) insertNewItem(set, item);
+      if (item) restoreItemInPlace(set, item);
       void get().loadFeed({ force: true });
       void get().loadCounts();
       return { ok: false, error: e.message || "Failed to delete." };
