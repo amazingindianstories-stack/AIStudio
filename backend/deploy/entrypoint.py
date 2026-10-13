@@ -18,6 +18,8 @@ import tempfile
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from deploy import legacy_config
+
 UPSTREAM_PORT = 18080
 WORKER_COMMANDS = {
     'generation': ['generation_worker', '--concurrency', '1', '--interval', '2'],
@@ -52,6 +54,7 @@ def prepare_environment(env):
     if adc:
         json.loads(adc)  # fail fast on malformed credentials without echoing them
         env['GOOGLE_APPLICATION_CREDENTIALS'] = private_file(home, 'adc.json', adc.encode())
+    env.setdefault('HOME', home)
     env.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.production')
     env['PYTHONDONTWRITEBYTECODE'] = '1'
     return env
@@ -104,7 +107,14 @@ def main(argv):
     if len(argv) != 2 or argv[1] not in ('api', *WORKER_COMMANDS):
         raise SystemExit('usage: python -m deploy.entrypoint {api|generation|export|scheduler}')
     component = argv[1]
-    env = prepare_environment(os.environ)
+    env, contract = dict(os.environ), None
+    if legacy_config.present(env):
+        # Transition: same variables the old launchers read, same startup checks.
+        contract = legacy_config.preflight_contract(component, env)
+        env = legacy_config.translate(component, env)
+    env = prepare_environment(env)
+    if contract is not None:
+        legacy_config.preflight(env['DATABASE_URL'], contract)
     env['VEEVEE_RUNTIME_COMPONENT'] = component
     return run_api(env) if component == 'api' else run_worker(component, env)
 
