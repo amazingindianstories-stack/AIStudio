@@ -19,6 +19,21 @@ start command — **no variable is added, removed or edited**. No values belong 
   `SELECT status, count(*) FROM generations WHERE status IN ('queued','running') GROUP BY 1;`
   `SELECT status, count(*) FROM media_exports WHERE status IN ('queued','running') GROUP BY 1;`
 
+## Release gates (required for every deploy, 2026-10-13)
+1. `scripts/stabilization/release_gate.sh <commit>` — clean detached worktree; image build; pyflakes
+   undefined names; full Django suite **inside the built image** on a throwaway PostgreSQL 18,
+   including fake-provider worker simulations (`apps/generation/test_worker_simulation.py`);
+   `makemigrations --check`; frontend tests, lint, production build.
+2. `scripts/stabilization/rehearse_local.sh <commit>` — the commit's image on an internal
+   (no-internet) Docker network against a restored Green copy with production roles/RLS: API with
+   the real entrypoint (paid guard, export admission, portrait lifecycle, gateway), workers via
+   `rehearsal_worker.py` (fake provider network installed before the paid guard). The probe
+   drives Nano Banana, Seedream, Seedance draft → final and a ZIP export through the gateway.
+   Verified to fail on the 2026-10-13 missing-import regression.
+3. `stage_railway_deploy.py` refuses a commit without both pass records.
+4. Proposed, not built (needs owner budget approval): a tiny real paid canary per provider right
+   after a worker deploy with automatic rollback on failure.
+
 ## Staging an upload
 ```
 python3 scripts/stabilization/stage_railway_deploy.py <commit> <component> <empty-dir>
