@@ -32,14 +32,14 @@ step "Backend suite inside the image (throwaway PostgreSQL 18)"
 docker network create "$NET" >/dev/null
 docker run -d --name "$DB" --network "$NET" -e POSTGRES_PASSWORD=gate -e POSTGRES_DB=veevee_django_migration postgres:18.6 >/dev/null
 until docker exec "$DB" pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
-GATE_ENV="-e MIGRATION_TEST_ISOLATED=1 -e DJANGO_SETTINGS_MODULE=config.settings.test -e DATABASE_URL=postgresql://postgres:gate@$DB:5432/veevee_django_migration -e DJANGO_SECRET_KEY=gate-secret-key-000000000000000000000000000000 -e AUTH_SECRET=gate-auth-secret-0000000000000000000000000000000"
+GATE_ENV="-e MIGRATION_TEST_ISOLATED=1 -e DJANGO_SETTINGS_MODULE=config.settings.test -e DATABASE_URL=postgresql://postgres:gate@127.0.0.1:5432/veevee_django_migration -e DJANGO_SECRET_KEY=gate-secret-key-000000000000000000000000000000 -e AUTH_SECRET=gate-auth-secret-0000000000000000000000000000000"
 # shellcheck disable=SC2086
-docker run --rm --network "$NET" $GATE_ENV -v "$WORK/scripts:/scripts:ro" "$IMAGE" python manage.py test --noinput --parallel 1 2>&1 | grep -v '^{"event"' | tail -5 | tee "$WORK/backend.txt"
+docker run --rm --network "container:$DB" $GATE_ENV -v "$WORK/scripts:/scripts:ro" "$IMAGE" python manage.py test --noinput --parallel 1 2>&1 | grep -v '^{"event"' | tail -5 | tee "$WORK/backend.txt"
 grep -q '^OK' "$WORK/backend.txt"
 
 step "Migrations: no model changes"
 # shellcheck disable=SC2086
-docker run --rm --network "$NET" $GATE_ENV "$IMAGE" python manage.py makemigrations --check --dry-run
+docker run --rm --network "container:$DB" $GATE_ENV "$IMAGE" python manage.py makemigrations --check --dry-run
 
 step "Frontend tests, lint and production build"
 cp -c -R "$ROOT/node_modules" "$WORK/node_modules" 2>/dev/null || cp -R "$ROOT/node_modules" "$WORK/node_modules"
