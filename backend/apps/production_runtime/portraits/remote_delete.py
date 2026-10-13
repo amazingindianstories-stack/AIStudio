@@ -24,7 +24,9 @@ def delete_once(asset,actor_id,*,project_id,group_id,store,client,allow_archived
  if asset['status']=='PreviewDeleted' and not allow_archived:
   if asset.get('byteplusAssetId') and not (previous.get('operation')=='REMOTE_DELETE' and previous.get('state')=='ACKNOWLEDGED'):raise DeleteHold('Portrait was archived locally; remote deletion needs the exact reviewed cleanup operation.')
   return {'ok':True,'assetId':asset['id'],'groupId':asset['groupId'],'remoteDeletion':'already_archived'}
- if asset['status'].startswith('Registration') or asset['status'] in ('RemoteDeletionPending','RemoteDeletionUnknown','RemoteDeletionFailed'):raise DeleteHold('Pending or uncertain registration/deletion requires reconciliation first.')
+ # A definitive rejection (state REJECTED, no remote asset id) left nothing on BytePlus: delete locally.
+ rejected=asset['status']=='RegistrationFailed' and not asset.get('byteplusAssetId') and previous.get('state')=='REJECTED'
+ if (asset['status'].startswith('Registration') and not rejected) or asset['status'] in ('RemoteDeletionPending','RemoteDeletionUnknown','RemoteDeletionFailed'):raise DeleteHold('Pending or uncertain registration/deletion requires reconciliation first.')
  remote_id=asset.get('byteplusAssetId');receipt=None
  if remote_id:
   remote=client.get_asset(remote_id,project_name='default')

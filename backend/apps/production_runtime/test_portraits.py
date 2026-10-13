@@ -41,3 +41,53 @@ class PortraitLifecycleInstallTests(SimpleTestCase):
         self.assertTrue(result['tombstones'])
         self.assertTrue(result['group_hard_delete_blocked'])
         self.assertEqual(result['visible'], [{'status': 'Active'}])
+
+
+class RejectedRegistrationDeleteTests(__import__('django.test', fromlist=['SimpleTestCase']).SimpleTestCase):
+    """A portrait BytePlus definitively rejected (e.g. quota) can be deleted locally."""
+
+    def run_delete(self, status, marker, remote_id=None):
+        import json
+        from .portraits.remote_delete import DeleteHold, delete_once
+        calls = []
+
+        class Store:
+            def group(self, gid):
+                return {'id': gid, 'projectId': 'p1', 'projectName': 'default', 'byteplusGroupId': 'group-1'}
+
+            def claim(self, asset, m):
+                calls.append(('claim', m['remote_asset_id'], m['previous_status']))
+                return True
+
+            def archive(self, aid, m, receipt, outcome):
+                calls.append(('archive', outcome))
+
+            def unknown(self, aid, m):
+                calls.append(('unknown',))
+
+        class Client:
+            def get_asset(self, *a, **k):
+                raise AssertionError('BytePlus must not be called')
+            delete_asset = get_asset
+
+        asset = {'id': 'a1', 'groupId': 'g1', 'status': status, 'statusMessage': json.dumps(marker),
+                 'byteplusAssetId': remote_id, 'imageUrl': '/api/media/uploads/portrait/x'}
+        try:
+            return delete_once(asset, 'actor', project_id='p1', group_id='g1', store=Store(), client=Client()), calls
+        except DeleteHold as exc:
+            return str(exc), calls
+
+    def test_rejected_without_remote_asset_is_deleted_locally(self):
+        result, calls = self.run_delete('RegistrationFailed', {'state': 'REJECTED', 'error_code': 'QuotaSharedPoolExceeded'})
+        self.assertEqual(result['remoteDeletion'], 'not_registered')
+        self.assertEqual(calls, [('claim', None, 'RegistrationFailed'), ('archive', 'not_registered')])
+
+    def test_uncertain_or_remote_registrations_stay_held(self):
+        for status, marker, remote in (('RegistrationUnknown', {'state': 'REJECTED'}, None),
+                                       ('RegistrationPending', {}, None),
+                                       ('RegistrationFailed', {'state': 'FAILED_UNVERIFIED'}, None),
+                                       ('RegistrationFailed', {'state': 'REJECTED'}, 'asset-9'),
+                                       ('RegistrationFailed', {'state': 'SUBMISSION_UNCERTAIN'}, None)):
+            result, calls = self.run_delete(status, marker, remote)
+            self.assertIsInstance(result, str, (status, marker, remote))
+            self.assertEqual(calls, [])
