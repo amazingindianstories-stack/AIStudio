@@ -4,7 +4,7 @@ import { useCallback, useState } from "react";
 import { ImageOff, RotateCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export function ProgressiveImage({ src, alt = "", className, imageClassName, ...props }) {
+export function ProgressiveImage({ src, alt = "", className, imageClassName, onSourceError, ...props }) {
   const [retryState, setRetryState] = useState({ source: src, count: 0 });
   const retry = retryState.source === src ? retryState.count : 0;
   const resolved = retry && src
@@ -62,7 +62,11 @@ export function ProgressiveImage({ src, alt = "", className, imageClassName, ...
           src={resolved}
           alt={alt}
           onLoad={() => settle("loaded")}
-          onError={() => settle("error")}
+          onError={() => {
+            // A caller may recover by switching sources (e.g. direct storage → /api/media).
+            if (onSourceError?.() === true) return;
+            settle("error");
+          }}
           className={cn(
             "h-full w-full opacity-0 transition-opacity duration-300",
             state === "loaded" && "opacity-100",

@@ -18,7 +18,8 @@ import {
 
 import { UNSORTED } from "@/lib/feed-scope";
 import { useStore } from "@/lib/store";
-import { aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
+import { useDirectMediaUrl } from "@/lib/media-resolver";
+import { aspectToPadding, cn, generationDownloadUrl } from "@/lib/utils";
 import { useNearViewport } from "@/lib/use-near-viewport";
 import { CardActionPanel } from "./CardActionPanel";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
@@ -123,6 +124,10 @@ export function MediaCard({
   const done = item.status === "succeeded";
   // Drafts are cheap low-resolution previews; make them unmistakable in the grid.
   const isDraft = item.kind === "video" && item.draftMode === true;
+  // Media loads straight from storage once resolved; /api/media is the fallback.
+  const imageMedia = useDirectMediaUrl(done && item.kind === "image" ? item.url : null, CARD_THUMB_WIDTH);
+  const posterMedia = useDirectMediaUrl(done && item.poster ? item.poster : null, CARD_THUMB_WIDTH);
+  const videoMedia = useDirectMediaUrl(done && (item.kind === "video" || item.kind === "depth") ? item.url : null);
   const costBasis = costBasisForGeneration(item);
   const depthStepIndex =
     item.kind === "depth" && item.progressMessage
@@ -333,7 +338,8 @@ export function MediaCard({
         {/* media */}
         {done && item.kind === "image" && item.url && (
           <ProgressiveImage
-            src={thumbUrl(item.url, CARD_THUMB_WIDTH)}
+            src={imageMedia.src}
+            onSourceError={imageMedia.onError}
             alt={item.prompt}
             loading="lazy"
             decoding="async"
@@ -348,7 +354,8 @@ export function MediaCard({
             )}
             {item.poster && (
               <ProgressiveImage
-                src={thumbUrl(item.poster, CARD_THUMB_WIDTH)}
+                src={posterMedia.src}
+                onSourceError={posterMedia.onError}
                 alt={item.prompt}
                 loading="lazy"
                 decoding="async"
@@ -358,13 +365,13 @@ export function MediaCard({
             )}
             {item.url && nearViewport && (
               <video
-                src={item.url}
+                src={videoMedia.src}
                 muted
                 loop
                 playsInline
                 preload="metadata"
                 onCanPlay={(e) => e.currentTarget.classList.remove("opacity-0")}
-                onError={() => setUnplayableUrl(item.url)}
+                onError={() => { if (!videoMedia.onError()) setUnplayableUrl(item.url); }}
                 onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
                 onMouseLeave={(e) => {
                   e.currentTarget.pause();
@@ -413,7 +420,8 @@ export function MediaCard({
                 rendering anyway under content-visibility. */}
             {nearViewport ? (
               <video
-                src={item.url}
+                src={videoMedia.src}
+                onError={() => videoMedia.onError()}
                 muted
                 loop
                 playsInline
