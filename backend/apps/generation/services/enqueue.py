@@ -1,4 +1,6 @@
 """Source-compatible enqueue validation and durable generation insertion."""
+import re
+from urllib.parse import unquote
 import math
 import uuid
 from django.db import transaction
@@ -165,7 +167,50 @@ def prepare_image(item, body, identifier, user_id):
     return prepared
 
 
+def registered_portrait_ids(item, body):
+    """Registered BytePlus portrait identities referenced by a video request."""
+    values = list(body.get('referenceImages') or [])
+    values.extend(item.get(key) for key in ('firstFrame', 'lastFrame', 'continuationFrame'))
+    result = []
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        identifier = None
+        if value.startswith('asset://'):
+            identifier = value[len('asset://'):]
+        elif '#bp_asset_id=' in value:
+            fragment = value.split('#', 1)[1]
+            identifier = unquote(fragment[len('bp_asset_id='):]) if fragment.startswith('bp_asset_id=') else None
+        if identifier is None:
+            continue
+        if not re.fullmatch(r'[A-Za-z0-9_-]{1,256}', identifier):
+            raise ValueError('Invalid registered portrait identity.')
+        if identifier not in result:
+            result.append(identifier)
+    if len(result) > 50:
+        raise ValueError('Too many registered portrait references.')
+    return result
+
+
+def verify_registered_portraits(item, body, client_factory=None):
+    """Stop before queueing (and billing) when a registered portrait is gone at BytePlus."""
+    try:
+        refs = registered_portrait_ids(item, body)
+        if refs:
+            if client_factory is None:
+                from apps.assets.byteplus_readonly import get_asset_client as client_factory
+            client = client_factory()
+            for ref in refs:
+                remote = client.get_asset(ref, project_name='default')
+                if (not isinstance(remote, dict) or remote.get('Id') != ref or str(remote.get('Status', '')).lower() != 'active'
+                        or remote.get('ProjectName', 'default') != 'default'):
+                    raise ValueError('inactive')
+    except Exception:
+        raise InvalidRequest('Portrait unavailable or remote registration could not be verified. No generation was queued.') from None
+
+
 def prepare_video(item, body, identifier):
+    verify_registered_portraits(item, body)
     result = {'costCents':compute_cost(item,read_pricing())}
     if has_length(body.get('referenceImages')): result['referenceImages'] = save_reference_images(body['referenceImages'],identifier)
     for field,suffix,output in [('firstFrame','firstframe','continuationFrameUrl'),('lastFrame','lastframe','lastFrameUrl')]:

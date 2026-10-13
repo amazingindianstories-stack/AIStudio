@@ -75,3 +75,65 @@ class SeedreamTransportTests(SimpleTestCase):
         self.assertEqual(event['event'], 'SEEDREAM_OPERATIONAL_FAILURE')
         self.assertEqual(event['causes'][0], {'class': 'TimeoutError', 'code': 'OTHER'})
         self.assertNotIn('fixture', output.getvalue())
+
+
+class StalePortraitGuardTests(SimpleTestCase):
+    def test_identity_parsing(self):
+        from .services.enqueue import registered_portrait_ids
+        item = {'firstFrame': 'https://tos.example/a.jpg#bp_asset_id=asset-2', 'lastFrame': None}
+        body = {'referenceImages': ['asset://asset-1', '/api/media/uploads/image-reference/x', 'asset://asset-1']}
+        self.assertEqual(registered_portrait_ids(item, body), ['asset-1', 'asset-2'])
+        with self.assertRaises(ValueError):
+            registered_portrait_ids({}, {'referenceImages': ['asset://bad id']})
+
+    def test_verification_outcomes(self):
+        from .services.enqueue import InvalidRequest, verify_registered_portraits
+
+        class Client:
+            def __init__(self, status='Active', fail=False):
+                self.status, self.fail, self.calls = status, fail, []
+
+            def get_asset(self, ref, project_name):
+                self.calls.append(ref)
+                if self.fail:
+                    raise RuntimeError('provider down')
+                return {'Id': ref, 'Status': self.status, 'ProjectName': 'default'}
+        body = {'referenceImages': ['asset://asset-1']}
+        active = Client()
+        verify_registered_portraits({}, body, client_factory=lambda: active)
+        self.assertEqual(active.calls, ['asset-1'])
+        for client in (Client(status='Processing'), Client(fail=True)):
+            with self.assertRaises(InvalidRequest):
+                verify_registered_portraits({}, body, client_factory=lambda c=client: c)
+        untouched = Client()
+        verify_registered_portraits({}, {'referenceImages': ['/api/media/uploads/image-reference/x']}, client_factory=lambda: untouched)
+        self.assertEqual(untouched.calls, [])
+
+    def test_read_only_transport_only_allows_get_asset(self):
+        import json as _json
+        from apps.assets.byteplus_readonly import ReadOnlyGetAssetTransport
+        transport = ReadOnlyGetAssetTransport(allowed_hosts={'ark.ap-southeast-1.byteplusapi.com'}, timeout=2)
+        good_url = 'https://ark.ap-southeast-1.byteplusapi.com/?Action=GetAsset&Version=2024-01-01'
+        for url, payload in (('https://ark.ap-southeast-1.byteplusapi.com/?Action=DeleteAsset&Version=2024-01-01', {'Id': 'a', 'ProjectName': 'default'}),
+                             (good_url, {'Id': 'a', 'ProjectName': 'default', 'Extra': 1}),
+                             (good_url, {'Id': 'a b', 'ProjectName': 'default'})):
+            with self.assertRaises(ValueError):
+                transport.request('POST', url, raw_body=_json.dumps(payload).encode())
+        self.assertTrue(transport.unbilled_readonly)
+
+
+class ProviderProjectionTests(__import__('django.test', fromlist=['TransactionTestCase']).TransactionTestCase):
+    def test_portrait_lookup_never_queries_users(self):
+        import uuid
+        from apps.assets.models import PortraitAsset, PortraitGroup
+        from apps.assets.portrait_db import get_portrait_asset_by_image_url
+        from apps.authentication.models import User
+        user = User.objects.create(id=uuid.uuid4(), email='u@example.test', name='U', role='user', password_hash='x', password_salt='', created_at=1)
+        group = PortraitGroup.objects.create(name='g', created_at=1, updated_at=1)
+        PortraitAsset.objects.create(group=group, image_url='/api/media/uploads/portrait/p1', status='Active',
+                                     byteplus_asset_id='asset-9', created_by_id=user.id, created_at=1, updated_at=1)
+        with self.assertNumQueries(1):
+            found = get_portrait_asset_by_image_url('/api/media/uploads/portrait/p1')
+        self.assertEqual(found['byteplusAssetId'], 'asset-9')
+        self.assertEqual(found['createdById'], str(user.id))
+        self.assertNotIn('uploader', found)

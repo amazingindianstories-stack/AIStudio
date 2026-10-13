@@ -1,4 +1,5 @@
 """Portrait identities and public shapes shared by routes and generation adapters."""
+from .provider_projection import provider_portrait_projection
 import re
 import uuid
 from urllib.parse import urlsplit
@@ -137,7 +138,7 @@ def get_portrait_asset_by_image_url(image_url):
         if stored.path == path:
             migrated.append(row)
     matches = exact if exact else migrated
-    return asset_json(matches[0]) if len(matches) == 1 else None
+    return provider_portrait_projection(matches[0]) if len(matches) == 1 else None
 
 
 def upsert_portrait_asset(asset):

@@ -22,11 +22,11 @@ from .seedream_references import prepare_seedream_references
 
 def read_assets(project_id=None):
     from apps.assets.models import Asset
-    from apps.assets.views import serialize
+    from apps.assets.provider_projection import provider_asset_projection
     query = Asset.objects.all()
     if project_id:
         query = query.filter(project_id=project_id)
-    return [serialize(asset) for asset in query.order_by('-created_at')]
+    return [provider_asset_projection(asset) for asset in query.order_by('-created_at')]
 
 
 class Dependencies:

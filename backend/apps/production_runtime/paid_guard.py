@@ -88,6 +88,8 @@ def install_paid_guard(config):
   try:return execute_original(item,**kwargs)
   finally:STATE.active=None
  def request(self,method,url,**kwargs):
+  # Transports that enforce a single unbilled read (BytePlus GetAsset) are exempt.
+  if getattr(self,'unbilled_readonly',False) is True:return request_original(self,method,url,**kwargs)
   if method.upper() not in ('GET','HEAD'):
    active=getattr(STATE,'active',None)
    if not active or method.upper()!='POST' or url not in active['quote']['allowed_paid_endpoints']:

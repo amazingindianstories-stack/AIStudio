@@ -202,3 +202,14 @@ class NamespacingTests(TransactionTestCase):
             self.assertEqual(Pricing.objects.count(), 0)
         finally:
             queries.price_rows = original
+
+
+class UnbilledReadonlyExemptionTests(OneClaimPerPostTests):
+    def test_flagged_read_only_transport_bypasses_the_paid_claim(self):
+        from apps.generation.providers.transport import HttpTransport
+        sent = []
+        with self.installed({}, sent):
+            class ReadOnly(HttpTransport):
+                unbilled_readonly = True
+            ReadOnly(allowed_hosts=['x']).request('POST', 'https://ark.ap-southeast-1.byteplusapi.com/?Action=GetAsset', body={})
+        self.assertEqual(len(sent), 1)

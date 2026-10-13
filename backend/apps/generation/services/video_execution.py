@@ -27,7 +27,7 @@ def read_assets(project_id=None):
     query = Asset.objects.all()
     if project_id:
         query = query.filter(project_id=project_id)
-    return [serialize(asset) for asset in query.order_by('-created_at')]
+    return [provider_asset_projection(asset) for asset in query.order_by('-created_at')]
 
 
 def callback_url(base, secret):
