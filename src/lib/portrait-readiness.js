@@ -51,3 +51,30 @@ export function portraitRegistrationWarning(error, code) {
 export function portraitGroupVisible(group) {
   return !(group?.remoteGroupMissing === true && !group.groupOperationHold && typeof group.byteplusGroupId === "string" && group.byteplusGroupId.trim().length > 0);
 }
+
+const QUOTA_CODES = new Set(["QuotaSharedPoolExceeded"]);
+const QUOTA_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+function quotaRejectedAt(asset) {
+  if (asset?.status !== "RegistrationFailed") return 0;
+  try {
+    const marker = JSON.parse(asset.statusMessage || "{}");
+    return marker && QUOTA_CODES.has(marker.error_code) ? Number(asset.updatedAt || asset.createdAt) || 0 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * The BytePlus portrait library is full when the latest registration was rejected for quota
+ * and nothing has been registered (or freed by a confirmed remote delete) since.
+ */
+export function portraitLibraryFull(assets = [], { fullAt = 0, freedAt = 0, now = Date.now() } = {}) {
+  let rejected = Number(fullAt) || 0, registered = 0;
+  for (const asset of Array.isArray(assets) ? assets : []) {
+    rejected = Math.max(rejected, quotaRejectedAt(asset));
+    if (asset?.status === "Active" && asset.byteplusAssetId) registered = Math.max(registered, Number(asset.updatedAt || asset.createdAt) || 0);
+  }
+  const full = rejected > 0 && rejected > registered && rejected > (Number(freedAt) || 0) && now - rejected < QUOTA_WINDOW_MS;
+  return { full, since: full ? rejected : null, freedSince: !full && rejected > 0 && (Number(freedAt) || 0) > rejected };
+}

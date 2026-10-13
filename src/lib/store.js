@@ -314,6 +314,9 @@ export const useStore = create((set, get) => ({
   referenceImages: [],
   // Reference values the server refused as removed/unready portraits; shown on their cards.
   unavailableReferences: [],
+  // BytePlus portrait library capacity seen this session (ms timestamps; 0 = not seen).
+  portraitQuotaFullAt: 0,
+  portraitQuotaFreedAt: 0,
   referenceIds: [],
   referenceReorderUndo: null,
   recentSubmission: null,
@@ -1878,7 +1881,8 @@ export const useStore = create((set, get) => ({
       }
       const json = await res.json();
       await get().loadAllPortraitAssets(pid);
-      return { ok: true, asset: json.asset, registrationError: portraitRegistrationWarning(json.registrationError, json.registrationErrorCode) };
+      if (json.registrationErrorCode === "QuotaSharedPoolExceeded" || json.registrationError === "QuotaSharedPoolExceeded") set({ portraitQuotaFullAt: Date.now() });
+      return { ok: true, asset: json.asset, registrationError: portraitRegistrationWarning(json.registrationError, json.registrationErrorCode), libraryFull: json.registrationErrorCode === "QuotaSharedPoolExceeded" };
     } catch (err) {
       return { ok: false, error: err?.message || "Network error uploading portrait." };
     }
@@ -1896,8 +1900,9 @@ export const useStore = create((set, get) => ({
       const ack = await res.json().catch(()=>null);
       if (!res.ok || ack?.ok !== true) return {ok:false,error:apiErrorMessage(ack, res.status, "Deletion was not confirmed. Refresh before retrying.")};
       if (ack.assetId !== asset.id || ack.groupId !== asset.groupId || !["confirmed","already_absent","not_registered","already_archived"].includes(ack.remoteDeletion)) return {ok:false,error:"Deletion acknowledgement did not match this portrait. Refresh before retrying."};
-      set(state => ({portraitAssets:state.portraitAssets.filter(a => a.id !== asset.id)}));
-      return {ok:true};
+      // A confirmed BytePlus deletion frees library space.
+      set(state => ({portraitAssets:state.portraitAssets.filter(a => a.id !== asset.id), ...(ack.remoteDeletion === "confirmed" ? {portraitQuotaFreedAt: Date.now()} : {})}));
+      return {ok:true, freedSpace: ack.remoteDeletion === "confirmed"};
     } catch { return {ok:false,error:"Deletion response is uncertain. Refresh before retrying."}; }
   },
 

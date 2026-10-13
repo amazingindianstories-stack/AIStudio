@@ -4,7 +4,8 @@ import { X, Upload, Users, Search, Plus, Pencil, Eye, Loader2, MoreHorizontal, T
 import { useStore } from "@/lib/store";
 import { capability } from "@/lib/model-registry";
 import { thumbUrl } from "@/lib/utils";
-import { portraitGroupVisible, portraitAttachAllowed, portraitReferenceUrl, portraitReadiness } from "@/lib/portrait-readiness";
+import { portraitGroupVisible, portraitAttachAllowed, portraitReferenceUrl, portraitReadiness, portraitLibraryFull } from "@/lib/portrait-readiness";
+import { askConfirm } from "@/lib/ask-text";
 import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { setAssetDragData, getAssetDragData, validatePortraitDrop } from "@/lib/asset-drag-contract";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
@@ -21,6 +22,7 @@ export function PortraitGallery() {
   const anchor = useRef(null), input = useRef(null), dialog = useRef(null), depth = useRef(0);
   const assets = useMemo(()=>s.portraitAssets || [],[s.portraitAssets]), groups = useMemo(()=>s.portraitGroups || [],[s.portraitGroups]);
   const {portraitGalleryOpen,activeProjectId,loadAllPortraitAssets} = s;
+  const library = portraitLibraryFull(assets, {fullAt: s.portraitQuotaFullAt, freedAt: s.portraitQuotaFreedAt});
   const unavailable = a => a.remoteVerification === "absent" || String(a.status || "").toLowerCase() === "remotemissing";
   const unavailableCount = assets.filter(unavailable).length;
   const visible = assets.filter(a => (showUnavailable || !unavailable(a)) && (groupId === null || (groupId === "unsorted" ? !a.groupId || /general|default|unsorted/i.test(groups.find(g=>g.id === a.groupId)?.name || "") : a.groupId === groupId)) && (!role || a.role === role) && (a.name || "").toLowerCase().includes(search.toLowerCase()));
@@ -76,6 +78,8 @@ export function PortraitGallery() {
     setSelected(failed.map(idOf));setPreview(a=>a && !failed.some(f=>idOf(f)===idOf(a)) && (pendingDelete || []).some(d=>idOf(d)===idOf(a))?null:a);setPendingDelete(null);setBusy(false);setError(failed.length?`Deleted ${removed}; ${failed.length} failed. Failed portraits remain selected for retry. ${Array.from(new Set(failureDetails)).join("; ")}`:"");
   };
   const upload = async files => {
+    if(!files || !files.length)return;
+    if(library.full && !(await askConfirm({title:"Portrait library is full",description:"New portraits will be saved as images only and can't be used in videos until space is freed. Delete Ready portraits you no longer need first, then upload again.",confirmLabel:"Upload anyway"})))return;
     setBusy(true);setError("");let count=0;const failures=[], registrationWarnings=[];
     for(const file of Array.from(files || [])){try {const ready=await uploadFileDirect(file,"portrait");const result=await s.uploadPortraitImageDirect({referenceId:ready.referenceId,name:file.name.replace(/\.[^.]+$/,"") || "Portrait",role:"reference",groupId:groupId && groupId!=="unsorted"?groupId:undefined,projectId:s.activeProjectId || undefined});if(!result?.ok)throw new Error(result?.error || "Upload failed");count++;if(result.registrationError)registrationWarnings.push(`${file.name}: ${result.registrationError}`);}catch(e){failures.push(`${file.name}: ${e.message}`);}}
     setBusy(false);if(failures.length || registrationWarnings.length)setError([failures.length?`Uploaded ${count}; ${failures.join("; ")}`:"",...registrationWarnings].filter(Boolean).join("; "));
@@ -101,6 +105,8 @@ export function PortraitGallery() {
             {chosen.length?<><span className="text-xs">{chosen.length} selected</span><button className={button} disabled={busy || chosen.some(a=>!portraitAttachAllowed(a))} onClick={attach}>Add {chosen.length} to prompt</button>{chosen.length>modelSlots&&<button className={button} disabled={busy||!modelSlots} onClick={()=>setSelected(chosen.slice(0,modelSlots).map(idOf))}>Pick first {modelSlots} allowed</button>}<button className={`${button} border-red-400/50 bg-red-500/15 text-red-200 hover:bg-red-500/25`} disabled={busy} onClick={()=>setPendingDelete(chosen)}><Trash2 size={14} className="mr-1 inline"/>Delete selected ({chosen.length})</button><button className={button} aria-label="More selection actions" onClick={()=>setPreview(chosen[0])}><MoreHorizontal size={15}/></button><button className={button} aria-label="Clear selection" onClick={()=>setSelected([])}><X size={14}/></button></>:<><button className={`${button} border-red-400/30 text-red-200`} disabled title="Select portraits to delete"><Trash2 size={14} className="mr-1 inline"/>Delete selected (0)</button><input aria-label="Search portraits" placeholder="Search portraits" value={search} onChange={e=>setSearch(e.target.value)} className="min-w-0 max-w-[360px] flex-1 rounded-lg border border-line bg-transparent px-3 py-2 text-xs"/><select aria-label="Filter portrait role" className="rounded-lg border border-line bg-ink-850 p-2 text-xs" value={role} onChange={e=>setRole(e.target.value)}><option value="">All roles</option>{Array.from(new Set(assets.map(a=>a.role || "reference"))).map(r=><option key={r}>{r}</option>)}</select><button disabled={busy} className={button} onClick={()=>input.current?.click()}><Upload size={14} className="mr-1 inline"/>Upload</button></>}
             <input ref={input} type="file" multiple accept="image/*" className="hidden" onChange={e=>{void upload(e.target.files);e.target.value="";}}/>
           </div>
+          {library.full&&<div role="alert" data-portrait-library-full className="mx-3 mt-3 rounded-lg border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-100"><p className="font-semibold">Portrait library is full</p><p className="mt-0.5 text-amber-100/80">New portraits can&apos;t be prepared for video until space is freed. Select Ready portraits you no longer need and delete them, then upload again. Deleting &quot;Image only&quot; portraits doesn&apos;t free space.</p></div>}
+          {library.freedSince&&<p role="status" className="mx-3 mt-3 text-xs text-emerald-300">Space was freed — you can upload portraits again.</p>}
           {(error||s.portraitSyncError)&&<p role="alert" className="px-3 py-2 text-xs text-red-300">{error||s.portraitSyncError}</p>}
           {busy&&<p role="status" className="p-3 text-xs"><Loader2 className="inline animate-spin" size={14}/> Processing portraits…</p>}
           <div className={`min-h-0 flex-1 overflow-y-auto p-3 ${drag?"ring-2 ring-inset ring-brand":""}`}>
