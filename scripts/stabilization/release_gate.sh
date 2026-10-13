@@ -3,7 +3,7 @@
 #
 #   scripts/stabilization/release_gate.sh [commit]
 #
-# Builds the backend image from a clean `git archive` of the commit, runs the full
+# Builds the backend image from a clean detached worktree of the commit, runs the full
 # Django suite inside that image against a throwaway PostgreSQL 18 (including the
 # fake-provider worker simulations), scans for undefined names, checks migrations,
 # and runs the frontend tests, lint and production build. On success it writes a
@@ -12,15 +12,15 @@ set -eu
 COMMIT=$(git rev-parse --verify "${1:-HEAD}^{commit}")
 SHORT=$(printf %.12s "$COMMIT")
 ROOT=$(git rev-parse --show-toplevel)
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/veevee-gate-$SHORT.XXXX")
+BASE=$(mktemp -d "${TMPDIR:-/tmp}/veevee-gate-$SHORT.XXXX"); WORK="$BASE/src"
 NET="veevee-gate-$SHORT"; DB="veevee-gate-db-$SHORT"; IMAGE="veevee-backend:gate-$SHORT"
 PASS_DIR="${VEEVEE_GATE_DIR:-$HOME/Library/Application Support/Veevee/release-gate}"
-cleanup() { docker rm -f "$DB" >/dev/null 2>&1 || true; docker network rm "$NET" >/dev/null 2>&1 || true; rm -rf "$WORK"; }
+cleanup() { docker rm -f "$DB" >/dev/null 2>&1 || true; docker network rm "$NET" >/dev/null 2>&1 || true; git -C "$ROOT" worktree remove --force "$WORK" >/dev/null 2>&1 || true; rm -rf "$BASE"; }
 trap cleanup EXIT INT TERM
 step() { printf '\n== %s\n' "$1"; }
 
 step "Clean source of $SHORT"
-git -C "$ROOT" archive "$COMMIT" | tar -x -C "$WORK"
+git -C "$ROOT" worktree add --quiet --detach "$WORK" "$COMMIT"
 
 step "Build backend image"
 docker build -q -f "$WORK/backend/Dockerfile" -t "$IMAGE" "$WORK" >/dev/null
