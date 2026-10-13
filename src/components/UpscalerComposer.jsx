@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
+import { notify } from "@/lib/notify";
 import { motion } from "framer-motion";
 import {
   Sparkles,
@@ -164,7 +165,7 @@ export function UpscalerComposer() {
     if (itemsToProcess.length > 0) {
       const firstItem = itemsToProcess[0];
       if (firstItem.kind !== "image") {
-        alert("Upscaler only accepts image generations.");
+        notify("Upscaler only accepts image generations.");
         return;
       }
       setUpscalerImage({
@@ -174,7 +175,7 @@ export function UpscalerComposer() {
         item: firstItem,
       });
       if (itemsToProcess.length > 1) {
-        alert(`Upscaler only accepts 1 source image. Selected the first of ${itemsToProcess.length} dropped assets.`);
+        notify(`Upscaler only accepts 1 source image. Selected the first of ${itemsToProcess.length} dropped assets.`);
       }
       return;
     }

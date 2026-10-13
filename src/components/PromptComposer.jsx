@@ -1,5 +1,6 @@
 "use client";
 import { uploadFileDirect, uploadOriginalReference, uploadContentType } from "@/lib/client-reference-upload";
+import { notify } from "@/lib/notify";
 import { useDirectMediaUrl } from "@/lib/media-resolver";
 
 import {
@@ -156,7 +157,7 @@ export function PromptComposer() {
       } else if (uploadContentType(file).startsWith("image/")) {
         dataUrl = await downscaleBlob(file, 2048, 0.85);
       } else {
-        alert("Please select an image or video file.");
+        notify("Please select an image or video file.");
         return;
       }
       if (target === "first") {
@@ -166,7 +167,7 @@ export function PromptComposer() {
       }
     } catch (e) {
       console.error(`Failed to process ${target} frame:`, e);
-      alert(e?.message || `Failed to process ${file.name}`);
+      notify(e?.message || `Failed to process ${file.name}`);
     }
   };
 
@@ -265,7 +266,7 @@ export function PromptComposer() {
     try {
       await prepareImageFiles(supported);
     } catch (error) {
-      alert(error?.message || "Could not prepare the attachments. Please try again.");
+      notify(error?.message || "Could not prepare the attachments. Please try again.");
     } finally {
       setPendingUploads((count) => count - 1);
     }
@@ -742,7 +743,7 @@ export function PromptComposer() {
                 type="button"
                 onClick={() => {
                   if (!s.firstFrame && !s.continuationFrame) {
-                    alert("Please select a first frame first.");
+                    notify("Please select a first frame first.");
                     return;
                   }
                   lastFrameFileRef.current?.click();

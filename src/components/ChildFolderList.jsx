@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, useRef, useEffect } from "react";
+import { notify } from "@/lib/notify";
 import {
   FolderClosed,
   ChevronRight,
@@ -177,15 +178,15 @@ export function ChildFolderList({
         folderId: targetFolderId,
         ...(projectId ? { projectId } : {}),
       }).catch((err) => {
-        alert(err.message || "Failed to move items.");
+        notify(err.message || "Failed to move items.");
       });
     } else if (draggedFolderId && draggedFolderId !== targetFolderId) {
       if (isFolderDescendant(allTreeFolders, draggedFolderId, targetFolderId)) {
-        alert("Cannot move a folder into its own subfolder.");
+        notify("Cannot move a folder into its own subfolder.");
         return;
       }
       moveFolder(draggedFolderId, { type: "folder", folderId: targetFolderId }).catch((err) => {
-        alert(err.message || "Failed to move folder.");
+        notify(err.message || "Failed to move folder.");
       });
     }
   };
@@ -366,7 +367,7 @@ export function ChildFolderList({
                               )
                             ) {
                               deleteFolder(folder.projectId, folder.id).catch((err) => {
-                                alert(err.message || "Failed to delete folder.");
+                                notify(err.message || "Failed to delete folder.");
                               });
                             }
                           }}

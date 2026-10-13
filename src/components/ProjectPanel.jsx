@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
+import { notify } from "@/lib/notify";
 import {
   FolderClosed,
   FolderPlus,
@@ -123,7 +124,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
     setDragOverValid(true);
 
     if (!isRootDropValid(dest, e)) {
-      alert("Folders cannot be moved into Unsorted.");
+      notify("Folders cannot be moved into Unsorted.");
       return;
     }
 
@@ -132,11 +133,11 @@ export function ProjectPanel({ cardWidth = 160 }) {
 
     if (assetPayload.ids.length > 0) {
       moveGenerationsToDestination(assetPayload.ids, dest).catch((err) =>
-        alert(err.message || "Failed to move items.")
+        notify(err.message || "Failed to move items.")
       );
     } else if (folderId) {
       moveFolder(folderId, dest).catch((err) =>
-        alert(err.message || "Failed to move folder.")
+        notify(err.message || "Failed to move folder.")
       );
     }
   };

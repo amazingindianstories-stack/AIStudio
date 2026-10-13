@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { notify } from "@/lib/notify";
 import {
   ChevronRight,
   FolderClosed,
@@ -100,7 +101,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
       )
     ) {
       deleteFolder(currentFolder.projectId, currentFolder.id).catch((err) => {
-        alert(err.message || "Failed to delete folder.");
+        notify(err.message || "Failed to delete folder.");
       });
     }
   };

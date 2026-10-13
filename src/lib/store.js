@@ -1,6 +1,7 @@
 "use client";
 
 import { portraitRegistrationWarning, portraitAttachAllowed, portraitReferenceUrl } from "./portrait-readiness";
+import { notify } from "./notify";
 
 
 import { create } from "zustand";
@@ -915,7 +916,7 @@ export const useStore = create((set, get) => ({
       return [];
     }
     if (s.mode === "video" && s.firstFrameMode && !s.firstFrame && !s.continuationFrame) {
-      alert("Please select a first frame or toggle First Frame off.");
+      notify("Please select a first frame or toggle First Frame off.");
       return [];
     }
 
@@ -1019,7 +1020,7 @@ export const useStore = create((set, get) => ({
       // as "nothing happened" and invites a re-click that doubles up the
       // jobs that already went through — say how many actually started.
       const message = e.message || "Failed to start generation.";
-      alert(
+      notify(
         created.length > 0
           ? `${created.length} of ${count} generations started. The rest failed: ${message}`
           : message
@@ -1072,7 +1073,7 @@ export const useStore = create((set, get) => ({
       return item;
     } catch (e) {
       console.error("Depth-map request failed:", e);
-      alert(e.message || "Failed to start depth-map generation.");
+      notify(e.message || "Failed to start depth-map generation.");
       return null;
     } finally {
       void get().loadCounts();
@@ -1087,7 +1088,7 @@ export const useStore = create((set, get) => ({
   generateUpscale: async () => {
     const s = get();
     if (!s.upscalerImage) {
-      alert("Please select or drop an image to upscale.");
+      notify("Please select or drop an image to upscale.");
       return null;
     }
     if (s.generating) return null;
@@ -1126,7 +1127,7 @@ export const useStore = create((set, get) => ({
       return item;
     } catch (e) {
       console.error("Upscale request failed:", e);
-      alert(e.message || "Failed to start upscale.");
+      notify(e.message || "Failed to start upscale.");
       return null;
     } finally {
       void get().loadCounts();
@@ -1269,7 +1270,7 @@ export const useStore = create((set, get) => ({
         flaggedAt: item.flaggedAt,
         flagReason: item.flagReason,
       }));
-      alert("Failed to update flag — please try again.");
+      notify("Failed to update flag — please try again.");
     }
   },
 
@@ -1448,7 +1449,7 @@ export const useStore = create((set, get) => ({
       get().addReference(await uploadOriginalReference(new File([blob], "video-frame.png", {type:blob.type})), "video");
     } catch (e) {
       console.error("Failed to take a frame from video:", e);
-      alert(e?.message || "Could not read a frame from this video.");
+      notify(e?.message || "Could not read a frame from this video.");
     }
   },
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { notify } from "@/lib/notify";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Clapperboard, Loader2, Upload, X } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -44,7 +45,7 @@ export function VideoRefPicker({ onClose }) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (full) {
-      alert(`${model || "Seedance"} accepts at most ${maxVideos} reference clips.`);
+      notify(`${model || "Seedance"} accepts at most ${maxVideos} reference clips.`);
       return;
     }
     setUploading(true);
@@ -53,7 +54,7 @@ export function VideoRefPicker({ onClose }) {
       addReferenceVideo(uploaded.ref, file.name);
     } catch (err) {
       console.error("Local video reference upload failed:", err);
-      alert(err?.message || `Could not upload ${file.name}.`);
+      notify(err?.message || `Could not upload ${file.name}.`);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
