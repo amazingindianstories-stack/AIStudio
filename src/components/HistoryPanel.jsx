@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { EXPORT_POLL_MAX_MS, exportPollDelay } from "@/lib/poll-schedule";
 import {
   Search,
   ChevronDown,
@@ -104,6 +105,32 @@ export function HistoryPanel() {
   useEffect(() => {
     if (!displayedExport?.id || !["queued", "running"].includes(displayedExport.status)) return;
     let cancelled = false;
+    let timer = null;
+    let attempt = 0;
+    let failures = 0;
+    const startedAt = Date.now();
+    // Self-scheduling: pauses while the tab is hidden, slows for long jobs and
+    // backs off on errors instead of a fixed 2 s interval forever.
+    const schedule = () => {
+      if (cancelled) return;
+      if (Date.now() - startedAt > EXPORT_POLL_MAX_MS) {
+        setActiveExport((value) => (value ? { ...value, pollError: "Still preparing. Reopen the panel to check again." } : value));
+        return;
+      }
+      timer = setTimeout(tick, exportPollDelay(attempt, failures));
+    };
+    const tick = async (force = false) => {
+      if (cancelled) return;
+      // The first check always runs; later checks pause while hidden and resume on visibilitychange.
+      if (!force && typeof document !== "undefined" && document.hidden) return;
+      attempt += 1;
+      const ok = await poll();
+      failures = ok ? 0 : failures + 1;
+      schedule();
+    };
+    const onVisible = () => {
+      if (!cancelled && !document.hidden) { clearTimeout(timer); tick(); }
+    };
     const poll = async () => {
       try {
         const response = await apiFetch(`/api/history/exports/${displayedExport.id}`, { cache: "no-store" });
@@ -116,8 +143,9 @@ export function HistoryPanel() {
             setActiveExport((value) => ({ ...value, status: "expired", error: "ZIP expired. Select the items and create a new ZIP." }));
           } else {
             setActiveExport((value) => ({ ...value, pollError: "Cannot check ZIP status. Retrying…" }));
+            return false;
           }
-          return;
+          return true;
         }
         const next = await response.json();
         if (next.status === "draft") {
@@ -129,13 +157,15 @@ export function HistoryPanel() {
           next.error = "ZIP expired. Select the items and create a new ZIP.";
         }
         if (!cancelled) setActiveExport({ ...next, actorId });
+        return true;
       } catch {
         if (!cancelled) setActiveExport((value) => ({ ...value, pollError: "Cannot check ZIP status. Retrying…" }));
+        return false;
       }
     };
-    poll();
-    const timer = setInterval(poll, 2000);
-    return () => { cancelled = true; clearInterval(timer); };
+    tick(true);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { cancelled = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); };
   }, [displayedExport?.id, displayedExport?.status, actorId, exportStorageKey]);
 
   // Thumbnail size zoom control

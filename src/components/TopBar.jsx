@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { depthStatusDelay } from "@/lib/poll-schedule";
 import { motion } from "framer-motion";
 import {
   Image as ImageIcon,
@@ -30,11 +31,8 @@ const DESTINATIONS = [
   { id: "board", icon: Shapes, label: "Board" },
 ];
 
-/** How often the top bar refreshes the depth-worker status dot. This is the
- *  one always-mounted place that owns the poll loop; DepthComposer.jsx just
- *  triggers one extra immediate refresh on mount so switching into depth
- *  mode doesn't show a stale answer for up to this long. */
-const DEPTH_STATUS_POLL_MS = 12_000;
+/** The top bar owns the depth-worker status poll (see depthStatusDelay);
+ *  DepthComposer.jsx triggers one immediate refresh on mount. */
 
 /**
  * Horizontal nav lives in the top bar now (was the left-edge Sidebar rail
@@ -70,11 +68,25 @@ export function TopBar() {
   // Polls regardless of which destination is active — the Depth nav button's
   // dot should already say "online"/"offline" before the user ever clicks
   // into that mode, not just once they're already looking at the composer.
+  // Fast only while Depth is open; paused while the tab is hidden.
+  const depthModeOpen = view === "studio" && mode === "depth";
   useEffect(() => {
-    loadDepthWorkerStatus();
-    const t = setInterval(loadDepthWorkerStatus, DEPTH_STATUS_POLL_MS);
-    return () => clearInterval(t);
-  }, [loadDepthWorkerStatus]);
+    let timer = null;
+    let stopped = false;
+    let first = true;
+    const tick = () => {
+      if (stopped) return;
+      if (first || typeof document === "undefined" || !document.hidden) loadDepthWorkerStatus();
+      first = false;
+      timer = setTimeout(tick, depthStatusDelay(depthModeOpen));
+    };
+    const onVisible = () => {
+      if (!document.hidden) { clearTimeout(timer); tick(); }
+    };
+    tick();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { stopped = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVisible); };
+  }, [loadDepthWorkerStatus, depthModeOpen]);
 
   const goTo = (id) => {
     if (id === "board") {

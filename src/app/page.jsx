@@ -16,6 +16,7 @@ import { PortraitGallery } from "@/components/PortraitGallery";
 import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { StudioView } from "@/components/StudioView";
+import { useDesktopLayout } from "@/lib/use-desktop-layout";
 
 export default function Page() {
   const loadHistory = useStore((s) => s.loadHistory);
@@ -33,6 +34,8 @@ export default function Page() {
   // shortcut strip that replaces this panel while it is collapsed, so both
   // need to agree on which of the two is showing.
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
+  // One HistoryPanel at a time: hidden instances still poll and page the feed.
+  const isDesktop = useDesktopLayout();
   const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const currentUser = useStore((s) => s.currentUser);
   const setView = useStore((s) => s.setView);
@@ -182,7 +185,7 @@ export default function Page() {
                   inert={!rightPanelOpen}
                 >
                   <div className="h-full w-full">
-                    <HistoryPanel />
+                    {isDesktop && rightPanelOpen && <HistoryPanel />}
                   </div>
                 </div>
               </section>
@@ -192,7 +195,7 @@ export default function Page() {
 
         {/* mobile history drawer */}
         <AnimatePresence>
-          {view !== "canvas" && mobileHistoryOpen && (
+          {view !== "canvas" && mobileHistoryOpen && !isDesktop && (
             <>
               <motion.div
                 initial={{ opacity: 0 }}
