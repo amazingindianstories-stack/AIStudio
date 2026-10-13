@@ -121,6 +121,8 @@ export function MediaCard({
   const pending = item.status === "running" || item.status === "queued";
   const failed = item.status === "failed";
   const done = item.status === "succeeded";
+  // Drafts are cheap low-resolution previews; make them unmistakable in the grid.
+  const isDraft = item.kind === "video" && item.draftMode === true;
   const costBasis = costBasisForGeneration(item);
   const depthStepIndex =
     item.kind === "depth" && item.progressMessage
@@ -299,7 +301,9 @@ export function MediaCard({
         "hover:-translate-y-0.5 hover:shadow-pop motion-reduce:hover:translate-y-0",
         selected
           ? "ring-2 ring-brand bg-brand/10 shadow-sm"
-          : "ring-1 ring-line hover:ring-lineStrong",
+          : isDraft
+            ? "outline-dashed outline-2 -outline-offset-2 outline-amber-300/70 hover:outline-amber-200"
+            : "ring-1 ring-line hover:ring-lineStrong",
         isFocused && "outline outline-2 outline-white ring-2 ring-white/40 ring-offset-2 ring-offset-ink-900 z-20",
         isCardDragging && "opacity-40 scale-[0.98]"
       )}
@@ -386,6 +390,11 @@ export function MediaCard({
             <div className="pointer-events-none absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/45 backdrop-blur-sm">
               <Play className="h-3.5 w-3.5 translate-x-px fill-white text-white" />
             </div>
+            {isDraft && (
+              <span data-draft-badge className="pointer-events-none absolute left-10 top-2.5 rounded bg-amber-300/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-900">
+                Draft
+              </span>
+            )}
           </>
         )}
         {done && item.kind === "depth" && item.url && (

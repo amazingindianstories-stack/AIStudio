@@ -67,3 +67,15 @@ test('draft finalization is not offered as a hover shortcut', async () => {
     assert.deepEqual(names, ['Edit & retry', 'Favourite', 'Download', 'Delete']);
   });
 });
+
+test('draft videos are visibly marked; finals are not', async () => {
+  const base = { ...failed, status: 'succeeded', error: null, moderationBlocked: false, url: '/api/media/generations/v.mov', createdAt: Date.now() };
+  await harness({ ...base, id: 'draft-1', draftMode: true }, async ({ card }) => {
+    assert.ok(card.querySelector('[data-draft-badge]'));
+    assert.match(card.className, /outline-dashed/);
+  });
+  await harness({ ...base, id: 'final-1', draftMode: false }, async ({ card }) => {
+    assert.equal(card.querySelector('[data-draft-badge]'), null);
+    assert.doesNotMatch(card.className, /outline-dashed/);
+  });
+});
