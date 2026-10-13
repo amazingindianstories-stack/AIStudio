@@ -112,10 +112,16 @@ class ProviderAdapterTests(SimpleTestCase):
         self.assertEqual(signal.waits, [4000])
         self.assertNotIn('fixture', transport.calls[0][0][1])
         self.assertEqual(transport.calls[0][1]['body']['generationConfig']['seed'], 42)
+        # A 200 without an image is billed: surface it, never re-submit automatically.
         transport = ScriptedTransport(result({}), result({}))
         with self.assertRaisesRegex(ProviderError, 'no candidates'):
             gemini.generate_image({'assembled': {'groups': [], 'instruction': 'literal'}}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
-        self.assertEqual(len(transport.calls), 2)
+        self.assertEqual(len(transport.calls), 1)
+        # An ambiguous server error may have consumed generation; no automatic retry.
+        transport = ScriptedTransport(result({'error': {}}, 500), result(response))
+        with self.assertRaises(ProviderError):
+            gemini.generate_image({'assembled': {'groups': [], 'instruction': 'literal'}}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+        self.assertEqual(len(transport.calls), 1)
         transport = ScriptedTransport(TimeoutError('ambiguous submit'))
         with self.assertRaises(TimeoutError):
             gemini.generate_image({'assembled': {'groups': [], 'instruction': 'literal'}}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)

@@ -247,6 +247,44 @@ class EnqueueContractTests(TransactionTestCase):
         self.assertEqual(response.json(),{'error':'Failed to queue the final render.'})
         self.assertEqual(Generation.objects.count(),1)
 
+    def test_repeated_finalize_reuses_an_in_flight_final(self):
+        self.cookie()
+        source=self.row(user_id=session_fixtures.UID)
+        first=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
+        self.assertEqual(first.status_code,200,first.content)
+        with patch('apps.generation.enqueue_views.enqueue.build_final') as build:
+            second=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
+            build.assert_not_called()
+        self.assertEqual(second.status_code,200)
+        self.assertEqual(second.json()['id'],first.json()['id'])
+        self.assertEqual(Generation.objects.filter(source_generation_id=source.id).count(),1)
+        # Once the final has finished (stored or failed), finalizing again is a deliberate new render.
+        for finished in ('succeeded','failed'):
+            Generation.objects.filter(source_generation_id=source.id).update(status=finished)
+            again=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
+            self.assertEqual(again.status_code,200,again.content)
+            self.assertNotEqual(again.json()['id'],first.json()['id'])
+            self.assertEqual(Generation.objects.filter(source_generation_id=source.id,status='queued').count(),1)
+
+    def test_concurrent_finalize_creates_one_final(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from django.db import connections
+        self.cookie()
+        source=self.row(user_id=session_fixtures.UID)
+        cookie=self.client.cookies['veevee_session'].value
+        def go(_):
+            from django.test import Client
+            client=Client(HTTP_SEC_FETCH_SITE='same-origin')
+            client.cookies['veevee_session']=cookie
+            try:
+                return client.post('/api/generate/video/finalize',data=json.dumps({'sourceGenerationId':str(source.id)}),content_type='application/json').json()['id']
+            finally:
+                connections.close_all()
+        with ThreadPoolExecutor(4) as pool:
+            ids=list(pool.map(go,range(4)))
+        self.assertEqual(len(set(ids)),1)
+        self.assertEqual(Generation.objects.filter(source_generation_id=source.id).count(),1)
+
     def test_shared_finalization_is_billed_to_requester_while_status_stays_owner_only(self):
         # Shared studio: any signed-in user may finalize an eligible draft; the
         # final is built for (and billed to) the requesting user.

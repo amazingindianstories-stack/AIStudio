@@ -61,6 +61,9 @@ def build_payload(input):
     return {'contents': [{'role': 'user', 'parts': build_parts(input['assembled'])}], 'generationConfig': config}
 
 
+UNPROCESSED_RETRY_STATUSES = frozenset({429, 503})
+
+
 def generate_image(input, *, transport=None, env=None, signal=None, random_value=random.random):
     env = os.environ if env is None else env
     key = required_key(env, 'GOOGLE_API_KEY')
@@ -74,7 +77,9 @@ def generate_image(input, *, transport=None, env=None, signal=None, random_value
             headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, body=body, signal=signal)
         if not response.ok:
             last_error = f'Gemini image error ({response.status}): {response.text[:400]}'
-            if response.status == 429 or response.status >= 500:
+            # Retry only rejections that were not processed (rate limit,
+            # overloaded). Other errors may have consumed paid generation.
+            if response.status in UNPROCESSED_RETRY_STATUSES:
                 hint = retry_delay_ms(response.text)
                 wait = min(hint if hint is not None else 4000 * 2 ** (attempt-1) * (.75 + random_value() * .5), 90000 - slept)
                 if wait > 0:
@@ -87,9 +92,7 @@ def generate_image(input, *, transport=None, env=None, signal=None, random_value
         parts = (candidate.get('content') or {}).get('parts') or []
         image = next((part['inlineData'] for part in parts if (part.get('inlineData') or {}).get('data')), None)
         if not image:
-            last_error = f"Gemini returned no image ({candidate.get('finishReason') or 'no candidates'})."
-            if attempt == 1:
-                continue
-            raise ProviderError(last_error)
+            # A 200 is billed; never re-submit it automatically.
+            raise ProviderError(f"Gemini returned no image ({candidate.get('finishReason') or 'no candidates'}).")
         return {'base64': image['data'], 'mimeType': image.get('mimeType') or 'image/png'}
     raise ProviderError(last_error or 'Gemini image generation failed.')

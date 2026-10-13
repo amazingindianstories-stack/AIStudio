@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import transaction
 import uuid
 import logging
 from apps.authentication.session import lookup
@@ -76,8 +77,18 @@ def finalize(request):
     except Exception:
         return failure()
     try:
-        item = enqueue.build_final(source,user.id)
-        enqueue.persist(item)
+        # One in-flight final per draft: concurrent requests (double clicks,
+        # other tabs or users) serialize on the source row and reuse a queued or
+        # running final instead of submitting a second billable render. Once a
+        # final has finished, finalizing the same draft again is deliberate.
+        with transaction.atomic():
+            Generation.objects.select_for_update().filter(pk=source.id).first()
+            existing = (Generation.objects.filter(source_generation_id=source.id, draft_task_id=source.task_id,
+                        status__in=['queued', 'running']).order_by('created_at').first())
+            if existing is not None:
+                return reply(request,generation_item(existing))
+            item = enqueue.build_final(source,user.id)
+            enqueue.persist(item)
         log_activity(user.id,'generate',{'id':item['id'],'kind':'video','model':source.model,'costCents':item['costCents'],'sourceGenerationId':str(source.id)})
         return reply(request,item)
     except Exception:
