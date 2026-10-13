@@ -56,6 +56,7 @@ import {
   setStoreTimeout,
   storeRuntime,
 } from "./store-runtime";
+import { LIVE_MS_ACTIVE, LIVE_MS_IDLE, liveDelay, liveUpdatesUrl, nextLiveCursor, hasRecentActiveWork } from "./live-cursor";
 import { magnificParamsForModel } from "./magnific-ui";
 import {
   clearMaterialCache,
@@ -195,8 +196,6 @@ function insertNewItem(
 
 // One read-only feed observes work performed by Django workers, including jobs
 // submitted by another browser or continuing after this browser closes.
-const LIVE_MS_ACTIVE = 3000;
-const LIVE_MS_IDLE = 20000;
 async function apiFetch(input, init) {
   const response = await crossOriginFetch(input, init);
   if (response.status === 401) {
@@ -830,6 +829,8 @@ export const useStore = create((set, get) => ({
     // Start the watermark slightly in the past so a job that finished during
     // the initial page load isn't missed in the gap before the first poll.
     storeRuntime.liveSince = Date.now() - 60_000;
+    storeRuntime.liveAfterId = null;
+    storeRuntime.liveFailures = 0;
     if (typeof document !== "undefined" && !storeRuntime.liveVisibilityHandler) {
       // Returning to a backgrounded tab is exactly when the view is most
       // stale, so catch up immediately rather than waiting out the interval.
@@ -2439,25 +2440,30 @@ async function liveTick(
     return;
   }
   const epoch = storeRuntime.epoch;
+  let more = false;
   try {
     const res = await apiFetch(
-      `/api/history/updates?since=${encodeURIComponent(String(storeRuntime.liveSince))}`,
+      liveUpdatesUrl({ since: storeRuntime.liveSince, afterId: storeRuntime.liveAfterId }),
       { cache: "no-store" }
     );
+    if (!res.ok) throw new Error(`updates ${res.status}`);
     const data = await res.json();
     if (!storeRuntime.liveRunning || epoch !== storeRuntime.epoch) return; // session disposed while in flight
     if (Array.isArray(data.items)) {
       mergeLiveItems(data.items, set);
     }
-    // Watermark comes from the server so client clock skew can't skip changes.
-    if (typeof data.now === "number") storeRuntime.liveSince = data.now;
+    // The server cursor pages through every change; client clocks never move it.
+    const cursor = nextLiveCursor(data, { since: storeRuntime.liveSince, afterId: storeRuntime.liveAfterId });
+    storeRuntime.liveSince = cursor.since;
+    storeRuntime.liveAfterId = cursor.afterId;
+    storeRuntime.liveFailures = 0;
+    more = data.more === true;
   } catch {
-    /* transient — the next tick retries, and 401 already redirects in apiFetch */
+    // Transient: back off instead of hammering a failing backend. 401 already redirects in apiFetch.
+    if (epoch === storeRuntime.epoch) storeRuntime.liveFailures += 1;
   }
-  const busy = [...get().items, ...get().threadItems, ...get().pendingItems].some(
-    (i) => i.status === "queued" || i.status === "running"
-  );
-  scheduleLive(set, get, busy ? LIVE_MS_ACTIVE : LIVE_MS_IDLE);
+  const busy = hasRecentActiveWork([...get().items, ...get().threadItems, ...get().pendingItems]);
+  scheduleLive(set, get, liveDelay({ more, busy, failures: storeRuntime.liveFailures }));
 }
 
 function scheduleLive(

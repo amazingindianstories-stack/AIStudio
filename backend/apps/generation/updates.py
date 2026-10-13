@@ -17,11 +17,34 @@ def operand_text(value):
     return text
 
 
-def read_generation_updates(since, limit=100):
-    rows = Generation.objects.exclude(kind='audio').filter(
-        Q(status__in=['queued', 'running']) | Q(RawSQL('"generations"."updated_at" > %s::bigint', [operand_text(since)], output_field=BooleanField()))
-    ).order_by('-updated_at')[:limit]
-    return [generation_item(row) for row in rows]
+PAGE_LIMIT = 100
+ACTIVE_LIMIT = 200
+# Rows can commit slightly after a poll reads, carrying an updated_at a little
+# earlier than that poll's clock (worker clocks, longer transactions). The next
+# watermark trails the server clock by this much; re-sent rows merge idempotently.
+COMMIT_LAG_MS = 30_000
+
+
+def read_generation_updates(since, limit=PAGE_LIMIT, after_id=None):
+    """Return ``(items, next_cursor, more)`` without skipping changes.
+
+    Changed rows are read oldest-first by ``(updated_at, id)`` so a full page
+    hands back an exact cursor instead of silently truncating older changes.
+    Active (queued/running) rows are always included.
+    """
+    base = Generation.objects.exclude(kind='audio')
+    changed = RawSQL('"generations"."updated_at" > %s::bigint', [operand_text(since)], output_field=BooleanField())
+    condition = Q(changed)
+    if after_id is not None and float(since).is_integer():
+        condition |= Q(updated_at=int(since), id__gt=after_id)
+    rows = list(base.filter(condition).order_by('updated_at', 'id')[:limit + 1])
+    more = len(rows) > limit
+    rows = rows[:limit]
+    seen = {row.id for row in rows}
+    active = [row for row in base.filter(status__in=['queued', 'running']).order_by('-updated_at')[:ACTIVE_LIMIT]
+              if row.id not in seen]
+    cursor = {'since': rows[-1].updated_at, 'afterId': str(rows[-1].id)} if more else None
+    return [generation_item(row) for row in rows + active], cursor, more
 
 
 import time
@@ -35,6 +58,14 @@ from apps.authentication.session import lookup
 from .watermark import since_watermark
 
 
+def _after_id(raw):
+    import uuid
+    try:
+        return uuid.UUID(raw) if raw else None
+    except (ValueError, TypeError):
+        return None
+
+
 @api_view(['GET'])
 @authentication_classes([])
 @permission_classes([])
@@ -43,9 +74,11 @@ def generation_updates(request):
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
     values = request.query_params.getlist('since')
     raw = values[0] if values else None
-    since = since_watermark(raw, int(time.time() * 1000))
+    now = int(time.time() * 1000)
+    since = since_watermark(raw, now)
+    after_id = _after_id(request.query_params.get('afterId'))
     try:
-        items = read_generation_updates(since)
+        items, cursor, more = read_generation_updates(since, after_id=after_id)
     except DataError as error:
         code = getattr(error.__cause__, 'sqlstate', None)
         if code not in ('22P02', '22003'):
@@ -57,7 +90,9 @@ def generation_updates(request):
         response.skip_session_renewal = True
         del response['Content-Type']
         return response
-    response = Response({'items': items, 'now': int(time.time() * 1000)})
+    # ``now`` is kept for older clients; ``next``/``more`` page without gaps.
+    next_cursor = cursor or {'since': max(int(since), now - COMMIT_LAG_MS), 'afterId': None}
+    response = Response({'items': items, 'now': now, 'next': next_cursor, 'more': more})
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,
             httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')

@@ -15,10 +15,10 @@ test('queued work resumes through read-only updates and reaches completion witho
   t.mock.method(globalThis, 'fetch', async (path, options) => {
     calls.push({ path, options });
     assert.match(path, /^\/api\/history\/updates\?since=/);
-    return Response.json({ items: [{ id: 'job', kind: 'video', status: ++poll === 1 ? 'running' : 'succeeded', updatedAt: poll + 10, createdAt: 1, url: poll === 2 ? '/api/media/master.mov' : null }], now: 500 + poll });
+    return Response.json({ items: [{ id: 'job', kind: 'video', status: ++poll === 1 ? 'running' : 'succeeded', updatedAt: Date.now() + poll, createdAt: Date.now(), url: poll === 2 ? '/api/media/master.mov' : null }], now: 500 + poll });
   });
   try {
-    useStore.setState({ items: [{ id: 'job', kind: 'video', status: 'queued', updatedAt: 1, createdAt: 1 }], threadItems: [], pendingItems: [], rightTab: 'library', filterKind: 'all', activeProjectId: null, activeFolderId: null, search: '' });
+    useStore.setState({ items: [{ id: 'job', kind: 'video', status: 'queued', updatedAt: Date.now() - 1000, createdAt: Date.now() - 1000 }], threadItems: [], pendingItems: [], rightTab: 'library', filterKind: 'all', activeProjectId: null, activeFolderId: null, search: '' });
     useStore.getState().startLiveUpdates();
     useStore.getState().startLiveUpdates();
     assert.equal(timers.length, 1);

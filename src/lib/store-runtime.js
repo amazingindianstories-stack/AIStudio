@@ -11,6 +11,8 @@ export const storeRuntime = {
   sequences: { feed: 0, counts: 0, thread: 0 },
   liveTimer: null,
   liveSince: 0,
+  liveAfterId: null,
+  liveFailures: 0,
   liveRunning: false,
   liveVisibilityHandler: null,
   scopeTimer: null,
@@ -58,6 +60,8 @@ export function disposeStoreRuntime() {
   storeRuntime.sequences.thread = 0;
   storeRuntime.liveTimer = null;
   storeRuntime.liveSince = 0;
+  storeRuntime.liveAfterId = null;
+  storeRuntime.liveFailures = 0;
   storeRuntime.liveRunning = false;
   storeRuntime.scopeTimer = null;
   storeRuntime.promptTimer = null;
