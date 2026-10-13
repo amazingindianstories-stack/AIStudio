@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [('generation', '0001_baseline_generation')]
+    dependencies = [('generation', '0001_railway_v2_generation')]
 
     operations = [
         migrations.AddField(

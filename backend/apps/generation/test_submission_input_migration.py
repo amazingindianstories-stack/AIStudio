@@ -9,7 +9,7 @@ class SubmissionInputMigrationTests(TransactionTestCase):
     def test_upgrade_preserves_legacy_rows_and_nullable_private_inputs(self):
         executor=MigrationExecutor(connection)
         final=executor.loader.graph.leaf_nodes()
-        previous=[node for node in final if node[0]!='generation']+[('generation','0001_baseline_generation')]
+        previous=[node for node in final if node[0]!='generation']+[('generation','0001_railway_v2_generation')]
         identifier=uuid4()
         try:
             executor.migrate(previous)

@@ -18,7 +18,7 @@ Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs 
 | Phase | State | Notes |
 |---|---|---|
 | P0 Baselines / rollback | PASS (rollback execution NOT VERIFIED) | see below |
-| P1 Git baseline | PENDING | |
+| P1 Git baseline | IN PROGRESS | P1.1 PASS |
 | P2 Correctness fixes | PENDING | |
 | P3 Versioned image + cutover | PENDING (cutover = gate A1) | |
 | P4 Media off Vercel | PENDING (release = gate A2) | |
@@ -44,6 +44,11 @@ Abort and roll back if any of: API 5xx > 1% over 10 min or any 502 burst > 5/5 m
 memory > 85% of limit for 10 min; generation lease/queue item older than 30 min without progress;
 login failures > 3× baseline; media 403/404 > 2× baseline; any duplicate provider submission.
 
+## P1 — Git baseline
+| Gate | State | Evidence |
+|---|---|---|
+| P1.1 Applied migration graph in Git | PASS | **Finding F-03:** production's applied app migrations are the 26 `*_railway_v2_*` / `0001_uploadsession` / `0002_generation_submission_input` / `0004_uploader_provenance` files that existed **only inside the deployed image** — neither HEAD's 49 files nor the WIP tree's 26 recreated `*_baseline_*` files. 16 further `django_migrations` rows are legacy history with no files (ignored by Django, preserved untouched). Branch rebased onto the WIP snapshot (which matches the image's application code) and the image's migration files restored verbatim. Backend now byte-identical to the deployed image for all 291 image files. Against the restored Green clone: `migrate --plan` → "No planned migration operations"; `makemigrations --check --dry-run` → "No changes detected"; 26 applied / 0 unapplied. |
+
 ## Owner approval gates
 - **A1** Green cutover to versioned image (P3), one service at a time.
 - **A2** Bucket CORS + direct-media release (P4).
@@ -52,5 +57,4 @@ login failures > 3× baseline; media 403/404 > 2× baseline; any duplicate provi
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
-P1.1 — restore original migrations (already present on this branch from HEAD) and prove
-`migrate --plan` is empty against the restored Green clone.
+P1.3 — import the exact deployed frontend source; then P1.4 overlay inventory with contract tests.
