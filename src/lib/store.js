@@ -35,10 +35,12 @@ import {
   clearFeedCache,
   dedupeFirstPage,
   dropCached,
+  dropCachedIn,
   getCached,
   isFeedFresh,
   patchCached,
   putFeedCache,
+  staleCached,
   writeCachedItems,
 } from "./feed-cache";
 import {
@@ -183,6 +185,8 @@ function insertNewItem(
       patch.items = items;
       writeCachedItems(scopeKey(scope), items);
     }
+    // The new row may belong to other cached scopes too; make them revalidate.
+    staleCached(scopeKey(scope));
     // Depth rows stay project-scoped (the `items` branch above) but never
     // join the conversational thread — they're not a prompt/response chat
     // turn the way image/video generations are, and mixing a worker-run
@@ -1150,7 +1154,11 @@ export const useStore = create((set, get) => ({
     }));
     // Un-starring while looking at Favourites is a membership change, not just
     // a field change: the row no longer belongs in this scope.
-    if (!nextFavorite && get().rightTab === "favorites") dropEverywhere(set, id);
+    if (!nextFavorite && get().rightTab === "favorites") {
+      // Only Favourites scopes lose the row; project/library caches keep it.
+      dropCachedIn(id, (key) => key.startsWith("favorites:"));
+      set((s) => ({ items: s.items.filter((i) => i.id !== id) }));
+    }
     void get().loadCounts();
 
     try {
@@ -2361,8 +2369,12 @@ export function mergeLiveItems(
     let changed = false;
     let threadChanged = false;
     let pendingChanged = false;
+    let unseen = false;
 
     for (const inc of incoming) {
+      // Every cached scope holding this row gets the newer copy, not only the
+      // visible one (other tabs used to keep showing "running" for 30 s).
+      patchCached(inc.id, (row) => (inc.updatedAt > (row.updatedAt ?? 0) ? { ...row, ...inc } : row));
       // The project conversation owns a separate copy of each row. Live
       // completion used to update only the right-hand asset feed, leaving the
       // chat copy permanently `running` until a full thread reload.
@@ -2398,6 +2410,7 @@ export function mergeLiveItems(
         continue;
       }
 
+      unseen = true;
       if (!matchesScope(inc, scope)) continue;
       const inFlight = inc.status === "queued" || inc.status === "running";
       if (!inFlight && inc.createdAt <= oldestLoaded) continue;
@@ -2421,6 +2434,7 @@ export function mergeLiveItems(
     }
     if (threadChanged) patch.threadItems = Array.from(threadById.values());
     if (pendingChanged) patch.pendingItems = Array.from(pendingById.values());
+    if (unseen) staleCached(scopeKey(scope));
     return patch;
   });
 }

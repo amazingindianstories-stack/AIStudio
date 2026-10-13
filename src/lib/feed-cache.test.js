@@ -156,3 +156,19 @@ test("simultaneous first-page reads are deduplicated", async () => {
   await first;
   assert.equal(calls, 1);
 });
+
+test("staleCached marks other scopes stale without reordering, dropCachedIn is scope-limited", { timeout: 2000 }, async () => {
+  const { staleCached, dropCachedIn } = await import("./feed-cache");
+  clearFeedCache();
+  putFeedCache("a", { items: [item("1")], nextCursor: null, at: 5 });
+  putFeedCache("favorites:all:", { items: [item("1")], nextCursor: null, at: 5 });
+  putFeedCache("b", { items: [item("1")], nextCursor: null, at: 5 });
+  staleCached("a");
+  assert.deepEqual(feedCacheKeys(), ["a", "favorites:all:", "b"]);
+  assert.equal(getCached("a").at, 5);
+  assert.equal(getCached("b").at, 0);
+  dropCachedIn("1", (key) => key.startsWith("favorites:"));
+  assert.equal(getCached("favorites:all:").items.length, 0);
+  assert.equal(getCached("a").items.length, 1);
+  assert.equal(getCached("b").items.length, 1);
+});

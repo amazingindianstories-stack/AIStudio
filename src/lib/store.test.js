@@ -225,3 +225,13 @@ test("mergeLiveItems: an empty incoming list never calls set at all", () => {
   mergeLiveItems([], countingSet);
   assert.equal(setCalls, 0);
 });
+
+test("mergeLiveItems: a newer row also updates other cached scopes, and unseen rows mark them stale", () => {
+  const running = makeItem({ id: "job", status: "running", updatedAt: 1000 });
+  putFeedCache("project:p1:*:all:", { items: [running], nextCursor: null, at: Date.now() });
+  putFeedCache("favorites:all:", { items: [], nextCursor: null, at: Date.now() });
+  const h = harness({ items: [] });
+  mergeLiveItems([makeItem({ id: "job", status: "succeeded", updatedAt: 2000 })], h.set);
+  assert.equal(getCached("project:p1:*:all:").items[0].status, "succeeded");
+  assert.equal(getCached("favorites:all:").at, 0);
+});

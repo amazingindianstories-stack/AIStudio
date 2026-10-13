@@ -125,3 +125,25 @@ export function dropCached(id) {
     });
   }
 }
+
+/** Mark every cached scope except `exceptKey` stale, so its next visit
+ *  revalidates (a new row may belong there). Same snapshot-and-plain-set rule
+ *  as `patchCached`: never reorder while iterating. */
+export function staleCached(exceptKey) {
+  for (const key of Array.from(cache.keys())) {
+    if (key === exceptKey) continue;
+    const cached = cache.get(key);
+    if (cached && cached.at !== 0) cache.set(key, { ...cached, at: 0 });
+  }
+}
+
+/** Remove a row only from scopes whose key passes `matches` (membership
+ *  changes such as un-starring affect one scope family, not every scope). */
+export function dropCachedIn(id, matches) {
+  for (const key of Array.from(cache.keys())) {
+    if (!matches(key)) continue;
+    const cached = cache.get(key);
+    if (!cached || !cached.items.some((i) => i.id === id)) continue;
+    cache.set(key, { ...cached, items: cached.items.filter((i) => i.id !== id) });
+  }
+}
