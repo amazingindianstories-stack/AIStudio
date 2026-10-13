@@ -19,10 +19,10 @@ Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs 
 |---|---|---|
 | P0 Baselines / rollback | PASS (rollback execution NOT VERIFIED) | see below |
 | P1 Git baseline | IN PROGRESS | P1.1, P1.3 PASS; backend suite PASS |
-| P2 Correctness fixes | PENDING | |
+| P2 Correctness fixes | IN PROGRESS | P2.1, P2.2, P2.4, P2.5 PASS; P2.3 partial |
 | P3 Versioned image + cutover | PENDING (cutover = gate A1) | |
 | P4 Media off Vercel | PENDING (release = gate A2) | |
-| P5 UI perf + copy | PENDING (release = gate A3) | |
+| P5 UI perf + copy | IN PROGRESS (release = gate A3) | single panel, polling, draft marker done |
 | P6 Retire Blue | PENDING (gate A5) | |
 | Credentials | BLOCKED (gate A4) | Higgsfield token exposed |
 
@@ -51,7 +51,7 @@ login failures > 3× baseline; media 403/404 > 2× baseline; any duplicate provi
 | P1.2 Bring forward intended edits | PASS | Branch is rebased on the WIP snapshot, whose application code is byte-identical to the deployed image (291/291 files after migration restore). |
 | P1.3 Deployed frontend imported | PASS | `1950972`: exact Vercel `782d0bd` source (179 files, all byte-identical). Test-contract fixes `c12c31f`: middleware tests set the server-only ingress value and assert caller headers are replaced + fail-closed; unresolvable `asset://` → no display URL; API inventory fixture added. `npm test` 440/440, `eslint src --max-warnings=0` clean, `next build` OK. |
 | Backend suite | PASS | Local venv + isolated PG 18.4: 586/590 (4 need libvips/pyvips, absent locally). Production-equivalent image built from `backend/Dockerfile` (Python 3.12, ffmpeg, libvips) + disposable `postgres:18.6`: 588/590; the 2 errors need repo `scripts/` and Node, absent from the image, and pass locally. Every test passes in at least one faithful environment. |
-| P1.4 Overlay inventory + contract tests | PENDING | |
+| P1.4 Overlay inventory | PASS (inventory) / contract tests PENDING | 21 embedded code blobs decoded privately and mapped (API: gateway, export admission, portrait pull/presence, private redirect, remote delete, upload registration, tombstones, ready thumbnails, stale-portrait guard, Seedance error copy, gallery registration guard, paid guard; workers: storage adapters, Seedream transport, worker portrait lookup, naming/lease namespacing, read-only pricing, export admission). |
 | P1.5 Node remnants | PASS (already removed on WIP base) | Live frontend imports none; routing tests confirm no Node fallback. |
 
 **Finding F-04 (production bug, depth maps):** the Green ingress gateway rejects every depth-worker
@@ -63,6 +63,21 @@ enqueue/status (`/api/generate/depth`, `/api/generate/depth/status`) with
 Depth enqueue writes rows directly (`apps/workers/views.py`) and never reaches paid providers.
 Deployment needs owner approval (gate **A0-depth**).
 
+## P2 — Correctness fixes
+| Gate | State | Evidence |
+|---|---|---|
+| P2.1 Non-skipping updates | PASS | `d768416`. `backend/apps/generation/updates.py`: oldest-first `(updated_at,id)` cursor, `next`/`more`, 30 s commit lag, active rows always included; `src/lib/live-cursor.js` drains pages, backs off on errors, ignores rows stuck >30 min for cadence. Tests: 250 changes in one interval, 150 identical timestamps, late commit, active rows (DB-backed); frontend unit tests. |
+| P2.2 Media/finalize permissions | PASS | `189826a`. READY uploads readable/referencable by any signed-in user (live parity); unready/cancelled/export hidden; upload mutations, portrait registration and ZIP exports owner-only (live parity — those call sites imported the original function). Finalize-for-all. Allow/deny suite `apps/media/test_shared_access_policy.py`. |
+| P2.3 Paid-job safety | PARTIAL | Audit (read-only): **fixed** Gemini re-submits after billed 200/ambiguous 5xx (`ab720df`, `providers/gemini.py`); **fixed** duplicate in-flight finals — finalize serializes on the draft row and reuses a queued/running final, re-finalizing after completion stays allowed per owner (`ab720df`, `enqueue_views.py`); **fixed** ambiguous failures now carry an `uncertainSubmission` marker + artist-facing warning (`82ff6be`). **Open:** no idempotency key on enqueue POST (double click = two rows); orphaned task id after lease loss is not ledgered; Higgsfield preset re-call; duplicate callbacks may re-run best-of judge calls. **Overlay-only protections that must be ported before any overlay removal (P3):** one-shot RESERVED→ATTEMPTING and ATTEMPTING→SUBMITTING DB transitions per POST (stops retry loops and extra best-of POSTs), DB-enforced no-resubmit, endpoint allowlist per active execution, payload limits (candidateCount 1, Seedance MOV, duration ≤15), new-jobs-only reservation, worker RLS. |
+| P2.4 Bounded thumbnails | PASS | `189826a`, `apps/media/derivatives.py` (ported live overlay: 32 MB/20 MP caps, one decoder per process, create-only, fallback to original) + `private, no-store` redirects. |
+| P2.5 Canvas durability | PASS | `aaa33ad`. Pending draft per board until server ack; keepalive only < 60 KiB; recovery on reopen. Tests for failed save→unmount→reopen and keepalive sizing. |
+| Live risk noted | — | Production now allows finalize-for-all (owner request) **without** the in-flight dedupe; until the P3 release, a double finalize from two tabs could submit two paid finals. The confirmation dialog mitigates single-tab double clicks. |
+
+## P5 — UI performance (progress)
+- `5cae45a`: one mounted assets panel (desktop only when open; drawer on mobile); ZIP status poll backs off, pauses when hidden, stops after 2 h; depth status 12 s only in Depth mode, else 60 s.
+- `de7c76c`: draft videos marked with a dashed amber border + "Draft" label (owner request).
+- Frontend suite 452/452, lint clean, build OK.
+
 ## Owner approval gates
 - **A0-depth** Depth hotfix: gateway allowlist for depth routes + `DEPTH_WORKER_TOKEN` (value from the existing depth-worker config, never printed) on the Green API, then API redeploy.
 - **A1** Green cutover to versioned image (P3), one service at a time.
@@ -72,4 +87,4 @@ Deployment needs owner approval (gate **A0-depth**).
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
-P1.3 — import the exact deployed frontend source; then P1.4 overlay inventory with contract tests.
+P3.1 — port overlays (paid guard with per-candidate claims, export admission, portrait lifecycle, Seedream transport, storage prefix adapter, gateway, entrypoint/settings) into source with contract tests; then remaining P5 items and P4 resolver.
