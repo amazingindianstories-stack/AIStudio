@@ -27,7 +27,15 @@ from apps.projects.models import Project  # noqa: E402
 SECRET, EMAIL = sys.argv[1], sys.argv[2]
 user = User.objects.get(email=EMAIL)
 cookie = sign_session(user)
-project = Project.objects.order_by('-updated_at').first()
+# Use a project with material assets: the worker's asset lookup only runs where assets exist
+# (the 2026-10-13 regression hid behind an empty project).
+from django.db.models import Count  # noqa: E402
+project = Project.objects.annotate(n=Count('assets')).filter(n__gt=0).order_by('-n').first() if hasattr(Project, 'assets') else None
+if project is None:
+    from apps.assets.models import Asset  # noqa: E402
+    busiest = Asset.objects.exclude(project_id=None).values('project_id').annotate(n=Count('id')).order_by('-n').first()
+    project = Project.objects.get(pk=busiest['project_id'])
+print(f'     project with assets: {project.id}', flush=True)
 failures = []
 
 
