@@ -20,7 +20,7 @@ Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs 
 | P0 Baselines / rollback | PASS (rollback execution NOT VERIFIED) | see below |
 | P1 Git baseline | IN PROGRESS | P1.1, P1.3 PASS; backend suite PASS |
 | P2 Correctness fixes | IN PROGRESS | P2.1, P2.2, P2.4, P2.5 PASS; P2.3 partial |
-| P3 Versioned image + cutover | PENDING (cutover = gate A1) | |
+| P3 Versioned image + cutover | P3.1–P3.2 PASS; P3.3 PARTIAL; cutover BLOCKED (gate A1) | see P3 |
 | P4 Media off Vercel | PENDING (release = gate A2) | |
 | P5 UI perf + copy | IN PROGRESS (release = gate A3) | single panel, polling, draft marker done |
 | P6 Retire Blue | PENDING (gate A5) | |
@@ -73,6 +73,21 @@ Deployment needs owner approval (gate **A0-depth**).
 | P2.5 Canvas durability | PASS | `aaa33ad`. Pending draft per board until server ack; keepalive only < 60 KiB; recovery on reopen. Tests for failed save→unmount→reopen and keepalive sizing. |
 | Live risk noted | — | Production now allows finalize-for-all (owner request) **without** the in-flight dedupe; until the P3 release, a double finalize from two tabs could submit two paid finals. The confirmation dialog mitigates single-tab double clicks. |
 
+## P3 — Versioned image
+| Gate | State | Evidence |
+|---|---|---|
+| P3.1 Overlays ported | PASS | Folded into source: shared READY reads, finalize, bounded thumbnails, no-store redirects (`189826a`); prefixed GCS namespace (`50be4c5`); Seedance policy copy, Seedream 240 s transport + diagnostics, Gallery registration guard (`0dd731c`); worker portrait/asset projections, stale-portrait GetAsset pre-queue guard (`e24ccd9`). Reviewed runtime app `apps/production_runtime`: paid guard (`b9aef60`), export admission (`5a806b5`), lease/naming namespaces + read-only pricing (`bcb5c1e`), portrait lifecycle — list-only sync, tombstones, create-once registration, remote-first delete (`b2e0c29`). All Railway/DB identity and source-hash pins removed; infra identifiers come from settings. |
+| P3.2 Image + entrypoint | PASS (local) | `2fb7d4b`: `deploy/entrypoint.py` + ported ingress gateway (now with depth routes); `backend/Dockerfile` CMD → entrypoint. Matches production process model (gunicorn 1×8, timeout 25, graceful 5). Local smoke on PostgreSQL 18.6: readiness 200, no ingress header 403, health 200, blocked route 403, depth status reaches Django, all three workers start; fresh `migrate` applies the 26 migrations. Logs now go to stdout (production currently writes them to a private file). |
+| P3.3 Staging | PARTIAL | Green backup restored into disposable PostgreSQL 18.6 with production roles, RLS and ledger functions. Verified ledger contract as the real roles: worker cannot see unregistered rows or call `reserve`; API `reserve` registers once, replay rejected; worker sees registered row; RESERVED→ATTEMPTING→SUBMITTING once, second claim refused. **NOT VERIFIED:** a full staged enqueue→worker run through the new image — blocked by the session permission classifier as a potential paid transaction even though no provider keys exist; needs owner permission to run. Portrait registration/delete behaviour tests with a fake BytePlus client are still missing (logic unchanged from production). |
+| P3.4 Cutover | BLOCKED (A1) | Runbook `docs/stabilization/CUTOVER.md`. |
+
+Known deliberate differences to verify at cutover: `config/wsgi.py` adds the repo's slow-request
+and terminated-body wrappers (production called `get_wsgi_application()` directly); API logs go
+to stdout; API gets `PUBLIC_APP_URL=https://veevee.ai` (F-01) and `DEPTH_WORKER_TOKEN` (F-04).
+**F-05 (to investigate):** depth rows are created without `reserve()`, so under the worker-role
+RLS the scheduler may not see them for depth reconciliation.
+**F-06:** the gateway forces `Cache-Control: no-store` on every response (kept for parity).
+
 ## P5 — UI performance (progress)
 - `5cae45a`: one mounted assets panel (desktop only when open; drawer on mobile); ZIP status poll backs off, pauses when hidden, stops after 2 h; depth status 12 s only in Depth mode, else 60 s.
 - `de7c76c`: draft videos marked with a dashed amber border + "Draft" label (owner request).
@@ -87,4 +102,4 @@ Deployment needs owner approval (gate **A0-depth**).
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
-P3.1 — port overlays (paid guard with per-candidate claims, export admission, portrait lifecycle, Seedream transport, storage prefix adapter, gateway, entrypoint/settings) into source with contract tests; then remaining P5 items and P4 resolver.
+P4 media resolver + direct GCS URLs (behind a fallback), remaining P5 copy/UX items; then owner gates A1 (cutover), A2, A3, A4, A5.
