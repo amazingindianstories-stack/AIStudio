@@ -20,6 +20,7 @@ test("machine codes are translated and never shown raw", () => {
   assert.equal(apiErrorMessage({ error: "Folder name taken", code: "DUPLICATE_FOLDER_NAME" }, 409), "A folder with that name already exists here.");
   assert.equal(apiErrorMessage({ error: "SOME_NEW_CODE" }, 400, "Could not save."), "Could not save.");
   assert.equal(apiErrorMessage({ error: "SOME_NEW_CODE" }, 429), "Too many requests. Wait a moment and try again.");
+  assert.equal(apiErrorMessage({ error: "PREVIEW_PORTRAIT_GROUP_DELETE_REQUIRES_ARCHIVE" }, 409), "Characters can't be deleted yet. Delete the portraits inside it instead.");
 });
 
 test("caller fallback applies when the body has no message", () => {

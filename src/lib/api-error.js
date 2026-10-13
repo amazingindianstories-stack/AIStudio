@@ -43,6 +43,7 @@ const CODE_MESSAGES = {
   UPLOAD_PURPOSE_MISMATCH: "That file can't be used here.",
   INVALID_UPLOAD_CONTENT_TYPE: "That file type isn't supported.",
   INVALID_UPLOAD_PURPOSE_OR_TYPE: "That file type isn't supported here.",
+  PREVIEW_PORTRAIT_GROUP_DELETE_REQUIRES_ARCHIVE: "Characters can't be deleted yet. Delete the portraits inside it instead.",
   GENERATION_REQUIRES_RECONCILIATION: "This generation is still being checked with the provider. Try again later.",
 };
 
