@@ -7,7 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 DEBUG = False
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if host.strip()]
-INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media']
+INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media', 'apps.production_runtime.apps.ProductionRuntimeConfig']
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'apps.common.middleware.RequestLogMiddleware', 'apps.common.middleware.LocalDataModeMiddleware', 'apps.common.origin.BrowserOriginMiddleware', 'apps.common.middleware.SessionRenewalMiddleware']
 
 LOCAL_DATA_MODE = os.environ.get('LOCAL_DATA_MODE', 'fixtures')
@@ -90,3 +90,17 @@ for value in VEEVEE_BROWSER_ORIGINS:
     parsed=urlsplit(value)
     if parsed.scheme not in ('http','https') or not parsed.hostname or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment:
         raise ImproperlyConfigured('Browser origins must be exact bare origins without credentials')
+
+
+# Paid-generation guard (see apps/production_runtime/paid_guard.py). JSON data,
+# never code, e.g. {"approved_scope": "<UNLIMITED scope>", "unlimited_new_jobs": true}.
+import json as _json
+_paid_guard_raw = os.environ.get('VEEVEE_PAID_GUARD', '')
+VEEVEE_PAID_GUARD = None
+if _paid_guard_raw:
+    try:
+        VEEVEE_PAID_GUARD = _json.loads(_paid_guard_raw)
+    except ValueError:
+        raise ImproperlyConfigured('VEEVEE_PAID_GUARD must be JSON') from None
+    if not isinstance(VEEVEE_PAID_GUARD, dict) or not VEEVEE_PAID_GUARD.get('approved_scope'):
+        raise ImproperlyConfigured('VEEVEE_PAID_GUARD requires an approved_scope')
