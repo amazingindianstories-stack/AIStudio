@@ -3,7 +3,7 @@ import math
 import re
 import time
 import tempfile
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
@@ -13,10 +13,10 @@ from apps.generation.models import Generation
 from apps.library.filenames import batch_resolve_generation_filenames
 from .grants import verify_media_grant
 from .keys import validate_key, InvalidMediaKey, media_key_from_ref, is_export_key
-from .storage import get_storage, MediaNotFoundError, InvalidMediaRangeError, FileSystemAdapter
+from .storage import get_storage, MediaNotFoundError, InvalidMediaRangeError, FileSystemAdapter, PrefixedGCSAdapter
 from .uploads import (create_upload_presign, verify_upload, initialize_upload,
     upload_status, finalize_upload, stream_local_chunk, cancel_upload, UploadError)
-from .images import is_thumbnailable
+from .images import is_thumbnailable, thumb_key
 from .derivatives import bounded_derivative, ready_upload_is_image
 
 
@@ -65,28 +65,39 @@ def _width(raw):
         return None
 
 
+class MediaHidden(Exception):
+    """The key is valid but this route must not expose it."""
+
+
+def authorize_media_key(path):
+    """Shared-studio read policy for an authenticated actor; raises for hidden keys.
+
+    Any signed-in user may read a READY upload; unfinished or cancelled uploads
+    stay hidden. ZIP exports have their own owner/expiry checks and are never
+    served here.
+    """
+    key = validate_key(path)
+    original_key = key
+    while match := re.fullmatch(r'thumbs/[0-9]+/(.+)\.webp', original_key):
+        original_key = match[1]
+    if original_key.startswith('uploads/'):
+        from .models import UploadSession
+        staged = UploadSession.objects.filter(key=original_key).only('state', 'finalized_at').first()
+        if staged and (not staged.finalized_at or staged.state != 'ready'):
+            raise MediaHidden(key)
+    if is_export_key(key):
+        raise MediaHidden(key)
+    return key
+
+
 @require_http_methods(['GET'])
 def media(request, path):
     user = lookup(request)
     if not user:
         return JsonResponse({'error':'UNAUTHENTICATED'},status=401)
     try:
-        key = validate_key(path)
-        # Shared studio: any signed-in user may read a READY upload. Unfinished
-        # uploads stay unreadable; session mutations remain owner-only elsewhere.
-        original_key = key
-        while match := re.fullmatch(r'thumbs/[0-9]+/(.+)\.webp', original_key):
-            original_key = match[1]
-        if original_key.startswith('uploads/'):
-            from .models import UploadSession
-            staged = UploadSession.objects.filter(key=original_key).only('state', 'finalized_at').first()
-            if staged and (not staged.finalized_at or staged.state != 'ready'):
-                return HttpResponse('Not Found', status=404)
-        # ZIPs have per-owner access and expiry checks at the export endpoint.
-        # The shared-library cookie route must not bypass either check.
-        if is_export_key(key):
-            return HttpResponse('Not Found', status=404)
-    except InvalidMediaKey:
+        key = authorize_media_key(path)
+    except (InvalidMediaKey, MediaHidden):
         return HttpResponse('Not Found',status=404)
     try:
         storage = get_storage()
@@ -273,3 +284,54 @@ def generation_download(request,id):
         return HttpResponse('Range Not Satisfiable',status=416)
     except Exception:
         return JsonResponse({'error':'INTERNAL_ERROR'},status=500)
+
+
+RESOLVE_MAX_ITEMS = 100
+RESOLVE_URL_LIFETIME_MS = (PrefixedGCSAdapter.READ_URL_SECONDS - 60) * 1000
+
+
+def _resolve_one(storage, ref, width):
+    """Return a short-lived direct URL, or None to make the client use /api/media."""
+    from django.db import close_old_connections
+    try:
+        if not isinstance(ref, str) or not ref.startswith('/api/media/'):
+            return None
+        key = authorize_media_key(unquote(ref[len('/api/media/'):].split('?', 1)[0].split('#', 1)[0]))
+        target = key
+        step = next((step for step in (512, 1280) if width and step >= width), None)
+        if step and (is_thumbnailable(key) or ready_upload_is_image(key)):
+            derivative = thumb_key(key, step)
+            if not storage.exists(derivative):
+                return None  # the per-image route creates it with bounded work
+            target = derivative
+        url = storage.browser_url(target)
+        return {'url': url, 'expiresAt': int(time.time() * 1000) + RESOLVE_URL_LIFETIME_MS} if url else None
+    except Exception:
+        return None
+    finally:
+        close_old_connections()
+
+
+@require_http_methods(['POST'])
+def media_resolve(request):
+    """Batch-resolve authorized media references to short-lived direct storage URLs.
+
+    One small JSON request replaces one proxied redirect per thumbnail. Signed
+    URLs are bearer capabilities: never persist them as canonical references.
+    """
+    if lookup(request) is None:
+        return JsonResponse({'error': 'UNAUTHENTICATED'}, status=401)
+    try:
+        items = json.loads(request.body or b'{}').get('items')
+    except (ValueError, AttributeError):
+        items = None
+    if not isinstance(items, list) or len(items) > RESOLVE_MAX_ITEMS:
+        return JsonResponse({'error': f'Send up to {RESOLVE_MAX_ITEMS} items.'}, status=400)
+    storage = get_storage()
+    requests_ = [(item.get('ref'), _width(item.get('width'))) for item in items if isinstance(item, dict)]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda pair: _resolve_one(storage, *pair), requests_))
+    response = JsonResponse({'items': [{'ref': ref, **(result or {'url': None})} for (ref, _), result in zip(requests_, results)]})
+    response['Cache-Control'] = 'private, no-store'
+    return response

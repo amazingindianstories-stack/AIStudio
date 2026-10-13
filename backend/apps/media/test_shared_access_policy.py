@@ -142,3 +142,37 @@ class BoundedDerivativeTests(TransactionTestCase):
         storage = self.storage_with('generated/bad.png', b'\x89PNG\r\n\x1a\nnot-really')
         self.assertEqual(bounded_derivative(storage, 'generated/bad.png', 512), ('generated/bad.png', None))
         self.assertLess(len(b'x'), MAX_INPUT_BYTES)
+
+
+class MediaResolveTests(SharedMediaPolicyTests):
+    def resolve(self, user, items):
+        import json as _json
+        storage = SignedRedirectStorage(self.storage.primary)
+        if user is None:
+            self.client.cookies.pop('veevee_session', None)
+        else:
+            self.client.cookies['veevee_session'] = sign_session(user)
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage):
+            return self.client.post('/api/media-resolve', _json.dumps({'items': items}), content_type='application/json')
+
+    def test_batch_resolution_follows_the_media_policy(self):
+        ready = self.upload()
+        unready = self.upload(state='uploading', finalized=False)
+        self.storage.primary.put('generated/a.png', png((900, 600)), 'image/png', 'private')
+        self.storage.primary.put('thumbs/512/generated/a.png.webp', b'thumb', 'image/webp', 'private')
+        response = self.resolve(self.other, [
+            {'ref': '/api/media/' + ready.key}, {'ref': '/api/media/' + unready.key},
+            {'ref': '/api/media/exports/' + str(uuid4()) + '.zip'}, {'ref': 'https://elsewhere.example/a.png'},
+            {'ref': '/api/media/generated/a.png', 'width': 400}, {'ref': '/api/media/generated/b.png', 'width': 400}])
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response['Cache-Control'], 'private, no-store')
+        urls = [item['url'] for item in response.json()['items']]
+        self.assertTrue(urls[0].startswith('https://storage.invalid/signed/uploads/'))
+        self.assertEqual(urls[1:4], [None, None, None])
+        self.assertEqual(urls[4], 'https://storage.invalid/signed/thumbs/512/generated/a.png.webp?X-Goog-Expires=900')
+        self.assertIsNone(urls[5])  # no derivative yet: the client uses /api/media, which creates it
+        self.assertGreater(response.json()['items'][0]['expiresAt'], 0)
+
+    def test_limits_and_authentication(self):
+        self.assertEqual(self.resolve(None, []).status_code, 401)
+        self.assertEqual(self.resolve(self.owner, [{'ref': '/api/media/x'}] * 101).status_code, 400)

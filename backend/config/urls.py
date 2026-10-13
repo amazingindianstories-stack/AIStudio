@@ -40,6 +40,7 @@ urlpatterns = [
     path('api/queue/execute', retired_queue_execute),
     path('api/webhooks/seedance', seedance_callback),
     path('api/media-grant', media_views.media_grant),
+    path('api/media-resolve', media_views.media_resolve),
     path('api/media/<path:path>', media_views.media),
     path('api/uploads/init', media_views.upload_init),
     path('api/uploads/<uuid:id>/status', media_views.upload_session_status),
