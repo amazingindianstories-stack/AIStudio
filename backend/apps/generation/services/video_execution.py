@@ -21,6 +21,7 @@ from apps.generation.providers.transport import ProviderError
 from apps.generation.references import asset_slugs, resolve_references, mention_indices, TOKEN_END
 from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
+from apps.assets.provider_projection import provider_asset_projection
 
 
 def read_assets(project_id=None):
