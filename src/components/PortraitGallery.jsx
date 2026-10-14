@@ -10,10 +10,24 @@ import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { setAssetDragData, getAssetDragData, validatePortraitDrop } from "@/lib/asset-drag-contract";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { PortraitLightbox } from "./PortraitLightbox";
+import { ManagedPortraitGallery } from "./ManagedPortraitGallery";
 
 const idOf = a => a.id || a.byteplusAssetId;
 const button = "rounded-lg border border-line px-3 py-2 text-xs hover:bg-white/10 disabled:opacity-40";
+/** Managed (automatic) portraits when the backend has the pool on; the manual Gallery otherwise. */
 export function PortraitGallery() {
+  const open = useStore((state) => state.portraitGalleryOpen);
+  const managed = useStore((state) => state.managedPortraits);
+  const loadManaged = useStore((state) => state.loadManagedPortraits);
+  useEffect(() => { if (open && managed.enabled === null) void loadManaged(); }, [open, managed.enabled, loadManaged]);
+  // The manual Gallery stays mounted (it keeps its character filter across close/reopen).
+  return <>
+    {open && managed.enabled === true && <ManagedPortraitGallery />}
+    <ManualPortraitGallery suppressed={managed.enabled !== false} />
+  </>;
+}
+
+function ManualPortraitGallery({ suppressed = false }) {
   const s = useStore();
   const [groupId, setGroupId] = useState(null), [search, setSearch] = useState(""), [characters, setCharacters] = useState(""), [role, setRole] = useState("");
   const [selected, setSelected] = useState([]), [preview, setPreview] = useState(null), [error, setError] = useState(""), [busy, setBusy] = useState(false), [pendingDelete, setPendingDelete] = useState(null), [drag, setDrag] = useState(false);
@@ -64,7 +78,7 @@ export function PortraitGallery() {
     anchor.current=null;setPreview(null);
   },[groupId,search,role,activeProjectId,actorId]);
   useEffect(()=>{setSelected(ids=>ids.filter(id=>assets.some(a=>idOf(a)===id && (showUnavailable || !unavailable(a)))));},[assets,showUnavailable]);
-  if(!s.portraitGalleryOpen) return null;
+  if(!s.portraitGalleryOpen || suppressed) return null;
   const choose = (asset,e) => {
     const id=idOf(asset), end=visible.findIndex(a=>idOf(a)===id), start=visible.findIndex(a=>idOf(a)===anchor.current);
     if(e.shiftKey && start>=0) setSelected(visible.slice(Math.min(start,end),Math.max(start,end)+1).map(idOf));

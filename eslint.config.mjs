@@ -1,6 +1,7 @@
 import { FlatCompat } from "@eslint/eslintrc";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import globals from "globals";
 
 const baseDirectory = path.dirname(fileURLToPath(import.meta.url));
 const compat = new FlatCompat({ baseDirectory });
@@ -53,6 +54,14 @@ const config = [
       "src/components/canvas/nodes/ImageNode.jsx",
     ],
     rules: { "@next/next/no-img-element": "off" },
+  },
+  {
+    // A name used without being imported or defined crashes at runtime (2026-10-13 depth upload,
+    // 2026-10-14 admin card). Application code only; tests define their own globals.
+    files: ["src/**/*.{js,jsx}"],
+    ignores: ["src/**/*.test.js"],
+    languageOptions: { globals: { ...globals.browser, ...globals.node } },
+    rules: { "no-undef": "error" },
   },
 ];
 

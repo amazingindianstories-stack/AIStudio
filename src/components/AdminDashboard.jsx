@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
@@ -1737,6 +1737,64 @@ function LimitsTab({ data, reload }) {
       {LIMIT_DEFINITIONS.map((def) => (
         <GlobalLimitCard key={def.key} def={def} data={data} reload={reload} />
       ))}
+      <PortraitStorageCard />
+    </div>
+  );
+}
+
+const PORTRAIT_SETTING_LABELS = {
+  portraitAssetTtlHours: { label: "Remove unused portraits after", unit: "hours" },
+  portraitPoolCapacity: { label: "Portrait storage size", unit: "portraits" },
+  portraitQueueWaitMinutes: { label: "Longest wait for portrait space", unit: "minutes" },
+};
+
+/** Automatic BytePlus portrait pool settings (shown only when the pool is on). */
+export function PortraitStorageCard() {
+  const [state, setState] = useState(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/admin/portrait-settings", { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) setState(json);
+    } catch { /* card stays hidden */ }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  if (!state?.enabled) return null;
+  const save = async (key, raw) => {
+    const value = Math.round(Number(raw));
+    setError("");
+    const res = await apiFetch("/api/admin/portrait-settings", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, value }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { setError(apiErrorMessage(json, res.status, "Could not save the setting.")); return; }
+    setState(json);
+    setSaved(key);
+    setTimeout(() => setSaved(""), 2000);
+  };
+  const usage = state.usage || {};
+  return (
+    <div className="rounded-xl border border-line p-4" data-portrait-storage-card>
+      <p className="mb-1 text-sm font-medium text-white">Portrait storage (BytePlus)</p>
+      <p className="mb-3 text-xs leading-5 text-white/45">
+        Faces in video references are registered automatically. {usage.live ?? 0} stored, {usage.inUse ?? 0} in use, {usage.registering ?? 0} preparing.
+        {usage.observedCapacity ? ` BytePlus reported its limit at ${usage.observedCapacity}.` : ""} Portraits in use are never removed.
+      </p>
+      <div className="space-y-2">
+        {Object.entries(PORTRAIT_SETTING_LABELS).map(([key, meta]) => (
+          <label key={key} className="flex flex-wrap items-center gap-2 text-xs text-white/70">
+            <span className="w-56">{meta.label}</span>
+            <input type="number" min={state.ranges[key].min} max={state.ranges[key].max} defaultValue={state.settings[key]}
+              onBlur={(e) => { if (Number(e.target.value) !== state.settings[key]) void save(key, e.target.value); }}
+              className="w-28 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none focus:border-brand/40" />
+            <span className="text-white/40">{meta.unit}</span>
+            {saved === key && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+          </label>
+        ))}
+      </div>
+      {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
     </div>
   );
 }

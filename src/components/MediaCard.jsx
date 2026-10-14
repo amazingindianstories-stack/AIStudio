@@ -457,6 +457,11 @@ export function MediaCard({
                 {item.queueNote}
               </span>
             )}
+            {item.kind === "video" && item.providerStatus === "PORTRAIT_WAITING" && item.progressMessage && !item.pollWarning && (
+              <span data-portrait-waiting className="absolute inset-x-3 bottom-2 z-10 text-center text-[10px] leading-snug text-sky-200/80">
+                {item.progressMessage}
+              </span>
+            )}
             {item.kind === "video" && item.pollWarning && (
               <span className="absolute inset-x-3 bottom-2 z-10 text-center text-[10px] leading-snug text-amber-300/80">
                 {item.pollWarning}

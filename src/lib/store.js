@@ -1723,6 +1723,37 @@ export const useStore = create((set, get) => ({
   setEditingAsset: (editingAsset) => set({ editingAsset }),
 
   setPortraitGalleryOpen: (portraitGalleryOpen) => set({ portraitGalleryOpen }),
+
+  // Automatic portrait pool (VEEVEE_MANAGED_PORTRAITS). enabled === null until the backend answers.
+  managedPortraits: { enabled: null, assets: [], usage: null, loading: false, error: null },
+  loadManagedPortraits: async () => {
+    set((state) => ({ managedPortraits: { ...state.managedPortraits, loading: true } }));
+    try {
+      const res = await apiFetch("/api/portraits/managed", { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 404) {
+        set({ managedPortraits: { enabled: false, assets: [], usage: null, loading: false, error: null } });
+        return;
+      }
+      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not load portraits."));
+      set({ managedPortraits: { enabled: json.enabled === true, assets: json.assets || [], usage: json.usage || null, loading: false, error: null } });
+    } catch (error) {
+      set((state) => ({ managedPortraits: { ...state.managedPortraits, enabled: state.managedPortraits.enabled ?? false, loading: false,
+        error: error.message || "Could not load portraits." } }));
+    }
+  },
+  deleteManagedPortrait: async (id) => {
+    try {
+      const res = await apiFetch(`/api/portraits/managed/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.ok !== true) return { ok: false, error: apiErrorMessage(json, res.status, "Could not remove this portrait.") };
+      set((state) => ({ managedPortraits: { ...state.managedPortraits, assets: state.managedPortraits.assets.filter((a) => a.id !== id) } }));
+      void get().loadManagedPortraits();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Could not remove this portrait. Try again." };
+    }
+  },
   setSelectedPortraitGroup: (selectedPortraitGroup) => set({ selectedPortraitGroup }),
 
   loadPortraitGroups: async () => {

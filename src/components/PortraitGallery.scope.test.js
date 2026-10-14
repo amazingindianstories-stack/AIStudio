@@ -17,7 +17,7 @@ test("portrait character filter survives same-scope reopen and resets across pro
   const root=createRoot(document.querySelector('#root'));
   const fixtures=(project)=>({activeProjectId:project,portraitGroups:[{id:project+'-character',name:project+' Character'}],portraitAssets:[{id:project+'-face',groupId:project+'-character',name:project+' Face',imageUrl:'/api/media/face.png',role:'reference'}]});
   try {
-    await act(async()=>{useStore.setState({portraitGalleryOpen:true,currentUser:{id:'actor1'},portraitAssetsLoading:false,loadAllPortraitAssets(){},...fixtures('A')});root.render(React.createElement(PortraitGallery));});
+    await act(async()=>{useStore.setState({portraitGalleryOpen:true,managedPortraits:{enabled:false,assets:[],usage:null,loading:false,error:null},currentUser:{id:'actor1'},portraitAssetsLoading:false,loadAllPortraitAssets(){},...fixtures('A')});root.render(React.createElement(PortraitGallery));});
     const character=Array.from(document.querySelectorAll('button')).find(b=>b.textContent==='A Character');
     await act(async()=>character.click());
     assert.equal(character.getAttribute('aria-pressed'),'true');
