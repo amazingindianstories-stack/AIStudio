@@ -109,6 +109,7 @@ export function VideoUpscalerComposer() {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [lastResult, setLastResult] = useState(null);
+  const [previewFailed, setPreviewFailed] = useState(null);
   const fileInputRef = useRef(null);
   const uploadAttemptRef = useRef(0);
 
@@ -281,8 +282,15 @@ export function VideoUpscalerComposer() {
         {source ? (
           <div className="relative flex items-center gap-4 rounded-xl border border-line bg-ink-900/60 p-3 shadow-inner">
             <div className="relative h-36 w-36 shrink-0 overflow-hidden rounded-lg bg-ink-950 ring-1 ring-line">
+              {previewFailed === source.url && (
+                <p className="absolute inset-0 grid place-items-center p-3 text-center text-[11px] leading-snug text-white/50">
+                  Preview unavailable in this browser. The original is upscaled as is.
+                </p>
+              )}
               <video
+                key={source.url}
                 src={source.url}
+                onError={() => setPreviewFailed(source.url)}
                 muted
                 playsInline
                 preload="metadata"
