@@ -60,7 +60,7 @@ import {
   storeRuntime,
 } from "./store-runtime";
 import { LIVE_MS_ACTIVE, LIVE_MS_IDLE, liveDelay, liveUpdatesUrl, nextLiveCursor, hasRecentActiveWork } from "./live-cursor";
-import { magnificParamsForModel, magnificVideoParamsForModel, MAGNIFIC_VIDEO_DEFAULTS } from "./magnific-ui";
+import { magnificParamsForModel, magnificVideoParamsForModel, MAGNIFIC_VIDEO_DEFAULTS, MAGNIFIC_MODELS, MAGNIFIC_VIDEO_MODELS, MAGNIFIC_SCALE_FACTORS, MAGNIFIC_VIDEO_RESOLUTIONS } from "./magnific-ui";
 import {
   clearMaterialCache,
   dedupeMaterialRequest,
@@ -162,6 +162,31 @@ function invalidateFeedCache() {
 /** Look a row up across every pool. Callers act on an id the user clicked, and
  *  that row may be in the chat thread but not the current feed (or vice versa),
  *  so searching only `items` would make the action silently do nothing. */
+/** Magnific rows are upscales: they reopen in the upscaler with the same source and model. */
+export function isMagnificUpscale(item) {
+  return MAGNIFIC_MODELS.includes(item?.model) || MAGNIFIC_VIDEO_MODELS.includes(item?.model);
+}
+
+function upscaleComposerState(s, item) {
+  const name = item.prompt ? item.prompt.slice(0, 50) : "Upscale source";
+  if (MAGNIFIC_VIDEO_MODELS.includes(item.model)) {
+    const source = item.referenceVideos?.[0];
+    return {
+      mode: "upscale", upscalerMedia: "video",
+      upscalerVideo: source ? { url: source, name, aspectRatio: item.aspectRatio } : null,
+      videoUpscalerParams: { ...s.videoUpscalerParams, model: item.model,
+        ...(MAGNIFIC_VIDEO_RESOLUTIONS.includes(item.resolution) ? { resolution: item.resolution } : {}) },
+    };
+  }
+  const source = item.referenceImages?.[0];
+  return {
+    mode: "upscale", upscalerMedia: "image",
+    upscalerImage: source ? { url: source, name, aspectRatio: item.aspectRatio } : null,
+    upscalerParams: { ...s.upscalerParams, model: item.model,
+      ...(MAGNIFIC_SCALE_FACTORS.includes(item.resolution) ? { scaleFactor: item.resolution } : {}) },
+  };
+}
+
 export function findItem(s, id) {
   return (
     s.items.find((i) => i.id === id) ??
@@ -1396,6 +1421,10 @@ export const useStore = create((set, get) => ({
   editInComposer: (id) => {
     const item = findItem(get(), id);
     if (!item) return { ok: false, error: "This generation is no longer available." };
+    if (isMagnificUpscale(item)) {
+      set(upscaleComposerState(get(), item));
+      return { ok: true };
+    }
     set({ mode: item.kind, prompt: item.prompt });
     return { ok: true };
   },
@@ -1413,6 +1442,11 @@ export const useStore = create((set, get) => ({
     if (get().generating) return { ok: false, error: "Another generation is already starting." };
     const cloned = await get().cloneToComposer(id);
     if (cloned?.ok === false) return cloned;
+    const item = findItem(get(), id);
+    if (isMagnificUpscale(item)) {
+      const upscaled = item.kind === "video" ? await get().generateVideoUpscale() : await get().generateUpscale();
+      return upscaled?.id ? { ok: true } : { ok: false, error: "The upscale could not be started again." };
+    }
     if (!get().prompt.trim()) return { ok: false, error: "The saved prompt is empty." };
     await get().generate();
     return { ok: true };
@@ -1613,6 +1647,13 @@ export const useStore = create((set, get) => ({
   cloneToComposer: async (id) => {
     const item = findItem(get(), id);
     if (!item) return { ok: false, error: "This generation is no longer available." };
+    if (isMagnificUpscale(item)) {
+      if (!(item.kind === "video" ? item.referenceVideos?.[0] : item.referenceImages?.[0])) {
+        return { ok: false, error: "The original upscale source is no longer available." };
+      }
+      set({ ...upscaleComposerState(get(), item), destinationProjectId: item.projectId, destinationFolderId: item.folderId ?? null });
+      return { ok: true };
+    }
     set({
       mode: item.kind,
       model: item.model,

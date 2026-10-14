@@ -23,6 +23,7 @@ import { UpscaleMediaToggle } from "./UpscaleMediaToggle";
 
 const VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/x-m4v", "video/webm"];
 const MAX_BYTES = 2 * 1024 * 1024 * 1024;
+const RESOLUTION_LABELS = { "720p": "720p", "1k": "1K", "2k": "2K", "4k": "4K" };
 
 const MODELS = [
   { id: "Magnific Video Creative", label: "Creative", badge: "AI Detail", desc: "Creative video upscaling with creativity, sharpen and grain controls (720p–4K)" },
@@ -236,42 +237,42 @@ export function VideoUpscalerComposer() {
       />
 
       <div className="mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="border-b border-line pb-3">
+          <div className="mb-2.5 flex items-center justify-between gap-2">
             <UpscaleMediaToggle />
-            <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
-              {MODELS.map((m) => {
-                const active = model === m.id;
-                return (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setParam("model", m.id)}
-                    className={cn(
-                      "flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
-                      active ? "bg-brand/20 text-brand shadow-sm ring-1 ring-brand/40" : "text-white/60 hover:bg-white/5 hover:text-white"
-                    )}
-                  >
-                    <Sparkles className={cn("h-3.5 w-3.5", active ? "text-brand" : "text-white/40")} />
-                    <span>{m.label}</span>
-                    <span className={cn("hidden rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider sm:inline-block",
-                      active ? "bg-brand/30 text-white font-semibold" : "bg-white/10 text-white/40")}>
-                      {m.badge}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <button
+              type="button"
+              onClick={resetParams}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-white/50 hover:bg-white/5 hover:text-white/80 transition"
+              title="Reset parameters to defaults"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Reset</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={resetParams}
-            className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-white/50 hover:bg-white/5 hover:text-white/80 transition"
-            title="Reset parameters to defaults"
-          >
-            <RotateCcw className="h-3 w-3" />
-            <span>Reset</span>
-          </button>
+          <div className="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
+            {MODELS.map((m) => {
+              const active = model === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => setParam("model", m.id)}
+                  className={cn(
+                    "flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
+                    active ? "bg-brand/20 text-brand shadow-sm ring-1 ring-brand/40" : "text-white/60 hover:bg-white/5 hover:text-white"
+                  )}
+                >
+                  <Sparkles className={cn("h-3.5 w-3.5", active ? "text-brand" : "text-white/40")} />
+                  <span>{m.label}</span>
+                  <span className={cn("hidden rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wider sm:inline-block",
+                    active ? "bg-brand/30 text-white font-semibold" : "bg-white/10 text-white/40")}>
+                    {m.badge}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
         <p className="mt-2 text-xs text-white/50">{MODELS.find((m) => m.id === model)?.desc}</p>
       </div>
@@ -373,10 +374,10 @@ export function VideoUpscalerComposer() {
                   key={resolution}
                   type="button"
                   onClick={() => setParam("resolution", resolution)}
-                  className={cn("rounded-lg py-1 text-xs font-semibold uppercase transition",
+                  className={cn("rounded-lg py-1 text-xs font-semibold transition",
                     params.resolution === resolution ? "bg-brand text-ink-950 shadow-sm" : "text-white/60 hover:text-white")}
                 >
-                  {resolution}
+                  {RESOLUTION_LABELS[resolution]}
                 </button>
               ))}
             </div>
@@ -393,7 +394,7 @@ export function VideoUpscalerComposer() {
 
         <div className="rounded-xl border border-line bg-ink-900/40 p-3">
           {topaz ? (
-            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-4">
               <div>
                 <label className="mb-1 block text-[11px] font-medium text-white/60">Frame Rate</label>
                 <div className="grid grid-cols-2 gap-1 rounded-xl bg-ink-900/70 p-1 ring-1 ring-line">
