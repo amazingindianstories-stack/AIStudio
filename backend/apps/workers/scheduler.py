@@ -18,16 +18,32 @@ def cleanup_exports():
     return cleanup_expired_archives(get_storage())
 
 
+def maintain_portraits():
+    """Expire unused managed portraits, release stale pins, reconcile uncertain rows."""
+    from apps.assets.managed_pool import janitor
+    return janitor()
+
+
+def default_handlers():
+    from django.conf import settings
+    handlers = {'depth': maintenance.reconcile_depth, 'video': maintenance.reconcile_videos,
+                'login': maintenance.cleanup_login_attempts, 'exports': cleanup_exports}
+    if getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):
+        handlers['portraits'] = maintain_portraits
+    return handlers
+
+
 def tick(*, now=None, handlers=None):
     now = leases.now_ms() if now is None else now
-    handlers = handlers or {'depth': maintenance.reconcile_depth, 'video': maintenance.reconcile_videos,
-                            'login': maintenance.cleanup_login_attempts, 'exports': cleanup_exports}
+    handlers = handlers or default_handlers()
     # Every process startup sweeps its current slot, even after the exact cron
     # minute. Daily slots start at 03:17 UTC; other slots align to the epoch.
     periods = {'depth': (60000, 0), 'video': (900000, 0), 'exports': (900000, 0),
-               'login': (86400000, (3*60+17)*60000)}
+               'login': (86400000, (3*60+17)*60000), 'portraits': (60000, 0)}
     results = {}
     for name, (period, offset) in periods.items():
+        if name not in handlers:
+            continue
         # Stable keys prevent an unbounded accumulation of per-slot settings.
         # Expiry is the next aligned slot; a second replica in this slot loses.
         owner = str(uuid.uuid4())

@@ -72,7 +72,22 @@ def combined_references(prompt, assets, uploads):
     return result
 
 
-def to_provider_data_urls(references, signal, *, read=None, prepare=None, portrait_lookup=None):
+def managed_reference(ref, read, managed):
+    """Managed-portrait mode: return ('asset://id', None) for a pinned face asset, else (None, raw image)."""
+    import hashlib
+    from apps.assets.models import ReferenceFaceScan
+    raw = read(ref.split('#', 1)[0] if isinstance(ref, str) else ref)
+    sha = hashlib.sha256(base64.b64decode(raw['data'])).hexdigest()
+    if sha in managed:
+        return 'asset://' + managed[sha], None
+    scan = ReferenceFaceScan.objects.filter(pk=sha).first()
+    if scan is None or scan.has_face:
+        # Never send a face (or an unscanned image) as raw pixels: BytePlus rejects it after billing.
+        raise ValueError('A face reference was not ready as a portrait. Nothing was sent to the provider, so this was not charged.')
+    return None, raw
+
+
+def to_provider_data_urls(references, signal, *, read=None, prepare=None, portrait_lookup=None, managed=None):
     read = read or get_storage().read_as_base64
     prepare = prepare or prep_reference
     portrait_lookup = portrait_lookup or get_portrait_asset_by_image_url
@@ -81,6 +96,13 @@ def to_provider_data_urls(references, signal, *, read=None, prepare=None, portra
         signal.check()
         if isinstance(ref, str) and ref.startswith('asset://'):
             output.append(ref)
+            continue
+        if managed is not None:
+            asset, raw = managed_reference(ref, read, managed)
+            if asset:
+                output.append(asset)
+                continue
+            output.append(_data_url(raw, prepare))
             continue
         match = re.search(r'[?&#]bp[-_]asset(?:_id)?=([^&#]+)', ref) if isinstance(ref, str) else None
         if match:
@@ -102,19 +124,22 @@ def to_provider_data_urls(references, signal, *, read=None, prepare=None, portra
             problem = portrait_reference_problem(portrait) or 'is not ready for video yet'
             raise ValueError(f'{named} {problem}. Remove it from the references and try again; '
                              'nothing was sent to the provider, so this was not charged.')
-        raw = read(ref)
-        prepared = prepare(raw['mimeType'], raw['data'])
-        mime, data = prepared['mimeType'], prepared['data']
-        if not re.fullmatch(r'image/(jpeg|png)', mime, re.I):
-            try:
-                with Image.open(io.BytesIO(base64.b64decode(data))) as image:
-                    buffer = io.BytesIO()
-                    image.convert('RGB').save(buffer, format='JPEG', quality=92)
-                    data, mime = base64.b64encode(buffer.getvalue()).decode(), 'image/jpeg'
-            except Exception as error:
-                raise ValueError(f'Reference image could not be converted to JPEG for Seedance (was {mime}).') from error
-        output.append('data:' + mime.lower() + ';base64,' + data)
+        output.append(_data_url(read(ref), prepare))
     return output
+
+
+def _data_url(raw, prepare):
+    prepared = prepare(raw['mimeType'], raw['data'])
+    mime, data = prepared['mimeType'], prepared['data']
+    if not re.fullmatch(r'image/(jpeg|png)', mime, re.I):
+        try:
+            with Image.open(io.BytesIO(base64.b64decode(data))) as image:
+                buffer = io.BytesIO()
+                image.convert('RGB').save(buffer, format='JPEG', quality=92)
+                data, mime = base64.b64encode(buffer.getvalue()).decode(), 'image/jpeg'
+        except Exception as error:
+            raise ValueError(f'Reference image could not be converted to JPEG for Seedance (was {mime}).') from error
+    return 'data:' + mime.lower() + ';base64,' + data
 
 
 def sign_reference(ref, *, actor_id=None):
@@ -200,7 +225,9 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
         on_task(task_id, 0, 1)
         return {**base, **extra, 'task_id': task_id}
     combined = combined_references(item.prompt, deps.assets(item.project_id), item.reference_images or [])
-    inlined = deps.inline([ref['imageUrl'] for ref in combined], signal)
+    from .portrait_prepare import applies as managed_applies, assets_for
+    managed = {'managed': assets_for(item.id)} if managed_applies(item) else {}
+    inlined = deps.inline([ref['imageUrl'] for ref in combined], signal, **managed)
     references = [{**ref, 'index': index + 1, 'dataUrl': inlined[index]} for index, ref in enumerate(combined)]
     videos, audios = [], []
     for ref in resolve_references(item.prompt, item.reference_videos or [], 'vid'):
@@ -212,8 +239,8 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
     for ref in resolve_references(item.prompt, item.reference_audios or [], 'audio'):
         signal.check()
         audios.append(deps.sign(ref) if dependencies is not None else sign_reference(ref, actor_id=item.user_id))
-    first = deps.inline([item.continuation_frame_url], signal)[0] if item.continuation_frame_url else None
-    last = deps.inline([item.last_frame_url], signal)[0] if item.last_frame_url else None
+    first = deps.inline([item.continuation_frame_url], signal, **managed)[0] if item.continuation_frame_url else None
+    last = deps.inline([item.last_frame_url], signal, **managed)[0] if item.last_frame_url else None
     accepted, rejected = [], []
     for index in range(count):
         try:

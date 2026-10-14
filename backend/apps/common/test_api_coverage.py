@@ -52,6 +52,9 @@ EXPECTED = {'/api/admin/activity': ['GET'],
  '/api/generate/video/status': ['GET'],
  '/api/generations/[id]/download': ['GET', 'HEAD'],
  '/api/media-resolve': ['POST'],
+ '/api/portraits/managed': ['GET'],
+ '/api/portraits/managed/[id]': ['DELETE'],
+ '/api/admin/portrait-settings': ['GET', 'POST'],
  '/api/history/counts': ['GET'],
  '/api/history/exports/[id]/download': ['GET'],
  '/api/history/exports/[id]/finalize': ['POST'],
@@ -116,10 +119,10 @@ def leaves(patterns,prefix=''):
 
 @override_settings(ROOT_URLCONF='config.urls')
 class CompleteApiCoverageTests(SimpleTestCase):
-    def test_all_91_explicit_methods_resolve_to_the_declared_python_handlers(self):
-        # 90 migrated methods plus the stabilization media resolver.
-        self.assertEqual(len(EXPECTED),71)
-        self.assertEqual(sum(map(len,EXPECTED.values())),91)
+    def test_all_95_explicit_methods_resolve_to_the_declared_python_handlers(self):
+        # 90 migrated methods, the media resolver and the managed-portrait routes.
+        self.assertEqual(len(EXPECTED),74)
+        self.assertEqual(sum(map(len,EXPECTED.values())),95)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -184,6 +187,9 @@ NEGATIVE_STATUS = {
  '/api/generate/video/status': {'GET':401},
  '/api/generations/[id]/download': {'GET':401,'HEAD':401},
  '/api/media-resolve': {'POST':401},
+ '/api/portraits/managed': {'GET':401},
+ '/api/portraits/managed/[id]': {'DELETE':401},
+ '/api/admin/portrait-settings': {'GET':401,'POST':401},
  '/api/history/counts': {'GET':401},
  '/api/history/exports/[id]/download': {'GET':401},
  '/api/history/exports/[id]/finalize': {'POST':401},
@@ -230,7 +236,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         payload,signature=self.valid.split('.')
         self.forged=payload+'.'+('A' if signature[0]!='A' else 'B')+signature[1:]
         self.tables=sorted({model._meta.db_table for model in apps.get_models() if model._meta.managed})
-        self.assertEqual(len(self.tables),22)
+        self.assertEqual(len(self.tables),27)
         self.assertEqual({path:set(methods) for path,methods in EXPECTED.items()},
             {path:set(methods) for path,methods in NEGATIVE_STATUS.items()})
 
@@ -297,7 +303,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*91)
+            self.assertEqual(len(seen),3*95)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):

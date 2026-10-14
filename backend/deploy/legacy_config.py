@@ -19,7 +19,7 @@ WORKER_VARIABLE = 'GOAL4_PREVIEW_WORKER_CONFIGURATION'
 DATABASE_HOST = 'green-postgres18.railway.internal:5432'
 CA_SHA256 = 'b1f4b2fcbddfb295c2b12bd59c2d682c6f68c643efe6c1172677444ff3560465'
 SYSTEM_IDENTIFIER = '7694884166196781094'
-MIGRATION_ROWS = 60
+MIGRATION_ROWS = (60, 61)   # 61 once assets.0005_managed_portraits is applied
 API_ROLE = 'goal4_green_preview_api'
 PROVIDER_KEYS = {'ARK_API_KEY', 'ARK_BASE_URL', 'GOOGLE_API_KEY', 'SEEDANCE_MODEL', 'SEEDANCE_MODEL_FAST'}
 BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPLUS_ARK_REGION', 'BYTEPLUS_ARK_HOST', 'BYTEPLUS_ARK_BASE_URL'}
@@ -135,7 +135,7 @@ def preflight(database_url, contract, connect=None):
         identity = db.execute('SELECT current_database(), current_user, system_identifier::text FROM pg_control_system()').fetchone()
         need(tuple(identity) == ('railway', contract['role'], SYSTEM_IDENTIFIER), 'database identity')
         need(db.execute('SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()').fetchone()[0], 'database connection is not TLS')
-        need(db.execute('SELECT count(*) FROM public.django_migrations').fetchone()[0] == MIGRATION_ROWS, 'migration history')
+        need(db.execute('SELECT count(*) FROM public.django_migrations').fetchone()[0] in MIGRATION_ROWS, 'migration history')
         if 'rls_tables' not in contract:
             return
         flags = db.execute('SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolinherit FROM pg_roles WHERE rolname = current_user').fetchone()

@@ -118,3 +118,5 @@ VEEVEE_NAMING_PREFIX = os.environ.get('VEEVEE_NAMING_PREFIX', '')
 # BytePlus portrait lifecycle (list-only sync, tombstones, create-once
 # registration, remote-first delete); API process only.
 VEEVEE_PORTRAIT_LIFECYCLE = os.environ.get('VEEVEE_PORTRAIT_LIFECYCLE') == '1'
+# Automatic BytePlus portrait pool (face detection, expiry, eviction). Off = manual Gallery uploads.
+VEEVEE_MANAGED_PORTRAITS = os.environ.get('VEEVEE_MANAGED_PORTRAITS') == '1'

@@ -10,3 +10,4 @@ pillow-heif>=1,<2
 requests>=2.32,<3
 
 cryptography>=50,<51
+opencv-python-headless==4.10.0.84

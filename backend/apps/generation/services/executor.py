@@ -17,6 +17,7 @@ from apps.library.services.naming import assign_generation_naming
 from . import admission, coordinator, poller
 from .deadline import Cancellation
 from .video_execution import submit_video
+from . import portrait_prepare
 
 logger = logging.getLogger('veevee.generation')
 
@@ -265,6 +266,11 @@ def process_generation(identifier, *, owner=None, signal=None, image_execute=Non
     signal = signal or Cancellation()
     try:
         was_queued = item.status == 'queued'
+        if was_queued and portrait_prepare.applies(item):
+            deferred = _prepare_portraits(item, owner)
+            if deferred is not None:
+                return deferred
+            item = Generation.objects.get(pk=identifier)
         if was_queued:
             item = admission.admit_job(identifier, owner=owner)
             if item is None:
@@ -292,6 +298,47 @@ def process_generation(identifier, *, owner=None, signal=None, image_execute=Non
         return execute_admitted(item, owner=owner, signal=signal, image_execute=image_execute, video_submit=video_submit, env=env)
     finally:
         coordinator.release_generation(identifier, owner)
+        if portrait_prepare.enabled():
+            status = Generation.objects.filter(pk=identifier).values_list('status', flat=True).first()
+            if status not in ('queued', 'running'):
+                portrait_prepare.finish(identifier)
+
+
+def _prepare_portraits(item, owner):
+    """Run before admission. Returns None when the job may continue, else a result describing the wait/failure."""
+    from apps.assets import managed_pool
+    now = now_ms()
+    try:
+        outcome = portrait_prepare.prepare(item)
+    except Exception:
+        logger.error('portrait preparation failed; job stays queued for retry')
+        outcome = managed_pool.wait('portrait_error', 15000)
+    if outcome.kind == 'ready':
+        portrait_prepare.clear_wait(item.id)
+        if item.provider_status == portrait_prepare.WAITING_STATUS:
+            coordinator.expected_version(item, owner=owner).update(provider_status=None, progress_message=None,
+                                                                   updated_at=max(now, item.updated_at + 1))
+        return None
+    if outcome.kind == 'wait':
+        started = portrait_prepare.wait_started(item.id, outcome.reason, now)
+        limit = managed_pool.setting_values()['portraitQueueWaitMinutes'] * 60 * 1000
+        if now - started <= limit:
+            message = portrait_prepare.MESSAGES.get(outcome.reason, 'Preparing portraits…')
+            if item.provider_status != portrait_prepare.WAITING_STATUS or item.progress_message != message:
+                coordinator.expected_version(item, owner=owner).update(provider_status=portrait_prepare.WAITING_STATUS,
+                    progress_message=message, updated_at=max(now, item.updated_at + 1))
+                item = Generation.objects.get(pk=item.id)
+                publish_best_effort(item)
+            coordinator.schedule_generation(item, delay_ms=outcome.delay_ms, owner=owner)
+            return {'kind': 'portrait_waiting', 'reason': outcome.reason}
+        outcome = managed_pool.failed(f'Portrait storage stayed busy for {limit // 60000} minutes, so this generation was stopped. '
+                                      'Nothing was submitted, so it was not charged. Try again shortly.', 'portrait_wait_timeout')
+    coordinator.expected_version(item, owner=owner).update(status='failed', error=outcome.message, completed_at=now,
+        provider_status=None, progress_message=None, updated_at=max(now, item.updated_at + 1))
+    portrait_prepare.finish(item.id)
+    publish_best_effort(Generation.objects.get(pk=item.id))
+    return {'kind': 'failed', 'reason': outcome.reason}
+
 
 def submission_uncertain(error):
     """True when a failed provider call might still have created a billable job."""
