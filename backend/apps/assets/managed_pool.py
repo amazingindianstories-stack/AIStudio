@@ -31,7 +31,7 @@ NAME_PREFIX = 'veevee-'
 SETTINGS = {'portraitAssetTtlHours': (4, 1, 72), 'portraitPoolCapacity': (90, 1, 10000), 'portraitQueueWaitMinutes': (15, 1, 240)}
 PROCESSING_LIMIT_MS = 3 * 60 * 1000
 REGISTERING_STALE_MS = 2 * 60 * 1000
-VERIFY_INTERVAL_MS = 10 * 60 * 1000      # re-confirm an ACTIVE asset with BytePlus (unbilled GetAsset) at most this often
+VERIFY_INTERVAL_MS = 60 * 1000           # re-confirm an ACTIVE asset with BytePlus (unbilled GetAsset) before a submission at most this often
 MIN_SIDE, MAX_SIDE, MIN_RATIO, MAX_RATIO = 300, 6000, 0.4, 2.5
 
 
@@ -168,6 +168,16 @@ def _pool():
 
 def pin(generation_id, asset):
     ManagedPortraitPin.objects.get_or_create(generation_id=generation_id, asset=asset, defaults={'pinned_at': now_ms()})
+
+
+def require_verification(generation_id):
+    """The next use of this generation's ACTIVE assets re-confirms them with BytePlus first."""
+    with transaction.atomic():
+        _locked()
+        for asset in ManagedPortraitAsset.objects.select_for_update().filter(
+                status='ACTIVE', id__in=ManagedPortraitPin.objects.filter(generation_id=generation_id).values('asset_id')):
+            asset.receipt = {**(asset.receipt or {}), 'verified_at': 0}
+            asset.save(update_fields=['receipt'])
 
 
 def release_pins(generation_id):

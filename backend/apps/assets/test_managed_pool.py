@@ -252,6 +252,24 @@ class ManagedPoolTests(TransactionTestCase):
         live_id = ManagedPortraitAsset.objects.get(status='ACTIVE').byteplus_asset_id
         self.assertIn('asset://' + live_id, self.submitted_refs())
 
+    def test_active_asset_is_reconfirmed_before_each_submission_after_a_minute(self):
+        self.assertEqual(self.run_worker(self.enqueue([self.upload(FACE, 'image/jpeg')])).status, 'succeeded')
+        self.fake.assets.clear()        # removed at BytePlus; Veevee last confirmed it moments ago
+        ManagedPortraitAsset.objects.update(receipt={'verified_at': managed_pool.now_ms() - managed_pool.VERIFY_INTERVAL_MS - 1})
+        row = self.run_worker(self.enqueue([self.upload(FACE, 'image/jpeg')]))
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertEqual(len(self.fake.seedance_payloads), 2, 'no rejected paid submission')
+        self.assertLessEqual(managed_pool.VERIFY_INTERVAL_MS, 60 * 1000)
+
+    def test_failed_submission_makes_the_next_use_reconfirm_its_assets(self):
+        self.assertEqual(self.run_worker(self.enqueue([self.upload(FACE, 'image/jpeg')])).status, 'succeeded')
+        self.fake.assets.clear()        # vanished inside the trust window: BytePlus refuses this submission
+        self.assertEqual(self.run_worker(self.enqueue([self.upload(FACE, 'image/jpeg')])).status, 'failed')
+        self.assertFalse(ManagedPortraitPin.objects.exists())
+        row = self.run_worker(self.enqueue([self.upload(FACE, 'image/jpeg')]))
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertEqual(ManagedPortraitAsset.objects.get(status='ACTIVE').byteplus_asset_id, self.submitted_refs()[0][len('asset://'):])
+
     def test_pool_group_removed_outside_veevee_is_recreated(self):
         self.assertEqual(self.run_worker(self.enqueue([self.upload(face_variant(1))])).status, 'succeeded')
         self.fake.groups.clear()

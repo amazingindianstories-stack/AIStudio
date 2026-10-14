@@ -94,7 +94,10 @@ def clear_wait(generation_id):
     ManagedPortraitWait.objects.filter(generation_id=generation_id).delete()
 
 
-def finish(generation_id):
-    """Generation reached a terminal state: release its assets for expiry/eviction."""
+def finish(generation_id, failed=False):
+    """Generation reached a terminal state: release its assets for expiry/eviction. After a failure (which may be
+    BytePlus refusing a vanished asset) its assets are confirmed with BytePlus again before their next use."""
     clear_wait(generation_id)
+    if failed:
+        managed_pool.require_verification(generation_id)
     return managed_pool.release_pins(generation_id)

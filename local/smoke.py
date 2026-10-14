@@ -124,9 +124,9 @@ if done:
     else:
         check('export created', False, export)
 # ---- managed portraits: a real face photo becomes a BytePlus asset automatically
-def upload_bytes(data, content_type, filename):
+def upload_bytes(data, content_type, filename, purpose='image-reference'):
     import hashlib
-    status, session = call('POST', '/api/uploads/init', {'version': 1, 'purpose': 'image-reference', 'contentType': content_type,
+    status, session = call('POST', '/api/uploads/init', {'version': 1, 'purpose': purpose, 'contentType': content_type,
         'byteSize': len(data), 'filename': filename, 'requestKey': uuid.uuid4().hex, 'sha256': hashlib.sha256(data).hexdigest()})
     if status not in (200, 201) or not session.get('uploadUrl'):
         return None, session
@@ -139,7 +139,7 @@ def upload_bytes(data, content_type, filename):
         if error.code not in (200, 201, 204, 308):
             return None, {'put': error.code, 'body': error.read()[:200]}
     status, ready = call('POST', f'/api/uploads/{session["uploadId"]}/finalize', {'version': 1})
-    return (ready if status == 200 and ready.get('referenceId') else None), ready
+    return (ready if status == 200 and (ready.get('referenceId') or ready.get('key')) else None), ready
 
 
 status, pool = call('GET', '/api/portraits/managed')
@@ -162,7 +162,35 @@ if isinstance(pool, dict) and pool.get('enabled'):
 else:
     print('INFO managed portraits are off on this stack', flush=True)
 
+# ---- depth: the real external depth worker (local/veevee.sh depth) processes a short clip
 status, depth = call('GET', '/api/worker/depth/status')
-print(f'INFO depth worker status: {depth}', flush=True)
+if isinstance(depth, dict) and depth.get('online'):
+    import shutil
+    import subprocess
+    import tempfile
+    if shutil.which('ffmpeg'):
+        with tempfile.TemporaryDirectory() as directory:
+            clip = os.path.join(directory, 'clip.mp4')
+            subprocess.run(['ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc=size=320x180:rate=12', '-t', '1',
+                            '-pix_fmt', 'yuv420p', '-c:v', 'libx264', clip], check=True)
+            video = open(clip, 'rb').read()
+        ready, detail = upload_bytes(video, 'video/mp4', 'clip.mp4', 'depth-input')
+        check('depth input uploads through the normal flow', ready is not None, detail)
+        if ready:
+            status, item = call('POST', '/api/generate/depth', {'inputVideoKey': ready['key'], 'encoder': 'vits', 'trackCharacters': False,
+                                                                'originalName': 'clip.mp4', 'projectId': project['id']})
+            check('depth: accepted', status == 200 and bool((item or {}).get('id')), item)
+            row, deadline = item or {}, time.time() + 900
+            while row.get('id') and row.get('status') not in ('succeeded', 'failed') and time.time() < deadline:
+                time.sleep(3)
+                _, row = call('GET', f'/api/generate/depth/status?id={item["id"]}')
+            check('depth: finished on the local worker', row.get('status') == 'succeeded', row.get('error') or row.get('status'))
+            if row.get('url'):
+                status, data = call('GET', row['url'], raw=True)
+                check('depth: result readable', status == 200 and len(data) > 1000, f'{status} {len(data or b"")}')
+    else:
+        print('INFO ffmpeg missing on the host; depth job skipped', flush=True)
+else:
+    print(f'INFO depth worker offline (start it with local/veevee.sh depth): {depth}', flush=True)
 print(json.dumps({'failures': failures}), flush=True)
 sys.exit(1 if failures else 0)

@@ -5,6 +5,7 @@
 #                              fake providers, API, generation/export workers, scheduler
 #   local/veevee.sh frontend   run the Next.js app on http://localhost:3000 against the local API
 #   local/veevee.sh user       create/refresh the local admin login (prints email + password)
+#   local/veevee.sh depth      run the real depth worker (Video-Depth-Anything on this Mac) against the local app
 #   local/veevee.sh migrate    apply new migrations to the local database (as its owner)
 #   local/veevee.sh status     service state, fake provider pool, queue
 #   local/veevee.sh logs [svc] follow logs
@@ -77,6 +78,18 @@ PY'
     DJANGO_API_ORIGIN=http://127.0.0.1:18081 DJANGO_API_ALLOW_LOCAL=1 GOAL4_PRIVATE_INGRESS_SECRET="$(val VEEVEE_INGRESS_SECRET)" \
       NEXT_TELEMETRY_DISABLED=1 exec npx next dev -p 3000
     ;;
+  depth)
+    # The real external depth worker, dialling the local frontend like it dials veevee.ai in production.
+    # DEPTH_VENV: a Python 3.11 venv with depth-worker/requirements.txt; DEPTH_ASSETS_ROOT: the video-depth-maps folder.
+    ensure_env
+    VENV=${DEPTH_VENV:-$ROOT/depth-worker/.venv}
+    ASSETS=${DEPTH_ASSETS_ROOT:-$ROOT/../neural-networks-workflow/video-depth-maps}
+    [ -x "$VENV/bin/python" ] || { echo "no depth venv at $VENV — create one (cd depth-worker && uv venv --python 3.11 && uv pip install -r requirements.txt) or set DEPTH_VENV" >&2; exit 1; }
+    [ -d "$ASSETS/Video-Depth-Anything/checkpoints" ] || { echo "no Video-Depth-Anything checkpoints under $ASSETS — set DEPTH_ASSETS_ROOT" >&2; exit 1; }
+    cd "$ROOT/depth-worker"
+    VEEVEE_API_URL=http://localhost:3000 DEPTH_WORKER_TOKEN="$(val DEPTH_WORKER_TOKEN)" DEPTH_WORKER_LABEL=local \
+      DEPTH_ASSETS_ROOT="$ASSETS" DEPTH_RAM_LIMIT_MB=${DEPTH_RAM_LIMIT_MB:-16000} PYTHONUNBUFFERED=1 exec "$VENV/bin/python" worker.py
+    ;;
   migrate)
     dc exec -T -e DATABASE_URL="postgresql://postgres:$(val POSTGRES_PASSWORD)@db:5432/railway" api sh -c 'cd /app && python manage.py migrate --noinput'
     ;;
@@ -88,5 +101,5 @@ PY'
   restart) dc restart "$@" ;;
   down) dc down ;;
   reset) dc down -v ;;
-  *) sed -n 2,14p "$0"; exit 1 ;;
+  *) sed -n 2,15p "$0"; exit 1 ;;
 esac

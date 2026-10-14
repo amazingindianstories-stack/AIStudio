@@ -1,6 +1,6 @@
 import unittest
 
-from depth_protocol import PROTOCOL_VERSION, claim_payload, claimed_payload, heartbeat_payload
+from depth_protocol import PROTOCOL_VERSION, claim_payload, claimed_payload, heartbeat_payload, transfer_url
 
 
 class DepthProtocolTest(unittest.TestCase):
@@ -24,6 +24,13 @@ class DepthProtocolTest(unittest.TestCase):
             "workerId": "worker-a", "protocolVersion": PROTOCOL_VERSION,
             "currentClaimId": "claim-a", "status": "busy",
         })
+
+
+class TransferUrlTests(unittest.TestCase):
+    def test_absolute_urls_are_unchanged_and_local_paths_resolve(self):
+        signed = "https://storage.googleapis.com/bucket/depth-output/x.mp4?X-Goog-Signature=abc"
+        self.assertEqual(transfer_url("https://veevee.ai", signed), signed)
+        self.assertEqual(transfer_url("http://localhost:3000/", "/api/uploads/local?t=a.b"), "http://localhost:3000/api/uploads/local?t=a.b")
 
 
 if __name__ == "__main__":

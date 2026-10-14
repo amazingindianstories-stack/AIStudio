@@ -55,7 +55,8 @@ def verify_upload(token):
         if type(value.get('exp')) is not int or value['exp'] < time.time():
             return None
         validate_key(value['key'])
-        if not value['key'].startswith(('uploads/','exports/')) or not isinstance(value['type'],str):
+        # depth-output/: the external depth worker's result upload (signed by /api/worker/depth/upload-url).
+        if not value['key'].startswith(('uploads/','exports/','depth-output/')) or not isinstance(value['type'],str):
             return None
         return value
     except (ValueError, TypeError, KeyError, AttributeError, UnicodeError):

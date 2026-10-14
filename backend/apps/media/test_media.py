@@ -178,6 +178,8 @@ class PrimitiveTests(SimpleTestCase):
         self.assertEqual(verify_upload(token)['type'],'image/png')
         self.assertIsNone(verify_media_grant(token))
         self.assertIsNone(verify_upload(token+'x'))
+        self.assertEqual(verify_upload(sign_upload('depth-output/job/claim.mp4','video/mp4'))['key'],'depth-output/job/claim.mp4')
+        self.assertIsNone(verify_upload(sign_upload('generations/job/master.mov','video/quicktime')), 'protected namespaces stay closed')
 
     def test_image_data_allowlist_and_canvas_limit(self):
         with self.assertRaises(ValueError):

@@ -301,7 +301,7 @@ def process_generation(identifier, *, owner=None, signal=None, image_execute=Non
         if portrait_prepare.enabled():
             status = Generation.objects.filter(pk=identifier).values_list('status', flat=True).first()
             if status not in ('queued', 'running'):
-                portrait_prepare.finish(identifier)
+                portrait_prepare.finish(identifier, failed=status == 'failed')
 
 
 def _prepare_portraits(item, owner):
