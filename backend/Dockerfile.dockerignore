@@ -4,6 +4,8 @@
 backend/**
 !backend/**/*.py
 !backend/testsupport/goldens/*.json
+!backend/apps/assets/data/*.onnx
+!backend/testsupport/data/*.jpg
 !backend/requirements.txt
 !backend/constraints-qualified.txt
 !backend/Dockerfile

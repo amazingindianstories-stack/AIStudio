@@ -14,6 +14,8 @@ class Command(BaseCommand):
         parser.add_argument('--concurrency', type=int, default=2)
 
     def handle(self, *args, **options):
+        from apps.generation.services import portrait_prepare
+        portrait_prepare.check_ready()
         stop = Event()
         previous = {signum: signal.getsignal(signum) for signum in (signal.SIGINT, signal.SIGTERM)}
         try:

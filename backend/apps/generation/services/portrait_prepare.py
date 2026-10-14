@@ -94,6 +94,14 @@ def clear_wait(generation_id):
     ManagedPortraitWait.objects.filter(generation_id=generation_id).delete()
 
 
+def check_ready():
+    """Worker startup: with automatic portraits on, the packaged face model must be present and match its
+    checksum. Without it every reference would fail closed (treated as a face) and fill the pool."""
+    if enabled():
+        from apps.assets import face_detect
+        face_detect._model_path()
+
+
 def finish(generation_id, failed=False):
     """Generation reached a terminal state: release its assets for expiry/eviction. After a failure (which may be
     BytePlus refusing a vanished asset) its assets are confirmed with BytePlus again before their next use."""

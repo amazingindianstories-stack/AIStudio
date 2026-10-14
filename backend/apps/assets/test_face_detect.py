@@ -40,3 +40,21 @@ class FaceDetectTests(SimpleTestCase):
         finally:
             face_detect.MODEL_SHA256 = original
             face_detect._verified = False
+
+    def test_generation_worker_refuses_to_start_without_the_packaged_model(self):
+        from django.test import override_settings
+        from apps.generation.services import portrait_prepare
+        self.assertTrue(face_detect.MODEL_PATH.is_file(), 'the model ships with the code (Dockerfile.dockerignore)')
+        face_detect._verified = False
+        original = face_detect.MODEL_SHA256
+        try:
+            face_detect.MODEL_SHA256 = '0' * 64
+            with override_settings(VEEVEE_MANAGED_PORTRAITS=False):
+                portrait_prepare.check_ready()          # flag off: no requirement
+            with override_settings(VEEVEE_MANAGED_PORTRAITS=True), self.assertRaises(RuntimeError):
+                portrait_prepare.check_ready()
+        finally:
+            face_detect.MODEL_SHA256 = original
+            face_detect._verified = False
+        with override_settings(VEEVEE_MANAGED_PORTRAITS=True):
+            portrait_prepare.check_ready()

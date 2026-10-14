@@ -25,11 +25,12 @@ for n in $NAMES; do docker rm -f "$n" >/dev/null 2>&1 || true; done
 git -C "$ROOT" worktree add --quiet --detach "$WORK" "$COMMIT"
 docker build -q -f "$WORK/backend/Dockerfile" -t "$IMAGE" "$WORK" >/dev/null
 docker network inspect "$NET" --format '{{.Internal}}' | grep -qx true || { echo "network $NET must be --internal"; exit 1; }
+# Nothing else may work this database meanwhile (another worker would take the rehearsal's jobs).
+if [ "$(docker ps -q --filter "name=veevee-local-generation" --filter status=running)" ]; then
+  echo "stop the local stack's app services first (docker compose stop api generation export scheduler)"; exit 1; fi
 # Earlier local rehearsals may have left unregistered queued rows in the copy; close them (local copy only).
 docker exec "$REHEARSAL_DB" psql -U postgres -d railway -qAtc "UPDATE generations SET status='failed', error='closed before local rehearsal' WHERE status IN ('queued','running')" >/dev/null
 docker volume create "$VOL" >/dev/null
-docker run --rm --network "$NET" -e DJANGO_SECRET_KEY=rehearsal-migrate -e AUTH_SECRET=rehearsal-migrate -e DJANGO_ALLOWED_HOSTS=127.0.0.1 \
-  -e DATABASE_URL="$REHEARSAL_OBSERVER_URL" -w /app "$IMAGE" python manage.py migrate --noinput | grep -E "Apply|No migrations" || true
 MANAGED="-e VEEVEE_MANAGED_PORTRAITS=${REHEARSAL_MANAGED_PORTRAITS:-1} -e BYTEPLUS_ACCESS_KEY_ID=rehearsal-fake -e BYTEPLUS_SECRET_ACCESS_KEY=rehearsal-fake"
 SECRET="rehearsal-ingress-$(openssl rand -hex 24)"
 PAID='{"approved_scope":"GOAL4_EXISTING_GREEN_PREVIEW_UNLIMITED_NEW_IMAGE_AND_SEEDANCE_20_25_PAID_ONLY","unlimited_new_jobs":true,"maximum_total_cents":null}'
@@ -37,6 +38,10 @@ COMMON="-e DJANGO_SECRET_KEY=rehearsal-django-secret-$(openssl rand -hex 16) -e 
  -e DJANGO_ALLOWED_HOSTS=127.0.0.1 -e DJANGO_BROWSER_ORIGINS=https://veevee.ai -e PUBLIC_APP_URL=https://veevee.ai
  -e VEEVEE_MEDIA_BACKEND=filesystem -e VEEVEE_MEDIA_ROOT=/media -e MOCK_GENERATION=0 -e MOCK_ASSET_PROVIDER=0
  -e ARK_API_KEY=rehearsal-fake-key -e GOOGLE_API_KEY=rehearsal-fake-key -e AWS_EC2_METADATA_DISABLED=true -e PYTHONUNBUFFERED=1"
+# shellcheck disable=SC2086
+docker run --rm --network "$NET" $COMMON -e DATABASE_URL="$REHEARSAL_OBSERVER_URL" -w /app "$IMAGE" python manage.py migrate --noinput \
+  > "$BASE/migrate.txt" 2>&1 || { cat "$BASE/migrate.txt"; echo "== migration failed"; exit 1; }
+grep -E "Applying|No migrations" "$BASE/migrate.txt" || true
 API_DB="postgresql://goal4_green_preview_api:$REHEARSAL_API_PASSWORD@$REHEARSAL_DB_HOST:5432/railway"
 WORKER_DB="postgresql://goal4_green_preview_worker:$REHEARSAL_WORKER_PASSWORD@$REHEARSAL_DB_HOST:5432/railway"
 NS="-e VEEVEE_LEASE_PREFIX=lease:g4preview:$REHEARSAL_PREFIX: -e VEEVEE_NAMING_PREFIX=g4preview:$REHEARSAL_PREFIX:"
