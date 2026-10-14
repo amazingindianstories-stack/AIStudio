@@ -14,6 +14,7 @@ x-backend: &backend
     DJANGO_SETTINGS_MODULE: config.settings.local
     PYTHONUNBUFFERED: "1"
     VEEVEE_LOCAL_PROVIDERS: ${VEEVEE_LOCAL_PROVIDERS:-fake}
+    VEEVEE_MANAGED_PORTRAITS: ${VEEVEE_MANAGED_PORTRAITS:-1}
     VEEVEE_FAKE_PROVIDER_URL: http://fake-providers:8099
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
     AUTH_SECRET: ${AUTH_SECRET}
@@ -61,7 +62,7 @@ services:
     image: veevee-backend:local
     volumes: [../backend:/app:ro]
     command: ["python", "-m", "testsupport.fake_provider_server", "8099"]
-    networks: [internal]
+    networks: [internal, edge]        # edge only so /state and /control are reachable from this machine
     ports: ["127.0.0.1:18099:8099"]   # inspect /state, change /control
     restart: unless-stopped
 

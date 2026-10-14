@@ -73,6 +73,11 @@ class FakeProviders:
         if host.endswith('bytepluses.com') and path.endswith('/images/generations') and method == 'POST':
             return 200, {'data': [{'url': FAKE_MEDIA + 'seedream.png'}], 'usage': {'generated_images': 1}}
         if host.endswith('bytepluses.com') and path.endswith('/contents/generations/tasks') and method == 'POST':
+            missing = [part['image_url']['url'] for part in (data.get('content') or [])
+                       if part.get('type') == 'image_url' and str(part['image_url'].get('url', '')).startswith('asset://')
+                       and self.assets.get(part['image_url']['url'][len('asset://'):], {}).get('Status') != 'Active']
+            if missing:     # real BytePlus rejects unknown/inactive assets before accepting the task
+                return 400, {'error': {'code': 'InvalidParameter', 'message': f'asset not found or not active: {missing[0]}'}}
             with self.lock:
                 self.task_counter += 1
                 self.seedance_payloads.append(data)

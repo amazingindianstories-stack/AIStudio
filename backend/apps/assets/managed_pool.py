@@ -31,6 +31,7 @@ NAME_PREFIX = 'veevee-'
 SETTINGS = {'portraitAssetTtlHours': (4, 1, 72), 'portraitPoolCapacity': (90, 1, 10000), 'portraitQueueWaitMinutes': (15, 1, 240)}
 PROCESSING_LIMIT_MS = 3 * 60 * 1000
 REGISTERING_STALE_MS = 2 * 60 * 1000
+VERIFY_INTERVAL_MS = 10 * 60 * 1000      # re-confirm an ACTIVE asset with BytePlus (unbilled GetAsset) at most this often
 MIN_SIDE, MAX_SIDE, MIN_RATIO, MAX_RATIO = 300, 6000, 0.4, 2.5
 
 
@@ -190,6 +191,8 @@ def _claim(sha, source_key, generation_id, user_id, now):
         if asset is not None:
             pin(generation_id, asset)
             if asset.status == 'ACTIVE':
+                if now - int((asset.receipt or {}).get('verified_at') or 0) > VERIFY_INTERVAL_MS:
+                    return None, asset, 'verify'
                 _touch(asset, values, now)
                 return ready(asset.byteplus_asset_id), asset, None
             if asset.status == 'PROCESSING':
@@ -243,6 +246,12 @@ def ensure_group(client):
         return pool.byteplus_group_id
 
 
+def forget_group(group_id):
+    with transaction.atomic():
+        _locked()
+        ManagedPortraitPool.objects.filter(pk=1, byteplus_group_id=group_id).update(byteplus_group_id=None, updated_at=now_ms())
+
+
 def remote_delete(asset, client):
     """Delete remotely with a verified outcome. Returns True when the slot is free."""
     from .byteplus import BytePlusAssetError
@@ -278,7 +287,14 @@ def _register(asset, data, storage, client, user_id):
     try:
         group_id = ensure_group(client)
         url = storage.signed_read_url(key, 600, actor_id=user_id)
-        response = client.create_asset(group_id, url, name=NAME_PREFIX + asset.content_sha256[:40])
+        try:
+            response = client.create_asset(group_id, url, name=NAME_PREFIX + asset.content_sha256[:40])
+        except BytePlusAssetError as error:
+            if error.code != 'NotFound.group_id':
+                raise
+            # The pool's group was removed outside Veevee; nothing was created, so recreate it and retry once.
+            forget_group(group_id)
+            response = client.create_asset(ensure_group(client), url, name=NAME_PREFIX + asset.content_sha256[:40])
     except BytePlusAssetError as error:
         if error.code == 'QuotaSharedPoolExceeded':
             with transaction.atomic():
@@ -306,7 +322,7 @@ def _register(asset, data, storage, client, user_id):
         return wait('portrait_uncertain', 10000)
     active = response.get('Status') == 'Active'
     row = _finish(asset, byteplus_asset_id=identifier, status='ACTIVE' if active else 'PROCESSING',
-                  receipt={**asset.receipt, 'state': 'ACKNOWLEDGED', 'remote_id': identifier})
+                  receipt={**asset.receipt, 'state': 'ACKNOWLEDGED', 'remote_id': identifier, 'verified_at': now_ms()})
     if active:
         with transaction.atomic():
             _locked()
@@ -332,7 +348,8 @@ def _poll(asset, client):
             _locked()
             row = ManagedPortraitAsset.objects.select_for_update().get(pk=asset.pk)
             row.status = 'ACTIVE'
-            row.save(update_fields=['status'])
+            row.receipt = {**(row.receipt or {}), 'verified_at': now_ms()}
+            row.save(update_fields=['status', 'receipt'])
             _touch(row, setting_values(), now_ms())
         return ready(asset.byteplus_asset_id)
     if status == 'Failed' or now_ms() - asset.created_at > PROCESSING_LIMIT_MS:
@@ -342,11 +359,40 @@ def _poll(asset, client):
     return wait('portrait_processing', 3000)
 
 
-def ensure(data, source_key, generation_id, user_id, *, storage, client=None, now=None):
+def _verify(asset, client):
+    """An ACTIVE row must still exist at BytePlus (it can be removed outside Veevee). Returns ready/None(gone)/wait."""
+    from .byteplus import BytePlusAssetError
+    try:
+        remote = client.get_asset(asset.byteplus_asset_id)
+    except BytePlusAssetError as error:
+        if error.code in ('NotFound.asset_id', 'NotFound'):
+            _finish(asset, status='DELETED', deleted_at=now_ms(), error_code='missing_remotely')
+            return None
+        return wait('portrait_processing', 5000)
+    except Exception:
+        return wait('portrait_processing', 5000)
+    if str((remote or {}).get('Status')) != 'Active':
+        _finish(asset, status='PROCESSING')
+        return wait('portrait_processing', 3000)
+    with transaction.atomic():
+        _locked()
+        row = ManagedPortraitAsset.objects.select_for_update().get(pk=asset.pk)
+        row.receipt = {**(row.receipt or {}), 'verified_at': now_ms()}
+        row.save(update_fields=['receipt'])
+        _touch(row, setting_values(), now_ms())
+    return ready(asset.byteplus_asset_id)
+
+
+def ensure(data, source_key, generation_id, user_id, *, storage, client=None, now=None, _retry=True):
     """Make the face reference with these bytes usable as a BytePlus asset for this generation."""
     client = client or default_client()
     sha = content_sha256(data)
     outcome, asset, action = _claim(sha, source_key, generation_id, user_id, now or now_ms())
+    if action == 'verify':
+        verified = _verify(asset, client)
+        if verified is None and _retry:     # vanished remotely: register it again
+            return ensure(data, source_key, generation_id, user_id, storage=storage, client=client, _retry=False)
+        return verified or wait('portrait_registering', 1000)
     if action == 'register':
         return _register(asset, data, storage, client, user_id)
     if action == 'poll':

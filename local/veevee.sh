@@ -5,6 +5,7 @@
 #                              fake providers, API, generation/export workers, scheduler
 #   local/veevee.sh frontend   run the Next.js app on http://localhost:3000 against the local API
 #   local/veevee.sh user       create/refresh the local admin login (prints email + password)
+#   local/veevee.sh migrate    apply new migrations to the local database (as its owner)
 #   local/veevee.sh status     service state, fake provider pool, queue
 #   local/veevee.sh logs [svc] follow logs
 #   local/veevee.sh restart [svc]   pick up backend code changes
@@ -75,6 +76,9 @@ PY'
     cd "$ROOT"
     DJANGO_API_ORIGIN=http://127.0.0.1:18081 DJANGO_API_ALLOW_LOCAL=1 GOAL4_PRIVATE_INGRESS_SECRET="$(val VEEVEE_INGRESS_SECRET)" \
       NEXT_TELEMETRY_DISABLED=1 exec npx next dev -p 3000
+    ;;
+  migrate)
+    dc exec -T -e DATABASE_URL="postgresql://postgres:$(val POSTGRES_PASSWORD)@db:5432/railway" api sh -c 'cd /app && python manage.py migrate --noinput'
     ;;
   status)
     dc ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}'

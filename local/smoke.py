@@ -123,6 +123,45 @@ if done:
             check('ZIP downloads with every item', len(names) == len(done), names or status)
     else:
         check('export created', False, export)
+# ---- managed portraits: a real face photo becomes a BytePlus asset automatically
+def upload_bytes(data, content_type, filename):
+    import hashlib
+    status, session = call('POST', '/api/uploads/init', {'version': 1, 'purpose': 'image-reference', 'contentType': content_type,
+        'byteSize': len(data), 'filename': filename, 'requestKey': uuid.uuid4().hex, 'sha256': hashlib.sha256(data).hexdigest()})
+    if status not in (200, 201) or not session.get('uploadUrl'):
+        return None, session
+    url = session['uploadUrl'] if session['uploadUrl'].startswith('http') else BASE + session['uploadUrl']
+    request = urllib.request.Request(url, method='PUT', data=data, headers={'Content-Type': content_type,
+        'Content-Range': f'bytes 0-{len(data) - 1}/{len(data)}', 'Origin': BASE, 'Sec-Fetch-Site': 'same-origin'})
+    try:
+        opener.open(request, timeout=60).read()
+    except urllib.error.HTTPError as error:
+        if error.code not in (200, 201, 204, 308):
+            return None, {'put': error.code, 'body': error.read()[:200]}
+    status, ready = call('POST', f'/api/uploads/{session["uploadId"]}/finalize', {'version': 1})
+    return (ready if status == 200 and ready.get('referenceId') else None), ready
+
+
+status, pool = call('GET', '/api/portraits/managed')
+if isinstance(pool, dict) and pool.get('enabled'):
+    face = open(os.path.join(HERE, '..', 'backend', 'testsupport', 'data', 'face_public_domain.jpg'), 'rb').read()
+    ready, detail = upload_bytes(face, 'image/jpeg', 'face.jpg')
+    check('face reference uploads through the normal flow', ready is not None, detail)
+    if ready:
+        identifier = enqueue('video', {'prompt': 'local smoke: portrait @img1 walks through the hall', 'model': 'Seedance 2.5',
+                                       'resolution': '480p', 'draftMode': True, 'duration': 5, 'referenceImages': [{'referenceId': ready['referenceId']}]})
+        row = wait(identifier) if identifier else {}
+        check('face video finished (portrait prepared automatically)', row.get('status') == 'succeeded', row.get('error') or row.get('status'))
+        status, pool = call('GET', '/api/portraits/managed')
+        assets = (pool or {}).get('assets', [])
+        check('Gallery lists the managed portrait as Ready', any(a['label'] == 'Ready' for a in assets), assets[:2])
+        state = json.loads(urllib.request.urlopen('http://127.0.0.1:18099/state', timeout=10).read())
+        check('fake BytePlus holds the registered asset', state['live_assets'] >= 1, state['live_assets'])
+        status, refused = call('POST', '/api/assets/portraits/upload', {'referenceId': ready['referenceId']})
+        check('manual portrait upload is refused', status == 410, refused)
+else:
+    print('INFO managed portraits are off on this stack', flush=True)
+
 status, depth = call('GET', '/api/worker/depth/status')
 print(f'INFO depth worker status: {depth}', flush=True)
 print(json.dumps({'failures': failures}), flush=True)

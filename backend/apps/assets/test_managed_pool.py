@@ -236,3 +236,24 @@ class ManagedPoolTests(TransactionTestCase):
         ok = self.client.post('/api/admin/portrait-settings', {'key': 'portraitAssetTtlHours', 'value': 6}, content_type='application/json')
         self.assertEqual(ok.status_code, 200, ok.content)
         self.assertEqual(ok.json()['settings']['portraitAssetTtlHours'], 6)
+
+    def test_asset_removed_outside_veevee_is_detected_and_registered_again(self):
+        first = self.run_worker(self.enqueue([self.upload(FACE, 'image/jpeg')]))
+        self.assertEqual(first.status, 'succeeded')
+        self.fake.assets.clear()                                   # someone deleted it in the BytePlus console
+        ManagedPortraitAsset.objects.update(receipt={'verified_at': 0})
+        second = self.run_worker(self.enqueue([self.upload(FACE, 'image/jpeg')]))
+        self.assertEqual(second.status, 'succeeded', second.error)
+        self.assertEqual(self.fake.live_asset_count(), 1)
+        self.assertEqual(sorted(ManagedPortraitAsset.objects.values_list('status', flat=True)), ['ACTIVE', 'DELETED'])
+        live_id = ManagedPortraitAsset.objects.get(status='ACTIVE').byteplus_asset_id
+        self.assertIn('asset://' + live_id, self.submitted_refs())
+
+    def test_pool_group_removed_outside_veevee_is_recreated(self):
+        self.assertEqual(self.run_worker(self.enqueue([self.upload(face_variant(1))])).status, 'succeeded')
+        self.fake.groups.clear()
+        self.fake.assets.clear()
+        row = self.run_worker(self.enqueue([self.upload(face_variant(2))]))
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertEqual(len(self.fake.groups), 1)
+        self.assertEqual(ManagedPortraitPool.objects.get().byteplus_group_id, next(iter(self.fake.groups)))
