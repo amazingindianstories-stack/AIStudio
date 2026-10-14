@@ -25,6 +25,7 @@ class CurrentUserTests(TransactionTestCase):
         self.assertEqual(self.client.get('/api/auth/me').json(),{'user':None})
 
 class PasswordCompatibilityTests(TransactionTestCase):
+    @__import__('unittest').skipUnless(__import__('shutil').which('node'), 'Node.js is not installed (historical interop check runs where node exists)')
     def test_node_python_password_interoperability_and_validation(self):
         import json
         import subprocess
