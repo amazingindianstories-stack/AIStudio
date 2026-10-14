@@ -328,7 +328,7 @@ export function getFolderDragData(e) {
 
 /**
  * Validates drop compatibility for Upscaler.
- * Accepts image files and image generations. Rejects videos and depth maps.
+ * Accepts files and generations matching the upscaler's media (image or video).
  *
  * @param {DragEvent} e
  * @param {Object} [storeState]
@@ -351,22 +351,25 @@ export function validateUpscalerDrop(e, storeState = null) {
             .filter(Boolean);
 
     if (items.length > 0) {
-      const hasImage = items.some((item) => item.kind === "image");
-      if (!hasImage) {
+      const media = storeState?.upscalerMedia === "video" ? "video" : "image";
+      // The drop uses the first item, so judge the first item.
+      if (items[0].kind !== media) {
         return {
           valid: false,
-          reason: "Upscaler only accepts images. Videos cannot be upscaled.",
+          reason: media === "video"
+            ? "Video upscaling only accepts videos. Switch to Image to upscale an image."
+            : "Upscaler only accepts images here. Switch to Video to upscale a video.",
         };
       }
       return {
         valid: true,
-        reason: items.length > 1 ? "Drop to use first image" : "Drop to upscale image",
+        reason: items.length > 1 ? `Drop to use first ${media}` : `Drop to upscale ${media}`,
       };
     }
   }
 
   if (isFiles) {
-    return { valid: true, reason: "Drop image file to upscale" };
+    return { valid: true, reason: storeState?.upscalerMedia === "video" ? "Drop video file to upscale" : "Drop image file to upscale" };
   }
 
   return { valid: false, reason: "Unsupported drag type" };

@@ -29,6 +29,8 @@ import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-uplo
 import { getAssetDragData, validateUpscalerDrop } from "@/lib/asset-drag-contract";
 import { ProgressiveImage } from "./ProgressiveImage";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { UpscaleMediaToggle } from "./UpscaleMediaToggle";
+import { VideoUpscalerComposer } from "./VideoUpscalerComposer";
 
 const MODELS = [
   {
@@ -75,6 +77,8 @@ export function UpscalerComposer() {
 
   const resultItem = lastResult ? findItem(s, lastResult.item.id) || lastResult.item : null;
   const activeModelId = params.model || "Magnific Creative";
+  // After every hook above, so hook order is identical across the switch.
+  if (s.upscalerMedia === "video") return <VideoUpscalerComposer />;
 
   const handleSelectFile = async (file) => {
     if (!file) return;
@@ -231,6 +235,8 @@ export function UpscalerComposer() {
       {/* Model selection tabs */}
       <div className="mb-4">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
+          <div className="flex flex-wrap items-center gap-2">
+          <UpscaleMediaToggle />
           <div className="flex items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
             {MODELS.map((m) => {
               const active = activeModelId === m.id;
@@ -259,6 +265,7 @@ export function UpscalerComposer() {
                 </button>
               );
             })}
+          </div>
           </div>
 
           <button

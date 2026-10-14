@@ -206,6 +206,21 @@ test("validateUpscalerDrop rejects video-only payloads and accepts images", asyn
   assert.equal(fileResult.valid, true);
 });
 
+test("validateUpscalerDrop follows the upscaler media and judges the first item", async () => {
+  const { validateUpscalerDrop } = await import("./asset-drag-contract.js");
+  const dt = () => { const value = new MockDataTransfer(); value.types = [VEEVEE_ASSET_MIME]; return value; };
+  const video = validateUpscalerDrop({ dataTransfer: dt() }, { upscalerMedia: "video", draggedAssets: [{ id: "v1", kind: "video" }] });
+  assert.equal(video.valid, true);
+  const image = validateUpscalerDrop({ dataTransfer: dt() }, { upscalerMedia: "video", draggedAssets: [{ id: "i1", kind: "image" }] });
+  assert.equal(image.valid, false);
+  assert.match(image.reason, /only accepts videos/);
+  const mixed = validateUpscalerDrop({ dataTransfer: dt() }, { draggedAssets: [{ id: "v1", kind: "video" }, { id: "i1", kind: "image" }] });
+  assert.equal(mixed.valid, false, "the drop would use the first item, a video, in image mode");
+  const file = new MockDataTransfer();
+  file.types = ["Files"];
+  assert.match(validateUpscalerDrop({ dataTransfer: file }, { upscalerMedia: "video" }).reason, /video file/);
+});
+
 test("validateDepthDrop rejects Asset Library generations and accepts direct files", async () => {
   const { validateDepthDrop } = await import("./asset-drag-contract.js");
 
