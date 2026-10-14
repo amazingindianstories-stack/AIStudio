@@ -27,7 +27,10 @@ def reconcile_depth(now=None):
 
 def select_videos(now):
     # due=true in the source deliberately supersedes the 45-minute stale filter.
+    # Magnific upscales are polled and stored only by the leased worker: their
+    # masters can take minutes to download, beyond this pass's budget.
     return list(Generation.objects.filter(kind='video', status__in=['queued', 'running'], task_id__isnull=False)
+        .exclude(model__startswith='Magnific ')
         .filter(Q(next_poll_at__isnull=True) | Q(next_poll_at__lte=now)).order_by('updated_at', 'created_at', 'id')[:5])
 
 

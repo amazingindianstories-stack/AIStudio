@@ -19,6 +19,7 @@ from apps.generation.models import Generation
 from apps.generation.providers import magnific, omni
 from apps.generation.realtime import publish_best_effort
 from apps.media import persistence
+from apps.media.errors import MediaTooLargeError
 from apps.media.remote import get_media_fetcher
 from apps.media.storage import get_storage
 from . import coordinator
@@ -27,6 +28,11 @@ from .pricing import read_pricing, seedance_token_cost
 
 
 MAGNIFIC_VIDEO_MAX_BYTES = 4 * 1024 * 1024 * 1024
+# Output links expire 30 minutes after generation (docs.magnific.com/quickstart);
+# a few spaced attempts fit well inside that window.
+MAGNIFIC_SAVE_ATTEMPTS = 3
+MAGNIFIC_TOO_LARGE = 'The upscaled master is larger than 4 GB and could not be stored. Use H.264, a lower resolution or a shorter clip.'
+MAGNIFIC_SAVE_FAILED = 'The upscaled master could not be downloaded and stored.'
 
 
 def retry_after_ms(count):
@@ -71,10 +77,13 @@ class Dependencies:
     def save_magnific_video(self, url, ext, identifier, metadata):
         # Same allowlisted fetcher, streamed to a spool file; ProRes masters
         # get a larger cap within the worker's per-job budget.
+        import copy
         from apps.media.remote import SafeMediaFetcher
         fetcher = get_media_fetcher()
         if isinstance(fetcher, SafeMediaFetcher):
-            fetcher = SafeMediaFetcher(fetcher.allowed_hosts, max_bytes=MAGNIFIC_VIDEO_MAX_BYTES, total_timeout=240)
+            # Same hosts, resolver and pinning; only the size cap and time budget differ.
+            fetcher = copy.copy(fetcher)
+            fetcher.max_bytes, fetcher.total_timeout = MAGNIFIC_VIDEO_MAX_BYTES, 240
         return persistence.save_from_url_with_metadata(url, ext, identifier, metadata, fetcher=fetcher)
 
     def fetch(self, url):
@@ -227,10 +236,18 @@ def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):
         return _terminal(item, {'status': 'failed', 'error': outcome.get('error') or 'Magnific upscale task failed.'}, deps, signal, owner, {'provider_status': 'FAILED'})
     url = outcome['generatedUrl']
     signal.check()
-    # Native container and bytes are kept: MP4 for H.264, the .mov master for ProRes.
-    saved = deps.save_magnific_video(url, video_extension({'url': url}), f'{item.id}/{uuid4().hex}', _metadata(item))
+    try:
+        # Native container and bytes are kept: MP4 for H.264, the .mov master for ProRes.
+        saved = deps.save_magnific_video(url, video_extension({'url': url}), f'{item.id}/{uuid4().hex}', _metadata(item))
+    except MediaTooLargeError:
+        return _terminal(item, {'status': 'failed', 'error': MAGNIFIC_TOO_LARGE}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
+    except Exception:
+        if (item.poll_error_count or 0) + 1 >= MAGNIFIC_SAVE_ATTEMPTS:
+            return _terminal(item, {'status': 'failed', 'error': MAGNIFIC_SAVE_FAILED}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
+        raise
+    # The master is stored: record it even if the job's own budget ran out meanwhile.
     return _terminal(item, {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio},
-                     deps, signal, owner, {'provider_status': 'COMPLETED'})
+                     deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
 
 
 def advance(item, *, source='cron', signal=None, owner=None, provider=None, callback_received_at=None, dependencies=None):

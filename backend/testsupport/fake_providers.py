@@ -98,8 +98,10 @@ class FakeProviders:
         status = re.fullmatch(r'(/v1/ai/[a-z0-9-]+)/(mag-sim-\d+)', path)
         if host == 'api.magnific.com' and method == 'GET' and status and status[2] in self.magnific_tasks:
             created = self.magnific_tasks[status[2]]
-            if not created['path'].startswith(status[1]):
-                raise AssertionError(f'Magnific task {status[2]} polled on the wrong endpoint {status[1]}')
+            # Documented get-task paths: the create path, except Turbo which is read via the standard endpoint.
+            expected = '/v1/ai/video-upscaler' if created['path'] == '/v1/ai/video-upscaler/turbo' else created['path']
+            if status[1] != expected:
+                raise AssertionError(f'Magnific task {status[2]} polled on {status[1]}, expected {expected}')
             if created['path'].startswith('/v1/ai/video-upscaler'):
                 generated = [MAGNIFIC_CDN + status[2] + '.mp4?token=t']
                 if (created['body'] or {}).get('output_format') == 'prores_422_hq':

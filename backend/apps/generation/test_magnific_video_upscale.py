@@ -101,6 +101,19 @@ class ValidationTests(SimpleTestCase):
             with self.subTest(change=change), self.assertRaises(InvalidUpscaleRequest):
                 validate_video_upscale_request({**topaz, 'params': {**topaz['params'], **change}})
 
+    def test_prores_masters_that_could_not_be_stored_are_refused_up_front(self):
+        from .services.upscale_validation import validate_prores_size, estimated_prores_bytes
+        uhd = {'width': 1920, 'height': 1080, 'fps': 30, 'durationSeconds': 60}
+        prores = {**CREATIVE, 'outputFormat': 'prores_422_hq'}
+        with self.assertRaises(InvalidUpscaleRequest):
+            validate_prores_size('Magnific Video Creative', {**prores, 'resolution': '4k'}, uhd)
+        validate_prores_size('Magnific Video Creative', {**prores, 'resolution': '4k'}, {**uhd, 'durationSeconds': 20})
+        validate_prores_size('Magnific Video Creative', {**prores, 'resolution': '2k'}, uhd)
+        validate_prores_size('Magnific Video Creative', {**CREATIVE, 'resolution': '4k'}, uhd)  # H.264 is never refused here
+        # Apple's 220 Mbps at 1920x1080 29.97 fps reproduces itself.
+        one_second = estimated_prores_bytes({'resolution': '1k', 'fpsBoost': False}, {'width': 2048, 'height': 2048 * 1080 / 1920, 'fps': 29.97, 'durationSeconds': 1})
+        self.assertAlmostEqual(one_second * 8 / 1e6, 220 * (2048 / 1920) ** 2, delta=1)
+
     def test_frames_and_estimate(self):
         meta = {'durationSeconds': 5.0, 'fps': 24}
         self.assertEqual(video_upscale_frames('Magnific Video Creative', CREATIVE, meta), 120)
@@ -152,6 +165,8 @@ class EnqueueTests(TransactionTestCase):
         self.assertEqual(row.submission_input['sourceMeta']['fps'], 24)
         self.assertEqual(row.cost_cents, 44)  # 48 frames at 900/1000 cents (2K)
         self.assertEqual((row.cost_basis, row.task_id), ('estimated', None))
+        from .serialization import generation_item
+        self.assertEqual(generation_item(row)['upscaleParams'], CREATIVE, 'clients regenerate with the exact original parameters')
 
     def test_every_refusal_returns_400_and_queues_nothing(self):
         self.cookie()
@@ -246,11 +261,36 @@ class WorkerTests(TransactionTestCase):
         storage = self.storage()
         identifier = self.queued(storage)
         with override_settings(VEEVEE_MEDIA_STORAGE=storage, PUBLIC_APP_URL='http://localhost:3000'), patch.dict(os.environ, ENV), FakeProviders() as fake:
-            with self.assertRaises(ValueError):
-                executor.process_generation(identifier, heartbeat=False)
+            executor.process_generation(identifier, heartbeat=False)
         row = Generation.objects.get(pk=identifier)
-        self.assertIsNone(row.provider_status)
+        self.assertEqual((row.status, row.provider_status, row.task_id), ('failed', 'NOT_SUBMITTED', None))
+        from .serialization import generation_item
+        self.assertEqual(generation_item(row)['error'], 'The upscale source could not be prepared. Nothing was sent to Magnific.')
         self.assertFalse(fake.calls)
+
+    def test_definitive_rejection_ends_the_job_without_a_retry(self):
+        storage = self.storage()
+        identifier = self.queued(storage)
+        posts = []
+        def refuse(payload, signal):
+            posts.append(payload)
+            raise magnific.ProviderError('Could not validate video', status=400)
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch.dict(os.environ, ENV), FakeProviders(), \
+                patch.object(magnific, 'submit_video_upscale', refuse):
+            executor.process_generation(identifier, heartbeat=False)
+            Generation.objects.filter(pk=identifier).update(worker_lease_id=None, worker_lease_until=None)
+            executor.process_generation(identifier, heartbeat=False)
+        row = Generation.objects.get(pk=identifier)
+        self.assertEqual((row.status, row.provider_status, row.task_id, len(posts)), ('failed', 'REJECTED', None, 1))
+        from .serialization import generation_item
+        self.assertEqual(generation_item(row)['error'], 'Magnific rejected this upscale. Nothing was charged; check the source and settings.')
+
+    def test_server_errors_and_lost_receipts_stay_uncertain(self):
+        from .services import upscale_submission
+        for error in (magnific.ProviderError('busy', status=503), magnific.ProviderError('timeout', status=408), TimeoutError('t')):
+            self.assertFalse(upscale_submission.definitive_rejection(error), error)
+        self.assertTrue(upscale_submission.definitive_rejection(magnific.ProviderError('bad', status=422)))
+        self.assertFalse(upscale_submission.definitive_rejection(RuntimeError('Provider accepted upscale without a valid receipt.')))
 
     def test_running_failed_and_poll_errors(self):
         storage = self.storage()
@@ -276,19 +316,123 @@ class WorkerTests(TransactionTestCase):
         from .serialization import generation_item
         self.assertEqual(generation_item(row)['error'], 'Upscale generation failed.')
 
-    def test_scheduler_reconciler_polls_magnific_never_seedance(self):
+    def test_scheduler_leaves_magnific_rows_to_the_leased_worker(self):
         from apps.workers import maintenance
         storage = self.storage()
         identifier = self.queued(storage)
         with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch.dict(os.environ, ENV), FakeProviders() as fake:
             executor.process_generation(identifier, heartbeat=False)
             Generation.objects.filter(pk=identifier).update(next_poll_at=0, worker_lease_id=None, worker_lease_until=None)
+            before = len(fake.calls)
             with patch('apps.generation.providers.seedance.get_video_task', side_effect=AssertionError('Seedance polled a Magnific task')):
                 counts = maintenance.reconcile_videos()
-        self.assertEqual(counts['succeeded'], 1, counts)
-        row = Generation.objects.get(pk=identifier)
-        self.assertEqual(row.status, 'succeeded')
+            self.assertEqual((counts['checked'], len(fake.calls)), (0, before), 'the scheduler never touches a Magnific row')
+            executor.process_generation(identifier, heartbeat=False)
+        self.assertEqual(Generation.objects.get(pk=identifier).status, 'succeeded')
         self.assertTrue(any(call[0] == 'GET' and call[1].startswith('api.magnific.com/v1/ai/video-upscaler/') for call in fake.calls))
+
+    def completed(self, storage):
+        identifier = self.queued(storage)
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch.dict(os.environ, ENV), FakeProviders():
+            executor.process_generation(identifier, heartbeat=False)
+        return identifier
+
+    def advance_with(self, identifier, storage, save):
+        deps = poller.Dependencies(get_magnific_video=lambda *a, **k: {'status': 'succeeded', 'generatedUrl': 'https://cdn-magnific.freepik.com/x.mp4?token=t',
+                                                                        'generatedUrls': []}, save_magnific_video=save)
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch.dict(os.environ, ENV):
+            try:
+                return poller.advance(Generation.objects.get(pk=identifier), dependencies=deps)
+            finally:
+                Generation.objects.filter(pk=identifier).update(next_poll_at=0)
+
+    def test_an_oversized_master_fails_cleanly_instead_of_retrying(self):
+        from apps.media.errors import MediaTooLargeError
+        storage = self.storage()
+        identifier = self.completed(storage)
+        def too_large(*args):
+            raise MediaTooLargeError('Provider media exceeds the configured download limit.')
+        self.assertEqual(self.advance_with(identifier, storage, too_large)['kind'], 'failed')
+        row = Generation.objects.get(pk=identifier)
+        from .serialization import generation_item
+        self.assertIn('larger than 4 GB', generation_item(row)['error'])
+
+    def test_repeated_save_failures_end_the_job_after_three_attempts(self):
+        storage = self.storage()
+        identifier = self.completed(storage)
+        def broken(*args):
+            raise IOError('Provider media ended before its declared length.')
+        kinds = [self.advance_with(identifier, storage, broken)['kind'] for _ in range(3)]
+        self.assertEqual(kinds, ['poll_error', 'poll_error', 'failed'])
+        from .serialization import generation_item
+        self.assertEqual(generation_item(Generation.objects.get(pk=identifier))['error'], 'The upscaled master could not be downloaded and stored.')
+
+    def test_a_stored_master_is_recorded_even_after_the_job_deadline(self):
+        from .services.deadline import Cancellation
+        storage = self.storage()
+        identifier = self.completed(storage)
+        signal = Cancellation(60000)
+        def slow(*args):
+            signal.deadline = 0  # the job's own budget ran out during the download
+            return {'url': '/api/media/generations/x/y.mp4', 'aspectRatio': '16:9'}
+        deps = poller.Dependencies(get_magnific_video=lambda *a, **k: {'status': 'succeeded', 'generatedUrl': 'https://cdn-magnific.freepik.com/x.mp4?token=t'},
+                                   save_magnific_video=slow)
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch.dict(os.environ, ENV):
+            outcome = poller.advance_magnific_video(Generation.objects.get(pk=identifier), signal=signal, dependencies=deps)
+        self.assertEqual(outcome['kind'], 'succeeded')
+        self.assertEqual(Generation.objects.get(pk=identifier).url, '/api/media/generations/x/y.mp4')
+
+
+class StreamingSaveTests(SimpleTestCase):
+    """The production save path: SafeMediaFetcher spool -> container check -> upload_stream."""
+
+    def fetcher_class(self, payload, seen):
+        import contextlib
+        import tempfile as tf
+        from apps.media.remote import SafeMediaFetcher
+
+        class Spooling(SafeMediaFetcher):
+            @contextlib.contextmanager
+            def open_file(self, url, *, max_bytes=None):
+                seen.append((url, self.max_bytes, self.total_timeout))
+                with tf.TemporaryFile() as spool:
+                    spool.write(payload)
+                    spool.seek(0)
+                    yield spool, 'application/octet-stream'
+        return Spooling
+
+    def save(self, payload, ext):
+        from testsupport.fake_providers import mp4_bytes  # noqa: F401  (ffmpeg present in the image)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        storage = StorageService(FileSystemAdapter(directory.name))
+        seen = []
+        base = self.fetcher_class(payload, seen)(['cdn-magnific.freepik.com'])
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch('apps.generation.services.poller.get_media_fetcher', lambda: base):
+            saved = poller.Dependencies().save_magnific_video('https://cdn-magnific.freepik.com/a.' + ext + '?token=t', ext, 'g/1', {'kind': 'video'})
+        key = saved['url'][len('/api/media/'):]
+        media = storage.open(key)
+        try:
+            stored = b''.join(media.stream)
+        finally:
+            media.stream.close()
+        return saved, stored, media.content_type, seen
+
+    def test_mp4_master_streams_with_the_raised_cap_and_keeps_its_bytes(self):
+        from testsupport.fake_providers import mp4_bytes
+        data = mp4_bytes()
+        saved, stored, content_type, seen = self.save(data, 'mp4')
+        self.assertEqual((stored, content_type), (data, 'video/mp4'))
+        self.assertEqual(seen[0][1:], (poller.MAGNIFIC_VIDEO_MAX_BYTES, 240))
+        self.assertEqual(saved['aspectRatio'], '16:9')
+
+    def test_prores_mov_master_must_be_a_real_quicktime_container(self):
+        from testsupport.fake_providers import mov_bytes, mp4_bytes
+        data = mov_bytes()
+        _, stored, content_type, _ = self.save(data, 'mov')
+        self.assertEqual((stored, content_type), (data, 'video/quicktime'))
+        with self.assertRaises(ValueError):
+            self.save(mp4_bytes(), 'mov')  # an ISO MP4 labelled .mov is refused, never stored as the master
 
 
 class ProbeTests(SimpleTestCase):

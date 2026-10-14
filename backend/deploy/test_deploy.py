@@ -153,8 +153,8 @@ class LegacyConfigTests(SimpleTestCase):
         self.assertFalse(self.legacy.present({**env, 'DATABASE_URL': 'postgresql://explicit'}))
 
     def test_magnific_key_flag_and_cdn_pass_through_only_when_set(self):
-        plain = self.legacy.translate('generation', self.worker_env('generation'))
-        self.assertNotIn('MAGNIFIC_API_KEY', plain)
+        plain = self.legacy.translate('generation', {**self.worker_env('generation'), 'MAGNIFIC_API_KEY': 'mk'})
+        self.assertNotIn('MAGNIFIC_API_KEY', plain, 'a key set ahead of the flag stays out of Django')
         self.assertNotIn('VEEVEE_MAGNIFIC_UPSCALE', plain)
         self.assertEqual(plain['VEEVEE_PROVIDER_MEDIA_HOSTS'], 'cdn.example')
         enabled = self.legacy.translate('generation', {**self.worker_env('generation'), 'MAGNIFIC_API_KEY': 'mk', 'VEEVEE_MAGNIFIC_UPSCALE': '1'})

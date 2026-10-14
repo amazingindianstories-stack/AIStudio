@@ -23,7 +23,7 @@ from .services.poller import advance_magnific
 from .services.deadline import with_queue_execution_deadline, QueueExecutionCapacityError
 from apps.library.services import idempotency
 from .services.upscale_validation import validate_upscale_request, validate_source, inspect_image, aspect_ratio, validate_output_area, InvalidUpscaleRequest, MAX_BYTES
-from .services.upscale_validation import validate_video_upscale_request, inspect_video_source, video_source_key, video_upscale_cost
+from .services.upscale_validation import validate_video_upscale_request, inspect_video_source, video_source_key, video_upscale_cost, validate_prores_size
 
 
 def json_body(request):
@@ -228,6 +228,7 @@ def upscale_video(request, user, data):
     identifier, now = uuid.uuid4(), now_ms()
     try:
         meta = inspect_video_source(source, actor_id=user.id)
+        validate_prores_size(model, params, meta)
         cost = video_upscale_cost(model, params, meta, read_pricing())
         item = dict(id=str(identifier),kind='video',status='queued',prompt=f"{model} ({params['resolution']})",
             model=model,aspectRatio=aspect_ratio(meta['width'],meta['height']),resolution=params['resolution'],

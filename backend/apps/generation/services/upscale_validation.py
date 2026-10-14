@@ -188,7 +188,10 @@ def inspect_video_source(ref, *, actor_id=None, storage=None, run=None):
         target = str(primary._path(key))
     else:
         target = storage.signed_read_url(key, 600, actor_id=actor_id)
+    # Only the MOV/MP4 and Matroska/WebM demuxers (FFmpeg format_whitelist), so a
+    # stored playlist-type file can never make ffprobe open further connections.
     command = [getattr(settings, 'FFPROBE_BINARY', 'ffprobe'), '-v', 'error', '-protocol_whitelist', 'file,https,tls,tcp,crypto',
+               '-format_whitelist', 'mov,mp4,m4a,3gp,3g2,mj2,matroska,webm',
                '-show_entries', 'stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,duration:format=duration,size,format_name',
                '-of', 'json', target]
     try:
@@ -227,3 +230,29 @@ def video_upscale_cost(model, params, meta, pricing):
         raise ValueError(f'Pricing is not configured for {model}.')
     frames = video_upscale_frames(model, params, meta)
     return math.ceil(frames * row['unitCostCents'] / 1000 * VIDEO_RESOLUTION_RATES[params['resolution']])
+
+
+# ProRes 422 HQ masters are large and Veevee stores masters up to 4 GB within one
+# worker budget. Apple: "approximately 220 Mbps at 1920x1080 and 29.97 fps"
+# (support.apple.com/en-us/102207); data rate grows with frame size and rate, so
+# this scales it by pixel rate. Magnific documents only the resolution labels, so
+# the output long edges below are conservative assumptions, not provider facts.
+PRORES_HQ_BITS_PER_PIXEL = 220e6 / (1920 * 1080 * 29.97)
+OUTPUT_LONG_EDGE = {'720p': 1280, '1k': 2048, '2k': 2560, '4k': 3840}
+MAX_PRORES_MASTER_BYTES = int(3.5 * 1024 ** 3)
+
+
+def estimated_prores_bytes(params, meta):
+    long_edge = OUTPUT_LONG_EDGE[params['resolution']]
+    ratio = min(meta['width'], meta['height']) / max(meta['width'], meta['height'])
+    pixels = long_edge * long_edge * ratio
+    frames = meta['durationSeconds'] * meta['fps'] * (1.6 if params.get('fpsBoost') is True else 1)
+    return pixels * frames * PRORES_HQ_BITS_PER_PIXEL / 8
+
+
+def validate_prores_size(model, params, meta):
+    if model == 'Magnific Video Topaz' or params.get('outputFormat') != 'prores_422_hq':
+        return
+    if estimated_prores_bytes(params, meta) > MAX_PRORES_MASTER_BYTES:
+        fail('A ProRes 422 HQ master at this resolution and length would exceed the 4 GB Veevee can store. '
+             'Choose H.264, a lower resolution or a shorter clip.')

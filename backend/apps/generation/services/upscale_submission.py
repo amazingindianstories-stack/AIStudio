@@ -4,35 +4,60 @@ from apps.generation.providers import magnific
 from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
 from .upscale_validation import validate_upscale_request, inspect_image, validate_output_area, MAX_BYTES
-from .upscale_validation import validate_video_upscale_request, inspect_video_source, video_source_key
+from .upscale_validation import validate_video_upscale_request, video_source_key
+
+UPSCALE_PREPARE_FAILED = 'The upscale source could not be prepared. Nothing was sent to Magnific.'
+UPSCALE_REJECTED = 'Magnific rejected this upscale. Nothing was charged; check the source and settings.'
+
+
+def definitive_rejection(error):
+    """Only the provider's own 4xx refusal of the create call proves no task exists.
+    Anything after it answered (receipt checks, persistence) stays uncertain."""
+    from apps.generation.providers.transport import ProviderError
+    status = getattr(error, 'status', None)
+    return isinstance(error, ProviderError) and type(status) is int and 400 <= status < 500 and status != 408
 
 
 def submit_persisted_upscale(item, *, signal, mark_pending, save_receipt, mark_uncertain,
-                             storage=None, submit=None):
+                             storage=None, submit=None, mark_failed=None):
     value=item.submission_input
     if not isinstance(value,dict) or type(value.get('version')) is not int or value.get('version')!=1:
         raise ValueError('Missing supported durable upscale input.')
     source=value.get('source')
     if item.model in magnific.VIDEO_MODELS:
         return _submit_video(item,value,signal=signal,mark_pending=mark_pending,save_receipt=save_receipt,
-                             mark_uncertain=mark_uncertain,storage=storage,submit=submit)
-    if not isinstance(source,str) or not source.startswith('/api/media/references/') or '?' in source or '#' in source:
-        raise ValueError('Durable upscale source must be a canonical stored reference.')
-    key=media_key_from_ref(source)
-    if not key or not key.startswith('references/'):
-        raise ValueError('Durable upscale input requires a stored immutable reference.')
-    payload=validate_upscale_request({'model':item.model,'image':source,'params':value.get('params')})
-    signal.check()
-    raw=(storage or get_storage()).read_as_base64(source,max_bytes=MAX_BYTES)
-    meta = inspect_image(raw['data'],raw['mimeType'])['meta']
-    validate_output_area(item.model, payload['params'], meta)
-    signal.check()
+                             mark_uncertain=mark_uncertain,storage=storage,submit=submit,mark_failed=mark_failed)
+    try:
+        if not isinstance(source,str) or not source.startswith('/api/media/references/') or '?' in source or '#' in source:
+            raise ValueError('Durable upscale source must be a canonical stored reference.')
+        key=media_key_from_ref(source)
+        if not key or not key.startswith('references/'):
+            raise ValueError('Durable upscale input requires a stored immutable reference.')
+        payload=validate_upscale_request({'model':item.model,'image':source,'params':value.get('params')})
+        signal.check()
+        raw=(storage or get_storage()).read_as_base64(source,max_bytes=MAX_BYTES)
+        meta = inspect_image(raw['data'],raw['mimeType'])['meta']
+        validate_output_area(item.model, payload['params'], meta)
+        signal.check()
+    except Exception:
+        # Nothing was sent: end the job instead of leaving a spent claim behind.
+        if mark_failed is None:
+            raise
+        mark_failed(UPSCALE_PREPARE_FAILED, 'NOT_SUBMITTED')
+        return None
     # Caller must durably fence this marker before any external submission.
     mark_pending()
     try:
         result=(submit or magnific.submit_upscale)({'model':item.model,
             'image':f"data:{raw['mimeType'].lower()};base64,{raw['data']}",
             'params':payload['params']},signal=signal)
+    except Exception as error:
+        if mark_failed is not None and definitive_rejection(error):
+            mark_failed(UPSCALE_REJECTED, 'REJECTED')
+            return None
+        mark_uncertain()
+        raise
+    try:
         task=result.get('taskId') if isinstance(result,dict) else None
         if not isinstance(task,str) or not task:
             raise RuntimeError('Provider accepted upscale without a valid receipt.')
@@ -49,22 +74,34 @@ def submit_persisted_upscale(item, *, signal, mark_pending, save_receipt, mark_u
 VIDEO_SOURCE_URL_SECONDS = 6*60*60
 
 
-def _submit_video(item, value, *, signal, mark_pending, save_receipt, mark_uncertain, storage=None, submit=None):
-    source=value.get('source')
-    if not isinstance(source,str) or not source.startswith('/api/media/'):
-        raise ValueError('Durable video upscale source must be a canonical stored reference.')
-    payload=validate_video_upscale_request({'model':item.model,'video':source,'params':value.get('params')})
-    storage=storage or get_storage()
-    # Re-check the stored bytes; the queued estimate must still describe them.
-    inspect_video_source(source,actor_id=item.user_id,storage=storage)
-    signal.check()
-    url=storage.signed_read_url(video_source_key(source),VIDEO_SOURCE_URL_SECONDS,actor_id=item.user_id)
-    if not isinstance(url,str) or not url.startswith('https://'):
-        raise ValueError('Magnific video upscaling requires an HTTPS source URL.')
+def _submit_video(item, value, *, signal, mark_pending, save_receipt, mark_uncertain, storage=None, submit=None, mark_failed=None):
+    try:
+        source=value.get('source')
+        if not isinstance(source,str) or not source.startswith('/api/media/'):
+            raise ValueError('Durable video upscale source must be a canonical stored reference.')
+        payload=validate_video_upscale_request({'model':item.model,'video':source,'params':value.get('params')})
+        signal.check()
+        # Enqueue probed the immutable stored source; Magnific validates it again.
+        url=(storage or get_storage()).signed_read_url(video_source_key(source),VIDEO_SOURCE_URL_SECONDS,actor_id=item.user_id)
+        if not isinstance(url,str) or not url.startswith('https://'):
+            raise ValueError('Magnific video upscaling requires an HTTPS source URL.')
+    except Exception:
+        # Nothing was sent: end the job instead of leaving a spent claim behind.
+        if mark_failed is None:
+            raise
+        mark_failed(UPSCALE_PREPARE_FAILED, 'NOT_SUBMITTED')
+        return None
     mark_pending()
     try:
         result=(submit or magnific.submit_video_upscale)({'model':item.model,'video':url,
             'params':payload['params']},signal=signal)
+    except Exception as error:
+        if mark_failed is not None and definitive_rejection(error):
+            mark_failed(UPSCALE_REJECTED, 'REJECTED')
+            return None
+        mark_uncertain()
+        raise
+    try:
         task=result.get('taskId') if isinstance(result,dict) else None
         if not isinstance(task,str) or not task:
             raise RuntimeError('Provider accepted upscale without a valid receipt.')
@@ -114,11 +151,15 @@ def submit_claimed_upscale(item, *, owner, signal, storage=None, submit=None):
     def uncertain():
         Generation.objects.filter(pk=current.id,worker_lease_id=owner,task_id__isnull=True,
             provider_status='SUBMISSION_PENDING').update(provider_status='SUBMISSION_UNCERTAIN',updated_at=now_ms())
+    def failed(message, provider_status):
+        timestamp=now_ms()
+        update({'status':'failed','error':message,'provider_status':provider_status,'completed_at':timestamp})
     import os
     if submit is None and os.environ.get('MOCK_GENERATION')=='1':
         submit=lambda payload,signal: {'taskId':'mock-magnific-'+str(current.id)}
     task=submit_persisted_upscale(current,signal=signal,mark_pending=pending,save_receipt=receipt,
-        mark_uncertain=uncertain,storage=storage,submit=submit)
+        mark_uncertain=uncertain,storage=storage,submit=submit,
+        mark_failed=failed)
     return Generation.objects.get(pk=current.id)
 
 

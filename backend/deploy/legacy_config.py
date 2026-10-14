@@ -25,7 +25,7 @@ PROVIDER_KEYS = {'ARK_API_KEY', 'ARK_BASE_URL', 'GOOGLE_API_KEY', 'SEEDANCE_MODE
 BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPLUS_ARK_REGION', 'BYTEPLUS_ARK_HOST', 'BYTEPLUS_ARK_BASE_URL'}
 PASS_THROUGH = ('PATH', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID',
                 'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE',
-                'MAGNIFIC_API_KEY', 'VEEVEE_MAGNIFIC_UPSCALE')
+                'VEEVEE_MAGNIFIC_UPSCALE')
 # Magnific output CDN (observed in a live task, 2026-10-14); signed, expiring links.
 MAGNIFIC_MEDIA_HOSTS = ('cdn-magnific.freepik.com',)
 
@@ -72,6 +72,9 @@ def _common(cfg, env, *, browser_origins, app_origin):
         'LANG': 'C.UTF-8',
     })
     out.pop('VEEVEE_PUBLIC_APP_URL_OVERRIDE', None)
+    # The Magnific key reaches Django only while upscaling is switched on.
+    if env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1' and env.get('MAGNIFIC_API_KEY'):
+        out['MAGNIFIC_API_KEY'] = env['MAGNIFIC_API_KEY']
     paid = cfg.get('paid')
     if paid:
         provider = paid['provider_environment']
