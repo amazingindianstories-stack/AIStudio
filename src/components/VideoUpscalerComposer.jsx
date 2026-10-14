@@ -456,7 +456,9 @@ export function VideoUpscalerComposer() {
             <div className="mt-2 grid grid-cols-2 gap-3">
               <video src={lastResult.source.url} muted playsInline preload="metadata" className="h-32 w-full object-contain" />
               {resultItem?.url && resultItem.status === "succeeded"
-                ? <video src={resultItem.url} controls playsInline preload="metadata" className="h-32 w-full object-contain" />
+                ? previewFailed === resultItem.url
+                  ? <p className="grid h-32 place-items-center text-center text-xs text-white/50">Preview unavailable in this browser. Download the original from the library.</p>
+                  : <video key={resultItem.url} src={resultItem.url} controls playsInline preload="metadata" onError={() => setPreviewFailed(resultItem.url)} className="h-32 w-full object-contain" />
                 : <p className="text-xs text-white/50">{resultItem?.status || "Queued"} · Video upscales take several minutes; the output appears in the library when complete</p>}
             </div>
           </div>
