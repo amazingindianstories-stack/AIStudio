@@ -48,6 +48,11 @@ class GatewayAllowlistTests(SimpleTestCase):
                              ('GET', '/api/worker/depth/claim'), ('POST', '/api/webhooks/x'), ('GET', '/healthz')):
             self.assertFalse(allowed(method, path), (method, path))
         self.assertFalse(gateway.allowed('POST', '/api/generate/video', False, True))
+        for method in ('GET', 'POST'):
+            self.assertTrue(allowed(method, '/api/admin/portrait-settings'), method)
+        self.assertTrue(allowed('GET', '/api/portraits/managed'))
+        self.assertTrue(allowed('DELETE', '/api/portraits/managed/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'))
+        self.assertFalse(allowed('POST', '/api/admin/users'))
 
 
 class LegacyConfigTests(SimpleTestCase):

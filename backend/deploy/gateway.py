@@ -22,6 +22,8 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False):
     # Exact DB-backed Django admin reads; Django still checks the session role.
     # Status contacts external dependencies; runtime audit takes leases and writes fixtures.
     if method in ('GET','HEAD') and path in ADMIN_READ_PATHS:return True
+    # Managed portrait pool settings (Django requires an admin session for both methods).
+    if method in ('GET','HEAD','POST') and path=='/api/admin/portrait-settings':return True
     if new_exports and method=="POST" and re.fullmatch(r"/api/history/exports(?:/[0-9a-f-]{36}/(?:items|finalize))?",path):return True
     # Everything else under /api is allowed except provider execution, internal worker/callback ingress and export scheduling.
     if paid_initial_routes and method=='POST' and path in ('/api/generate/image','/api/generate/video','/api/generate/video/finalize'):return True

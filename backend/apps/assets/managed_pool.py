@@ -181,6 +181,14 @@ def _touch(asset, values, now):
     asset.save(update_fields=['last_used_at', 'expires_at', 'updated_at'])
 
 
+def _activated(asset, values, now):
+    """Under the pool lock, once ``asset`` is ACTIVE: start its expiry and retire earlier failed attempts
+    for the same image (a FAILED row never holds a remote asset, so it only cluttered the Gallery)."""
+    _touch(asset, values, now)
+    (ManagedPortraitAsset.objects.filter(content_sha256=asset.content_sha256, status='FAILED')
+     .update(status='DELETED', deleted_at=now, updated_at=now))
+
+
 def _claim(sha, source_key, generation_id, user_id, now):
     """Under the pool lock: decide what this reference needs. Returns (outcome_or_None, asset, action)."""
     values = setting_values()
@@ -326,7 +334,7 @@ def _register(asset, data, storage, client, user_id):
     if active:
         with transaction.atomic():
             _locked()
-            _touch(ManagedPortraitAsset.objects.select_for_update().get(pk=row.pk), setting_values(), now_ms())
+            _activated(ManagedPortraitAsset.objects.select_for_update().get(pk=row.pk), setting_values(), now_ms())
         return ready(identifier)
     return wait('portrait_processing', 3000)
 
@@ -350,7 +358,7 @@ def _poll(asset, client):
             row.status = 'ACTIVE'
             row.receipt = {**(row.receipt or {}), 'verified_at': now_ms()}
             row.save(update_fields=['status', 'receipt'])
-            _touch(row, setting_values(), now_ms())
+            _activated(row, setting_values(), now_ms())
         return ready(asset.byteplus_asset_id)
     if status == 'Failed' or now_ms() - asset.created_at > PROCESSING_LIMIT_MS:
         _finish(asset, status='DELETING', error_code='processing_failed' if status == 'Failed' else 'processing_timeout')

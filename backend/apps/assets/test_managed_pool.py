@@ -157,6 +157,9 @@ class ManagedPoolTests(TransactionTestCase):
         self.assertEqual(second.status, 'succeeded', second.error)
         self.assertEqual(ManagedPortraitPool.objects.get().observed_capacity, 1)
         self.assertEqual(self.fake.live_asset_count(), 1)
+        retired = ManagedPortraitAsset.objects.filter(error_code='QuotaSharedPoolExceeded')
+        self.assertEqual(list(retired.values_list('status', flat=True)), ['DELETED'], 'the refused attempt leaves the Gallery once the retry is Ready')
+        self.assertFalse(ManagedPortraitAsset.objects.filter(status='FAILED').exists())
 
     def test_uncertain_registration_is_reconciled_not_retried(self):
         identifier = self.enqueue([self.upload(FACE, 'image/jpeg')])
