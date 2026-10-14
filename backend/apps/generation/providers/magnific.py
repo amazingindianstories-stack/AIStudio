@@ -117,8 +117,18 @@ def get_upscale_status(task_id, *, model='Magnific Creative', api_key=None, tran
     return {'status': 'running', 'taskId': task_id}
 
 
-# Video upscalers (docs.magnific.com/api-reference/video/*). The source must be a
-# publicly reachable HTTPS URL; callers pass a short-lived signed storage read.
+# Video upscalers. Documented (docs.magnific.com/api-reference/video/):
+#   video-upscaler/{overview,upscale-video,upscale-video-turbo,task-by-id}
+#   video-upscaler-precision/{overview,upscale-video,task-by-id}
+#   video-upscaler-topaz/{overview,upscale-video,task-by-id}
+# - `video` is a publicly accessible HTTPS URL; callers pass a signed storage read.
+# - Turbo tasks are retrieved with the standard get-task endpoint.
+# - prores_422_hq returns the .mov master next to an H.264 preview in `generated`.
+# - Output links expire 30 minutes after generation (quickstart).
+# Observed on live tasks (2026-10-14), not documented: source URLs must not
+# redirect ("Redirects are not allowed for video URLs"); outputs are served
+# from cdn-magnific.freepik.com with a signed token; `generated` can be briefly
+# empty right after COMPLETED (treated as a retryable poll error).
 VIDEO_MODELS = ['Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz']
 VIDEO_RESOLUTIONS = ['720p', '1k', '2k', '4k']
 VIDEO_FLAVORS = ['vivid', 'natural']
@@ -151,9 +161,11 @@ def build_video_payload(model, video_url, params):
     body = {'video': video_url, 'resolution': choose('resolution', VIDEO_RESOLUTIONS, '2k')}
     if model == 'Magnific Video Topaz':
         body['enhancement_model'] = choose('enhancementModel', TOPAZ_MODELS, 'starlight_precise_2_5')
+        # Docs: frame_interpolation applies only when target_fps changes the frame
+        # rate, and interpolation requires a target of at least 15 fps.
         if params.get('targetFps') is not None:
-            body['target_fps'] = clamp(params['targetFps'], 1, 60, 24)
-        body['frame_interpolation'] = choose('frameInterpolation', TOPAZ_INTERPOLATIONS, 'apollo')
+            body['target_fps'] = clamp(params['targetFps'], 15, 60, 24)
+            body['frame_interpolation'] = choose('frameInterpolation', TOPAZ_INTERPOLATIONS, 'apollo')
         noise = number(params.get('noise', 0))
         body['noise'] = 0 if math.isnan(noise) else min(1, max(0, noise))
         return {'endpoint': VIDEO_ENDPOINTS[model][0], 'body': body}

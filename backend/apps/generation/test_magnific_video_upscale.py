@@ -53,6 +53,9 @@ class PayloadTests(SimpleTestCase):
         self.assertEqual(topaz, {'endpoint': '/v1/ai/video-upscaler-topaz', 'body': {
             'video': url, 'resolution': '720p', 'enhancement_model': 'starlight_fast_2', 'target_fps': 30,
             'frame_interpolation': 'chronos', 'noise': .25}})
+        # Without a target the source rate is kept and no interpolation model is sent.
+        keep = magnific.build_video_payload('Magnific Video Topaz', url, {'resolution': '2k', 'enhancementModel': 'starlight_precise_2_5', 'noise': 0})
+        self.assertEqual(keep['body'], {'video': url, 'resolution': '2k', 'enhancement_model': 'starlight_precise_2_5', 'noise': 0})
         with self.assertRaises(ValueError):
             magnific.build_video_payload('Magnific Video Creative', 'http://insecure.example/v.mp4', CREATIVE)
 
@@ -90,10 +93,11 @@ class ValidationTests(SimpleTestCase):
             validate_video_upscale_request({**self.body(), 'model': 'Magnific Video Hyper'})
         with self.assertRaises(InvalidUpscaleRequest):
             validate_video_upscale_request({**self.body(), 'video': ''})
-        topaz = {'video': 'x', 'model': 'Magnific Video Topaz', 'params': {'resolution': '2k', 'enhancementModel': 'starlight_precise_2_5',
-                                                                           'frameInterpolation': 'apollo', 'noise': 0}}
+        topaz = {'video': 'x', 'model': 'Magnific Video Topaz', 'params': {'resolution': '2k', 'enhancementModel': 'starlight_precise_2_5', 'noise': 0}}
         validate_video_upscale_request(topaz)
-        for change in ({'noise': 2}, {'targetFps': 0}, {'targetFps': 61}, {'enhancementModel': 'x'}, {'frameInterpolation': 'x'}):
+        validate_video_upscale_request({**topaz, 'params': {**topaz['params'], 'targetFps': 15, 'frameInterpolation': 'chronos'}})
+        for change in ({'noise': 2}, {'targetFps': 14}, {'targetFps': 61}, {'enhancementModel': 'x'}, {'frameInterpolation': 'apollo'},
+                       {'targetFps': 30, 'frameInterpolation': 'x'}):
             with self.subTest(change=change), self.assertRaises(InvalidUpscaleRequest):
                 validate_video_upscale_request({**topaz, 'params': {**topaz['params'], **change}})
 

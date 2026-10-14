@@ -163,7 +163,7 @@ class MagnificWorkerSimulationTests(TransactionTestCase):
         defaults = {'Magnific Video Creative': {'resolution': '2k', 'creativity': 0, 'sharpen': 0, 'smartGrain': 0, 'fpsBoost': False, 'flavor': 'vivid', 'outputFormat': 'h264'},
                     'Magnific Video Creative Turbo': {'resolution': '1k', 'creativity': 10, 'sharpen': 5, 'smartGrain': 5, 'fpsBoost': True, 'flavor': 'natural', 'outputFormat': 'h264'},
                     'Magnific Video Precision': {'resolution': '4k', 'sharpen': 0, 'smartGrain': 0, 'strength': 60, 'fpsBoost': False, 'outputFormat': 'h264'},
-                    'Magnific Video Topaz': {'resolution': '2k', 'enhancementModel': 'starlight_precise_2_5', 'frameInterpolation': 'apollo', 'noise': 0}}
+                    'Magnific Video Topaz': {'resolution': '2k', 'enhancementModel': 'starlight_precise_2_5', 'targetFps': 30, 'frameInterpolation': 'apollo', 'noise': 0}}
         return {'video': source, 'model': model, 'params': {'model': model, **defaults[model], **params}}
 
     def test_every_video_model_submits_once_to_its_endpoint_and_stores_the_mp4(self):

@@ -139,8 +139,11 @@ def validate_video_upscale_request(body):
     if params.get('resolution') not in VIDEO_RESOLUTIONS: fail('Invalid resolution.')
     if model == 'Magnific Video Topaz':
         if params.get('enhancementModel') not in TOPAZ_MODELS: fail('Invalid enhancementModel.')
-        integer('targetFps', 1, 60, required=False)
-        if params.get('frameInterpolation') not in TOPAZ_INTERPOLATIONS: fail('Invalid frameInterpolation.')
+        # Docs: target_fps is 1-60, but interpolation (applied whenever it changes
+        # the rate) requires at least 15; frame_interpolation needs a target.
+        integer('targetFps', 15, 60, required=False)
+        if params.get('frameInterpolation') is not None and params.get('targetFps') is None: fail('frameInterpolation requires targetFps.')
+        if params.get('frameInterpolation', 'apollo') not in TOPAZ_INTERPOLATIONS: fail('Invalid frameInterpolation.')
         noise = params.get('noise')
         if type(noise) not in (int, float) or not math.isfinite(noise) or not 0 <= noise <= 1: fail('noise must be between 0 and 1.')
         return body
