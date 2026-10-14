@@ -10,6 +10,7 @@ files are never uploaded (the root one starts the generation worker). No
 variables or secrets are read or written.
 """
 import json
+import os
 import subprocess
 import sys
 import tarfile
@@ -32,6 +33,11 @@ def main(commit, component, out):
         raise SystemExit(f'{out} must be empty')
     out.mkdir(parents=True, exist_ok=True)
     full = subprocess.run(['git', 'rev-parse', '--verify', commit + '^{commit}'], check=True, capture_output=True, text=True).stdout.strip()
+    gate = Path(os.environ.get('VEEVEE_GATE_DIR', Path.home() / 'Library/Application Support/Veevee/release-gate')) / f'{full}.json'
+    if not gate.exists():
+        raise SystemExit(f'No release-gate pass for {full[:12]}. Run scripts/stabilization/release_gate.sh {full[:12]} first.')
+    if not gate.with_name(f'{full}.rehearsal.json').exists():
+        raise SystemExit(f'No local rehearsal pass for {full[:12]}. Run scripts/stabilization/rehearse_local.sh {full[:12]} first.')
     archive = subprocess.run(['git', 'archive', '--format=tar', full, 'backend'], check=True, capture_output=True).stdout
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         members = [m for m in tar.getmembers() if Path(m.name).name not in ('railway.toml', 'railway.json')
