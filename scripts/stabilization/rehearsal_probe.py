@@ -46,7 +46,9 @@ def call(method, path, body=None, headers=None, raw=False):
     if body is not None:
         sent['Content-Type'] = 'application/json'
     sent.update(headers or {})
-    connection_.request(method, path, body=json.dumps(body) if body is not None else None, headers=sent)
+    if isinstance(body, bytes):
+        sent['Content-Type'] = (headers or {}).get('Content-Type', 'application/octet-stream')
+    connection_.request(method, path, body=body if isinstance(body, bytes) else (json.dumps(body) if body is not None else None), headers=sent)
     response = connection_.getresponse()
     data = response.read()
     return response.status, (data if raw else (json.loads(data) if data[:1] in (b'{', b'[') else data)), dict(response.getheaders())
@@ -139,6 +141,37 @@ if done:
                 check('ZIP contains every item', len(names) == len(done), names)
                 check('ZIP keeps native MOV masters', any(name.endswith('.mov') for name in names), names)
                 print('     zip entries:', names, flush=True)
+
+# Managed portraits (when enabled): a face reference becomes a pool asset in the worker, as the real roles.
+status, pool, _ = call('GET', '/api/portraits/managed')
+if isinstance(pool, dict) and pool.get('enabled'):
+    import hashlib
+    from apps.assets.models import ManagedPortraitAsset  # noqa: E402
+    face = open('/app/testsupport/data/face_public_domain.jpg', 'rb').read()
+    status, session, _ = call('POST', '/api/uploads/init', {'version': 1, 'purpose': 'image-reference', 'contentType': 'image/jpeg',
+        'byteSize': len(face), 'filename': 'face.jpg', 'requestKey': uuid.uuid4().hex, 'sha256': hashlib.sha256(face).hexdigest()})
+    ready = None
+    if status in (200, 201) and session.get('uploadUrl'):
+        call('PUT', session['uploadUrl'], face, {'Content-Type': 'image/jpeg', 'Content-Range': f'bytes 0-{len(face) - 1}/{len(face)}'})
+        status, ready, _ = call('POST', f'/api/uploads/{session["uploadId"]}/finalize', {'version': 1})
+    check('portraits: face reference uploaded', isinstance(ready, dict) and ready.get('referenceId'), str(ready or session)[:200])
+    if isinstance(ready, dict) and ready.get('referenceId'):
+        identifier = enqueue('video', {'prompt': 'rehearsal: portrait @img1 walks through the hall', 'model': 'Seedance 2.5', 'resolution': '480p',
+                                       'draftMode': True, 'duration': 5, 'referenceImages': [{'referenceId': ready['referenceId']}]})
+        if identifier:
+            row = wait(identifier)
+            check('portraits: face video completed', row.status == 'succeeded', f'{row.status} {row.error}')
+            check('portraits: one paid submission claimed', ledger(identifier) == 'SUBMITTING', ledger(identifier))
+            check('portraits: pool asset is ACTIVE', ManagedPortraitAsset.objects.filter(status='ACTIVE').exists(),
+                  list(ManagedPortraitAsset.objects.values_list('status', 'error_code')))
+        status, pool, _ = call('GET', '/api/portraits/managed')
+        check('portraits: Gallery lists it as Ready', any(a.get('label') == 'Ready' for a in (pool or {}).get('assets', [])), str(pool)[:200])
+        status, refused, _ = call('POST', '/api/assets/portraits/upload', {'referenceId': ready['referenceId']})
+        check('portraits: manual upload refused', status == 410, f'{status} {str(refused)[:120]}')
+        status, settings_, _ = call('GET', '/api/admin/portrait-settings')
+        check('portraits: admin settings reachable through the gateway', status in (200, 403), status)
+else:
+    print('     managed portraits off in this rehearsal', flush=True)
 
 print(json.dumps({'failures': failures, 'checked': len(results)}), flush=True)
 sys.exit(1 if failures else 0)

@@ -128,6 +128,17 @@ Registrations fail since 18:21 IST with `QuotaSharedPoolExceeded`. Remote assets
 calls — irreversible on BytePlus — **owner decision pending**. Fixed: definitively rejected
 registrations can now be deleted (`549df6e`).
 
+## Automatic portraits + full local stack (2026-10-14, local only)
+Owner: no deploys on 2026-10-14; make Veevee fully functional locally first. Done locally: the
+managed BytePlus portrait pool (see `MANAGED_PORTRAITS.md` for rollout/rollback), the full local
+stack (`local/README.md`: every service, fake providers, frontend, real depth worker on the Mac
+GPU) and an end-to-end smoke that passes for images, Seedance draft→final MOV, ZIP export,
+automatic portraits and depth. Findings fixed on the way: portrait settings blocked by the gateway;
+launcher did not pass the portrait flag or give the generation worker/scheduler BytePlus asset
+credentials; depth worker could not upload on local storage. Observed, unchanged (pre-existing,
+also in production rows): a Seedance submission refused with 400 keeps its estimated
+`cost_cents` on the failed row.
+
 ## F-07 — gateway blocks features in production (kept for parity)
 The live ingress gateway refuses `POST /api/generate/upscale`, `/api/audio/transcribe`, admin writes
 (`/api/admin/*` POST/PATCH/DELETE: user create/edit/delete, limits, pricing), agent message POSTs and
@@ -151,6 +162,9 @@ The live ingress gateway refuses `POST /api/generate/upscale`, `/api/audio/trans
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-14: no deploys (owner). Managed portraits are ready for an approved rollout per
+`MANAGED_PORTRAITS.md` after the generation-worker redeploy and the BytePlus cleanup decision.
+
 No deploys on 2026-10-13 (owner). Next: with owner approval, redeploy the generation worker from a
 commit that has both gate passes (latest: `f61caef`), at an idle moment, then watch the first jobs.
 Pending owner decisions: BytePlus quota (free 51 archived remote assets vs raise quota), paid canary

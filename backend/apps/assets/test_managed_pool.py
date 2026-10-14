@@ -278,3 +278,30 @@ class ManagedPoolTests(TransactionTestCase):
         self.assertEqual(row.status, 'succeeded', row.error)
         self.assertEqual(len(self.fake.groups), 1)
         self.assertEqual(ManagedPortraitPool.objects.get().byteplus_group_id, next(iter(self.fake.groups)))
+
+    def test_rollback_command_refuses_unsafe_states_then_removes_pool_and_migration(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from django.db import connection
+        self.assertEqual(self.run_worker(self.enqueue([self.upload(FACE, 'image/jpeg')])).status, 'succeeded')
+        self.assertEqual(self.fake.live_asset_count(), 1)
+        with self.assertRaisesRegex(CommandError, 'turn it off'):
+            call_command('managed_portraits_rollback', '--confirm', '--delete-remote')
+        with override_settings(VEEVEE_MANAGED_PORTRAITS=False):
+            managed_pool.pin(Generation.objects.first().id, ManagedPortraitAsset.objects.get())
+            with self.assertRaisesRegex(CommandError, 'pin'):
+                call_command('managed_portraits_rollback', '--confirm', '--delete-remote')
+            ManagedPortraitPin.objects.all().delete()
+            with self.assertRaisesRegex(CommandError, 'may still exist at BytePlus'):
+                call_command('managed_portraits_rollback', '--confirm')
+            try:
+                call_command('managed_portraits_rollback', '--confirm', '--delete-remote', stdout=io.StringIO())
+                self.assertEqual(self.fake.live_asset_count(), 0)
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT count(*) FROM pg_tables WHERE tablename LIKE 'managed_portrait%%'")
+                    self.assertEqual(cursor.fetchone()[0], 0)
+                    cursor.execute("SELECT count(*) FROM django_migrations WHERE app = 'assets' AND name = '0005_managed_portraits'")
+                    self.assertEqual(cursor.fetchone()[0], 0)
+                self.assertTrue(Generation.objects.exists(), 'generations are untouched')
+            finally:
+                call_command('migrate', 'assets', verbosity=0)

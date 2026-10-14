@@ -79,6 +79,26 @@ def _common(cfg, env, *, browser_origins, app_origin):
     return out
 
 
+def _portrait_reads(env):
+    reads = json.loads(env['GOAL4_PREVIEW_PORTRAIT_CONFIGURATION'])['read_environment']
+    need(set(reads) <= BYTEPLUS_KEYS and reads.get('BYTEPLUS_ACCESS_KEY_ID') and reads.get('BYTEPLUS_SECRET_ACCESS_KEY'), 'portrait environment')
+    return reads
+
+
+def _managed_portraits(component, env, out):
+    """``VEEVEE_MANAGED_PORTRAITS=1`` (a Railway service variable) turns on the automatic portrait pool. The API
+    serves the Gallery, the generation worker registers assets and the scheduler expires them, so the two workers
+    also need the BytePlus asset environment; without it they refuse to start rather than run half enabled."""
+    if env.get('VEEVEE_MANAGED_PORTRAITS') != '1' or component not in ('api', 'generation', 'scheduler'):
+        return out
+    if component != 'api':
+        need(env.get('GOAL4_PREVIEW_PORTRAIT_CONFIGURATION'), 'managed portraits need GOAL4_PREVIEW_PORTRAIT_CONFIGURATION on this worker')
+        out.update(_portrait_reads(env))
+    need(out.get('BYTEPLUS_ACCESS_KEY_ID'), 'managed portraits need the BytePlus portrait environment')
+    out['VEEVEE_MANAGED_PORTRAITS'] = '1'
+    return out
+
+
 def translate(component, env):
     """Return the complete, allowlisted environment for ``component``."""
     if component == 'api':
@@ -93,11 +113,9 @@ def translate(component, env):
             out['VEEVEE_EXPORT_ADMISSION'] = '1'
         portraits = json.loads(env['GOAL4_PREVIEW_PORTRAIT_CONFIGURATION']) if env.get('GOAL4_PREVIEW_PORTRAIT_CONFIGURATION') else None
         if portraits:
-            reads = portraits['read_environment']
-            need(set(reads) <= BYTEPLUS_KEYS and reads.get('BYTEPLUS_ACCESS_KEY_ID') and reads.get('BYTEPLUS_SECRET_ACCESS_KEY'), 'portrait environment')
-            out.update(reads)
+            out.update(_portrait_reads(env))
             out['VEEVEE_PORTRAIT_LIFECYCLE'] = '1'
-        return out
+        return _managed_portraits(component, env, out)
     cfg = json.loads(env[WORKER_VARIABLE])
     need(cfg.get('kind') == component, 'configuration belongs to another worker')
     need(str(cfg.get('role', '')).startswith('goal4_') and cfg['role'].endswith('_worker'), 'unexpected worker role')
@@ -114,7 +132,7 @@ def translate(component, env):
     out['VEEVEE_PROVIDER_MEDIA_HOSTS'] = ','.join(hosts)
     if cfg.get('new_exports'):
         out['VEEVEE_EXPORT_ADMISSION'] = '1'
-    return out
+    return _managed_portraits(component, env, out)
 
 
 def preflight_contract(component, env):

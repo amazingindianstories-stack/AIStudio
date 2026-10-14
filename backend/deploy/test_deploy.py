@@ -131,6 +131,26 @@ class LegacyConfigTests(SimpleTestCase):
         contract = self.legacy.preflight_contract('export', self.worker_env('export'))
         self.assertEqual(contract['rls_tables'], ['generations'])
 
+    def test_managed_portraits_flag_and_worker_credentials(self):
+        import json
+        portrait = {'GOAL4_PREVIEW_PORTRAIT_CONFIGURATION': json.dumps({'read_environment': {'BYTEPLUS_ACCESS_KEY_ID': 'k', 'BYTEPLUS_SECRET_ACCESS_KEY': 's'}})}
+        self.assertNotIn('VEEVEE_MANAGED_PORTRAITS', self.legacy.translate('api', self.api_env()), 'off unless the variable is set')
+        self.assertNotIn('BYTEPLUS_ACCESS_KEY_ID', self.legacy.translate('generation', self.worker_env('generation')))
+        on = {'VEEVEE_MANAGED_PORTRAITS': '1'}
+        self.assertEqual(self.legacy.translate('api', {**self.api_env(), **on})['VEEVEE_MANAGED_PORTRAITS'], '1')
+        for kind in ('generation', 'scheduler'):
+            out = self.legacy.translate(kind, {**self.worker_env(kind), **on, **portrait})
+            self.assertEqual((out['VEEVEE_MANAGED_PORTRAITS'], out['BYTEPLUS_ACCESS_KEY_ID']), ('1', 'k'), kind)
+            self.assertFalse(any(key.startswith('GOAL4_') for key in out))
+            with self.subTest(kind=kind), self.assertRaises(SystemExit):
+                self.legacy.translate(kind, {**self.worker_env(kind), **on})     # flag without credentials: refuse
+        export = self.legacy.translate('export', {**self.worker_env('export'), **on, **portrait})
+        self.assertNotIn('VEEVEE_MANAGED_PORTRAITS', export)
+        self.assertNotIn('BYTEPLUS_ACCESS_KEY_ID', export)
+        api_without = {key: value for key, value in self.api_env().items() if key != 'GOAL4_PREVIEW_PORTRAIT_CONFIGURATION'}
+        with self.assertRaises(SystemExit):
+            self.legacy.translate('api', {**api_without, **on})
+
     def test_refuses_mismatched_or_unsafe_configuration(self):
         for component, env in (('generation', self.worker_env('export')),
                                ('generation', self.worker_env('generation', historical_replay_authorized=True)),

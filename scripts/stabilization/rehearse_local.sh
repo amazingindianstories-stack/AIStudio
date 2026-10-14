@@ -6,6 +6,8 @@
 #   REHEARSAL_OBSERVER_URL=<owner DSN of the local copy, read-only use>  REHEARSAL_USER=<email of a user in the copy>  REHEARSAL_PREFIX=<32-hex namespace used by the copy's RLS>
 #   scripts/stabilization/rehearse_local.sh [commit]
 #
+# Pending migrations are applied first as the copy's owner (REHEARSAL_OBSERVER_URL), exactly as a
+# production rollout does. REHEARSAL_MANAGED_PORTRAITS=0 rehearses with the automatic portrait pool off.
 # API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway).
 # Workers run scripts/stabilization/rehearsal_worker.py: the production code with the provider
 # network replaced by testsupport.fake_providers before the paid guard is installed.
@@ -26,6 +28,9 @@ docker network inspect "$NET" --format '{{.Internal}}' | grep -qx true || { echo
 # Earlier local rehearsals may have left unregistered queued rows in the copy; close them (local copy only).
 docker exec "$REHEARSAL_DB" psql -U postgres -d railway -qAtc "UPDATE generations SET status='failed', error='closed before local rehearsal' WHERE status IN ('queued','running')" >/dev/null
 docker volume create "$VOL" >/dev/null
+docker run --rm --network "$NET" -e DJANGO_SECRET_KEY=rehearsal-migrate -e AUTH_SECRET=rehearsal-migrate -e DJANGO_ALLOWED_HOSTS=127.0.0.1 \
+  -e DATABASE_URL="$REHEARSAL_OBSERVER_URL" -w /app "$IMAGE" python manage.py migrate --noinput | grep -E "Apply|No migrations" || true
+MANAGED="-e VEEVEE_MANAGED_PORTRAITS=${REHEARSAL_MANAGED_PORTRAITS:-1} -e BYTEPLUS_ACCESS_KEY_ID=rehearsal-fake -e BYTEPLUS_SECRET_ACCESS_KEY=rehearsal-fake"
 SECRET="rehearsal-ingress-$(openssl rand -hex 24)"
 PAID='{"approved_scope":"GOAL4_EXISTING_GREEN_PREVIEW_UNLIMITED_NEW_IMAGE_AND_SEEDANCE_20_25_PAID_ONLY","unlimited_new_jobs":true,"maximum_total_cents":null}'
 COMMON="-e DJANGO_SECRET_KEY=rehearsal-django-secret-$(openssl rand -hex 16) -e AUTH_SECRET=rehearsal-auth-secret-$(openssl rand -hex 16)
@@ -36,22 +41,22 @@ API_DB="postgresql://goal4_green_preview_api:$REHEARSAL_API_PASSWORD@$REHEARSAL_
 WORKER_DB="postgresql://goal4_green_preview_worker:$REHEARSAL_WORKER_PASSWORD@$REHEARSAL_DB_HOST:5432/railway"
 NS="-e VEEVEE_LEASE_PREFIX=lease:g4preview:$REHEARSAL_PREFIX: -e VEEVEE_NAMING_PREFIX=g4preview:$REHEARSAL_PREFIX:"
 # shellcheck disable=SC2086
-docker run -d --name vr-api --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON -e DATABASE_URL="$API_DB" \
+docker run -d --name vr-api --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED -e DATABASE_URL="$API_DB" \
   -e VEEVEE_INGRESS_SECRET="$SECRET" -e PORT=18081 -e VEEVEE_EXPORT_ADMISSION=1 -e VEEVEE_PORTRAIT_LIFECYCLE=1 -e "VEEVEE_PAID_GUARD=$PAID" \
   "$IMAGE" python -m deploy.entrypoint api >/dev/null
 # shellcheck disable=SC2086
-docker run -d --name vr-gen --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $NS -e DATABASE_URL="$WORKER_DB" \
+docker run -d --name vr-gen --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED $NS -e DATABASE_URL="$WORKER_DB" \
   -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/stabilization/rehearsal_worker.py generation >/dev/null
 # shellcheck disable=SC2086
 docker run -d --name vr-export --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $NS -e DATABASE_URL="$WORKER_DB" \
   -e VEEVEE_REHEARSAL=1 -e VEEVEE_EXPORT_ADMISSION=1 "$IMAGE" python /scripts/stabilization/rehearsal_worker.py export >/dev/null
 # shellcheck disable=SC2086
-docker run -d --name vr-sched --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $NS -e DATABASE_URL="$WORKER_DB" \
+docker run -d --name vr-sched --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED $NS -e DATABASE_URL="$WORKER_DB" \
   -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/stabilization/rehearsal_worker.py scheduler >/dev/null
 until docker exec vr-api python -c "import http.client as h;c=h.HTTPConnection('127.0.0.1',18081,timeout=3);c.request('GET','/__g4_readiness');exit(c.getresponse().status!=200)" 2>/dev/null; do sleep 1; done
 STATUS=0
 # shellcheck disable=SC2086
-docker exec $COMMON -e DATABASE_URL="$API_DB" -e REHEARSAL_OBSERVER_URL="$REHEARSAL_OBSERVER_URL" -e PYTHONPATH=/app -w /app vr-api python /scripts/stabilization/rehearsal_probe.py "$SECRET" "$REHEARSAL_USER" > "$BASE/probe.txt" 2>&1 || STATUS=$?
+docker exec $COMMON $MANAGED -e DATABASE_URL="$API_DB" -e REHEARSAL_OBSERVER_URL="$REHEARSAL_OBSERVER_URL" -e PYTHONPATH=/app -w /app vr-api python /scripts/stabilization/rehearsal_probe.py "$SECRET" "$REHEARSAL_USER" > "$BASE/probe.txt" 2>&1 || STATUS=$?
 grep -v '^{"event": "request"' "$BASE/probe.txt" || true
 for n in vr-gen vr-export vr-sched; do
   if [ "$(docker inspect -f '{{.State.Running}}' "$n")" != true ]; then echo "FAIL $n exited"; STATUS=1; fi
