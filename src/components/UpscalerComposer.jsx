@@ -234,10 +234,20 @@ export function UpscalerComposer() {
 
       {/* Model selection tabs */}
       <div className="mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
-          <div className="flex flex-wrap items-center gap-2">
-          <UpscaleMediaToggle />
-          <div className="flex items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
+        <div className="border-b border-line pb-3">
+          <div className="mb-2.5 flex items-center justify-between gap-2">
+            <UpscaleMediaToggle />
+            <button
+              type="button"
+              onClick={resetParams}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-white/50 hover:bg-white/5 hover:text-white/80 transition"
+              title="Reset parameters to defaults"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Reset</span>
+            </button>
+          </div>
+          <div className="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
             {MODELS.map((m) => {
               const active = activeModelId === m.id;
               return (
@@ -266,17 +276,6 @@ export function UpscalerComposer() {
               );
             })}
           </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={resetParams}
-            className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-white/50 hover:bg-white/5 hover:text-white/80 transition"
-            title="Reset parameters to defaults"
-          >
-            <RotateCcw className="h-3 w-3" />
-            <span>Reset</span>
-          </button>
         </div>
 
         {/* Model description banner */}
