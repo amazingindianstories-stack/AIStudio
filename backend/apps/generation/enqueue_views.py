@@ -14,6 +14,7 @@ from apps.media.storage import get_storage, MediaTooLargeError
 from .models import Generation
 from .serialization import generation_item
 from .providers import magnific
+from .model_registry import model_definition
 from .services import enqueue
 from .references import resolve_submission_references, InvalidReference
 from apps.media.uploads import UploadError
@@ -59,6 +60,9 @@ def generate(request, kind):
         data = json_body(request)
         submitted = copy.deepcopy(data)
         data = resolve_submission_references(data, user.id)
+        # Magnific models are upscales with their own durable source and params.
+        if (model_definition(data.get('model')) or {}).get('kind') == 'upscale':
+            raise enqueue.InvalidRequest('Upscale models run from the Upscale composer.')
         item = enqueue.image_input(data,user.id) if kind == 'image' else enqueue.video_input(data,user.id if user else None)
     except UploadError as error:
         return reply(request, {'error': error.code}, error.status)

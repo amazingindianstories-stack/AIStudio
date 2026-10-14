@@ -186,6 +186,19 @@ class EnqueueTests(TransactionTestCase):
         self.assertEqual(response.status_code, 500)
         self.assertFalse(Generation.objects.exists())
 
+    def test_generic_generate_routes_refuse_upscale_models(self):
+        self.cookie()
+        for kind, model in (('video', 'Magnific Video Creative'), ('image', 'Magnific Precision V2')):
+            with self.subTest(kind=kind):
+                response = self.post_generate(kind, {'prompt': f'{model} (2k)', 'model': model, 'aspectRatio': '16:9'})
+                self.assertEqual(response.status_code, 400, response.content)
+                self.assertEqual(response.json()['error'], 'Upscale models run from the Upscale composer.')
+        self.assertFalse(Generation.objects.exists())
+
+    def post_generate(self, kind, body):
+        with override_settings(VEEVEE_MEDIA_STORAGE=self.storage()), patch.dict(os.environ, ENV):
+            return self.client.post('/api/generate/' + kind, body, content_type='application/json')
+
     def test_image_requests_still_take_the_image_branch(self):
         self.cookie()
         response = self.post(self.storage(), {'image': 'https://evil.example/a.png', 'model': 'Magnific Creative', 'params': {}})

@@ -41,11 +41,12 @@ def mov_bytes():
 
 
 def mp4_bytes(size='160x90'):
-    """A real one-second MP4 (ISO container); needs ffmpeg."""
+    """A real one-second H.264 + AAC MP4, the shape Magnific returned in a live task; needs ffmpeg."""
     with tempfile.TemporaryDirectory() as directory:
         target = f'{directory}/v.mp4'
-        subprocess.run(['ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', f'testsrc=size={size}:rate=12', '-t', '1',
-                        '-c:v', 'mpeg4', '-f', 'mp4', target], check=True)
+        subprocess.run(['ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', f'testsrc=size={size}:rate=24',
+                        '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '1', '-c:v', 'libx264',
+                        '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', '-shortest', '-f', 'mp4', target], check=True)
         with open(target, 'rb') as handle:
             return handle.read()
 
