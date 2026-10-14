@@ -60,7 +60,7 @@ import {
   storeRuntime,
 } from "./store-runtime";
 import { LIVE_MS_ACTIVE, LIVE_MS_IDLE, liveDelay, liveUpdatesUrl, nextLiveCursor, hasRecentActiveWork } from "./live-cursor";
-import { magnificParamsForModel } from "./magnific-ui";
+import { magnificParamsForModel, magnificVideoParamsForModel, MAGNIFIC_VIDEO_DEFAULTS } from "./magnific-ui";
 import {
   clearMaterialCache,
   dedupeMaterialRequest,
@@ -384,6 +384,9 @@ export const useStore = create((set, get) => ({
     ultraDetail: 30,
     filterNsfw: false,
   },
+  upscalerMedia: "image",
+  upscalerVideo: null,
+  videoUpscalerParams: { ...MAGNIFIC_VIDEO_DEFAULTS },
 
   assets: [],
   assetsLoading: false,
@@ -657,6 +660,10 @@ export const useStore = create((set, get) => ({
   setSelectionAnchorId: (selectionAnchorId) => set({ selectionAnchorId }),
   setSelectedIds: (selectedIds) => set({ selectedIds }),
   setUpscalerImage: (upscalerImage) => set({ upscalerImage }),
+  setUpscalerMedia: (upscalerMedia) => set({ upscalerMedia: upscalerMedia === "video" ? "video" : "image" }),
+  setUpscalerVideo: (upscalerVideo) => set({ upscalerVideo }),
+  setVideoUpscalerParam: (key, value) =>
+    set((s) => ({ videoUpscalerParams: { ...s.videoUpscalerParams, [key]: value } })),
   setUpscalerParam: (key, value) =>
     set((s) => ({ upscalerParams: { ...s.upscalerParams, [key]: value } })),
 
@@ -1148,6 +1155,50 @@ export const useStore = create((set, get) => ({
     } catch (e) {
       console.error("Upscale request failed:", e);
       notify(e.message || "Failed to start upscale.");
+      return null;
+    } finally {
+      void get().loadCounts();
+      set({ generating: false });
+    }
+  },
+
+  /** Magnific video upscale: the source is an uploaded or library video. */
+  generateVideoUpscale: async () => {
+    const s = get();
+    if (!s.upscalerVideo) {
+      notify("Please select or drop a video to upscale.");
+      return null;
+    }
+    if (s.generating) return null;
+    set({ generating: true });
+    try {
+      const model = s.videoUpscalerParams.model;
+      const res = await apiFetch("/api/generate/upscale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video: s.upscalerVideo.url,
+          model,
+          params: magnificVideoParamsForModel(model, s.videoUpscalerParams),
+          projectId: s.activeProjectId ?? undefined,
+          folderId: (s.activeFolderId && s.activeFolderId !== UNSORTED) ? s.activeFolderId : undefined,
+        }),
+      });
+      let item;
+      try {
+        item = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): invalid response.`);
+      }
+      if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
+      if (item?.id) {
+        insertNewItem(set, item);
+        if (get().upscalerVideo === s.upscalerVideo) set({ upscalerVideo: null });
+      }
+      return item;
+    } catch (e) {
+      console.error("Video upscale request failed:", e);
+      notify(e.message || "Failed to start the video upscale.");
       return null;
     } finally {
       void get().loadCounts();
