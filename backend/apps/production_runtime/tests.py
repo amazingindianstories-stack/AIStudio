@@ -3,7 +3,7 @@ import contextlib
 import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
-from django.test import SimpleTestCase, TransactionTestCase
+from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from . import paid_guard
 
 UNLIMITED = {'approved_scope': paid_guard.UNLIMITED_SCOPE, 'unlimited_new_jobs': True}
@@ -41,6 +41,38 @@ class AdmissionTests(SimpleTestCase):
             paid_guard.quote_for(contract(kind='video', model='Kling 3.0'), UNLIMITED)
 
 
+MAGNIFIC = 'https://api.magnific.com'
+
+
+@override_settings(VEEVEE_MAGNIFIC_UPSCALE=True)
+class MagnificAdmissionTests(SimpleTestCase):
+    def test_each_model_is_pinned_to_its_create_endpoint(self):
+        expected = {'Magnific Creative': '/v1/ai/image-upscaler', 'Magnific Precision V1': '/v1/ai/image-upscaler-precision',
+                    'Magnific Precision V2': '/v1/ai/image-upscaler-precision-v2'}
+        for model, path in expected.items():
+            quote = paid_guard.quote_for(contract(kind='image', model=model, submission_input={'version': 1}), UNLIMITED)
+            self.assertEqual(quote['allowed_paid_endpoints'], [MAGNIFIC + path], model)
+        video = {'Magnific Video Creative': '/v1/ai/video-upscaler', 'Magnific Video Creative Turbo': '/v1/ai/video-upscaler/turbo',
+                 'Magnific Video Precision': '/v1/ai/video-upscaler-precision', 'Magnific Video Topaz': '/v1/ai/video-upscaler-topaz'}
+        for model, path in video.items():
+            quote = paid_guard.quote_for(contract(kind='video', model=model, submission_input={'version': 1}), UNLIMITED)
+            self.assertEqual(quote['allowed_paid_endpoints'], [MAGNIFIC + path], model)
+            self.assertEqual(quote['provider_payload_allowed_values'],
+                             {} if model == 'Magnific Video Topaz' else {'output_format': ['h264', 'prores_422_hq']})
+
+    def test_refused_without_flag_intent_or_unlimited_scope(self):
+        row = contract(kind='video', model='Magnific Video Creative', submission_input={'version': 1})
+        with override_settings(VEEVEE_MAGNIFIC_UPSCALE=False), self.assertRaises(ValueError):
+            paid_guard.quote_for(row, UNLIMITED)
+        with self.assertRaises(ValueError):
+            paid_guard.quote_for({**row, 'submission_input': None}, UNLIMITED)
+        with self.assertRaises(ValueError):
+            paid_guard.quote_for({**row, 'kind': 'image'}, UNLIMITED)
+        with self.assertRaises(Exception):
+            paid_guard.quote_for(row, {'approved_scope': paid_guard.LIMITED_SCOPE, 'maximum_total_cents': paid_guard.CAP,
+                                       'reviewed_maximum_quotes': {}})
+
+
 class FakeCursor:
     def __init__(self, ledger):
         self.ledger = ledger
@@ -62,9 +94,9 @@ class FakeCursor:
 class OneClaimPerPostTests(TransactionTestCase):
     @contextlib.contextmanager
     def installed(self, ledger, sent):
-        from apps.generation.services import enqueue, executor
+        from apps.generation.services import enqueue, executor, upscale_submission
         from apps.generation.providers.transport import HttpTransport
-        originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request)
+        originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale)
         installed_flag = getattr(enqueue, '_goal4_paid_guard_installed', False)
 
         def fake_request(self, method, url, **kwargs):
@@ -86,7 +118,7 @@ class OneClaimPerPostTests(TransactionTestCase):
                 paid_guard.install_paid_guard(UNLIMITED)
                 yield executor
         finally:
-            enqueue.persist, executor.execute_admitted, HttpTransport.request = originals
+            enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale = originals
             enqueue._goal4_paid_guard_installed = installed_flag
             paid_guard.STATE.active = None
 
@@ -126,6 +158,55 @@ class OneClaimPerPostTests(TransactionTestCase):
                 HttpTransport(allowed_hosts=['x']).request('POST', SEEDANCE_ENDPOINT, body={'output_format': 'mp4'})
         self.assertEqual(sent, [])
         self.assertEqual(ledger[row.id], 'ATTEMPTING')
+
+
+@override_settings(VEEVEE_MAGNIFIC_UPSCALE=True)
+class MagnificOneClaimTests(TransactionTestCase):
+    """The worker's upscale submit claims RESERVED->ATTEMPTING->SUBMITTING exactly once."""
+    installed = OneClaimPerPostTests.installed
+
+    def run_submit(self, ledger, sent, posts, row):
+        from apps.generation.services import upscale_submission
+        from apps.generation.providers.transport import HttpTransport
+
+        def fake_upscale(item, **kwargs):
+            for url, body in posts:
+                HttpTransport(allowed_hosts=['api.magnific.com']).request('POST', url, body=body)
+        original = upscale_submission.submit_claimed_upscale
+        upscale_submission.submit_claimed_upscale = fake_upscale
+        try:
+            with self.installed(ledger, sent):
+                upscale_submission.submit_claimed_upscale(row, owner='o', signal=None)
+        finally:
+            upscale_submission.submit_claimed_upscale = original
+
+    def test_video_submit_claims_once_and_a_second_post_is_refused(self):
+        row = SimpleNamespace(**contract(kind='video', model='Magnific Video Creative', submission_input={'version': 1}))
+        body = {'video': 'https://storage.example/v', 'output_format': 'h264'}
+        ledger, sent = {row.id: 'RESERVED'}, []
+        with self.assertRaises(RuntimeError):
+            self.run_submit(ledger, sent, [(MAGNIFIC + '/v1/ai/video-upscaler', body)] * 2, row)
+        self.assertEqual([url for _, url, _ in sent], [MAGNIFIC + '/v1/ai/video-upscaler'])
+        self.assertEqual(ledger[row.id], 'SUBMITTING')
+
+    def test_image_submit_is_claimed_like_any_paid_job(self):
+        row = SimpleNamespace(**contract(kind='image', model='Magnific Precision V2', submission_input={'version': 1}))
+        ledger, sent = {row.id: 'RESERVED'}, []
+        self.run_submit(ledger, sent, [(MAGNIFIC + '/v1/ai/image-upscaler-precision-v2', {'image': 'data:'})], row)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(ledger[row.id], 'SUBMITTING')
+
+    def test_wrong_endpoint_payload_or_missing_reservation_never_reaches_magnific(self):
+        from apps.generation.providers.transport import ProviderError
+        row = SimpleNamespace(**contract(kind='video', model='Magnific Video Creative', submission_input={'version': 1}))
+        for posts, ledger, error in (
+                ([(MAGNIFIC + '/v1/ai/video-upscaler/turbo', {'output_format': 'h264'})], {row.id: 'RESERVED'}, ProviderError),
+                ([(MAGNIFIC + '/v1/ai/video-upscaler', {'output_format': 'gif'})], {row.id: 'RESERVED'}, ValueError),
+                ([(MAGNIFIC + '/v1/ai/video-upscaler', {'output_format': 'h264'})], {}, RuntimeError)):
+            sent = []
+            with self.subTest(posts=posts, ledger=ledger), self.assertRaises(error):
+                self.run_submit(ledger, sent, posts, row)
+            self.assertEqual(sent, [])
 
 
 class ExportAdmissionTests(TransactionTestCase):

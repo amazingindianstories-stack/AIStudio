@@ -22,6 +22,7 @@ from .services.poller import advance_magnific
 from .services.deadline import with_queue_execution_deadline, QueueExecutionCapacityError
 from apps.library.services import idempotency
 from .services.upscale_validation import validate_upscale_request, validate_source, inspect_image, aspect_ratio, validate_output_area, InvalidUpscaleRequest, MAX_BYTES
+from .services.upscale_validation import validate_video_upscale_request, inspect_video_source, video_source_key, video_upscale_cost
 
 
 def json_body(request):
@@ -159,6 +160,8 @@ def upscale(request):
     try:
         data = json_body(request)
         data = resolve_submission_references(data, user.id)
+        if 'video' in data:
+            return upscale_video(request, user, data)
         validated = validate_upscale_request(data)
         validate_source(data['image'],request.build_absolute_uri('/').rstrip('/'))
     except UploadError as error:
@@ -209,6 +212,33 @@ def upscale(request):
             return response
         if isinstance(error,(InvalidUpscaleRequest,MediaTooLargeError)):
             return reply(request,{'error':str(error)},400)
+        return reply(request,{'error':'Failed to start upscale generation.'},500)
+
+
+def upscale_video(request, user, data):
+    """Queue a Magnific video upscale. No copy of the source and no provider call here."""
+    validated = validate_video_upscale_request(data)
+    validate_source(data['video'], request.build_absolute_uri('/').rstrip('/'))
+    model, params = validated['model'], validated['params']
+    source = '/api/media/' + video_source_key(data['video'])
+    identifier, now = uuid.uuid4(), now_ms()
+    try:
+        meta = inspect_video_source(source, actor_id=user.id)
+        cost = video_upscale_cost(model, params, meta, read_pricing())
+        item = dict(id=str(identifier),kind='video',status='queued',prompt=f"{model} ({params['resolution']})",
+            model=model,aspectRatio=aspect_ratio(meta['width'],meta['height']),resolution=params['resolution'],
+            duration=max(1,round(meta['durationSeconds'])),referenceVideos=[source],userId=str(user.id),
+            costCents=cost,costBasis='estimated',createdAt=now,updatedAt=now)
+        for name in ('projectId','folderId'):
+            if truthy(data.get(name)): item[name] = data[name]
+        # Only the leased Python worker signs the source and submits it.
+        enqueue.persist({**item,'submissionInput':{'version':1,'source':source,'params':params,'sourceMeta':meta}})
+        log_activity(user.id,'generate',{'id':str(identifier),'kind':'video','model':model,'costCents':cost})
+        return reply(request,item)
+    except InvalidUpscaleRequest as error:
+        return reply(request,{'error':str(error)},400)
+    except Exception:
+        logging.getLogger('veevee.generation').exception('video upscale enqueue failed generation_id=%s',identifier)
         return reply(request,{'error':'Failed to start upscale generation.'},500)
 
 

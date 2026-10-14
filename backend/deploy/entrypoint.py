@@ -66,7 +66,8 @@ def run_api(env):
         raise SystemExit('VEEVEE_INGRESS_SECRET must be at least 48 characters')
     port = int(env.get('PORT', '18081'))
     gateway_config = json.dumps({'secret': secret, 'port': port, 'paid_initial_routes': bool(env.get('VEEVEE_PAID_GUARD')),
-                                 'new_exports': env.get('VEEVEE_EXPORT_ADMISSION') == '1'})
+                                 'new_exports': env.get('VEEVEE_EXPORT_ADMISSION') == '1',
+                                 'magnific_upscale': env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'})
     children = [
         subprocess.Popen([sys.executable, '-m', 'gunicorn', 'config.wsgi:application', *GUNICORN], env=env),
         subprocess.Popen([sys.executable, str(Path(__file__).with_name('gateway.py')), '--approved-private-stdin'],

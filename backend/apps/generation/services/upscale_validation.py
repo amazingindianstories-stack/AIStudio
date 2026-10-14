@@ -106,3 +106,121 @@ def validate_output_area(model, params, meta):
         scale = int(params['scaleFactor'][:-1])
         if meta['width'] * meta['height'] * scale * scale > 25300000:
             fail('Magnific Creative output cannot exceed 25.3 megapixels. Choose a smaller scale or source image.')
+
+
+# Video upscaling. Magnific publishes no input limits; these bound spend and
+# worker time, and match the video-reference upload cap.
+from apps.generation.providers.magnific import (VIDEO_MODELS, VIDEO_PARAMS, VIDEO_RESOLUTIONS, VIDEO_FLAVORS,
+                                                 VIDEO_OUTPUT_FORMATS, TOPAZ_MODELS, TOPAZ_INTERPOLATIONS)
+MAX_VIDEO_SECONDS = 60
+MAX_VIDEO_FPS = 60
+MAX_VIDEO_BYTES = 2*1024*1024*1024
+VIDEO_SOURCE_PREFIXES = ('uploads/', 'generations/', 'references/')
+
+
+def validate_video_upscale_request(body):
+    body = body if isinstance(body, dict) else {}
+    model = body.get('model')
+    if model not in VIDEO_MODELS: fail('Unsupported video upscale model.')
+    if not isinstance(body.get('video'), str) or not body['video']: fail('Source video is required for upscaling.')
+    for key in ('projectId', 'folderId'):
+        if body.get(key) is not None and not UUID.fullmatch(string(body[key])): fail(f'Invalid {key}.')
+    params = body.get('params')
+    if not isinstance(params, dict): fail('Invalid upscale parameters.')
+    for key in params:
+        if key != 'model' and key not in VIDEO_PARAMS[model]: fail(f'Parameter {key} is not supported by {model}.')
+    if params.get('model') is not None and params['model'] != model: fail('Parameter model does not match model.')
+    def integer(key, minimum, maximum, required=True):
+        value = params.get(key)
+        if value is None and not required: return
+        # JSON bodies are parsed with JavaScript number semantics (0 may be 0.0).
+        if type(value) not in (int, float) or not math.isfinite(value) or value != int(value) or not minimum <= value <= maximum:
+            fail(f'{key} must be a whole number between {minimum} and {maximum}.')
+    if params.get('resolution') not in VIDEO_RESOLUTIONS: fail('Invalid resolution.')
+    if model == 'Magnific Video Topaz':
+        if params.get('enhancementModel') not in TOPAZ_MODELS: fail('Invalid enhancementModel.')
+        integer('targetFps', 1, 60, required=False)
+        if params.get('frameInterpolation') not in TOPAZ_INTERPOLATIONS: fail('Invalid frameInterpolation.')
+        noise = params.get('noise')
+        if type(noise) not in (int, float) or not math.isfinite(noise) or not 0 <= noise <= 1: fail('noise must be between 0 and 1.')
+        return body
+    for key in ('sharpen', 'smartGrain') + (('strength',) if model == 'Magnific Video Precision' else ('creativity',)):
+        integer(key, 0, 100)
+    if type(params.get('fpsBoost')) is not bool: fail('fpsBoost must be boolean.')
+    if model != 'Magnific Video Precision' and params.get('flavor') not in VIDEO_FLAVORS: fail('Invalid flavor.')
+    if params.get('outputFormat') not in VIDEO_OUTPUT_FORMATS: fail('Invalid outputFormat.')
+    return body
+
+
+def video_source_key(ref):
+    """Only immutable stored media may be upscaled; never exports or foreign URLs."""
+    from django.conf import settings
+    from apps.media.keys import media_key_from_ref, is_export_key
+    key = media_key_from_ref(ref, getattr(settings, 'GCP_MEDIA_CDN_URL', ''))
+    if not key or is_export_key(key) or not key.startswith(VIDEO_SOURCE_PREFIXES) or '?' in ref or '#' in ref:
+        fail('Source video must be uploaded to this application.')
+    return key
+
+
+def _fraction(value):
+    match = re.fullmatch(r'([0-9]+)/([0-9]+)', string(value))
+    if match and int(match[2]):
+        return int(match[1]) / int(match[2])
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def inspect_video_source(ref, *, actor_id=None, storage=None, run=None):
+    """Bounded ffprobe of a stored video (local file or short-lived signed read)."""
+    import json
+    import subprocess
+    from django.conf import settings
+    from apps.media.storage import get_storage, FileSystemAdapter
+    key = video_source_key(ref)
+    storage = storage or get_storage()
+    primary = getattr(storage, 'primary', None)
+    if isinstance(primary, FileSystemAdapter) and primary._path(key).exists():
+        target = str(primary._path(key))
+    else:
+        target = storage.signed_read_url(key, 600, actor_id=actor_id)
+    command = [getattr(settings, 'FFPROBE_BINARY', 'ffprobe'), '-v', 'error', '-protocol_whitelist', 'file,https,tls,tcp,crypto',
+               '-show_entries', 'stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,duration:format=duration,size,format_name',
+               '-of', 'json', target]
+    try:
+        result = (run or subprocess.run)(command, capture_output=True, timeout=15, check=True)
+        data = json.loads(result.stdout)
+    except Exception:
+        fail('Source is not a readable video.')
+    video = next((stream for stream in data.get('streams') or [] if stream.get('codec_type') == 'video'), None)
+    if not video or not video.get('width') or not video.get('height'): fail('Source is not a readable video.')
+    duration = _fraction((data.get('format') or {}).get('duration') or video.get('duration'))
+    fps = _fraction(video.get('avg_frame_rate')) or _fraction(video.get('r_frame_rate'))
+    size = int(_fraction((data.get('format') or {}).get('size')))
+    if not duration > 0 or not fps > 0: fail('Source video duration or frame rate could not be read.')
+    if duration > MAX_VIDEO_SECONDS: fail(f'Source video must be {MAX_VIDEO_SECONDS} seconds or shorter.')
+    if fps > MAX_VIDEO_FPS + .5: fail(f'Source video must be {MAX_VIDEO_FPS} fps or lower.')
+    if size > MAX_VIDEO_BYTES: fail('Source video must be 2 GB or smaller.')
+    return {'durationSeconds': round(duration, 3), 'fps': round(fps, 3), 'width': int(video['width']),
+            'height': int(video['height']), 'bytes': size, 'codec': video.get('codec_name')}
+
+
+VIDEO_RESOLUTION_RATES = {'720p': 7/9, '1k': 7/9, '2k': 1, '4k': 12/9}
+
+
+def video_upscale_frames(model, params, meta):
+    """Frames Magnific bills: output fps x duration, 1.6x with fps_boost, minimum 12."""
+    fps = params.get('targetFps') if model == 'Magnific Video Topaz' and params.get('targetFps') else meta['fps']
+    frames = math.ceil(meta['durationSeconds'] * fps)
+    if params.get('fpsBoost') is True:
+        frames = math.ceil(frames * 1.6)
+    return max(12, frames)
+
+
+def video_upscale_cost(model, params, meta, pricing):
+    row = next((row for row in pricing if row['model'] == model), None)
+    if not row or row.get('unit') != 'per_1000_frames' or type(row.get('unitCostCents')) is not int:
+        raise ValueError(f'Pricing is not configured for {model}.')
+    frames = video_upscale_frames(model, params, meta)
+    return math.ceil(frames * row['unitCostCents'] / 1000 * VIDEO_RESOLUTION_RATES[params['resolution']])

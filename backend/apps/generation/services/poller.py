@@ -26,6 +26,9 @@ from .deadline import Cancellation
 from .pricing import read_pricing, seedance_token_cost
 
 
+MAGNIFIC_VIDEO_MAX_BYTES = 4 * 1024 * 1024 * 1024
+
+
 def retry_after_ms(count):
     return min(60000, 30000 * 2 ** max(0, min(10, (count or 1) - 1)))
 
@@ -63,6 +66,16 @@ class Dependencies:
 
     get_omni = staticmethod(omni.get_video_status)
     get_magnific = staticmethod(magnific.get_upscale_status)
+    get_magnific_video = staticmethod(magnific.get_video_upscale_status)
+
+    def save_magnific_video(self, url, ext, identifier, metadata):
+        # Same allowlisted fetcher, streamed to a spool file; ProRes masters
+        # get a larger cap within the worker's per-job budget.
+        from apps.media.remote import SafeMediaFetcher
+        fetcher = get_media_fetcher()
+        if isinstance(fetcher, SafeMediaFetcher):
+            fetcher = SafeMediaFetcher(fetcher.allowed_hosts, max_bytes=MAGNIFIC_VIDEO_MAX_BYTES, total_timeout=240)
+        return persistence.save_from_url_with_metadata(url, ext, identifier, metadata, fetcher=fetcher)
 
     def fetch(self, url):
         return get_media_fetcher()(url)
@@ -195,6 +208,31 @@ def advance_magnific(item, *, signal=None, owner=None, dependencies=None):
     return _terminal(item, updates, deps, signal, owner, {'provider_status': 'COMPLETED'})
 
 
+def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):
+    if item.model not in magnific.VIDEO_MODELS or item.kind != 'video' or not item.task_id:
+        raise ValueError('Generation is not a Magnific video job.')
+    if item.status in ('succeeded', 'failed'):
+        return {'kind': item.status, 'item': item}
+    deps, signal = dependencies or Dependencies(), signal or Cancellation(60000)
+    source = (item.submission_input or {}).get('source')
+    if deps.mock() and item.task_id == 'mock-magnific-'+str(item.id):
+        if not source:
+            raise ValueError('Mock upscale requires its persisted reference.')
+        return _terminal(item, {'status': 'succeeded', 'url': source}, deps, signal, owner, {'provider_status': 'MOCK_COMPLETED'})
+    output_format = ((item.submission_input or {}).get('params') or {}).get('outputFormat') or 'h264'
+    outcome = deps.get_magnific_video(item.task_id, model=item.model, output_format=output_format, signal=signal)
+    if outcome['status'] == 'running':
+        return _pending(item, deps, signal, owner, {'provider_status': 'IN_PROGRESS'}, 10000)
+    if outcome['status'] == 'failed':
+        return _terminal(item, {'status': 'failed', 'error': outcome.get('error') or 'Magnific upscale task failed.'}, deps, signal, owner, {'provider_status': 'FAILED'})
+    url = outcome['generatedUrl']
+    signal.check()
+    # Native container and bytes are kept: MP4 for H.264, the .mov master for ProRes.
+    saved = deps.save_magnific_video(url, video_extension({'url': url}), f'{item.id}/{uuid4().hex}', _metadata(item))
+    return _terminal(item, {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio},
+                     deps, signal, owner, {'provider_status': 'COMPLETED'})
+
+
 def advance(item, *, source='cron', signal=None, owner=None, provider=None, callback_received_at=None, dependencies=None):
     if item.status in ('succeeded', 'failed'):
         return {'kind': item.status, 'item': item}
@@ -208,6 +246,8 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
         signal.check()
         if item.model in magnific.MODELS:
             return advance_magnific(item, signal=signal, owner=owner, dependencies=deps)
+        if item.model in magnific.VIDEO_MODELS:
+            return advance_magnific_video(item, signal=signal, owner=owner, dependencies=deps)
         if deps.mock():
             if deps.now() - item.created_at <= 6000:
                 return {'kind': 'pending', 'item': item}

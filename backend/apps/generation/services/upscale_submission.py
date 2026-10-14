@@ -4,6 +4,7 @@ from apps.generation.providers import magnific
 from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
 from .upscale_validation import validate_upscale_request, inspect_image, validate_output_area, MAX_BYTES
+from .upscale_validation import validate_video_upscale_request, inspect_video_source, video_source_key
 
 
 def submit_persisted_upscale(item, *, signal, mark_pending, save_receipt, mark_uncertain,
@@ -12,6 +13,9 @@ def submit_persisted_upscale(item, *, signal, mark_pending, save_receipt, mark_u
     if not isinstance(value,dict) or type(value.get('version')) is not int or value.get('version')!=1:
         raise ValueError('Missing supported durable upscale input.')
     source=value.get('source')
+    if item.model in magnific.VIDEO_MODELS:
+        return _submit_video(item,value,signal=signal,mark_pending=mark_pending,save_receipt=save_receipt,
+                             mark_uncertain=mark_uncertain,storage=storage,submit=submit)
     if not isinstance(source,str) or not source.startswith('/api/media/references/') or '?' in source or '#' in source:
         raise ValueError('Durable upscale source must be a canonical stored reference.')
     key=media_key_from_ref(source)
@@ -33,6 +37,37 @@ def submit_persisted_upscale(item, *, signal, mark_pending, save_receipt, mark_u
         if not isinstance(task,str) or not task:
             raise RuntimeError('Provider accepted upscale without a valid receipt.')
         # Accepted receipt persists even if cancellation raced the response.
+        save_receipt(task)
+    except Exception:
+        mark_uncertain()
+        raise
+    return task
+
+
+# Magnific analyses the source while accepting the task and may fetch it again
+# while queued; the signed read must outlive both.
+VIDEO_SOURCE_URL_SECONDS = 6*60*60
+
+
+def _submit_video(item, value, *, signal, mark_pending, save_receipt, mark_uncertain, storage=None, submit=None):
+    source=value.get('source')
+    if not isinstance(source,str) or not source.startswith('/api/media/'):
+        raise ValueError('Durable video upscale source must be a canonical stored reference.')
+    payload=validate_video_upscale_request({'model':item.model,'video':source,'params':value.get('params')})
+    storage=storage or get_storage()
+    # Re-check the stored bytes; the queued estimate must still describe them.
+    inspect_video_source(source,actor_id=item.user_id,storage=storage)
+    signal.check()
+    url=storage.signed_read_url(video_source_key(source),VIDEO_SOURCE_URL_SECONDS,actor_id=item.user_id)
+    if not isinstance(url,str) or not url.startswith('https://'):
+        raise ValueError('Magnific video upscaling requires an HTTPS source URL.')
+    mark_pending()
+    try:
+        result=(submit or magnific.submit_video_upscale)({'model':item.model,'video':url,
+            'params':payload['params']},signal=signal)
+        task=result.get('taskId') if isinstance(result,dict) else None
+        if not isinstance(task,str) or not task:
+            raise RuntimeError('Provider accepted upscale without a valid receipt.')
         save_receipt(task)
     except Exception:
         mark_uncertain()

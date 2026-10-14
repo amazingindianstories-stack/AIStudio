@@ -24,7 +24,10 @@ API_ROLE = 'goal4_green_preview_api'
 PROVIDER_KEYS = {'ARK_API_KEY', 'ARK_BASE_URL', 'GOOGLE_API_KEY', 'SEEDANCE_MODEL', 'SEEDANCE_MODEL_FAST'}
 BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPLUS_ARK_REGION', 'BYTEPLUS_ARK_HOST', 'BYTEPLUS_ARK_BASE_URL'}
 PASS_THROUGH = ('PATH', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID',
-                'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE')
+                'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE',
+                'MAGNIFIC_API_KEY', 'VEEVEE_MAGNIFIC_UPSCALE')
+# Magnific output CDN (observed in a live task, 2026-10-14); signed, expiring links.
+MAGNIFIC_MEDIA_HOSTS = ('cdn-magnific.freepik.com',)
 
 
 class LegacyConfigError(SystemExit):
@@ -111,6 +114,8 @@ def translate(component, env):
     out['VEEVEE_NAMING_PREFIX'] = cfg['naming_prefix']
     hosts = cfg.get('provider_media_hosts', [])
     need(isinstance(hosts, list) and len(hosts) <= 8, 'provider media hosts')
+    if env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1':
+        hosts = [*hosts, *(host for host in MAGNIFIC_MEDIA_HOSTS if host not in hosts)]
     out['VEEVEE_PROVIDER_MEDIA_HOSTS'] = ','.join(hosts)
     if cfg.get('new_exports'):
         out['VEEVEE_EXPORT_ADMISSION'] = '1'

@@ -29,6 +29,8 @@ def quote_for(contract,config):
   require(contract['user_id'] is not None and (not contract['draft_task_id'] or draft_final),'New authenticated initial jobs only')
   from apps.generation.model_registry import model_definition
   definition=model_definition(contract['model']) or {};provider=definition.get('provider')
+  if provider=='magnific':
+   return magnific_quote(contract)
   if contract['kind']=='image':
    require(provider in ('gemini','seedream'),'Only configured Gemini or Seedream image providers authorized')
    endpoint='https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent' if provider=='gemini' else 'https://ark.ap-southeast.bytepluses.com/api/v3/images/generations'
@@ -54,6 +56,19 @@ def quote_for(contract,config):
  require(contract['kind'] in ('image','video') and contract['user_id'] is not None and not contract['draft_task_id'],'New authenticated generation only; finalization separately held')
  if contract['kind']=='video':require(quote.get('provider_payload_allowed_values',{}).get('output_format')==['mov'],'Native MOV payload guard required')
  return quote
+def magnific_quote(contract):
+ """Magnific upscales (VEEVEE_MAGNIFIC_UPSCALE): one exact create endpoint per model."""
+ from django.conf import settings
+ from apps.generation.providers import magnific
+ require(getattr(settings,'VEEVEE_MAGNIFIC_UPSCALE',False) is True,'Magnific upscaling is not enabled')
+ require(not contract['draft_task_id'] and isinstance(contract.get('submission_input'),dict),'New Magnific upscale only')
+ if contract['kind']=='image':
+  require(contract['model'] in magnific.MODELS,'Unknown Magnific image model')
+  endpoint={'creative':'/v1/ai/image-upscaler','precision-v1':'/v1/ai/image-upscaler-precision','precision-v2':'/v1/ai/image-upscaler-precision-v2'}[magnific.resolve_variant(contract['model'])]
+  return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[magnific.BASE_URL+endpoint],'provider_payload_allowed_values':{}}
+ require(contract['kind']=='video' and contract['model'] in magnific.VIDEO_MODELS,'Unknown Magnific video model')
+ allowed={} if contract['model']=='Magnific Video Topaz' else {'output_format':list(magnific.VIDEO_OUTPUT_FORMATS)}
+ return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[magnific.video_create_url(contract['model'])],'provider_payload_allowed_values':allowed}
 def operator_quotes(pricing_evidence_sha256):
  base={'pricing_status':'OPERATOR_CONSERVATIVE_RESERVATION_NOT_HARD_CAP','pricing_evidence_sha256':pricing_evidence_sha256,'maximum_charge_verified':False}
  image={**base,'maximum_cents':600,'allowed_input_values':{'kind':['image'],'resolution':['1K','2K','4K']},'allowed_paid_endpoints':['https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent'],'provider_payload_allowed_values':{'generationConfig.candidateCount':[1]},'provider_payload_numeric_maxima':{'generationConfig.maxOutputTokens':32768}}
@@ -69,7 +84,9 @@ def install_paid_guard(config):
  unlimited=config['approved_scope']==UNLIMITED_SCOPE
  require(config.get('unlimited_new_jobs') is True if unlimited else config['maximum_total_cents']==CAP)
  require(not getattr(enqueue,'_goal4_paid_guard_installed',False),'Duplicate paid guard install')
+ from apps.generation.services import upscale_submission
  persist_original=enqueue.persist;execute_original=executor.execute_admitted;request_original=HttpTransport.request
+ upscale_original=upscale_submission.submit_claimed_upscale
  def persist(item):
   with transaction.atomic():
    row=persist_original(item);row.refresh_from_db();contract=execution_contract(row)
@@ -86,6 +103,15 @@ def install_paid_guard(config):
   require(not getattr(STATE,'active',None),'Nested paid execution denied')
   STATE.active={'id':item.id,'contract':contract,'quote':quote}
   try:return execute_original(item,**kwargs)
+  finally:STATE.active=None
+ def submit_upscale(item,**kwargs):
+  # Magnific bypasses execute_admitted; claim the same one-shot attempt first.
+  contract=execution_contract(item);quote=quote_for(contract,config)
+  require(connection.get_autocommit(),'Paid one-shot transition must commit before provider I/O')
+  with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[item.id,fingerprint(contract),'RESERVED','ATTEMPTING'])
+  require(not getattr(STATE,'active',None),'Nested paid execution denied')
+  STATE.active={'id':item.id,'contract':contract,'quote':quote}
+  try:return upscale_original(item,**kwargs)
   finally:STATE.active=None
  def request(self,method,url,**kwargs):
   # BytePlus asset-library transports (GetAsset, list, create/delete asset) are
@@ -111,6 +137,7 @@ def install_paid_guard(config):
    with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[active['id'],fingerprint(active['contract']),'ATTEMPTING','SUBMITTING'])
   return request_original(self,method,url,**kwargs)
  enqueue.persist=persist;executor.execute_admitted=execute;HttpTransport.request=request;enqueue._goal4_paid_guard_installed=True
+ upscale_submission.submit_claimed_upscale=submit_upscale
  return {'status':'INSTALLED_FAIL_CLOSED_SHARED_NEW_JOB_ONE_SHOT_GUARD','maximum_total_cents':None if unlimited else CAP,'reservations_released_automatically':False,'provider_billing_cap_measured':False}
 def wrap_wsgi(application):
  def guarded(environ,start_response):

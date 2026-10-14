@@ -163,7 +163,7 @@ def pricing_mutation(request):
         value = rounded(number(data.get('unitCostCents', MISSING) if isinstance(data, dict) else MISSING))
         if not math.isnan(value): value = max(0, value)
         unit = property_of(data, 'unit')
-        if unit not in ('per_image', 'per_second', 'per_million_tokens', 'per_1000_images'):
+        if unit not in ('per_image', 'per_second', 'per_million_tokens', 'per_1000_images', 'per_1000_frames'):
             return reply(request, {'error': 'Invalid pricing unit.'}, 400)
         if not model or not math.isfinite(value): return reply(request, {'error': 'Invalid pricing.'}, 400)
         Pricing.objects.update_or_create(model=model, defaults={'unit_cost_cents': value, 'unit': unit})

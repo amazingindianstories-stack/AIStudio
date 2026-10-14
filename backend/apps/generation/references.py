@@ -42,6 +42,7 @@ def resolve_submission_references(body, actor_id):
     purposes = {'referenceImages': ('image-reference', 'portrait', 'material', 'canvas'),
         'image': ('image-reference', 'portrait', 'material', 'canvas'),
         'referenceVideos': ('video-reference',), 'referenceAudios': ('audio-reference',),
+        'video': ('video-reference',),
         'firstFrame': ('image-reference', 'portrait', 'material', 'canvas'),
         'lastFrame': ('image-reference', 'portrait', 'material', 'canvas'),
         'continuationFrame': ('image-reference', 'portrait', 'material', 'canvas')}

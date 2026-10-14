@@ -104,7 +104,7 @@ class AdminContractTests(TransactionTestCase):
         self.assertEqual(result['users'][0]['genCount'],4)
         self.assertEqual(result['users'][0]['costCents'],50)
         self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':4})
-        self.assertEqual(len(result['pricing']),23)
+        self.assertEqual(len(result['pricing']),27)  # 23 frozen rows + 4 Magnific video rows
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(Pricing.objects.get(pk='Nano Banana Pro').unit_cost_cents,777)
 
@@ -215,7 +215,10 @@ class AdminPureParityTests(SimpleTestCase):
         code='import {DEFAULT_PRICING} from "./src/lib/pricing.js";console.log(JSON.stringify(DEFAULT_PRICING));'
         result=oracle_run(['node','--import','tsx','--input-type=module','-e',code],capture_output=True,text=True,check=True,cwd=Path(__file__).resolve().parents[3])
         from .default_pricing import DEFAULT_PRICING
-        self.assertEqual(json.loads(result.stdout), DEFAULT_PRICING)
+        # Magnific video upscaler rates (2026-10-14) postdate the frozen Node table.
+        added = [row for row in DEFAULT_PRICING if row['unit'] == 'per_1000_frames']
+        self.assertEqual([row['model'] for row in added], ['Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz'])
+        self.assertEqual(json.loads(result.stdout), [row for row in DEFAULT_PRICING if row not in added])
 
     def test_status_timeout_error_and_fixed_shape_without_external_calls(self):
         checks=[('success','Success',lambda:{'status':'ok','detail':'fixture'}),('slow','Slow',lambda:time.sleep(.04))]

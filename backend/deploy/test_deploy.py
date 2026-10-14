@@ -49,6 +49,45 @@ class GatewayAllowlistTests(SimpleTestCase):
             self.assertFalse(allowed(method, path), (method, path))
         self.assertFalse(gateway.allowed('POST', '/api/generate/video', False, True))
 
+    def test_magnific_upscale_route_needs_paid_routes_and_its_flag(self):
+        self.assertFalse(gateway.allowed('POST', '/api/generate/upscale', True, True))
+        self.assertFalse(gateway.allowed('POST', '/api/generate/upscale', True, True, False))
+        self.assertFalse(gateway.allowed('POST', '/api/generate/upscale', False, True, True))
+        self.assertTrue(gateway.allowed('POST', '/api/generate/upscale', True, True, True))
+        for method, path in (('GET', '/api/generate/upscale/status'), ('PUT', '/api/generate/upscale'), ('POST', '/api/generate/upscale/x'),
+                             ('POST', '/api/audio/transcribe'), ('POST', '/api/queue/execute')):
+            self.assertFalse(gateway.allowed(method, path, True, True, True), (method, path))
+        # Everything allowed before stays allowed; nothing else opens with the flag.
+        for method, path in (('POST', '/api/generate/image'), ('POST', '/api/generate/video'), ('GET', '/api/history'),
+                             ('POST', '/api/admin/users'), ('POST', '/api/worker/other')):
+            self.assertEqual(gateway.allowed(method, path, True, True, True), gateway.allowed(method, path, True, True), (method, path))
+
+    def test_entrypoint_passes_the_flag_to_the_gateway(self):
+        import json
+        from unittest.mock import patch
+        captured = {}
+
+        class Child:
+            def __init__(self, args, **kwargs):
+                self.stdin, self.returncode = self, 0
+            def write(self, data):
+                captured['config'] = json.loads(data)
+            def close(self):
+                pass
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+            def terminate(self):
+                pass
+        for value, expected in (('1', True), (None, False)):
+            env = {'VEEVEE_INGRESS_SECRET': 's' * 64, 'PORT': '18081', 'VEEVEE_PAID_GUARD': '{}'}
+            if value:
+                env['VEEVEE_MAGNIFIC_UPSCALE'] = value
+            with patch('subprocess.Popen', Child), patch('signal.signal'):
+                entrypoint.run_api(env)
+            self.assertIs(captured['config']['magnific_upscale'], expected)
+
 
 class LegacyConfigTests(SimpleTestCase):
     """The versioned image reads the Green services' existing configuration unchanged."""
@@ -112,6 +151,17 @@ class LegacyConfigTests(SimpleTestCase):
         self.assertEqual(override['PUBLIC_APP_URL'], 'https://veevee.ai')
         self.assertNotIn('VEEVEE_PUBLIC_APP_URL_OVERRIDE', override)
         self.assertFalse(self.legacy.present({**env, 'DATABASE_URL': 'postgresql://explicit'}))
+
+    def test_magnific_key_flag_and_cdn_pass_through_only_when_set(self):
+        plain = self.legacy.translate('generation', self.worker_env('generation'))
+        self.assertNotIn('MAGNIFIC_API_KEY', plain)
+        self.assertNotIn('VEEVEE_MAGNIFIC_UPSCALE', plain)
+        self.assertEqual(plain['VEEVEE_PROVIDER_MEDIA_HOSTS'], 'cdn.example')
+        enabled = self.legacy.translate('generation', {**self.worker_env('generation'), 'MAGNIFIC_API_KEY': 'mk', 'VEEVEE_MAGNIFIC_UPSCALE': '1'})
+        self.assertEqual((enabled['MAGNIFIC_API_KEY'], enabled['VEEVEE_MAGNIFIC_UPSCALE']), ('mk', '1'))
+        self.assertEqual(enabled['VEEVEE_PROVIDER_MEDIA_HOSTS'], 'cdn.example,cdn-magnific.freepik.com')
+        api = self.legacy.translate('api', {**self.api_env(), 'MAGNIFIC_API_KEY': 'mk', 'VEEVEE_MAGNIFIC_UPSCALE': '1'})
+        self.assertEqual((api['MAGNIFIC_API_KEY'], api['VEEVEE_MAGNIFIC_UPSCALE']), ('mk', '1'))
 
     def test_worker_mapping_matches_the_old_launcher(self):
         generation = self.legacy.translate('generation', self.worker_env('generation'))
