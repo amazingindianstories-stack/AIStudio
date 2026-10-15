@@ -23,11 +23,12 @@ normalization, canvas data and JSON encoding, limits/throttle/pricing, filenames
 generation serialization, driver bigint bindings, and deterministic history
 responses. Live Django EXPLAIN plans run against 5,006 managed fixture rows;
 historical Node execution times are retained as provenance, not performance
-thresholds. The old mixed-runtime HTTP harness remains inert under
-`docs/django-migration/historical-oracles/`.
+thresholds. The command strings in each fixture (for example
+`scripts/django-migration/*.mjs`) are lookup identifiers; those scripts no longer
+exist in the tree.
 
-The remaining executable password oracle uses only Node crypto and has no
-application imports, so randomly salted cross-language scrypt checks remain
+The remaining executable password oracle (`testsupport/password-oracle.mjs`)
+uses only Node crypto and has no application imports, so randomly salted cross-language scrypt checks remain
 independent. A standalone JavaScript Number probe likewise has no business-code
 dependency. These fixtures should only change after independent review of the
 intended contract, with new provenance and meaningful rejection controls.

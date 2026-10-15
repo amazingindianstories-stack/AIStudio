@@ -1,4 +1,4 @@
-# Automatic portraits (managed BytePlus pool) — rollout and rollback
+# Automatic portraits (managed BytePlus pool) - rollout and rollback
 
 Status 2026-10-14: implemented and verified **locally only** (local stack, release gate, rehearsal).
 Nothing is deployed. Every production step below needs explicit owner approval.
@@ -31,10 +31,10 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 
 ## Preconditions (all required)
 1. Release gate **and** rehearsal pass records for the exact commit
-   (`scripts/stabilization/release_gate.sh`, `rehearse_local.sh` — the rehearsal applies the
+   (`scripts/release/release_gate.sh`, `rehearse_local.sh` - the rehearsal applies the
    migration as the owner and runs the pool with the real database roles).
 2. The generation worker is on the versioned image (it is still on the old launcher after the
-   2026-10-13 incident) — that redeploy is its own approval and goes first, flag off.
+   2026-10-13 incident) - that redeploy is its own approval and goes first, flag off.
 3. Owner decision on the existing remote assets (59 Active + 51 archived): the pool needs free
    BytePlus slots (`QuotaSharedPoolExceeded` since 2026-10-13 18:21 IST). The approved plan is to
    clean them at rollout together with the old internal portrait state.
@@ -60,14 +60,14 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 - **To an old launcher** (needs the 60-row history):
   1. Flag off on every service (above); wait until no generation holds a pin.
   2. Report: `python manage.py managed_portraits_rollback` (owner DSN, flag off in that process).
-  3. `python manage.py managed_portraits_rollback --delete-remote --confirm` — deletes every asset in
+  3. `python manage.py managed_portraits_rollback --delete-remote --confirm` - deletes every asset in
      Veevee's own pool group at BytePlus (irreversible; owner approval), then migrates `assets` back
      to `0004` (drops only the five pool tables) and verifies the migration row is gone.
-  4. Roll the services back per `CUTOVER.md`.
+  4. Roll the services back per `release-runbook.md`.
   Generations, media, ledger rows and all other tables are untouched.
 
 ## Local verification (2026-10-14)
-- Backend suite in the production image; frontend suite, lint and build (see STATUS.md).
+- Backend suite in the production image; frontend suite, lint and build (see status.md).
 - `local/smoke.py` through the frontend: images, Seedance draft→final MOV, ZIP, managed portrait
   (face upload → asset → video, Gallery, 410), real depth map on the local GPU worker.
 - `local/ui_check.mjs`: Gallery and Admin card render, no console errors.

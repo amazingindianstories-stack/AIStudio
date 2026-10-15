@@ -1,11 +1,15 @@
-# Green cutover to the versioned image (gate A1) — runbook
+# Release runbook (Railway Green backend)
 
-Replaces the env-injected launcher code with the image built from this branch. The image's
-entrypoint (`python -m deploy.entrypoint <component>`) reads the services' **existing**
-configuration variables (`deploy/legacy_config.py`), so the cutover changes only the image and
-start command — **no variable is added, removed or edited**. No values belong in this file.
+How a backend commit reaches the Railway Green services. Every production step needs explicit
+owner approval; current deployment state is in `status.md`. No values belong in this file.
 
-## Preconditions
+The image's entrypoint (`python -m deploy.entrypoint <component>`) reads the services' **existing**
+configuration variables (`deploy/legacy_config.py`), so a release changes only the image and
+start command - **no variable is added, removed or edited** unless the owner approves that change.
+The first use of this procedure was the 2026-10-13 cutover from the env-injected launcher (gate A1);
+the preconditions below are its record.
+
+## Preconditions (2026-10-13 cutover)
 - P0 backups present and restore-verified; rollback set recorded per service (deployment id,
   image digest, start command, variable-value hashes) in the private baseline.
 - Branch green: backend suite (649/650, the Node interop test needs Node), frontend suite, lint,
@@ -20,11 +24,11 @@ start command — **no variable is added, removed or edited**. No values belong 
   `SELECT status, count(*) FROM media_exports WHERE status IN ('queued','running') GROUP BY 1;`
 
 ## Release gates (required for every deploy, 2026-10-13)
-1. `scripts/stabilization/release_gate.sh <commit>` — clean detached worktree; image build; pyflakes
+1. `scripts/release/release_gate.sh <commit>` - clean detached worktree; image build; pyflakes
    undefined names; full Django suite **inside the built image** on a throwaway PostgreSQL 18,
    including fake-provider worker simulations (`apps/generation/test_worker_simulation.py`);
    `makemigrations --check`; frontend tests, lint, production build.
-2. `scripts/stabilization/rehearse_local.sh <commit>` — the commit's image on an internal
+2. `scripts/release/rehearse_local.sh <commit>` - the commit's image on an internal
    (no-internet) Docker network against a restored Green copy with production roles/RLS: API with
    the real entrypoint (paid guard, export admission, portrait lifecycle, gateway), workers via
    `rehearsal_worker.py` (fake provider network installed before the paid guard). The probe
@@ -36,12 +40,12 @@ start command — **no variable is added, removed or edited**. No values belong 
 
 ## Staging an upload
 ```
-python3 scripts/stabilization/stage_railway_deploy.py <commit> <component> <empty-dir>
+python3 scripts/release/stage_railway_deploy.py <commit> <component> <empty-dir>
 railway up <dir> --path-as-root -p <project> -e <environment> -s <service-id> -c
 ```
 The staged directory holds only `backend/` from `git archive` and a generated `railway.json`
-(Dockerfile `backend/Dockerfile`, start command, health/overlap). The repository's
-`railway.toml` files are never uploaded — the root one would start the generation worker.
+(Dockerfile `backend/Dockerfile`, start command, health/overlap). Any `railway.toml` an older
+commit carries is dropped, so the generated file is the only service configuration.
 
 **Learned on the API cutover (2026-10-13):** Railway ignored the uploaded `railway.json` start
 command (deployment meta had no file manifest), so the new image first ran the old launcher and
@@ -62,7 +66,7 @@ deployment's `meta.serviceManifest`.
    startup log reaches the worker loop (preflight passed) and the next real job is claimed once.
 3. **Export worker**, then **scheduler**: verify startup, then an export ZIP (filenames, MOV
    bytes) and the scheduler lease.
-4. Watch the rollback thresholds in `STATUS.md` for a full reconciliation window.
+4. Watch the rollback thresholds in `status.md` for a full reconciliation window.
 
 Separate later single-variable steps: `DEPTH_WORKER_TOKEN` on the API (F-04),
 `VEEVEE_PUBLIC_APP_URL_OVERRIDE=https://veevee.ai` (F-01).
@@ -75,3 +79,21 @@ Fallback (if the rollback kept the new start command): stage the extracted previ
 (private baseline `image-source/full` as `backend/`) with `backend/Dockerfile` and a `railway.json`
 whose start command is the recorded launcher command, and `railway up` it.
 Never re-run provider requests; uncertain jobs stay uncertain.
+
+## Rollback principles
+- Roll an image back only to a previously qualified, compatible release. Keep additive schema and
+  accepted provider task receipts; never run destructive down-migrations or delete production
+  records, and never roll the export worker back to a version that cannot read queued manifests.
+- For data corruption, restore point-in-time recovery into an isolated database, verify the
+  invariants there, then switch targets with approval. Never use the original database as a
+  diagnostic scratch area.
+
+## Environment separation
+- `.env.local.example` lists only frontend transport and public UI settings; `backend/.env.example`
+  lists backend configuration names without values. Django never loads dotenv files.
+- Provider, storage, session and database secrets live in the Railway service variables only.
+  Keep them off Vercel and out of logs, source archives, image build contexts and this repository.
+- Browser origins and allowed hosts are explicit HTTPS values; never widen them with wildcards to
+  work around proxy or cookie problems.
+- Schedule `cleanup_uploads` only after operator review: it removes expired incomplete private
+  uploads and never touches READY references or shared originals.

@@ -1,6 +1,8 @@
 # ADR: Django is the authoritative backend destination
 
-Date: 2026-10-07. Updated: 2026-10-08. Status: Accepted architecture; local implementation qualified, production cutover pending.
+Date: 2026-10-07. Updated: 2026-10-15. Status: Accepted and in production. Railway Green has served
+the API since the 2026-10-13 cutover (see `../operations/status.md`). The text below is the original
+decision record; references to the blueprint and pending cutover describe that time.
 
 The source-derived checkpoint and frozen fixtures define this local implementation
 contract. Actual deployed identity, schema and migration history still require a

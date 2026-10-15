@@ -1,62 +1,48 @@
 # Working on Veevee
 
-Read `AGENTS.md` first. The active blueprint is
-`Veevee_Django_Migration_Blueprint_2026-10-08.md`. This branch implements the
-Django/Python backend replacement; it is not evidence of a production cutover.
-No shared credentials, live provider calls or deployment are authorized by local
-qualification.
+Read `AGENTS.md` first. `docs/architecture/overview.md` maps the services and code;
+`docs/operations/status.md` is the current production record (what runs where, incidents, owner
+approval gates). Nothing in a local session authorizes deploys, pushes, production data access
+or live provider calls; the owner approves each one.
 
 ## Current architecture
 
-Veevee is an internal image/video production application. Next.js and React own
-the interface, Zustand owns client state, and same-origin `/api` requests are
-forwarded to Django. `DJANGO_API_ORIGIN` is the frontend's server-only transport
-setting. Vercel needs no database, session-signing, storage, provider or worker
-secrets. There is no browser API-base migration.
+Next.js and React own the interface, Zustand owns client state, and `src/middleware.js` forwards
+same-origin `/api` requests to Django with a server-only ingress header. Vercel holds only
+`DJANGO_API_ORIGIN` and `GOAL4_PRIVATE_INGRESS_SECRET`; no database, storage, provider or
+session-signing secrets.
 
-The Python backend has separate Django domain apps for authentication, projects,
-library/naming, assets/portraits, canvas, agents, generation, exports, workers,
-media and administration. The single managed migration graph is under
-`backend/apps/*/migrations`. PostgreSQL is required; SQLite is not qualification.
+Railway Green runs the Django API behind `backend/deploy/gateway.py`, plus the generation worker,
+export worker and scheduler, all started by `python -m deploy.entrypoint <component>` from
+`backend/Dockerfile`. `docs/operations/status.md` records which services already run the
+versioned image (the generation worker was rolled back to the old launcher on 2026-10-13).
+The single managed migration graph is under `backend/apps/*/migrations`; PostgreSQL only.
 
-Image/video enqueue endpoints persist queued requests and durable references.
-The independent `generation_worker` owns admission, execution, task receipts,
-provider polling and terminal state. `GET /api/generate/video/status` is a
-read-only resync. The retired browser execution endpoint remains an explicit
-contract, rather than silently running provider work in the frontend.
+Image/video enqueue endpoints persist queued requests and durable references. The
+`generation_worker` owns admission, execution, task receipts, provider polling and terminal
+state. `GET /api/generate/video/status` is a read-only resync. `media_export_worker` builds
+private archives using frozen manifest filenames. `run_scheduler` reconciles depth/video work,
+cleans login attempts and expired exports, and runs the portrait janitor, with database slot
+leases and startup catch-up. External GPU depth workers use the fenced depth HTTP protocol.
 
-`media_export_worker` builds private archives using frozen manifest filenames.
-`run_scheduler` reconciles depth/video work and cleans login attempts/expired
-exports, with database slot leases and startup catch-up. External GPU depth
-workers continue to use the fenced depth HTTP protocol; they are not Railway
-application workers.
+`apps/production_runtime` installs the Green production policies (paid guard, export admission,
+lease/naming namespaces, portrait lifecycle) by patching other modules at startup. Renaming or
+reshaping a patched function can break API startup; check that app before refactoring the
+modules it touches.
 
-## Commands and qualification
+## Commands
 
-Dependency installation is separate from qualification. Backend dependencies are
-in `backend/requirements.txt`; frontend packages are in `package.json`.
+- Frontend: `npm test`, `npm run lint`, `npm run build`.
+- Backend on a throwaway PostgreSQL 18.6 with an allowlisted environment:
+  `scripts/dev/test-db.sh PYTHON backend/manage.py test backend` (or an app label).
+- Browser suite through Django: `scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py`.
+- Whole stack locally: `local/veevee.sh up|user|frontend` (see `local/README.md`). Run
+  `local/veevee.sh user` only from one checkout; it resets the shared local admin password.
+- Release qualification: `scripts/release/release_gate.sh <commit>` and
+  `scripts/release/rehearse_local.sh <commit>`; staging refuses a commit without both passes.
 
-Use `scripts/django-migration/isolated.py prepare`, then `start-db SESSION`, and
-`run SESSION COMMAND ...` for local tests or servers. The runner verifies its
-actual cluster and supplies empty HOME/allowlisted environment. Use an explicit
-Python interpreter with backend requirements installed. Do not run qualification
-against an inherited DATABASE_URL or dotenv file.
-
-Useful commands *inside that verified runner*:
-
-- `python backend/manage.py check`
-- `python backend/manage.py makemigrations --check --dry-run`
-- `python backend/manage.py migrate --noinput` on a fresh disposable database
-- `python backend/manage.py test` (all apps, including media)
-- `python scripts/django-migration/browser-harness.py --install-browser`
-- `npm run check:backend-ownership`, `npm run lint`, `npm test`, `npm run build`
-
-GitHub CI uses `ci-qualification.py`, which verifies the actual PostgreSQL 16
-service container before running a clean copy. Its baseline gate tests committed
-fresh migrations, physical catalog equivalence, invariant behavior, populated
-history-only adoption, negative drift/history cases and row preservation.
-Historical Node outputs are frozen fixtures; runtime qualification does not
-execute a retired backend to manufacture expected results.
+`PYTHON` needs `backend/requirements.txt` (with `backend/constraints-qualified.txt`). Native runs
+need Docker, Node 22+, ffmpeg and libvips. CI (`.github/workflows/ci.yml`) mirrors the release gate.
 
 ## Behavior that must remain intact
 
@@ -73,7 +59,7 @@ execute a retired backend to manufacture expected results.
   storage failure must not cause a duplicate billed submission.
 - Provider payloads, reference order, tags, timing, errors and cost rules need
   exact tests. Missing credentials do not select mock success. Explicit offline
-  fixtures do not prove live provider or hosted-cloud acceptance.
+  fixtures do not prove live provider acceptance.
 - Preserve protected storage namespaces, bounded fetches, original master bytes,
   separate thumbnails, and native MOV download fallback when a browser cannot
   decode the master. Do not trade master quality for preview compatibility.
@@ -88,13 +74,3 @@ execute a retired backend to manufacture expected results.
   live in `backend/apps/canvas`; pure editing geometry stays in the frontend.
 - Folder/naming operations preserve IDs, hierarchy, optimistic versions,
   idempotency, serial counters and existing frozen export filenames.
-
-## Deployment state
-
-The proposed topology is Railway Django API + Python generation worker + Python
-export worker + scheduler, with a transport-only Vercel frontend. The database and
-media stores are preserved. See `DEPLOYMENT_RUNBOOK.md` and
-`docs/django-migration/cutover-runbook.md`. Production schema/history adoption,
-traffic transfer, hosted smoke tests, provider acceptance and secret removal are
-UNEXECUTED until separately authorized and evidenced. Historical deployed
-Drizzle ownership is recorded separately from local Django authority.
