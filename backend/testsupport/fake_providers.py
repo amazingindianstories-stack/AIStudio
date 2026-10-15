@@ -19,6 +19,7 @@ from unittest.mock import patch
 
 FAKE_MEDIA = 'https://fake-media.invalid/'
 MAGNIFIC_CDN = 'https://cdn-magnific.freepik.com/'
+MAGNIFIC_IMAGE_CDN = 'https://ai-statics.magnific.com/'
 
 
 def png_bytes(size=(64, 48)):
@@ -107,7 +108,7 @@ class FakeProviders:
                 if (created['body'] or {}).get('output_format') == 'prores_422_hq':
                     generated = [MAGNIFIC_CDN + status[2] + '-preview.mp4?token=t', MAGNIFIC_CDN + status[2] + '.mov?token=t']
             else:
-                generated = [MAGNIFIC_CDN + status[2] + '.png?token=t']
+                generated = [MAGNIFIC_IMAGE_CDN + status[2] + '.png?token=t']
             return self._result({'data': {'task_id': status[2], 'status': 'COMPLETED', 'generated': generated}})
         raise AssertionError(f'Unexpected provider request {method} {host}{path}')
 
@@ -118,7 +119,7 @@ class FakeProviders:
             return self.png, 'image/png'
         if url == FAKE_MEDIA + 'video.mov':
             return self.mov, 'video/quicktime'
-        if url.startswith(MAGNIFIC_CDN):
+        if url.startswith((MAGNIFIC_CDN, MAGNIFIC_IMAGE_CDN)):
             path = url.split('?')[0]
             if path.endswith('.png'):
                 return self.png, 'image/png'

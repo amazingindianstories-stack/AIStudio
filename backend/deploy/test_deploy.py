@@ -159,7 +159,7 @@ class LegacyConfigTests(SimpleTestCase):
         self.assertEqual(plain['VEEVEE_PROVIDER_MEDIA_HOSTS'], 'cdn.example')
         enabled = self.legacy.translate('generation', {**self.worker_env('generation'), 'MAGNIFIC_API_KEY': 'mk', 'VEEVEE_MAGNIFIC_UPSCALE': '1'})
         self.assertEqual((enabled['MAGNIFIC_API_KEY'], enabled['VEEVEE_MAGNIFIC_UPSCALE']), ('mk', '1'))
-        self.assertEqual(enabled['VEEVEE_PROVIDER_MEDIA_HOSTS'], 'cdn.example,cdn-magnific.freepik.com')
+        self.assertEqual(enabled['VEEVEE_PROVIDER_MEDIA_HOSTS'], 'cdn.example,cdn-magnific.freepik.com,ai-statics.magnific.com')
         api = self.legacy.translate('api', {**self.api_env(), 'MAGNIFIC_API_KEY': 'mk', 'VEEVEE_MAGNIFIC_UPSCALE': '1'})
         self.assertEqual((api['MAGNIFIC_API_KEY'], api['VEEVEE_MAGNIFIC_UPSCALE']), ('mk', '1'))
 
