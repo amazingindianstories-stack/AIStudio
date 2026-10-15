@@ -136,6 +136,6 @@ function ManualPortraitGallery({ suppressed = false }) {
         {preview&&<PortraitLightbox embedded asset={preview} assets={visible} groupName={active?.name} onClose={()=>setPreview(null)} onSelectAsset={setPreview} onAttach={(a)=>{const result=s.attachPortraitsToComposer([a]);if(!result?.ok)setError(result?.error);}} onDelete={a=>setPendingDelete([a])} onRename={async(id,name)=>{const result=await s.renamePortraitAssetDirect(id,name);if(result?.ok)setPreview(a=>({...a,name}));return result;}}/>}
       </div>
     </section>
-    <ConfirmActionDialog open={!!pendingDelete} title={`Delete ${pendingDelete?.length || 0} portraits?`} description={`${pendingDelete?.slice(0,6).map(a=>a.name || "Portrait").join(", ") || ""}${pendingDelete?.length>6?", …":""}. They will be removed from the gallery. Original files are kept.`} confirmLabel={`Delete ${pendingDelete?.length || 0}`} destructive busy={busy} onCancel={()=>setPendingDelete(null)} onConfirm={deleteSelected}/>
+    <ConfirmActionDialog open={!!pendingDelete} title={`Delete ${pendingDelete?.length || 0} ${pendingDelete?.length === 1 ? "portrait" : "portraits"}?`} description={`${pendingDelete?.slice(0,6).map(a=>a.name || "Portrait").join(", ") || ""}${pendingDelete?.length>6?", …":""}. They will be removed from the gallery. Original files are kept.`} confirmLabel={`Delete ${pendingDelete?.length || 0}`} destructive busy={busy} onCancel={()=>setPendingDelete(null)} onConfirm={deleteSelected}/>
   </div>;
 }
