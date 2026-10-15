@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 if (process.env.MIGRATION_TEST_ISOLATED !== "1" || !process.env.E2E_BASE_URL ||
     !["127.0.0.1", "localhost"].includes(new URL(process.env.E2E_BASE_URL).hostname)) {
-  throw new Error("Run browser tests with the isolated Django browser-harness.py.");
+  throw new Error("Run browser tests through scripts/dev/browser-harness.py.");
 }
 
 export default defineConfig({

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local release rehearsal: run a worker from the built image against a fake provider network.
 
-    python /scripts/stabilization/rehearsal_worker.py {generation|export|scheduler}
+    python /scripts/release/rehearsal_worker.py {generation|export|scheduler}
 
 Identical to ``python -m deploy.entrypoint <component>`` except that the provider
 transport and media fetcher are replaced by testsupport.fake_providers *before*

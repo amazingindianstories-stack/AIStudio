@@ -15,12 +15,10 @@
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "test": "node scripts/run-unit-tests.mjs",
-    "check:backend-ownership": "node scripts/check-backend-ownership.mjs",
-    "check:migration-status": "node scripts/django-migration/status-report.mjs --check",
     "worker:generation": "python3 backend/manage.py generation_worker",
     "worker:exports": "python3 backend/manage.py media_export_worker",
     "worker:scheduler": "python3 backend/manage.py run_scheduler",
-    "test:browser": "python3 scripts/django-migration/browser-harness.py",
+    "test:browser": "python3 scripts/dev/browser-harness.py",
     "package:handoff": "python3 scripts/package-project-zip.py"
   },
   "dependencies": {

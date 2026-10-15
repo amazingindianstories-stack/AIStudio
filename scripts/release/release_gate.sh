@@ -1,7 +1,7 @@
 #!/bin/sh
 # Release gate for one exact commit. Nothing is deployed and no provider is contacted.
 #
-#   scripts/stabilization/release_gate.sh [commit]
+#   scripts/release/release_gate.sh [commit]
 #
 # Builds the backend image from a clean detached worktree of the commit, runs the full
 # Django suite inside that image against a throwaway PostgreSQL 18 (including the
@@ -34,7 +34,7 @@ docker run -d --name "$DB" --network "$NET" -e POSTGRES_PASSWORD=gate -e POSTGRE
 until docker exec "$DB" pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
 GATE_ENV="-e MIGRATION_TEST_ISOLATED=1 -e DJANGO_SETTINGS_MODULE=config.settings.test -e DATABASE_URL=postgresql://postgres:gate@127.0.0.1:5432/veevee_django_migration -e DJANGO_SECRET_KEY=gate-secret-key-000000000000000000000000000000 -e AUTH_SECRET=gate-auth-secret-0000000000000000000000000000000"
 # shellcheck disable=SC2086
-docker run --rm --network "container:$DB" $GATE_ENV -v "$WORK/scripts:/scripts:ro" "$IMAGE" python manage.py test --noinput --parallel 1 2>&1 | grep -v '^{"event"' | tail -5 | tee "$WORK/backend.txt"
+docker run --rm --network "container:$DB" $GATE_ENV "$IMAGE" python manage.py test --noinput --parallel 1 2>&1 | grep -v '^{"event"' | tail -5 | tee "$WORK/backend.txt"
 grep -q '^OK' "$WORK/backend.txt"
 
 step "Migrations: no model changes"

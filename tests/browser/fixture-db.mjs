@@ -23,7 +23,7 @@ export function fixtureDatabase(databaseUrl) {
       query += strings[index + 1];
     });
     return new Promise((resolve, reject) => {
-      const child = execFile(process.env.E2E_PYTHON || 'python3', ['scripts/django-migration/browser-db.py'],
+      const child = execFile(process.env.E2E_PYTHON || 'python3', ['scripts/dev/browser-db.py'],
         { env: { ...process.env, DATABASE_URL: databaseUrl }, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
           if (error) reject(error);
           else { try { resolve(JSON.parse(stdout)); } catch (error) { reject(error); } }

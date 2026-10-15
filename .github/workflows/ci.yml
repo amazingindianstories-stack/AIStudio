@@ -1,5 +1,9 @@
 name: CI
 
+# Mirrors scripts/release/release_gate.sh on GitHub-hosted runners, plus the
+# Playwright suite through Django. Disposable database and mock providers only;
+# no repository secret is used.
+
 on:
   pull_request:
   push:
@@ -12,41 +16,37 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-jobs:
-  frontend:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: npm ci
-      - name: Frontend lint, unit tests and production build without backend credentials
-        run: python scripts/django-migration/ci-qualification.py web
+env:
+  NEXT_TELEMETRY_DISABLED: '1'
 
-  django:
+jobs:
+  backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
+    env:
+      MIGRATION_TEST_ISOLATED: '1'
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DATABASE_URL: postgresql://postgres:disposable@127.0.0.1:5432/veevee_django_migration
+      DJANGO_SECRET_KEY: disposable-ci-django-secret-key-0000000000000000
+      AUTH_SECRET: disposable-ci-auth-secret-000000000000000000000000
+      DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost,testserver
+      MOCK_GENERATION: '1'
+      MOCK_ASSET_PROVIDER: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18.6
         env:
-          POSTGRES_USER: migration
-          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_PASSWORD: disposable
           POSTGRES_DB: veevee_django_migration
         ports:
-          - 5432/tcp
+          - 5432:5432
         options: >-
-          --tmpfs /var/lib/postgresql/data:rw,size=2g
-          --health-cmd "pg_isready -U migration -d veevee_django_migration"
+          --tmpfs /var/lib/postgresql:rw,size=2g
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres"
           --health-interval 5s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -56,48 +56,65 @@ jobs:
           cache-dependency-path: |
             backend/requirements.txt
             backend/constraints-qualified.txt
+      # Node runs the cross-language password interop test.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libvips42
+      - run: python -m pip install -c backend/constraints-qualified.txt -r backend/requirements.txt pyflakes==3.2.0
+      - name: Undefined-name scan
+        working-directory: backend
+        run: |
+          if python -m pyflakes apps config deploy testsupport 2>&1 | grep -v "/migrations/" | grep "undefined name "; then exit 1; fi
+      - name: Django suite
+        working-directory: backend
+        run: python manage.py test --noinput --parallel 1
+      - name: Migrations match the models
+        working-directory: backend
+        run: python manage.py makemigrations --check --dry-run
+
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: sudo apt-get update && sudo apt-get install -y ffmpeg libvips42
-      - run: python -m pip install -c backend/constraints-qualified.txt -r backend/requirements.txt
       - run: npm ci
-      - name: Verify service target, qualify PG16 baseline/adoption and run every Django app test
-        env:
-          CI_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-          CI_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-          CI_POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
-        run: >-
-          python scripts/django-migration/ci-qualification.py backend
-          --postgres-container "$CI_POSTGRES_CONTAINER"
-          --network "$CI_POSTGRES_NETWORK"
-          --port "$CI_POSTGRES_PORT"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: django-pg16-qualification
-          path: ${{ runner.temp }}/veevee-ci-artifacts
-          if-no-files-found: ignore
+      - run: npm audit --omit=dev
+      - run: npm test
+      - run: npm run lint
+      - run: npm run build
 
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    env:
+      MIGRATION_TEST_ISOLATED: '1'
+      DJANGO_SETTINGS_MODULE: config.settings.test
+      DATABASE_URL: postgresql://postgres:disposable@127.0.0.1:5432/veevee_django_migration
+      DJANGO_SECRET_KEY: disposable-ci-django-secret-key-0000000000000000
+      AUTH_SECRET: disposable-ci-auth-secret-000000000000000000000000
+      DJANGO_ALLOWED_HOSTS: 127.0.0.1,localhost,testserver
+      MOCK_GENERATION: '1'
+      MOCK_ASSET_PROVIDER: '1'
+      AWS_EC2_METADATA_DISABLED: 'true'
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18.6
         env:
-          POSTGRES_USER: migration
-          POSTGRES_PASSWORD: disposable-ci-only
+          POSTGRES_PASSWORD: disposable
           POSTGRES_DB: veevee_django_migration
         ports:
-          - 5432/tcp
+          - 5432:5432
         options: >-
-          --tmpfs /var/lib/postgresql/data:rw,size=2g
-          --health-cmd "pg_isready -U migration -d veevee_django_migration"
+          --tmpfs /var/lib/postgresql:rw,size=2g
+          --health-cmd "pg_isready -h 127.0.0.1 -U postgres"
           --health-interval 5s
           --health-timeout 5s
-          --health-retries 10
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -114,20 +131,17 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y ffmpeg libvips42
       - run: python -m pip install -c backend/constraints-qualified.txt -r backend/requirements.txt
       - run: npm ci
-      - run: npx playwright install-deps chromium
-      - name: Browser suite through Django and independent Python workers
+      - run: npx playwright install --with-deps chromium
+      - name: Playwright suite through Django and the Python workers
         env:
-          CI_POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
-          CI_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-          CI_POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
-        run: >-
-          python scripts/django-migration/ci-qualification.py browser
-          --postgres-container "$CI_POSTGRES_CONTAINER"
-          --network "$CI_POSTGRES_NETWORK"
-          --port "$CI_POSTGRES_PORT"
+          TMPDIR: ${{ runner.temp }}
+        run: python scripts/dev/browser-harness.py
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
-          name: django-browser-qualification
-          path: ${{ runner.temp }}/veevee-ci-artifacts
+          name: browser-suite
+          path: |
+            ${{ runner.temp }}/browser-qualification
+            test-results
+            playwright-report
           if-no-files-found: ignore

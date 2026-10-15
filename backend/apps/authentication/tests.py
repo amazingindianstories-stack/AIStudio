@@ -31,10 +31,10 @@ class PasswordCompatibilityTests(TransactionTestCase):
         import subprocess
         from pathlib import Path
         from .password import hash_password, verify_password, validate_password
-        root=Path(__file__).resolve().parents[3]
+        oracle_script=Path(__file__).resolve().parents[2]/'testsupport'/'password-oracle.mjs'
         passwords=['fixture-password','सुरक्षितपासवर्ड','😀'*4,'😀'*65,'short','fixture-\ud800-password']
         def oracle(request):
-            result=subprocess.run(['node','scripts/django-migration/password-oracle.mjs'],input=json.dumps(request),text=True,capture_output=True,check=True,cwd=root)
+            result=subprocess.run(['node',str(oracle_script)],input=json.dumps(request),text=True,capture_output=True,check=True)
             return json.loads(result.stdout)
         node=oracle({'operation':'hash','passwords':passwords})
         for password,entry in zip(passwords,node):

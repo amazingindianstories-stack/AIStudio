@@ -1,4 +1,4 @@
-# API-specific context; root worker builds retain their own configuration.
+# Backend image context: backend source plus its pinned data files and requirements.
 **
 !backend/
 backend/**

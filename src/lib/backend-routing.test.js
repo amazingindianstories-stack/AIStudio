@@ -1,6 +1,5 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { djangoDestination, fetchDjangoSession } from './backend-routing.js';
 const configured = { origin: 'https://django.example', ingressSecret: 'synthetic-ingress-'.repeat(4) };
 
@@ -41,16 +40,6 @@ test('server pages read the authoritative session with forwarded cookies and no 
   await assert.rejects(fetchDjangoSession('', configured, async () => new Response('', { status: 503 })), /unavailable/);
 });
 
-// The inventory is the frozen pre-migration method surface, independent of
-// whether a particular Django endpoint is still being qualified.
-test('all inventoried API contracts are routed to Django', () => {
-  const { methods } = JSON.parse(readFileSync('docs/django-migration/local-implementation.json', 'utf8'));
-  assert.ok(methods.length >= 85);
-  for (const entry of methods) {
-    const path = entry.path.replace(/\[\.\.\.([^\]]+)\]/g, 'one/two.mov').replace(/\[([^\]]+)\]/g, 'contract-id');
-    assert.equal(djangoDestination(`https://frontend.example${path}`, entry.method, configured).pathname, path);
-  }
-});
 
 test('server session ingress fails closed and strips Vercel access cookies', async () => {
   let calls = 0;

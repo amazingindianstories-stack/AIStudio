@@ -2,7 +2,7 @@
 """Drive a local release rehearsal end to end through the ingress gateway.
 
 Run inside the rehearsal API container:
-    python /scripts/stabilization/rehearsal_probe.py <ingress-secret> <user-email>
+    python /scripts/release/rehearsal_probe.py <ingress-secret> <user-email>
 Prints one PASS/FAIL line per check and exits non-zero on any failure.
 """
 import http.client

@@ -1,7 +1,8 @@
-"""Full existing Playwright UI suite against Django + independent Python workers.
+"""Full Playwright UI suite against Django + independent Python workers.
 
-Run only through isolated.py. Every server gets the allowlisted environment;
-Next receives no database, cloud, provider or session-signing credentials.
+Run through scripts/dev/test-db.sh (locally) or the CI browser job, which supply
+a disposable loopback database and an allowlisted environment. Next receives no
+database, cloud, provider or session-signing credentials.
 """
 import argparse
 import io
@@ -91,9 +92,9 @@ def main():
     args = parser.parse_args()
     target = urlsplit(os.environ.get('DATABASE_URL', ''))
     if os.environ.get('MIGRATION_TEST_ISOLATED') != '1' or target.hostname != '127.0.0.1' or target.path != '/veevee_django_migration':
-        raise SystemExit('Run this harness through isolated.py against its dedicated cluster')
-    if any(ROOT.glob('.env*')):
-        raise SystemExit('Frontend qualification copy must not contain dotenv files')
+        raise SystemExit('Run this harness through scripts/dev/test-db.sh against a disposable database')
+    if any(not path.name.endswith('.example') for path in ROOT.glob('.env*')):
+        raise SystemExit('Browser qualification refuses a checkout with dotenv files; Next would load them')
     handlers = list((ROOT / 'src/app/api').rglob('route.*'))
     if handlers:
         raise SystemExit('Final browser qualification requires retired Node API handlers')

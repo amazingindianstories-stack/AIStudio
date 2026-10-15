@@ -4,13 +4,13 @@
 #   REHEARSAL_DB=<pg container on network veevee-rehearsal holding a restored Green copy>
 #   REHEARSAL_DB_HOST=<its IP on that network>  REHEARSAL_API_PASSWORD=...  REHEARSAL_WORKER_PASSWORD=...
 #   REHEARSAL_OBSERVER_URL=<owner DSN of the local copy, read-only use>  REHEARSAL_USER=<email of a user in the copy>  REHEARSAL_PREFIX=<32-hex namespace used by the copy's RLS>
-#   scripts/stabilization/rehearse_local.sh [commit]
+#   scripts/release/rehearse_local.sh [commit]
 #
 # Pending migrations are applied first as the copy's owner (REHEARSAL_OBSERVER_URL), exactly as a
 # production rollout does. REHEARSAL_MANAGED_PORTRAITS=0 rehearses with the automatic portrait pool off.
 # REHEARSAL_MAGNIFIC=0 rehearses with Magnific upscaling off (the gateway must then refuse it).
 # API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway).
-# Workers run scripts/stabilization/rehearsal_worker.py: the production code with the provider
+# Workers run scripts/release/rehearsal_worker.py: the production code with the provider
 # network replaced by testsupport.fake_providers before the paid guard is installed.
 set -eu
 COMMIT=$(git rev-parse --verify "${1:-HEAD}^{commit}"); SHORT=$(printf %.12s "$COMMIT")
@@ -53,17 +53,17 @@ docker run -d --name vr-api --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:
   "$IMAGE" python -m deploy.entrypoint api >/dev/null
 # shellcheck disable=SC2086
 docker run -d --name vr-gen --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED $NS -e DATABASE_URL="$WORKER_DB" \
-  -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/stabilization/rehearsal_worker.py generation >/dev/null
+  -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/release/rehearsal_worker.py generation >/dev/null
 # shellcheck disable=SC2086
 docker run -d --name vr-export --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $NS -e DATABASE_URL="$WORKER_DB" \
-  -e VEEVEE_REHEARSAL=1 -e VEEVEE_EXPORT_ADMISSION=1 "$IMAGE" python /scripts/stabilization/rehearsal_worker.py export >/dev/null
+  -e VEEVEE_REHEARSAL=1 -e VEEVEE_EXPORT_ADMISSION=1 "$IMAGE" python /scripts/release/rehearsal_worker.py export >/dev/null
 # shellcheck disable=SC2086
 docker run -d --name vr-sched --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED $NS -e DATABASE_URL="$WORKER_DB" \
-  -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/stabilization/rehearsal_worker.py scheduler >/dev/null
+  -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/release/rehearsal_worker.py scheduler >/dev/null
 until docker exec vr-api python -c "import http.client as h;c=h.HTTPConnection('127.0.0.1',18081,timeout=3);c.request('GET','/__g4_readiness');exit(c.getresponse().status!=200)" 2>/dev/null; do sleep 1; done
 STATUS=0
 # shellcheck disable=SC2086
-docker exec $COMMON $MANAGED -e DATABASE_URL="$API_DB" -e REHEARSAL_OBSERVER_URL="$REHEARSAL_OBSERVER_URL" -e PYTHONPATH=/app -w /app vr-api python /scripts/stabilization/rehearsal_probe.py "$SECRET" "$REHEARSAL_USER" > "$BASE/probe.txt" 2>&1 || STATUS=$?
+docker exec $COMMON $MANAGED -e DATABASE_URL="$API_DB" -e REHEARSAL_OBSERVER_URL="$REHEARSAL_OBSERVER_URL" -e PYTHONPATH=/app -w /app vr-api python /scripts/release/rehearsal_probe.py "$SECRET" "$REHEARSAL_USER" > "$BASE/probe.txt" 2>&1 || STATUS=$?
 grep -v '^{"event": "request"' "$BASE/probe.txt" || true
 for n in vr-gen vr-export vr-sched; do
   if [ "$(docker inspect -f '{{.State.Running}}' "$n")" != true ]; then echo "FAIL $n exited"; STATUS=1; fi
