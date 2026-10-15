@@ -139,10 +139,38 @@ credentials; depth worker could not upload on local storage. Observed, unchanged
 also in production rows): a Seedance submission refused with 400 keeps its estimated
 `cost_cents` on the failed row.
 
+## Release 2026-10-15 - Magnific image + video upscale (owner approved)
+Root cause of "upscale not working": since the Green cutover the gateway refused
+`POST /api/generate/upscale` (F-07), and behind it the paid guard, the old-launcher worker, the
+missing `MAGNIFIC_API_KEY` and the media-host allowlist also blocked it. Fixed on
+`hotfix/magnific-upscale` (cut from the API's deployed `549df6e`, merged here), together with
+the four Magnific video upscalers (Creative, Turbo, Precision, Topaz) and every documented parameter.
+
+| Service | Deployment | Commit | Previous (rollback target) |
+|---|---|---|---|
+| API | `bb17da6d` | `a3b5d12` | `9b746f72` (`549df6e`) |
+| scheduler | `86fc3d69` | `b611237` | `c1cc996f` (`086e8aa`) |
+| generation | `c3ad599f` (versioned image, A1 for this worker) | `a3b5d12` | `12917ca5` (old launcher: restore its start command and `Dockerfile.worker` first) |
+| Vercel | `dpl_qgFuZGXbXE8LKPAqJYjX8Ktj7PNC` | live files + upscaler UI (200 files, sha1-matched) | `dpl_9vNHNfyd2XiMKcefETJudHfbtetY` |
+
+- Flag `VEEVEE_MAGNIFIC_UPSCALE=1` on API + generation; `MAGNIFIC_API_KEY` on generation only (the
+  only reader). Feature rollback: set the flag to 0 and redeploy the API.
+- Live checks: image Precision V2 + Creative and video Creative 720p succeeded on veevee.ai.
+- Found live and fixed (`4c5f0b0`): image results come from `ai-statics.magnific.com`, video results
+  from `cdn-magnific.freepik.com`; only the latter was allowlisted, so the first image job polled
+  until the worker was redeployed, then completed.
+- Hardened (`a3b5d12`) for large media on the 2 GB, two-slot generation worker: image results stop at
+  80 MB while streaming and are validated by a sequential libvips decode (was: read up to 512 MB,
+  then a full Pillow decode of up to 160 MP); an oversized, unreadable or undownloadable result fails
+  after three attempts instead of polling forever; video masters stream to disk with a 4 GB cap and
+  a 600 s budget.
+- Both gates passed for every deployed commit; gate 1 also passes on this merge.
+
 ## F-07 — gateway blocks features in production (kept for parity)
 The live ingress gateway refuses `POST /api/generate/upscale`, `/api/audio/transcribe`, admin writes
 (`/api/admin/*` POST/PATCH/DELETE: user create/edit/delete, limits, pricing), agent message POSTs and
 `/api/queue/execute`. Unchanged by the cutover; enabling them is a separate owner decision.
+Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the release above).
 
 ## P5 — UI performance (progress)
 - `5cae45a`: one mounted assets panel (desktop only when open; drawer on mobile); ZIP status poll backs off, pauses when hidden, stops after 2 h; depth status 12 s only in Depth mode, else 60 s.
@@ -162,6 +190,9 @@ The live ingress gateway refuses `POST /api/generate/upscale`, `/api/audio/trans
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-15: the generation worker now runs the versioned image (`a3b5d12`, release above). Any
+later worker deploy from this branch carries the Magnific code; keep `VEEVEE_MAGNIFIC_UPSCALE` set.
+
 2026-10-14: no deploys (owner). Managed portraits are ready for an approved rollout per
 `MANAGED_PORTRAITS.md` after the generation-worker redeploy and the BytePlus cleanup decision.
 
