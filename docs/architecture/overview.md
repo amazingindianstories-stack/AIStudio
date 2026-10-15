@@ -36,7 +36,7 @@ flowchart LR
 | Depth worker | `depth-worker/` | Runs on a GPU machine and talks to the fenced depth HTTP protocol. |
 | Database | `backend/apps/*/migrations` | One Django migration graph; production tables, roles and row-level security are described in `operations/status.md`. |
 
-Which commit each Railway service runs, and which services still use the old launcher, is
+Which commit each Railway service runs, and its rollback target, is
 recorded in `operations/status.md`. Releases follow `operations/release-runbook.md`.
 
 ## Backend apps (`backend/apps`)

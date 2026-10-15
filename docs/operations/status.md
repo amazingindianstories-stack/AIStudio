@@ -150,7 +150,7 @@ the four Magnific video upscalers (Creative, Turbo, Precision, Topaz) and every 
 |---|---|---|---|
 | API | `bb17da6d` | `a3b5d12` | `9b746f72` (`549df6e`) |
 | scheduler | `86fc3d69` | `b611237` | `c1cc996f` (`086e8aa`) |
-| generation | `c3ad599f` (versioned image, A1 for this worker) | `a3b5d12` | `12917ca5` (old launcher: restore its start command and `Dockerfile.worker` first) |
+| generation | `c3ad599f` (versioned image, A1 for this worker) | `a3b5d12` | `12917ca5` (old launcher: restore its start command and `Dockerfile.worker` first; that file left the tree, recover it with `git show 1fed00c:Dockerfile.worker`) |
 | Vercel | `dpl_qgFuZGXbXE8LKPAqJYjX8Ktj7PNC` | live files + upscaler UI (200 files, sha1-matched) | `dpl_9vNHNfyd2XiMKcefETJudHfbtetY` |
 
 - Flag `VEEVEE_MAGNIFIC_UPSCALE=1` on API + generation; `MAGNIFIC_API_KEY` on generation only (the

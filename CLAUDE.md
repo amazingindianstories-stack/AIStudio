@@ -14,8 +14,8 @@ session-signing secrets.
 
 Railway Green runs the Django API behind `backend/deploy/gateway.py`, plus the generation worker,
 export worker and scheduler, all started by `python -m deploy.entrypoint <component>` from
-`backend/Dockerfile`. `docs/operations/status.md` records which services already run the
-versioned image (the generation worker was rolled back to the old launcher on 2026-10-13).
+`backend/Dockerfile`. `docs/operations/status.md` records the commit and deployment each service
+runs and its rollback target. Magnific image/video upscaling is behind `VEEVEE_MAGNIFIC_UPSCALE`.
 The single managed migration graph is under `backend/apps/*/migrations`; PostgreSQL only.
 
 Image/video enqueue endpoints persist queued requests and durable references. The
