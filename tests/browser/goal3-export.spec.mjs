@@ -76,14 +76,14 @@ test('Goal3 ZIP actual Chromium download preserves exact nested scopes, CRC and 
     const downloads = [];
     page.on('request', request => { if (request.url().endsWith(`/exports/${job.id}/download`)) downloads.push(request.url()); });
     await panel(page);
-    await expect(page.locator('#desktop-history-panel [role="status"]').filter({ hasText: 'ZIP ready' })).toBeVisible();
+    await expect(page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' }).filter({ hasText: 'ZIP ready' })).toBeVisible();
     await page.reload();
     const restoredToggle = page.locator('button[aria-controls="desktop-history-panel"]');
     if (await restoredToggle.getAttribute('aria-expanded') !== 'true') await restoredToggle.click();
-    await expect(page.locator('#desktop-history-panel [role="status"]').filter({ hasText: 'ZIP ready' })).toBeVisible();
+    await expect(page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' }).filter({ hasText: 'ZIP ready' })).toBeVisible();
     expect(downloads).toEqual([]);
     const downloadPromise = page.waitForEvent('download');
-    await page.locator('#desktop-history-panel [role="status"]').getByRole('link', { name: 'Download', exact: true }).click();
+    await page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' }).getByRole('link', { name: 'Download', exact: true }).click();
     const download = await downloadPromise;
     expect(download.suggestedFilename()).toMatch(/^Veevee_Assets_\d{4}-\d{2}-\d{2}\.zip$/);
     const path = testInfo.outputPath(download.suggestedFilename());
@@ -118,18 +118,19 @@ test('Goal3 ZIP rapid clicks,409 failure and retry remain visible; actor switch 
   });
   const history = page.locator('#desktop-history-panel');
   await history.getByRole('button', { name: 'All assets', exact: true }).click();
-  const firstCard = history.locator('[data-testid^="media-card-"]').first();
+  // A fixed, finished fixture: newer cards from other specs may still be generating.
+  const firstCard = history.getByTestId('media-card-10000000-0000-4000-8000-000000000001');
   await firstCard.hover();
   await firstCard.getByRole('button', { name: 'Select', exact: true }).click();
   const button = history.getByRole('button', { name: 'Download ZIP', exact: true });
   await button.evaluate(button => { button.click(); button.click(); });
-  await expect(page.locator('#desktop-history-panel [role="status"]')).toContainText('Source unavailable');
+  await expect(page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' })).toContainText('Source unavailable');
   expect(creates).toBe(1); expect(finalizeCalls).toBe(1);
   await history.getByRole('button', { name: 'Retry', exact: true }).click();
-  await expect(page.locator('#desktop-history-panel [role="status"]')).toContainText('ZIP ready');
+  await expect(page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' })).toContainText('ZIP ready');
   expect(finalizeCalls).toBe(2); expect(grantCalls).toBe(0);
   await page.evaluate(() => window.__exportTestStore.setState({ currentUser: { id: 'other-actor', name: 'Other actor' } }));
-  await expect(page.locator('#desktop-history-panel [role="status"]').filter({ hasText: 'ZIP ready' })).toHaveCount(0);
+  await expect(page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' }).filter({ hasText: 'ZIP ready' })).toHaveCount(0);
 });
 
 for (const code of [401, 403, 404, 410]) test(`Goal3 ZIP restored HTTP${code} clears inaccessible job or displays expiry`, async ({ page, context, baseURL }) => {
@@ -137,7 +138,7 @@ for (const code of [401, 403, 404, 410]) test(`Goal3 ZIP restored HTTP${code} cl
   await page.addInitScript(actor => localStorage.setItem(`veevee-active-media-export-v1:${actor}`, 'unavailable'), actor);
   await page.route('**/api/history/exports/unavailable', route => route.fulfill({ status: code, json: { error: 'UNAVAILABLE' } }));
   await panel(page);
-  if (code === 410) await expect(page.locator('#desktop-history-panel [role="status"]')).toContainText('expired');
+  if (code === 410) await expect(page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' })).toContainText('expired');
   else await expect.poll(() => page.evaluate(actor => localStorage.getItem(`veevee-active-media-export-v1:${actor}`), actor)).toBeNull();
 });
 
@@ -162,7 +163,7 @@ test('Goal3 ZIP cloud307 attachment simulation produces an actual download after
     await page.route('**/api/history/exports/cloud-fixture/download', route => route.fulfill({ status: 307,
       headers: { Location: `http://127.0.0.1:${cloud.address().port}/synthetic-grant`, 'Cache-Control': 'no-store' }, body: '' }));
     await panel(page);
-    const notice = page.locator('#desktop-history-panel [role="status"]');
+    const notice = page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' });
     await expect(notice).toContainText('ZIP ready'); expect(requests).toBe(0);
     const pending = page.waitForEvent('download');
     await notice.getByRole('link', { name: 'Download', exact: true }).click();
@@ -186,7 +187,7 @@ for (const width of [1440, 1024, 390]) test(`Goal3 ZIP notice fits ${width}px an
   const panelId = width < 1024 ? 'mobile-history-panel' : 'desktop-history-panel';
   const toggle = page.locator(`button[aria-controls="${panelId}"]`);
   if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
-  const notice = page.locator(`#${panelId} [role="status"]`);
+  const notice = page.locator(`#${panelId}`).getByRole('status', { name: 'ZIP export' });
   await expect(notice).toContainText('ZIP ready');
   const bounds = await notice.boundingBox();
   expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
@@ -205,7 +206,7 @@ test('Goal3 ZIP download503 then404 leaves an actionable notice and no popup or 
     return route.fulfill({ status: downloads === 1 ? 503 : 404, json: { error: downloads === 1 ? 'DOWNLOAD_UNAVAILABLE' : 'ARCHIVE_UNAVAILABLE' } });
   });
   await panel(page);
-  const notice = page.locator('#desktop-history-panel [role="status"]');
+  const notice = page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' });
   await expect(notice).toContainText('ZIP ready');
   for (const count of [1, 2]) {
     await notice.getByRole('link', { name: 'Download', exact: true }).click();

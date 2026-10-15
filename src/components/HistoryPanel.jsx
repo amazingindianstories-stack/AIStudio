@@ -942,6 +942,7 @@ export function HistoryPanel() {
       {displayedExport && (
         <div
           role="status"
+          aria-label="ZIP export"
           aria-live="polite"
           className="fixed bottom-5 right-5 left-5 sm:left-auto z-50 max-w-[calc(100vw-2.5rem)] flex-wrap flex items-center gap-3 rounded-xl border border-line bg-ink-750/95 px-4 py-2.5 shadow-2xl backdrop-blur-xl text-xs text-white select-none animate-in fade-in slide-in-from-bottom-2 duration-200"
         >
