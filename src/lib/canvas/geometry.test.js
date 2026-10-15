@@ -1,15 +1,12 @@
 /**
- * Unit tests for src/lib/canvas/geometry.ts — the pure coordinate/hit-testing
+ * Unit tests for src/lib/canvas/geometry.js - the pure coordinate/hit-testing
  * geometry helpers for the Canvas Board whiteboard.
  *
- * Derived independently from the "Data model" and "Interfaces" sections of
- * .council/canvas-board/design.md (the documented contract), BEFORE reading
- * any implementation under src/lib/canvas/, src/lib/canvas-store.ts,
- * src/lib/canvas-db.ts, src/app/api/canvas-boards/, or src/components/canvas/.
- * Pure module: no DOM, no network. Run:
- *   npx tsx --test src/lib/canvas/geometry.test.ts
+ * Derived from the Canvas Board design contract ("Data model" and
+ * "Interfaces") before the implementation was read, so they check intent
+ * rather than mirror the code. Pure module: no DOM, no network.
  *
- * Interpreted ambiguities (see final report for full detail):
+ * Interpreted ambiguities:
  *  - `resolveEndpoint(ep, nodesById)` is documented with only two params, but
  *    design.md's prose says anchor "auto" resolves to "the point on the
  *    node's bounding-box perimeter nearest the OTHER endpoint" — which this

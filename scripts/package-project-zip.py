@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Create a deterministic, sanitized source handoff below 10,000,000 bytes.
 
-Includes current tracked/untracked source and qualification evidence, never reads
-excluded credential/runtime files, and does not copy the archive elsewhere.
+Includes current tracked/untracked source, never reads excluded
+credential/runtime files, and does not copy the archive elsewhere.
 """
 import argparse
 import hashlib
@@ -15,7 +15,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 LIMIT = 10_000_000
-DIRECTORIES = {'src', 'backend', 'scripts', 'tests', 'docs', '.github', 'depth-worker', 'pyserver', 'infra'}
+DIRECTORIES = {'src', 'backend', 'scripts', 'tests', 'docs', '.github', 'depth-worker', 'infra', 'local'}
 EXTENSIONS = {'.py', '.js', '.jsx', '.mjs', '.cjs', '.json', '.yaml', '.yml', '.md', '.txt', '.toml', '.sql', '.sh', '.css', '.html', '.svg', '.log'}
 FORBIDDEN_PARTS = {'node_modules', '.git', '.next', 'out', 'build', '__pycache__', '.venv', 'venv', 'models', 'screenshots', 'support', 'playwright-report', 'test-results', 'eval-results'}
 FORBIDDEN_NAMES = {'.worker-id', '.higgsfield-mcp-token.json', 'vercel-gcp-cred.json', 'gcp-sa-key.json', 'hmac.json', 'mag_key.png', 'test.json'}
@@ -39,9 +39,6 @@ def allowed(name):
         return path.name.endswith(('.example', '.sample'))
     if name in {'public/logo.png','src/app/icon.png','src/app/apple-icon.png'}:
         return True
-    if name.startswith(('docs/goal2/UI-screenshots/', 'docs/goal3/UI-screenshots/')) and path.suffix == '.png':
-        # Approved screenshots are exclusively disposable fixtures, never live data.
-        return True
     if name.startswith('public/'):
         return path.name == '.gitkeep'
     if len(path.parts) == 1:
@@ -51,20 +48,10 @@ def allowed(name):
 
 def package(destination, *, limit_bytes=LIMIT):
     listing = subprocess.check_output(['git', 'ls-files', '--cached', '--others', '--exclude-standard', '-z'], cwd=ROOT).decode().split('\0')
-    # Evidence logs are ignored by Git globally but form part of this handoff.
-    listing += [str(p.relative_to(ROOT)) for p in (ROOT / 'docs/django-migration/evidence').rglob('*.log')]
-    listing += [str(p.relative_to(ROOT)) for p in (ROOT / 'docs/django-migration/release-review').rglob('*.log')]
-    listing += [str(p.relative_to(ROOT)) for p in (ROOT / 'docs/django-migration/independent-audit').rglob('*.log')]
-    listing += [str(p.relative_to(ROOT)) for p in (ROOT / 'docs/goal2/evidence').rglob('*.log')]
-    listing += [str(p.relative_to(ROOT)) for p in (ROOT / 'docs/goal3/evidence').rglob('*.log')]
     listing += ['.env.local.example', 'backend/.env.example']
-    # Generated archives/checksums and the external archive attestation must not
-    # change the manifest between two packages or introduce self-referential hashes.
-    listing = [name for name in listing if not name.endswith(('.zip', '.zip.tmp', '.sha256'))
-               and not (Path(name).name == 'archive-verification.json' and
-                        (name.startswith('docs/django-migration/release-review/') or
-                         name.startswith('docs/django-migration/independent-audit/') or
-                         name.startswith('docs/goal2/') or name.startswith('docs/goal3/')))]
+    # Generated archives/checksums must not change the manifest between two
+    # packages or introduce self-referential hashes.
+    listing = [name for name in listing if not name.endswith(('.zip', '.zip.tmp', '.sha256'))]
     included, omitted, modes = {}, [], {}
     for name in sorted(set(listing) - {''}):
         source = ROOT / name
@@ -78,7 +65,7 @@ def package(destination, *, limit_bytes=LIMIT):
         modes[name] = 0o100755 if source.stat().st_mode & 0o111 else 0o100644
     revision = subprocess.run(['git','rev-parse','--verify','HEAD'],cwd=ROOT,text=True,capture_output=True)
     manifest = {
-        'scope': 'Local undeployed Django migration working tree; production adoption pending',
+        'scope': 'Veevee source handoff (working tree, not a deployment record)',
         'base_commit': revision.stdout.strip() if revision.returncode == 0 else os.environ.get('VEEVEE_SOURCE_REVISION','UNCOMMITTED_ISOLATED_COPY'),
         'branch': subprocess.check_output(['git', 'branch', '--show-current'], cwd=ROOT, text=True).strip(),
         'working_tree': 'Includes current uncommitted changes',

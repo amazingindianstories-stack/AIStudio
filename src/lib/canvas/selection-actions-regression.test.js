@@ -1,15 +1,13 @@
 /**
- * Independent regression/derivation tests for src/lib/canvas/selection-actions.ts
- * (Canvas Board v2, .council/canvas-board-v2/spec.md, design.md "Interfaces
- * (exact signatures)" + "Regression analysis (AC12)").
+ * Independent regression tests for src/lib/canvas/selection-actions.js
+ * (Canvas Board v2 design contract: "Interfaces (exact signatures)" and
+ * "Regression analysis (AC12)").
  *
- * Deliberately a SEPARATE file from whatever `selection-actions.test.ts` the
- * parallel implementer may write — this suite was derived from design.md's
- * interface contract ALONE, without reading selection-actions.ts, so it
- * checks intent rather than mirroring the implementation. Per the task
- * brief, do not merge/overwrite; reconciliation happens after both exist.
+ * Derived from the interface contract alone, without reading
+ * selection-actions.js, so the suite checks intent rather than mirroring the
+ * implementation.
  *
- * Contract under test (design.md):
+ * Contract under test:
  *
  *   export interface SelectionActionFlags {
  *     hasNodeSelection: boolean;      // selection.length > 0

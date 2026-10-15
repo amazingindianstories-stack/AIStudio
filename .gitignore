@@ -19,7 +19,6 @@ build
 /public/references/*
 !/public/references/.gitkeep
 /data/*.json
-pyserver/models/
 depth-worker/.venv
 depth-worker/.worker-id
 .vercel
@@ -50,15 +49,18 @@ build*.log
 # loadToken), so untracking it costs production nothing.
 .higgsfield-mcp-token.json
 
-# Historical evaluation fixtures — real face-identity test
-# images and the fixture files that reference them. This repo is public;
-# real people's faces do not belong in git history regardless of consent.
-# README.md and example.fixture.json (no real image, template only) are the
-# only tracked files in that directory — see its own README for setup.
-scripts/eval-fixtures/*
-!scripts/eval-fixtures/README.md
-!scripts/eval-fixtures/example.fixture.json
+# Local evaluation fixtures can hold real face-identity images. This repo is
+# public; real people's faces never belong in git history.
+scripts/eval-fixtures/
 scripts/eval-results/
+
+# Design records written by the council skill stay local. They have held
+# provider account URLs and captured response headers.
+.council/
+
+# Source handoff archives from scripts/package-project-zip.py.
+/*.zip
+/*.zip.sha256
 
 # Browser verification artifacts may contain session data.
 /playwright-report/

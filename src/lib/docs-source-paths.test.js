@@ -3,7 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
-const ROOT_DOCS = ["CLAUDE.md", "BACKEND_AUDIT.md", "progress.md"];
+const ROOT_DOCS = ["CLAUDE.md", "AGENTS.md"];
 
 async function markdownFiles(dir) {
   const entries = await readdir(dir, { withFileTypes: true });
