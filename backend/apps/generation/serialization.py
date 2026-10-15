@@ -66,9 +66,9 @@ def public_error(row, diagnostic):
     ):
         return diagnostic
     if row.model.startswith('Magnific '):
-        from .services.poller import MAGNIFIC_SAVE_FAILED, MAGNIFIC_TOO_LARGE
+        from .services.poller import MAGNIFIC_IMAGE_TOO_LARGE, MAGNIFIC_SAVE_FAILED, MAGNIFIC_TOO_LARGE
         from .services.upscale_submission import UPSCALE_REJECTED, UPSCALE_PREPARE_FAILED
-        if diagnostic in (MAGNIFIC_TOO_LARGE, MAGNIFIC_SAVE_FAILED, UPSCALE_REJECTED, UPSCALE_PREPARE_FAILED):
+        if diagnostic in (MAGNIFIC_TOO_LARGE, MAGNIFIC_IMAGE_TOO_LARGE, MAGNIFIC_SAVE_FAILED, UPSCALE_REJECTED, UPSCALE_PREPARE_FAILED):
             return diagnostic
         return 'Upscale generation failed.'
     if row.kind == 'audio':

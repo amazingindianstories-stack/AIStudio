@@ -3,7 +3,6 @@
 Provider/transport errors stay retryable. Every terminal mutation compares the
 observed task/status/version and, when supplied, worker ownership.
 """
-import io
 import os
 import re
 from urllib.parse import urlsplit
@@ -11,7 +10,6 @@ from uuid import uuid4
 
 from django.db import transaction
 from django.db.models import F
-from PIL import Image
 
 from apps.common.leases import now_ms
 from apps.generation.model_registry import is_provider_model, model_definition
@@ -28,11 +26,21 @@ from .pricing import read_pricing, seedance_token_cost
 
 
 MAGNIFIC_VIDEO_MAX_BYTES = 4 * 1024 * 1024 * 1024
+# A 3.5 GB ProRes master needs ~6 MB/s to land in this budget; three attempts
+# still start inside the 30-minute link lifetime. The lease heartbeat keeps the
+# job claimed meanwhile, and the second worker slot keeps serving other jobs.
+MAGNIFIC_VIDEO_DOWNLOAD_SECONDS = 600
 # Output links expire 30 minutes after generation (docs.magnific.com/quickstart);
 # a few spaced attempts fit well inside that window.
 MAGNIFIC_SAVE_ATTEMPTS = 3
 MAGNIFIC_TOO_LARGE = 'The upscaled master is larger than 4 GB and could not be stored. Use H.264, a lower resolution or a shorter clip.'
 MAGNIFIC_SAVE_FAILED = 'The upscaled master could not be downloaded and stored.'
+# Image results are held in memory (2 GB worker, two jobs at a time): bound the
+# download, then decode in streaming mode. Creative output is at most 25.3 MP
+# (docs.magnific.com, Upscaler Creative API reference); Precision publishes none.
+MAGNIFIC_IMAGE_MAX_BYTES = 80 * 1024 * 1024
+MAGNIFIC_IMAGE_MAX_PIXELS = 160000000
+MAGNIFIC_IMAGE_TOO_LARGE = 'The upscaled image is larger than Veevee can store (80 MB or 160 megapixels). Choose a smaller scale or source image.'
 
 
 def retry_after_ms(count):
@@ -83,11 +91,21 @@ class Dependencies:
         if isinstance(fetcher, SafeMediaFetcher):
             # Same hosts, resolver and pinning; only the size cap and time budget differ.
             fetcher = copy.copy(fetcher)
-            fetcher.max_bytes, fetcher.total_timeout = MAGNIFIC_VIDEO_MAX_BYTES, 240
+            fetcher.max_bytes, fetcher.total_timeout = MAGNIFIC_VIDEO_MAX_BYTES, MAGNIFIC_VIDEO_DOWNLOAD_SECONDS
         return persistence.save_from_url_with_metadata(url, ext, identifier, metadata, fetcher=fetcher)
 
     def fetch(self, url):
         return get_media_fetcher()(url)
+
+    def fetch_magnific_image(self, url):
+        # Stop at the cap while streaming instead of reading the fetcher's
+        # general 512 MB allowance into memory first.
+        from apps.media.remote import SafeMediaFetcher
+        fetcher = get_media_fetcher()
+        if isinstance(fetcher, SafeMediaFetcher):
+            with fetcher.open_file(url, max_bytes=MAGNIFIC_IMAGE_MAX_BYTES) as (stream, mime):
+                return stream.read(), mime
+        return fetcher(url)
 
     def judge_identity(self, reference, frame, signal):
         from apps.generation.prompting.face_judge import judge_identity
@@ -199,22 +217,41 @@ def advance_magnific(item, *, signal=None, owner=None, dependencies=None):
         return _pending(item, deps, signal, owner, {'provider_status': 'IN_PROGRESS'})
     if outcome['status'] == 'failed':
         return _terminal(item, {'status': 'failed', 'error': outcome.get('error') or 'Magnific upscale task failed.'}, deps, signal, owner, {'provider_status': 'FAILED'})
-    data, _ = deps.fetch(outcome['generatedUrl'])
-    if not data or len(data) > 80 * 1024 * 1024:
-        raise ValueError('Magnific output is empty or too large.')
-    with Image.open(io.BytesIO(data)) as image:
-        if image.width * image.height > 160000000:
-            raise ValueError('Magnific output exceeds pixel limit.')
-        extension = {'JPEG': 'jpg', 'PNG': 'png', 'WEBP': 'webp'}.get(image.format)
-        if not extension:
-            raise ValueError('Magnific output is not a supported image.')
-        image.load()
     signal.check()
-    saved = deps.save_buffer(data, extension, f'{item.id}/{uuid4().hex}', _metadata(item))
+    try:
+        data, _ = deps.fetch_magnific_image(outcome['generatedUrl'])
+        extension = magnific_image_extension(data)
+        saved = deps.save_buffer(data, extension, f'{item.id}/{uuid4().hex}', _metadata(item))
+    except MediaTooLargeError:
+        return _terminal(item, {'status': 'failed', 'error': MAGNIFIC_IMAGE_TOO_LARGE}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
+    except Exception:
+        # Links expire 30 minutes after completion; retrying past a few spaced
+        # attempts only leaves the job running forever.
+        if (item.poll_error_count or 0) + 1 >= MAGNIFIC_SAVE_ATTEMPTS:
+            return _terminal(item, {'status': 'failed', 'error': MAGNIFIC_SAVE_FAILED}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
+        raise
     updates = {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio}
     if type(outcome.get('costCents')) is int:
         updates.update(cost_cents=outcome['costCents'], cost_basis='reconciled')
-    return _terminal(item, updates, deps, signal, owner, {'provider_status': 'COMPLETED'})
+    # The master is stored: record it even if the job's own budget ran out meanwhile.
+    return _terminal(item, updates, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
+
+
+def magnific_image_extension(data):
+    """Format and size from the header, then a full streaming decode in bounded memory."""
+    from apps.generation.services.seedream_references import require_native_image_runtime
+    if not data or len(data) > MAGNIFIC_IMAGE_MAX_BYTES:
+        raise MediaTooLargeError('Magnific output is empty or too large.') if data else ValueError('Magnific output is empty.')
+    pyvips = require_native_image_runtime()
+    image = pyvips.Image.new_from_buffer(data, '', access='sequential', fail_on='error')
+    loader = image.get('vips-loader')
+    extension = next((ext for kind, ext in (('jpeg', 'jpg'), ('png', 'png'), ('webp', 'webp')) if kind in loader), None)
+    if not extension or (image.get('n-pages') if image.get_typeof('n-pages') else 1) > 1:
+        raise ValueError('Magnific output is not a supported image.')
+    if image.width * image.height > MAGNIFIC_IMAGE_MAX_PIXELS:
+        raise MediaTooLargeError('Magnific output exceeds the pixel limit.')
+    image.avg()  # Complete decode, including truncated-tail failures.
+    return extension
 
 
 def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):

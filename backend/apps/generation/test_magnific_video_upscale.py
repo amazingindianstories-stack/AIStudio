@@ -423,7 +423,7 @@ class StreamingSaveTests(SimpleTestCase):
         data = mp4_bytes()
         saved, stored, content_type, seen = self.save(data, 'mp4')
         self.assertEqual((stored, content_type), (data, 'video/mp4'))
-        self.assertEqual(seen[0][1:], (poller.MAGNIFIC_VIDEO_MAX_BYTES, 240))
+        self.assertEqual(seen[0][1:], (poller.MAGNIFIC_VIDEO_MAX_BYTES, poller.MAGNIFIC_VIDEO_DOWNLOAD_SECONDS))
         self.assertEqual(saved['aspectRatio'], '16:9')
 
     def test_prores_mov_master_must_be_a_real_quicktime_container(self):
