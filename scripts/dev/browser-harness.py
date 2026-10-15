@@ -9,6 +9,7 @@ import io
 import hashlib
 import json
 import os
+import secrets
 from pathlib import Path
 import signal
 import socket
@@ -131,7 +132,10 @@ VEEVEE_AUDIO_TRANSCRIBER = OfflineAudioTranscriber
         E2E_START_SERVER='0', DJANGO_API_ORIGIN=backend, DJANGO_API_ALLOW_LOCAL='1')
     # Transparent frontend routing is the only backend configuration in Next.
     frontend_env = {key: env[key] for key in ('PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'CI', 'NEXT_TELEMETRY_DISABLED') if key in env}
-    frontend_env.update(DJANGO_API_ORIGIN=backend, DJANGO_API_ALLOW_LOCAL='1')
+    # The middleware fails closed without its server-only ingress value. Django
+    # runs here without the production gateway, so a throwaway value suffices.
+    frontend_env.update(DJANGO_API_ORIGIN=backend, DJANGO_API_ALLOW_LOCAL='1',
+        GOAL4_PRIVATE_INGRESS_SECRET='browser-suite-ingress-' + secrets.token_hex(24))
     processes, streams = [], []
     def launch(command, name, environment):
         stream = (artifact / (name + '.log')).open('w')

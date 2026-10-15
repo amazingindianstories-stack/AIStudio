@@ -170,7 +170,8 @@ for (const scope of ["global", "project"]) {
           return { width: bounds.width, count: cards.length, overflow: element.scrollWidth > element.clientWidth + 1,
             cards: cards.map((card) => { const box = card.getBoundingClientRect(); const button = card.querySelector('button[aria-label^="Card folder actions:"]'); const action = button.getBoundingClientRect(); return { width: box.width, height: box.height, actionInside: action.left >= box.left && action.right <= box.right, left: box.left, right: box.right, top: box.top, bottom: box.bottom }; }) };
         });
-        expect(geometry.width).toBeLessThan(320);
+        // The default desktop library panel is narrow: dense folder cards fit at most two columns.
+        expect(new Set(geometry.cards.map((card) => Math.round(card.left))).size).toBeLessThanOrEqual(2);
         expect(geometry.count).toBeGreaterThanOrEqual(13);
         expect(geometry.overflow).toBe(false);
         for (const card of geometry.cards) { expect(card.width).toBeGreaterThanOrEqual(160); expect(card.height).toBe(44); expect(card.actionInside).toBe(true); }

@@ -16,7 +16,11 @@ PYTHON=$1; shift
 ROOT=$(git rev-parse --show-toplevel)
 NAME="veevee-test-db-$$"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/veevee-test.XXXX")
-cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$WORK"; }
+cleanup() {
+  status=$?
+  docker rm -f "$NAME" >/dev/null 2>&1 || true
+  if [ "$status" = 0 ]; then rm -rf "$WORK"; else echo "kept logs and temporary files in $WORK"; fi
+}
 trap cleanup EXIT INT TERM
 
 docker run -d --name "$NAME" -p 127.0.0.1::5432 --tmpfs /var/lib/postgresql:rw \
@@ -25,17 +29,20 @@ docker run -d --name "$NAME" -p 127.0.0.1::5432 --tmpfs /var/lib/postgresql:rw \
 until docker exec "$NAME" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; do sleep 1; done
 PORT=$(docker port "$NAME" 5432/tcp | head -1 | sed 's/.*://')
 
-# Node runs the browser suite; ffmpeg makes its native MOV fixture and backs the media tests.
-TOOLS=""
-for tool in node ffmpeg; do
+# Node runs the browser suite; ffmpeg makes native MOV fixtures; libvips backs image handling
+# (pyvips loads it from the lib directory next to the `vips` command, e.g. ~/.nix-profile/lib).
+TOOLS=""; LIBS=""
+for tool in node ffmpeg vips; do
   if location=$(command -v "$tool"); then TOOLS="$TOOLS$(dirname "$location"):"; else echo "note: $tool not on PATH"; fi
 done
+if location=$(command -v vips); then LIBS=$(cd "$(dirname "$location")/../lib" && pwd); fi
 case "$(uname)" in Darwin) BROWSERS="$HOME/Library/Caches/ms-playwright" ;; *) BROWSERS="$HOME/.cache/ms-playwright" ;; esac
 
 cd "$ROOT"
 env -i PATH="${TOOLS}/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$WORK" TMPDIR="$WORK" \
   LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 CI=1 NEXT_TELEMETRY_DISABLED=1 AWS_EC2_METADATA_DISABLED=true \
   PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-$BROWSERS}" \
+  DYLD_FALLBACK_LIBRARY_PATH="$LIBS" LD_LIBRARY_PATH="$LIBS" \
   DATABASE_URL="postgresql://postgres:disposable@127.0.0.1:$PORT/veevee_django_migration" \
   DJANGO_SETTINGS_MODULE=config.settings.test MIGRATION_TEST_ISOLATED=1 \
   DJANGO_SECRET_KEY=disposable-django-secret-key-00000000000000000000 \

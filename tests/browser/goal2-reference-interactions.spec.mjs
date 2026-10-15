@@ -83,7 +83,9 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   await moved.press('Alt+ArrowRight');
   expect((await order(page))[2]).toBe(ids[0]);
   await expect(moved).toBeFocused();
-  await page.locator(`[data-reference-id="${ids[0]}"]`).getByRole('button', { name: /to position$/ }).click();
+  // The position control is visually hidden until it has keyboard focus.
+  const toPosition = page.locator(`[data-reference-id="${ids[0]}"]`).getByRole('button', { name: /to position$/ });
+  await toPosition.focus(); await toPosition.press('Enter');
   await page.getByRole('spinbutton', { name: 'Move to position' }).fill('10');
   await page.getByRole('button', { name: 'Move', exact: true }).click();
   expect((await order(page)).at(-1)).toBe(ids[0]);
@@ -98,8 +100,11 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   const response = await responsePromise;
   expect(response.ok()).toBeTruthy();
   const submitted = response.request().postDataJSON();
-  const expectedSources = [...sources.slice(1), sources[0]];
+  // Providers receive canonical masters; the strip's preview parameters (?w=512...) never leave the browser.
+  const canonical = (url) => url.split('?')[0];
+  const expectedSources = [...sources.slice(1), sources[0]].map(canonical);
   expect(submitted.referenceImages).toEqual(expectedSources);
+  expect(submitted.referenceImages.some((url) => url.includes('?'))).toBe(false);
   expect(submitted.prompt).toBe('Compare @img10 with @img9');
   const result = await response.json();
   const sql = fixtureDatabase(process.env.E2E_DATABASE_URL);
@@ -426,7 +431,9 @@ test('Goal2 mixed image video audio namespaces survive an image finalization com
   await page.getByRole('menuitem', { name: /^Seedance 2\.5(?:\s|$)/ }).click();
   const image = await context.request.get('/api/generations/10000000-0000-4000-8000-000000000001/download');
   const movie = await context.request.get('/api/generations/20000000-0000-4000-8000-000000000001/download');
-  const wav = Buffer.alloc(1644); wav.write('RIFF'); wav.writeUInt32LE(1636, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16,16); wav.writeUInt16LE(1,20); wav.writeUInt16LE(1,22); wav.writeUInt32LE(8000,24); wav.writeUInt32LE(16000,28); wav.writeUInt16LE(2,32); wav.writeUInt16LE(16,34); wav.write('data',36); wav.writeUInt32LE(1600,40);
+  // 2.5 s of 8 kHz 16-bit mono silence: Seedance accepts reference audio of 2-30 s.
+  const audioBytes = 40000;
+  const wav = Buffer.alloc(44 + audioBytes); wav.write('RIFF'); wav.writeUInt32LE(36 + audioBytes, 4); wav.write('WAVEfmt ', 8); wav.writeUInt32LE(16,16); wav.writeUInt16LE(1,20); wav.writeUInt16LE(1,22); wav.writeUInt32LE(8000,24); wav.writeUInt32LE(16000,28); wav.writeUInt16LE(2,32); wav.writeUInt16LE(16,34); wav.write('data',36); wav.writeUInt32LE(audioBytes,40);
   let release, held = false;
   const gate = new Promise(resolve => { release = resolve; });
   await page.route('**/api/uploads/*/finalize', async route => {
@@ -481,7 +488,7 @@ test('Goal2 portrait inspector confirmed bulk deletion keeps partial failure sel
     return route.continue();
   });
   try {
-    await gallery.getByRole('button', { name: 'Delete', exact: true }).click();
+    await gallery.getByRole('button', { name: /^Delete selected/ }).click();
     const confirmation = page.getByRole('alertdialog');
     await expect(confirmation).toContainText('Delete 2 portraits?');
     await confirmation.getByRole('button', { name: 'Delete 2', exact: true }).click();
@@ -493,7 +500,7 @@ test('Goal2 portrait inspector confirmed bulk deletion keeps partial failure sel
     expect((await sql`SELECT id FROM portrait_assets WHERE name LIKE ${`${prefix}%`}`)).toHaveLength(1);
     await page.screenshot({ path: testInfo.outputPath('portrait-partial-delete-failure.png') });
     await page.unroute('**/api/assets/portraits?assetId=*');
-    await gallery.getByRole('button', { name: 'Delete', exact: true }).click();
+    await gallery.getByRole('button', { name: /^Delete selected/ }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Delete 1', exact: true }).click();
     await expect(gallery.locator('article').filter({ hasText: prefix })).toHaveCount(0);
     expect((await sql`SELECT id FROM portrait_assets WHERE name LIKE ${`${prefix}%`}`)).toHaveLength(0);

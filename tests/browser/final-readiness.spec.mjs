@@ -4,6 +4,10 @@ import { fixtureDatabase } from './fixture-db.mjs';
 
 const USER_ID = 'e33e1832-9e29-427f-af61-796b842a4b37';
 const MULTI_SELECT_MODIFIER = process.platform === 'darwin' ? 'Meta' : 'Control';
+
+// A plain click on a finished card opens the viewer; selection is explicit
+// through the card's Select checkbox, Space or modifier clicks.
+const selectCard = (card) => card.getByRole('button', { name: 'Select', exact: true }).click();
 const test = base.extend({
   fixture: async ({ page, context, baseURL }, provideFixture) => {
     if (!process.env.AUTH_SECRET || !['localhost', '127.0.0.1'].includes(new URL(baseURL).hostname)) throw new Error('Isolated browser harness required');
@@ -91,7 +95,7 @@ test('search filters actual Django feed and scrolling requests a cursor page', a
 test('Alt marquee subtracts intersecting selected cards', async ({ page, fixture }) => {
   const panel = await fixture.open();
   const cards = panel.locator('[data-asset-card-id]');
-  await cards.first().click();
+  await selectCard(cards.first());
   await cards.nth(1).click({ modifiers: [MULTI_SELECT_MODIFIER] });
   await expect(panel.locator('[data-selected="true"]')).toHaveCount(2);
   await cards.first().scrollIntoViewIfNeeded();
@@ -127,7 +131,7 @@ test('real pointer multi-asset drag moves both rows and survives reload', async 
   await showFolders(panel);
   const cards = panel.locator('[data-asset-card-id]');
   const ids = [await cards.nth(0).getAttribute('data-asset-card-id'), await cards.nth(1).getAttribute('data-asset-card-id')];
-  await cards.nth(0).click();
+  await selectCard(cards.nth(0));
   await cards.nth(1).click({ modifiers: [MULTI_SELECT_MODIFIER] });
   await expect(panel.locator('[data-selected="true"]')).toHaveCount(2);
   await cards.nth(0).dragTo(panel.getByRole('treeitem').filter({ hasText: fixture.folderName }));

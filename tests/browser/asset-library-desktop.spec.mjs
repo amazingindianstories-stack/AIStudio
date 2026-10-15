@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { createHmac } from "node:crypto";
 
+// A plain click on a finished card opens the viewer; selection is explicit
+// through the card's Select checkbox, Space or modifier clicks.
+const selectCard = (card) => card.getByRole("button", { name: "Select", exact: true }).click();
+
 function getAuthSecret() {
   if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
   throw new Error('The isolated browser runner must provide its synthetic AUTH_SECRET.');
@@ -139,8 +143,8 @@ test.describe("Asset Library Desktop Interactions", () => {
     // Clear selection
     await page.keyboard.press("Escape");
 
-    // Click first card to establish anchor
-    await cards.nth(0).click();
+    // Select the first card to establish the anchor
+    await selectCard(cards.nth(0));
     await expect(cards.nth(0)).toHaveAttribute("data-selected", "true");
 
     // Shift-click third card
@@ -164,8 +168,8 @@ test.describe("Asset Library Desktop Interactions", () => {
 
     await page.keyboard.press("Escape");
 
-    // Single click card 0
-    await cards.nth(0).click();
+    // Select card 0
+    await selectCard(cards.nth(0));
     await expect(cards.nth(0)).toHaveAttribute("data-selected", "true");
 
     // Cmd/Ctrl-click card 2
@@ -257,7 +261,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     expect(await cards.count()).toBeGreaterThan(0);
 
     // Select first card
-    await cards.first().click();
+    await selectCard(cards.first());
     await expect(panel.locator('[data-selected="true"]')).toHaveCount(1);
 
     // Switch scope by clicking All assets tab
@@ -469,7 +473,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     const { panel } = await setupPage(page, context, baseURL);
 
     const cards = panel.locator('[data-asset-card-id]');
-    await cards.first().click();
+    await selectCard(cards.first());
     await expect(panel.locator('[data-selected="true"]')).toHaveCount(1);
 
     // Move focus into a control in the contextual selection toolbar

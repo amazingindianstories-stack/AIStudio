@@ -157,11 +157,12 @@ test('browser downloads native 10-bit MOV through MediaCard without changing byt
   await panel.getByRole('textbox', { name: 'Search prompts' }).fill('Native MOV fixture');
   const card = panel.locator('[data-asset-card-id="20000000-0000-4000-8000-000000000001"]');
   await expect(card).toBeVisible();
+  // Download lives in the card's hover action strip and asks for confirmation.
   await card.hover();
-  const control = card.locator(`a[href="${path}?signed=1"]`);
-  await expect(control).toBeVisible();
+  await page.getByRole('toolbar', { name: 'Generation actions' }).getByRole('button', { name: /^Download/ }).click();
+  const dialog = page.getByRole('alertdialog', { name: 'Download the original?' });
   const downloading = page.waitForEvent('download');
-  await control.click();
+  await dialog.getByRole('button', { name: 'Download', exact: true }).click();
   const download = await downloading;
   expect(download.suggestedFilename()).toMatch(/\.mov$/);
   const bytes = await readFile(await download.path());
