@@ -43,7 +43,9 @@ function ManualPortraitGallery({ suppressed = false }) {
   const chosen = visible.filter(a=>selected.includes(idOf(a)));
   const modelSlots = Math.max(0, capability(s.model,"maxReferenceImages",50) - (s.referenceKinds || []).filter(k=>k!=="video").length);
   useEffect(()=>{if(portraitGalleryOpen){void loadAllPortraitAssets(activeProjectId);setError("");}},[portraitGalleryOpen,activeProjectId,loadAllPortraitAssets]);
-  useEffect(()=>{if(!portraitGalleryOpen)return;const trigger=document.activeElement;dialog.current?.focus();return ()=>{if(trigger?.isConnected)trigger.focus?.();};},[portraitGalleryOpen]);
+  // Focus the dialog once it actually renders: it stays hidden (suppressed) until the managed-portrait
+  // status loads, so focusing on open alone would leave focus outside and Escape unhandled.
+  useEffect(()=>{if(!portraitGalleryOpen||suppressed)return;const trigger=document.activeElement;dialog.current?.focus();return ()=>{if(trigger?.isConnected)trigger.focus?.();};},[portraitGalleryOpen,suppressed]);
   const processingPending = assets.some(a => String(a.status || "").toLowerCase() === "processing");
   useEffect(() => {
     if (!portraitGalleryOpen || !processingPending) return;
