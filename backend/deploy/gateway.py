@@ -18,7 +18,7 @@ SAFE_POST=re.compile(r'^/api/(?:auth/(?:login|logout)|uploads/init|uploads/[0-9a
 SAFE_PUT=re.compile(r'^/api/uploads/[0-9a-f-]{36}/local$')
 ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/activity'))
 DEPTH_POST_ROUTES=frozenset(('/api/generate/depth','/api/worker/depth/claim','/api/worker/depth/heartbeat','/api/worker/depth/progress','/api/worker/depth/upload-url','/api/worker/depth/complete'))
-def allowed(method,path,paid_initial_routes=False,new_exports=False):
+def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
     # Exact DB-backed Django admin reads; Django still checks the session role.
     # Status contacts external dependencies; runtime audit takes leases and writes fixtures.
     if method in ('GET','HEAD') and path in ADMIN_READ_PATHS:return True
@@ -27,6 +27,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False):
     if new_exports and method=="POST" and re.fullmatch(r"/api/history/exports(?:/[0-9a-f-]{36}/(?:items|finalize))?",path):return True
     # Everything else under /api is allowed except provider execution, internal worker/callback ingress and export scheduling.
     if paid_initial_routes and method=='POST' and path in ('/api/generate/image','/api/generate/video','/api/generate/video/finalize'):return True
+    if paid_initial_routes and magnific_upscale and method=='POST' and path=='/api/generate/upscale':return True
     if method in ('GET','HEAD') and path=='/api/generate/video/status':return True
     # Depth maps: artist enqueue/status and the external GPU worker protocol
     # (Django authenticates the worker with DEPTH_WORKER_TOKEN).
@@ -36,7 +37,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False):
     if not path.startswith('/api/') or path.startswith(('/api/generate/','/api/admin/','/api/worker/','/api/workers/','/api/webhooks/','/api/depth/','/api/audio/transcribe','/api/queue/execute')):return False
     if method not in ('GET','HEAD') and (path.startswith('/api/agent-conversations/') and path.endswith('/messages') or path.startswith('/api/history/exports')):return False
     return method in ('GET','HEAD','POST','PUT','PATCH','DELETE')
-def handler(secret,paid_initial_routes=False,new_exports=False):
+def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
     class Gate(BaseHTTPRequestHandler):
         operations=0
         total_bytes=0
@@ -72,7 +73,7 @@ def handler(secret,paid_initial_routes=False,new_exports=False):
                 self.wfile.write(data);self.close_connection=True;return
             if not hmac.compare_digest(self.headers.get(HEADER,''),secret):
                 self.send_error(403);return
-            if not allowed(self.command,path,paid_initial_routes,new_exports):
+            if not allowed(self.command,path,paid_initial_routes,new_exports,magnific_upscale):
                 paid=path.startswith(('/api/generate/','/api/audio/transcribe')) or (path.startswith('/api/agent-conversations/') and path.endswith('/messages') and self.command not in ('GET','HEAD'))
                 message='This generation route is not available.' if paid else 'This operation is not available.'
                 data=json.dumps({'error':message,'code':'PREVIEW_PAID_PROVIDER_DISABLED' if paid else 'PREVIEW_OPERATION_DISABLED'}).encode()
@@ -129,12 +130,12 @@ def handler(secret,paid_initial_routes=False,new_exports=False):
         do_GET=do_HEAD=do_POST=do_PUT=do_PATCH=do_DELETE=run
     return Gate
 
-def serve(secret,port,paid_initial_routes=False,new_exports=False):
+def serve(secret,port,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
     if len(secret)<48 or not (1024<=int(port)<=65535) or int(port)==18080:raise ValueError('Ingress binding invalid')
-    server=ThreadingHTTPServer(('0.0.0.0',port),handler(secret,paid_initial_routes,new_exports))
+    server=ThreadingHTTPServer(('0.0.0.0',port),handler(secret,paid_initial_routes,new_exports,magnific_upscale))
     server.daemon_threads=True
     import sys
-    print(json.dumps({'event':'gateway_listening','port':int(port),'paid_routes':paid_initial_routes,'new_exports':new_exports}),file=sys.stderr,flush=True)
+    print(json.dumps({'event':'gateway_listening','port':int(port),'paid_routes':paid_initial_routes,'new_exports':new_exports,'magnific_upscale':magnific_upscale}),file=sys.stderr,flush=True)
     try:server.serve_forever()
     finally:server.server_close()
 if __name__=='__main__':
@@ -145,4 +146,6 @@ if __name__=='__main__':
         if type(paid) is not bool:raise ValueError('Paid route activation rejected')
         exports=value.get('new_exports',False)
         if type(exports) is not bool:raise ValueError('Export activation rejected')
-        serve(value['secret'],value['port'],paid,exports)
+        magnific=value.get('magnific_upscale',False)
+        if type(magnific) is not bool:raise ValueError('Magnific activation rejected')
+        serve(value['secret'],value['port'],paid,exports,magnific)

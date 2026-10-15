@@ -60,7 +60,7 @@ import {
   storeRuntime,
 } from "./store-runtime";
 import { LIVE_MS_ACTIVE, LIVE_MS_IDLE, liveDelay, liveUpdatesUrl, nextLiveCursor, hasRecentActiveWork } from "./live-cursor";
-import { magnificParamsForModel } from "./magnific-ui";
+import { magnificParamsForModel, magnificVideoParamsForModel, MAGNIFIC_VIDEO_DEFAULTS, MAGNIFIC_MODELS, MAGNIFIC_VIDEO_MODELS, MAGNIFIC_SCALE_FACTORS, MAGNIFIC_VIDEO_RESOLUTIONS } from "./magnific-ui";
 import {
   clearMaterialCache,
   dedupeMaterialRequest,
@@ -157,6 +157,31 @@ export function dropEverywhere(
  *  delete) invalidates membership across scopes rather than one row's fields. */
 function invalidateFeedCache() {
   clearFeedCache();
+}
+
+/** Magnific rows are upscales: they reopen in the upscaler with their source, model and parameters. */
+export function isMagnificUpscale(item) {
+  return MAGNIFIC_MODELS.includes(item?.model) || MAGNIFIC_VIDEO_MODELS.includes(item?.model);
+}
+
+function upscaleComposerState(s, item) {
+  const name = item.prompt ? item.prompt.slice(0, 50) : "Upscale source";
+  if (MAGNIFIC_VIDEO_MODELS.includes(item.model)) {
+    const source = item.referenceVideos?.[0];
+    return {
+      mode: "upscale", upscalerMedia: "video",
+      upscalerVideo: source ? { url: source, name, aspectRatio: item.aspectRatio } : null,
+      videoUpscalerParams: { ...s.videoUpscalerParams, model: item.model,
+        ...(MAGNIFIC_VIDEO_RESOLUTIONS.includes(item.resolution) ? { resolution: item.resolution } : {}), ...(item.upscaleParams ?? {}) },
+    };
+  }
+  const source = item.referenceImages?.[0];
+  return {
+    mode: "upscale", upscalerMedia: "image",
+    upscalerImage: source ? { url: source, name, aspectRatio: item.aspectRatio } : null,
+    upscalerParams: { ...s.upscalerParams, model: item.model,
+      ...(MAGNIFIC_SCALE_FACTORS.includes(item.resolution) ? { scaleFactor: item.resolution } : {}), ...(item.upscaleParams ?? {}) },
+  };
 }
 
 /** Look a row up across every pool. Callers act on an id the user clicked, and
@@ -387,6 +412,9 @@ export const useStore = create((set, get) => ({
     ultraDetail: 30,
     filterNsfw: false,
   },
+  upscalerMedia: "image",
+  upscalerVideo: null,
+  videoUpscalerParams: { ...MAGNIFIC_VIDEO_DEFAULTS },
 
   assets: [],
   assetsLoading: false,
@@ -660,6 +688,10 @@ export const useStore = create((set, get) => ({
   setSelectionAnchorId: (selectionAnchorId) => set({ selectionAnchorId }),
   setSelectedIds: (selectedIds) => set({ selectedIds }),
   setUpscalerImage: (upscalerImage) => set({ upscalerImage }),
+  setUpscalerMedia: (upscalerMedia) => set({ upscalerMedia: upscalerMedia === "video" ? "video" : "image" }),
+  setUpscalerVideo: (upscalerVideo) => set({ upscalerVideo }),
+  setVideoUpscalerParam: (key, value) =>
+    set((s) => ({ videoUpscalerParams: { ...s.videoUpscalerParams, [key]: value } })),
   setUpscalerParam: (key, value) =>
     set((s) => ({ upscalerParams: { ...s.upscalerParams, [key]: value } })),
 
@@ -1158,6 +1190,80 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  /** Magnific video upscale: the source is an uploaded or library video. */
+  generateVideoUpscale: async () => {
+    const s = get();
+    if (!s.upscalerVideo) {
+      notify("Please select or drop a video to upscale.");
+      return null;
+    }
+    if (s.generating) return null;
+    set({ generating: true });
+    try {
+      const model = s.videoUpscalerParams.model;
+      const res = await apiFetch("/api/generate/upscale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video: s.upscalerVideo.url,
+          model,
+          params: magnificVideoParamsForModel(model, s.videoUpscalerParams),
+          projectId: s.activeProjectId ?? undefined,
+          folderId: (s.activeFolderId && s.activeFolderId !== UNSORTED) ? s.activeFolderId : undefined,
+        }),
+      });
+      let item;
+      try {
+        item = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): invalid response.`);
+      }
+      if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
+      if (item?.id) {
+        insertNewItem(set, item);
+        if (get().upscalerVideo === s.upscalerVideo) set({ upscalerVideo: null });
+      }
+      return item;
+    } catch (e) {
+      console.error("Video upscale request failed:", e);
+      notify(e.message || "Failed to start the video upscale.");
+      return null;
+    } finally {
+      void get().loadCounts();
+      set({ generating: false });
+    }
+  },
+
+  /** Regenerate a Magnific row with its own source, model and validated parameters. */
+  resubmitUpscale: async (item) => {
+    const video = item.kind === "video";
+    const source = video ? item.referenceVideos?.[0] : item.referenceImages?.[0];
+    if (!source || !item.upscaleParams) return { ok: false, error: "The original upscale settings are no longer available." };
+    set({ generating: true });
+    try {
+      const res = await apiFetch("/api/generate/upscale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [video ? "video" : "image"]: source, model: item.model, params: item.upscaleParams,
+          projectId: item.projectId ?? undefined, folderId: item.folderId ?? undefined }),
+      });
+      let created;
+      try {
+        created = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): invalid response.`);
+      }
+      if (!res.ok) throw new Error(apiErrorMessage(created, res.status));
+      if (created?.id) insertNewItem(set, created);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message || "The upscale could not be started again." };
+    } finally {
+      void get().loadCounts();
+      set({ generating: false });
+    }
+  },
+
   /** Polled by DepthComposer / the nav status pill — see depth-jobs-db.js's
    *  readDepthWorkerStatus for the response shape. Failures leave the last
    *  known status in place rather than flashing the pill to a wrong state on
@@ -1348,6 +1454,10 @@ export const useStore = create((set, get) => ({
   editInComposer: (id) => {
     const item = findItem(get(), id);
     if (!item) return { ok: false, error: "This generation is no longer available." };
+    if (isMagnificUpscale(item)) {
+      set(upscaleComposerState(get(), item));
+      return { ok: true };
+    }
     set({ mode: item.kind, prompt: item.prompt });
     return { ok: true };
   },
@@ -1363,6 +1473,8 @@ export const useStore = create((set, get) => ({
     // reference images as data URLs, which a fresh submit needs. Then just
     // submit what it loaded.
     if (get().generating) return { ok: false, error: "Another generation is already starting." };
+    const original = findItem(get(), id);
+    if (isMagnificUpscale(original)) return get().resubmitUpscale(original);
     const cloned = await get().cloneToComposer(id);
     if (cloned?.ok === false) return cloned;
     if (!get().prompt.trim()) return { ok: false, error: "The saved prompt is empty." };
@@ -1565,6 +1677,13 @@ export const useStore = create((set, get) => ({
   cloneToComposer: async (id) => {
     const item = findItem(get(), id);
     if (!item) return { ok: false, error: "This generation is no longer available." };
+    if (isMagnificUpscale(item)) {
+      if (!(item.kind === "video" ? item.referenceVideos?.[0] : item.referenceImages?.[0])) {
+        return { ok: false, error: "The original upscale source is no longer available." };
+      }
+      set({ ...upscaleComposerState(get(), item), destinationProjectId: item.projectId, destinationFolderId: item.folderId ?? null });
+      return { ok: true };
+    }
     set({
       mode: item.kind,
       model: item.model,

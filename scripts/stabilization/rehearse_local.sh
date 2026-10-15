@@ -8,6 +8,7 @@
 #
 # Pending migrations are applied first as the copy's owner (REHEARSAL_OBSERVER_URL), exactly as a
 # production rollout does. REHEARSAL_MANAGED_PORTRAITS=0 rehearses with the automatic portrait pool off.
+# REHEARSAL_MAGNIFIC=0 rehearses with Magnific upscaling off (the gateway must then refuse it).
 # API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway).
 # Workers run scripts/stabilization/rehearsal_worker.py: the production code with the provider
 # network replaced by testsupport.fake_providers before the paid guard is installed.
@@ -37,7 +38,8 @@ PAID='{"approved_scope":"GOAL4_EXISTING_GREEN_PREVIEW_UNLIMITED_NEW_IMAGE_AND_SE
 COMMON="-e DJANGO_SECRET_KEY=rehearsal-django-secret-$(openssl rand -hex 16) -e AUTH_SECRET=rehearsal-auth-secret-$(openssl rand -hex 16)
  -e DJANGO_ALLOWED_HOSTS=127.0.0.1 -e DJANGO_BROWSER_ORIGINS=https://veevee.ai -e PUBLIC_APP_URL=https://veevee.ai
  -e VEEVEE_MEDIA_BACKEND=filesystem -e VEEVEE_MEDIA_ROOT=/media -e MOCK_GENERATION=0 -e MOCK_ASSET_PROVIDER=0
- -e ARK_API_KEY=rehearsal-fake-key -e GOOGLE_API_KEY=rehearsal-fake-key -e AWS_EC2_METADATA_DISABLED=true -e PYTHONUNBUFFERED=1"
+ -e ARK_API_KEY=rehearsal-fake-key -e GOOGLE_API_KEY=rehearsal-fake-key -e AWS_EC2_METADATA_DISABLED=true -e PYTHONUNBUFFERED=1
+ -e MAGNIFIC_API_KEY=rehearsal-fake-key -e VEEVEE_MAGNIFIC_UPSCALE=${REHEARSAL_MAGNIFIC:-1}"
 # shellcheck disable=SC2086
 docker run --rm --network "$NET" $COMMON -e DATABASE_URL="$REHEARSAL_OBSERVER_URL" -w /app "$IMAGE" python manage.py migrate --noinput \
   > "$BASE/migrate.txt" 2>&1 || { cat "$BASE/migrate.txt"; echo "== migration failed"; exit 1; }

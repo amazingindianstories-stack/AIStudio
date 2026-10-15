@@ -111,6 +111,8 @@ VEEVEE_RUNTIME_COMPONENT = os.environ.get('VEEVEE_RUNTIME_COMPONENT') or None
 if VEEVEE_RUNTIME_COMPONENT not in (None, 'api', 'generation', 'export', 'scheduler'):
     raise ImproperlyConfigured('VEEVEE_RUNTIME_COMPONENT must be api, generation, export or scheduler')
 VEEVEE_EXPORT_ADMISSION = os.environ.get('VEEVEE_EXPORT_ADMISSION') == '1'
+# Magnific image/video upscaling through the gateway and paid guard (off unless '1').
+VEEVEE_MAGNIFIC_UPSCALE = os.environ.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'
 # Worker lease and filename-sequence namespaces (live Green state; see
 # apps/production_runtime/namespacing.py). Empty means no namespace.
 VEEVEE_LEASE_PREFIX = os.environ.get('VEEVEE_LEASE_PREFIX', '')

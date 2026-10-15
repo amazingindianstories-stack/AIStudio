@@ -24,7 +24,12 @@ API_ROLE = 'goal4_green_preview_api'
 PROVIDER_KEYS = {'ARK_API_KEY', 'ARK_BASE_URL', 'GOOGLE_API_KEY', 'SEEDANCE_MODEL', 'SEEDANCE_MODEL_FAST'}
 BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPLUS_ARK_REGION', 'BYTEPLUS_ARK_HOST', 'BYTEPLUS_ARK_BASE_URL'}
 PASS_THROUGH = ('PATH', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID',
-                'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE')
+                'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE',
+                'VEEVEE_MAGNIFIC_UPSCALE')
+# Magnific output hosts, observed in live tasks; signed, expiring links. Video
+# results come from cdn-magnific.freepik.com (2026-10-14), image results from
+# ai-statics.magnific.com (2026-10-15).
+MAGNIFIC_MEDIA_HOSTS = ('cdn-magnific.freepik.com', 'ai-statics.magnific.com')
 
 
 class LegacyConfigError(SystemExit):
@@ -69,6 +74,9 @@ def _common(cfg, env, *, browser_origins, app_origin):
         'LANG': 'C.UTF-8',
     })
     out.pop('VEEVEE_PUBLIC_APP_URL_OVERRIDE', None)
+    # The Magnific key reaches Django only while upscaling is switched on.
+    if env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1' and env.get('MAGNIFIC_API_KEY'):
+        out['MAGNIFIC_API_KEY'] = env['MAGNIFIC_API_KEY']
     paid = cfg.get('paid')
     if paid:
         provider = paid['provider_environment']
@@ -129,6 +137,8 @@ def translate(component, env):
     out['VEEVEE_NAMING_PREFIX'] = cfg['naming_prefix']
     hosts = cfg.get('provider_media_hosts', [])
     need(isinstance(hosts, list) and len(hosts) <= 8, 'provider media hosts')
+    if env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1':
+        hosts = [*hosts, *(host for host in MAGNIFIC_MEDIA_HOSTS if host not in hosts)]
     out['VEEVEE_PROVIDER_MEDIA_HOSTS'] = ','.join(hosts)
     if cfg.get('new_exports'):
         out['VEEVEE_EXPORT_ADMISSION'] = '1'

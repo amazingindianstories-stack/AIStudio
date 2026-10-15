@@ -43,7 +43,10 @@ docker run --rm --network "container:$DB" $GATE_ENV "$IMAGE" python manage.py ma
 
 step "Frontend tests, lint and production build"
 cp -c -R "$ROOT/node_modules" "$WORK/node_modules" 2>/dev/null || cp -R "$ROOT/node_modules" "$WORK/node_modules"
-(cd "$WORK" && npm test 2>&1 | grep -E '^# (pass|fail)' | tee "$WORK/frontend.txt" && grep -q '^# fail 0' "$WORK/frontend.txt" \
+# The test run's exit status decides; the summary lines are only recorded. Node
+# prints them as TAP ("# pass N") or spec ("ℹ pass N") depending on its version.
+(cd "$WORK" && { npm test > "$WORK/frontend-full.txt" 2>&1 || { tail -40 "$WORK/frontend-full.txt"; exit 1; }; } \
+  && grep -E '^(# |ℹ )(pass|fail) ' "$WORK/frontend-full.txt" | tee "$WORK/frontend.txt" \
   && npx eslint src --max-warnings=0 && NEXT_TELEMETRY_DISABLED=1 npx next build >/dev/null)
 
 mkdir -p "$PASS_DIR"

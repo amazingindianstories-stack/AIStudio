@@ -39,6 +39,9 @@ def generation_item(row):
     result['costBasis'] = 'reconciled' if row.cost_basis == 'reconciled' else 'estimated'
     if row.continuation_frame_url is not None:
         result['firstFrameUrl'] = row.continuation_frame_url
+    # Magnific upscales reopen and regenerate with their exact validated parameters.
+    if row.model.startswith('Magnific ') and isinstance(row.submission_input, dict) and isinstance(row.submission_input.get('params'), dict):
+        result['upscaleParams'] = row.submission_input['params']
     return result
 
 
@@ -63,6 +66,10 @@ def public_error(row, diagnostic):
     ):
         return diagnostic
     if row.model.startswith('Magnific '):
+        from .services.poller import MAGNIFIC_IMAGE_TOO_LARGE, MAGNIFIC_SAVE_FAILED, MAGNIFIC_TOO_LARGE
+        from .services.upscale_submission import UPSCALE_REJECTED, UPSCALE_PREPARE_FAILED
+        if diagnostic in (MAGNIFIC_TOO_LARGE, MAGNIFIC_IMAGE_TOO_LARGE, MAGNIFIC_SAVE_FAILED, UPSCALE_REJECTED, UPSCALE_PREPARE_FAILED):
+            return diagnostic
         return 'Upscale generation failed.'
     if row.kind == 'audio':
         return 'Audio transcription failed.'

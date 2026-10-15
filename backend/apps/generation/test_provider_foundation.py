@@ -15,7 +15,13 @@ from .services.deadline import settle_queue_execution, Cancellation, QueueExecut
 
 class PureProviderParityTests(SimpleTestCase):
     def test_registry_seedream_payloads_and_reference_resolution_match_node(self):
-        request = {'modelIds': [item['id'] for item in MODEL_REGISTRY] + [item['name'] for item in MODEL_REGISTRY] + ['unknown'],
+        # Magnific video upscalers (2026-10-14) postdate the frozen Node registry;
+        # compare the frozen entries and assert the additions explicitly.
+        added = [item for item in MODEL_REGISTRY if item.get('capabilities', {}).get('upscaleMedia') == 'video']
+        self.assertEqual([(item['name'], item['provider'], item['kind'], item['pricingKey']) for item in added], [
+            (name, 'magnific', 'upscale', name) for name in ('Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz')])
+        frozen = [item for item in MODEL_REGISTRY if item not in added]
+        request = {'modelIds': [item['id'] for item in frozen] + [item['name'] for item in frozen] + ['unknown'],
                    'seedream': [], 'references': []}
         for resolution in ('1K', '1.5K', '2K', '4K', None):
             for ratio in ('1:1', '16:9', '21:9', 'invalid'):
@@ -29,7 +35,7 @@ class PureProviderParityTests(SimpleTestCase):
         result = oracle_run(['node', '--import', 'tsx', 'scripts/django-migration/provider-pure-oracle.mjs'],
             cwd=root, input=json.dumps(request), capture_output=True, text=True, check=True)
         expected = json.loads(result.stdout)
-        self.assertEqual(expected['models'], MODEL_REGISTRY)
+        self.assertEqual(expected['models'], frozen)
         self.assertEqual(expected['modelIds'], [provider_model_id(value, {}) for value in request['modelIds']])
         def capture(call):
             try:

@@ -101,3 +101,102 @@ class WorkerSimulationTests(TransactionTestCase):
         self.assert_stored(final, storage, 'video/quicktime')
         posts = [call for call in fake.calls if call[0] == 'POST' and call[1].endswith('/contents/generations/tasks')]
         self.assertEqual(len(posts), 1, 'the final is one paid submission')
+
+
+MAGNIFIC_ENV = {**ENV, 'MAGNIFIC_API_KEY': 'fake-magnific-key'}
+
+
+@override_settings(PUBLIC_APP_URL='https://veevee.test')
+class MagnificWorkerSimulationTests(TransactionTestCase):
+    """Upscale enqueue → real worker → fake Magnific + CDN → stored master."""
+    setUp = session_fixtures.SettingsTests.setUp
+    cookie = session_fixtures.SettingsTests.cookie
+
+    def storage(self):
+        import tempfile
+        from apps.media.storage import FileSystemAdapter
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        return StorageService(FileSystemAdapter(directory.name))
+
+    def run_upscale(self, payload, storage, *, polls=1):
+        self.cookie()
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch.dict(os.environ, MAGNIFIC_ENV), FakeProviders() as fake:
+            response = self.client.post('/api/generate/upscale', payload, content_type='application/json')
+            self.assertEqual(response.status_code, 200, response.content)
+            identifier = response.json()['id']
+            executor.process_generation(identifier, heartbeat=False)
+            for _ in range(polls):
+                Generation.objects.filter(pk=identifier).update(next_poll_at=0)
+                executor.process_generation(identifier, heartbeat=False)
+            return Generation.objects.get(pk=identifier), response.json(), fake
+
+    def stored(self, storage, row):
+        key = row.url[len('/api/media/'):]
+        media = storage.open(key)
+        try:
+            return b''.join(media.stream), media.content_type
+        finally:
+            media.stream.close()
+
+    def source_video(self, storage, data):
+        key = f'generations/{uuid.uuid4()}.mp4'
+        storage.primary.put(key, data, 'video/mp4', 'public, max-age=31536000, immutable')
+        return '/api/media/' + key
+
+    def test_image_upscale_precision_v2(self):
+        from testsupport.fake_providers import png_bytes
+        import base64
+        storage = self.storage()
+        payload = {'image': 'data:image/png;base64,' + base64.b64encode(png_bytes()).decode(), 'model': 'Magnific Precision V2',
+                   'params': {'model': 'Magnific Precision V2', 'filterNsfw': False, 'scaleFactor': '2x', 'flavor': 'photo',
+                              'sharpen': 7, 'smartGrain': 7, 'ultraDetail': 30}}
+        row, _, fake = self.run_upscale(payload, storage)
+        self.assertEqual(row.status, 'succeeded', row.error)
+        data, content_type = self.stored(storage, row)
+        self.assertEqual(content_type, 'image/png')
+        self.assertEqual(data[:8], b'\x89PNG\r\n\x1a\n')
+        posts = [call for call in fake.calls if call[0] == 'POST']
+        self.assertEqual(posts, [('POST', 'api.magnific.com/v1/ai/image-upscaler-precision-v2')], 'exactly one paid submission')
+
+    def video_payload(self, source, model='Magnific Video Creative', **params):
+        defaults = {'Magnific Video Creative': {'resolution': '2k', 'creativity': 0, 'sharpen': 0, 'smartGrain': 0, 'fpsBoost': False, 'flavor': 'vivid', 'outputFormat': 'h264'},
+                    'Magnific Video Creative Turbo': {'resolution': '1k', 'creativity': 10, 'sharpen': 5, 'smartGrain': 5, 'fpsBoost': True, 'flavor': 'natural', 'outputFormat': 'h264'},
+                    'Magnific Video Precision': {'resolution': '4k', 'sharpen': 0, 'smartGrain': 0, 'strength': 60, 'fpsBoost': False, 'outputFormat': 'h264'},
+                    'Magnific Video Topaz': {'resolution': '2k', 'enhancementModel': 'starlight_precise_2_5', 'targetFps': 30, 'frameInterpolation': 'apollo', 'noise': 0}}
+        return {'video': source, 'model': model, 'params': {'model': model, **defaults[model], **params}}
+
+    def test_every_video_model_submits_once_to_its_endpoint_and_stores_the_mp4(self):
+        from testsupport.fake_providers import mp4_bytes
+        endpoints = {'Magnific Video Creative': '/v1/ai/video-upscaler', 'Magnific Video Creative Turbo': '/v1/ai/video-upscaler/turbo',
+                     'Magnific Video Precision': '/v1/ai/video-upscaler-precision', 'Magnific Video Topaz': '/v1/ai/video-upscaler-topaz'}
+        for model, endpoint in endpoints.items():
+            with self.subTest(model=model):
+                storage = self.storage()
+                source = self.source_video(storage, mp4_bytes())
+                row, item, fake = self.run_upscale(self.video_payload(source, model), storage)
+                self.assertEqual((item['kind'], item['model'], row.kind), ('video', model, 'video'))
+                self.assertEqual(row.status, 'succeeded', row.error)
+                self.assertTrue(row.url.endswith('.mp4'), row.url)
+                data, content_type = self.stored(storage, row)
+                self.assertEqual(content_type, 'video/mp4')
+                self.assertEqual(data[4:8], b'ftyp')
+                posts = [call for call in fake.calls if call[0] == 'POST']
+                self.assertEqual(posts, [('POST', 'api.magnific.com' + endpoint)], 'exactly one paid submission')
+                body = next(iter(fake.magnific_tasks.values()))['body']
+                self.assertTrue(body['video'].startswith('https://veevee.test/api/media-grant?t='), 'a signed read, never the app media path')
+                self.assertEqual(row.submission_input['source'], source)
+                self.assertEqual(row.reference_videos, [source])
+                self.assertGreater(row.cost_cents, 0)
+
+    def test_prores_keeps_the_native_mov_master_not_the_preview(self):
+        from testsupport.fake_providers import mp4_bytes
+        storage = self.storage()
+        source = self.source_video(storage, mp4_bytes())
+        row, _, fake = self.run_upscale(self.video_payload(source, outputFormat='prores_422_hq'), storage)
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertTrue(row.url.endswith('.mov'), row.url)
+        data, content_type = self.stored(storage, row)
+        self.assertEqual(content_type, 'video/quicktime')
+        self.assertEqual(data, fake.mov, 'master bytes preserved exactly')
+        self.assertFalse(any(call[0] == 'FETCH' and 'preview' in call[1] for call in fake.calls))

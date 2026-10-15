@@ -29,6 +29,8 @@ import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-uplo
 import { getAssetDragData, validateUpscalerDrop } from "@/lib/asset-drag-contract";
 import { ProgressiveImage } from "./ProgressiveImage";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { UpscaleMediaToggle } from "./UpscaleMediaToggle";
+import { VideoUpscalerComposer } from "./VideoUpscalerComposer";
 
 const MODELS = [
   {
@@ -75,6 +77,8 @@ export function UpscalerComposer() {
 
   const resultItem = lastResult ? findItem(s, lastResult.item.id) || lastResult.item : null;
   const activeModelId = params.model || "Magnific Creative";
+  // After every hook above, so hook order is identical across the switch.
+  if (s.upscalerMedia === "video") return <VideoUpscalerComposer />;
 
   const handleSelectFile = async (file) => {
     if (!file) return;
@@ -230,8 +234,20 @@ export function UpscalerComposer() {
 
       {/* Model selection tabs */}
       <div className="mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
-          <div className="flex items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
+        <div className="border-b border-line pb-3">
+          <div className="mb-2.5 flex items-center justify-between gap-2">
+            <UpscaleMediaToggle />
+            <button
+              type="button"
+              onClick={resetParams}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-white/50 hover:bg-white/5 hover:text-white/80 transition"
+              title="Reset parameters to defaults"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Reset</span>
+            </button>
+          </div>
+          <div className="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
             {MODELS.map((m) => {
               const active = activeModelId === m.id;
               return (
@@ -260,16 +276,6 @@ export function UpscalerComposer() {
               );
             })}
           </div>
-
-          <button
-            type="button"
-            onClick={resetParams}
-            className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-white/50 hover:bg-white/5 hover:text-white/80 transition"
-            title="Reset parameters to defaults"
-          >
-            <RotateCcw className="h-3 w-3" />
-            <span>Reset</span>
-          </button>
         </div>
 
         {/* Model description banner */}

@@ -24,6 +24,8 @@ from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
 FAKE_MEDIA = 'https://fake-media.invalid/'
+MAGNIFIC_CDN = 'https://cdn-magnific.freepik.com/'
+MAGNIFIC_IMAGE_CDN = 'https://ai-statics.magnific.com/'
 ASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
 
 
@@ -46,6 +48,17 @@ def mov_bytes():
             return handle.read()
 
 
+def mp4_bytes(size='160x90'):
+    """A real one-second H.264 + AAC MP4, the shape Magnific returned in a live task; needs ffmpeg."""
+    with tempfile.TemporaryDirectory() as directory:
+        target = f'{directory}/v.mp4'
+        subprocess.run(['ffmpeg', '-loglevel', 'error', '-f', 'lavfi', '-i', f'testsrc=size={size}:rate=24',
+                        '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '1', '-c:v', 'libx264',
+                        '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-movflags', '+faststart', '-shortest', '-f', 'mp4', target], check=True)
+        with open(target, 'rb') as handle:
+            return handle.read()
+
+
 class FakeProviders:
     """Stateful fake of every provider Veevee calls. Thread-safe."""
 
@@ -57,6 +70,8 @@ class FakeProviders:
         self.asset_activation_polls = asset_activation_polls
         self.groups, self.assets = {}, {}
         self.png, self.mov = png_bytes(), mov_bytes()
+        self.mp4 = mp4_bytes() if shutil.which('ffmpeg') else b''
+        self.magnific_tasks = {}
         self._stack = contextlib.ExitStack()
 
     # ---- plain handler -------------------------------------------------
@@ -89,6 +104,26 @@ class FakeProviders:
             if self.seedance_status == 'succeeded':
                 payload['content'] = {'video_url': FAKE_MEDIA + 'video.mov'}
             return 200, payload
+        if host == 'api.magnific.com' and method == 'POST' and path.startswith('/v1/ai/'):
+            with self.lock:
+                self.task_counter += 1
+                task = f'mag-sim-{self.task_counter}'
+                self.magnific_tasks[task] = {'path': path, 'body': data}
+            return 200, {'data': {'task_id': task, 'status': 'CREATED', 'generated': []}}
+        status = re.fullmatch(r'(/v1/ai/[a-z0-9-]+)/(mag-sim-\d+)', path)
+        if host == 'api.magnific.com' and method == 'GET' and status and status[2] in self.magnific_tasks:
+            created = self.magnific_tasks[status[2]]
+            # Documented get-task paths: the create path, except Turbo which is read via the standard endpoint.
+            expected = '/v1/ai/video-upscaler' if created['path'] == '/v1/ai/video-upscaler/turbo' else created['path']
+            if status[1] != expected:
+                raise AssertionError(f'Magnific task {status[2]} polled on {status[1]}, expected {expected}')
+            if created['path'].startswith('/v1/ai/video-upscaler'):
+                generated = [MAGNIFIC_CDN + status[2] + '.mp4?token=t']
+                if (created['body'] or {}).get('output_format') == 'prores_422_hq':
+                    generated = [MAGNIFIC_CDN + status[2] + '-preview.mp4?token=t', MAGNIFIC_CDN + status[2] + '.mov?token=t']
+            else:
+                generated = [MAGNIFIC_IMAGE_CDN + status[2] + '.png?token=t']
+            return 200, {'data': {'task_id': status[2], 'status': 'COMPLETED', 'generated': generated}}
         if host == ASSET_HOST and method == 'POST' and path == '/':
             action = (parse_qs(parts.query).get('Action') or [''])[0]
             return self.asset_api(action, data)
@@ -160,6 +195,14 @@ class FakeProviders:
             return self.png, 'image/png'
         if url == FAKE_MEDIA + 'video.mov':
             return self.mov, 'video/quicktime'
+        if url.startswith((MAGNIFIC_CDN, MAGNIFIC_IMAGE_CDN)):
+            path = url.split('?')[0]
+            if path.endswith('.png'):
+                return self.png, 'image/png'
+            if path.endswith('.mov'):
+                return self.mov, 'video/quicktime'
+            if path.endswith('.mp4'):
+                return self.mp4, 'video/mp4'
         raise AssertionError(f'Unexpected media fetch {url}')
 
     # ---- in-process patching (tests) ------------------------------------

@@ -1701,7 +1701,7 @@ function PricingTab({ data, reload }) {
             {data.pricing.map((p) => (
               <tr key={p.model} className="border-t border-line">
                 <td className="px-3 py-2 font-medium">{p.model}</td>
-                <td className="px-3 py-2 text-xs text-white/55">{p.unit === "per_1000_images" ? "per 1,000 images" : p.unit}</td>
+                <td className="px-3 py-2 text-xs text-white/55">{{ per_1000_images: "per 1,000 images", per_1000_frames: "per 1,000 frames" }[p.unit] ?? p.unit}</td>
                 <td className="px-3 py-2">
                   <input
                     type="number"

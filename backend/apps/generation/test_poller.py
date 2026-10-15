@@ -170,8 +170,58 @@ class PollerTests(TransactionTestCase):
         Image.new('RGB', (128, 128), 'red').save(buffer, format='PNG')
         original, calls = buffer.getvalue(), []
         deps = self.deps(get_magnific=lambda *args, **kwargs: {'status': 'succeeded', 'generatedUrl': 'https://fixture.invalid/image', 'costCents': 22},
-            fetch=lambda url: (original, 'image/png'), save_buffer=lambda *args: calls.append(args) or {'url': '/api/media/generations/master.png'})
+            fetch_magnific_image=lambda url: (original, 'image/png'), save_buffer=lambda *args: calls.append(args) or {'url': '/api/media/generations/master.png'})
         outcome = poller.advance(item, dependencies=deps)
         self.assertEqual(outcome['kind'], 'succeeded')
         self.assertEqual(calls[0][:2], (original, 'png'))
         self.assertEqual((outcome['item'].cost_cents, outcome['item'].cost_basis), (22, 'reconciled'))
+
+    def magnific_image_deps(self, fetch, saved=None):
+        return self.deps(get_magnific=lambda *args, **kwargs: {'status': 'succeeded', 'generatedUrl': 'https://ai-statics.magnific.com/x.png?token=t'},
+            fetch_magnific_image=fetch, save_buffer=lambda *args: (saved if saved is not None else []).append(args) or {'url': '/api/media/generations/m.png'})
+
+    def test_magnific_oversized_image_fails_cleanly_without_storing(self):
+        from apps.media.errors import MediaTooLargeError
+        from .serialization import public_error
+        item, saved = self.job(kind='image', model='Magnific Precision V2'), []
+        def too_large(url):
+            raise MediaTooLargeError('Provider media exceeds the configured download limit.')
+        outcome = poller.advance(item, dependencies=self.magnific_image_deps(too_large, saved))
+        self.assertEqual((outcome['kind'], outcome['item'].error), ('failed', poller.MAGNIFIC_IMAGE_TOO_LARGE))
+        self.assertEqual(public_error(outcome['item'], outcome['item'].error), poller.MAGNIFIC_IMAGE_TOO_LARGE)
+        self.assertEqual(saved, [])
+        # Too many pixels is judged from the header, before any full decode.
+        buffer = io.BytesIO()
+        Image.new('RGB', (200, 100), 'red').save(buffer, format='PNG')
+        item = self.job(kind='image', model='Magnific Precision V2')
+        with patch.object(poller, 'MAGNIFIC_IMAGE_MAX_PIXELS', 19999):
+            outcome = poller.advance(item, dependencies=self.magnific_image_deps(lambda url: (buffer.getvalue(), 'image/png'), saved))
+        self.assertEqual((outcome['kind'], outcome['item'].error), ('failed', poller.MAGNIFIC_IMAGE_TOO_LARGE))
+        self.assertEqual(saved, [])
+
+    def test_magnific_unreadable_image_retries_then_fails_instead_of_running_forever(self):
+        buffer = io.BytesIO()
+        Image.new('RGB', (64, 64), 'red').save(buffer, format='PNG')
+        truncated, saved = buffer.getvalue()[:-40], []
+        item = self.job(kind='image', model='Magnific Creative')
+        deps = self.magnific_image_deps(lambda url: (truncated, 'image/png'), saved)
+        for attempt in range(1, poller.MAGNIFIC_SAVE_ATTEMPTS):
+            self.assertEqual(poller.advance(item, dependencies=deps)['kind'], 'poll_error')
+            item.refresh_from_db()
+            self.assertEqual((item.status, item.poll_error_count), ('running', attempt))
+        outcome = poller.advance(item, dependencies=deps)
+        self.assertEqual((outcome['kind'], outcome['item'].error), ('failed', poller.MAGNIFIC_SAVE_FAILED))
+        self.assertEqual(saved, [])
+
+    def test_magnific_image_download_stops_at_its_cap_while_streaming(self):
+        import contextlib
+        from apps.media.remote import SafeMediaFetcher
+        seen = []
+        class Recording(SafeMediaFetcher):
+            @contextlib.contextmanager
+            def open_file(self, url, *, max_bytes=None):
+                seen.append(max_bytes)
+                yield io.BytesIO(b'png'), 'image/png'
+        with patch('apps.generation.services.poller.get_media_fetcher', lambda: Recording(['ai-statics.magnific.com'])):
+            self.assertEqual(poller.Dependencies().fetch_magnific_image('https://ai-statics.magnific.com/x.png'), (b'png', 'image/png'))
+        self.assertEqual(seen, [poller.MAGNIFIC_IMAGE_MAX_BYTES])
