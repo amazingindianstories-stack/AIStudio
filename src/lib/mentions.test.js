@@ -97,10 +97,18 @@ test("a prompt mixing all three tag kinds resolves each independently", () => {
 });
 
 /**
- * Drag-reorder of the composer's reference thumbnails calls this to keep
- * already-typed @imgN tags pointing at the same image (see the doc comment
- * on renumberImgMentions — @imgN is a live array index, not a stored id).
+ * Removing a composer reference calls this to keep already-typed @imgN tags
+ * after the removed slot pointing at the same image (see the doc comment on
+ * renumberImgMentions - @imgN is a live array index, not a stored id).
  */
+
+test("renumberImgMentions shifts later tags down and leaves the removed slot's tag literal", () => {
+  // Reference 2 of 3 removed: mapping [0, undefined, 1].
+  assert.equal(
+    renumberImgMentions("@img1 @img2 @img3 @img30", [0, undefined, 1]),
+    "@img1 @img2 @img2 @img30"
+  );
+});
 
 test("renumberImgMentions swaps a pair of tags without clobbering", () => {
   // mapping[0]=1, mapping[1]=0: images at index 0 and 1 traded places.
