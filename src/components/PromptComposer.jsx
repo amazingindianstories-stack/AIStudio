@@ -188,13 +188,16 @@ export function PromptComposer() {
       const controls = Array.from(
         toolbar.querySelectorAll(".control-chip")
       );
+      // Rects include the composer's layout-animation transform, and the last
+      // reading can land mid-animation; undo that scale so it is not too narrow.
+      const scale = toolbar.getBoundingClientRect().width / (toolbar.offsetWidth || 1) || 1;
       const controlsWidth = controls.reduce((width, control) => {
         const style = window.getComputedStyle(control);
         const children = Array.from(control.children).filter(
           (child) => window.getComputedStyle(child).display !== "none"
         ) ;
         const contentWidth = children.reduce((sum, child) => {
-          const renderedWidth = child.getBoundingClientRect().width;
+          const renderedWidth = child.getBoundingClientRect().width / scale;
           const cappedLabel = child.matches(
             ".composer-model-label, .composer-project-label, .composer-folder-label"
           );
@@ -203,8 +206,10 @@ export function PromptComposer() {
         const gap = Number.parseFloat(style.columnGap) || 0;
         const padding =
           (Number.parseFloat(style.paddingLeft) || 0) +
-          (Number.parseFloat(style.paddingRight) || 0);
-        return width + contentWidth + gap * Math.max(0, children.length - 1) + padding;
+          (Number.parseFloat(style.paddingRight) || 0) +
+          (Number.parseFloat(style.borderLeftWidth) || 0) +
+          (Number.parseFloat(style.borderRightWidth) || 0);
+        return width + Math.ceil(contentWidth + gap * Math.max(0, children.length - 1) + padding);
       }, 0);
       const toolbarWidth = Math.ceil(
         controlsWidth + Math.max(0, controls.length - 1) * 6
