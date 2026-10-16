@@ -11,6 +11,7 @@ in-process tests and the shared local fake-provider server.
 """
 import base64
 import contextlib
+import hashlib
 import io
 import json
 import re
@@ -27,6 +28,8 @@ FAKE_MEDIA = 'https://fake-media.invalid/'
 MAGNIFIC_CDN = 'https://cdn-magnific.freepik.com/'
 MAGNIFIC_IMAGE_CDN = 'https://ai-statics.magnific.com/'
 ASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
+PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
+PRIVACY_MESSAGE = 'The request failed because the input image may contain real person.'
 
 
 def png_bytes(size=(64, 48)):
@@ -69,6 +72,9 @@ class FakeProviders:
         self.gemini_payloads = []       # (model code, body) for each generateContent call
         self.asset_capacity = asset_capacity          # None = unlimited; int = BytePlus shared pool size
         self.asset_activation_polls = asset_activation_polls
+        self.reject_image_sha256 = set()    # inline (data URL) images with these SHA-256s are refused as a real person
+        self.reject_mode = 'create'         # 'create': 400 at task creation; 'async': accept the task, fail it when polled
+        self.rejected_tasks = set()
         self.groups, self.assets = {}, {}
         self.png, self.mov = png_bytes(), mov_bytes()
         self.mp4 = mp4_bytes() if shutil.which('ffmpeg') else b''
@@ -97,15 +103,23 @@ class FakeProviders:
                        and self.assets.get(part['image_url']['url'][len('asset://'):], {}).get('Status') != 'Active']
             if missing:     # real BytePlus rejects unknown/inactive assets before accepting the task
                 return 400, {'error': {'code': 'InvalidParameter', 'message': f'asset not found or not active: {missing[0]}'}}
+            refused = self.refused_inline(data)
+            if refused and self.reject_mode != 'async':
+                return 400, {'error': {'code': PRIVACY_CODE, 'message': PRIVACY_MESSAGE}}
             with self.lock:
                 self.task_counter += 1
                 self.seedance_payloads.append(data)
+                if refused:
+                    self.rejected_tasks.add(f'cgt-sim-{self.task_counter}')
                 return 200, {'id': f'cgt-sim-{self.task_counter}'}
         task = re.search(r'/contents/generations/tasks/(cgt-sim-\d+)$', path)
         if host.endswith('bytepluses.com') and task and method == 'GET':
-            payload = {'id': task[1], 'status': self.seedance_status, 'created_at': 1, 'updated_at': 2,
+            status = 'failed' if task[1] in self.rejected_tasks else self.seedance_status
+            payload = {'id': task[1], 'status': status, 'created_at': 1, 'updated_at': 2,
                        'usage': {'completion_tokens': 100000, 'total_tokens': 100000}}
-            if self.seedance_status == 'succeeded':
+            if task[1] in self.rejected_tasks:
+                payload['error'] = {'code': PRIVACY_CODE, 'message': PRIVACY_MESSAGE}
+            elif self.seedance_status == 'succeeded':
                 payload['content'] = {'video_url': FAKE_MEDIA + 'video.mov'}
             return 200, payload
         if host == 'api.magnific.com' and method == 'POST' and path.startswith('/v1/ai/'):
@@ -133,6 +147,25 @@ class FakeProviders:
             return self.asset_api(action, data)
         raise AssertionError(f'Unexpected provider request {method} {host}{path}')
 
+    def refused_inline(self, data):
+        """True when an inline (data URL) image of this Seedance request is one the fake has been told to refuse as a face."""
+        for part in data.get('content') or []:
+            url = str((part.get('image_url') or {}).get('url', '')) if part.get('type') == 'image_url' else ''
+            if url.startswith('data:') and ',' in url:
+                try:
+                    if hashlib.sha256(base64.b64decode(url.split(',', 1)[1])).hexdigest() in self.reject_image_sha256:
+                        return True
+                except ValueError:
+                    continue
+        return False
+
+    @staticmethod
+    def page(rows, body):
+        """One page of a BytePlus listing: MaxResults rows from the NextToken offset."""
+        start, size = int(body.get('NextToken') or 0), int(body.get('MaxResults') or 50)
+        more = start + size < len(rows)
+        return {'Items': rows[start:start + size], 'NextToken': str(start + size) if more else ''}
+
     def asset_api(self, action, body):
         meta = {'RequestId': 'req-' + uuid.uuid4().hex[:12], 'Action': action, 'Version': '2024-01-01'}
 
@@ -151,8 +184,19 @@ class FakeProviders:
                 return ok({'Id': gid})
             if action == 'GetAssetGroup':
                 return ok(self.groups[identifier]) if identifier in self.groups else error(404, 'NotFound.group_id', 'group not found')
+            if action == 'DeleteAssetGroup':
+                if identifier not in self.groups:
+                    return error(404, 'NotFound.group_id', 'group not found')
+                if any(a['GroupId'] == identifier and a['Status'] != 'Deleted' for a in self.assets.values()):
+                    return error(409, 'Conflict.group_not_empty', 'delete the assets in the group first')
+                del self.groups[identifier]
+                return ok({})
             if action == 'ListAssetGroups':
-                return ok({'Items': list(self.groups.values()), 'NextToken': ''})
+                flt = body.get('Filter') or {}
+                rows = [g for g in self.groups.values() if flt.get('Name', '') in g['Name']]
+                if flt.get('GroupIds'):
+                    rows = [g for g in rows if g['Id'] in flt['GroupIds']]
+                return ok(self.page(rows, body))
             if action == 'CreateAsset':
                 if body.get('GroupId') not in self.groups:
                     return error(404, 'NotFound.group_id', 'group not found')
@@ -179,7 +223,7 @@ class FakeProviders:
                     rows = [a for a in rows if a['GroupId'] in flt['GroupIds']]
                 if flt.get('Statuses'):
                     rows = [a for a in rows if a['Status'] in flt['Statuses']]
-                return ok({'Items': [{k: v for k, v in a.items() if not k.startswith('_')} for a in rows], 'NextToken': ''})
+                return ok(self.page([{k: v for k, v in a.items() if not k.startswith('_')} for a in rows], body))
             if action == 'DeleteAsset':
                 asset = self.assets.get(identifier)
                 if not asset or asset['Status'] == 'Deleted':
