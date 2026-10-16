@@ -3,17 +3,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
-  Play,
   AlertCircle,
-  ImageIcon,
-  Layers,
-  Trash2,
-  ShieldAlert,
-  Wand2,
-  Pencil,
-  Check,
-  Star,
+  BadgeCheck,
+  CheckSquare,
   Download,
+  FolderOpen,
+  Layers,
+  Maximize2,
+  MoreHorizontal,
+  Pencil,
+  RefreshCw,
+  ShieldAlert,
+  Square,
+  Star,
+  Trash2,
+  Wand2,
+  Check,
 } from "lucide-react";
 
 import { UNSORTED } from "@/lib/feed-scope";
@@ -21,8 +26,10 @@ import { useStore } from "@/lib/store";
 import { useDirectMediaUrl } from "@/lib/media-resolver";
 import { aspectToPadding, cn, generationDownloadUrl } from "@/lib/utils";
 import { useNearViewport } from "@/lib/use-near-viewport";
-import { CardActionPanel } from "./CardActionPanel";
+import { validateDraftForFinalization } from "@/lib/seedance-finalization";
+import { CardContextMenu } from "./CardContextMenu";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { CreatorAvatar, GenerationDetails } from "./GenerationDetails";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { ProgressiveImage } from "./ProgressiveImage";
 import { GenerationStatus } from "./GenerationStatus";
@@ -32,8 +39,10 @@ import { setAssetDragData } from "@/lib/asset-drag-contract";
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
 // full-resolution original.
 const CARD_THUMB_WIDTH = 480;
-import { formatCost } from "@/lib/format-cost";
-import { costBasisForGeneration } from "@/lib/cost-basis";
+
+// Touch has no right click: holding a card this long opens its menu instead.
+const LONG_PRESS_MS = 500;
+const LONG_PRESS_SLOP_PX = 10;
 
 /** Fixed milestone sequence worker.py's _report_progress calls send, in
  *  order — see depth-worker/worker.py's _process_job/_run_depth. Matched by
@@ -73,6 +82,13 @@ function ElapsedTime({ since }) {
   );
 }
 
+/** A library card is the media and very little else: the creator's avatar,
+ *  "Draft" on drafts, and - on hover or keyboard focus - a select checkbox and
+ *  a "..." button. Everything else (details and actions) lives in the card's
+ *  context menu, opened by right click, the "..." button, the keyboard
+ *  (ContextMenu key or Shift+F10) or a long press on touch. The face scales
+ *  with the card's rendered width through the container queries on
+ *  .media-card-body in globals.css. */
 export function MediaCard({
   item,
   selectable = false,
@@ -83,8 +99,14 @@ export function MediaCard({
   const setActiveId = useStore((s) => s.setActiveId);
   const removeItem = useStore((s) => s.removeItem);
   const retryTextToVideo = useStore((s) => s.retryTextToVideo);
+  const regenerate = useStore((s) => s.regenerate);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
+  const finalizeDraft = useStore((s) => s.finalizeDraft);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
+  const setActiveProject = useStore((s) => s.setActiveProject);
+  const setActiveFolder = useStore((s) => s.setActiveFolder);
+  const libraryTree = useStore((s) => s.libraryTree);
+  const generating = useStore((s) => s.generating);
   const selected = useStore((s) => s.selectedIds.includes(item.id));
   const focusedAssetId = useStore((s) => s.focusedAssetId);
   const isFocused = focusedAssetId === item.id;
@@ -92,7 +114,6 @@ export function MediaCard({
     s.focusedAssetId ? s.focusedAssetId === item.id : s.items[0]?.id === item.id
   );
   const setFocusedAssetId = useStore((s) => s.setFocusedAssetId);
-  const singleSelect = useStore((s) => s.singleSelect);
   const toggleSelect = useStore((s) => s.toggleSelect);
   const selectRange = useStore((s) => s.selectRange);
   const isDraggingRef = useRef(false);
@@ -102,49 +123,82 @@ export function MediaCard({
   );
   const confirmation = useConfirmedAction();
   const [unplayableUrl, setUnplayableUrl] = useState(null);
-  const [panelOpen, setPanelOpen] = useState(false);
-  const panelTimer = useRef(null);
-  const openPanel = useCallback(() => {
-    clearTimeout(panelTimer.current);
-    if (!isDraggingRef.current) setPanelOpen(true);
-  }, []);
-  const closePanel = useCallback(() => {
-    clearTimeout(panelTimer.current);
-    setPanelOpen(false);
-  }, []);
-  // Short grace period so the pointer can cross the gap into the panel.
-  const schedulePanelClose = useCallback(() => {
-    clearTimeout(panelTimer.current);
-    panelTimer.current = setTimeout(() => setPanelOpen(false), 160);
-  }, []);
-  useEffect(() => () => clearTimeout(panelTimer.current), []);
 
   const pending = item.status === "running" || item.status === "queued";
   const failed = item.status === "failed";
   const done = item.status === "succeeded";
-  // Drafts are cheap low-resolution previews; make them unmistakable in the grid.
   const isDraft = item.kind === "video" && item.draftMode === true;
   // Media loads straight from storage once resolved; /api/media is the fallback.
   const imageMedia = useDirectMediaUrl(done && item.kind === "image" ? item.url : null, CARD_THUMB_WIDTH);
   const posterMedia = useDirectMediaUrl(done && item.poster ? item.poster : null, CARD_THUMB_WIDTH);
   const videoMedia = useDirectMediaUrl(done && (item.kind === "video" || item.kind === "depth") ? item.url : null);
-  const costBasis = costBasisForGeneration(item);
   const depthStepIndex =
     item.kind === "depth" && item.progressMessage
       ? depthStepList(item.trackCharacters).indexOf(item.progressMessage) + 1 || null
       : null;
 
-  const creatorInitial = (creator?.name || creator?.email || "?")
-    .charAt(0)
-    .toUpperCase();
-
   // Only cards near the viewport mount a real <video>. An infinite feed can
   // hold hundreds of them, and each one that stays mounted holds a decoder and
   // its buffered metadata for the rest of the session — see use-near-viewport.
   const cardRef = useRef(null);
+  const moreRef = useRef(null);
   const nearViewport = useNearViewport(cardRef);
 
+  // ── context menu ──────────────────────────────────────────────────────
+  // `menu` holds the anchor rect (a zero-size rect at the pointer, or the
+  // "..." button's rect) captured when it opened.
+  const [menu, setMenu] = useState(null);
+  const longPressRef = useRef(null);
+  const suppressClickRef = useRef(false);
+  const openedAtRef = useRef(0);
+
+  const openMenu = useCallback((anchor, { gap = 0, focusFirst = false } = {}) => {
+    openedAtRef.current = Date.now();
+    setMenu({ anchor, gap, focusFirst });
+  }, []);
+  const openAtPoint = useCallback((x, y, options) => {
+    openMenu({ left: x, right: x, top: y, bottom: y }, options);
+  }, [openMenu]);
+  const openFromButton = useCallback((focusFirst) => {
+    const rect = (moreRef.current || cardRef.current)?.getBoundingClientRect();
+    if (!rect) return;
+    openMenu({ left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }, { gap: 4, focusFirst });
+  }, [openMenu]);
+  const closeMenu = useCallback(({ restoreFocus = false } = {}) => {
+    setMenu(null);
+    if (restoreFocus) cardRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const cancelLongPress = () => {
+    clearTimeout(longPressRef.current?.timer);
+    longPressRef.current = null;
+  };
+  useEffect(() => () => clearTimeout(longPressRef.current?.timer), []);
+
+  const handlePointerDown = (e) => {
+    suppressClickRef.current = false;
+    if (e.pointerType !== "touch" || !e.isPrimary) return;
+    cancelLongPress();
+    const { clientX: x, clientY: y } = e;
+    longPressRef.current = {
+      x,
+      y,
+      timer: setTimeout(() => {
+        longPressRef.current = null;
+        // The finger lifting next must not also open the viewer.
+        suppressClickRef.current = true;
+        openAtPoint(x, y);
+      }, LONG_PRESS_MS),
+    };
+  };
+  const handlePointerMove = (e) => {
+    const press = longPressRef.current;
+    if (press && Math.hypot(e.clientX - press.x, e.clientY - press.y) > LONG_PRESS_SLOP_PX) cancelLongPress();
+  };
+
   const handleDragStart = (e) => {
+    cancelLongPress();
+    setMenu(null);
     isDraggingRef.current = true;
     setIsCardDragging(true);
 
@@ -169,25 +223,22 @@ export function MediaCard({
 
   const handleClick = (e) => {
     if (isDraggingRef.current) return;
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false;
+      return;
+    }
 
-    if (selectable) {
-      if (e.metaKey || e.ctrlKey) {
-        toggleSelect(item.id);
-      } else if (e.shiftKey) {
-        const itemIds = useStore.getState().items.map((i) => i.id);
-        selectRange(item.id, itemIds);
-      } else if (done) {
-        // A normal card click opens the viewer. Selection stays explicit via
-        // the checkbox, keyboard Space or modifier clicks.
-        setActiveId(item.id);
-      } else {
-        singleSelect(item.id);
-        openPanel();
-      }
+    if (selectable && (e.metaKey || e.ctrlKey)) {
+      toggleSelect(item.id);
+    } else if (selectable && e.shiftKey) {
+      const itemIds = useStore.getState().items.map((i) => i.id);
+      selectRange(item.id, itemIds);
     } else if (done) {
+      // A normal click on a finished card opens the viewer.
       setActiveId(item.id);
     } else {
-      openPanel();
+      // Queued, rendering and failed cards have no viewer; their actions do.
+      openAtPoint(e.clientX, e.clientY);
     }
   };
 
@@ -199,7 +250,11 @@ export function MediaCard({
 
   const handleKeyDown = (e) => {
     if (e.target !== e.currentTarget) return;
-    if (e.key === "Enter") {
+    if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      e.preventDefault();
+      e.stopPropagation();
+      openFromButton(true);
+    } else if (e.key === "Enter") {
       if (done) {
         e.preventDefault();
         e.stopPropagation();
@@ -212,64 +267,141 @@ export function MediaCard({
     }
   };
 
-  const handleContextMenu = () => {
-    if (selectable && !useStore.getState().selectedIds.includes(item.id)) {
-      singleSelect(item.id);
-    }
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    cancelLongPress();
+    // A keyboard open or a long press that already opened the menu can be
+    // followed by the browser's own contextmenu event; that one is a repeat.
+    if (menu && Date.now() - openedAtRef.current < 700) return;
+    openAtPoint(e.clientX, e.clientY);
   };
 
-  const cardActions = [
-    // Depth rows have no image/video-shaped prompt/reference fields to restore.
-    item.kind !== "depth" && {
-      key: "edit",
-      label: "Edit & retry",
-      hint: "Load prompt, references and settings into the composer",
-      icon: Pencil,
-      onSelect: () => confirmation.ask("editRetry", () => cloneToComposer(item.id)),
-    },
-    failed && item.moderationBlocked && item.kind === "video" && {
-      key: "retry-text",
-      label: "Retry without references",
-      hint: "Starts a new billable generation with all references removed",
-      icon: Wand2,
-      onSelect: () => confirmation.ask("retryTextToVideo", () => retryTextToVideo(item.id)),
-    },
-    done && {
-      key: "favorite",
-      label: item.isFavorite ? "Unfavourite" : "Favourite",
-      icon: Star,
-      active: item.isFavorite,
-      onSelect: () => confirmation.ask(item.isFavorite ? "removeFavorite" : "addFavorite", async () => {
-        await toggleFavorite(item.id);
-        return true;
-      }),
-    },
-    done && item.url && {
-      key: "download",
-      label: "Download",
-      hint: item.filename ? `Download ${item.filename}` : "Download",
-      icon: Download,
-      onSelect: () => confirmation.ask("downloadOriginal", () => {
-        const link = document.createElement("a");
-        link.href = generationDownloadUrl(item.id);
-        link.download = item.filename || "";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        return true;
-      }),
-    },
-    {
-      key: "delete",
-      label: "Delete",
-      icon: Trash2,
-      destructive: true,
-      // Accepted provider work is billed; it can be deleted once it finishes.
-      disabled: pending,
-      hint: pending ? "Still rendering — delete after it finishes" : "Delete",
-      onSelect: () => confirmation.ask("deleteGeneration", () => removeItem(item.id)),
-    },
-  ].filter(Boolean);
+  // ── menu contents ─────────────────────────────────────────────────────
+  const ask = (kind, run) => () => confirmation.ask(kind, run);
+  const folder = resolveGenerationFolder(item, libraryTree || {});
+  const finalizeBlocked = isDraft && item.model === "Seedance 2.5" && done
+    ? validateDraftForFinalization(item)
+    : undefined;
+  const downloadExtension = item.filename?.includes(".")
+    ? item.filename.split(".").pop().toUpperCase()
+    : null;
+  const busyReason = "Another generation is starting - try again in a moment";
+  const editable = item.kind !== "depth";
+
+  const menuGroups = [
+    [
+      editable && (done || failed) && {
+        key: "retry",
+        label: "Retry",
+        hint: "Generate again with the same prompt, settings and references",
+        icon: RefreshCw,
+        disabled: generating,
+        reason: busyReason,
+        onSelect: ask("regenerate", () => regenerate(item.id)),
+      },
+      failed && item.moderationBlocked && item.kind === "video" && {
+        key: "retry-text",
+        label: "Retry without references",
+        hint: "Starts a new billable generation with all references removed",
+        icon: Wand2,
+        disabled: generating,
+        reason: busyReason,
+        onSelect: ask("retryTextToVideo", () => retryTextToVideo(item.id)),
+      },
+      // Depth rows have no image/video-shaped prompt/reference fields to restore.
+      editable && {
+        key: "edit",
+        label: "Edit & retry",
+        hint: "Load prompt, references and settings into the composer",
+        icon: Pencil,
+        onSelect: ask("editRetry", () => cloneToComposer(item.id)),
+      },
+      finalizeBlocked !== undefined && {
+        key: "finalize",
+        label: "Generate 1080p final",
+        hint: "Render this draft again as the full 1080p final",
+        icon: BadgeCheck,
+        disabled: finalizeBlocked !== null,
+        reason: finalizeBlocked,
+        onSelect: ask("finalizeDraft", () => finalizeDraft(item.id)),
+      },
+    ],
+    [
+      done && {
+        key: "open",
+        label: "Open details",
+        hint: "Open the viewer",
+        icon: Maximize2,
+        onSelect: () => setActiveId(item.id),
+      },
+      done && item.url && {
+        key: "download",
+        label: "Download",
+        hint: item.filename ? `Download ${item.filename}` : "Download the original",
+        detail: downloadExtension,
+        icon: Download,
+        onSelect: ask("downloadOriginal", () => {
+          const link = document.createElement("a");
+          link.href = generationDownloadUrl(item.id);
+          link.download = item.filename || "";
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          return true;
+        }),
+      },
+      done && {
+        key: "favorite",
+        label: item.isFavorite ? "Unfavourite" : "Favourite",
+        icon: Star,
+        active: item.isFavorite,
+        onSelect: ask(item.isFavorite ? "removeFavorite" : "addFavorite", async () => {
+          await toggleFavorite(item.id);
+          return true;
+        }),
+      },
+      {
+        key: "folder",
+        label: "Open folder",
+        hint: folder.label,
+        detail: folder.navigable ? folder.label.split(" / ").pop() : null,
+        icon: FolderOpen,
+        disabled: !folder.navigable,
+        reason: folder.label,
+        onSelect: () => {
+          setActiveProject(item.projectId || null);
+          setActiveFolder(item.folderId || UNSORTED);
+        },
+      },
+    ],
+    [
+      selectable && {
+        key: "select",
+        label: selected ? "Deselect" : "Select",
+        icon: selected ? CheckSquare : Square,
+        onSelect: () => toggleSelect(item.id),
+      },
+    ],
+    [
+      {
+        key: "delete",
+        label: "Delete",
+        icon: Trash2,
+        destructive: true,
+        // Accepted provider work is billed; it can be deleted once it finishes.
+        disabled: pending,
+        reason: "Still rendering - delete after it finishes",
+        onSelect: ask("deleteGeneration", () => removeItem(item.id)),
+      },
+    ],
+  ];
+
+  const menuOpen = menu !== null;
+  // Hover/keyboard-focus chrome; the checkbox also stays while selected.
+  const revealOnHover =
+    "opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-visible:opacity-100 group-has-[:focus-visible]:opacity-100";
+  const statusInset = { insetInline: "calc(var(--face-inset) * 2 + var(--face-avatar))" };
 
   return (
     <>
@@ -280,18 +412,22 @@ export function MediaCard({
       tabIndex={selectable ? (isRovingTabTarget ? 0 : -1) : undefined}
       role={selectable ? "button" : undefined}
       aria-selected={selectable ? selected : undefined}
+      aria-haspopup="menu"
       data-selected={selected ? "true" : undefined}
+      data-menu-open={menuOpen ? "true" : undefined}
       draggable={done && Boolean(item.url)}
-      onDragStart={(e) => { closePanel(); handleDragStart(e); }}
+      onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onMouseEnter={openPanel}
-      onMouseLeave={schedulePanelClose}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={cancelLongPress}
+      onPointerCancel={cancelLongPress}
+      onPointerLeave={cancelLongPress}
       onFocus={(e) => {
-        if (e.target === e.currentTarget && e.currentTarget.matches?.(":focus-visible")) openPanel();
-        if (selectable && focusedAssetId !== item.id) {
+        if (selectable && e.target === e.currentTarget && focusedAssetId !== item.id) {
           setFocusedAssetId(item.id);
         }
       }}
@@ -302,39 +438,18 @@ export function MediaCard({
       transition={{ duration: reducedMotion ? 0 : 0.18, ease: [0.22, 1, 0.36, 1] }}
       style={{ contentVisibility: "auto", containIntrinsicSize: "auto 240px" }}
       className={cn(
-        "group relative cursor-pointer overflow-hidden rounded-xl bg-ink-750 select-none transition duration-150",
+        "media-card group relative cursor-pointer overflow-hidden rounded-xl bg-ink-750 select-none outline-none transition duration-150 [-webkit-touch-callout:none]",
         "hover:-translate-y-0.5 hover:shadow-pop motion-reduce:hover:translate-y-0",
         selected
           ? "ring-2 ring-brand bg-brand/10 shadow-sm"
-          : isDraft
-            ? "outline-dashed outline-2 -outline-offset-2 outline-amber-300/70 hover:outline-amber-200"
+          : menuOpen
+            ? "ring-2 ring-white/45"
             : "ring-1 ring-line hover:ring-lineStrong",
         isFocused && "outline outline-2 outline-white ring-2 ring-white/40 ring-offset-2 ring-offset-ink-900 z-20",
         isCardDragging && "opacity-40 scale-[0.98]"
       )}
     >
-      {/* selection checkbox */}
-      {selectable && (
-        <button
-          type="button"
-          tabIndex={-1}
-          onClick={(e) => {
-            e.stopPropagation();
-            toggleSelect(item.id);
-          }}
-          className={cn(
-            "absolute left-2 top-2 z-30 grid h-6 w-6 place-items-center rounded-md border backdrop-blur-sm transition",
-            selected
-              ? "border-brand bg-brand text-ink-900 shadow-sm"
-              : "border-white/50 bg-black/40 text-transparent opacity-0 hover:border-white group-hover:opacity-100"
-          )}
-          aria-label={selected ? "Deselect" : "Select"}
-        >
-          <Check className="h-4 w-4" strokeWidth={3} />
-        </button>
-      )}
-
-      <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
+      <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="media-card-body relative w-full">
         {/* media */}
         {done && item.kind === "image" && item.url && (
           <ProgressiveImage
@@ -394,14 +509,6 @@ export function MediaCard({
               // skips layout and paint, not resource loading.
               <div className="absolute inset-0 bg-ink-800" />
             )}
-            <div className="pointer-events-none absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/45 backdrop-blur-sm">
-              <Play className="h-3.5 w-3.5 translate-x-px fill-white text-white" />
-            </div>
-            {isDraft && (
-              <span data-draft-badge className="pointer-events-none absolute left-10 top-2.5 rounded bg-amber-300/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-900">
-                Draft
-              </span>
-            )}
           </>
         )}
         {done && item.kind === "depth" && item.url && (
@@ -409,8 +516,7 @@ export function MediaCard({
           // file (see worker.py), just never a poster (nothing renders one
           // for depth, same as real image/video generations today; only
           // MOCK_GENERATION sets poster). <video preload="metadata"> shows
-          // its own first frame with no poster needed. Layers badge instead
-          // of Play to match the Depth Map mode's icon in config.js's MODES.
+          // its own first frame with no poster needed.
           <>
             {/* Gated on proximity for the same reason as the video kind, and
                 it matters more here: with no poster there is nothing else
@@ -438,9 +544,6 @@ export function MediaCard({
                 <Layers className="h-6 w-6 text-white/20" />
               </div>
             )}
-            <div className="pointer-events-none absolute left-2 top-2 grid h-7 w-7 place-items-center rounded-full bg-black/45 backdrop-blur-sm">
-              <Layers className="h-3.5 w-3.5 text-white" />
-            </div>
           </>
         )}
 
@@ -451,19 +554,20 @@ export function MediaCard({
             {/* A job held by the spend gate is healthy and self-starting, so it
                 keeps the normal pending treatment — only the caption changes.
                 Showing it as an error would be the "not a good look" this whole
-                gate exists to avoid. */}
+                gate exists to avoid. Captions sit between the avatar and the
+                "..." button on the bottom row. */}
             {item.queueNote && (
-              <span className="absolute inset-x-3 bottom-2 z-10 text-center text-[10px] leading-snug text-white/40">
+              <span style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-white/40">
                 {item.queueNote}
               </span>
             )}
             {item.kind === "video" && item.providerStatus === "PORTRAIT_WAITING" && item.progressMessage && !item.pollWarning && (
-              <span data-portrait-waiting className="absolute inset-x-3 bottom-2 z-10 text-center text-[10px] leading-snug text-sky-200/80">
+              <span data-portrait-waiting style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-sky-200/80">
                 {item.progressMessage}
               </span>
             )}
             {item.kind === "video" && item.pollWarning && (
-              <span className="absolute inset-x-3 bottom-2 z-10 text-center text-[10px] leading-snug text-amber-300/80">
+              <span style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-amber-300/80">
                 {item.pollWarning}
               </span>
             )}
@@ -474,7 +578,7 @@ export function MediaCard({
                 2.5s, so no new data plumbing is needed here, only the
                 render. Other kinds never populate these fields. */}
             {item.kind === "depth" && item.progressPercent != null && (
-              <div className="absolute inset-x-3 bottom-2 z-10 mx-auto w-full max-w-[140px]">
+              <div style={statusInset} className="absolute bottom-2 z-10 mx-auto max-w-[140px]">
                 <div className="h-1 w-full overflow-hidden rounded-full bg-white/10">
                   <div
                     className="h-full rounded-full bg-brand transition-[width] duration-500"
@@ -482,12 +586,12 @@ export function MediaCard({
                   />
                 </div>
                 {item.progressMessage && (
-                  <span className="mt-1 block truncate text-[10px] leading-snug text-white/40">
+                  <span className="mt-1 block truncate text-center text-[10px] leading-snug text-white/40">
                     {item.progressMessage}
                   </span>
                 )}
                 {item.progressMessage === "Running depth estimation" && (
-                  <span className="mt-1 block text-[9px] leading-snug text-white/35">
+                  <span className="mt-1 block text-center text-[9px] leading-snug text-white/35">
                     Depth estimation is normally the longest stage.
                   </span>
                 )}
@@ -511,11 +615,8 @@ export function MediaCard({
         {/* failed */}
         {failed && (
           <div
-            onClick={(e) => {
-              e.stopPropagation();
-              openPanel();
-            }}
-            className="absolute inset-0 flex cursor-default flex-col items-center justify-center gap-1.5 bg-red-950/30 p-3 text-center"
+            style={{ paddingBottom: "calc(var(--face-inset) * 2 + var(--face-avatar))" }}
+            className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-red-950/30 px-3 pt-3 text-center"
           >
             {item.moderationBlocked ? (
               <ShieldAlert className="h-6 w-6 text-amber-400/90" />
@@ -528,93 +629,85 @@ export function MediaCard({
           </div>
         )}
 
-        {/* favourite indicator; toggling lives in the hover action panel */}
-        {item.isFavorite && (
-          <span
-            className="pointer-events-none absolute right-2 top-2 z-30 grid h-7 w-7 place-items-center rounded-md bg-black/55 text-amber-300 backdrop-blur-sm"
-            aria-label="Favourite"
-            title="Favourite"
-          >
-            <Star className="h-3.5 w-3.5 fill-current" />
-          </span>
-        )}
-
-        {/* creator attribution — small circle; hover for who/cost/when */}
-        {creator && (
-          <div className="group/u pointer-events-none absolute inset-x-2 bottom-2 z-30">
-            <span
-              className="pointer-events-auto relative grid h-6 w-6 cursor-default place-items-center overflow-hidden rounded-full text-[11px] font-semibold text-ink-900 ring-2 ring-black/40"
-              style={{ background: creator.color || "#34d399" }}
-            >
-              {creator.avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={creator.avatarUrl}
-                  alt=""
-                  className="absolute inset-0 h-full w-full object-cover"
-                />
-              ) : (
-                creatorInitial
-              )}
+        {/* card face */}
+        <div className="media-card-face pointer-events-none absolute inset-0 z-30">
+          {isDraft && (
+            <span data-draft-label className="media-card-draft absolute right-0 top-0 flex items-start justify-end font-semibold leading-none tracking-wide text-white">
+              Draft
             </span>
-            <div className="invisible absolute bottom-8 left-0 right-0 translate-y-1 rounded-lg border border-line bg-ink-650/95 px-2.5 py-2 text-[11px] text-white/90 opacity-0 shadow-pop backdrop-blur-md transition duration-150 group-hover/u:visible group-hover/u:translate-y-0 group-hover/u:opacity-100">
-              <p className="truncate font-medium">{creator.name || creator.email}</p>
-              <p className="truncate text-white/45">{creator.email}</p>
-              <p className="mt-1 flex min-w-0 items-center gap-1.5 text-white/55">
-                <span
-                  className="shrink-0"
-                  title={
-                    costBasis === "reconciled"
-                      ? "Reconciled from provider-reported usage"
-                      : "Estimated from the configured pricing table"
-                  }
-                >
-                  {costBasis === "estimated" ? "≈" : ""}{formatCost(item.costCents ?? 0)}
-                </span>
-                <span aria-hidden className="text-white/25">
-                  ·
-                </span>
-                <span className="min-w-0 truncate">
-                  {new Date(item.createdAt).toLocaleString(undefined, {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })}
-                </span>
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* kind chip */}
-        {!failed && <div className="pointer-events-none absolute right-2 top-10 z-10 flex items-center gap-1 rounded-md bg-black/45 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-white/80 backdrop-blur-sm opacity-0 transition-opacity group-hover:opacity-100">
-          {item.kind === "image" ? (
-            <ImageIcon className="h-3 w-3" />
-          ) : item.kind === "depth" ? (
-            <Layers className="h-3 w-3" />
-          ) : (
-            <Play className="h-3 w-3" />
           )}
-          {item.kind}
-        </div>}
 
-        <div className="absolute left-2 bottom-2 right-2 z-20 rounded bg-black/65 p-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-          <GenerationFolderCue item={item} /><GenerationTimestamp timestamp={item.createdAt} />
+          {selectable && (
+            <button
+              type="button"
+              role="checkbox"
+              aria-checked={selected}
+              aria-label="Select"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleSelect(item.id);
+              }}
+              className={cn(
+                "media-card-control pointer-events-auto absolute left-[var(--face-inset)] top-[var(--face-inset)] grid place-items-center rounded-md border backdrop-blur-sm",
+                selected
+                  ? "border-brand bg-brand text-ink-900 opacity-100 shadow-sm"
+                  : cn("border-white/60 bg-black/35 text-transparent hover:border-white hover:bg-black/50", revealOnHover)
+              )}
+            >
+              <Check className="media-card-icon" strokeWidth={3} />
+            </button>
+          )}
+
+          {creator && (
+            <CreatorAvatar
+              creator={creator}
+              className="media-card-avatar absolute bottom-[var(--face-inset)] left-[var(--face-inset)] ring-2 ring-black/35"
+            />
+          )}
+
+          <button
+            ref={moreRef}
+            type="button"
+            aria-label="More actions"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            tabIndex={selectable ? (isRovingTabTarget ? 0 : -1) : 0}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (menuOpen) closeMenu({ restoreFocus: false });
+              else openFromButton(e.detail === 0);
+            }}
+            onKeyDown={(e) => {
+              // The card and grid treat Space/Enter/arrows as selection and
+              // navigation; on this button they belong to the button.
+              e.stopPropagation();
+              if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                e.preventDefault();
+                openFromButton(true);
+              }
+            }}
+            className={cn(
+              "media-card-more pointer-events-auto absolute bottom-[var(--face-inset)] right-[var(--face-inset)] grid place-items-center rounded-full bg-black/55 text-white/90 shadow-sm backdrop-blur-sm hover:bg-black/75 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 [@media(hover:none)]:opacity-100",
+              menuOpen ? "bg-black/75 opacity-100" : revealOnHover
+            )}
+          >
+            <MoreHorizontal className="media-card-icon" />
+          </button>
         </div>
-        {/* hover prompt + delete */}
-        {!failed && <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 translate-y-2 bg-gradient-to-t from-black/95 via-black/60 to-transparent p-2.5 pt-10 opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
-          <p className="line-clamp-2 pl-7 pr-9 text-[11px] leading-snug text-white/90">
-            {item.prompt}
-          </p>
-        </div>}
       </div>
     </motion.div>
-      {panelOpen && (
-        <CardActionPanel
-          anchor={cardRef.current}
-          actions={cardActions}
-          onPointerEnter={openPanel}
-          onPointerLeave={schedulePanelClose}
-          onClose={closePanel}
+      {menu && (
+        <CardContextMenu
+          anchor={menu.anchor}
+          gap={menu.gap}
+          focusFirst={menu.focusFirst}
+          toggle={moreRef}
+          label="Generation actions"
+          header={<GenerationDetails item={item} creator={creator} />}
+          groups={menuGroups}
+          onClose={closeMenu}
         />
       )}
       <ConfirmActionDialog {...confirmation.dialogProps} />
