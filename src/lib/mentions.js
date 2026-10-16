@@ -335,10 +335,11 @@ export function resolveReferences(
 
 /**
  * Rewrites @imgN tokens so they keep pointing at the same physical image
- * after the upload array is reordered. @imgN is a live index into whatever
+ * after a reference is removed. @imgN is a live index into whatever
  * `referenceImages` currently holds (see resolveReferences) rather than a
- * stored id, so reordering the array without this would silently repoint an
- * already-typed tag at a different image.
+ * stored id, so removing slot 2 without this would silently repoint an
+ * already-typed @img3 at a different image. Reordering deliberately does not
+ * call this: tags are positional, so @img1 follows slot 1, not its image.
  *
  * `mapping[oldIndex]` (0-based) is the image's new 0-based index; an old
  * index missing from `mapping` (out of range) is left untouched, matching

@@ -6,9 +6,9 @@ import { createRoot } from 'react-dom/client';
 import { useStore } from '../lib/store.js';
 import { MediaCard } from './MediaCard.jsx';
 
-async function harness(item, run) {
+async function harness(item, run, state = {}) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
-  const names = ['window', 'document', 'HTMLElement', 'React', 'IS_REACT_ACT_ENVIRONMENT', 'fetch', 'ResizeObserver', 'IntersectionObserver', 'requestAnimationFrame', 'cancelAnimationFrame'];
+  const names = ['window', 'document', 'HTMLElement', 'React', 'IS_REACT_ACT_ENVIRONMENT', 'fetch', 'ResizeObserver', 'IntersectionObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'KeyboardEvent'];
   const prior = Object.fromEntries(names.map(name => [name, globalThis[name]]));
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, React,
     IS_REACT_ACT_ENVIRONMENT: true, requestAnimationFrame: cb => setTimeout(cb, 0), cancelAnimationFrame: id => clearTimeout(id),
@@ -17,26 +17,28 @@ async function harness(item, run) {
   const original = useStore.getState();
   const calls = [];
   globalThis.fetch = async (url, init) => { calls.push([url, init?.method || 'GET']); return { ok: true, status: 200, json: async () => ({}) }; };
-  useStore.setState({ items: [item], selectedIds: [], usersById: {}, libraryTree: { globalFolders: [], projects: [] }, prompt: '', referenceImages: [] });
+  useStore.setState({ items: [item], selectedIds: [], usersById: {}, libraryTree: { globalFolders: [], projects: [] }, prompt: '', referenceImages: [], ...state });
   const root = createRoot(document.querySelector('#root'));
   try {
     await act(async () => root.render(React.createElement(MediaCard, { item, selectable: true })));
     await run({ calls, card: document.querySelector(`[data-asset-card-id="${item.id}"]`) });
   } finally { await act(async () => root.unmount()); useStore.setState(original, true); Object.assign(globalThis, prior); dom.window.close(); }
 }
-const hover = async (el) => act(async () => { el.dispatchEvent(new window.MouseEvent('mouseover', { bubbles: true, relatedTarget: document.body })); });
-const actionName = (b) => b.getAttribute('aria-label').split(':')[0];
-const toolbarButton = (label) => [...document.querySelectorAll('[role="toolbar"] button')].find(b => actionName(b) === label);
+const openMenu = async (el) => act(async () => {
+  el.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 40, clientY: 30 }));
+});
+const menuKeys = () => [...document.querySelectorAll('[role="menu"] [role="menuitem"]')].map(b => b.dataset.menuItem);
+const menuItem = (key) => document.querySelector(`[role="menu"] [data-menu-item="${key}"]`);
 const failed = { id: 'f1', kind: 'video', status: 'failed', moderationBlocked: true, error: 'BytePlus rejected the reference image', prompt: 'Sati @img1 walks', model: 'Seedance 2.5',
   aspectRatio: '21:9', resolution: '480p', duration: 10, referenceImages: ['/api/media/uploads/image-reference/a', '/api/media/uploads/portrait/b'], createdAt: 1 };
 
-test('failed card has no in-card generate buttons; hover panel Edit & retry confirms then restores prompt and references without submitting', async () => {
+test('failed card has no in-card generate buttons; its menu Edit & retry confirms then restores prompt and references without submitting', async () => {
   await harness(failed, async ({ calls, card }) => {
     assert.equal([...card.querySelectorAll('button')].some(b => /Retry|Edit/.test(b.textContent)), false);
-    await hover(card);
-    assert.deepEqual([...document.querySelectorAll('[role="toolbar"] button')].map(actionName), ['Edit & retry', 'Retry without references', 'Delete']);
-    assert.ok(toolbarButton('Edit & retry').querySelector('[role="tooltip"]'));
-    await act(async () => toolbarButton('Edit & retry').click());
+    await openMenu(card);
+    assert.deepEqual(menuKeys(), ['retry', 'retry-text', 'edit', 'folder', 'select', 'delete']);
+    await act(async () => menuItem('edit').click());
+    assert.equal(document.querySelector('[role="menu"]'), null);
     assert.match(document.body.textContent, /Edit and retry\?/);
     assert.equal(useStore.getState().prompt, '');
     const confirm = [...document.querySelectorAll('button')].find(b => b.textContent === 'Load into composer');
@@ -48,34 +50,67 @@ test('failed card has no in-card generate buttons; hover panel Edit & retry conf
   });
 });
 
-test('rendering card delete is blocked in the panel', async () => {
+test('rendering card delete is blocked in the menu and says why', async () => {
   await harness({ ...failed, id: 'r1', status: 'running', error: null, moderationBlocked: false }, async ({ calls, card }) => {
-    await hover(card);
-    const del = toolbarButton('Delete');
+    await openMenu(card);
+    assert.deepEqual(menuKeys(), ['edit', 'folder', 'select', 'delete']);
+    const del = menuItem('delete');
     assert.equal(del.getAttribute('aria-disabled'), 'true');
-    assert.match(del.getAttribute('aria-label'), /Still rendering/);
+    assert.match(del.getAttribute('title'), /Still rendering/);
     await act(async () => del.click());
     assert.equal(document.body.textContent.includes('Delete this generation?'), false);
+    assert.ok(document.querySelector('[role="menu"]'), 'a disabled item does not close the menu');
     assert.equal(calls.length, 0);
   });
 });
 
-test('draft finalization is not offered as a hover shortcut', async () => {
-  await harness({ ...failed, id: 'd1', status: 'succeeded', error: null, moderationBlocked: false, draftMode: true, taskId: 'cgt-1', createdAt: Date.now(), url: '/api/media/generations/d1.mov' }, async ({ card }) => {
-    await hover(card);
-    const names = [...document.querySelectorAll('[role="toolbar"] button')].map(actionName);
-    assert.deepEqual(names, ['Edit & retry', 'Favourite', 'Download', 'Delete']);
-  });
+test('a finished Seedance 2.5 draft offers retry, finalization, download and the rest, with its details', async () => {
+  const createdAt = Date.now() - 90_000;
+  const item = { ...failed, id: 'd1', status: 'succeeded', error: null, moderationBlocked: false, draftMode: true, taskId: 'cgt-1', createdAt,
+    submittedAt: createdAt + 5_000, completedAt: createdAt + 77_000, costCents: 42, userId: 'u1', filename: 'Sati_001.mov', url: '/api/media/generations/d1.mov' };
+  await harness(item, async ({ card }) => {
+    await openMenu(card);
+    assert.deepEqual(menuKeys(), ['retry', 'edit', 'finalize', 'open', 'download', 'favorite', 'folder', 'select', 'delete']);
+    const menu = document.querySelector('[data-card-context-menu]');
+    const detail = (name) => menu.querySelector(`[data-detail="${name}"]`).textContent;
+    assert.equal(detail('creator'), 'Asha');
+    assert.match(detail('model'), /^Seedance 2\.5Draft$/);
+    assert.equal(detail('output'), '480p · 21:9 · 10s');
+    assert.equal(detail('cost'), '≈$0.42');
+    assert.equal(detail('took'), '1m 17s');
+    assert.equal(menuItem('download').textContent.includes('MOV'), true);
+    await act(async () => menuItem('finalize').click());
+    assert.match(document.body.textContent, /Generate the 1080p final\?/);
+  }, { usersById: { u1: { name: 'Asha', email: 'asha@example.test', color: '#fff' } } });
 });
 
-test('draft videos are visibly marked; finals are not', async () => {
-  const base = { ...failed, status: 'succeeded', error: null, moderationBlocked: false, url: '/api/media/generations/v.mov', createdAt: Date.now() };
+test('the card face holds only the avatar, the draft label, the checkbox and the "..." button', async () => {
+  const base = { ...failed, status: 'succeeded', error: null, moderationBlocked: false, url: '/api/media/generations/v.mov', createdAt: Date.now(), userId: 'u1' };
+  const users = { usersById: { u1: { name: 'Asha', email: 'asha@example.test' } } };
   await harness({ ...base, id: 'draft-1', draftMode: true }, async ({ card }) => {
-    assert.ok(card.querySelector('[data-draft-badge]'));
-    assert.match(card.className, /outline-dashed/);
-  });
-  await harness({ ...base, id: 'final-1', draftMode: false }, async ({ card }) => {
-    assert.equal(card.querySelector('[data-draft-badge]'), null);
+    assert.equal(card.querySelector('[data-draft-label]').textContent, 'Draft');
     assert.doesNotMatch(card.className, /outline-dashed/);
+    const controls = [...card.querySelectorAll('button')].map(b => b.getAttribute('aria-label'));
+    assert.deepEqual(controls, ['Select', 'More actions']);
+    assert.equal(card.querySelector('.media-card-avatar').textContent, 'A');
+    assert.equal(card.querySelector('time'), null);
+    assert.equal(card.textContent.replace(/\s/g, ''), 'DraftA');
+  }, users);
+  await harness({ ...base, id: 'final-1', draftMode: false }, async ({ card }) => {
+    assert.equal(card.querySelector('[data-draft-label]'), null);
+  }, users);
+});
+
+test('the "..." button opens the same menu and toggles it closed; Escape closes it', async () => {
+  await harness({ ...failed, id: 'm1', status: 'succeeded', error: null, moderationBlocked: false, url: '/x.png', kind: 'image' }, async ({ card }) => {
+    const more = card.querySelector('[aria-label="More actions"]');
+    await act(async () => more.click());
+    assert.equal(more.getAttribute('aria-expanded'), 'true');
+    assert.ok(document.querySelector('[role="menu"][aria-label="Generation actions"]'));
+    await act(async () => more.click());
+    assert.equal(document.querySelector('[role="menu"]'), null);
+    await openMenu(card);
+    await act(async () => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    assert.equal(document.querySelector('[role="menu"]'), null);
   });
 });

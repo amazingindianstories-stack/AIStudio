@@ -10,7 +10,7 @@ from unittest.mock import patch
 from PIL import Image
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.admin_dashboard import tests as session_fixtures
-from apps.admin_dashboard.models import AppSetting, UserLimit
+from apps.admin_dashboard.models import AppSetting, Pricing, UserLimit
 from apps.assets.models import Asset
 from apps.common.models import ActivityLog
 from apps.library.models import GenerationNaming
@@ -370,6 +370,30 @@ class EnqueueContractTests(TransactionTestCase):
         with patch('apps.generation.services.enqueue.assign_generation_naming',side_effect=RuntimeError('synthetic naming failure')):
             self.assertEqual(self.post('image',{'prompt':'abc'}).status_code,500)
         self.assertEqual(Generation.objects.count(),before)
+
+    def test_nano_banana_2_1_enqueue_stores_model_resolution_seed_and_estimate(self):
+        # Default row: 4 estimator cents at 1K, x1.5 at 2K, x3 at 4K; a reference does not change it.
+        self.cookie()
+        storage=StorageService(MemoryAdapter())
+        cases=[('Nano Banana 2.1','1K',None,4),('Nano Banana 2.1','2K',None,6),('Nano Banana 2.1','4K',None,12),
+               ('nano-banana-2-1','4K',[data_url()],12),('Nano Banana 2.1',None,None,4)]
+        for index,(model,resolution,references,cents) in enumerate(cases):
+            with self.subTest(model=model,resolution=resolution,references=bool(references)):
+                body=dict(prompt=f'lantern at dusk {index}',model=model,aspectRatio='4:5',seed=9)
+                if resolution: body['resolution']=resolution
+                if references: body['referenceImages']=references
+                with override_settings(VEEVEE_MEDIA_STORAGE=storage):
+                    response=self.post('image',body)
+                self.assertEqual(response.status_code,200,response.content)
+                row=Generation.objects.get(pk=response.json()['id'])
+                self.assertEqual((row.kind,row.status,row.model,row.resolution,row.aspect_ratio,row.seed,row.cost_cents),
+                                 ('image','queued',model,resolution,'4:5',9,cents))
+                self.assertEqual(len(row.reference_images or []),len(references or []))
+        self.assertEqual(Pricing.objects.get(pk='Nano Banana 2.1').unit_cost_cents,4)
+        # An admin price edit is the estimate from then on, without a deploy.
+        Pricing.objects.filter(pk='Nano Banana 2.1').update(unit_cost_cents=5)
+        response=self.post('image',dict(prompt='lantern at dusk again',model='Nano Banana 2.1',resolution='2K'))
+        self.assertEqual(Generation.objects.get(pk=response.json()['id']).cost_cents,8)
 
     def test_seedream_no_reference_admission_preserved_without_native_runtime(self):
         import sys

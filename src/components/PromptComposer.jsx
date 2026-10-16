@@ -600,9 +600,8 @@ export function PromptComposer() {
 
       {/* reference thumbnails — click to insert its @imgN tag into the prompt,
           drag to reorder. @imgN is a live index into referenceImages (see
-          resolveReferences in mentions.ts), so reordering renumbers any
-          @imgN already typed in the prompt via s.reorderReferences to keep
-          each tag pointing at the same image. */}
+          resolveReferences in mentions.ts), so a typed tag stays positional:
+          after a reorder @img1 means whatever now occupies slot 1. */}
       {s.referenceImages.length > 0 && <ReferenceStrip store={s} insertTag={(tag) => mentionRef.current?.insertTag(tag)} />}
 
       {/* @audioN chips are persisted Seedance audio references. */}
@@ -1518,7 +1517,7 @@ function ReferenceThumbnail({ src, alt, className, portrait = false }) {
 }
 
 /** Pointer sorting is confined to the grip; the strip itself remains a native
- * scroll surface. Only a completed gesture changes the draft's mention order. */
+ * scroll surface. Only a completed gesture changes the draft's reference order. */
 export function ReferenceStrip({ store: s, insertTag }) {
   const reducedMotion = useReducedMotion();
   const strip = useRef(null);

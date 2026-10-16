@@ -19,6 +19,12 @@ DEFAULT_PRICING = [{'model': 'Seedream 5.0 Pro',
   'unitCostCents': 14,
   'unit': 'per_image',
   'notes': 'Gemini 3 Pro Image; base = 1K, scaled by resolution factor'},
+ {'model': 'Nano Banana 2.1',
+  'unitCostCents': 4,
+  'unit': 'per_image',
+  'notes': 'Gemini Nano Banana 2.1; base = 1K, scaled by resolution factor. Published image output (2026-10): '
+           '$0.0336 1K, $0.0504 2K, $0.113 4K per image, rounded up to whole cents; thinking and input tokens '
+           'not included'},
  {'model': 'Seedance 2.0',
   'unitCostCents': 8,
   'unit': 'per_second',

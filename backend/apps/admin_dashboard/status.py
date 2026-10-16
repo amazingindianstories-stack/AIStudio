@@ -12,6 +12,7 @@ from urllib.request import Request, urlopen
 from django.db import connection, connections
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
+from apps.generation.model_registry import provider_model_id
 from apps.media.storage import get_storage
 from apps.media.keys import media_key_from_ref
 from apps.canvas.views import reply, failure
@@ -33,10 +34,11 @@ def http_status(url, headers=None, timeout=5):
         return status
 
 
-def gemini(transport=http_status):
+def gemini(transport=http_status, model='Nano Banana Pro'):
+    # Model metadata read (models.get); no generation is requested.
     key = os.environ.get('GOOGLE_API_KEY')
     if not key: return outcome('unknown', 'GOOGLE_API_KEY not set')
-    status = transport('https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image', {'x-goog-api-key': key})
+    status = transport('https://generativelanguage.googleapis.com/v1beta/models/' + provider_model_id(model, {}), {'x-goog-api-key': key})
     return outcome('ok' if 200 <= status < 300 else 'error', 'HTTP 200' if 200 <= status < 300 else f'HTTP {status}')
 
 
@@ -123,7 +125,9 @@ def media_delivery(transport=http_status):
 
 
 CHECKS = [
-    ('gemini', 'Gemini / Nano Banana Pro', gemini), ('higgsfield', 'Higgsfield MCP', higgsfield),
+    ('gemini', 'Gemini / Nano Banana Pro', gemini),
+    ('gemini-nano-banana-2-1', 'Gemini / Nano Banana 2.1', lambda: gemini(model='Nano Banana 2.1')),
+    ('higgsfield', 'Higgsfield MCP', higgsfield),
     ('seedance', 'BytePlus ModelArk / Seedance', lambda: configured('ARK_API_KEY')), ('kling', 'KlingAI Image', lambda: configured('KLING_API')),
     ('omni', 'Gemini Omni Flash', omni), ('postgres', 'Postgres', postgres), ('generation-indexes', 'Generation Indexes', generation_indexes),
     ('stuck-generations', 'Stuck Generations', stuck_generations), ('storage', 'Media Storage', storage),

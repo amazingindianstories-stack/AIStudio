@@ -15,12 +15,19 @@ from .services.deadline import settle_queue_execution, Cancellation, QueueExecut
 
 class PureProviderParityTests(SimpleTestCase):
     def test_registry_seedream_payloads_and_reference_resolution_match_node(self):
-        # Magnific video upscalers (2026-10-14) postdate the frozen Node registry;
-        # compare the frozen entries and assert the additions explicitly.
-        added = [item for item in MODEL_REGISTRY if item.get('capabilities', {}).get('upscaleMedia') == 'video']
+        # Magnific video upscalers (2026-10-14) and Nano Banana 2.1 (2026-10-16) postdate
+        # the frozen Node registry; compare the frozen entries and assert the additions explicitly.
+        added = [item for item in MODEL_REGISTRY if item.get('capabilities', {}).get('upscaleMedia') == 'video' or item['id'] == 'nano-banana-2-1']
         self.assertEqual([(item['name'], item['provider'], item['kind'], item['pricingKey']) for item in added], [
-            (name, 'magnific', 'upscale', name) for name in ('Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz')])
-        frozen = [item for item in MODEL_REGISTRY if item not in added]
+            ('Nano Banana 2.1', 'gemini', 'image', 'Nano Banana 2.1'),
+            *[(name, 'magnific', 'upscale', name) for name in ('Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz')]])
+        self.assertEqual(provider_model_id('Nano Banana 2.1', {}), 'gemini-nano-banana-2.1')
+        # Nano Banana Pro's Gemini model code moved from the provider constant into its
+        # registry entry (2026-10-16); the frozen Node entry predates that field.
+        self.assertEqual(provider_model_id('Nano Banana Pro', {}), 'gemini-3-pro-image')
+        pro = ('nano-banana-pro', 'Nano Banana Pro')
+        frozen = [{key: value for key, value in item.items() if not (item['id'] == pro[0] and key == 'providerModelId')}
+                  for item in MODEL_REGISTRY if item not in added]
         request = {'modelIds': [item['id'] for item in frozen] + [item['name'] for item in frozen] + ['unknown'],
                    'seedream': [], 'references': []}
         for resolution in ('1K', '1.5K', '2K', '4K', None):
@@ -45,7 +52,7 @@ class PureProviderParityTests(SimpleTestCase):
         frozen = [{**item, 'capabilities': {key: value for key, value in item['capabilities'].items() if key != 'referenceAudioSeconds'}}
                   for item in frozen]
         self.assertEqual(expected['models'], frozen)
-        self.assertEqual(expected['modelIds'], [provider_model_id(value, {}) for value in request['modelIds']])
+        self.assertEqual(expected['modelIds'], [None if value in pro else provider_model_id(value, {}) for value in request['modelIds']])
         def capture(call):
             try:
                 return {'value': call()}

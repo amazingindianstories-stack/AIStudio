@@ -127,6 +127,69 @@ class ProviderAdapterTests(SimpleTestCase):
             gemini.generate_image({'assembled': {'groups': [], 'instruction': 'literal'}}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
         self.assertEqual(len(transport.calls), 1)
 
+    def test_gemini_model_code_endpoint_and_payload_per_registry_model(self):
+        first, second = {'mimeType': 'image/png', 'data': 'first-original'}, {'mimeType': 'image/jpeg', 'data': 'second-original'}
+        assembled = {'instruction': 'a brass lantern beside @img1 at dusk', 'groups': [
+            {'tag': '@img1', 'header': 'REFERENCE @img1', 'images': [first, second], 'identity': False, 'tiles': []}]}
+        response = {'candidates': [{'content': {'parts': [{'text': 'note'}, {'inlineData': {'data': 'master', 'mimeType': 'image/png'}}]}}]}
+        sent = {}
+        for display in ('Nano Banana Pro', 'nano-banana-pro', 'Nano Banana 2.1', 'nano-banana-2-1', None, 'unknown model'):
+            transport = ScriptedTransport(result(response))
+            value = gemini.generate_image({'assembled': assembled, 'aspectRatio': '16:9', 'imageSize': '4K', 'modelDisplay': display, 'seed': 7},
+                env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+            self.assertEqual(value, {'base64': 'master', 'mimeType': 'image/png'})
+            (method, url), options = transport.calls[0]
+            self.assertEqual(method, 'POST')
+            self.assertEqual(options['headers'], {'Content-Type': 'application/json', 'x-goog-api-key': 'fixture'})
+            sent[display] = (url, json.dumps(options['body'], sort_keys=True))
+        pro = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent'
+        fast = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent'
+        self.assertEqual({display: url for display, (url, _) in sent.items()}, {'Nano Banana Pro': pro, 'nano-banana-pro': pro,
+            'Nano Banana 2.1': fast, 'nano-banana-2-1': fast, None: pro, 'unknown model': pro})
+        # The request body is the same documented generateContent shape for both models.
+        self.assertEqual(len({body for _, body in sent.values()}), 1)
+        body = json.loads(sent['Nano Banana 2.1'][1])
+        self.assertEqual(body['generationConfig'], {'responseModalities': ['TEXT', 'IMAGE'], 'imageConfig': {'aspectRatio': '16:9', 'imageSize': '4K'}, 'seed': 7})
+        self.assertEqual(list(body), ['contents', 'generationConfig'])
+        parts = body['contents'][0]['parts']
+        self.assertEqual(body['contents'][0]['role'], 'user')
+        self.assertEqual(parts[:4], [{'text': 'REFERENCE @img1'}, {'inlineData': {'mimeType': 'image/png', 'data': 'first-original'}},
+            {'inlineData': {'mimeType': 'image/jpeg', 'data': 'second-original'}}, {'text': 'SCENE: a brass lantern beside @img1 at dusk'}])
+        self.assertEqual(len(parts), 5)
+        self.assertTrue(parts[4]['text'].startswith('CAST: CAST COUNT 0.'))
+        # Defaults when the composer sends no ratio/size: 1:1 at 1K, no seed.
+        transport = ScriptedTransport(result(response))
+        gemini.generate_image({'assembled': {'groups': [], 'instruction': 'literal'}, 'modelDisplay': 'Nano Banana 2.1'},
+            env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+        self.assertEqual(transport.calls[0][1]['body']['generationConfig'], {'responseModalities': ['TEXT', 'IMAGE'], 'imageConfig': {'aspectRatio': '1:1', 'imageSize': '1K'}})
+
+    def test_gemini_reference_limit_names_the_model_and_unconfigured_models_never_submit(self):
+        image = {'mimeType': 'image/png', 'data': 'x'}
+        many = {'instruction': 'scene', 'groups': [{'tag': '@img1', 'header': 'h', 'images': [image] * 15, 'tiles': []}]}
+        for display, name in (('Nano Banana 2.1', 'Nano Banana 2.1'), ('nano-banana-pro', 'Nano Banana Pro')):
+            transport = ScriptedTransport()
+            with self.assertRaises(ValueError) as raised:
+                gemini.generate_image({'assembled': many, 'modelDisplay': display}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+            self.assertTrue(str(raised.exception).startswith(f'Too many reference images: 15. {name} accepts at most 14 images per prompt'))
+            self.assertEqual(transport.calls, [])
+        # Fourteen references are accepted (the documented maximum for both models).
+        transport = ScriptedTransport(result({'candidates': [{'content': {'parts': [{'inlineData': {'data': 'm'}}]}}]}))
+        gemini.generate_image({'assembled': {**many, 'groups': [{**many['groups'][0], 'images': [image] * 14}]}, 'modelDisplay': 'Nano Banana 2.1'},
+            env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+        self.assertEqual(sum('inlineData' in part for part in transport.calls[0][1]['body']['contents'][0]['parts']), 14)
+        # A Gemini registry entry without a model code (hidden Nano Banana 2) and non-Gemini models fail closed.
+        for display in ('Nano Banana 2', 'Seedream 5.0 Pro'):
+            transport = ScriptedTransport()
+            with self.assertRaisesRegex(ValueError, 'has no configured Gemini image model'):
+                gemini.generate_image({'assembled': {'groups': [], 'instruction': 'literal'}, 'modelDisplay': display},
+                    env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+            self.assertEqual(transport.calls, [])
+        # Missing credentials never select mock success.
+        with self.assertRaises(Exception) as raised:
+            gemini.generate_image({'assembled': {'groups': [], 'instruction': 'literal'}, 'modelDisplay': 'Nano Banana 2.1'},
+                env={}, transport=ScriptedTransport())
+        self.assertIn('GOOGLE_API_KEY', str(raised.exception))
+
     def test_kling_task_submit_poll_and_provider_error_protocol(self):
         transport = ScriptedTransport(result({'code': 0, 'data': {'task_id': 'a/b'}}),
             result({'code': 0, 'data': {'task_status': 'submitted'}}),

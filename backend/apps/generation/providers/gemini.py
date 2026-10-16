@@ -3,20 +3,34 @@ import json
 import os
 import random
 import re
+from apps.generation.model_registry import model_definition
 from apps.generation.services.deadline import Cancellation
 from .transport import HttpTransport, ProviderError, required_key
 
 API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
-MODEL = 'gemini-3-pro-image'
+# Callers without a registry model (the hidden Higgsfield video auto-frame) keep Nano Banana Pro.
+DEFAULT_MODEL = 'Nano Banana Pro'
 MAX_IMAGES = 14
 
 
-def build_parts(assembled):
+def definition(display=None):
+    """The registry entry for a Gemini image model; unknown names keep Nano Banana Pro."""
+    found = model_definition(display) or model_definition(DEFAULT_MODEL)
+    if found.get('provider') != 'gemini' or not found.get('providerModelId'):
+        raise ValueError(f"{found['name']} has no configured Gemini image model.")
+    return found
+
+
+def endpoint(display=None):
+    return f"{API_ROOT}/models/{definition(display)['providerModelId']}:generateContent"
+
+
+def build_parts(assembled, display=None):
     from apps.generation.prompting.shot_spec import build_cast_policy
     groups = assembled['groups']
     count = sum(len(group['images']) for group in groups)
     if count > MAX_IMAGES:
-        raise ValueError(f'Too many reference images: {count}. Nano Banana Pro accepts at most {MAX_IMAGES} images per prompt — remove {count - MAX_IMAGES}.')
+        raise ValueError(f'Too many reference images: {count}. {display or DEFAULT_MODEL} accepts at most {MAX_IMAGES} images per prompt — remove {count - MAX_IMAGES}.')
     budget, parts, identity = MAX_IMAGES - count, [], False
     for group in groups:
         parts.append({'text': group['header']})
@@ -58,7 +72,7 @@ def build_payload(input):
               'imageConfig': {'aspectRatio': input.get('aspectRatio') or '1:1', 'imageSize': input.get('imageSize') or '1K'}}
     if type(input.get('seed')) in (int, float):
         config['seed'] = input['seed']
-    return {'contents': [{'role': 'user', 'parts': build_parts(input['assembled'])}], 'generationConfig': config}
+    return {'contents': [{'role': 'user', 'parts': build_parts(input['assembled'], definition(input.get('modelDisplay'))['name'])}], 'generationConfig': config}
 
 
 UNPROCESSED_RETRY_STATUSES = frozenset({429, 503})
@@ -67,13 +81,14 @@ UNPROCESSED_RETRY_STATUSES = frozenset({429, 503})
 def generate_image(input, *, transport=None, env=None, signal=None, random_value=random.random):
     env = os.environ if env is None else env
     key = required_key(env, 'GOOGLE_API_KEY')
+    url = endpoint(input.get('modelDisplay'))
     body = build_payload(input)
     transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
     signal = signal or Cancellation()
     slept, last_error = 0, ''
     for attempt in range(1, 5):
         signal.check()
-        response = transport.request('POST', f'{API_ROOT}/models/{MODEL}:generateContent',
+        response = transport.request('POST', url,
             headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, body=body, signal=signal)
         if not response.ok:
             last_error = f'Gemini image error ({response.status}): {response.text[:400]}'

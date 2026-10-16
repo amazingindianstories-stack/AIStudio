@@ -104,7 +104,7 @@ class AdminContractTests(TransactionTestCase):
         self.assertEqual(result['users'][0]['genCount'],4)
         self.assertEqual(result['users'][0]['costCents'],50)
         self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':4})
-        self.assertEqual(len(result['pricing']),27)  # 23 frozen rows + 4 Magnific video rows
+        self.assertEqual(len(result['pricing']),28)  # 23 frozen rows + 4 Magnific video rows + Nano Banana 2.1
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(Pricing.objects.get(pk='Nano Banana Pro').unit_cost_cents,777)
 
@@ -215,10 +215,25 @@ class AdminPureParityTests(SimpleTestCase):
         code='import {DEFAULT_PRICING} from "./src/lib/pricing.js";console.log(JSON.stringify(DEFAULT_PRICING));'
         result=oracle_run(['node','--import','tsx','--input-type=module','-e',code],capture_output=True,text=True,check=True,cwd=Path(__file__).resolve().parents[3])
         from .default_pricing import DEFAULT_PRICING
-        # Magnific video upscaler rates (2026-10-14) postdate the frozen Node table.
-        added = [row for row in DEFAULT_PRICING if row['unit'] == 'per_1000_frames']
-        self.assertEqual([row['model'] for row in added], ['Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz'])
+        # Magnific video upscaler rates (2026-10-14) and Nano Banana 2.1 (2026-10-16) postdate the frozen Node table.
+        added = [row for row in DEFAULT_PRICING if row['unit'] == 'per_1000_frames' or row['model'] == 'Nano Banana 2.1']
+        self.assertEqual([row['model'] for row in added], ['Nano Banana 2.1', 'Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz'])
         self.assertEqual(json.loads(result.stdout), [row for row in DEFAULT_PRICING if row not in added])
+
+    def test_gemini_status_probes_read_each_image_model_without_generating(self):
+        seen=[]
+        def transport(url,headers):
+            seen.append((url,headers))
+            return 404 if url.endswith('2.1') else 200
+        with patch.dict('os.environ',{'GOOGLE_API_KEY':'fixture'}):
+            self.assertEqual(status.gemini(transport),{'status':'ok','detail':'HTTP 200'})
+            self.assertEqual(status.gemini(transport,model='Nano Banana 2.1'),{'status':'error','detail':'HTTP 404'})
+        self.assertEqual(seen,[('https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image',{'x-goog-api-key':'fixture'}),
+                               ('https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1',{'x-goog-api-key':'fixture'})])
+        with patch.dict('os.environ',{},clear=True):
+            self.assertEqual(status.gemini(transport,model='Nano Banana 2.1')['status'],'unknown')
+        self.assertEqual([(key,name) for key,name,_ in status.CHECKS[:2]],
+                         [('gemini','Gemini / Nano Banana Pro'),('gemini-nano-banana-2-1','Gemini / Nano Banana 2.1')])
 
     def test_status_timeout_error_and_fixed_shape_without_external_calls(self):
         checks=[('success','Success',lambda:{'status':'ok','detail':'fixture'}),('slow','Slow',lambda:time.sleep(.04))]

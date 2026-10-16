@@ -121,7 +121,7 @@ test('Goal3 ZIP rapid clicks,409 failure and retry remain visible; actor switch 
   // A fixed, finished fixture: newer cards from other specs may still be generating.
   const firstCard = history.getByTestId('media-card-10000000-0000-4000-8000-000000000001');
   await firstCard.hover();
-  await firstCard.getByRole('button', { name: 'Select', exact: true }).click();
+  await firstCard.getByRole('checkbox', { name: 'Select', exact: true }).click();
   const button = history.getByRole('button', { name: 'Download ZIP', exact: true });
   await button.evaluate(button => { button.click(); button.click(); });
   await expect(page.locator('#desktop-history-panel').getByRole('status', { name: 'ZIP export' })).toContainText('Source unavailable');

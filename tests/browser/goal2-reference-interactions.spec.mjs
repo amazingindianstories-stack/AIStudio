@@ -57,7 +57,8 @@ test('Goal2 actual pointer traverses 50 references with edge autoscroll and pres
   await expect.poll(async () => (await order(page)).at(-1)).toBe(ids[0]);
   await page.mouse.up();
   expect((await order(page)).at(-1)).toBe(ids[0]);
-  await expect(page.locator('textarea').first()).toHaveValue('@img50 @img9 @img49 literal @img100 @named');
+  // Tags are positional: the drag reorders the strip but never rewrites the typed prompt.
+  await expect(page.locator('textarea').first()).toHaveValue('@img1 @img10 @img50 literal @img100 @named');
   await page.screenshot({ path: testInfo.outputPath('50-reference-pointer.png') });
   await page.getByRole('button', { name: 'Undo reorder', exact: true }).click();
   expect(await order(page)).toEqual(ids);
@@ -77,8 +78,11 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   await page.mouse.move(stripBounds.x + stripBounds.width - 1, grip.y + grip.height / 2, { steps: 15 });
   await expect.poll(async () => (await order(page)).at(-1)).toBe(ids[0]);
   await page.mouse.up();
-  await expect(page.locator('textarea').first()).toHaveValue('@img10 @img9 @img100 @named');
+  expect((await order(page)).at(-1)).toBe(ids[0]);
+  await expect(page.locator('textarea').first()).toHaveValue('@img1 @img10 @img100 @named');
   await page.getByRole('button', { name: 'Undo reorder', exact: true }).click();
+  expect(await order(page)).toEqual(ids);
+  await expect(page.locator('textarea').first()).toHaveValue('@img1 @img10 @img100 @named');
   await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).click();
   expect((await order(page))[1]).toBe(ids[0]);
   const moved = page.locator(`[data-reference-id="${ids[0]}"] [data-reference-grip]`);
@@ -92,7 +96,7 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   await page.getByRole('spinbutton', { name: 'Move to position' }).fill('10');
   await page.getByRole('button', { name: 'Move', exact: true }).click();
   expect((await order(page)).at(-1)).toBe(ids[0]);
-  await expect(page.locator('textarea').first()).toHaveValue('@img10 @img9 @img100 @named');
+  await expect(page.locator('textarea').first()).toHaveValue('@img1 @img10 @img100 @named');
   await page.reload();
   await expect(page.locator('[data-reference-id]')).toHaveCount(10);
   expect((await order(page)).at(-1)).toBe(ids[0]);
@@ -402,9 +406,27 @@ test('Goal2 long three-level folders keyboard scroll eight colours hide reload a
   }
 });
 
+test('Goal2 removing a reference renumbers later tags while reordering leaves the prompt alone', async ({ page, context, baseURL }) => {
+  await ready(page, context, baseURL);
+  const ids = await stage(page, context, 3);
+  const prompt = page.locator('textarea').first();
+  await prompt.fill('@img1 then @img3');
+  await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).click();
+  expect(await order(page)).toEqual([ids[1], ids[0], ids[2]]);
+  await expect(prompt).toHaveValue('@img1 then @img3');
+  await page.getByRole('button', { name: 'Undo reorder', exact: true }).click();
+  expect(await order(page)).toEqual(ids);
+  await page.getByRole('button', { name: 'Remove reference 2', exact: true }).click();
+  expect(await order(page)).toEqual([ids[0], ids[2]]);
+  await expect(prompt).toHaveValue('@img1 then @img2');
+});
+
 test('Goal2 actual touch swipe scrolls thumbnails and touch grip alone reorders', async ({ page, context, baseURL }, testInfo) => {
   await ready(page, context, baseURL);
   const ids = await stage(page, context, 12);
+  await page.locator('textarea').first().fill('@img1 then @img2');
+  // Let the prompt-edit layout animation settle before measuring the strip.
+  await page.locator('[data-reference-grip]').first().hover();
   const strip = page.getByTestId('reference-strip');
   const bounds = await strip.boundingBox();
   const cdp = await context.newCDPSession(page);
@@ -423,6 +445,7 @@ test('Goal2 actual touch swipe scrolls thumbnails and touch grip alone reorders'
   for (let i = 1; i <= 8; i++) { await touch('touchMove', x + i * 13, y); await page.waitForTimeout(16); }
   await touch('touchEnd');
   await expect.poll(async () => (await order(page))[1]).toBe(ids[0]);
+  await expect(page.locator('textarea').first()).toHaveValue('@img1 then @img2');
   await page.screenshot({ path: testInfo.outputPath('touch-scroll-grip-reorder.png') });
   await cdp.detach();
 });
