@@ -1593,7 +1593,7 @@ export function ReferenceStrip({ store: s, insertTag }) {
     <div ref={strip}
       onPointerMove={(e) => { const current = gesture.current; if (!current) return; current.x = e.clientX; current.y = e.clientY; if (Math.abs(current.x - current.startX) > 5) current.active = true; }}
       onPointerUp={() => end()} onPointerCancel={() => end(true)}
-      data-testid="reference-strip" className="flex gap-2 overflow-x-auto overscroll-x-contain px-1 pb-2" style={{ scrollbarGutter: "stable" }}>
+      data-testid="reference-strip" className="flex gap-2 overflow-x-auto overscroll-x-contain px-1 pb-2">
       {visibleIds.map((id, i) => {
         const sourceIndex = ids.indexOf(id);
         const tag = s.referenceTags?.[sourceIndex] || `@img${sourceIndex + 1}`;

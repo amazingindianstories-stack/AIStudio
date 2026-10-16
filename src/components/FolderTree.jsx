@@ -396,7 +396,7 @@ export function FolderTree({
         <button type="button" aria-label="Scroll folder names left" onClick={() => treeRef.current?.parentElement.scrollBy({ left: -160 })} className="rounded px-2 hover:bg-white/10">←</button>
         <button type="button" aria-label="Scroll folder names right" onClick={() => treeRef.current?.parentElement.scrollBy({ left: 160 })} className="rounded px-2 hover:bg-white/10">→</button>
       </div>
-      <div data-testid="folder-hierarchy-viewport" tabIndex={0} aria-label="Scroll full folder names" className="scroll-thin max-w-full overflow-x-auto overscroll-x-contain" style={{ scrollbarGutter: "stable" }} onKeyDown={(e) => {
+      <div data-testid="folder-hierarchy-viewport" tabIndex={0} aria-label="Scroll full folder names" className="scroll-thin max-w-full overflow-x-auto overscroll-x-contain" onKeyDown={(e) => {
         if (e.target === e.currentTarget && ["ArrowLeft", "ArrowRight"].includes(e.key)) { e.preventDefault(); e.currentTarget.scrollBy({ left: e.key === "ArrowLeft" ? -160 : 160 }); }
       }}>
     <div
