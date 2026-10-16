@@ -12,12 +12,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import {
-  rectsIntersect,
-  normalizeRect,
-  computeMarqueeSelection,
-  computeAutoscrollDelta,
-} from "@/lib/marquee-geometry";
+import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { getNextGridFocus } from "@/lib/grid-navigation";
 
 /**
@@ -84,10 +79,12 @@ export function AssetGrid({
   const sentinelRef = useRef(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  // Marquee state
-  const [marquee, setMarquee] = useState(null);
-  const dragRef = useRef(null);
-  const autoscrollRafRef = useRef(null);
+  const marquee = useMarqueeSelection({
+    scrollRef,
+    getSelected: () => useStore.getState().selectedIds,
+    setSelected: setSelectedIds,
+    onClickBackground: clearSelection,
+  });
 
   // Column count is derived from the measured scroller, not from a CSS
   // `auto-fill` track, because the packing below has to know it too — and the
@@ -129,180 +126,6 @@ export function AssetGrid({
     if (!el) return;
     setFeedPinned(el.scrollTop <= PIN_THRESHOLD_PX);
   }, [setFeedPinned]);
-
-  const updateMarqueeFromPointer = useCallback((screenX, screenY) => {
-    const drag = dragRef.current;
-    const el = scrollRef.current;
-    if (!drag || !el) return;
-
-    const containerRect = el.getBoundingClientRect();
-    const curContentX = screenX - containerRect.left + el.scrollLeft;
-    const curContentY = screenY - containerRect.top + el.scrollTop;
-
-    const contentRect = normalizeRect(
-      drag.startContent.x,
-      drag.startContent.y,
-      curContentX,
-      curContentY
-    );
-
-    setMarquee(contentRect);
-
-    // Hit test intersecting cards against cached bounds
-    const hits = drag.cachedCards
-      .filter((card) => rectsIntersect(contentRect, card))
-      .map((c) => c.id);
-
-    const nextSelection = computeMarqueeSelection(drag.initialSelectedIds, hits, {
-      shift: drag.shiftKey,
-      alt: drag.altKey,
-    });
-
-    setSelectedIds(nextSelection);
-  }, [setSelectedIds]);
-
-  const stopAutoscroll = () => {
-    if (autoscrollRafRef.current) {
-      cancelAnimationFrame(autoscrollRafRef.current);
-      autoscrollRafRef.current = null;
-    }
-  };
-
-  const startAutoscrollLoop = useCallback(() => {
-    if (autoscrollRafRef.current) return;
-
-    const tick = () => {
-      const drag = dragRef.current;
-      const el = scrollRef.current;
-      if (!drag || !el) {
-        stopAutoscroll();
-        return;
-      }
-
-      const containerRect = el.getBoundingClientRect();
-      const pointerY = drag.currentScreen.y;
-
-      const delta =
-        computeAutoscrollDelta(pointerY, containerRect.top, "top", 44, 20) ||
-        computeAutoscrollDelta(pointerY, containerRect.bottom, "bottom", 44, 20);
-
-      if (delta !== 0) {
-        el.scrollTop += delta;
-        updateMarqueeFromPointer(drag.currentScreen.x, drag.currentScreen.y);
-        autoscrollRafRef.current = requestAnimationFrame(tick);
-      } else {
-        stopAutoscroll();
-      }
-    };
-
-    autoscrollRafRef.current = requestAnimationFrame(tick);
-  }, [updateMarqueeFromPointer]);
-
-  const onPointerDownBackground = (e) => {
-    if (e.button !== 0) return;
-
-    // Do not initiate background marquee if clicking inside a card or interactive element
-    const cardEl = e.target.closest?.("[data-asset-card-id]");
-    const interactive = e.target.closest?.("button, a, input, select, textarea, [role='menuitem']");
-    if (cardEl || interactive) return;
-
-    const el = scrollRef.current;
-    if (!el) return;
-
-    try {
-      el.setPointerCapture?.(e.pointerId);
-    } catch {
-      /* ignore untracked or synthetic pointer ids */
-    }
-
-    const containerRect = el.getBoundingClientRect();
-    const startContentX = e.clientX - containerRect.left + el.scrollLeft;
-    const startContentY = e.clientY - containerRect.top + el.scrollTop;
-
-    // Cache card bounding boxes in content coordinates
-    const cardElements = Array.from(el.querySelectorAll("[data-asset-card-id]"));
-    const cachedCards = cardElements.map((card) => {
-      const cr = card.getBoundingClientRect();
-      return {
-        id: card.getAttribute("data-asset-card-id"),
-        left: cr.left - containerRect.left + el.scrollLeft,
-        top: cr.top - containerRect.top + el.scrollTop,
-        width: cr.width,
-        height: cr.height,
-      };
-    });
-
-    dragRef.current = {
-      pointerId: e.pointerId,
-      startScreen: { x: e.clientX, y: e.clientY },
-      currentScreen: { x: e.clientX, y: e.clientY },
-      startContent: { x: startContentX, y: startContentY },
-      cachedCards,
-      initialSelectedIds: useStore.getState().selectedIds,
-      shiftKey: e.shiftKey,
-      altKey: e.altKey,
-      moved: false,
-    };
-  };
-
-  const onPointerMoveBackground = (e) => {
-    const drag = dragRef.current;
-    if (!drag) return;
-
-    const dx = e.clientX - drag.startScreen.x;
-    const dy = e.clientY - drag.startScreen.y;
-
-    if (!drag.moved && Math.hypot(dx, dy) > 4) {
-      drag.moved = true;
-    }
-
-    if (!drag.moved) return;
-
-    drag.currentScreen = { x: e.clientX, y: e.clientY };
-    drag.shiftKey = e.shiftKey;
-    drag.altKey = e.altKey;
-
-    updateMarqueeFromPointer(e.clientX, e.clientY);
-
-    const el = scrollRef.current;
-    if (el) {
-      const cr = el.getBoundingClientRect();
-      const delta =
-        computeAutoscrollDelta(e.clientY, cr.top, "top", 44, 20) ||
-        computeAutoscrollDelta(e.clientY, cr.bottom, "bottom", 44, 20);
-      if (delta !== 0) {
-        startAutoscrollLoop();
-      } else {
-        stopAutoscroll();
-      }
-    }
-  };
-
-  const onPointerUpBackground = (e) => {
-    stopAutoscroll();
-    const drag = dragRef.current;
-    dragRef.current = null;
-
-    if (!drag) return;
-
-    const el = scrollRef.current;
-    if (el && drag.pointerId) {
-      try {
-        el.releasePointerCapture?.(drag.pointerId);
-      } catch {
-        /* ignore */
-      }
-    }
-
-    if (drag.moved) {
-      setMarquee(null);
-    } else {
-      // Plain click on empty background deselects all
-      if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
-        clearSelection();
-      }
-    }
-  };
 
   const onKeyDown = (e) => {
     const target = e.target;
@@ -450,25 +273,18 @@ export function AssetGrid({
         ref={scrollRef}
         tabIndex={-1}
         onScroll={onScroll}
-        onPointerDown={onPointerDownBackground}
-        onPointerMove={onPointerMoveBackground}
-        onPointerUp={onPointerUpBackground}
+        {...marquee.handlers}
         onKeyDown={onKeyDown}
         className={cn(
           "scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-4 relative outline-none",
-          marquee && "select-none cursor-crosshair"
+          marquee.active && "select-none cursor-crosshair"
         )}
       >
-        {marquee && (
+        {marquee.active && (
           <div
+            ref={marquee.overlayRef}
             data-testid="asset-grid-marquee"
             className="pointer-events-none absolute z-40 rounded border border-brand bg-brand/15 shadow-sm"
-            style={{
-              left: marquee.left,
-              top: marquee.top,
-              width: marquee.width,
-              height: marquee.height,
-            }}
           />
         )}
         {loading ? (
