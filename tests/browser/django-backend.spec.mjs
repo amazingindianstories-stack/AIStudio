@@ -95,7 +95,9 @@ test('Django authenticates browser login and protects admin server rendering', a
   const response = page.waitForResponse(response => response.url().endsWith('/api/auth/login'));
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   expect((await response).status()).toBe(200);
-  await expect(page).toHaveURL(/\/admin$/);
+  // The first visit to /admin compiles the route in next dev, which can take
+  // well over the default 10s on a loaded machine.
+  await expect(page).toHaveURL(/\/admin$/, { timeout: 45000 });
   await expect(page.getByText('Desktop fixture').first()).toBeVisible();
 });
 
