@@ -1,6 +1,6 @@
 # Automatic portraits (managed BytePlus pool) - rollout and rollback
 
-Status 2026-10-14: implemented and verified **locally only** (local stack, release gate, rehearsal).
+Status 2026-10-16: v1 (2026-10-14) plus **Portrait Gallery v2** are implemented and verified **locally only**.
 Nothing is deployed. Every production step below needs explicit owner approval.
 
 ## What changes for artists
@@ -13,21 +13,35 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   then fails **without any paid submission**.
 - ACTIVE assets are re-confirmed with BytePlus (unbilled GetAsset) at most 60 s before a submission,
   and after any failed job; a vanished asset is registered again automatically.
-- The Portrait Gallery becomes a read-only view (status, in-use, expiry, Add to prompt, Remove).
-  Manual portrait upload/registration returns 410 `PORTRAITS_ARE_AUTOMATIC`.
+- The Portrait Gallery (v2) is one shared, flat grid: artists upload one or many images (they are
+  prompt-ready after a short preparation), rename, delete (anyone may delete), select several and add them to
+  a prompt. Faces found automatically in prompt references appear there while their asset is live and
+  disappear when it expires or is deleted. Uploads are pool assets too: unused ones expire after the TTL.
+  Users never see groups, asset ids, slots or the word BytePlus. The old manual portrait routes
+  (`/api/assets/portraits*`) answer 410 `PORTRAITS_ARE_AUTOMATIC` on every method.
+- Pool slots are handed out strictly first come first served: the oldest waiting generation or queued
+  upload gets the next free (or evictable) slot; everyone else waits behind it.
+- A face the detector misses never traps an artist: when Seedance refuses an inline reference as a real
+  person (at creation or asynchronously), the image bytes are remembered as a face and the failure says so;
+  **Retry** then registers it and sends `asset://`. There is no automatic resubmission (the paid claim stays
+  one-shot). Uploading the same image to the Gallery has the same effect.
 - Admin → Limits → Portrait storage: TTL hours (1–72), pool size, longest wait.
 
 ## Pieces
 | Piece | Where |
 |---|---|
-| Migration (5 new tables, grants to existing roles) | `apps/assets/migrations/0005_managed_portraits.py` |
-| Pool, janitor, reconcile | `apps/assets/managed_pool.py` |
+| Migration 0005 (5 new tables, grants to existing roles) | `apps/assets/migrations/0005_managed_portraits.py` |
+| Migration 0006 (additive columns: asset `name`, `origin`, `hidden_at`, QUEUED status; scan `forced`) | `apps/assets/migrations/0006_portrait_gallery.py` |
+| Pool (adopts the group `veevee-portraits` by name), first-come-first-served claim, janitor, upload processing | `apps/assets/managed_pool.py` |
+| Gallery API | `apps/assets/managed_views.py` |
+| Missed-face learning | `portrait_prepare.learn_from_rejection`, called from `executor.execute_admitted` and `poller` |
+| One-off cleanup of the old BytePlus portraits | `python manage.py portraits_cutover` |
 | Worker preparation before admission | `apps/generation/services/portrait_prepare.py`, `executor._prepare_portraits` |
-| Scheduler janitor (60 s) | `apps/workers/scheduler.py` (only when the flag is on) |
-| Routes | `GET /api/portraits/managed`, `DELETE /api/portraits/managed/<id>`, `GET/POST /api/admin/portrait-settings` (gateway allowlisted; Django enforces admin) |
+| Scheduler: janitor (60 s) and upload/delete processing (3 s, one upload at a time) | `apps/workers/scheduler.py` (only when the flag is on) |
+| Routes | `GET/POST /api/portraits`, `PATCH /api/portraits/<id>`, `POST /api/portraits/delete`, `GET/POST /api/admin/portrait-settings` (all pass the gateway's general rule; Django enforces sessions and admin) |
 | Flag | `VEEVEE_MANAGED_PORTRAITS=1` (default off). The launcher passes it to API, generation and scheduler only |
 | Worker credentials | generation + scheduler need `GOAL4_PREVIEW_PORTRAIT_CONFIGURATION` (same value as the API's); with the flag on and no credentials they refuse to start |
-| Rollback | `python manage.py managed_portraits_rollback` |
+| Rollback | `python manage.py managed_portraits_rollback` (also deletes the pool group) |
 
 ## Preconditions (all required)
 1. Release gate **and** rehearsal pass records for the exact commit
@@ -41,28 +55,43 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 4. An idle moment (no queued/running jobs).
 
 ## Rollout order
-1. Deploy the new image to every service with the flag **off** (behaviour identical to today).
+1. Deploy the new image to every service with the flag **off** (behaviour identical to today; the old
+   portrait routes keep working). Check the launcher preflight accepts 60, 61 or 62 migration rows
+   (`MIGRATION_ROWS = (60, 61, 62)`).
 2. **Migration** (owner DSN, one-off): `python manage.py migrate --noinput` → `django_migrations`
-   goes 60 → 61. From here the **old launchers cannot start** (they assert 60 rows; the new
-   preflight accepts 60 or 61). Rolling a service back to an old launcher now requires the rollback
-   below first.
+   goes 60 → 62 (`assets.0005_managed_portraits`, `assets.0006_portrait_gallery`; 0006 only adds
+   columns). From here the **old launchers cannot start** (they assert 60 rows). Rolling a service back
+   to an old launcher now requires the rollback below first.
 3. Add `GOAL4_PREVIEW_PORTRAIT_CONFIGURATION` to the generation worker and scheduler (reference
    the API's variable; never printed).
-4. Remote cleanup of the old assets (approved list only), then set `VEEVEE_MANAGED_PORTRAITS=1` on
-   API, generation worker and scheduler; redeploy API → generation (idle) → scheduler.
-5. Verify: startup logs pass preflight; `GET /api/portraits/managed` → `enabled: true`; one owner-
-   approved Seedance face job (paid canary) → asset ACTIVE, `asset://` in the receipt, MOV master;
-   janitor runs (scheduler log); Gallery and Admin card render.
+4. **Clean the old BytePlus portraits** (owner decision 2026-10-16: the old gallery starts empty):
+   `python manage.py portraits_cutover` (dry run, default) lists every AIGC group and asset in the account
+   except the pool group and prints the counts and per-group asset counts (it names ids: run it privately).
+   The owner reviews the counts, then
+   `python manage.py portraits_cutover --apply --expect-assets N --expect-groups M` (N, M from the dry
+   run; it refuses on any difference, deletes every asset then every group, treats NotFound as done, then
+   marks every `portrait_assets` row `Retired`, keeping the rows because old generations and media grants
+   refer to their image URLs). Safe to re-run; it never touches the pool group.
+5. Set `VEEVEE_MANAGED_PORTRAITS=1` on API, generation worker and scheduler; redeploy API → generation
+   (idle) → scheduler. With the flag on, `production_runtime` does not install the old portrait lifecycle
+   patches and `enqueue` skips the old portrait reference check.
+6. Deploy the frontend (Portrait Gallery v2) with the Vercel CLI.
+7. Verify: startup logs pass preflight; `GET /api/portraits` → `enabled: true`; the old routes answer
+   410; one owner-approved Seedance face job (paid canary) → asset ACTIVE, `asset://` in the receipt,
+   MOV master; a Gallery upload goes waiting/preparing → ready; janitor and upload steps run (scheduler
+   log); the admin portrait-storage card renders.
 
 ## Rollback
 - **Flag only** (fast, keeps the schema): set `VEEVEE_MANAGED_PORTRAITS=0` (or remove it) on the
-  three services and redeploy. Face references go inline again as before.
+  three services and redeploy. Face references go inline again as before. The old portraits **cannot
+  come back**: the cutover deleted them at BytePlus (their rows stay as `Retired`).
 - **To an old launcher** (needs the 60-row history):
   1. Flag off on every service (above); wait until no generation holds a pin.
   2. Report: `python manage.py managed_portraits_rollback` (owner DSN, flag off in that process).
   3. `python manage.py managed_portraits_rollback --delete-remote --confirm` - deletes every asset in
-     Veevee's own pool group at BytePlus (irreversible; owner approval), then migrates `assets` back
-     to `0004` (drops only the five pool tables) and verifies the migration row is gone.
+     Veevee's own pool group at BytePlus **and then the pool group** (irreversible; owner approval), then
+     migrates `assets` back to `0004` (reverses 0006 and 0005; drops only the five pool tables) and
+     verifies both migration rows are gone (62 → 60).
   4. Roll the services back per `release-runbook.md`.
   Generations, media, ledger rows and all other tables are untouched.
 
@@ -74,3 +103,13 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 - Scenario tests (`apps/assets/test_managed_pool.py`): sharing, eviction, pinning, wait limit,
   quota, uncertain reconcile, janitor expiry, Gallery delete, draft→final re-register, remote
   drift, group recreation, failed-job re-verification, rollback command.
+
+## Local verification of v2 (2026-10-16)
+- Scenario tests: `apps/assets/test_portrait_gallery.py` (Gallery API, first come first served between
+  two waiters and an upload, group adoption by name incl. a duplicate-create race, janitor recovery,
+  missed-face learning at creation and asynchronously with a Retry through `asset://`, 410 on every old
+  route, upgrade from 0005), `apps/assets/test_portraits_cutover.py` (dry run, exact-count apply,
+  idempotence, pool group untouched), `deploy/test_portrait_gallery_routes.py` (gateway, migration counts).
+- Fake providers (`backend/testsupport`): Seedance refuses inline images with configured SHA-256s as a
+  real person (`reject_image_sha256`, `reject_mode` `create` | `async`; also `POST /control` on the local
+  fake provider server); `DeleteAssetGroup`; `ListAssetGroups` name filter and pagination.

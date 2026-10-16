@@ -139,6 +139,15 @@ credentials; depth worker could not upload on local storage. Observed, unchanged
 also in production rows): a Seedance submission refused with 400 keeps its estimated
 `cost_cents` on the failed row.
 
+## Portraits v2 - Portrait Gallery, first come first served, missed-face recovery (2026-10-16, local only)
+Branch `feat/portraits-v2`, not deployed, flag still off everywhere. Backend: migration
+`assets.0006_portrait_gallery` (additive; `MIGRATION_ROWS` = 60, 61, 62), one hidden pool group adopted by
+name, strict first-come-first-served slots, janitor recovery (stuck DELETING/PROCESSING, queued uploads,
+hidden assets), shared Gallery API (`/api/portraits`), old portrait routes 410 in managed mode, Seedance
+face rejections teach the face scan so Retry sends `asset://`, `portraits_cutover` command for the old
+BytePlus assets. Rollout order, owner approvals and rollback: `managed-portraits.md`. Not done pending
+owner confirmation: raising `admission.MAX_CONCURRENT['video']` to 8.
+
 ## Release 2026-10-15 - Magnific image + video upscale (owner approved)
 Root cause of "upscale not working": since the Green cutover the gateway refused
 `POST /api/generate/upscale` (F-07), and behind it the paid guard, the old-launcher worker, the
