@@ -33,7 +33,9 @@ def quote_for(contract,config):
    return magnific_quote(contract)
   if contract['kind']=='image':
    require(provider in ('gemini','seedream'),'Only configured Gemini or Seedream image providers authorized')
-   endpoint='https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent' if provider=='gemini' else 'https://ark.ap-southeast.bytepluses.com/api/v3/images/generations'
+   # Each Gemini image model is pinned to its own generateContent endpoint (registry model code).
+   from apps.generation.providers import gemini
+   endpoint=gemini.endpoint(contract['model']) if provider=='gemini' else 'https://ark.ap-southeast.bytepluses.com/api/v3/images/generations'
    return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[endpoint],'provider_payload_allowed_values':{}}
   require(contract['kind']=='video' and definition.get('id') in ('seedance','seedance-25'),'Only Seedance 2.0 or 2.5 video authorized')
   return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':['https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks'],'provider_payload_allowed_values':{'output_format':['mov']} if definition.get('id')=='seedance-25' else {}}
@@ -72,8 +74,9 @@ def magnific_quote(contract):
 def operator_quotes(pricing_evidence_sha256):
  base={'pricing_status':'OPERATOR_CONSERVATIVE_RESERVATION_NOT_HARD_CAP','pricing_evidence_sha256':pricing_evidence_sha256,'maximum_charge_verified':False}
  image={**base,'maximum_cents':600,'allowed_input_values':{'kind':['image'],'resolution':['1K','2K','4K']},'allowed_paid_endpoints':['https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent'],'provider_payload_allowed_values':{'generationConfig.candidateCount':[1]},'provider_payload_numeric_maxima':{'generationConfig.maxOutputTokens':32768}}
+ image_21={**image,'allowed_paid_endpoints':['https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent']}
  video={**base,'maximum_cents':300,'reservation_formula':'seedance_current_token_estimate_times_two_floor_300','allowed_input_values':{'kind':['video'],'resolution':['480p','720p','1080p']},'allowed_paid_endpoints':['https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks'],'provider_payload_allowed_values':{'model':['dreamina-seedance-2-5-260628'],'output_format':['mov']},'provider_payload_numeric_maxima':{'duration':15}}
- return {'nano-banana-pro':image,'Nano Banana Pro':image,'seedance-25':video,'Seedance 2.5':video}
+ return {'nano-banana-pro':image,'Nano Banana Pro':image,'nano-banana-2-1':image_21,'Nano Banana 2.1':image_21,'seedance-25':video,'Seedance 2.5':video}
 
 def install_paid_guard(config):
  """Call after django.setup, before API routes/worker imports. Never patch source files."""

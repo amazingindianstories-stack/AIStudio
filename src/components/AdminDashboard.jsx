@@ -1867,12 +1867,13 @@ function GlobalLimitCard({
 // server-only database/storage SDKs and must never be bundled into this
 // "use client" file.
 
-/** Static names for the six dependencies, used only before any API response
+/** Static names for the dependencies, used only before any API response
  *  has ever landed (first-load skeleton / first-load failure). Once real
  *  results arrive, rows render `name` straight from the API — this is not a
  *  second source of truth for display wording. */
 const STATUS_ROWS_FALLBACK = [
   { id: "gemini", name: "Gemini / Nano Banana Pro" },
+  { id: "gemini-nano-banana-2-1", name: "Gemini / Nano Banana 2.1" },
   { id: "higgsfield", name: "Higgsfield MCP" },
   { id: "seedance", name: "BytePlus ModelArk / Seedance" },
   { id: "kling", name: "KlingAI Image" },

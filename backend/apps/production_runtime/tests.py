@@ -34,6 +34,35 @@ class AdmissionTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             paid_guard.quote_for(contract(kind='image', model='Nano Banana Pro', draft_task_id='cgt-1'), UNLIMITED)
 
+    def test_each_gemini_image_model_is_pinned_to_its_own_generate_content_endpoint(self):
+        root = 'https://generativelanguage.googleapis.com/v1beta/models/'
+        for model, code in (('Nano Banana Pro', 'gemini-3-pro-image'), ('nano-banana-pro', 'gemini-3-pro-image'),
+                            ('Nano Banana 2.1', 'gemini-nano-banana-2.1'), ('nano-banana-2-1', 'gemini-nano-banana-2.1')):
+            for resolution in ('1K', '2K', '4K'):
+                quote = paid_guard.quote_for(contract(kind='image', model=model, resolution=resolution), UNLIMITED)
+                self.assertEqual(quote, {'maximum_cents': 0, 'pricing_status': 'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE',
+                                         'allowed_paid_endpoints': [root + code + ':generateContent'], 'provider_payload_allowed_values': {}})
+        # A Gemini entry without a model code (hidden Nano Banana 2) is refused before anything is reserved.
+        with self.assertRaisesRegex(ValueError, 'no configured Gemini image model'):
+            paid_guard.quote_for(contract(kind='image', model='Nano Banana 2'), UNLIMITED)
+        with self.assertRaises(ValueError):
+            paid_guard.quote_for(contract(kind='image', model='Nano Banana 2.1', draft_task_id='cgt-1'), UNLIMITED)
+
+    def test_limited_scope_operator_quote_for_nano_banana_2_1(self):
+        quotes = paid_guard.operator_quotes('a' * 64)
+        self.assertEqual(quotes['Nano Banana 2.1'], quotes['nano-banana-2-1'])
+        self.assertEqual(quotes['Nano Banana 2.1']['allowed_paid_endpoints'],
+                         ['https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent'])
+        self.assertEqual(quotes['Nano Banana Pro']['allowed_paid_endpoints'],
+                         ['https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent'])
+        self.assertEqual({key: value for key, value in quotes['Nano Banana 2.1'].items() if key != 'allowed_paid_endpoints'},
+                         {key: value for key, value in quotes['Nano Banana Pro'].items() if key != 'allowed_paid_endpoints'})
+        limited = {'approved_scope': paid_guard.LIMITED_SCOPE, 'maximum_total_cents': paid_guard.CAP,
+                   'reviewed_maximum_quotes': quotes, 'operator_budget_uncertainty_accepted': True}
+        self.assertEqual(paid_guard.quote_for(contract(kind='image', model='Nano Banana 2.1', resolution='4K'), limited)['maximum_cents'], 600)
+        with self.assertRaises(ValueError):
+            paid_guard.quote_for(contract(kind='image', model='Nano Banana 2.1', resolution='512'), limited)
+
     def test_unauthenticated_and_unsupported_jobs_are_rejected(self):
         with self.assertRaises(ValueError):
             paid_guard.quote_for(contract(kind='video', model='Seedance 2.5', user_id=None), UNLIMITED)
@@ -158,6 +187,26 @@ class OneClaimPerPostTests(TransactionTestCase):
                 HttpTransport(allowed_hosts=['x']).request('POST', SEEDANCE_ENDPOINT, body={'output_format': 'mp4'})
         self.assertEqual(sent, [])
         self.assertEqual(ledger[row.id], 'ATTEMPTING')
+
+    def test_nano_banana_2_1_claim_allows_only_its_own_endpoint(self):
+        from apps.generation.providers import gemini
+        from apps.generation.providers.transport import HttpTransport, ProviderError
+        row = contract(kind='image', model='Nano Banana 2.1', resolution='2K')
+        body = gemini.build_payload({'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '1:1',
+                                     'imageSize': '2K', 'modelDisplay': 'Nano Banana 2.1'})
+        for url, allowed in ((gemini.endpoint('Nano Banana Pro'), False), (gemini.endpoint('Nano Banana 2.1'), True)):
+            ledger, sent = {row['id']: 'ATTEMPTING'}, []
+            with self.subTest(url=url), self.installed(ledger, sent):
+                paid_guard.STATE.active = {'id': row['id'], 'contract': row, 'quote': paid_guard.quote_for(row, UNLIMITED)}
+                transport = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
+                if allowed:
+                    transport.request('POST', url, body=body)
+                else:
+                    with self.assertRaises(ProviderError) as caught:
+                        transport.request('POST', url, body=body)
+                    self.assertEqual(caught.exception.code, 'preview_paid_scope')
+            self.assertEqual(sent, [('POST', url, body)] if allowed else [])
+            self.assertEqual(ledger[row['id']], 'SUBMITTING' if allowed else 'ATTEMPTING')
 
 
 @override_settings(VEEVEE_MAGNIFIC_UPSCALE=True)

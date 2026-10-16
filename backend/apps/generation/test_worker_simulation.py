@@ -58,6 +58,20 @@ class WorkerSimulationTests(TransactionTestCase):
         row, _, fake, storage = self.run_case('image', {'prompt': 'a quiet courtyard at dawn', 'model': 'Nano Banana Pro', 'aspectRatio': '1:1'})
         self.assert_stored(row, storage, 'image/')
         self.assertTrue(any('generateContent' in call[1] for call in fake.calls), fake.calls)
+        self.assertEqual([model for model, _ in fake.gemini_payloads], ['gemini-3-pro-image'])
+
+    def test_nano_banana_2_1_image_posts_once_to_its_own_model_code(self):
+        row, _, fake, storage = self.run_case('image', {'prompt': 'a quiet courtyard at dawn', 'model': 'Nano Banana 2.1',
+                                                        'aspectRatio': '4:5', 'resolution': '4K', 'seed': 11})
+        self.assert_stored(row, storage, 'image/')
+        # The stored ratio is measured from the master (the fake returns a 64x48 PNG).
+        self.assertEqual((row.model, row.resolution, row.aspect_ratio, row.seed, row.cost_cents, row.cost_basis),
+                         ('Nano Banana 2.1', '4K', '4:3', 11, 12, 'estimated'))
+        posts = [call for call in fake.calls if call[0] == 'POST' and call[1].endswith(':generateContent')]
+        self.assertEqual(posts, [('POST', 'generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent')])
+        [(model, body)] = fake.gemini_payloads
+        self.assertEqual(model, 'gemini-nano-banana-2.1')
+        self.assertEqual(body['generationConfig'], {'responseModalities': ['TEXT', 'IMAGE'], 'imageConfig': {'aspectRatio': '4:5', 'imageSize': '4K'}, 'seed': 11})
 
     def test_seedream_image(self):
         row, _, fake, storage = self.run_case('image', {'prompt': 'a quiet courtyard at dawn', 'model': 'Seedream 5.0 Pro', 'aspectRatio': '1:1', 'resolution': '2K'})
