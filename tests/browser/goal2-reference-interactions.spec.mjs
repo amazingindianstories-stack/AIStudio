@@ -45,9 +45,11 @@ test('Goal2 actual pointer traverses 50 references with edge autoscroll and pres
   await page.locator('textarea').first().fill('@img1 @img10 @img50 literal @img100 @named');
   const strip = page.getByTestId('reference-strip');
   const handle = page.locator('[data-reference-grip]').first();
+  // Editing the prompt re-lays the cards out with a layout animation; hover waits until the grip
+  // has stopped moving, so the press lands on it and the measured geometry is the resting one.
+  await handle.hover();
   const h = await handle.boundingBox();
   const bounds = await strip.boundingBox();
-  await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2);
   await page.mouse.down();
   await page.mouse.move(bounds.x + bounds.width - 2, h.y + h.height / 2, { steps: 20 });
   await expect.poll(async () => strip.evaluate(el => el.scrollLeft + el.clientWidth >= el.scrollWidth - 5), { timeout: 20000 }).toBeTruthy();
@@ -67,9 +69,10 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   const ids = await stage(page, context, 10);
   const sources = await page.locator('[data-reference-id] img').evaluateAll(images => images.map(image => image.getAttribute('src')));
   await page.locator('textarea').first().fill('@img1 @img10 @img100 @named');
+  // As above: press the grip only once the layout animation has settled.
+  await page.locator('[data-reference-grip]').first().hover();
   const grip = await page.locator('[data-reference-grip]').first().boundingBox();
   const stripBounds = await page.getByTestId('reference-strip').boundingBox();
-  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
   await page.mouse.move(stripBounds.x + stripBounds.width - 1, grip.y + grip.height / 2, { steps: 15 });
   await expect.poll(async () => (await order(page)).at(-1)).toBe(ids[0]);
