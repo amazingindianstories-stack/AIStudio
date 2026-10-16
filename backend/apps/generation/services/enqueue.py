@@ -5,6 +5,7 @@ import time
 from urllib.parse import unquote
 import math
 import uuid
+from django.conf import settings
 from django.db import transaction
 from apps.admin_dashboard.models import AppSetting, UserLimit
 from apps.admin_dashboard.views import LIMITS, parse
@@ -325,7 +326,8 @@ def measure_reference_audio(ref):
 
 def prepare_video(item, body, identifier):
     verify_reference_audio_durations(item)
-    verify_portrait_references(item, body)
+    if not getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):     # the automatic pool makes every face a portrait at run time
+        verify_portrait_references(item, body)
     verify_registered_portraits(item, body)
     result = {'costCents':compute_cost(item,read_pricing())}
     if has_length(body.get('referenceImages')): result['referenceImages'] = save_reference_images(body['referenceImages'],identifier)

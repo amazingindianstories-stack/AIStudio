@@ -27,7 +27,9 @@ class ProductionRuntimeConfig(AppConfig):
         if getattr(settings, 'VEEVEE_EXPORT_ADMISSION', False) and component in ('api', 'export'):
             from . import export_admission
             export_admission.install('api' if component == 'api' else 'worker')
-        if getattr(settings, 'VEEVEE_PORTRAIT_LIFECYCLE', False) and component == 'api':
+        # The automatic pool replaces the old portrait routes (which answer 410), so their lifecycle patches stay off.
+        if (getattr(settings, 'VEEVEE_PORTRAIT_LIFECYCLE', False) and component == 'api'
+                and not getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False)):
             install_portrait_lifecycle()
         paid = getattr(settings, 'VEEVEE_PAID_GUARD', None)
         if paid:

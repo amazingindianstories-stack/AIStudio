@@ -51,10 +51,12 @@ def authorize_owned_upload_read(key, actor_id):
     if not actor_id:
         raise ValueError('Uploaded reference is not authorized and ready.')
     if str(row.actor_id) != str(actor_id):
-        from apps.assets.models import Asset, PortraitAsset
+        from apps.assets.models import Asset, ManagedPortraitAsset, PortraitAsset
         canonical = '/api/media/'+row.key
         published = (Asset.objects.filter(images__contains=[canonical]).exists()
-            or PortraitAsset.objects.filter(image_url=canonical).exists())
+            or PortraitAsset.objects.filter(image_url=canonical).exists()
+            # The shared Portrait Gallery: other artists' portraits (and their thumbnails) are visible to everyone.
+            or ManagedPortraitAsset.objects.filter(source_key=row.key, hidden_at__isnull=True).exclude(status__in=('DELETING', 'DELETED', 'FAILED')).exists())
         if not published:
             raise ValueError('Uploaded reference is private to its uploader.')
     return row
