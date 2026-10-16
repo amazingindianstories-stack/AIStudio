@@ -5,6 +5,8 @@ async function postAsBrowser(api, path, options = {}) {
 import { test as base, expect } from "@playwright/test";
 import { createHmac, randomUUID } from "node:crypto";
 import { fixtureDatabase } from './fixture-db.mjs';
+import { openTreeFolder } from './tree.mjs';
+
 
 // This suite creates disposable records. Never infer a remote/production target.
 const test = base.extend({
@@ -113,7 +115,7 @@ test.describe('pointer folder move evidence', () => {
     await source.getByRole('button').first().click();
     const child = library.panel.getByRole('treeitem').filter({ hasText: library.globalChild.name });
     await expect(child).toBeVisible();
-    await child.click();
+    await openTreeFolder(library.panel, library.globalChild.name);
     await expect(library.panel.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(destination.name);
     await expect(library.panel.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(library.globalChild.name);
     await testInfo.attach('pointer-folder-move-after-reload', { body: await page.screenshot(), contentType: 'image/png' });
@@ -183,7 +185,7 @@ for (const scope of ["global", "project"]) {
         expect(await trigger.evaluate(button => { const box = button.getBoundingClientRect(); return button.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)); })).toBe(true);
       }
       if (entry === "breadcrumb") {
-        await library.panel.getByRole("treeitem").filter({ hasText: root.name }).click();
+        await openTreeFolder(library.panel, root.name);
         await library.panel.getByRole("button", { name: "Current folder actions" }).click();
       } else await library.panel.getByRole("button", { name: `${entry === "tree" ? "Tree" : "Card"} folder actions: ${root.name}`, exact: true }).click();
       await page.getByRole("menuitem", { name: "Rename", exact: true }).click();
@@ -210,7 +212,9 @@ for (const scope of ["global", "project"]) {
         await library.panel.getByRole("button", { name: `Tree folder actions: ${root.name}`, exact: true }).click();
         await page.getByRole("menuitem", { name: "New subfolder", exact: true }).click();
       } else {
-        await library.panel.getByRole("treeitem").filter({ hasText: root.name }).click();
+        await openTreeFolder(library.panel, root.name);
+        // "+ New folder" creates inside the current folder; wait until the click has made it current.
+        await expect(library.panel.getByRole("navigation", { name: "Breadcrumb" })).toContainText(root.name);
         if (entry === "breadcrumb") await library.panel.getByRole("button", { name: "+ New folder", exact: true }).click();
       }
       const input = library.panel.getByRole("textbox", { name: entry === "root" ? "Folder name" : "Subfolder name", exact: true });
@@ -265,7 +269,7 @@ for (const width of [1024, 1440]) {
       row = library.panel.getByRole("treeitem").filter({ hasText: `${library.prefix} Level ${i} long folder name` });
       await row.getByRole("button").first().click();
     }
-    await library.panel.getByRole("treeitem").filter({ hasText: parent.name }).click();
+    await openTreeFolder(library.panel, parent.name);
     const nav = library.panel.getByRole("navigation", { name: "Breadcrumb" });
     await expect(nav).toContainText(parent.name);
     expect(await nav.locator("button").count()).toBe(15);

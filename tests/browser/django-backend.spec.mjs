@@ -154,7 +154,11 @@ test('browser downloads native 10-bit MOV through MediaCard without changing byt
   const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
   if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
   await panel.getByRole('button', { name: 'Global library', exact: true }).click();
+  // A new search swaps the grid for its loading skeleton and renders the results afresh, so the
+  // card shown before the response is not the one that stays; hover only the final card.
+  const searched = page.waitForResponse(response => response.url().includes('q=Native+MOV+fixture') && response.url().includes('limit='));
   await panel.getByRole('textbox', { name: 'Search prompts' }).fill('Native MOV fixture');
+  await searched;
   const card = panel.locator('[data-asset-card-id="20000000-0000-4000-8000-000000000001"]');
   await expect(card).toBeVisible();
   // Download lives in the card's hover action strip and asks for confirmation.

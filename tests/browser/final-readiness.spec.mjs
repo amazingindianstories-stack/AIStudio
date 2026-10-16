@@ -1,6 +1,7 @@
 import { test as base, expect } from '@playwright/test';
 import { createHmac, randomUUID } from 'node:crypto';
 import { fixtureDatabase } from './fixture-db.mjs';
+import { openTreeFolder } from './tree.mjs';
 
 const USER_ID = 'e33e1832-9e29-427f-af61-796b842a4b37';
 const MULTI_SELECT_MODIFIER = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -138,7 +139,7 @@ test('real pointer multi-asset drag moves both rows and survives reload', async 
   await expect.poll(async () => (await fixture.db`SELECT id FROM generations WHERE id IN ${fixture.db(ids)} AND folder_id=${fixture.folderId}`).length).toBe(2);
   await fixture.open();
   await showFolders(panel);
-  await panel.getByRole('treeitem').filter({ hasText: fixture.folderName }).click();
+  await openTreeFolder(panel, fixture.folderName);
   await expect(cards).toHaveCount(2);
   for (const id of ids) await expect(panel.locator(`[data-asset-card-id="${id}"]`)).toBeVisible();
   await info.attach('pointer-multi-asset-move', { body: await page.screenshot(), contentType: 'image/png' });
