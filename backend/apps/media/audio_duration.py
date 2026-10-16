@@ -12,7 +12,8 @@ import tempfile
 
 logger = logging.getLogger(__name__)
 
-PROBE_TIMEOUT_SECONDS = 10
+# ffprobe reads a <= 15 MB local file in milliseconds; keep the worst case far below the request timeout.
+PROBE_TIMEOUT_SECONDS = 5
 
 
 def audio_seconds(data):

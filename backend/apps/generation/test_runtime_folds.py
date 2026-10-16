@@ -271,6 +271,22 @@ class SubmitTimeReferenceAudioCheckTests(SimpleTestCase):
         self.check('Higgsfield Seedance 2.0', 60.0)
         self.check('Seedance 2.5')
 
+    def test_clips_past_the_time_budget_are_left_to_the_provider(self):
+        from .services.enqueue import ReferenceAudioRejected, verify_reference_audio_durations
+        refs = [f'/api/media/uploads/audio-reference/{index}' for index in range(3)]
+        lengths = dict(zip(refs, (12.0, 12.0, 1.0)))
+        now = [0.0]
+        def slow(ref):
+            now[0] += 5.0  # each read and probe takes 5 s
+            return lengths[ref]
+        item = {'model': 'Seedance 2.5', 'prompt': 'shot', 'referenceAudios': refs}
+        with self.assertLogs('apps.generation.services.enqueue', 'WARNING') as logs:
+            verify_reference_audio_durations(item, measure=slow, budget_seconds=8.0, clock=lambda: now[0])
+        self.assertIn('unchecked_from=3', logs.output[0])
+        self.assertEqual(now[0], 10.0, 'the third clip is never read')
+        with self.assertRaisesRegex(ReferenceAudioRejected, r'^@audio3 is only 1\.0s long'):
+            verify_reference_audio_durations(item, measure=lengths.get, budget_seconds=8.0, clock=lambda: 0.0)
+
 
 class AudioDurationProbeTests(SimpleTestCase):
     def wav(self, seconds, rate=8000):

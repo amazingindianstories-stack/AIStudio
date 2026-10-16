@@ -1,6 +1,7 @@
 """Source-compatible enqueue validation and durable generation insertion."""
 import logging
 import re
+import time
 from urllib.parse import unquote
 import math
 import uuid
@@ -13,7 +14,7 @@ from apps.canvas.serialization import JS_WHITESPACE
 from apps.common.javascript import UNDEFINED, truthy, string, utf16_length
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
-from apps.generation.model_registry import capability, model_definition, is_provider_model
+from apps.generation.model_registry import capability, is_provider_model
 from apps.generation.models import Generation
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
 from apps.generation.serialization import camel
@@ -271,13 +272,17 @@ class ReferenceAudioRejected(InvalidRequest):
 
 # BytePlus enforces a 30 s clip limit as "<= 30.2"; match what it really accepts.
 AUDIO_LIMIT_SLACK_SECONDS = 0.2
+# Measuring runs inside the enqueue request (gunicorn times out at 25 s), and a model may take
+# up to 10 clips. Past this budget the remaining clips are left to the provider.
+AUDIO_CHECK_BUDGET_SECONDS = 8.0
 
 
-def verify_reference_audio_durations(item, measure=None):
+def verify_reference_audio_durations(item, measure=None, *, budget_seconds=AUDIO_CHECK_BUDGET_SECONDS, clock=time.monotonic):
     """Refuse audio the provider would reject on length, before anything is queued.
 
-    A clip that cannot be read or measured is let through: the provider stays
-    the authority, and a measuring problem here must never block an artist.
+    A clip that cannot be read or measured, or is reached after the time
+    budget, is let through: the provider stays the authority, and a measuring
+    problem here must never block an artist or time out the request.
     Only the clips the worker sends are checked: the @audioN tags the prompt
     names, or every clip when it names none (resolve_references).
     """
@@ -290,7 +295,12 @@ def verify_reference_audio_durations(item, measure=None):
             f'{limits["clipMin"]}-{limits["clipMax"]}s each and {limits["totalMax"]}s in total')
     sent = [n for n in mention_indices(item.get('prompt'), 'audio') if n <= len(refs)] or range(1, len(refs) + 1)
     total, complete = 0.0, True
+    deadline = clock() + budget_seconds
     for index in sent:
+        if clock() >= deadline:
+            logger.warning('reference_audio_check_budget_exhausted unchecked_from=%s', index)
+            complete = False
+            break
         seconds = measure(refs[index - 1])
         if seconds is None:
             complete = False
