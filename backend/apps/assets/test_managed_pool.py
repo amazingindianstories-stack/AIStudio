@@ -204,15 +204,16 @@ class ManagedPoolTests(TransactionTestCase):
         busy = self.enqueue([self.upload(FACE, 'image/jpeg')])
         executor.process_generation(busy, heartbeat=False)
         executor.process_generation(busy, heartbeat=False)
-        listing = self.client.get('/api/portraits/managed').json()
+        listing = self.client.get('/api/portraits').json()
         self.assertTrue(listing['enabled'])
-        asset = listing['assets'][0]
-        self.assertEqual((asset['label'], asset['inUse']), ('Ready', 1))
-        refused = self.client.delete(f'/api/portraits/managed/{asset["id"]}')
-        self.assertEqual((refused.status_code, refused.json()['code']), (409, 'PORTRAIT_IN_USE'))
+        asset = listing['portraits'][0]
+        self.assertEqual((asset['state'], asset['inUse']), ('ready', True))
+        hidden = self.client.post('/api/portraits/delete', {'ids': [asset['id']]}, content_type='application/json')
+        self.assertEqual(hidden.json()['results'], [{'id': asset['id'], 'ok': True}], 'a portrait in use leaves the Gallery at once')
+        self.assertEqual(self.client.get('/api/portraits').json()['portraits'], [])
+        self.assertEqual(ManagedPortraitAsset.objects.get().status, 'ACTIVE', 'but stays until its generation finishes')
         self.assertEqual(self.run_worker(busy).status, 'succeeded')
-        removed = self.client.delete(f'/api/portraits/managed/{asset["id"]}')
-        self.assertEqual(removed.status_code, 200, removed.content)
+        managed_pool.janitor()
         self.assertEqual(ManagedPortraitAsset.objects.get().status, 'DELETED')
         self.assertEqual(self.fake.live_asset_count(), 0)
 
