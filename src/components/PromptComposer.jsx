@@ -617,9 +617,9 @@ export function PromptComposer() {
             >
               <button
                 onClick={() => mentionRef.current?.insertTag(`@audio${i + 1}`)}
-                className="flex flex-1 flex-col items-center justify-center gap-1"
+                className="flex flex-1 flex-col items-center justify-center gap-0.5 py-[18px]"
               >
-                <AudioLines className="h-4 w-4 text-brand" />
+                <AudioLines className="h-3.5 w-3.5 text-brand" />
                 <span className="line-clamp-1 w-full text-center text-[9px] leading-tight text-white/60">
                   {typeof name === "string" ? name : name.name}
                 </span>
@@ -629,7 +629,7 @@ export function PromptComposer() {
                   {formatAudioSeconds(name.duration)}
                 </span>
               )}
-              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
+              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold leading-[14px] text-brand backdrop-blur-sm">
                 @audio{i + 1}
               </span>
               <button
