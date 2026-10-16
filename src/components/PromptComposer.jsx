@@ -1609,14 +1609,14 @@ export function ReferenceStrip({ store: s, insertTag }) {
       {visibleIds.map((id, i) => {
         const sourceIndex = ids.indexOf(id);
         const tag = s.referenceTags?.[sourceIndex] || `@img${sourceIndex + 1}`;
-        const source = referenceSource(s.referenceImages[sourceIndex], s.referenceKinds?.[sourceIndex], s.portraitAssets);
+        const source = referenceSource(s.referenceImages[sourceIndex], s.referenceKinds?.[sourceIndex], s.portraits?.items);
         const label = s.referenceLabels?.[sourceIndex] || source.name || (source.type === "portrait" ? "Portrait" : `Reference ${sourceIndex + 1}`);
         return <motion.div key={id} data-reference-id={id} data-reference-position={i + 1} layout={!gesture.current && !reducedMotion} transition={{ duration: reducedMotion ? 0 : 0.16 }}
           onKeyDown={(e) => { if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); move(id, sourceIndex + (e.key === "ArrowLeft" ? -1 : 1)); } }}
           className={cn("group relative w-24 shrink-0 rounded-lg border bg-ink-800 p-1 focus-within:ring-2 focus-within:ring-brand", preview?.id === id ? "border-brand border-l-4 ring-2 ring-brand/70 opacity-50" : "border-line")}>
           <div className="relative">
             <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag(tag)} className="block h-20 w-full overflow-hidden rounded focus-visible:outline-brand">
-              <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[sourceIndex], s.portraitAssets)} alt={label} portrait={source.type === "portrait"} className="h-full w-full object-cover" />
+              <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[sourceIndex], s.portraits?.items)} alt={label} portrait={source.type === "portrait"} className="h-full w-full object-cover" />
               <span className="absolute bottom-0 left-0 right-0 truncate bg-black/65 text-[11px] font-semibold text-brand">{tag}</span>
             </button>
             {source.type === "portrait" && (
@@ -1651,7 +1651,7 @@ export function ReferenceStrip({ store: s, insertTag }) {
       })}
     </div>
     {preview && <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-24 rounded-lg border-2 border-brand bg-ink-800 p-1 shadow-xl" style={{ left: preview.x - 48, top: preview.y - 80 }}>
-      <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[activeIndex], s.portraitAssets)} alt="Reference" className="h-20 w-full rounded object-cover" />
+      <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[activeIndex], s.portraits?.items)} alt="Reference" className="h-20 w-full rounded object-cover" />
       <span className="text-xs text-brand">Position {preview.ids.indexOf(preview.id) + 1}</span>
     </div>}
     {positionId && <form className="flex items-center gap-2 rounded border border-line p-2" onSubmit={(e) => { e.preventDefault(); move(positionId, Number(position) - 1); setPositionId(null); }}>
