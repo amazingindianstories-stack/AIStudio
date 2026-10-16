@@ -119,7 +119,7 @@ test("uploadPortraits refuses oversized and non-image files per item without any
   });
 });
 
-test("attachPortraitsToComposer adds labelled portrait references once, closes the gallery once and skips duplicates", async () => {
+test("attachPortraitsToComposer adds labelled portrait references once, closes the gallery once and dedupes within one add", async () => {
   await withStore(async () => {
     useStore.setState({ portraitGalleryOpen: true, referenceImages: [], referenceKinds: [], referenceLabels: [], referenceTags: [], referenceIds: [], referenceVideos: [], referenceAudios: [] });
     const a = p("a", 1, { name: "Sati" }), b = p("b", 2, { name: "Zain" });
@@ -135,8 +135,10 @@ test("attachPortraitsToComposer adds labelled portrait references once, closes t
     assert.equal(state.portraitGalleryOpen, false);
     assert.equal(closes, 1);
     useStore.setState({ portraitGalleryOpen: true });
-    assert.deepEqual(useStore.getState().attachPortraitsToComposer([a]), { ok: true, count: 0 });
-    assert.equal(useStore.getState().referenceImages.length, 2);
+    assert.deepEqual(useStore.getState().attachPortraitsToComposer([a]), { ok: true, count: 1 });
+    const again = useStore.getState();
+    assert.equal(again.referenceImages.length, 3, "the same portrait can be added again");
+    assert.equal(new Set(again.referenceIds).size, 3, "each occurrence has its own reference id");
   });
 });
 

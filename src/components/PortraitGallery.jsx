@@ -285,7 +285,7 @@ function PortraitGalleryDialog() {
         </header>
 
         <div className="relative flex min-h-0 flex-1">
-          <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <main className="isolate flex min-h-0 min-w-0 flex-1 flex-col">
             {available && (selected.length > 0 ? (
               <div data-testid="portrait-selection-toolbar" className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line bg-ink-800/90 px-4 text-xs select-none">
                 <div className="flex min-w-0 items-center gap-2.5">
@@ -315,9 +315,10 @@ function PortraitGalleryDialog() {
                     type="button"
                     disabled={busy}
                     onClick={() => setPendingDelete(chosen)}
-                    className="flex items-center gap-1.5 rounded-full bg-red-500/15 px-3 py-1 font-semibold text-red-300 transition hover:bg-red-500/25 disabled:opacity-40"
+                    aria-label={`Delete ${selected.length}`}
+                    className="flex items-center gap-1.5 rounded-full bg-red-500/15 px-2.5 py-1 font-semibold text-red-300 transition hover:bg-red-500/25 disabled:opacity-40 sm:px-3"
                   >
-                    <Trash2 className="h-3.5 w-3.5" /> Delete {selected.length}
+                    <Trash2 className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Delete {selected.length}</span>
                   </button>
                   <button type="button" aria-label="Clear selection" title="Clear selection (Esc)" onClick={() => setSelected([])} className="grid h-7 w-7 place-items-center rounded-md text-white/50 transition hover:bg-white/10 hover:text-white">
                     <X className="h-3.5 w-3.5" />
@@ -354,6 +355,7 @@ function PortraitGalleryDialog() {
 
             <div
               ref={scrollRef}
+              data-testid="portrait-grid-scroller"
               tabIndex={-1}
               {...marquee.handlers}
               className={cn("scroll-thin relative min-h-0 flex-1 overflow-y-auto px-4 py-4 outline-none", marquee.active && "cursor-crosshair select-none")}
@@ -424,13 +426,13 @@ function PortraitGalleryDialog() {
               onSelectAsset={(p) => setPreviewId(p.id)}
               onAttach={(p) => addToPrompt([p])}
               onDelete={(p) => setPendingDelete([p])}
-              onRename={(id, name) => useStore.getState().renamePortrait(id, name)}
+              onRename={async (id, name) => { const result = await useStore.getState().renamePortrait(id, name); if (!result.ok) notify(result.error); return result; }}
             />
           )}
         </div>
 
         {drop.isDragging && available && (
-          <div data-testid="portrait-drop-overlay" className="pointer-events-none absolute inset-2 z-30 grid place-items-center rounded-xl border-2 border-dashed border-white/40 bg-ink-900/85 text-center backdrop-blur-[2px]">
+          <div data-testid="portrait-drop-overlay" className="pointer-events-none absolute inset-2 z-30 grid place-items-center rounded-xl border-2 border-dashed border-white/40 bg-ink-900/95 text-center backdrop-blur-[2px]">
             <div>
               <ImagePlus className="mx-auto h-8 w-8 text-white/80" />
               <p className="mt-3 text-sm font-semibold">{drop.isValid ? "Drop images to add them" : "Only images can be added"}</p>

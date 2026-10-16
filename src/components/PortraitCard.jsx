@@ -160,7 +160,7 @@ export const PortraitCard = memo(function PortraitCard({ portrait, selected, tab
           )}
 
           <div className="media-card-face pointer-events-none absolute inset-0 z-20">
-            <div aria-hidden className={cn("absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 to-transparent", revealOnHover)} />
+            <div aria-hidden className={cn("absolute inset-x-0 bottom-0 h-2/5 bg-gradient-to-t from-black/75 via-black/30 to-transparent", revealOnHover)} />
             <button
               type="button"
               role="checkbox"

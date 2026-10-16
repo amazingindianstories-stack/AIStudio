@@ -2090,14 +2090,13 @@ export const useStore = create((set, get) => ({
     const unique = [...new Map((portraits || []).filter(Boolean).map((p) => [p.id || p.imageUrl, p])).values()];
     if (unique.some((p) => !portraitAttachable(p))) return { ok: false, error: "Portraits that can't be used can't be added to a prompt." };
     const state = get();
-    const attached = new Set(state.referenceImages.filter((_, i) => state.referenceKinds?.[i] === "portrait"));
-    const fresh = unique.filter((p) => !attached.has(p.imageUrl));
-    if (state.referenceImages.length + state.referenceVideos.length + state.referenceAudios.length + fresh.length > 50) {
+    if (state.referenceImages.length + state.referenceVideos.length + state.referenceAudios.length + unique.length > 50) {
       return { ok: false, error: "Stage at most 50 references; remove some attachments first." };
     }
-    for (const p of fresh) get().addReference(p.imageUrl, "portrait", p.name || "Portrait");
+    // A portrait already in the prompt can be added again: each occurrence keeps its own reference id.
+    for (const p of unique) get().addReference(p.imageUrl, "portrait", p.name || "Portrait");
     set({ portraitGalleryOpen: false });
-    return { ok: true, count: fresh.length };
+    return { ok: true, count: unique.length };
   },
   loadProjects: async () => {
     try {

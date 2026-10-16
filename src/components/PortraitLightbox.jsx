@@ -80,6 +80,18 @@ export function PortraitLightbox({
   if (!asset) return null;
   const stateLabel = portraitStateLabel(asset);
 
+  // Beside the name when embedded; at the end of the action row when full screen.
+  const closeButton = (
+    <button
+      type="button"
+      onClick={onClose}
+      aria-label="Close Lightbox"
+      className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
+    >
+      <X className="h-4 w-4" />
+    </button>
+  );
+
   const handleAttach = () => {
     onAttach(asset);
     setAddedPrompt(true);
@@ -105,7 +117,9 @@ export function PortraitLightbox({
       }}
     >
       {/* Top Header Controls Bar */}
-      <header className="relative z-10 flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-lg backdrop-blur-lg">
+      <header className={embedded
+        ? "relative z-10 grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-3 rounded-xl border border-white/10 bg-ink-900/90 p-3 shadow-lg"
+        : "relative z-10 flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-lg backdrop-blur-lg"}>
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand/15 text-brand">
             <Eye className="h-4 w-4" />
@@ -158,14 +172,18 @@ export function PortraitLightbox({
           </div>
         </div>
 
+        {embedded && closeButton}
+
         {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <div className={embedded ? "col-span-2 grid grid-cols-3 gap-1.5 [&>button:not(:first-child)]:w-full" : "flex flex-wrap items-center gap-1.5 sm:gap-2"}>
           {/* Use in Prompt */}
           <button
             type="button"
             disabled={!portraitAttachable(asset)}
             onClick={handleAttach}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
+              embedded ? "col-span-3 justify-center" : ""
+            } ${
               addedPrompt
                 ? "bg-emerald-500 text-zinc-950 font-bold"
                 : "bg-white text-zinc-950 hover:bg-zinc-200"
@@ -203,7 +221,7 @@ export function PortraitLightbox({
           </button>
 
           {/* Open full raw in new tab */}
-          {asset.imageUrl && (
+          {!embedded && asset.imageUrl && (
             <a
               href={asset.imageUrl}
               target="_blank"
@@ -225,17 +243,12 @@ export function PortraitLightbox({
             <Trash2 className="h-4 w-4" />
           </button>
 
-          <div className="mx-1 h-5 w-px bg-white/15" />
-
-          {/* Close */}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close Lightbox"
-            className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          {!embedded && (
+            <>
+              <div className="mx-1 h-5 w-px bg-white/15" />
+              {closeButton}
+            </>
+          )}
         </div>
       </header>
 

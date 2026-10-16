@@ -243,15 +243,17 @@ test('Portrait upload and full preview feed a character plus motion clip into Se
   const name = `Portrait ${randomUUID().slice(0, 8)}`;
   await page.getByRole('button', { name: 'material', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
-  const uploaded = page.waitForResponse(response => response.url().endsWith('/api/assets/portraits/upload') && response.request().method() === 'POST');
-  await page.getByRole('dialog', { name: 'Portrait Gallery', exact: true }).locator('input[type="file"]').setInputFiles({ name: `${name}.png`, mimeType: 'image/png', buffer: await fixtureImage.body() });
-  expect((await uploaded).ok()).toBeTruthy();
-  const thumbnail = page.getByRole('img', { name, exact: true });
-  await expect(thumbnail).toBeVisible();
+  const gallery = page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
+  const registered = page.waitForResponse(response => new URL(response.url()).pathname === '/api/portraits' && response.request().method() === 'POST');
+  await gallery.locator('input[type="file"]').setInputFiles({ name: `${name}.png`, mimeType: 'image/png', buffer: await fixtureImage.body() });
+  const registration = await registered;
+  expect(registration.ok()).toBeTruthy();
+  expect((await registration.json()).results[0].ok).toBe(true);
+  const card = gallery.getByRole('article', { name, exact: true });
+  await expect(card).toBeVisible();
+  const thumbnail = card.locator('img');
   await expect.poll(() => thumbnail.evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
-  await thumbnail.click();
-  await expect(page.getByRole('button', { name: 'Add 1 to prompt', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: `View ${name}`, exact: true }).click();
+  await card.dblclick();
   const preview = page.getByRole('complementary', { name: 'Portrait Full View' });
   await expect(preview).toBeVisible();
   await expect.poll(() => preview.locator('img').first().evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
@@ -297,16 +299,17 @@ test('Portrait upload and full preview feed a character plus motion clip into Se
     expect(submitted.videoTaskMode).toBe(mode);
     expect(submitted.prompt).toBe(prompt);
     expect(submitted.referenceImages).toHaveLength(1);
-    expect(submitted.referenceImages[0]).toContain('bp_asset_id=');
+    // The gallery adds the portrait's own stored image; the worker recognises the face and prepares it.
+    expect(submitted.referenceImages[0]).toContain('/uploads/portrait/');
     expect(submitted.referenceVideos).toHaveLength(1);
     expect(submitted.draftMode).toBe(false);
     expect(submitted.bitrateMode).toBe('high');
     const item = await response.json();
     expect(item.id).toBeTruthy();
-    await expect.poll(async () => {
-      const result = await context.request.get(`/api/history?limit=60`);
-      return (await result.json()).items.find(row => row.id === item.id)?.status;
-    }, { timeout: 30000 }).toBe('succeeded');
+    // The browser harness has no BytePlus fake, so a face reference can still be waiting for its portrait
+    // to be prepared; the job must be accepted and must not have been rejected for the reference.
+    const status = async () => (await (await context.request.get(`/api/history?limit=60`)).json()).items.find(row => row.id === item.id)?.status;
+    await expect.poll(status, { timeout: 30000 }).toMatch(/^(queued|running|succeeded)$/);
   }
 });
 

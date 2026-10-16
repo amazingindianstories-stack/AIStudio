@@ -65,7 +65,7 @@ const test = base.extend({
     try { await provideFixture({ db, prefix, project, otherProject, globalRoot, projectRoot, globalChild, projectChild, createFolder, navigate, panel }); }
     finally {
       // Delete only this fixture's records, including folders created through real UI buttons.
-      await db`DELETE FROM portrait_groups WHERE name LIKE ${`${prefix}%`}`;
+      await db`DELETE FROM managed_portrait_assets WHERE name LIKE ${`${prefix}%`}`;
       await db`DELETE FROM folders WHERE name LIKE ${`${prefix}%`} OR project_id IN ${db(projectIds)}`;
       await db`DELETE FROM projects WHERE id IN ${db(projectIds)}`;
       await db`DELETE FROM activity_logs WHERE user_id = ${userId}`;
@@ -331,39 +331,177 @@ test("Enter followed by blur during a slow rename issues one request; menu Escap
   expect(count).toBe(1);
 });
 
-test("Portrait Gallery shares legacy portraits, isolates project groups and clears a stale selection", async ({ page, library }) => {
-  const groupIds = [randomUUID(), randomUUID(), randomUUID()];
-  const names = ["Global character", "A character", "B character"].map((name) => `${library.prefix} ${name}`);
-  for (let i = 0; i < 3; i++) {
-    await library.db`INSERT INTO portrait_groups (id, name, project_id, created_at, updated_at)
-      VALUES (${groupIds[i]}, ${names[i]}, ${i === 0 ? null : i === 1 ? library.project.id : library.otherProject.id}, ${Date.now()}, ${Date.now()})`;
-    await library.db`INSERT INTO portrait_assets (id, group_id, name, image_url, status, created_at, updated_at)
-      VALUES (${randomUUID()}, ${groupIds[i]}, ${`${library.prefix} portrait ${i}`}, '/api/media/browser-portrait.png', 'Active', ${Date.now()}, ${Date.now()})`;
+const PORTRAIT_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH2kAAAAASUVORK5CYII=", "base64");
+
+// Ready gallery portraits are seeded directly; their pictures are served by a route so the grid has real tiles.
+async function seedPortraits(library, page, count) {
+  const now = Date.now();
+  const [{ id: creator }] = await library.db`SELECT id FROM users WHERE name = ${library.prefix}`;
+  const names = [];
+  for (let i = 0; i < count; i++) {
+    const id = randomUUID();
+    const name = `${library.prefix} face ${String(i).padStart(2, "0")}`;
+    names.push(name);
+    await library.db`INSERT INTO managed_portrait_assets (id, content_sha256, source_key, byteplus_asset_id, status, created_by_id, created_at, updated_at, last_used_at, name, origin)
+      VALUES (${id}, ${randomUUID()}, ${`browser-portraits/${id}.png`}, ${`asset-${id}`}, 'ACTIVE', ${creator}, ${now + i}, ${now + i}, ${now + i}, ${name}, 'upload')`;
   }
-  await page.route("**/api/media/browser-portrait.png*", (route) => route.fulfill({ contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH2kAAAAASUVORK5CYII=", "base64") }));
-  const openGallery = async () => {
-    await page.getByRole("button", { name: "material", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Portrait Gallery", exact: true }).click();
-    await expect(page.getByText(names[0], { exact: true })).toBeVisible();
-  };
-  await library.navigate("project"); await openGallery();
-  await expect(page.getByText(names[1], { exact: true })).toBeVisible();
-  await expect(page.getByText(names[2], { exact: true })).toHaveCount(0);
-  await page.getByText(names[1], { exact: true }).click();
-  await page.keyboard.press("Escape"); await library.navigate("other"); await openGallery();
-  await expect(page.getByText(names[2], { exact: true })).toBeVisible();
-  await expect(page.getByText(names[1], { exact: true })).toHaveCount(0);
-  await expect(page.getByText(`${library.prefix} portrait 0`, { exact: true })).toBeVisible();
-  await expect(page.getByText(`${library.prefix} portrait 2`, { exact: true })).toBeVisible();
-  // The compact gallery refreshes when reopened. GET is the preserved Django
-  // inventory/sync contract, exercised only against the explicit mock provider.
-  const sync = await page.context().request.get(`/api/assets/portraits?projectId=${library.otherProject.id}`);
-  expect(sync.ok()).toBeTruthy();
-  await page.keyboard.press('Escape'); await openGallery();
-  await expect(page.getByText(`${library.prefix} portrait 0`, { exact: true })).toBeVisible();
-  await page.keyboard.press("Escape"); await library.navigate("global"); await openGallery();
-  await expect(page.getByText(names[1], { exact: true })).toBeVisible();
-  await expect(page.getByText(names[2], { exact: true })).toBeVisible();
+  await page.route("**/api/media/browser-portraits/**", (route) => route.fulfill({ contentType: "image/png", body: PORTRAIT_PNG }));
+  return names;
+}
+
+async function openPortraitGallery(page) {
+  await page.getByRole("button", { name: "material", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Portrait Gallery", exact: true }).click();
+  const gallery = page.getByRole("dialog", { name: "Portrait Gallery", exact: true });
+  await expect(gallery).toBeVisible();
+  return gallery;
+}
+
+test("Portrait Gallery is one shared flat grid with drag-to-select, bulk toolbar and no groups", async ({ page, library }, testInfo) => {
+  await seedPortraits(library, page, 12);
+  const gallery = await openPortraitGallery(page);
+  const cards = gallery.locator("article[data-portrait-id]");
+  await gallery.getByRole("textbox", { name: "Search portraits", exact: true }).fill(library.prefix);
+  await expect(cards).toHaveCount(12);
+  await expect(gallery).not.toContainText(/byteplus|group|slot|capacity/i);
+  await expect(gallery.getByRole("navigation")).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath("portrait-gallery-grid.png") });
+  const scroller = gallery.getByTestId("portrait-grid-scroller");
+  await expect(scroller).toBeVisible();
+  // Start in the grid's left padding, beside the first card, and drag across the first row.
+  const bounds = await scroller.boundingBox();
+  const first = await cards.first().boundingBox();
+  const third = await cards.nth(2).boundingBox();
+  const start = { x: bounds.x + 6, y: first.y + first.height / 2 };
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(third.x + third.width / 2, third.y + third.height - 24, { steps: 12 });
+  await expect(gallery.getByTestId("portrait-grid-marquee")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("portrait-gallery-marquee.png") });
+  await page.mouse.up();
+  await expect(gallery.getByTestId("portrait-grid-marquee")).toHaveCount(0);
+  await expect(gallery.locator('article[data-selected="true"]')).toHaveCount(3);
+  await expect(gallery.getByTestId("portrait-selection-toolbar")).toContainText("3 selected");
+  await expect(gallery.getByRole("button", { name: "Add 3 to prompt", exact: true })).toBeVisible();
+  await expect(gallery.getByRole("button", { name: "Delete 3", exact: true })).toBeVisible();
+  // A drag back through fewer cards shrinks the selection; a click on the background clears it.
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(first.x + first.width / 2, first.y + first.height / 2, { steps: 6 });
+  await page.mouse.up();
+  await expect(gallery.locator('article[data-selected="true"]')).toHaveCount(1);
+  await page.mouse.click(start.x, start.y);
+  await expect(gallery.locator('article[data-selected="true"]')).toHaveCount(0);
+  // The card's own menu offers the single-portrait actions.
+  await cards.first().click({ button: "right" });
+  await expect(page.getByRole("menuitem")).toHaveText(["Add to prompt", "View full size", "Rename", "Download", "Delete"]);
+  await page.screenshot({ path: testInfo.outputPath("portrait-gallery-card-menu.png") });
+  await page.keyboard.press("Escape");
+  await cards.first().dblclick();
+  const viewer = page.getByRole("complementary", { name: "Portrait Full View", exact: true });
+  await expect(viewer).toBeVisible();
+  await expect(viewer).not.toContainText(/byteplus|asset id|role:/i);
+  await page.screenshot({ path: testInfo.outputPath("portrait-gallery-viewer.png") });
+});
+
+test("a multi-file drop uploads three at a time and registers the portraits in drop order", async ({ page, context, library }, testInfo) => {
+  test.setTimeout(120000);
+  const image = await context.request.get("/api/generations/10000000-0000-4000-8000-000000000001/download");
+  const bytes = (await image.body()).toString("base64");
+  const names = [1, 2, 3, 4].map((n) => `${library.prefix} drop ${n}`);
+  const ids = new Map();
+  let releaseFirst; const firstHeld = new Promise((resolve) => { releaseFirst = resolve; });
+  let others = 0;
+  await page.route("**/api/uploads/init", async (route) => {
+    const filename = route.request().postDataJSON().filename;
+    const response = await route.fetch();
+    ids.set((await response.json()).uploadId, filename);
+    await route.fulfill({ response });
+  });
+  // The first dropped file finishes last, so registration has to wait for it to keep the order.
+  await page.route("**/api/uploads/*/finalize", async (route) => {
+    const filename = ids.get(route.request().url().split("/").at(-2));
+    if (filename === `${names[0]}.png`) await firstHeld;
+    await route.continue();
+    if (filename !== `${names[0]}.png` && ++others === 3) releaseFirst();
+  });
+  const registrations = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/portraits" && request.method() === "POST") registrations.push(request.postDataJSON().uploads.map((u) => u.name));
+  });
+  const gallery = await openPortraitGallery(page);
+  await expect(gallery).toContainText("Drop images here");
+  const transfer = await page.evaluateHandle(({ names, bytes }) => {
+    const data = new DataTransfer();
+    names.forEach((name, i) => {
+      const raw = Uint8Array.from(atob(bytes), (c) => c.charCodeAt(0));
+      const tail = new TextEncoder().encode(name);
+      const merged = new Uint8Array(raw.length + tail.length); merged.set(raw); merged.set(tail, raw.length);
+      data.items.add(new File([merged], `${name}.png`, { type: "image/png" }));
+    });
+    return data;
+  }, { names, bytes });
+  await gallery.dispatchEvent("dragenter", { dataTransfer: transfer });
+  await expect(gallery.getByTestId("portrait-drop-overlay")).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("portrait-gallery-drop-overlay.png") });
+  await gallery.dispatchEvent("drop", { dataTransfer: transfer });
+  await expect(gallery.getByTestId("portrait-drop-overlay")).toHaveCount(0);
+  await expect(gallery.locator("[data-portrait-upload]")).toHaveCount(4);
+  await expect(gallery.locator('[data-portrait-upload="uploading"]').first()).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("portrait-gallery-uploading.png") });
+  await expect(gallery.locator("article[data-portrait-id]")).toHaveCount(4, { timeout: 60000 });
+  await expect(gallery.locator("[data-portrait-upload]")).toHaveCount(0);
+  // Three finished before the first, yet nothing was registered ahead of it.
+  expect(registrations).toEqual([names]);
+  const rows = await library.db`SELECT name FROM managed_portrait_assets WHERE name LIKE ${`${library.prefix} drop %`} ORDER BY created_at ASC, id ASC`;
+  expect(rows.map((row) => row.name)).toEqual(names);
+  await page.screenshot({ path: testInfo.outputPath("portrait-gallery-registered.png") });
+});
+
+test("Portrait Gallery refuses oversized and non-image drops per file and keeps the rest", async ({ page, context, library }) => {
+  const image = await context.request.get("/api/generations/10000000-0000-4000-8000-000000000001/download");
+  const bytes = (await image.body()).toString("base64");
+  const good = `${library.prefix} good`;
+  const gallery = await openPortraitGallery(page);
+  const transfer = await page.evaluateHandle(({ good, bytes }) => {
+    const data = new DataTransfer();
+    const raw = Uint8Array.from(atob(bytes), (c) => c.charCodeAt(0));
+    data.items.add(new File([raw, new TextEncoder().encode(good)], `${good}.png`, { type: "image/png" }));
+    data.items.add(new File([new Uint8Array(31 * 1024 * 1024)], "too-big.png", { type: "image/png" }));
+    data.items.add(new File([new Uint8Array(10)], "clip.mp4", { type: "video/mp4" }));
+    return data;
+  }, { good, bytes });
+  await gallery.dispatchEvent("drop", { dataTransfer: transfer });
+  await expect(gallery.getByText(/larger than 30 MB/)).toBeVisible();
+  await expect(gallery.getByText("Only image files can be portraits.")).toBeVisible();
+  await expect(gallery.getByRole("article", { name: good, exact: true })).toBeVisible({ timeout: 60000 });
+  await gallery.getByRole("button", { name: "Dismiss" }).first().click();
+  await expect(gallery.locator('[data-portrait-upload="error"]')).toHaveCount(1);
+});
+
+test("Portrait Gallery fits a phone: 16px gutters and no horizontal scroll", async ({ page, library }, testInfo) => {
+  await seedPortraits(library, page, 6);
+  await page.setViewportSize({ width: 375, height: 740 });
+  await page.reload();
+  await expect(page.getByRole("button", { name: "material", exact: true })).toBeVisible();
+  const gallery = await openPortraitGallery(page);
+  await gallery.getByRole("textbox", { name: "Search portraits", exact: true }).fill(library.prefix);
+  const cards = gallery.locator("article[data-portrait-id]");
+  await expect(cards).toHaveCount(6);
+  const scroller = gallery.getByTestId("portrait-grid-scroller");
+  expect(await scroller.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  const box = await scroller.boundingBox();
+  const first = await cards.first().boundingBox();
+  expect(Math.round(first.x - box.x)).toBe(16);
+  await cards.first().click();
+  await expect(gallery.getByTestId("portrait-selection-toolbar")).toBeVisible();
+  await expect(gallery.getByRole("button", { name: "Delete 1", exact: true })).toBeVisible();
+  expect(await gallery.getByTestId("portrait-selection-toolbar").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("portrait-gallery-mobile.png") });
+  await cards.first().dblclick();
+  await expect(page.getByRole("complementary", { name: "Portrait Full View", exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("portrait-gallery-mobile-viewer.png") });
 });
 
 test("switching a project context to Global library creates and selects a global folder", async ({ page, library }) => {
@@ -379,27 +517,3 @@ test("switching a project context to Global library creates and selects a global
   await expect(nav).not.toContainText(library.project.name);
 });
 
-test("a delayed portrait response from the previous project cannot overwrite the new scope", async ({ page, library }) => {
-  const names = ["Race A", "Race B"].map((name) => `${library.prefix} ${name}`);
-  for (let i = 0; i < 2; i++) await library.db`INSERT INTO portrait_groups (id,name,project_id,created_at,updated_at)
-    VALUES (${randomUUID()},${names[i]},${i ? library.otherProject.id : library.project.id},${Date.now()},${Date.now()})`;
-  const open = async () => {
-    await page.getByRole("button", { name: "material", exact: true }).click();
-    await page.getByRole("menuitem", { name: "Portrait Gallery", exact: true }).click();
-  };
-  await library.navigate("project"); await open(); await expect(page.getByText(names[0], { exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
-  let release; let held = 0; let delivered = 0;
-  const barrier = new Promise((resolve) => { release = resolve; });
-  await page.route("**/api/assets/portraits?projectId=*", async (route) => {
-    if (route.request().url().includes(library.project.id)) {
-      const response = await route.fetch(); held++; await barrier; await route.fulfill({ response }); delivered++;
-    } else await route.continue();
-  });
-  await open(); await expect.poll(() => held).toBeGreaterThan(0);
-  await page.keyboard.press("Escape"); await library.navigate("other"); await open();
-  await expect(page.getByText(names[1], { exact: true })).toBeVisible();
-  release(); await expect.poll(() => delivered).toBeGreaterThan(0);
-  await expect(page.getByText(names[1], { exact: true })).toBeVisible();
-  await expect(page.getByText(names[0], { exact: true })).toHaveCount(0);
-});
