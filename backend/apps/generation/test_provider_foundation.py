@@ -42,6 +42,15 @@ class PureProviderParityTests(SimpleTestCase):
         result = oracle_run(['node', '--import', 'tsx', 'scripts/django-migration/provider-pure-oracle.mjs'],
             cwd=root, input=json.dumps(request), capture_output=True, text=True, check=True)
         expected = json.loads(result.stdout)
+        # referenceAudioSeconds (2026-10-14) postdates the frozen Node registry:
+        # BytePlus reference-audio length limits, checked at enqueue.
+        audio_limits = {item['name']: item['capabilities'].get('referenceAudioSeconds') for item in MODEL_REGISTRY}
+        self.assertEqual({name: limits for name, limits in audio_limits.items() if limits}, {
+            'Seedance 2.0': {'clipMin': 2, 'clipMax': 15, 'totalMax': 15},
+            'Seedance 2.0 Mini': {'clipMin': 2, 'clipMax': 15, 'totalMax': 15},
+            'Seedance 2.5': {'clipMin': 2, 'clipMax': 30, 'totalMax': 30}})
+        frozen = [{**item, 'capabilities': {key: value for key, value in item['capabilities'].items() if key != 'referenceAudioSeconds'}}
+                  for item in frozen]
         self.assertEqual(expected['models'], frozen)
         self.assertEqual(expected['modelIds'], [None if value in pro else provider_model_id(value, {}) for value in request['modelIds']])
         def capture(call):

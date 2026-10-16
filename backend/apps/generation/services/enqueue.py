@@ -1,5 +1,7 @@
 """Source-compatible enqueue validation and durable generation insertion."""
+import logging
 import re
+import time
 from urllib.parse import unquote
 import math
 import uuid
@@ -12,15 +14,20 @@ from apps.canvas.serialization import JS_WHITESPACE
 from apps.common.javascript import UNDEFINED, truthy, string, utf16_length
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
-from apps.generation.model_registry import capability, model_definition, is_provider_model
+from apps.generation.model_registry import capability, is_provider_model
 from apps.generation.models import Generation
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
 from apps.generation.serialization import camel
-from apps.generation.references import reference_warnings
+from apps.generation.references import mention_indices, reference_warnings
 from apps.library.services.naming import assign_generation_naming
+from apps.media.audio_duration import audio_seconds
+from apps.media.audio_inputs import MAX_AUDIO_BYTES
 from apps.media.images import save_reference_images
+from apps.media.storage import get_storage
 from .pricing import compute_cost, read_pricing
 from .seedream_references import prepare_seedream_references, require_native_image_runtime
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidRequest(ValueError):
@@ -257,7 +264,67 @@ def verify_portrait_references(item, body, lookup=None):
             raise PortraitUnavailable(f'{named} {problem}. Remove it from the references and try again; nothing was queued.', index)
 
 
+class ReferenceAudioRejected(InvalidRequest):
+    def __init__(self, message, audio_index=None):
+        super().__init__(message)
+        self.audio_index = audio_index
+
+
+# BytePlus enforces a 30 s clip limit as "<= 30.2"; match what it really accepts.
+AUDIO_LIMIT_SLACK_SECONDS = 0.2
+# Measuring runs inside the enqueue request (gunicorn times out at 25 s), and a model may take
+# up to 10 clips. Past this budget the remaining clips are left to the provider.
+AUDIO_CHECK_BUDGET_SECONDS = 8.0
+
+
+def verify_reference_audio_durations(item, measure=None, *, budget_seconds=AUDIO_CHECK_BUDGET_SECONDS, clock=time.monotonic):
+    """Refuse audio the provider would reject on length, before anything is queued.
+
+    A clip that cannot be read or measured, or is reached after the time
+    budget, is let through: the provider stays the authority, and a measuring
+    problem here must never block an artist or time out the request.
+    Only the clips the worker sends are checked: the @audioN tags the prompt
+    names, or every clip when it names none (resolve_references).
+    """
+    limits = capability(item.get('model'), 'referenceAudioSeconds', None)
+    refs = item.get('referenceAudios') or []
+    if not limits or not refs:
+        return
+    measure = measure or measure_reference_audio
+    rule = (f'{string(item.get("model"))} accepts reference audio clips of '
+            f'{limits["clipMin"]}-{limits["clipMax"]}s each and {limits["totalMax"]}s in total')
+    sent = [n for n in mention_indices(item.get('prompt'), 'audio') if n <= len(refs)] or range(1, len(refs) + 1)
+    total, complete = 0.0, True
+    deadline = clock() + budget_seconds
+    for index in sent:
+        if clock() >= deadline:
+            logger.warning('reference_audio_check_budget_exhausted unchecked_from=%s', index)
+            complete = False
+            break
+        seconds = measure(refs[index - 1])
+        if seconds is None:
+            complete = False
+            continue
+        if seconds > limits['clipMax'] + AUDIO_LIMIT_SLACK_SECONDS:
+            raise ReferenceAudioRejected(f'@audio{index} is {seconds:.1f}s long. {rule}. Trim it and try again; nothing was queued.', index)
+        if seconds < limits['clipMin'] - AUDIO_LIMIT_SLACK_SECONDS:
+            raise ReferenceAudioRejected(f'@audio{index} is only {seconds:.1f}s long. {rule}. Use a longer clip and try again; nothing was queued.', index)
+        total += seconds
+    if complete and total > limits['totalMax'] + AUDIO_LIMIT_SLACK_SECONDS:
+        raise ReferenceAudioRejected(f'The reference audio adds up to {total:.1f}s. {rule}. Shorten or remove a clip and try again; nothing was queued.')
+
+
+def measure_reference_audio(ref):
+    try:
+        data = get_storage().read_reference_bytes(ref, max_bytes=MAX_AUDIO_BYTES)['bytes']
+    except Exception as error:
+        logger.warning('reference_audio_read_failed reason=%s', type(error).__name__)
+        return None
+    return audio_seconds(data)
+
+
 def prepare_video(item, body, identifier):
+    verify_reference_audio_durations(item)
     verify_portrait_references(item, body)
     verify_registered_portraits(item, body)
     result = {'costCents':compute_cost(item,read_pricing())}

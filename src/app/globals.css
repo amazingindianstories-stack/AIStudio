@@ -241,12 +241,15 @@ body {
 .history-panel { container-type: inline-size; container-name: history; }
 .history-navigation { width: clamp(10.5rem, 30cqw, 15rem); max-width: 40%; }
 
-/* Keep model names readable when the video controls need a second row. */
+/* Keep model names readable: when the controls do not fit beside a 10rem
+   model chip (long Seedance 2.5 settings), they take a second row instead of
+   squeezing the model to its icon. */
+.composer-toolbar { flex-wrap: wrap; row-gap: .5rem; }
+.composer-model { flex: 0 1 auto; min-width: 10rem; }
+.composer-controls-row { align-items: flex-end; }
 @container (max-width: 44rem) {
-  .composer-toolbar { flex-wrap: wrap; row-gap: .5rem; }
-  .composer-model { flex: 1 1 10rem; }
+  .composer-model { flex: 1 1 10rem; min-width: 0; }
   .composer-model-label { max-width: none; }
-  .composer-controls-row { align-items: flex-end; }
 }
 
 /* Library card face. It scales with the card's rendered width (set by the

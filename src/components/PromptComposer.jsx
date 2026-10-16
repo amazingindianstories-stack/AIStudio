@@ -73,6 +73,7 @@ import {
   VIDEO_TASK_MODES,
   MAX_REFERENCE_VIDEOS,
 } from "@/lib/config";
+import { formatAudioSeconds, measureAudioDuration, referenceAudioProblem } from "@/lib/audio-duration";
 import { cn, referenceDisplayUrl, thumbUrl } from "@/lib/utils";
 import { isProviderModel } from "@/lib/model-registry";
 
@@ -108,6 +109,7 @@ export function PromptComposer() {
   const audioApplies = s.mode === "video" && supportsAudio(s.model);
   const draftApplies = s.mode === "video" && supportsDraftMode(s.model);
   const bitrateApplies = s.mode === "video" && supportsBitrateMode(s.model);
+  const audioProblem = s.mode === "video" ? referenceAudioProblem(s.model, s.audioNotes, s.prompt) : null;
   // Edit/Extend only exist on Seedance 2.5 (config.supportsVideoEditExtend).
   // Both require BytePlus's ratio:"adaptive" and Edit also forces duration to
   // "match the source" — see the videoTaskMode branches on the Aspect
@@ -186,13 +188,16 @@ export function PromptComposer() {
       const controls = Array.from(
         toolbar.querySelectorAll(".control-chip")
       );
+      // Rects include the composer's layout-animation transform, and the last
+      // reading can land mid-animation; undo that scale so it is not too narrow.
+      const scale = toolbar.getBoundingClientRect().width / (toolbar.offsetWidth || 1) || 1;
       const controlsWidth = controls.reduce((width, control) => {
         const style = window.getComputedStyle(control);
         const children = Array.from(control.children).filter(
           (child) => window.getComputedStyle(child).display !== "none"
         ) ;
         const contentWidth = children.reduce((sum, child) => {
-          const renderedWidth = child.getBoundingClientRect().width;
+          const renderedWidth = child.getBoundingClientRect().width / scale;
           const cappedLabel = child.matches(
             ".composer-model-label, .composer-project-label, .composer-folder-label"
           );
@@ -201,8 +206,10 @@ export function PromptComposer() {
         const gap = Number.parseFloat(style.columnGap) || 0;
         const padding =
           (Number.parseFloat(style.paddingLeft) || 0) +
-          (Number.parseFloat(style.paddingRight) || 0);
-        return width + contentWidth + gap * Math.max(0, children.length - 1) + padding;
+          (Number.parseFloat(style.paddingRight) || 0) +
+          (Number.parseFloat(style.borderLeftWidth) || 0) +
+          (Number.parseFloat(style.borderRightWidth) || 0);
+        return width + Math.ceil(contentWidth + gap * Math.max(0, children.length - 1) + padding);
       }, 0);
       const toolbarWidth = Math.ceil(
         controlsWidth + Math.max(0, controls.length - 1) * 6
@@ -238,8 +245,8 @@ export function PromptComposer() {
       const type = uploadContentType(file);
       try {
         if (type.startsWith("audio/")) {
-          const uploaded = await uploadFileDirect(file, "audio-reference");
-          s.addAudioNote({ name: file.name, ref: uploaded.ref });
+          const [uploaded, duration] = await Promise.all([uploadFileDirect(file, "audio-reference"), measureAudioDuration(file)]);
+          s.addAudioNote({ name: file.name, ref: uploaded.ref, ...(duration ? { duration } : {}) });
         } else if (type.startsWith("video/") && s.mode === "video" && supportsVideoReference(s.model)) {
           const uploaded = await uploadFileDirect(file, "video-reference");
           s.addReferenceVideo(uploaded.ref, file.name);
@@ -603,19 +610,25 @@ export function PromptComposer() {
           {s.audioNotes.map((name, i) => (
             <div
               key={`${name}-${i}`}
-              title={typeof name === "string" ? name : name.name}
-              className="group relative flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg bg-ink-750 px-1 ring-1 ring-line transition hover:ring-brand/50"
+              title={[typeof name === "string" ? name : name.name, typeof name?.duration === "number" ? formatAudioSeconds(name.duration) : null].filter(Boolean).join(" · ")}
+              data-audio-rejected={audioProblem?.indexes.includes(i) || undefined}
+              className={`group relative flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg bg-ink-750 px-1 ring-1 transition ${audioProblem?.indexes.includes(i) ? "ring-2 ring-red-400" : "ring-line hover:ring-brand/50"}`}
             >
               <button
                 onClick={() => mentionRef.current?.insertTag(`@audio${i + 1}`)}
-                className="flex flex-1 flex-col items-center justify-center gap-1"
+                className="flex flex-1 flex-col items-center justify-center gap-0.5 py-[18px]"
               >
-                <AudioLines className="h-4 w-4 text-brand" />
+                <AudioLines className="h-3.5 w-3.5 text-brand" />
                 <span className="line-clamp-1 w-full text-center text-[9px] leading-tight text-white/60">
                   {typeof name === "string" ? name : name.name}
                 </span>
               </button>
-              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm">
+              {typeof name?.duration === "number" && (
+                <span className={`pointer-events-none absolute left-1 top-1 rounded px-1 text-[9px] font-semibold leading-[14px] tabular-nums ${audioProblem?.indexes.includes(i) ? "bg-red-600 text-white" : "bg-black/55 text-white/80"}`}>
+                  {formatAudioSeconds(name.duration)}
+                </span>
+              )}
+              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold leading-[14px] text-brand backdrop-blur-sm">
                 @audio{i + 1}
               </span>
               <button
@@ -1661,5 +1674,7 @@ export function referenceSubmissionWarning(state) {
   if (maxImages !== null && state.referenceImages?.length > maxImages) messages.push(`${state.model} accepts at most ${maxImages} image references per submission`);
   if (state.referenceVideos?.length > maxVideos || (state.referenceVideos?.length && !supportsVideoReference(state.model))) messages.push(`${state.model} cannot submit this many video references`);
   if (state.audioNotes?.length && !supportsAudio(state.model)) messages.push(`${state.model} does not accept audio references`);
+  const audioProblem = state.mode === "video" ? referenceAudioProblem(state.model, state.audioNotes, state.prompt) : null;
+  if (audioProblem) messages.push(audioProblem.message.replace(/\.$/, ""));
   return messages.length ? `${messages.join(". ")}. All attachments remain staged; remove extras or choose a compatible model before generating.` : null;
 }
