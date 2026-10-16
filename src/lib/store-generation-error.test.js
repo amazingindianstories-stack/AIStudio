@@ -55,3 +55,33 @@ test("a removed portrait refused by the server is marked and blocks the next sub
     useStore.setState(previous, true);
   }
 });
+
+test("an audio length notice is withdrawn when the next attempt's clips are within limits", async () => {
+  const previous = useStore.getState();
+  const fetchBefore = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(url);
+    return new Response(JSON.stringify({ error: { message: "Queue is busy" } }), { status: 400 });
+  };
+  useNotices.setState({ notices: [] });
+  useStore.setState({ mode: "video", model: "Seedance 2.5", prompt: "A narrator speaks over @audio1", generating: false, batchCount: 1,
+    referenceImages: [], referenceVideos: [], referenceAudios: ["/api/media/uploads/short"], audioNotes: [{ ref: "/api/media/uploads/short", duration: 1 }],
+    items: [], pendingItems: [] });
+  try {
+    await useStore.getState().generate();
+    const first = useNotices.getState().notices.map((notice) => notice.text);
+    assert.equal(first.length, 1);
+    assert.match(first[0], /@audio1 is .*1\.0s/);
+    assert.equal(calls.filter((url) => url.includes("/generate/video")).length, 0);
+
+    useStore.setState({ referenceAudios: ["/api/media/uploads/valid"], audioNotes: [{ ref: "/api/media/uploads/valid", duration: 2.5 }] });
+    await useStore.getState().generate();
+    assert.deepEqual(useNotices.getState().notices.map((notice) => notice.text), ["Queue is busy"]);
+    assert.equal(calls.filter((url) => url.includes("/generate/video")).length, 1);
+  } finally {
+    globalThis.fetch = fetchBefore;
+    useNotices.setState({ notices: [] });
+    useStore.setState(previous, true);
+  }
+});

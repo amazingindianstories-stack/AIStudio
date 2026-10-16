@@ -1,7 +1,10 @@
 "use client";
 
 import { portraitRegistrationWarning, portraitAttachAllowed, portraitReferenceUrl } from "./portrait-readiness";
-import { notify } from "./notify";
+import { notify, dismissNotice } from "./notify";
+
+// The last reference-audio limit notice, so a later attempt can withdraw it once the clips change.
+let audioProblemNotice = null;
 
 
 import { create } from "zustand";
@@ -969,6 +972,8 @@ export const useStore = create((set, get) => ({
     }
 
     set({ generating: true });
+    // A notice about an earlier attempt's clips is stale once the artist changed them; recheck below.
+    if (audioProblemNotice !== null) { dismissNotice(audioProblemNotice); audioProblemNotice = null; }
     if (s.mode === "video" && s.audioNotes?.length) {
       // The provider refuses clips outside its length limits after queueing;
       // stop here instead, naming the clip, so the artist trims it first.
@@ -980,7 +985,7 @@ export const useStore = create((set, get) => ({
       const audioProblem = referenceAudioProblem(s.model, audioNotes, prompt);
       if (audioProblem) {
         set({ generating: false });
-        notify(audioProblem.message);
+        audioProblemNotice = notify(audioProblem.message);
         return [];
       }
     }
