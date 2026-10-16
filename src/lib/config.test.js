@@ -29,6 +29,7 @@ import {
   supportsVideoEditExtend,
   supportsVideoReference,
 } from "./config";
+import { getModelDefinition } from "./model-registry";
 
 /**
  * `supportsAudio` decides whether the composer offers an audio toggle at all,
@@ -335,6 +336,22 @@ test("Kling exposes its own aspect-ratio set, including 3:2 and 2:3", () => {
   for (const ar of ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3", "21:9"]) {
     assert.ok(ars.includes(ar), `missing ${ar}`);
   }
+});
+
+test("Nano Banana 2.1 is offered right after Pro with its documented controls", () => {
+  // ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1 (read 2026-10-16).
+  const images = MODELS.filter((m) => m.kind === "image").map((m) => m.name);
+  assert.equal(images.indexOf("Nano Banana 2.1"), images.indexOf("Nano Banana Pro") + 1);
+  assert.equal(DEFAULTS.image.model, "Nano Banana Pro");
+  assert.deepEqual(resolutionsForModel("Nano Banana 2.1", "image"), ["1K", "2K", "4K"]);
+  assert.deepEqual(resolutionsForModel("Nano Banana 2.1", "image", true), ["1K", "2K", "4K"]);
+  assert.deepEqual(aspectRatiosForModel("Nano Banana 2.1", "image"),
+    ["1:1", "3:4", "4:3", "4:5", "5:4", "2:3", "3:2", "9:16", "16:9", "21:9"]);
+  assert.equal(supportsSeed("Nano Banana 2.1"), true);
+  assert.equal(supportsAudio("Nano Banana 2.1"), false);
+  assert.equal(getModelDefinition("nano-banana-2-1").providerModelId, "gemini-nano-banana-2.1");
+  assert.equal(getModelDefinition("Nano Banana 2.1").capabilities.maxReferenceImages, 14);
+  assert.equal(getModelDefinition("Nano Banana Pro").providerModelId, "gemini-3-pro-image");
 });
 
 test("Higgsfield is no longer offered in the picker", () => {

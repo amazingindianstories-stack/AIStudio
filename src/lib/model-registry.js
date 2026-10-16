@@ -23,10 +23,30 @@ export const MODEL_REGISTRY = [
     name: "Nano Banana Pro",
     kind: "image",
     provider: "gemini",
+    providerModelId: "gemini-3-pro-image",
     offered: true,
     badge: "BEST",
     pricingKey: "Nano Banana Pro",
     capabilities: { aspectRatios: IMAGE_ASPECTS, resolutions: ["1K", "2K", "4K"], seed: true },
+  },
+  {
+    // ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1 (read 2026-10-16): 1K/2K/4K
+    // output (no 512px), up to 14 reference images, same generateContent imageConfig as Pro.
+    id: "nano-banana-2-1",
+    name: "Nano Banana 2.1",
+    kind: "image",
+    provider: "gemini",
+    providerModelId: "gemini-nano-banana-2.1",
+    offered: true,
+    badge: "FAST",
+    hint: "Flash-speed Gemini image · up to 14 references · 1K/2K/4K",
+    pricingKey: "Nano Banana 2.1",
+    capabilities: {
+      aspectRatios: ["1:1", "3:4", "4:3", "4:5", "5:4", "2:3", "3:2", "9:16", "16:9", "21:9"],
+      resolutions: ["1K", "2K", "4K"],
+      maxReferenceImages: 14,
+      seed: true,
+    },
   },
   {
     id: "nano-banana-2",

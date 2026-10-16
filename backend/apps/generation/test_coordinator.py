@@ -142,6 +142,23 @@ class CoordinatorTests(TransactionTestCase):
             Generation.objects.filter(pk=billed.id).update(status='failed', error='provider 429')
             self.assertIsNotNone(admission.admit_job(next_item.id, now=1000010))
 
+    def test_nano_banana_2_1_shares_the_gemini_spend_window_with_pro(self):
+        # One Gemini key, one rolling window in estimator cents: Pro spend holds 2.1 and back.
+        pro = self.job(status='succeeded', model='Nano Banana Pro', cost_cents=140)
+        fast = self.job(model='Nano Banana 2.1', cost_cents=12, created_at=1000001)
+        self.assertTrue(admission.bills_gemini(fast))
+        with patch.dict('os.environ', {'GEMINI_SPEND_LIMIT_CENTS': '150', 'FACE_BEST_OF': '2'}):
+            self.assertTrue(admission.queue_position(fast.id, now=1000010)['heldForBudget'])
+            self.assertIsNone(admission.admit_job(fast.id, now=1000010))
+            Generation.objects.filter(pk=pro.id).delete()
+            # Empty-window forward progress: a single job above the limit still starts.
+            large = self.job(model='Nano Banana 2.1', cost_cents=400, created_at=1000002)
+            self.assertIsNotNone(admission.admit_job(large.id, now=1000010))
+            # Its running spend (x best-of) now holds the next Gemini job of either model.
+            later = self.job(model='Nano Banana Pro', cost_cents=14, created_at=1000003)
+            self.assertTrue(admission.queue_position(later.id, now=1000010)['heldForBudget'])
+            self.assertIsNone(admission.admit_job(fast.id, now=1000010))
+
     def test_stale_timeout_excludes_provider_backed_video(self):
         stale = self.job(status='running', updated_at=1)
         remote = self.job(kind='video', status='running', task_id='remote', updated_at=1)

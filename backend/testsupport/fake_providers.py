@@ -66,6 +66,7 @@ class FakeProviders:
         self.calls, self.lock, self.task_counter = [], threading.RLock(), 0
         self.seedance_status = seedance_status
         self.seedance_payloads = []
+        self.gemini_payloads = []       # (model code, body) for each generateContent call
         self.asset_capacity = asset_capacity          # None = unlimited; int = BytePlus shared pool size
         self.asset_activation_polls = asset_activation_polls
         self.groups, self.assets = {}, {}
@@ -82,7 +83,10 @@ class FakeProviders:
         with self.lock:
             self.calls.append((method, host + path + ('?' + parts.query if host == ASSET_HOST else '')))
         data = body if isinstance(body, dict) else (json.loads(body) if body else {})
-        if host == 'generativelanguage.googleapis.com' and path.endswith(':generateContent'):
+        gemini = re.fullmatch(r'/v1beta/models/([a-z0-9.-]+):generateContent', path)
+        if host == 'generativelanguage.googleapis.com' and gemini and method == 'POST':
+            with self.lock:
+                self.gemini_payloads.append((gemini[1], data))
             return 200, {'candidates': [{'content': {'parts': [{'inlineData': {'mimeType': 'image/png', 'data': base64.b64encode(self.png).decode()}}]},
                                          'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 10, 'candidatesTokenCount': 1290}}
         if host.endswith('bytepluses.com') and path.endswith('/images/generations') and method == 'POST':
