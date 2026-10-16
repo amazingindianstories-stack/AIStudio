@@ -55,10 +55,10 @@ test("validateGenerationReference for image generations in image mode", () => {
   const seedreamFull = validateGenerationReference(item, {
     mode: "image",
     model: "Seedream 5.0 Pro",
-    referenceImages: Array(10).fill("/api/media/other.png"),
+    referenceImages: Array(50).fill("/api/media/other.png"),
   });
   assert.equal(seedreamFull.valid, false);
-  assert.match(seedreamFull.reason, /at most 10 reference images/);
+  assert.match(seedreamFull.reason, /at most 50 reference images/);
 
   // Kling Image 3.0 (max 1)
   const klingValid = validateGenerationReference(item, {
@@ -74,8 +74,7 @@ test("validateGenerationReference for image generations in image mode", () => {
     model: "Kling Image 3.0",
     referenceImages: ["/api/media/other.png"],
   });
-  assert.equal(klingFull.valid, false);
-  assert.match(klingFull.reason, /at most 1 reference image/);
+  assert.equal(klingFull.valid, true, "staging remains independent of single-image submission cap");
 
   // Duplicate check
   const duplicate = validateGenerationReference(item, {
@@ -107,10 +106,10 @@ test("validateGenerationReference for image generations in video mode", () => {
   const seedanceFull = validateGenerationReference(item, {
     mode: "video",
     model: "Seedance 2.0",
-    referenceImages: Array(9).fill("/api/media/other.png"),
+    referenceImages: Array(50).fill("/api/media/other.png"),
   });
   assert.equal(seedanceFull.valid, false);
-  assert.match(seedanceFull.reason, /at most 9 reference images/);
+  assert.match(seedanceFull.reason, /at most 50 reference images/);
 
   // Seedance 2.5 (max 30)
   const seedance25Valid = validateGenerationReference(item, {
@@ -123,10 +122,10 @@ test("validateGenerationReference for image generations in video mode", () => {
   const seedance25Full = validateGenerationReference(item, {
     mode: "video",
     model: "Seedance 2.5",
-    referenceImages: Array(30).fill("/api/media/other.png"),
+    referenceImages: Array(50).fill("/api/media/other.png"),
   });
   assert.equal(seedance25Full.valid, false);
-  assert.match(seedance25Full.reason, /at most 30 reference images/);
+  assert.match(seedance25Full.reason, /at most 50 reference images/);
 });
 
 test("validateGenerationReference for video generations", () => {
@@ -165,10 +164,10 @@ test("validateGenerationReference for video generations", () => {
   const seedance20Full = validateGenerationReference(videoItem, {
     mode: "video",
     model: "Seedance 2.0",
-    referenceVideos: ["clip1", "clip2", "clip3"],
+    referenceVideos: Array(50).fill("clip"),
   });
   assert.equal(seedance20Full.valid, false);
-  assert.match(seedance20Full.reason, /at most 3 reference clips/);
+  assert.match(seedance20Full.reason, /at most 50 reference clips/);
 
   // Duplicate video check
   const duplicate = validateGenerationReference(videoItem, {
@@ -179,3 +178,59 @@ test("validateGenerationReference for video generations", () => {
   assert.equal(duplicate.valid, false);
   assert.match(duplicate.reason, /already added as a reference/);
 });
+
+test("validateGenerationReference for upscaler mode", () => {
+  const imageItem = {
+    id: "img-1",
+    kind: "image",
+    status: "succeeded",
+    url: "/api/media/generations/1.png",
+  };
+  const videoItem = {
+    id: "vid-1",
+    kind: "video",
+    status: "succeeded",
+    url: "/api/media/generations/1.mp4",
+  };
+
+  const imageValid = validateGenerationReference(imageItem, {
+    mode: "upscale",
+  });
+  assert.equal(imageValid.valid, true);
+  assert.equal(imageValid.action, "add-image-ref");
+
+  const videoInvalid = validateGenerationReference(videoItem, {
+    mode: "upscale",
+  });
+  assert.equal(videoInvalid.valid, false);
+  assert.match(videoInvalid.reason, /Upscaler only accepts image generations/);
+});
+
+test("simulates batch multi-asset drop validation against model capacity", () => {
+  const items = [
+    { id: "1", kind: "image", status: "succeeded", url: "/img1.png" },
+    { id: "2", kind: "image", status: "succeeded", url: "/img2.png" },
+    { id: "3", kind: "video", status: "succeeded", url: "/vid1.mp4" },
+    { id: "4", kind: "image", status: "succeeded", url: "/img3.png" },
+  ];
+
+  // Dropping into Kling Image 3.0 (max 1 image reference)
+  let added = [];
+  let skipped = 0;
+  for (const item of items) {
+    const v = validateGenerationReference(item, {
+      mode: "image",
+      model: "Kling Image 3.0",
+      referenceImages: added,
+    });
+    if (v.valid && v.action === "add-image-ref") {
+      added.push(item.url);
+    } else {
+      skipped++;
+    }
+  }
+
+  assert.equal(added.length, 3);
+  assert.equal(skipped, 1); // video incompatible with image mode; three images may stage
+});
+

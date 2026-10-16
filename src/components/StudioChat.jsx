@@ -1,6 +1,6 @@
 "use client";
-import { uploadOriginalReference } from "@/lib/client-reference-upload";
-import { isProviderModel } from "@/lib/model-registry";
+import { uploadOriginalReference, uploadFileDirect, uploadContentType } from "@/lib/client-reference-upload";
+
 
 import {
   useEffect,
@@ -8,7 +8,7 @@ import {
   useState,
 
 } from "react";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
   ImagePlus,
@@ -18,15 +18,21 @@ import {
   Wand2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
-import { maxReferenceImagesForVideoModel } from "@/lib/config";
-import { extractFrame, isVideoFile } from "@/lib/video-frame";
-import { REF_BATCH_BUDGET_BYTES, REF_BUDGET_STEPS, dataUrlBytes, downscaleBlob } from "@/lib/client-image-budget";
-import { ReferenceStrip, SettingsToolbar } from "./ComposerControls";
-import { Dropdown, MenuItem } from "./Dropdown";
+
+import { supportsVideoReference } from "@/lib/config";
+import { extractFrame } from "@/lib/video-frame";
+
+import { SettingsToolbar } from "./ComposerControls";
+import { ReferenceStrip, stagedReferenceCount, referenceSubmissionWarning } from "./PromptComposer";
+import { getAssetDragData, isAssetDragEvent } from "@/lib/asset-drag-contract";
 import { MentionTextarea, } from "./MentionTextarea";
+import { GenerationFolderCue } from "./MediaCard";
 import { MediaCard } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
+import { Dropdown, MenuItem } from "./Dropdown";
+import { normalizePromptMentions } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
+import { apiErrorMessage } from "@/lib/api-error";
 
 const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
 
@@ -48,6 +54,8 @@ const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
  * is open.
  */
 export function StudioChat({ conversationId }) {
+  const reducedMotion = useReducedMotion();
+  const s = useStore();
   const mode = useStore((s) => s.mode);
   const model = useStore((s) => s.model);
   const setPrompt = useStore((s) => s.setPrompt);
@@ -63,7 +71,9 @@ export function StudioChat({ conversationId }) {
   const [loadingThread, setLoadingThread] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
-  const [input, setInput] = useState("");
+  const input = s.prompt;
+  const setInput = s.setPrompt;
+  const [pendingUploads, setPendingUploads] = useState(0);
   const [generatedItemIds, setGeneratedItemIds] = useState({});
   // Which messages we actually fired a generation for THIS page load — the
   // "Starting generation…" spinner is only honest for these. A message
@@ -138,7 +148,7 @@ export function StudioChat({ conversationId }) {
 
   const send = async () => {
     const content = input.trim();
-    if (!content || sending || !conversationId) return;
+    if (!content || sending || pendingUploads || !conversationId) return;
     const optimistic = {
       id: `pending-${Date.now()}`,
       conversationId,
@@ -148,7 +158,6 @@ export function StudioChat({ conversationId }) {
       createdAt: Date.now(),
     };
     setMessages((cur) => [...cur, optimistic]);
-    setInput("");
     setError(null);
     setSending(true);
     try {
@@ -158,7 +167,7 @@ export function StudioChat({ conversationId }) {
         body: JSON.stringify({ content, images: referenceImages }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.error) throw new Error(data.error || `Request failed (${res.status}).`);
+      if (!res.ok || data.error) throw new Error(apiErrorMessage(data, res.status));
       const assistantMessage = data.assistantMessage;
       setMessages((cur) => [...cur.filter((m) => m.id !== optimistic.id), data.userMessage, assistantMessage]);
       if (assistantMessage.toolTrace && GENERATE_TOOLS.has(assistantMessage.toolTrace.tool)) {
@@ -173,66 +182,29 @@ export function StudioChat({ conversationId }) {
     }
   };
 
-  // Reference upload — same budget ladder PromptComposer used.
+  // Stage originals through the metadata-only upload transport; provider caps
+  // apply to generation, independently of the fifty-object draft workspace.
   const addImageFiles = async (files) => {
-    const referenceFiles = files.filter(
-      (file) => isVideoFile(file) || file.type.startsWith("image/")
-    );
-    const maxReferences =
-      isProviderModel(model, "seedream") ? 10 : mode === "video" ? maxReferenceImagesForVideoModel(model) : null;
-    const available =
-      maxReferences === null
-        ? referenceFiles.length
-        : Math.max(0, maxReferences - referenceImages.length);
-    const acceptedReferenceFiles = referenceFiles.slice(0, available);
-    if (acceptedReferenceFiles.length < referenceFiles.length) {
-      alert(
-        `${model} accepts at most ${maxReferences} reference images. ` +
-          `Only the first ${acceptedReferenceFiles.length} new reference${acceptedReferenceFiles.length === 1 ? " was" : "s were"} added.`
-      );
-    }
-    const videos = acceptedReferenceFiles.filter(isVideoFile);
-    if (videos.length) {
-      setExtractingFrames(videos.length);
-      for (const file of videos) {
-        try {
-          const { dataUrl } = await extractFrame(file);
-          addReference(dataUrl);
-        } catch (e) {
-          console.error("Frame extraction failed", e);
-          alert(e?.message || `Could not read a frame from ${file.name}.`);
-        }
+    setPendingUploads((count) => count + 1);
+    try {
+      for (const file of files) {
+        if (stagedReferenceCount(useStore.getState()) >= 50) { setError("The draft can stage fifty attachments. Remove an attachment before adding more."); break; }
+        if (uploadContentType(file).startsWith("audio/")) {
+          const uploaded = await uploadFileDirect(file, "audio-reference");
+          s.addAudioNote({ name: file.name, ref: uploaded.ref });
+        } else if (uploadContentType(file).startsWith("video/") && mode === "video" && supportsVideoReference(model)) {
+          const uploaded = await uploadFileDirect(file, "video-reference");
+          s.addReferenceVideo(uploaded.ref, file.name);
+        } else if (uploadContentType(file).startsWith("video/") || uploadContentType(file).startsWith("image/")) {
+          if (uploadContentType(file).startsWith("video/")) {
+            setExtractingFrames((count) => count + 1);
+            try { const { dataUrl } = await extractFrame(file); const blob = await (await fetch(dataUrl)).blob(); addReference(await uploadOriginalReference(new File([blob], `${file.name}.jpg`, { type: blob.type })), "video", file.name); }
+            finally { setExtractingFrames((count) => count - 1); }
+          } else { addReference(await uploadOriginalReference(file), "image", file.name); }
+        } else { setError(`Unsupported attachment: ${file.name}`); }
       }
-      setExtractingFrames(0);
-    }
-    const valid = acceptedReferenceFiles.filter((f) => f.type.startsWith("image/"));
-    if (!valid.length) return;
-    if (isProviderModel(model, "seedream")) {
-      for (const file of valid) {
-        try { addReference(await uploadOriginalReference(file)); }
-        catch (error) { alert(error.message); }
-      }
-      return;
-    }
-    let dataUrls = [];
-    for (let i = 0; i < REF_BUDGET_STEPS.length; i++) {
-      const { dim, quality } = REF_BUDGET_STEPS[i];
-      const encoded = await Promise.all(
-        valid.map(async (f) => {
-          try {
-            return await downscaleBlob(f, dim, quality);
-          } catch (e) {
-            console.error("Failed to downscale image", e);
-            return null;
-          }
-        })
-      );
-      dataUrls = encoded.filter((u) => u !== null);
-      if (!dataUrls.length) return;
-      const totalBytes = dataUrls.reduce((n, u) => n + dataUrlBytes(u), 0);
-      if (totalBytes <= REF_BATCH_BUDGET_BYTES || i === REF_BUDGET_STEPS.length - 1) break;
-    }
-    for (const dataUrl of dataUrls) addReference(dataUrl);
+    } catch (error) { setError(error.message || "Attachment upload failed. Please retry."); }
+    finally { setPendingUploads((count) => count - 1); }
   };
 
   const onFiles = (e) => {
@@ -240,27 +212,40 @@ export function StudioChat({ conversationId }) {
     e.target.value = "";
   };
   const onPaste = (e) => {
-    const files = Array.from(e.clipboardData?.files ?? []).filter((f) => f.type.startsWith("image/"));
+    const files = Array.from(e.clipboardData?.files ?? []).filter((f) => uploadContentType(f).startsWith("image/"));
     if (files.length) {
       e.preventDefault();
       addImageFiles(files);
     }
   };
+  const dragEnterCountRef = useRef(0);
   const isFileDrag = (e) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
-  // Same "text/itemId" payload ProjectPanel's drag-to-folder already sets on
-  // asset cards (HistoryPanel now sets it too — see its renderItem) — the
-  // browser lowercases DataTransfer type strings, so check lowercase here.
-  const isAssetDrag = (e) =>
-    Array.from(e.dataTransfer?.types ?? []).includes("text/itemid");
+  const isAssetDrag = (e) => {
+    return (
+      isAssetDragEvent(e) ||
+      Boolean(useStore.getState().draggedItem) ||
+      Boolean(useStore.getState().draggedAssets?.length)
+    );
+  };
+  const onDragEnter = (e) => {
+    if (!isFileDrag(e) && !isAssetDrag(e)) return;
+    dragEnterCountRef.current += 1;
+    if (dragEnterCountRef.current === 1) {
+      setDragging(true);
+    }
+  };
   const onDragOver = (e) => {
     if (!isFileDrag(e) && !isAssetDrag(e)) return;
     e.preventDefault();
-    setDragging(true);
+    e.dataTransfer.dropEffect = "copy";
+    if (!dragging) setDragging(true);
   };
-  const onDragLeave = (e) => {
-    if (!e.currentTarget.contains(e.relatedTarget )) setDragging(false);
+  const onDragLeave = (_e) => {
+    dragEnterCountRef.current = Math.max(0, dragEnterCountRef.current - 1);
+    if (dragEnterCountRef.current === 0) setDragging(false);
   };
   const addAssetReference = async (itemId) => {
+    if (stagedReferenceCount(useStore.getState()) >= 50) { setError("The draft can stage fifty attachments. Remove one before adding more."); return; }
     const item = findItem(itemId);
     if (!item?.url) return;
     if (item.kind === "video") {
@@ -269,12 +254,15 @@ export function StudioChat({ conversationId }) {
       await addReferenceFromUrl(item.url);
     }
   };
-  const onDrop = (e) => {
+  const onDrop = async (e) => {
+    dragEnterCountRef.current = 0;
     setDragging(false);
-    const itemId = e.dataTransfer.getData("text/itemId");
-    if (itemId) {
+    const assetPayload = getAssetDragData(e, useStore.getState());
+    if (assetPayload.ids.length > 0) {
       e.preventDefault();
-      void addAssetReference(itemId);
+      for (const id of assetPayload.ids) {
+        await addAssetReference(id);
+      }
       return;
     }
     if (!isFileDrag(e)) return;
@@ -286,6 +274,7 @@ export function StudioChat({ conversationId }) {
     <div
       className="relative flex min-h-0 flex-1 flex-col"
       onPaste={onPaste}
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -341,9 +330,9 @@ export function StudioChat({ conversationId }) {
       <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
         <motion.div
           layout="size"
-          initial={{ opacity: 0, y: 24 }}
+          initial={reducedMotion ? false : { opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ type: "spring", stiffness: 260, damping: 28 }}
+          transition={{ duration: reducedMotion ? 0 : 0.18 }}
           className="composer-shell relative mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border border-line bg-ink-800/90 p-2.5 shadow-panel backdrop-blur-xl"
         >
           {extractingFrames > 0 && (
@@ -359,7 +348,15 @@ export function StudioChat({ conversationId }) {
             </div>
           )}
 
-          <ReferenceStrip onInsertTag={(tag) => mentionRef.current?.insertTag(tag)} />
+          <ReferenceStrip store={s} insertTag={(tag) => mentionRef.current?.insertTag(tag)} />
+          <div className="flex flex-wrap gap-2">
+            {s.referenceVideos.map((ref, i) => <span key={`video-${i}`} className="text-xs text-brand"><button type="button" onClick={() => mentionRef.current?.insertTag(`@vid${i + 1}`)}>@vid{i + 1}</button><button type="button" aria-label={`Remove reference clip ${i + 1}`} onClick={() => s.removeReferenceVideo(i)}> ×</button></span>)}
+            {s.audioNotes.map((note, i) => <span key={`audio-${i}`} className="text-xs text-brand"><button type="button" onClick={() => mentionRef.current?.insertTag(`@audio${i + 1}`)}>@audio{i + 1}</button><button type="button" aria-label={`Remove audio reference ${i + 1}`} onClick={() => s.removeAudioNote(i)}> ×</button></span>)}
+          </div>
+          {referenceSubmissionWarning(s) && <p role="status" className="text-xs text-amber-200">{referenceSubmissionWarning(s)}</p>}
+          {s.draftStorageWarning && <p role="status" className="text-xs text-amber-200">{s.draftStorageWarning}</p>}
+          {normalizePromptMentions(input) !== input && <p role="status" className="text-xs text-amber-200">Some reference tags are informal. They remain literal text; use @img1 for an exact reference.</p>}
+          <div className="flex gap-3 text-xs text-white/60"><button type="button" onClick={() => s.clearComposerDraft()}>New / Clear</button><button type="button" disabled={!s.recentSubmission} onClick={() => s.restoreRecentSubmission()}>Recent submission</button></div>
 
           <div className="flex items-start gap-2">
             <Dropdown
@@ -389,7 +386,7 @@ export function StudioChat({ conversationId }) {
                 </MenuItem>
               )}
             </Dropdown>
-            <input ref={fileRef} type="file" accept="image/*,video/*" multiple hidden onChange={onFiles} />
+            <input ref={fileRef} type="file" accept="image/*,video/*,audio/*" multiple hidden onChange={onFiles} />
 
             <MentionTextarea
               ref={mentionRef}
@@ -397,7 +394,8 @@ export function StudioChat({ conversationId }) {
               onChange={setInput}
               onSubmit={send}
               references={referenceImages}
-              videoRefs={[]}
+              videoRefs={s.referenceVideos}
+              audioRefs={s.audioNotes}
               placeholder={
                 mode === "image"
                   ? "Talk through your idea, or type @ to reference an upload…"
@@ -406,6 +404,7 @@ export function StudioChat({ conversationId }) {
             />
           </div>
 
+          {pendingUploads > 0 && <p role="status" className="text-xs text-brand">Uploading attachments…</p>}
           <div className="flex min-w-0 items-center gap-2">
             <div className="min-w-0 flex-1">
               <SettingsToolbar />
@@ -413,7 +412,7 @@ export function StudioChat({ conversationId }) {
             <motion.button
               whileTap={{ scale: 0.92 }}
               onClick={send}
-              disabled={sending || !input.trim() || !conversationId}
+              disabled={sending || pendingUploads > 0 || !input.trim() || !conversationId}
               className={cn(
                 "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
                 input.trim() && !sending
@@ -449,6 +448,7 @@ function MessageBubble({
 
   return (
     <div className={cn("flex flex-col gap-1.5", isUser ? "items-end" : "items-start")}>
+      {generatedItem && <GenerationFolderCue item={generatedItem} />}
       {designedPrompt && (
         <span className="flex items-center gap-1 text-[11px] font-medium text-brand/80">
           <Wand2 className="h-3 w-3" /> Designed a prompt

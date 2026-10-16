@@ -12,6 +12,13 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowUp, Loader2 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import {
+  rectsIntersect,
+  normalizeRect,
+  computeMarqueeSelection,
+  computeAutoscrollDelta,
+} from "@/lib/marquee-geometry";
+import { getNextGridFocus } from "@/lib/grid-navigation";
 
 /**
  * The one scrolling asset grid, shared by the project view and the global
@@ -62,9 +69,25 @@ export function AssetGrid({
   const setFeedPinned = useStore((s) => s.setFeedPinned);
   const setGridColumns = useStore((s) => s.setGridColumns);
 
+  const selectedIds = useStore((s) => s.selectedIds);
+  const focusedAssetId = useStore((s) => s.focusedAssetId);
+  const setSelectedIds = useStore((s) => s.setSelectedIds);
+  const setFocusedAssetId = useStore((s) => s.setFocusedAssetId);
+  const selectAll = useStore((s) => s.selectAll);
+  const clearSelection = useStore((s) => s.clearSelection);
+  const singleSelect = useStore((s) => s.singleSelect);
+  const selectRange = useStore((s) => s.selectRange);
+  const toggleSelect = useStore((s) => s.toggleSelect);
+  const setActiveId = useStore((s) => s.setActiveId);
+
   const scrollRef = useRef(null);
   const sentinelRef = useRef(null);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  // Marquee state
+  const [marquee, setMarquee] = useState(null);
+  const dragRef = useRef(null);
+  const autoscrollRafRef = useRef(null);
 
   // Column count is derived from the measured scroller, not from a CSS
   // `auto-fill` track, because the packing below has to know it too — and the
@@ -106,6 +129,273 @@ export function AssetGrid({
     if (!el) return;
     setFeedPinned(el.scrollTop <= PIN_THRESHOLD_PX);
   }, [setFeedPinned]);
+
+  const updateMarqueeFromPointer = useCallback((screenX, screenY) => {
+    const drag = dragRef.current;
+    const el = scrollRef.current;
+    if (!drag || !el) return;
+
+    const containerRect = el.getBoundingClientRect();
+    const curContentX = screenX - containerRect.left + el.scrollLeft;
+    const curContentY = screenY - containerRect.top + el.scrollTop;
+
+    const contentRect = normalizeRect(
+      drag.startContent.x,
+      drag.startContent.y,
+      curContentX,
+      curContentY
+    );
+
+    setMarquee(contentRect);
+
+    // Hit test intersecting cards against cached bounds
+    const hits = drag.cachedCards
+      .filter((card) => rectsIntersect(contentRect, card))
+      .map((c) => c.id);
+
+    const nextSelection = computeMarqueeSelection(drag.initialSelectedIds, hits, {
+      shift: drag.shiftKey,
+      alt: drag.altKey,
+    });
+
+    setSelectedIds(nextSelection);
+  }, [setSelectedIds]);
+
+  const stopAutoscroll = () => {
+    if (autoscrollRafRef.current) {
+      cancelAnimationFrame(autoscrollRafRef.current);
+      autoscrollRafRef.current = null;
+    }
+  };
+
+  const startAutoscrollLoop = useCallback(() => {
+    if (autoscrollRafRef.current) return;
+
+    const tick = () => {
+      const drag = dragRef.current;
+      const el = scrollRef.current;
+      if (!drag || !el) {
+        stopAutoscroll();
+        return;
+      }
+
+      const containerRect = el.getBoundingClientRect();
+      const pointerY = drag.currentScreen.y;
+
+      const delta =
+        computeAutoscrollDelta(pointerY, containerRect.top, "top", 44, 20) ||
+        computeAutoscrollDelta(pointerY, containerRect.bottom, "bottom", 44, 20);
+
+      if (delta !== 0) {
+        el.scrollTop += delta;
+        updateMarqueeFromPointer(drag.currentScreen.x, drag.currentScreen.y);
+        autoscrollRafRef.current = requestAnimationFrame(tick);
+      } else {
+        stopAutoscroll();
+      }
+    };
+
+    autoscrollRafRef.current = requestAnimationFrame(tick);
+  }, [updateMarqueeFromPointer]);
+
+  const onPointerDownBackground = (e) => {
+    if (e.button !== 0) return;
+
+    // Do not initiate background marquee if clicking inside a card or interactive element
+    const cardEl = e.target.closest?.("[data-asset-card-id]");
+    const interactive = e.target.closest?.("button, a, input, select, textarea, [role='menuitem']");
+    if (cardEl || interactive) return;
+
+    const el = scrollRef.current;
+    if (!el) return;
+
+    try {
+      el.setPointerCapture?.(e.pointerId);
+    } catch {
+      /* ignore untracked or synthetic pointer ids */
+    }
+
+    const containerRect = el.getBoundingClientRect();
+    const startContentX = e.clientX - containerRect.left + el.scrollLeft;
+    const startContentY = e.clientY - containerRect.top + el.scrollTop;
+
+    // Cache card bounding boxes in content coordinates
+    const cardElements = Array.from(el.querySelectorAll("[data-asset-card-id]"));
+    const cachedCards = cardElements.map((card) => {
+      const cr = card.getBoundingClientRect();
+      return {
+        id: card.getAttribute("data-asset-card-id"),
+        left: cr.left - containerRect.left + el.scrollLeft,
+        top: cr.top - containerRect.top + el.scrollTop,
+        width: cr.width,
+        height: cr.height,
+      };
+    });
+
+    dragRef.current = {
+      pointerId: e.pointerId,
+      startScreen: { x: e.clientX, y: e.clientY },
+      currentScreen: { x: e.clientX, y: e.clientY },
+      startContent: { x: startContentX, y: startContentY },
+      cachedCards,
+      initialSelectedIds: useStore.getState().selectedIds,
+      shiftKey: e.shiftKey,
+      altKey: e.altKey,
+      moved: false,
+    };
+  };
+
+  const onPointerMoveBackground = (e) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+
+    const dx = e.clientX - drag.startScreen.x;
+    const dy = e.clientY - drag.startScreen.y;
+
+    if (!drag.moved && Math.hypot(dx, dy) > 4) {
+      drag.moved = true;
+    }
+
+    if (!drag.moved) return;
+
+    drag.currentScreen = { x: e.clientX, y: e.clientY };
+    drag.shiftKey = e.shiftKey;
+    drag.altKey = e.altKey;
+
+    updateMarqueeFromPointer(e.clientX, e.clientY);
+
+    const el = scrollRef.current;
+    if (el) {
+      const cr = el.getBoundingClientRect();
+      const delta =
+        computeAutoscrollDelta(e.clientY, cr.top, "top", 44, 20) ||
+        computeAutoscrollDelta(e.clientY, cr.bottom, "bottom", 44, 20);
+      if (delta !== 0) {
+        startAutoscrollLoop();
+      } else {
+        stopAutoscroll();
+      }
+    }
+  };
+
+  const onPointerUpBackground = (e) => {
+    stopAutoscroll();
+    const drag = dragRef.current;
+    dragRef.current = null;
+
+    if (!drag) return;
+
+    const el = scrollRef.current;
+    if (el && drag.pointerId) {
+      try {
+        el.releasePointerCapture?.(drag.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+
+    if (drag.moved) {
+      setMarquee(null);
+    } else {
+      // Plain click on empty background deselects all
+      if (!e.shiftKey && !e.metaKey && !e.ctrlKey) {
+        clearSelection();
+      }
+    }
+  };
+
+  const onKeyDown = (e) => {
+    const target = e.target;
+    if (
+      target?.tagName === "INPUT" ||
+      target?.tagName === "TEXTAREA" ||
+      target?.isContentEditable
+    ) {
+      return;
+    }
+
+    const itemIds = items.map((i) => i.id);
+    if (!itemIds.length) return;
+
+    // Cmd/Ctrl + A: Select all
+    if ((e.metaKey || e.ctrlKey) && (e.key === "a" || e.key === "A")) {
+      e.preventDefault();
+      selectAll(itemIds);
+      return;
+    }
+
+    // Escape: Clear selection
+    if (e.key === "Escape") {
+      e.preventDefault();
+      clearSelection();
+      return;
+    }
+
+    // Space: Toggle focused asset
+    if (e.key === " ") {
+      if (focusedAssetId) {
+        e.preventDefault();
+        toggleSelect(focusedAssetId);
+      }
+      return;
+    }
+
+    // Enter: Open focused or first selected asset
+    if (e.key === "Enter") {
+      const toOpen = focusedAssetId || selectedIds[0];
+      if (toOpen) {
+        const it = items.find((x) => x.id === toOpen);
+        if (it?.status === "succeeded") {
+          e.preventDefault();
+          setActiveId(toOpen);
+        }
+      }
+      return;
+    }
+
+    // Quick focus search shortcut (/ or Cmd/Ctrl+F):
+    if (
+      (e.key === "/" && !e.metaKey && !e.ctrlKey) ||
+      ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F"))
+    ) {
+      const searchInput = document.querySelector('input[aria-label="Search prompts"]');
+      if (searchInput) {
+        e.preventDefault();
+        searchInput.focus();
+        searchInput.select?.();
+        return;
+      }
+    }
+
+    // Spatial Arrow Navigation
+    let direction = null;
+    if (e.key === "ArrowUp") direction = "up";
+    else if (e.key === "ArrowDown") direction = "down";
+    else if (e.key === "ArrowLeft") direction = "left";
+    else if (e.key === "ArrowRight") direction = "right";
+    else if (e.key === "Home") direction = "home";
+    else if (e.key === "End") direction = "end";
+
+    if (direction) {
+      e.preventDefault();
+      const currentId = focusedAssetId || selectedIds[0] || itemIds[0];
+      const nextId = getNextGridFocus(columns, currentId, direction, items);
+      if (nextId) {
+        setFocusedAssetId(nextId);
+        if (e.shiftKey) {
+          selectRange(nextId, itemIds);
+        } else {
+          singleSelect(nextId);
+        }
+
+        const cardNode = scrollRef.current?.querySelector(`[data-asset-card-id="${nextId}"]`);
+        if (cardNode) {
+          cardNode.scrollIntoView({ block: "nearest", inline: "nearest" });
+          cardNode.focus?.();
+        }
+      }
+    }
+  };
 
   // A new scope starts at the top. Keyed on the scope's identity rather than on
   // `loading`, because a cached scope is served without ever entering a loading
@@ -155,12 +445,32 @@ export function AssetGrid({
     // content instead of scrolling, and the asset list simply could not be
     // scrolled — visible only when the content overflowed, i.e. on some screen
     // sizes and not others.
-    <div className="relative flex h-full min-h-0 flex-1 flex-col">
+    <div data-testid="asset-grid" className="relative flex h-full min-h-0 flex-1 flex-col">
       <div
         ref={scrollRef}
+        tabIndex={-1}
         onScroll={onScroll}
-        className="scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-4"
+        onPointerDown={onPointerDownBackground}
+        onPointerMove={onPointerMoveBackground}
+        onPointerUp={onPointerUpBackground}
+        onKeyDown={onKeyDown}
+        className={cn(
+          "scroll-thin min-h-0 flex-1 overflow-y-auto px-4 py-4 relative outline-none",
+          marquee && "select-none cursor-crosshair"
+        )}
       >
+        {marquee && (
+          <div
+            data-testid="asset-grid-marquee"
+            className="pointer-events-none absolute z-40 rounded border border-brand bg-brand/15 shadow-sm"
+            style={{
+              left: marquee.left,
+              top: marquee.top,
+              width: marquee.width,
+              height: marquee.height,
+            }}
+          />
+        )}
         {loading ? (
           <SkeletonGrid cardWidth={cardWidth} />
         ) : feedError && items.length === 0 ? (

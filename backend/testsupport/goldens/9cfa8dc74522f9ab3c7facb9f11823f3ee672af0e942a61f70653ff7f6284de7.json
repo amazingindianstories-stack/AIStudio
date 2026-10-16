@@ -1,0 +1,15 @@
+{
+  "request": {
+    "command": [
+      "node",
+      "--input-type=module",
+      "-e",
+      "let s='';for await(const c of process.stdin)s+=c;console.log(JSON.stringify(JSON.parse(s).map(x=>JSON.stringify(x))));"
+    ],
+    "input": "[-0.0,1.0,1e-07,1e-06,1e+20,1e+21,1.0000000000000001e+18,9007199254740993,\"\\ud83d\\ude00\",\"a\\ud800b\",\"\\u2028\",{\"nul\":\"\\u0000\"}]"
+  },
+  "stdout": "[\"0\",\"1\",\"1e-7\",\"0.000001\",\"100000000000000000000\",\"1e+21\",\"1000000000000000100\",\"9007199254740992\",\"\\\"\ud83d\ude00\\\"\",\"\\\"a\\\\ud800b\\\"\",\"\\\"\u2028\\\"\",\"{\\\"nul\\\":\\\"\\\\u0000\\\"}\"]\n",
+  "stdout_sha256": "8f6935b1e0e1f229d30e9397f56ad1e57320a5b8fa7d229e13818f90ea762a45",
+  "source_revision": "d9ef93947910a65bec5fa33d3f2311d888f6a2f4",
+  "source_tree_sha256": "39ce8b2abb6a4440afa5f1d0b944c07717c691839eba171c49a941823e1ff6b9"
+}

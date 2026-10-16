@@ -1,0 +1,7 @@
+import django.contrib.postgres.functions
+from django.db import migrations, models
+
+class Migration(migrations.Migration):
+    initial = True
+    dependencies = []
+    operations = [migrations.SeparateDatabaseAndState(database_operations=[migrations.RunSQL(sql=['CREATE TABLE "users" (\n"id" uuid DEFAULT gen_random_uuid() NOT NULL,\n"email" text NOT NULL,\n"password_hash" text NOT NULL,\n"password_salt" text NOT NULL,\n"name" text NOT NULL,\n"role" text DEFAULT \'user\'::text NOT NULL,\n"color" text,\n"is_active" boolean DEFAULT true NOT NULL,\n"created_at" bigint NOT NULL,\n"avatar_url" text,\n"auth_version" integer DEFAULT 0 NOT NULL,\nCONSTRAINT "users_email_unique" UNIQUE (email),\nCONSTRAINT "users_pkey" PRIMARY KEY (id)\n)'])], state_operations=[migrations.CreateModel(name='User', fields=[('id', models.UUIDField(db_default=django.contrib.postgres.functions.RandomUUID(), primary_key=True, serialize=False)), ('email', models.TextField(unique=True)), ('password_hash', models.TextField()), ('password_salt', models.TextField()), ('name', models.TextField()), ('role', models.TextField(db_default='user')), ('color', models.TextField(null=True)), ('is_active', models.BooleanField(db_default=True)), ('created_at', models.BigIntegerField()), ('avatar_url', models.TextField(null=True)), ('auth_version', models.IntegerField(db_default=0))], options={'db_table': 'users', 'managed': True, 'indexes': [], 'constraints': []})])]

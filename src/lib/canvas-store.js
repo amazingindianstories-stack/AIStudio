@@ -1,6 +1,7 @@
 "use client";
 
 import { create, } from "zustand";
+import { clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
 
 import { apiFetch } from "./api";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
@@ -298,13 +299,18 @@ async function flushSaveImpl(
   saveInFlight = (async () => {
     const boardId = state.boardId ;
     const sentPresent = state.history.present;
+    const body = JSON.stringify({ data: sentPresent });
+    // Durable until the server acknowledges exactly this content.
+    savePendingDraft(boardId, sentPresent);
     set({ saveStatus: "saving" });
     try {
       const res = await apiFetch(`/api/canvas-boards/${boardId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ data: sentPresent }),
-        keepalive: opts?.keepalive,
+        body,
+        // Browsers reject oversized keepalive bodies outright; large boards use
+        // a normal request and rely on the pending draft if the page unloads.
+        keepalive: Boolean(opts?.keepalive) && shouldUseKeepalive(body),
       });
       if (res.status === 401) {
         redirectToLogin();
@@ -313,6 +319,7 @@ async function flushSaveImpl(
       }
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
       const j = await res.json();
+      clearPendingDraft(boardId, sentPresent);
       retryBackoffMs = DEBOUNCE_MS;
       // Only mark "saved" if nothing changed while the request was in
       // flight — an edit mid-flight already flipped status back to "dirty"
@@ -347,6 +354,8 @@ async function loadBoardImpl(set, get, id) {
   await get().flushSave();
   if (myGeneration !== loadGeneration) return; // superseded while flushing
 
+  // A failed flush keeps its pending draft; reset() must not be the only copy.
+  get().persistPendingDraft();
   get().reset();
   set({ boardId: id, loaded: false });
 
@@ -376,18 +385,28 @@ async function loadBoardImpl(set, get, id) {
   const data = validateCanvasState(board.data);
   if (myGeneration !== loadGeneration) return; // superseded while parsing
 
+  // Un-acknowledged local edits newer than the server copy win and are re-saved.
+  const pending = readPendingDraft(board.id);
+  const serverUpdatedAt = Number(board.updatedAt) || 0;
+  let restored = null;
+  if (pending && pending.at > serverUpdatedAt) {
+    try { restored = validateCanvasState(pending.data); } catch { restored = null; }
+  }
+  if (!restored && pending) clearPendingDraft(board.id);
+
   set({
     boardId: board.id,
     boardName: board.name,
-    history: { past: [], present: data, future: [] },
+    history: { past: [], present: restored || data, future: [] },
     selection: [],
     selectedConnectorIds: [],
     editingTextId: null,
     croppingImageId: null,
     cropDraft: null,
-    saveStatus: "idle",
+    saveStatus: restored ? "dirty" : "idle",
     loaded: true,
   });
+  if (restored) scheduleFlush(get, 0);
 }
 
 // Clipboard (spec: "copy/paste within a board and across boards"). Kept as
@@ -433,6 +452,14 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   flushSave: (opts) => flushSaveImpl(set, get, opts),
+
+  /** Keep a durable copy of edits that are not yet acknowledged by the server. */
+  persistPendingDraft: () => {
+    const state = get();
+    if (!state.boardId) return false;
+    if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && state.saveStatus !== "saving") return false;
+    return savePendingDraft(state.boardId, state.history.present);
+  },
 
   setViewport: (vp) => {
     const state = get();

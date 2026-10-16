@@ -17,9 +17,11 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { inlineMediaUrl } from "@/lib/utils";
+import { portraitAttachAllowed, portraitReadiness } from "@/lib/portrait-readiness";
 
 export function PortraitLightbox({
   asset,
+  embedded = false,
   assets = [],
   groupName = "General Character",
   onClose,
@@ -55,7 +57,7 @@ export function PortraitLightbox({
   // Keyboard navigation
   useEffect(() => {
     const onKeyDown = (e) => {
-      if (editingName) return;
+      if (editingName || e.target?.matches?.("input, textarea, select")) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
@@ -80,6 +82,7 @@ export function PortraitLightbox({
   }, [asset]);
 
   if (!asset) return null;
+  const readiness = portraitReadiness(asset);
 
   const handleCopyId = () => {
     const idToCopy = asset.byteplusAssetId || asset.id;
@@ -98,7 +101,8 @@ export function PortraitLightbox({
 
   const handleSaveName = async () => {
     if (nameInput.trim() && nameInput.trim() !== asset.name) {
-      await onRename(asset.id || asset.byteplusAssetId, nameInput.trim());
+      const result = await onRename(asset.id || asset.byteplusAssetId, nameInput.trim());
+      if (result?.ok === false) return;
     }
     setEditingName(false);
   };
@@ -108,6 +112,7 @@ export function PortraitLightbox({
     try {
       const targetUrl = inlineMediaUrl(asset.imageUrl);
       const res = await fetch(targetUrl);
+      if (!res.ok) throw new Error("Download failed");
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -125,16 +130,16 @@ export function PortraitLightbox({
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
+      role={embedded ? "complementary" : "dialog"}
+      aria-modal={embedded ? undefined : true}
       aria-label="Portrait Full View"
-      className="fixed inset-0 z-[120] flex flex-col items-center justify-between bg-black/92 p-3 sm:p-5 backdrop-blur-md"
+      className={embedded ? "absolute inset-0 z-10 flex w-full shrink-0 flex-col overflow-y-auto border-l border-line bg-ink-900 p-3 sm:static sm:w-[280px]" : "fixed inset-0 z-[120] flex flex-col items-center justify-between bg-black/92 p-3 sm:p-5 backdrop-blur-md"}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       {/* Top Header Controls Bar */}
-      <header className="relative z-10 flex w-full max-w-5xl items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-lg backdrop-blur-lg">
+      <header className="relative z-10 flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-lg backdrop-blur-lg">
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand/15 text-brand">
             <Eye className="h-4 w-4" />
@@ -191,7 +196,7 @@ export function PortraitLightbox({
                   <span>•</span>
                   <button
                     onClick={handleCopyId}
-                    title="Copy BytePlus ModelArk Asset ID"
+                    title="Copy asset ID"
                     className="flex items-center gap-1 font-mono text-[10px] text-white/60 hover:text-brand"
                   >
                     <span>{asset.byteplusAssetId}</span>
@@ -208,10 +213,11 @@ export function PortraitLightbox({
         </div>
 
         {/* Action Buttons */}
-        <div className="flex items-center gap-1.5 sm:gap-2">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
           {/* Use in Prompt */}
           <button
             type="button"
+            disabled={!portraitAttachAllowed(asset)}
             onClick={handleAttach}
             className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
               addedPrompt
@@ -323,28 +329,16 @@ export function PortraitLightbox({
           {!isZoomed && (
             <div className="absolute left-3 top-3 flex items-center gap-2 pointer-events-none">
               <span
+                title={readiness.detail}
+                aria-label={`Portrait registration: ${readiness.label}`}
                 className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold backdrop-blur-md shadow-md ${
-                  asset.status === "Processing"
-                    ? "bg-amber-500/25 text-amber-300 ring-1 ring-amber-500/40"
-                    : asset.status === "Failed"
-                    ? "bg-red-500/25 text-red-300 ring-1 ring-red-500/40"
-                    : "bg-ink-950/85 text-emerald-400 ring-1 ring-emerald-500/40"
+                  readiness.state === "registered" ? "bg-ink-950/85 text-emerald-400 ring-1 ring-emerald-500/40"
+                    : readiness.state === "error" ? "bg-red-500/25 text-red-300 ring-1 ring-red-500/40"
+                    : "bg-ink-950/85 text-amber-200 ring-1 ring-amber-500/40"
                 }`}
               >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${
-                    asset.status === "Processing"
-                      ? "bg-amber-400 animate-ping"
-                      : asset.status === "Failed"
-                      ? "bg-red-400"
-                      : "bg-emerald-400"
-                  }`}
-                />
-                {asset.status === "Processing"
-                  ? "Syncing with BytePlus"
-                  : asset.status === "Failed"
-                  ? "Sync Failed"
-                  : "Active • ModelArk Ready"}
+                <span className={`h-1.5 w-1.5 rounded-full ${readiness.state === "registered" ? "bg-emerald-400" : readiness.state === "error" ? "bg-red-400" : "bg-amber-300"}`} />
+                {readiness.label}
               </span>
             </div>
           )}
@@ -364,20 +358,21 @@ export function PortraitLightbox({
       </div>
 
       {/* Bottom Counter & Help Footer */}
-      <footer className="relative z-10 flex w-full max-w-5xl items-center justify-between px-4 py-2 text-xs text-white/50">
+      <footer className={embedded ? "relative z-10 flex w-full flex-col items-start gap-2 py-2 text-xs text-white/50" : "relative z-10 flex w-full max-w-5xl items-center justify-between px-4 py-2 text-xs text-white/50"}>
         <div className="flex items-center gap-2">
           {assets.length > 1 && (
             <span className="rounded-md bg-white/10 px-2 py-0.5 font-medium text-white/80">
               {currentIndex + 1} of {assets.length}
             </span>
           )}
-          <span className="hidden sm:inline">Use ← → arrows to navigate • Esc to close • Click image to toggle zoom</span>
+          {!embedded && <span className="hidden sm:inline">Use ← → arrows to navigate • Esc to close • Click image to toggle zoom</span>}
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="max-w-full truncate" title={asset.uploader?.name || "Unknown uploader"}>{asset.uploader?.name || "Unknown uploader"}</span>
           <span>Role: <strong className="text-white/80">{asset.role || "reference"}</strong></span>
           {asset.createdAt && (
-            <span className="hidden sm:inline">
+            <span className={embedded ? "w-full" : "hidden sm:inline"}>
               Added {new Date(asset.createdAt).toLocaleDateString()}
             </span>
           )}

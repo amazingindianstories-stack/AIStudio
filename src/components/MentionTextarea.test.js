@@ -50,7 +50,7 @@ test("named material tags highlight as valid from assets while unknown tags stay
   }
 });
 
-test("informal tags highlight as amber when valid reference exists and red when out of range", () => {
+test("informal image tags remain amber literal warnings even when out of range", () => {
   const previousReact = globalThis.React;
   globalThis.React = React;
   try {
@@ -61,7 +61,7 @@ test("informal tags highlight as amber when valid reference exists and red when 
     }));
     assert.match(html, /text-amber-200 ring-1 ring-amber-400\/40">@image 1<\/span>/);
     assert.match(html, /text-amber-200 ring-1 ring-amber-400\/40">@image1<\/span>/);
-    assert.match(html, /text-red-300">@image 5<\/span>/);
+    assert.match(html, /text-amber-200 ring-1 ring-amber-400\/40">@image 5<\/span>/);
   } finally {
     globalThis.React = previousReact;
   }
@@ -70,4 +70,18 @@ test("informal tags highlight as amber when valid reference exists and red when 
 test("attachedMediaSuggestions matches video query variants", () => {
   assert.deepEqual(attachedMediaSuggestions("video", 2, 0).map((s) => s.tag), ["@vid1", "@vid2"]);
   assert.deepEqual(attachedMediaSuggestions("video1", 2, 0).map((s) => s.tag), ["@vid1"]);
+});
+
+
+test("reserved malformed image tags stay whole and amber while unknown named assets stay distinct", () => {
+  const previousReact = globalThis.React; globalThis.React = React;
+  try {
+    const html = renderToString(React.createElement(MentionTextarea, {
+      value: "@img1 @img100 @img0 @img02 @img2x @imgg1 @img @missing_named", onChange() {}, references: ["/one.png", "/two.png"],
+    }));
+    assert.match(html, /text-brand">@img1<\/span>/);
+    for (const token of ["@img100", "@img0", "@img02", "@img2x", "@imgg1", "@img"]) assert.ok(html.includes(`text-amber-200 ring-1 ring-amber-400/40">${token}</span>`), token);
+    assert.match(html, /text-red-300">@missing_named<\/span>/);
+    assert.match(html, /Literal image-reference text/);
+  } finally { globalThis.React = previousReact; }
 });

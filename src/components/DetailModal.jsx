@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   X,
   Download,
@@ -23,8 +23,9 @@ import {
   SkipForward,
   Flag,
 } from "lucide-react";
+import { GenerationFolderCue, GenerationTimestamp } from "./MediaCard";
 import { useStore } from "@/lib/store";
-import { cn, inlineMediaUrl, thumbUrl, referenceDisplayUrl } from "@/lib/utils";
+import { cn, thumbUrl, referenceDisplayUrl, generationDownloadUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
 import {
   supportsFirstFrameContinuation,
@@ -182,6 +183,7 @@ function ReferenceCollage({ images }) {
 }
 
 export function DetailModal() {
+  const reducedMotion = useReducedMotion();
   const activeId = useStore((s) => s.activeId);
   const items = useStore((s) => s.items);
   const rightTab = useStore((s) => s.rightTab);
@@ -208,6 +210,7 @@ export function DetailModal() {
   const toggleFlag = useStore((s) => s.toggleFlag);
   const confirmation = useConfirmedAction();
   const [closing, setClosing] = useState(false);
+  const [unplayableUrl, setUnplayableUrl] = useState(null);
   const closingRef = useRef(false);
   const suppressNextNativeFullscreenEscapeRef = useRef(false);
   const escapeCloseTimerRef = useRef(null);
@@ -365,9 +368,9 @@ export function DetailModal() {
           onClick={() => void closeModal()}
         >
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            initial={reducedMotion ? false : { opacity: 0, scale: 0.96, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ type: "spring", stiffness: 280, damping: 30 }}
+            transition={{ duration: reducedMotion ? 0 : 0.18 }}
             onClick={(e) => e.stopPropagation()}
             className="relative flex h-full w-full flex-col lg:flex-row"
           >
@@ -390,7 +393,13 @@ export function DetailModal() {
                     className="h-full w-full object-contain"
                   />
                 )}
-                {item.kind === "video" && (
+                {item.kind === "video" && unplayableUrl === item.url && (
+                  <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-white/80">
+                    <p>This browser cannot play this video. Download the original for full-quality playback.</p>
+                    <a href={generationDownloadUrl(item.id)} download={item.filename || true} className="rounded-lg bg-brand px-4 py-2 text-ink-900">Download original</a>
+                  </div>
+                )}
+                {item.kind === "video" && unplayableUrl !== item.url && (
                   <video
                     data-detail-video
                     src={item.url}
@@ -399,6 +408,7 @@ export function DetailModal() {
                     autoPlay
                     loop
                     playsInline
+                    onError={() => setUnplayableUrl(item.url)}
                     className="h-full w-full object-contain"
                   />
                 )}
@@ -529,6 +539,7 @@ export function DetailModal() {
                 </p>
                 <CopyPromptButton text={item.prompt} />
               </div>
+              <GenerationFolderCue item={item} /><GenerationTimestamp timestamp={item.createdAt} />
               <DetailPrompt key={item.id} text={item.prompt} />
               </div>
 
@@ -717,14 +728,17 @@ export function DetailModal() {
                 <div className="flex gap-2">
                   {item.url && (
                     <a
-                      href={inlineMediaUrl(item.url)}
-                      download
+                      href={generationDownloadUrl(item.id)}
+                      download={item.filename || true}
+                      title={item.filename ? `Download ${item.filename}` : "Download"}
                       className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-ink-700 py-2.5 text-sm text-white/80 hover:text-white"
                     >
                       <Download className="h-4 w-4" /> Download
                     </a>
                   )}
                   <button
+                    disabled={item.status === "queued" || item.status === "running"}
+                    title={item.status === "queued" || item.status === "running" ? "Still rendering — delete after it finishes" : "Delete"}
                     onClick={() => {
                       confirmation.ask("deleteGeneration", async () => {
                         const result = await removeItem(item.id);
@@ -733,7 +747,7 @@ export function DetailModal() {
                         return true;
                       });
                     }}
-                    className="flex items-center justify-center gap-2 rounded-xl border border-line bg-ink-700 px-4 py-2.5 text-sm text-red-300/80 hover:bg-red-500/10 hover:text-red-300"
+                    className="flex items-center justify-center gap-2 rounded-xl border border-line bg-ink-700 px-4 py-2.5 text-sm text-red-300/80 hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>

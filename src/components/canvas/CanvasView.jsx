@@ -85,6 +85,8 @@ export function CanvasView() {
   // reset canvas-store when leaving the board view entirely (unmount)
   useEffect(() => {
     return () => {
+      // The save below may still fail or be cut off; the pending draft survives reset().
+      useCanvasStore.getState().persistPendingDraft();
       flushSave({ keepalive: true });
       reset();
     };
@@ -94,9 +96,13 @@ export function CanvasView() {
   // force-flush on tab hide / navigation away
   useEffect(() => {
     const onVisibility = () => {
-      if (document.visibilityState === "hidden") flushSave({ keepalive: true });
+      if (document.visibilityState === "hidden") {
+        useCanvasStore.getState().persistPendingDraft();
+        flushSave({ keepalive: true });
+      }
     };
     const onBeforeUnload = (e) => {
+      useCanvasStore.getState().persistPendingDraft();
       flushSave({ keepalive: true });
       const status = useCanvasStore.getState().saveStatus;
       if (status === "dirty" || status === "error") {

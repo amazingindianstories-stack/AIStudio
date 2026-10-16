@@ -1,0 +1,15 @@
+{
+  "request": {
+    "command": [
+      "node",
+      "--import",
+      "tsx",
+      "scripts/django-migration/update-operand-oracle.mjs"
+    ],
+    "input": null
+  },
+  "stdout": "[{\"value\":1,\"matched\":true,\"operand\":\"1\"},{\"value\":1.5,\"error_code\":\"22P02\"},{\"value\":2,\"matched\":false,\"operand\":\"2\"},{\"value\":100000000000000000000,\"error_code\":\"22003\"},{\"value\":1e-7,\"error_code\":\"22P02\"},{\"value\":9007199254740992,\"matched\":false,\"operand\":\"9007199254740992\"},{\"value\":1e+21,\"error_code\":\"22P02\"},{\"value\":1e+22,\"error_code\":\"22P02\"},{\"value\":1e+30,\"error_code\":\"22P02\"},{\"value\":1.7976931348623157e+308,\"error_code\":\"22P02\"},{\"value\":5e-324,\"error_code\":\"22P02\"},{\"value\":0.000001,\"error_code\":\"22P02\"},{\"value\":0.0000011,\"error_code\":\"22P02\"},{\"value\":1e-8,\"error_code\":\"22P02\"},{\"value\":9223372036854776000,\"error_code\":\"22003\"},{\"value\":9223372036854775000,\"matched\":false,\"operand\":\"9223372036854775000\"},{\"value\":999999999999999900000,\"error_code\":\"22003\"}]",
+  "stdout_sha256": "4b059e82fbcbf2e94895042d62473d76693a34ae5daa951232f9c5f65ebbb2e3",
+  "source_revision": "d9ef93947910a65bec5fa33d3f2311d888f6a2f4",
+  "source_tree_sha256": "39ce8b2abb6a4440afa5f1d0b944c07717c691839eba171c49a941823e1ff6b9"
+}

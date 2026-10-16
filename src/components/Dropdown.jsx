@@ -27,11 +27,13 @@ export function Dropdown({
   const ref = useRef(null);
   const triggerRef = useRef(null);
   const panelRef = useRef(null);
+  const keyboardFocusRef = useRef(null);
   const panelId = useId();
 
-  const closeAndRestore = useCallback(() => {
+  const closeAndRestore = useCallback(({ restoreFocus = true } = {}) => {
+    keyboardFocusRef.current = null;
     setOpen(false);
-    requestAnimationFrame(() => triggerRef.current?.focus());
+    if (restoreFocus) requestAnimationFrame(() => triggerRef.current?.focus());
   }, []);
 
   // Opening via the keyboard (ArrowDown/ArrowUp on the trigger) lands focus
@@ -39,15 +41,26 @@ export function Dropdown({
   // on both Mac and Windows — otherwise a keyboard-only user can open the
   // panel but has no way to reach an item inside it.
   const openAndFocus = useCallback((fromEnd) => {
+    keyboardFocusRef.current = { fromEnd };
     setOpen(true);
-    requestAnimationFrame(() => {
+  }, []);
+
+  // The positioned portal must be visible before focusing; focusing a hidden
+  // menu on the opening animation frame silently fails in real browsers.
+  useLayoutEffect(() => {
+    if (!open || !position || !keyboardFocusRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      if (!keyboardFocusRef.current) return;
+      const { fromEnd } = keyboardFocusRef.current;
       const items = panelRef.current?.querySelectorAll(
         '[role="menuitem"]:not(:disabled)'
       );
       const target = fromEnd ? items?.[items.length - 1] : items?.[0];
       target?.focus();
+      keyboardFocusRef.current = null;
     });
-  }, []);
+    return () => cancelAnimationFrame(frame);
+  }, [open, position]);
 
   // Arrow-key roving focus among menuitem children once the panel is open.
   // Scoped to [role="menuitem"] specifically (not every focusable element in

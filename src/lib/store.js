@@ -1,6 +1,13 @@
 "use client";
 
+import { portraitRegistrationWarning, portraitAttachAllowed, portraitReferenceUrl } from "./portrait-readiness";
+import { notify } from "./notify";
+
+
 import { create } from "zustand";
+import { installOperationTracking } from "./operation-state";
+import { snapshotScope, composerMetadata, metadataToDraft, saveComposerSnapshot, loadComposerSnapshot } from "./composer-snapshots";
+import { newReferenceId, referenceIdsFor, referencePermutation } from "./reference-order";
 
 import {
   DEFAULTS,
@@ -18,22 +25,23 @@ import {
   supportsVideoReference,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
-  MAX_REFERENCE_VIDEOS,
-  maxReferenceVideosForVideoModel,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
-import { renumberImgMentions, normalizePromptMentions } from "./mentions";
+import { renumberImgMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch } from "./api";
+import { apiErrorMessage } from "./api-error";
 import {
   clearFeedCache,
   dedupeFirstPage,
   dropCached,
+  dropCachedIn,
   getCached,
   isFeedFresh,
   patchCached,
   putFeedCache,
+  staleCached,
   writeCachedItems,
 } from "./feed-cache";
 import {
@@ -41,7 +49,7 @@ import {
   matchesScope,
   scopeKey,
   scopeToQuery,
-
+  UNSORTED,
 } from "./feed-scope";
 import {
   clearStoreTimeout,
@@ -51,8 +59,8 @@ import {
   setStoreTimeout,
   storeRuntime,
 } from "./store-runtime";
-import { videoPollClientDecision } from "./video-poll-backoff";
-import { magnificParamsForModel } from "./providers/magnific";
+import { LIVE_MS_ACTIVE, LIVE_MS_IDLE, liveDelay, liveUpdatesUrl, nextLiveCursor, hasRecentActiveWork } from "./live-cursor";
+import { magnificParamsForModel, magnificVideoParamsForModel, MAGNIFIC_VIDEO_DEFAULTS, MAGNIFIC_MODELS, MAGNIFIC_VIDEO_MODELS, MAGNIFIC_SCALE_FACTORS, MAGNIFIC_VIDEO_RESOLUTIONS } from "./magnific-ui";
 import {
   clearMaterialCache,
   dedupeMaterialRequest,
@@ -63,17 +71,15 @@ import {
   patchMaterialCaches,
   putMaterialCache,
 } from "./material-cache";
+import { askText } from "./ask-text";
 
 const EMPTY_COUNTS = {
   project: { total: 0, unsorted: 0, byFolder: {} },
+  globalLibrary: { total: 0, unsorted: 0, byFolder: {} },
   allAssets: 0,
   favorites: 0,
 };
 
-// Exported for store.test.js only, so adoptOrphanedJobs's "already being
-// driven by this tab" skip branch is directly testable (pre-populate an id,
-// assert startPolling is not re-triggered) without faking a real poll cycle.
-export const polling = storeRuntime.polling;
 
 // ── scoped feed cache ───────────────────────────────────────────────────────
 // Each library view (a project, a folder, Favourites, All assets, each with its
@@ -93,8 +99,12 @@ const THREAD_PAGE_SIZE = 60;
 
 /** The scope the right panel is currently showing. */
 function currentScope(s) {
+  let tab = s.rightTab;
+  if (tab === "project" && !s.activeProjectId) {
+    tab = "library";
+  }
   return {
-    tab: s.rightTab,
+    tab,
     projectId: s.activeProjectId,
     folderId: s.activeFolderId,
     kind: s.filterKind,
@@ -113,8 +123,7 @@ function currentScope(s) {
  *
  * `patch` receives the current row so callers can merge conditionally.
  *
- * Exported (along with dropEverywhere/findItem/mergeLiveItems/
- * adoptOrphanedJobs below) purely for unit testing — see store.test.js.
+ * Exported (along with dropEverywhere/findItem/mergeLiveItems) purely for unit testing — see store.test.js.
  * Nothing outside this module is meant to call these directly; every real
  * caller goes through the store's own actions.
  */
@@ -150,6 +159,31 @@ function invalidateFeedCache() {
   clearFeedCache();
 }
 
+/** Magnific rows are upscales: they reopen in the upscaler with their source, model and parameters. */
+export function isMagnificUpscale(item) {
+  return MAGNIFIC_MODELS.includes(item?.model) || MAGNIFIC_VIDEO_MODELS.includes(item?.model);
+}
+
+function upscaleComposerState(s, item) {
+  const name = item.prompt ? item.prompt.slice(0, 50) : "Upscale source";
+  if (MAGNIFIC_VIDEO_MODELS.includes(item.model)) {
+    const source = item.referenceVideos?.[0];
+    return {
+      mode: "upscale", upscalerMedia: "video",
+      upscalerVideo: source ? { url: source, name, aspectRatio: item.aspectRatio } : null,
+      videoUpscalerParams: { ...s.videoUpscalerParams, model: item.model,
+        ...(MAGNIFIC_VIDEO_RESOLUTIONS.includes(item.resolution) ? { resolution: item.resolution } : {}), ...(item.upscaleParams ?? {}) },
+    };
+  }
+  const source = item.referenceImages?.[0];
+  return {
+    mode: "upscale", upscalerMedia: "image",
+    upscalerImage: source ? { url: source, name, aspectRatio: item.aspectRatio } : null,
+    upscalerParams: { ...s.upscalerParams, model: item.model,
+      ...(MAGNIFIC_SCALE_FACTORS.includes(item.resolution) ? { scaleFactor: item.resolution } : {}), ...(item.upscaleParams ?? {}) },
+  };
+}
+
 /** Look a row up across every pool. Callers act on an id the user clicked, and
  *  that row may be in the chat thread but not the current feed (or vice versa),
  *  so searching only `items` would make the action silently do nothing. */
@@ -159,6 +193,17 @@ export function findItem(s, id) {
     s.threadItems.find((i) => i.id === id) ??
     s.pendingItems.find((i) => i.id === id)
   );
+}
+
+/** Put a row back where it sorts (failed delete rollback), not at the head. */
+function restoreItemInPlace(set, item) {
+  set((s) => {
+    const scope = currentScope(s);
+    if (!matchesScope(item, scope) || s.items.some((i) => i.id === item.id)) return {};
+    const items = [...s.items, item].sort((a, b) => compareInScope(a, b, scope));
+    writeCachedItems(scopeKey(scope), items);
+    return { items };
+  });
 }
 
 /** Insert a freshly created row into the pools it belongs in. */
@@ -178,6 +223,8 @@ function insertNewItem(
       patch.items = items;
       writeCachedItems(scopeKey(scope), items);
     }
+    // The new row may belong to other cached scopes too; make them revalidate.
+    staleCached(scopeKey(scope));
     // Depth rows stay project-scoped (the `items` branch above) but never
     // join the conversational thread — they're not a prompt/response chat
     // turn the way image/video generations are, and mixing a worker-run
@@ -189,35 +236,8 @@ function insertNewItem(
   });
 }
 
-// ── shared live-update poll ─────────────────────────────────────────────────
-// The per-item pollers below only ever attach to items THIS tab already knows
-// about — startPolling is called on submit and from loadHistory, nowhere else.
-// History is team-wide, so a job started in another tab, on another device, or
-// by a teammate was never observed here and only appeared on a manual refresh.
-//
-// One shared poll fixes all of those at once, and costs a single request no
-// matter how many jobs are in flight. It only OBSERVES: the per-item pollers
-// still own execution (pollQueue is what posts /api/queue/execute), so nothing
-// here can double-submit work.
-const LIVE_MS_ACTIVE = 30000; // callback is authoritative; poll as a fallback
-const LIVE_MS_IDLE = 20000; // nothing running — just watch for teammates
-
-// A queued job is driven entirely by the tab that created it: pollQueue is what
-// posts /api/queue/execute. Close that tab and nobody ever runs the job — and
-// the server-side reaper only sweeps "running", so it sits queued forever,
-// permanently inflating the position of everything queued behind it.
-//
-// Any client that can see a stale queued job can adopt it. lockJob is a
-// conditional UPDATE (status='queued' only), so if several tabs adopt the same
-// job exactly one wins and the losers get a clean 400 — adoption cannot
-// double-run work.
-//
-// The delay is what makes this a fallback rather than a race: the owning tab
-// polls every 1–3s, so it has long since claimed anything healthy. Adopting
-// early would just add losing execute calls. Note that adopting is not the same
-// as executing: pollQueue still respects queue position, so an adopted job that
-// is legitimately waiting its turn is merely observed, not jumped ahead.
-const ADOPT_QUEUED_AFTER_MS = 30_000;
+// One read-only feed observes work performed by Django workers, including jobs
+// submitted by another browser or continuing after this browser closes.
 async function apiFetch(input, init) {
   const response = await crossOriginFetch(input, init);
   if (response.status === 401) {
@@ -230,6 +250,56 @@ async function apiFetch(input, init) {
   }
   return response;
 }
+
+function submissionId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+}
+
+/** Upload each distinct inline image once, at most UPLOAD_CONCURRENCY at a time. */
+const UPLOAD_CONCURRENCY = 3;
+
+export async function uploadInlineReferences(entries, uploadOne, concurrency = UPLOAD_CONCURRENCY) {
+  const byValue = new Map();
+  const queue = [];
+  for (const { value, label } of entries) {
+    if (typeof value !== "string" || !value.startsWith("data:") || byValue.has(value)) continue;
+    let release;
+    byValue.set(value, new Promise((resolve, reject) => { release = { resolve, reject }; }));
+    queue.push({ value, label, release });
+  }
+  const workers = Array.from({ length: Math.min(concurrency, queue.length) }, async () => {
+    while (queue.length) {
+      const job = queue.shift();
+      try { job.release.resolve(await uploadOne(job.value, job.label)); } catch (error) { job.release.reject(error); }
+    }
+  });
+  await Promise.all(workers);
+  return Promise.all(entries.map(({ value }) => (byValue.has(value) ? byValue.get(value) : value)));
+}
+
+async function uploadDraftBinaryReferences(state) {
+  const { uploadOriginalReference } = await import("./client-reference-upload");
+  const uploadOne = async (ref, label) => {
+    const blob = await (await fetch(ref)).blob();
+    return uploadOriginalReference(new File([blob], label, {type:blob.type}));
+  };
+  const references = state.referenceImages.map((value, i) => ({ value, label: state.referenceLabels?.[i] || "reference" }));
+  const frames = [
+    { value: state.firstFrame, label: "first-frame" },
+    { value: state.lastFrame, label: "last-frame" },
+    { value: state.continuationFrame, label: "continuation-frame" },
+  ];
+  const uploaded = await uploadInlineReferences([...references, ...frames], uploadOne);
+  const [firstFrame, lastFrame, continuationFrame] = uploaded.slice(references.length);
+  return { referenceImages: uploaded.slice(0, references.length), referenceIds: referenceIdsFor(state),
+    firstFrame, lastFrame, continuationFrame };
+}
+
+export const CLEAR_SELECTION_PATCH = {
+  selectedIds: [],
+  focusedAssetId: null,
+  selectionAnchorId: null,
+};
 
 export const useStore = create((set, get) => ({
   view: "studio",
@@ -267,6 +337,14 @@ export const useStore = create((set, get) => ({
   firstFrameMode: false,
   prompt: "",
   referenceImages: [],
+  // Reference values the server refused as removed/unready portraits; shown on their cards.
+  unavailableReferences: [],
+  // BytePlus portrait library capacity seen this session (ms timestamps; 0 = not seen).
+  portraitQuotaFullAt: 0,
+  portraitQuotaFreedAt: 0,
+  referenceIds: [],
+  referenceReorderUndo: null,
+  recentSubmission: null,
   // Parallel to referenceImages, same length/order — "image" | "video",
   // recording whether each entry was a real image upload or a frame
   // extracted from a video file (addImageFiles/addReferenceFromVideo).
@@ -313,6 +391,9 @@ export const useStore = create((set, get) => ({
   filterKind: "all",
   selectedIds: [],
   draggedItem: null,
+  draggedAssets: [],
+  focusedAssetId: null,
+  selectionAnchorId: null,
 
   upscalerImage: null,
   upscalerParams: {
@@ -331,6 +412,9 @@ export const useStore = create((set, get) => ({
     ultraDetail: 30,
     filterNsfw: false,
   },
+  upscalerMedia: "image",
+  upscalerVideo: null,
+  videoUpscalerParams: { ...MAGNIFIC_VIDEO_DEFAULTS },
 
   assets: [],
   assetsLoading: false,
@@ -352,6 +436,8 @@ export const useStore = create((set, get) => ({
   limits: {},
 
   projects: [],
+  globalFolders: [],
+  libraryTree: { globalFolders: [], projects: [] },
   activeProjectId: null,
   activeFolderId: null,
 
@@ -483,6 +569,7 @@ export const useStore = create((set, get) => ({
   setPrompt: (prompt) => set({ prompt }),
   addReference: (dataUrl, kind = "image", label = "", tag = "") =>
     set((s) => {
+      if (s.referenceImages.length + s.referenceVideos.length + s.referenceAudios.length >= 50) return {draftStorageWarning:"Stage at most 50 references. Remove an attachment before adding another."};
       const referenceImages = [...s.referenceImages, dataUrl];
       // Attaching a reference can itself invalidate the chosen resolution:
       // Kling Image 2.1 does 2K in text-to-image but not from a reference
@@ -494,6 +581,8 @@ export const useStore = create((set, get) => ({
       const referenceTags = Array.isArray(s.referenceTags) ? [...s.referenceTags, tag] : [tag];
       return {
         referenceImages,
+        referenceIds: [...referenceIdsFor(s), newReferenceId()],
+        referenceReorderUndo: null,
         referenceKinds: [...s.referenceKinds, kind],
         referenceLabels,
         referenceTags,
@@ -505,41 +594,50 @@ export const useStore = create((set, get) => ({
   removeReference: (index) =>
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
+      referenceIds: referenceIdsFor(s).filter((_, i) => i !== index),
+      referenceReorderUndo: null,
+      prompt: renumberImgMentions(s.prompt, s.referenceImages.map((_, i) => i === index ? undefined : i > index ? i - 1 : i)),
       referenceKinds: s.referenceKinds.filter((_, i) => i !== index),
       referenceLabels: (s.referenceLabels || []).filter((_, i) => i !== index),
       referenceTags: (s.referenceTags || []).filter((_, i) => i !== index),
+      unavailableReferences: (s.unavailableReferences || []).filter((ref) => ref !== s.referenceImages[index]),
     })),
-  // Drag-reorder from the composer. Diffs old vs. new position per image
-  // (by value — reference images are treated as distinct, so an exact
-  // byte-identical duplicate upload is the one case this can misnumber) and
-  // renumbers any @imgN already typed in the prompt so it keeps pointing at
-  // the same image rather than silently drifting to whatever else lands in
-  // that slot. referenceKinds is carried along by the same index mapping so
-  // a reordered video-derived reference keeps its badge.
-  reorderReferences: (newOrder) =>
-    set((s) => {
-      const mapping = s.referenceImages.map((img) => newOrder.indexOf(img));
-      const newKinds = new Array(newOrder.length);
-      const newLabels = new Array(newOrder.length);
-      const newTags = new Array(newOrder.length);
-      mapping.forEach((newIndex, oldIndex) => {
-        if (newIndex >= 0) {
-          newKinds[newIndex] = s.referenceKinds[oldIndex];
-          if (s.referenceLabels) newLabels[newIndex] = s.referenceLabels[oldIndex];
-          if (s.referenceTags) newTags[newIndex] = s.referenceTags[oldIndex];
-        }
-      });
-      return {
-        referenceImages: newOrder,
-        referenceKinds: newKinds,
-        referenceLabels: newLabels,
-        referenceTags: newTags,
-        prompt: renumberImgMentions(s.prompt, mapping),
-      };
-    }),
+  reorderReferencesByIds: (ids) => set((s) => {
+    const { patch, mapping } = referencePermutation(s, ids);
+    return { ...patch, prompt: renumberImgMentions(s.prompt, mapping),
+      referenceReorderUndo: { ids: referenceIdsFor(s), afterIds: [...ids] } };
+  }),
+  moveReference: ({ id, toIndex }) => {
+    const ids = referenceIdsFor(get());
+    const from = ids.indexOf(id);
+    if (from < 0 || !Number.isInteger(toIndex) || toIndex < 0 || toIndex >= ids.length || from === toIndex) return;
+    ids.splice(from, 1); ids.splice(toIndex, 0, id);
+    get().reorderReferencesByIds(ids);
+  },
+  undoReferenceReorder: () => {
+    const s = get(); const undo = s.referenceReorderUndo;
+    if (!undo || JSON.stringify(referenceIdsFor(s)) !== JSON.stringify(undo.afterIds)) return;
+    const { patch, mapping } = referencePermutation(s, undo.ids);
+    set({ ...patch, prompt: renumberImgMentions(s.prompt, mapping), referenceReorderUndo: null });
+  },
+  // Compatibility for old callers: match occurrences once, never indexOf equality.
+  reorderReferences: (newOrder) => {
+    const s = get(); const ids = referenceIdsFor(s); const used = new Set();
+    const order = newOrder.map(ref => {
+      const index = s.referenceImages.findIndex((value, i) => value === ref && !used.has(i));
+      if (index < 0) throw new Error("Unknown reference occurrence");
+      used.add(index); return ids[index];
+    });
+    set({ referenceIds: ids }); get().reorderReferencesByIds(order);
+  },
+  clearComposerDraft: () => set({ prompt: "", referenceImages: [], referenceIds: [], referenceKinds: [], referenceLabels: [], referenceTags: [], referenceVideos: [], referenceAudios: [], videoNotes: [], audioNotes: [], referenceReorderUndo: null }),
+  restoreRecentSubmission: () => {
+    const recent = get().recentSubmission;
+    if (recent) set(structuredClone(recent));
+  },
   addReferenceVideo: (ref, note) =>
     set((s) => {
-      const maxAllowed = maxReferenceVideosForVideoModel(s.model) ?? MAX_REFERENCE_VIDEOS;
+      const maxAllowed = 50 - s.referenceImages.length - s.referenceAudios.length;
       if (s.referenceVideos.includes(ref) || s.referenceVideos.length >= maxAllowed) {
         return {};
       }
@@ -559,11 +657,15 @@ export const useStore = create((set, get) => ({
     })),
 
   // See audioNotes' comment above — filename only, no real attachment.
-  addAudioNote: (audio) => set((s) => ({ audioNotes: [...s.audioNotes, audio] })),
+  addAudioNote: (audio) => set((s) => s.referenceImages.length + s.referenceVideos.length + s.referenceAudios.length >= 50 ? {draftStorageWarning:"Stage at most 50 references."} : ({ audioNotes: [...s.audioNotes, audio], referenceAudios: audio?.ref ? [...s.referenceAudios, audio.ref] : s.referenceAudios })),
   removeAudioNote: (index) =>
-    set((s) => ({ audioNotes: s.audioNotes.filter((_, i) => i !== index) })),
+    set((s) => ({ audioNotes: s.audioNotes.filter((_, i) => i !== index), referenceAudios: s.referenceAudios.filter((_, i) => i !== index) })),
 
-  setRightTab: (rightTab) => set({ rightTab }),
+  setRightTab: (rightTab) =>
+    set((s) => ({
+      rightTab,
+      ...(s.rightTab !== rightTab ? CLEAR_SELECTION_PATCH : {}),
+    })),
   setActiveId: (activeId) => set({ activeId }),
   // `columns` is AssetGrid's packColumns() output (arrays of items). Stored
   // as id arrays only — DetailModal doesn't need the items themselves, and
@@ -571,10 +673,25 @@ export const useStore = create((set, get) => ({
   // `items`/the feed cache.
   setGridColumns: (columns) =>
     set({ gridColumns: columns.map((col) => col.map((item) => item.id)) }),
-  setSearch: (search) => set({ search }),
-  setFilterKind: (filterKind) => set({ filterKind }),
+  setSearch: (search) =>
+    set((s) => (s.search === search ? {} : { search, ...CLEAR_SELECTION_PATCH })),
+  setFilterKind: (filterKind) =>
+    set((s) => (s.filterKind === filterKind ? {} : { filterKind, ...CLEAR_SELECTION_PATCH })),
   setDraggedItem: (draggedItem) => set({ draggedItem }),
+  setDraggedAssets: ({ items = [], _ids = [], primaryItem = null } = {}) =>
+    set({
+      draggedAssets: items,
+      draggedItem: primaryItem || (items && items[0]) || null,
+    }),
+  clearDraggedAssets: () => set({ draggedAssets: [], draggedItem: null }),
+  setFocusedAssetId: (focusedAssetId) => set({ focusedAssetId }),
+  setSelectionAnchorId: (selectionAnchorId) => set({ selectionAnchorId }),
+  setSelectedIds: (selectedIds) => set({ selectedIds }),
   setUpscalerImage: (upscalerImage) => set({ upscalerImage }),
+  setUpscalerMedia: (upscalerMedia) => set({ upscalerMedia: upscalerMedia === "video" ? "video" : "image" }),
+  setUpscalerVideo: (upscalerVideo) => set({ upscalerVideo }),
+  setVideoUpscalerParam: (key, value) =>
+    set((s) => ({ videoUpscalerParams: { ...s.videoUpscalerParams, [key]: value } })),
   setUpscalerParam: (key, value) =>
     set((s) => ({ upscalerParams: { ...s.upscalerParams, [key]: value } })),
 
@@ -606,10 +723,14 @@ export const useStore = create((set, get) => ({
     }
     const key = scopeKey(scope);
     const cached = getCached(key);
+    // Revalidating the scope already on screen keeps the pages loaded beyond
+    // page 1 (and their scroll position) instead of collapsing to page 1.
+    const onScreen = key === get().feedKey ? get().items : null;
 
     // Serve the cache first. Re-entering a scope is the common case (clicking
     // between folders, flipping tabs), and re-rendering identical rows behind a
     // skeleton is both slower to read and a layout jump for no information.
+    const isNewFeedScope = key !== get().feedKey;
     if (cached && !force) {
       set({
         items: cached.items,
@@ -617,6 +738,7 @@ export const useStore = create((set, get) => ({
         loading: false,
         pendingItems: [],
         feedKey: key,
+        ...(isNewFeedScope ? CLEAR_SELECTION_PATCH : {}),
       });
       if (isFeedFresh(cached)) return;
     }
@@ -624,8 +746,8 @@ export const useStore = create((set, get) => ({
     const hasSomethingToShow = Boolean(cached);
     set(
       hasSomethingToShow
-        ? { refreshing: true, feedError: null, feedKey: key }
-        : { loading: true, refreshing: false, feedError: null, items: [], pendingItems: [], feedKey: key }
+        ? { refreshing: true, feedError: null, feedKey: key, ...(isNewFeedScope ? CLEAR_SELECTION_PATCH : {}) }
+        : { loading: true, refreshing: false, feedError: null, items: [], pendingItems: [], feedKey: key, ...CLEAR_SELECTION_PATCH }
     );
 
     // Every in-flight feed request carries a sequence number; only the newest
@@ -643,8 +765,16 @@ export const useStore = create((set, get) => ({
       });
       if (seq !== currentStoreRequestSequence("feed")) return; // superseded
 
-      const items = json.items ?? [];
-      const nextCursor = json.nextCursor ?? null;
+      let items = json.items ?? [];
+      let nextCursor = json.nextCursor ?? null;
+      const loadedTail = onScreen && nextCursor !== null && items.length
+        ? onScreen.filter((row) => !items.some((fresh) => fresh.id === row.id)
+            && compareInScope(items[items.length - 1], row, scope) < 0)
+        : [];
+      if (loadedTail.length) {
+        items = [...items, ...loadedTail];
+        nextCursor = cached?.nextCursor ?? nextCursor;
+      }
       putFeedCache(key, { items, nextCursor, at: Date.now() });
       set({
         items,
@@ -657,7 +787,6 @@ export const useStore = create((set, get) => ({
         feedKey: key,
       });
       // Resume driving anything still in flight that this page revealed.
-      for (const it of items) startPolling(it, set, get);
     } catch (error) {
       if (seq !== currentStoreRequestSequence("feed")) return;
       set({ loading: false, refreshing: false, feedError: error?.message || "Could not load assets." });
@@ -697,7 +826,6 @@ export const useStore = create((set, get) => ({
         putFeedCache(key, { items: appended, nextCursor, at: Date.now() });
         return { items: appended, hasMoreHistory: nextCursor !== null };
       });
-      for (const it of newItems) startPolling(it, set, get);
     } catch (e) {
       if (seq === currentStoreRequestSequence("feed")) {
         set({ paginationError: e?.message || "Could not load more assets." });
@@ -723,6 +851,7 @@ export const useStore = create((set, get) => ({
       set({
         counts: {
           project: json.project ?? EMPTY_COUNTS.project,
+          globalLibrary: json.globalLibrary ?? EMPTY_COUNTS.globalLibrary,
           allAssets: Number(json.allAssets ?? 0),
           favorites: Number(json.favorites ?? 0),
         },
@@ -756,7 +885,6 @@ export const useStore = create((set, get) => ({
       // single fetch.
       const threadItems = (json.items ?? []).filter((it) => it.kind !== "depth" && it.kind !== "audio");
       set({ threadItems, threadLoading: false });
-      for (const it of threadItems) startPolling(it, set, get);
     } catch {
       if (seq !== currentStoreRequestSequence("thread")) return;
       set({ threadLoading: false });
@@ -796,6 +924,8 @@ export const useStore = create((set, get) => ({
     // Start the watermark slightly in the past so a job that finished during
     // the initial page load isn't missed in the gap before the first poll.
     storeRuntime.liveSince = Date.now() - 60_000;
+    storeRuntime.liveAfterId = null;
+    storeRuntime.liveFailures = 0;
     if (typeof document !== "undefined" && !storeRuntime.liveVisibilityHandler) {
       // Returning to a backgrounded tab is exactly when the view is most
       // stale, so catch up immediately rather than waiting out the interval.
@@ -821,15 +951,36 @@ export const useStore = create((set, get) => ({
   },
 
   generate: async () => {
-    const s = get();
-    const prompt = normalizePromptMentions(s.prompt.trim());
+    let s = get();
+    const prompt = s.prompt.trim();
     if (!prompt || s.generating) return [];
+    if (s.referenceImages.some(ref => !ref)) {
+      set({ generationError: "Attach the missing draft references again before generating." });
+      return [];
+    }
     if (s.mode === "video" && s.firstFrameMode && !s.firstFrame && !s.continuationFrame) {
-      alert("Please select a first frame or toggle First Frame off.");
+      notify("Please select a first frame or toggle First Frame off.");
+      return [];
+    }
+    if ((s.unavailableReferences || []).some((ref) => s.referenceImages.includes(ref))) {
+      notify("Remove the reference marked Unavailable before generating.");
       return [];
     }
 
     set({ generating: true });
+    try {
+      const uploaded = await uploadDraftBinaryReferences(s);
+      const current = get();
+      if (current.currentUser?.id !== s.currentUser?.id || current.activeProjectId !== s.activeProjectId) {
+        set({ generating: false, generationError: "The user or project changed during upload. Review the draft before submitting." });
+        return [];
+      }
+      if (current.referenceImages === s.referenceImages) set(uploaded);
+      s = { ...s, ...uploaded };
+    } catch (error) {
+      set({ generating: false, generationError: error.message || "Could not upload draft references." });
+      return [];
+    }
     const endpoint =
       s.mode === "image" ? "/api/generate/image" : "/api/generate/video";
     const videoTaskMode = s.mode === "video" ? s.videoTaskMode : "generate";
@@ -849,7 +1000,7 @@ export const useStore = create((set, get) => ({
       duration: videoTaskMode === "edit" ? undefined : s.duration,
       referenceImages: s.referenceImages,
       referenceVideos: s.referenceVideos,
-      referenceAudios: s.audioNotes.map((a) => typeof a === "string" ? null : a?.ref).filter(Boolean),
+      referenceAudios: s.referenceAudios,
       generateAudio: s.generateAudio,
       draftMode: s.draftMode,
       bitrateMode: s.bitrateMode,
@@ -868,18 +1019,21 @@ export const useStore = create((set, get) => ({
       firstFrame: s.firstFrame ?? s.continuationFrame ?? undefined,
       lastFrame: s.lastFrame ?? undefined,
       projectId: s.activeProjectId ?? undefined,
-      folderId: s.activeFolderId ?? undefined,
+      folderId: (s.activeFolderId && s.activeFolderId !== UNSORTED) ? s.activeFolderId : undefined,
     };
 
     const created = [];
     // Batch: enqueue N independent jobs with the same payload. The queue's
     // per-kind concurrency cap decides how many actually run at once.
     const count = Math.min(4, Math.max(1, s.batchCount || 1));
+    // One key per batch slot: a re-sent POST returns the same generation
+    // instead of queueing a second paid job.
+    const submissionKey = submissionId();
     try {
       for (let i = 0; i < count; i++) {
         const res = await apiFetch(endpoint, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(submissionKey ? { "Idempotency-Key": `${submissionKey}-${i}` } : {}) },
           body: JSON.stringify(payload),
         });
         let item;
@@ -889,7 +1043,12 @@ export const useStore = create((set, get) => ({
           throw new Error(`Server error (${res.status}): the server returned an empty or invalid response.`);
         }
         if (!res.ok) {
-          throw new Error(item.error || `Server error: ${res.status}`);
+          const unavailable = item?.code === "PORTRAIT_UNAVAILABLE" && Number.isInteger(item.referenceIndex)
+            ? s.referenceImages?.[item.referenceIndex - 1] : null;
+          if (typeof unavailable === "string") {
+            set((state) => ({ unavailableReferences: [...new Set([...(state.unavailableReferences || []), unavailable])] }));
+          }
+          throw new Error(apiErrorMessage(item, res.status));
         }
         if (item?.id) {
           // Stay on the tab the user chose. Forcing "history" (All assets) on
@@ -898,10 +1057,13 @@ export const useStore = create((set, get) => ({
           insertNewItem(set, item);
           // Clear seed/continuationFrame/firstFrame/lastFrame here, not just prompt:
           // these are one-shot flags, not standing composer preferences.
-          set({ prompt: "", seed: null, continuationFrame: null, firstFrame: null, lastFrame: null, firstFrameMode: false });
+          set({ recentSubmission: structuredClone({ prompt: s.prompt, referenceImages: s.referenceImages,
+            referenceIds: referenceIdsFor(s), referenceKinds: s.referenceKinds, referenceLabels: s.referenceLabels,
+            referenceTags: s.referenceTags, referenceVideos: s.referenceVideos, referenceAudios: s.referenceAudios,
+            videoNotes: s.videoNotes, audioNotes: s.audioNotes }), referenceReorderUndo: null,
+            seed: null, continuationFrame: null, firstFrame: null, lastFrame: null, firstFrameMode: false });
           // The server coordinator owns execution. The live feed/history
           // resync is the only client-side recovery path.
-          startPolling(item, set, get);
           created.push(item);
         }
       }
@@ -909,11 +1071,11 @@ export const useStore = create((set, get) => ({
       console.error("Generation request failed:", e);
       // The batch loop above is sequential (awaited one at a time), so a
       // failure on request K of N leaves 1..K-1 already submitted, already
-      // in the feed, and already polling. Reporting only "failed" here reads
+      // in the feed, and tracked by the worker. Reporting only "failed" here reads
       // as "nothing happened" and invites a re-click that doubles up the
       // jobs that already went through — say how many actually started.
       const message = e.message || "Failed to start generation.";
-      alert(
+      notify(
         created.length > 0
           ? `${created.length} of ${count} generations started. The rest failed: ${message}`
           : message
@@ -950,7 +1112,7 @@ export const useStore = create((set, get) => ({
           trackCharacters,
           originalName,
           projectId: get().activeProjectId ?? undefined,
-          folderId: get().activeFolderId ?? undefined,
+          folderId: (get().activeFolderId && get().activeFolderId !== UNSORTED) ? get().activeFolderId : undefined,
         }),
       });
       let item;
@@ -959,15 +1121,14 @@ export const useStore = create((set, get) => ({
       } catch {
         throw new Error(`Server error (${res.status}): the server returned an empty or invalid response.`);
       }
-      if (!res.ok) throw new Error(item.error || `Server error: ${res.status}`);
+      if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
       if (item?.id) {
         insertNewItem(set, item);
-        startPolling(item, set, get);
       }
       return item;
     } catch (e) {
       console.error("Depth-map request failed:", e);
-      alert(e.message || "Failed to start depth-map generation.");
+      notify(e.message || "Failed to start depth-map generation.");
       return null;
     } finally {
       void get().loadCounts();
@@ -982,7 +1143,7 @@ export const useStore = create((set, get) => ({
   generateUpscale: async () => {
     const s = get();
     if (!s.upscalerImage) {
-      alert("Please select or drop an image to upscale.");
+      notify("Please select or drop an image to upscale.");
       return null;
     }
     if (s.generating) return null;
@@ -1002,7 +1163,7 @@ export const useStore = create((set, get) => ({
           model: s.upscalerParams.model,
           params: magnificParamsForModel(s.upscalerParams.model, s.upscalerParams),
           projectId: s.activeProjectId ?? undefined,
-          folderId: s.activeFolderId ?? undefined,
+          folderId: (s.activeFolderId && s.activeFolderId !== UNSORTED) ? s.activeFolderId : undefined,
         }),
       });
 
@@ -1012,17 +1173,91 @@ export const useStore = create((set, get) => ({
       } catch {
         throw new Error(`Server error (${res.status}): invalid response.`);
       }
-      if (!res.ok) throw new Error(item.error || `Server error: ${res.status}`);
+      if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
 
       if (item?.id) {
         insertNewItem(set, item);
-        startPolling(item, set, get);
+        if (get().upscalerImage === s.upscalerImage) set({ upscalerImage: null });
       }
       return item;
     } catch (e) {
       console.error("Upscale request failed:", e);
-      alert(e.message || "Failed to start upscale.");
+      notify(e.message || "Failed to start upscale.");
       return null;
+    } finally {
+      void get().loadCounts();
+      set({ generating: false });
+    }
+  },
+
+  /** Magnific video upscale: the source is an uploaded or library video. */
+  generateVideoUpscale: async () => {
+    const s = get();
+    if (!s.upscalerVideo) {
+      notify("Please select or drop a video to upscale.");
+      return null;
+    }
+    if (s.generating) return null;
+    set({ generating: true });
+    try {
+      const model = s.videoUpscalerParams.model;
+      const res = await apiFetch("/api/generate/upscale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          video: s.upscalerVideo.url,
+          model,
+          params: magnificVideoParamsForModel(model, s.videoUpscalerParams),
+          projectId: s.activeProjectId ?? undefined,
+          folderId: (s.activeFolderId && s.activeFolderId !== UNSORTED) ? s.activeFolderId : undefined,
+        }),
+      });
+      let item;
+      try {
+        item = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): invalid response.`);
+      }
+      if (!res.ok) throw new Error(apiErrorMessage(item, res.status));
+      if (item?.id) {
+        insertNewItem(set, item);
+        if (get().upscalerVideo === s.upscalerVideo) set({ upscalerVideo: null });
+      }
+      return item;
+    } catch (e) {
+      console.error("Video upscale request failed:", e);
+      notify(e.message || "Failed to start the video upscale.");
+      return null;
+    } finally {
+      void get().loadCounts();
+      set({ generating: false });
+    }
+  },
+
+  /** Regenerate a Magnific row with its own source, model and validated parameters. */
+  resubmitUpscale: async (item) => {
+    const video = item.kind === "video";
+    const source = video ? item.referenceVideos?.[0] : item.referenceImages?.[0];
+    if (!source || !item.upscaleParams) return { ok: false, error: "The original upscale settings are no longer available." };
+    set({ generating: true });
+    try {
+      const res = await apiFetch("/api/generate/upscale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [video ? "video" : "image"]: source, model: item.model, params: item.upscaleParams,
+          projectId: item.projectId ?? undefined, folderId: item.folderId ?? undefined }),
+      });
+      let created;
+      try {
+        created = await res.json();
+      } catch {
+        throw new Error(`Server error (${res.status}): invalid response.`);
+      }
+      if (!res.ok) throw new Error(apiErrorMessage(created, res.status));
+      if (created?.id) insertNewItem(set, created);
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e.message || "The upscale could not be started again." };
     } finally {
       void get().loadCounts();
       set({ generating: false });
@@ -1061,7 +1296,9 @@ export const useStore = create((set, get) => ({
         throw new Error(
           res.status === 403
             ? "You don't have permission to delete this."
-            : body.error || `Delete failed (${res.status}).`
+            : body.error === "GENERATION_REQUIRES_RECONCILIATION"
+              ? "This generation is still rendering. Wait for it to finish, then delete it."
+              : apiErrorMessage(body, res.status)
         );
       }
       return { ok: true };
@@ -1074,7 +1311,7 @@ export const useStore = create((set, get) => ({
       // rollback below. insertNewItem's head-of-list placement is a rough
       // approximation of where the row was — loadFeed corrects the exact
       // position/scope membership right after.
-      if (item) insertNewItem(set, item);
+      if (item) restoreItemInPlace(set, item);
       void get().loadFeed({ force: true });
       void get().loadCounts();
       return { ok: false, error: e.message || "Failed to delete." };
@@ -1094,7 +1331,11 @@ export const useStore = create((set, get) => ({
     }));
     // Un-starring while looking at Favourites is a membership change, not just
     // a field change: the row no longer belongs in this scope.
-    if (!nextFavorite && get().rightTab === "favorites") dropEverywhere(set, id);
+    if (!nextFavorite && get().rightTab === "favorites") {
+      // Only Favourites scopes lose the row; project/library caches keep it.
+      dropCachedIn(id, (key) => key.startsWith("favorites:"));
+      set((s) => ({ items: s.items.filter((i) => i.id !== id) }));
+    }
     void get().loadCounts();
 
     try {
@@ -1121,8 +1362,7 @@ export const useStore = create((set, get) => ({
   // Lightweight quality feedback signal (Phase 3.5) — independent of
   // toggleFavorite above (see schema.js's `flagged` comment for why these
   // are two separate booleans). Unflagging never asks for a reason; flagging
-  // does, via window.prompt — same convention this file already uses for
-  // folder/project naming (ProjectPanel.jsx, ProjectMenu.jsx). An empty or
+  // does, via the in-app text dialog (askText). An empty or
   // cancelled prompt still flags the row (a null reason is a valid flag,
   // just an unexplained one) — only an explicit Cancel-with-no-flag case
   // doesn't happen here because the flag itself isn't gated on the prompt.
@@ -1132,7 +1372,7 @@ export const useStore = create((set, get) => ({
 
     const nextFlagged = !item.flagged;
     const reason = nextFlagged
-      ? window.prompt("Flag this generation — what's wrong with it? (optional)") || null
+      ? (await askText({ title: "Flag this generation", label: "What's wrong with it? (optional)", confirmLabel: "Flag", optional: true, maxLength: 500 })) || null
       : null;
     const flaggedAt = nextFlagged ? Date.now() : undefined;
     patchEverywhere(set, id, (i) => ({
@@ -1158,7 +1398,7 @@ export const useStore = create((set, get) => ({
         flaggedAt: item.flaggedAt,
         flagReason: item.flagReason,
       }));
-      alert("Failed to update flag — please try again.");
+      notify("Failed to update flag — please try again.");
     }
   },
 
@@ -1174,10 +1414,11 @@ export const useStore = create((set, get) => ({
     if (!cleanPrompt) return { ok: false, error: "No prompt remains after removing references." };
 
     set({ generating: true });
+    const submissionKey = submissionId();
     try {
       const res = await apiFetch("/api/generate/video", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(submissionKey ? { "Idempotency-Key": submissionKey } : {}) },
         body: JSON.stringify({
           prompt: cleanPrompt,
           model: item.model,
@@ -1192,14 +1433,13 @@ export const useStore = create((set, get) => ({
         }),
       });
       const newItem = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(newItem.error || `Retry failed (${res.status}).`);
+      if (!res.ok) throw new Error(apiErrorMessage(newItem, res.status));
       if (newItem?.id) {
         insertNewItem(set, newItem);
         if (
           newItem.kind === "video" &&
           (newItem.status === "running" || newItem.status === "queued")
         ) {
-          startPolling(newItem, set, get);
         }
         return { ok: true };
       }
@@ -1214,28 +1454,17 @@ export const useStore = create((set, get) => ({
   editInComposer: (id) => {
     const item = findItem(get(), id);
     if (!item) return { ok: false, error: "This generation is no longer available." };
+    if (isMagnificUpscale(item)) {
+      set(upscaleComposerState(get(), item));
+      return { ok: true };
+    }
     set({ mode: item.kind, prompt: item.prompt });
     return { ok: true };
   },
 
   addReferenceFromUrl: async (url) => {
-    if (get().model === "Seedream 5.0 Pro" || get().model === "seedream-5-pro") { get().addReference(url); return; }
-    // Fetch a generated image and add it to the composer as a reference (data
-    // URL so every provider works) — enables the hero-first crowd workflow.
-    // Generated images can be full-resolution (well over Vercel's 4.5MB body
-    // limit once base64-encoded), so this must go through the same downscale
-    // budget ladder as file uploads (addImageFiles in PromptComposer.tsx) —
-    // skipping it previously produced an oversized generate() payload that
-    // Vercel rejected with a non-JSON 413, surfacing as "server returned an
-    // empty or invalid response".
-    try {
-      const res = await fetch(inlineMediaUrl(url));
-      const blob = await res.blob();
-      const dataUrl = await encodeBlobWithBudget(blob);
-      get().addReference(dataUrl);
-    } catch (e) {
-      console.error("Failed to add reference from URL:", e);
-    }
+    // Durable stored references are resolved and authorized by Django.
+    get().addReference(url);
   },
 
   regenerate: async (id) => {
@@ -1244,6 +1473,8 @@ export const useStore = create((set, get) => ({
     // reference images as data URLs, which a fresh submit needs. Then just
     // submit what it loaded.
     if (get().generating) return { ok: false, error: "Another generation is already starting." };
+    const original = findItem(get(), id);
+    if (isMagnificUpscale(original)) return get().resubmitUpscale(original);
     const cloned = await get().cloneToComposer(id);
     if (cloned?.ok === false) return cloned;
     if (!get().prompt.trim()) return { ok: false, error: "The saved prompt is empty." };
@@ -1333,9 +1564,8 @@ export const useStore = create((set, get) => ({
         body: JSON.stringify({ sourceGenerationId: id }),
       });
       const item = await res.json().catch(() => ({}));
-      if (!res.ok) return { ok: false, error: item.error || `Server error: ${res.status}` };
+      if (!res.ok) return { ok: false, error: apiErrorMessage(item, res.status) };
       insertNewItem(set, item);
-      startPolling(item, set, get);
       return { ok: true, item };
     } catch (error) {
       return { ok: false, error: error?.message || "Could not start the final render." };
@@ -1349,10 +1579,12 @@ export const useStore = create((set, get) => ({
     try {
       const { extractFrame } = await import("./video-frame");
       const { dataUrl } = await extractFrame(inlineMediaUrl(url), atSeconds);
-      get().addReference(dataUrl, "video");
+      const { uploadOriginalReference } = await import("./client-reference-upload");
+      const blob = await (await fetch(dataUrl)).blob();
+      get().addReference(await uploadOriginalReference(new File([blob], "video-frame.png", {type:blob.type})), "video");
     } catch (e) {
       console.error("Failed to take a frame from video:", e);
-      alert(e?.message || "Could not read a frame from this video.");
+      notify(e?.message || "Could not read a frame from this video.");
     }
   },
 
@@ -1445,6 +1677,13 @@ export const useStore = create((set, get) => ({
   cloneToComposer: async (id) => {
     const item = findItem(get(), id);
     if (!item) return { ok: false, error: "This generation is no longer available." };
+    if (isMagnificUpscale(item)) {
+      if (!(item.kind === "video" ? item.referenceVideos?.[0] : item.referenceImages?.[0])) {
+        return { ok: false, error: "The original upscale source is no longer available." };
+      }
+      set({ ...upscaleComposerState(get(), item), destinationProjectId: item.projectId, destinationFolderId: item.folderId ?? null });
+      return { ok: true };
+    }
     set({
       mode: item.kind,
       model: item.model,
@@ -1453,6 +1692,7 @@ export const useStore = create((set, get) => ({
       destinationFolderId: item.folderId ?? null,
         referenceVideos: item.referenceVideos ?? [],
         referenceAudios: item.referenceAudios ?? [],
+        audioNotes: (item.referenceAudios ?? []).map((ref, i) => ({ref,name:`Audio ${i+1}`})),
       stagedReferenceVideos: [],
       stagedContinuationFrame: null,
       aspectRatio: item.aspectRatio,
@@ -1475,34 +1715,9 @@ export const useStore = create((set, get) => ({
       referenceImages: [],
       referenceKinds: [],
     });
-    // Restore the stored reference images as data URLs so every provider works.
     const paths = item.referenceImages ?? [];
-    if (paths.length && (item.model === "Seedream 5.0 Pro" || item.model === "seedream-5-pro")) {
-      set({ referenceImages: paths, referenceKinds: paths.map(() => "image") });
-      return { ok: true };
-    }
-    if (paths.length) {
-      const dataUrls = await Promise.all(
-        paths.map(async (p) => {
-          try {
-            const res = await fetch(inlineMediaUrl(p));
-            const blob = await res.blob();
-            return await new Promise((resolve) => {
-              const r = new FileReader();
-              r.onload = () => resolve(r.result );
-              r.readAsDataURL(blob);
-            });
-          } catch {
-            return null;
-          }
-        })
-      );
-      const restored = dataUrls.filter((d) => !!d);
-      // Original upload kind isn't stored on the saved generation, so a
-      // cloned reference always defaults to "image" (no video badge) —
-      // cosmetic-only consequence, same as the restoreComposerDraft case.
-      set({ referenceImages: restored, referenceKinds: restored.map(() => "image") });
-    }
+    set({ referenceImages: [...paths], referenceIds: paths.map(() => newReferenceId()),
+      referenceKinds: paths.map(() => "image"), referenceLabels: paths.map(() => ""), referenceTags: paths.map(() => "") });
     return { ok: true };
   },
 
@@ -1547,7 +1762,7 @@ export const useStore = create((set, get) => ({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.id) {
-        return { ok: false, error: data?.error || `Failed to save asset (${res.status})` };
+        return { ok: false, error: apiErrorMessage(data, res.status) };
       }
       set((s) => ({
         assets: [data, ...s.assets.filter((a) => a.id !== data.id)],
@@ -1571,7 +1786,7 @@ export const useStore = create((set, get) => ({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Delete failed (${res.status}).`);
+        throw new Error(apiErrorMessage(body, res.status));
       }
       return { ok: true };
     } catch (e) {
@@ -1627,6 +1842,37 @@ export const useStore = create((set, get) => ({
   setEditingAsset: (editingAsset) => set({ editingAsset }),
 
   setPortraitGalleryOpen: (portraitGalleryOpen) => set({ portraitGalleryOpen }),
+
+  // Automatic portrait pool (VEEVEE_MANAGED_PORTRAITS). enabled === null until the backend answers.
+  managedPortraits: { enabled: null, assets: [], usage: null, loading: false, error: null },
+  loadManagedPortraits: async () => {
+    set((state) => ({ managedPortraits: { ...state.managedPortraits, loading: true } }));
+    try {
+      const res = await apiFetch("/api/portraits/managed", { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (res.status === 404) {
+        set({ managedPortraits: { enabled: false, assets: [], usage: null, loading: false, error: null } });
+        return;
+      }
+      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not load portraits."));
+      set({ managedPortraits: { enabled: json.enabled === true, assets: json.assets || [], usage: json.usage || null, loading: false, error: null } });
+    } catch (error) {
+      set((state) => ({ managedPortraits: { ...state.managedPortraits, enabled: state.managedPortraits.enabled ?? false, loading: false,
+        error: error.message || "Could not load portraits." } }));
+    }
+  },
+  deleteManagedPortrait: async (id) => {
+    try {
+      const res = await apiFetch(`/api/portraits/managed/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.ok !== true) return { ok: false, error: apiErrorMessage(json, res.status, "Could not remove this portrait.") };
+      set((state) => ({ managedPortraits: { ...state.managedPortraits, assets: state.managedPortraits.assets.filter((a) => a.id !== id) } }));
+      void get().loadManagedPortraits();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: "Could not remove this portrait. Try again." };
+    }
+  },
   setSelectedPortraitGroup: (selectedPortraitGroup) => set({ selectedPortraitGroup }),
 
   loadPortraitGroups: async () => {
@@ -1650,7 +1896,7 @@ export const useStore = create((set, get) => ({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        return { ok: false, error: err.error || "Failed to create character group." };
+        return { ok: false, error: apiErrorMessage(err, res.status, "Failed to create character group.") };
       }
       const group = await res.json();
       set((s) => ({
@@ -1722,7 +1968,7 @@ export const useStore = create((set, get) => ({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        return { ok: false, error: err.error || "Failed to upload portrait asset." };
+        return { ok: false, error: apiErrorMessage(err, res.status, "Failed to upload portrait asset.") };
       }
       const asset = await res.json();
       await get().loadPortraitAssets(groupId);
@@ -1746,70 +1992,68 @@ export const useStore = create((set, get) => ({
   },
 
   loadAllPortraitAssets: async (projectId) => {
-    set({ portraitAssetsLoading: true });
+    const pid = projectId !== undefined ? projectId : get().activeProjectId;
+    const requestId = (get().portraitRequestId || 0) + 1;
+    set({ portraitRequestId: requestId, portraitAssetsLoading: true, portraitSyncError: null, portraitSyncInProgress: false,
+      ...(get().portraitScope !== pid ? { portraitScope: pid, portraitAssets: [], portraitGroups: [] } : {}) });
     try {
-      const pid = projectId !== undefined ? projectId : get().activeProjectId;
       const url = pid ? `/api/assets/portraits?projectId=${encodeURIComponent(pid)}` : "/api/assets/portraits";
       const res = await apiFetch(url, { cache: "no-store" });
       const json = await res.json();
+      if (!res.ok || json.error) throw new Error(apiErrorMessage(json, res.status, "Could not load portraits."));
+      if (get().portraitRequestId !== requestId || get().activeProjectId !== pid) return [];
       const assets = json.assets ?? [];
-      const groups = json.groups ?? [];
-      set({
-        portraitAssets: assets,
-        portraitGroups: groups,
-        portraitAssetsLoading: false,
-      });
+      set({ portraitAssets: assets, portraitGroups: json.groups ?? [],
+        portraitAssetsLoading: false, portraitSyncError: json.syncError || null, portraitSyncInProgress: Boolean(json.syncInProgress) });
       return assets;
-    } catch {
-      set({ portraitAssetsLoading: false });
+    } catch (err) {
+      if (get().portraitRequestId === requestId) {
+        set({ portraitAssetsLoading: false, portraitSyncError: err.message || "Could not load portraits." });
+      }
       return [];
     }
   },
 
-  uploadPortraitImageDirect: async ({ dataUrl, name, role = "reference", groupId, projectId }) => {
+  uploadPortraitImageDirect: async ({ referenceId, dataUrl, name, role = "reference", groupId, projectId }) => {
     try {
       const pid = projectId !== undefined ? projectId : get().activeProjectId;
       const res = await apiFetch("/api/assets/portraits/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataUrl, name, role, groupId, projectId: pid ?? undefined }),
+        body: JSON.stringify({ referenceId, dataUrl, name, role, groupId, projectId: pid ?? undefined }),
       });
       if (!res.ok) {
         if (res.status === 413) {
           return { ok: false, error: "Image file is too large for the server (HTTP 413). Please select an image under 25MB." };
         }
         const err = await res.json().catch(() => ({}));
-        return { ok: false, error: err.error || "Failed to upload portrait." };
+        return { ok: false, error: apiErrorMessage(err, res.status, "Failed to upload portrait.") };
       }
       const json = await res.json();
       await get().loadAllPortraitAssets(pid);
-      return { ok: true, asset: json.asset };
+      if (json.registrationErrorCode === "QuotaSharedPoolExceeded" || json.registrationError === "QuotaSharedPoolExceeded") set({ portraitQuotaFullAt: Date.now() });
+      return { ok: true, asset: json.asset, registrationError: portraitRegistrationWarning(json.registrationError, json.registrationErrorCode), libraryFull: json.registrationErrorCode === "QuotaSharedPoolExceeded" };
     } catch (err) {
       return { ok: false, error: err?.message || "Network error uploading portrait." };
     }
   },
 
   deletePortraitAssetDirect: async (assetId) => {
-    const prev = get().portraitAssets;
-    set((s) => ({
-      portraitAssets: s.portraitAssets.filter(
-        (a) => a.id !== assetId && a.byteplusAssetId !== assetId
-      ),
-    }));
+    const asset = get().portraitAssets.find(a => a.id === assetId);
+    if (!asset) return {ok:false,error:"This portrait is no longer available. Refresh the Gallery."};
+    const group = get().portraitGroups.find(g => g.id === asset.groupId);
+    if (!asset.groupId || !group) return {ok:false,error:"The portrait character scope is unavailable. Refresh the Gallery."};
+    const query = new URLSearchParams({assetId:asset.id,groupId:asset.groupId});
+    if (group?.projectId) query.set("projectId",group.projectId);
     try {
-      const res = await apiFetch(`/api/assets/portraits?assetId=${encodeURIComponent(assetId)}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err?.error || "Delete failed");
-      }
-      await get().loadAllPortraitAssets();
-      return { ok: true };
-    } catch (err) {
-      set({ portraitAssets: prev });
-      return { ok: false, error: err?.message || "Delete failed" };
-    }
+      const res = await apiFetch(`/api/assets/portraits?${query}`, {method:"DELETE"});
+      const ack = await res.json().catch(()=>null);
+      if (!res.ok || ack?.ok !== true) return {ok:false,error:apiErrorMessage(ack, res.status, "Deletion was not confirmed. Refresh before retrying.")};
+      if (ack.assetId !== asset.id || ack.groupId !== asset.groupId || !["confirmed","already_absent","not_registered","already_archived"].includes(ack.remoteDeletion)) return {ok:false,error:"Deletion acknowledgement did not match this portrait. Refresh before retrying."};
+      // A confirmed BytePlus deletion frees library space.
+      set(state => ({portraitAssets:state.portraitAssets.filter(a => a.id !== asset.id), ...(ack.remoteDeletion === "confirmed" ? {portraitQuotaFreedAt: Date.now()} : {})}));
+      return {ok:true, freedSpace: ack.remoteDeletion === "confirmed"};
+    } catch { return {ok:false,error:"Deletion response is uncertain. Refresh before retrying."}; }
   },
 
   renamePortraitAssetDirect: async (assetId, name) => {
@@ -1843,52 +2087,22 @@ export const useStore = create((set, get) => ({
   },
 
   attachPortraitToComposer: (asset, characterName = "Character") => {
-    const s = get();
-    // Prioritize imageUrl for visual preview in the composer.
-    // If byteplusAssetId exists, append it as a hash fragment (#bp_asset_id=) so:
-    // 1. Browsers never send the fragment in HTTP requests (preserving BytePlus TOS HMAC-SHA256 signatures and avoiding HTTP 403 Forbidden).
-    // 2. Queue execution resolves the asset via regex to asset://${asset.byteplusAssetId}.
-    let refUrl = asset.imageUrl;
-    if (!refUrl && asset.byteplusAssetId) {
-      refUrl = `asset://${asset.byteplusAssetId}`;
-    }
+    if (!portraitAttachAllowed(asset)) return {ok:false,error:"This portrait is not verified active in BytePlus."};
+    const refUrl = portraitReferenceUrl(asset);
     if (!refUrl) return;
 
-    // Clean any prior query param bp_asset_id if present
-    if (refUrl.startsWith("http") && /[?&]bp[-_]asset(?:_id)?=/.test(refUrl)) {
-      refUrl = refUrl
-        .replace(/([?&])bp[-_]asset(?:_id)?=[^&#]+(&?)/, (match, prefix, suffix) => {
-          if (prefix === "?" && suffix) return "?";
-          return "";
-        })
-        .replace(/[?&]$/, "");
-    }
-
-    if (asset.byteplusAssetId && !refUrl.includes("bp_asset_id=")) {
-      refUrl = `${refUrl}#bp_asset_id=${encodeURIComponent(asset.byteplusAssetId)}`;
-    }
-
-    const currentRefs = Array.isArray(s.referenceImages) ? [...s.referenceImages] : [];
-    const currentKinds = Array.isArray(s.referenceKinds) ? [...s.referenceKinds] : [];
-    const currentLabels = Array.isArray(s.referenceLabels) ? [...s.referenceLabels] : [];
-
-    if (currentRefs.includes(refUrl)) {
-      set({ portraitGalleryOpen: false });
-      return;
-    }
-
-    currentRefs.push(refUrl);
-    currentKinds.push("portrait");
-    currentLabels.push(characterName);
-
-    set({
-      referenceImages: currentRefs,
-      referenceKinds: currentKinds,
-      referenceLabels: currentLabels,
-      portraitGalleryOpen: false,
-    });
+    get().addReference(refUrl, "portrait", characterName);
+    set({portraitGalleryOpen:false});
   },
 
+  attachPortraitsToComposer: (assets) => {
+    const unique = [...new Map(assets.map(asset => [asset.id || asset.byteplusAssetId || asset.imageUrl, asset])).values()];
+    if (unique.some(asset => !portraitAttachAllowed(asset))) return {ok:false,error:"Selected portraits include an unverified or unavailable BytePlus registration."};
+    const state = get();
+    if (state.referenceImages.length + state.referenceVideos.length + state.referenceAudios.length + unique.length > 50) return {ok:false,error:"Stage at most 50 references; remove some attachments first."};
+    for (const asset of unique) get().attachPortraitToComposer(asset, asset.groupName || asset.name || "Character");
+    return {ok:true,count:unique.length};
+  },
   loadProjects: async () => {
     try {
       // GET ensures a default project server-side (atomic — no duplicate races).
@@ -1899,6 +2113,8 @@ export const useStore = create((set, get) => ({
       const nextProjectId =
         currentActiveId && projects.some((p) => p.id === currentActiveId)
           ? currentActiveId
+          : currentActiveId === null && (get().projects.length > 0 || get().projectScopeSelected)
+          ? null
           : projects[0]?.id ?? null;
       set({
         projects,
@@ -1908,6 +2124,24 @@ export const useStore = create((set, get) => ({
         void get().loadAssets(nextProjectId);
         void get().loadAllPortraitAssets(nextProjectId);
       }
+      void get().loadLibraryTree();
+    } catch {
+      /* ignore */
+    }
+  },
+
+  loadLibraryTree: async () => {
+    try {
+      const res = await apiFetch("/api/folders?tree=1", { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      set({
+        libraryTree: {
+          globalFolders: data.globalFolders ?? [],
+          projects: data.projects ?? [],
+        },
+        globalFolders: data.globalFolders ?? [],
+      });
     } catch {
       /* ignore */
     }
@@ -1916,8 +2150,18 @@ export const useStore = create((set, get) => ({
   // The subscription at the bottom of this file watches these and refetches the
   // feed, counts and thread — so switching project or folder is one state write
   // here, not a fetch every caller has to remember to make.
-  setActiveProject: (id) => set({ activeProjectId: id, activeFolderId: null }),
-  setActiveFolder: (id) => set({ activeFolderId: id }),
+  setActiveProject: (id) =>
+    set((s) => ({
+      activeProjectId: id,
+      activeFolderId: null,
+      projectScopeSelected: true,
+      ...(s.activeProjectId !== id ? CLEAR_SELECTION_PATCH : {}),
+    })),
+  setActiveFolder: (id) =>
+    set((s) => ({
+      activeFolderId: id,
+      ...(s.activeFolderId !== id ? CLEAR_SELECTION_PATCH : {}),
+    })),
 
   createProject: async (name) => {
     const res = await apiFetch("/api/projects", {
@@ -1927,11 +2171,13 @@ export const useStore = create((set, get) => ({
     });
     const json = await res.json();
     if (json.projects) {
-      set({
+      set((s) => ({
         projects: json.projects,
-        activeProjectId: json.project?.id ?? get().activeProjectId,
+        activeProjectId: json.project?.id ?? s.activeProjectId,
         activeFolderId: null,
-      });
+        ...CLEAR_SELECTION_PATCH,
+      }));
+      void get().loadLibraryTree();
     }
   },
 
@@ -1942,7 +2188,10 @@ export const useStore = create((set, get) => ({
       body: JSON.stringify({ op: "renameProject", projectId: id, name }),
     });
     const json = await res.json();
-    if (json.projects) set({ projects: json.projects });
+    if (json.projects) {
+      set({ projects: json.projects });
+      void get().loadLibraryTree();
+    }
   },
 
   deleteProject: async (id) => {
@@ -1959,6 +2208,7 @@ export const useStore = create((set, get) => ({
         activeProjectId:
           s.activeProjectId === id ? projects[0]?.id ?? null : s.activeProjectId,
         activeFolderId: s.activeProjectId === id ? null : s.activeFolderId,
+        ...(s.activeProjectId === id ? CLEAR_SELECTION_PATCH : {}),
       }));
       // Items got orphaned server-side. That is a membership change across
       // every project-scoped view at once, so refetch rather than trying to
@@ -1967,126 +2217,280 @@ export const useStore = create((set, get) => ({
       void get().loadFeed({ force: true });
       void get().loadCounts();
       void get().loadThread();
+      void get().loadLibraryTree();
     }
   },
 
-  createFolder: async (projectId, name) => {
-    const res = await apiFetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "createFolder", projectId, name }),
-    });
-    const json = await res.json();
-    if (json.projects) {
-      set({ projects: json.projects });
-      if (json.folder?.id) set({ activeFolderId: json.folder.id });
+  createFolder: async (arg1, arg2, arg3, customIdempotencyKey) => {
+    let name, projectId, parentId, idempotencyKey;
+    if (typeof arg1 === "object" && arg1 !== null) {
+      ({ name, projectId = null, parentId = null, idempotencyKey } = arg1);
+    } else {
+      projectId = arg1 || null;
+      name = arg2;
+      parentId = arg3 || null;
+      idempotencyKey = customIdempotencyKey;
     }
-  },
-
-  renameFolder: async (projectId, folderId, name) => {
-    const res = await apiFetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "renameFolder", projectId, folderId, name }),
-    });
-    const json = await res.json();
-    if (json.projects) set({ projects: json.projects });
-  },
-
-  deleteFolder: async (projectId, folderId) => {
-    const res = await apiFetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "deleteFolder", projectId, folderId }),
-    });
-    const json = await res.json();
-    if (json.projects) {
-      set((s) => ({
-        projects: json.projects,
-        activeFolderId: s.activeFolderId === folderId ? null : s.activeFolderId,
-      }));
-      // Its items became unsorted — a membership change for both the folder's
-      // own scope and the project's unsorted scope.
-      invalidateFeedCache();
-      void get().loadFeed({ force: true });
-      void get().loadCounts();
+    if (!idempotencyKey) {
+      idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
     }
+    const res = await apiFetch("/api/folders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, projectId, parentId, idempotencyKey }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(apiErrorMessage(err, res.status, "Failed to create folder"));
+    }
+    const json = await res.json();
+    if (json.folder?.id) {
+      set({ activeProjectId: json.folder.projectId ?? null, activeFolderId: json.folder.id, projectScopeSelected: true });
+    }
+    await Promise.all([get().loadProjects(), get().loadLibraryTree(), get().loadCounts()]);
+    return json.folder;
   },
 
-  moveItem: async (itemId, folderId) => {
-    const projectId = get().activeProjectId ?? undefined;
-    patchEverywhere(set, itemId, (i) => ({
-      ...i,
-      projectId: projectId ?? i.projectId,
-      folderId: folderId ?? undefined,
+  renameFolder: async (arg1, arg2, arg3, arg4, customIdempotencyKey) => {
+    let folderId, name, projectId, expectedVersion, idempotencyKey;
+    if (typeof arg1 === "object" && arg1 !== null) {
+      ({ id: folderId, name, projectId, expectedVersion, idempotencyKey } = arg1);
+    } else if (arg3 !== undefined && typeof arg3 === "string") {
+      projectId = arg1;
+      folderId = arg2;
+      name = arg3;
+      expectedVersion = arg4;
+      idempotencyKey = customIdempotencyKey;
+    } else {
+      folderId = arg1;
+      name = arg2;
+      expectedVersion = arg3;
+      idempotencyKey = typeof arg4 === "string" ? arg4 : undefined;
+    }
+    if (expectedVersion === undefined) {
+      const tree = get().libraryTree;
+      const findNode = (nodes) => {
+        if (!Array.isArray(nodes)) return null;
+        for (const n of nodes) {
+          if (n.id === folderId) return n;
+          const found = findNode(n.children || n.folders);
+          if (found) return found;
+        }
+        return null;
+      };
+      const found = findNode(tree?.globalFolders) || findNode(tree?.projects);
+      if (found?.version) expectedVersion = found.version;
+    }
+    if (!idempotencyKey) {
+      idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    }
+    const res = await apiFetch("/api/folders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: folderId, name, projectId, expectedVersion, idempotencyKey }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      if (err.code === "VERSION_CONFLICT") await get().loadLibraryTree();
+      throw Object.assign(new Error(apiErrorMessage(err, res.status, "Failed to rename folder")), { code: err.code, status: res.status });
+    }
+    await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
+  },
+
+  setFolderColor: async (folderId, color, customIdempotencyKey) => {
+    let idempotencyKey = customIdempotencyKey;
+    if (!idempotencyKey) {
+      idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    }
+    const res = await apiFetch("/api/folders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: folderId, color, idempotencyKey }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(apiErrorMessage(err, res.status, "Failed to set folder color")), { code: err.code, status: res.status });
+    }
+    await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
+  },
+
+  deleteFolder: async (arg1, arg2, customIdempotencyKey) => {
+    let folderId, projectId, idempotencyKey;
+    if (typeof arg1 === "object" && arg1 !== null) {
+      ({ folderId, projectId, idempotencyKey } = arg1);
+    } else if (arg2 !== undefined && typeof arg2 === "string") {
+      projectId = arg1;
+      folderId = arg2;
+      idempotencyKey = customIdempotencyKey;
+    } else {
+      folderId = arg1;
+      idempotencyKey = typeof arg2 === "string" ? arg2 : undefined;
+    }
+    if (!idempotencyKey) {
+      idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined;
+    }
+    const params = new URLSearchParams({ id: folderId });
+    if (projectId) params.set("projectId", projectId);
+    if (idempotencyKey) params.set("idempotencyKey", idempotencyKey);
+    const res = await apiFetch(`/api/folders?${params}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(apiErrorMessage(err, res.status, "Failed to delete folder"));
+    }
+    set((s) => ({
+      activeFolderId: s.activeFolderId === folderId ? null : s.activeFolderId,
     }));
-    // Dragging an item into a folder means it leaves whichever folder view is
-    // on screen, so remove it from the current feed if it no longer qualifies.
-    set((s) => {
-      const scope = currentScope(s);
-      const moved = s.items.find((i) => i.id === itemId);
-      if (!moved || matchesScope(moved, scope)) return {};
-      const items = s.items.filter((i) => i.id !== itemId);
-      writeCachedItems(scopeKey(scope), items);
-      return { items };
+    invalidateFeedCache();
+    await Promise.all([
+      get().loadProjects(),
+      get().loadLibraryTree(),
+      get().loadFeed({ force: true }),
+      get().loadCounts(),
+    ]);
+  },
+
+  moveFolder: async (folderId, destination, expectedVersion = undefined, customIdempotencyKey = undefined) => {
+    if (expectedVersion === undefined) {
+      const tree = get().libraryTree;
+      const findNode = (nodes) => {
+        if (!Array.isArray(nodes)) return null;
+        for (const n of nodes) {
+          if (n.id === folderId) return n;
+          const found = findNode(n.children || n.folders);
+          if (found) return found;
+        }
+        return null;
+      };
+      const found = findNode(tree?.globalFolders) || findNode(tree?.projects);
+      if (found?.version) expectedVersion = found.version;
+    }
+    const idempotencyKey = customIdempotencyKey || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined);
+    const res = await apiFetch("/api/folders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: folderId, destination, expectedVersion, idempotencyKey }),
     });
-    void get().loadCounts();
-    try {
-      await apiFetch("/api/history", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: itemId, projectId, folderId }),
-      });
-    } catch {
-      // The optimistic move may have been wrong — resync rather than leaving
-      // the item shown somewhere the server disagrees with.
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw Object.assign(new Error(apiErrorMessage(err, res.status, "Failed to move folder")), {code:err.code,status:res.status});
+    }
+    invalidateFeedCache();
+    await Promise.all([
+      get().loadProjects(),
+      get().loadLibraryTree(),
+      get().loadFeed({ force: true }),
+      get().loadCounts(),
+    ]);
+    return await res.json();
+  },
+
+  moveGenerationsToDestination: async (ids, destination, expectedVersions = undefined, customIdempotencyKey = undefined) => {
+    if (!Array.isArray(ids) || ids.length === 0 || !destination) return false;
+    const expVers = expectedVersions ? { ...expectedVersions } : {};
+    if (!expectedVersions) {
+      const items = get().items || [];
+      for (const id of ids) {
+        const it = items.find((x) => x.id === id);
+        if (it && typeof it.locationVersion === "number") {
+          expVers[id] = it.locationVersion;
+        }
+      }
+    }
+    const idempotencyKey = customIdempotencyKey || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : undefined);
+    const res = await apiFetch("/api/history/move", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ids,
+        destination,
+        expectedVersions: Object.keys(expVers).length > 0 ? expVers : undefined,
+        idempotencyKey,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
       invalidateFeedCache();
       void get().loadFeed({ force: true });
       void get().loadCounts();
+      throw Object.assign(new Error(apiErrorMessage(err, res.status, "Failed to move items.")), {code:err.code,status:res.status});
     }
+    const committed = await res.json();
+    invalidateFeedCache();
+    set({ selectedIds: [] });
+    await Promise.all([
+      get().loadFeed({ force: true }),
+      get().loadCounts(),
+    ]);
+    return {ok:true,...committed};
   },
+
+  moveItem: async (itemId, destinationOrFolderId) => {
+    let destination;
+    if (typeof destinationOrFolderId === "object" && destinationOrFolderId !== null) {
+      destination = destinationOrFolderId;
+    } else {
+      const folderId = destinationOrFolderId ?? null;
+      const projectId = get().activeProjectId ?? null;
+      if (projectId) {
+        destination = folderId
+          ? { type: "folder", folderId, projectId }
+          : { type: "project_unsorted", projectId };
+      } else {
+        destination = folderId
+          ? { type: "folder", folderId }
+          : { type: "global_unsorted" };
+      }
+    }
+    return get().moveGenerationsToDestination([itemId], destination);
+  },
+
+  singleSelect: (id) =>
+    set({
+      selectedIds: [id],
+      focusedAssetId: id,
+      selectionAnchorId: id,
+    }),
 
   toggleSelect: (id) =>
     set((s) => ({
       selectedIds: s.selectedIds.includes(id)
         ? s.selectedIds.filter((x) => x !== id)
         : [...s.selectedIds, id],
+      focusedAssetId: id,
+      selectionAnchorId: id,
     })),
+
+  selectRange: (targetId, allIds = []) =>
+    set((s) => {
+      if (!allIds || allIds.length === 0) {
+        return { selectedIds: [targetId], focusedAssetId: targetId, selectionAnchorId: targetId };
+      }
+      const anchor = s.selectionAnchorId && allIds.includes(s.selectionAnchorId) ? s.selectionAnchorId : targetId;
+      const anchorIdx = allIds.indexOf(anchor);
+      const targetIdx = allIds.indexOf(targetId);
+      if (anchorIdx === -1 || targetIdx === -1) {
+        return { selectedIds: [targetId], focusedAssetId: targetId, selectionAnchorId: targetId };
+      }
+      const start = Math.min(anchorIdx, targetIdx);
+      const end = Math.max(anchorIdx, targetIdx);
+      const rangeIds = allIds.slice(start, end + 1);
+      return {
+        selectedIds: rangeIds,
+        focusedAssetId: targetId,
+      };
+    }),
+
   selectAll: (ids) => set({ selectedIds: ids }),
-  clearSelection: () => set({ selectedIds: [] }),
+  clearSelection: () => set({ selectedIds: [], focusedAssetId: null, selectionAnchorId: null }),
 
   moveItemsToProject: async (ids, projectId, folderId = null) => {
-    if (!ids.length) return;
-    for (const id of ids) {
-      patchEverywhere(set, id, (i) => ({
-        ...i,
-        projectId,
-        folderId: folderId ?? undefined,
-      }));
-    }
-    set({ selectedIds: [] });
-    try {
-      await Promise.all(
-        ids.map((id) =>
-          apiFetch("/api/history", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ id, projectId, folderId }),
-          })
-        )
-      );
-    } catch {
-      /* fall through to the resync below */
-    }
-    // A bulk move changes membership in several scopes at once (source project,
-    // destination project, every folder view under both). Cheaper and more
-    // honest to re-ask the server than to reconcile each cached scope.
-    invalidateFeedCache();
-    await Promise.all([
-      get().loadFeed({ force: true }),
-      get().loadCounts(),
-      get().loadThread(),
-    ]);
+    if (!ids?.length) return;
+    const destination = folderId
+      ? { type: "folder", folderId, projectId }
+      : { type: "project_root", projectId };
+    return get().moveGenerationsToDestination(ids, destination);
   },
 
   loadMe: async () => {
@@ -2140,47 +2544,14 @@ export const useStore = create((set, get) => ({
   },
 }));
 
-function _pollVideo(
-  id,
-  set,
-  _get
-) {
-  if (polling.has(id)) return;
-  polling.add(id);
+installOperationTracking(useStore);
 
-  const tick = async () => {
-    let retryAfterMs = 30000;
-    try {
-      const res = await apiFetch(
-        `/api/generate/video/status?id=${encodeURIComponent(id)}`,
-        { cache: "no-store" }
-      );
-      const payload = await res.json();
-      if (!polling.has(id)) return; // disposed while the request was in flight
-      const decision = videoPollClientDecision(payload);
-      retryAfterMs = decision.retryAfterMs;
-      if (decision.transient) {
-        patchEverywhere(set, id, (item) => ({
-          ...item,
-          pollErrorCount: decision.pollErrorCount,
-          pollWarning: decision.warning,
-        }));
-      } else if (decision.item?.id) {
-        const item = decision.item;
-        patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
-        if (item.status === "succeeded" || item.status === "failed") {
-          polling.delete(id);
-          return;
-        }
-      }
-    } catch {
-      /* keep trying */
-    }
-    if (polling.has(id)) setStoreTimeout(tick, retryAfterMs);
-  };
-
-  setStoreTimeout(tick, 30000);
-}
+// Normalize legacy clone/restore paths as they enter shared draft state.
+useStore.subscribe((state, previous) => {
+  if (state.referenceImages === previous.referenceImages && state.referenceIds === previous.referenceIds) return;
+  const ids = referenceIdsFor(state);
+  if (JSON.stringify(ids) !== JSON.stringify(state.referenceIds)) useStore.setState({ referenceIds: ids });
+});
 
 /**
  * Merge server rows into the store without losing local truth — and without
@@ -2188,8 +2559,7 @@ function _pollVideo(
  *
  * Rules, each guarding a specific way this could go wrong:
  *  - Only overwrite when the incoming row is strictly newer by updatedAt, so a
- *    slow live poll can't clobber a fresher result that a per-item poller just
- *    wrote from /api/queue/execute.
+ *    slow live poll can't clobber a fresher result already received from Django.
  *  - Preserve queueNote, which is client-only and transient (it never round
  *    trips through the DB), but drop it once the item leaves the queue.
  *  - Only consider rows that belong in the scope on screen. The feed is a
@@ -2222,8 +2592,12 @@ export function mergeLiveItems(
     let changed = false;
     let threadChanged = false;
     let pendingChanged = false;
+    let unseen = false;
 
     for (const inc of incoming) {
+      // Every cached scope holding this row gets the newer copy, not only the
+      // visible one (other tabs used to keep showing "running" for 30 s).
+      patchCached(inc.id, (row) => (inc.updatedAt > (row.updatedAt ?? 0) ? { ...row, ...inc } : row));
       // The project conversation owns a separate copy of each row. Live
       // completion used to update only the right-hand asset feed, leaving the
       // chat copy permanently `running` until a full thread reload.
@@ -2259,6 +2633,7 @@ export function mergeLiveItems(
         continue;
       }
 
+      unseen = true;
       if (!matchesScope(inc, scope)) continue;
       const inFlight = inc.status === "queued" || inc.status === "running";
       if (!inFlight && inc.createdAt <= oldestLoaded) continue;
@@ -2282,39 +2657,9 @@ export function mergeLiveItems(
     }
     if (threadChanged) patch.threadItems = Array.from(threadById.values());
     if (pendingChanged) patch.pendingItems = Array.from(pendingById.values());
+    if (unseen) staleCached(scopeKey(scope));
     return patch;
   });
-}
-
-/**
- * Take over queued jobs nobody is driving.
- *
- * `polling` is per-tab, so "not in our polling set" means this tab is not
- * driving it — which is the whole point: the tab that WAS driving it may be
- * gone. See ADOPT_QUEUED_AFTER_MS for why staleness is required first, and why
- * concurrent adoption by several tabs is safe.
- *
- * Uses the server's clock (`now`) rather than Date.now() for the staleness
- * test, so a client whose clock runs fast can't decide every fresh job is
- * already orphaned.
- *
- * Running jobs are left alone: an image job runs inside its originating
- * request and cannot be resumed by anyone, and a running video is already
- * submitted remotely — the live feed alone will carry it to completion.
- */
-export function adoptOrphanedJobs(
-  incoming,
-  serverNow,
-  set,
-  get
-) {
-  const now = typeof serverNow === "number" ? serverNow : Date.now();
-  for (const item of incoming) {
-    if (item.status !== "queued") continue;
-    if (polling.has(item.id)) continue;
-    if (now - item.updatedAt < ADOPT_QUEUED_AFTER_MS) continue;
-    startPolling(item, set, get);
-  }
 }
 
 /** One poll of the live feed, then reschedule at a cadence that matches how
@@ -2331,26 +2676,31 @@ async function liveTick(
     scheduleLive(set, get, LIVE_MS_IDLE);
     return;
   }
+  const epoch = storeRuntime.epoch;
+  let more = false;
   try {
     const res = await apiFetch(
-      `/api/history/updates?since=${encodeURIComponent(String(storeRuntime.liveSince))}`,
+      liveUpdatesUrl({ since: storeRuntime.liveSince, afterId: storeRuntime.liveAfterId }),
       { cache: "no-store" }
     );
+    if (!res.ok) throw new Error(`updates ${res.status}`);
     const data = await res.json();
-    if (!storeRuntime.liveRunning) return; // disposed while the request was in flight
+    if (!storeRuntime.liveRunning || epoch !== storeRuntime.epoch) return; // session disposed while in flight
     if (Array.isArray(data.items)) {
       mergeLiveItems(data.items, set);
-      adoptOrphanedJobs(data.items, data.now, set, get);
     }
-    // Watermark comes from the server so client clock skew can't skip changes.
-    if (typeof data.now === "number") storeRuntime.liveSince = data.now;
+    // The server cursor pages through every change; client clocks never move it.
+    const cursor = nextLiveCursor(data, { since: storeRuntime.liveSince, afterId: storeRuntime.liveAfterId });
+    storeRuntime.liveSince = cursor.since;
+    storeRuntime.liveAfterId = cursor.afterId;
+    storeRuntime.liveFailures = 0;
+    more = data.more === true;
   } catch {
-    /* transient — the next tick retries, and 401 already redirects in apiFetch */
+    // Transient: back off instead of hammering a failing backend. 401 already redirects in apiFetch.
+    if (epoch === storeRuntime.epoch) storeRuntime.liveFailures += 1;
   }
-  const busy = get().items.some(
-    (i) => i.status === "queued" || i.status === "running"
-  );
-  scheduleLive(set, get, busy ? LIVE_MS_ACTIVE : LIVE_MS_IDLE);
+  const busy = hasRecentActiveWork([...get().items, ...get().threadItems, ...get().pendingItems]);
+  scheduleLive(set, get, liveDelay({ more, busy, failures: storeRuntime.liveFailures }));
 }
 
 function scheduleLive(
@@ -2363,203 +2713,6 @@ function scheduleLive(
   storeRuntime.liveTimer = setStoreTimeout(() => liveTick(set, get), ms);
 }
 
-/** Route a fresh/resumed item to the right poller: queued jobs of BOTH kinds
- *  wait in the capped queue (pollQueue executes at position 0); running
- *  videos are already submitted remotely and just need status polling. */
-function startPolling(
-  item,
-  set,
-  get
-) {
-  if (item?.model?.startsWith("Magnific") && item?.status === "running") {
-    _pollUpscaleStatus(item.id, set, get);
-    return;
-  }
-  // Kept as a compatibility shim for callers from older store actions. It
-  // intentionally does not call a provider/status endpoint or schedule a
-  // repeating timer: the server worker advances the row and liveTick is only
-  // a low-frequency read-only resynchronization feed.
-  if (item?.status === "queued" && item?.updatedAt === 0) {
-    setStoreTimeout(() => {}, 0);
-  }
-}
-
-/** Magnific upscale poller — polls /api/generate/upscale/status?id=... until completed/failed */
-function _pollUpscaleStatus(
-  id,
-  set,
-  get
-) {
-  if (polling.has(id)) return;
-  polling.add(id);
-
-  const tick = async () => {
-    try {
-      const res = await apiFetch(`/api/generate/upscale/status?id=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      const item = await res.json();
-      if (!polling.has(id)) return;
-      if (item?.id) {
-        patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
-        if (item.status === "succeeded" || item.status === "failed") {
-          polling.delete(id);
-          void get().loadCounts();
-          return;
-        }
-      }
-    } catch {
-      /* keep trying */
-    }
-    if (polling.has(id)) setStoreTimeout(tick, 2500);
-  };
-
-  setStoreTimeout(tick, 2000);
-}
-
-/** Depth jobs' own poller — a plain read (see generate/depth/status/route.js's
- *  docstring for why there's nothing to "advance" server-side here, unlike
- *  pollVideo). Shorter interval than pollVideo's 4s: progressPercent/
- *  progressMessage update frequently while a job is running (see
- *  reportDepthProgress) and the composer is meant to show that moving. */
-function _pollDepthStatus(
-  id,
-  set,
-  get
-) {
-  if (polling.has(id)) return;
-  polling.add(id);
-
-  const tick = async () => {
-    try {
-      const res = await apiFetch(`/api/generate/depth/status?id=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      const item = await res.json();
-      if (!polling.has(id)) return; // disposed while the request was in flight
-      if (item?.id) {
-        patchEverywhere(set, item.id, (i) => ({ ...i, ...item }));
-        if (item.status === "succeeded" || item.status === "failed") {
-          polling.delete(id);
-          void get().loadCounts();
-          return;
-        }
-      }
-    } catch {
-      /* keep trying */
-    }
-    if (polling.has(id)) setStoreTimeout(tick, 2500);
-  };
-
-  setStoreTimeout(tick, 1500);
-}
-
-function _pollQueue(
-  id,
-  set,
-  get
-) {
-  if (polling.has(id)) return;
-  polling.add(id);
-
-  const tick = async () => {
-    try {
-      const res = await apiFetch(`/api/queue/status?id=${encodeURIComponent(id)}`, {
-        cache: "no-store",
-      });
-      const data = await res.json();
-      if (!polling.has(id)) return; // disposed while the request was in flight
-
-      if (data.status === "queued" && data.position === 0) {
-        // It's our turn!
-        const execRes = await apiFetch(`/api/queue/execute`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id }),
-        });
-        const finalItem = await execRes.json();
-        if (!polling.has(id)) return; // disposed while execution was in flight
-
-        if (finalItem?.notAdmitted) {
-          // Lost a race with the server's own admission check — the
-          // concurrency cap or spend window filled between our /status read
-          // and this call. This is the same "held" state /api/queue/status
-          // itself reports (see getQueuePosition), so handle it identically
-          // rather than treating the call as done.
-          if (finalItem.heldForBudget) {
-            patchEverywhere(set, id, (i) => ({ ...i, queueNote: finalItem.heldReason }));
-            if (polling.has(id)) {
-              setStoreTimeout(
-                tick,
-                Math.min(Math.max(Number(finalItem.retryAfterMs) || 5000, 5000), 60_000)
-              );
-            }
-          } else if (polling.has(id)) {
-            setStoreTimeout(tick, 3000);
-          }
-          return;
-        }
-
-        if (finalItem?.id) {
-          patchEverywhere(set, finalItem.id, (i) => ({
-            ...i,
-            ...finalItem,
-            queueNote: undefined,
-          }));
-          // Cost lands with the finished row, and the counts endpoint is what
-          // the folder rail reads.
-          void get().loadCounts();
-          // Videos come back "running" with a provider taskId — hand off to
-          // the remote-render status poller.
-          if (finalItem.kind === "video" && finalItem.status === "running") {
-            _pollVideo(finalItem.id, set, get);
-          }
-        }
-        // A response with neither `id` nor `notAdmitted` means execute
-        // genuinely failed to run this job — it vanished, or another tab's
-        // execute call won the same race after admission was already
-        // granted to both ("Job is already running or invalid."). Either
-        // way this tab is no longer driving it: don't guess at a status
-        // here, the live feed (mergeLiveItems) reconciles the real outcome
-        // shortly, and overwriting status to "failed" client-side would be
-        // actively wrong if the other caller's execute succeeds.
-        polling.delete(id);
-        return; // done
-      } else if (data.heldForBudget) {
-        // Held by the spend gate, not by a backlog. Surface why, and pace the
-        // next poll off the server's hint — the window frees on a schedule the
-        // server knows and the client can't guess, so polling every 3s here
-        // would be pure noise (and each poll is a DB round trip).
-        patchEverywhere(set, id, (i) => ({ ...i, queueNote: data.heldReason }));
-        if (polling.has(id)) {
-          setStoreTimeout(tick, Math.min(Math.max(Number(data.retryAfterMs) || 5000, 5000), 60_000));
-        }
-        return;
-      } else if (data.status === "succeeded" || data.status === "failed") {
-        // Finished (or failed) since our last check — merge the real item
-        // (url/cost/etc.) rather than just noting the status string, so a
-        // client that resumed polling on a "running" item actually sees it
-        // complete without needing a manual refresh.
-        if (data.item?.id) {
-          patchEverywhere(set, data.item.id, (i) => ({
-            ...i,
-            ...data.item,
-            queueNote: undefined,
-          }));
-        }
-        polling.delete(id);
-        return;
-      }
-      // Still queued and position > 0, wait and poll again
-    } catch {
-      /* keep trying */
-    }
-    if (polling.has(id)) setStoreTimeout(tick, 3000);
-  };
-
-  setStoreTimeout(tick, 1000);
-}
-
 // ── composer draft + UI-state persistence ────────────────────────────────────
 // The prompt is written on a short debounce (it changes per keystroke); the
 // reference images are written only when they actually change (they can be
@@ -2570,7 +2723,7 @@ const DRAFT_REFS_KEY = "veevee-draft-refs-v1";
 /** Past this, restoring the draft is not worth a multi-megabyte synchronous
  *  write that the ~5MB origin quota would likely reject anyway. Measured in
  *  characters of base64, which is close enough to bytes for a guard. */
-const DRAFT_REFS_MAX_BYTES = 2_000_000;
+
 const DRAFT_SETTINGS_KEY = "veevee-draft-settings-v1";
 
 /** Restore the locally cached composer draft (prompt + reference images) and
@@ -2645,37 +2798,38 @@ export function restoreComposerDraft() {
       useStore.setState(patch);
     }
 
-    const s = useStore.getState();
-    if (s.prompt || s.referenceImages.length) return;
-    const prompt = localStorage.getItem(DRAFT_PROMPT_KEY) ?? "";
-    const refsRaw = localStorage.getItem(DRAFT_REFS_KEY);
-    const refs = refsRaw ? JSON.parse(refsRaw) : [];
-    if (!prompt && !(Array.isArray(refs) && refs.length)) return;
-    const restoredRefs = Array.isArray(refs)
-      ? refs
-          .filter((r) => typeof r === "string")
-          .map((r) => {
-            if (r.startsWith("http") && /[?&]bp[-_]asset(?:_id)?=/.test(r)) {
-              const match = r.match(/[?&]bp[-_]asset(?:_id)?=([^&#]+)/);
-              if (match) {
-                const stripped = r
-                  .replace(/([?&])bp[-_]asset(?:_id)?=[^&#]+(&?)/, (m, p, s) => (p === "?" && s ? "?" : ""))
-                  .replace(/[?&]$/, "");
-                return `${stripped}#bp_asset_id=${match[1]}`;
-              }
-            }
-            return r;
-          })
-      : [];
-    useStore.setState({
-      prompt,
-      referenceImages: restoredRefs,
-      // Kind isn't persisted to the draft cache — defaults to "image", same
-      // cosmetic-only tradeoff as cloneToComposer.
-      referenceKinds: restoredRefs.map(() => "image"),
-    });
+    // Legacy caches were unscoped and could contain binary/signed references.
+    localStorage.removeItem(DRAFT_PROMPT_KEY);
+    localStorage.removeItem(DRAFT_REFS_KEY);
+    void restoreScopedComposerDraft();
   } catch {
     /* corrupt or unavailable draft — start clean */
+  }
+}
+
+let restoringDraft = false;
+let draftRestoreEpoch = 0;
+
+async function restoreScopedComposerDraft() {
+  const epoch = ++draftRestoreEpoch;
+  restoringDraft = true;
+  const initial = useStore.getState(); const scope = snapshotScope(initial);
+  if (!scope) { restoringDraft = false; return; }
+  try {
+    const draft = await loadComposerSnapshot(scope);
+    const now = useStore.getState();
+    if (!draft || scope !== snapshotScope(now) || now.prompt || now.referenceImages.length) return;
+    // Missing refs must be reattached; keep positions so mentions never bind to another file.
+    const refs = Array.isArray(draft.refs) ? draft.refs.slice(0, 50) : [];
+    useStore.setState({ ...metadataToDraft(draft,newReferenceId),
+      recentSubmission: draft.recent ? metadataToDraft(draft.recent,newReferenceId) : null,
+      draftStorageWarning: refs.some(r => !r.mediaRef) ? "Some references need to be attached again." : null });
+  } catch { /* storage denied/quota: visible draft still works */ }
+  finally {
+    if (epoch === draftRestoreEpoch) {
+      restoringDraft = false;
+      if (scope === snapshotScope(useStore.getState())) void saveComposerSnapshot(scope, composerMetadata(useStore.getState())).catch(() => {});
+    }
   }
 }
 
@@ -2696,13 +2850,18 @@ if (typeof window !== "undefined") {
   useStore.subscribe((s, prev) => {
     const projectChanged = s.activeProjectId !== prev.activeProjectId;
     const searchChanged = s.search !== prev.search;
-    const scopeChanged =
+    const effectiveScopeChanged =
       projectChanged ||
       searchChanged ||
       s.rightTab !== prev.rightTab ||
-      s.rightPanelOpen !== prev.rightPanelOpen ||
       s.activeFolderId !== prev.activeFolderId ||
       s.filterKind !== prev.filterKind;
+
+    if (effectiveScopeChanged && (s.selectedIds.length > 0 || s.focusedAssetId !== null || s.selectionAnchorId !== null)) {
+      useStore.setState(CLEAR_SELECTION_PATCH);
+    }
+
+    const scopeChanged = effectiveScopeChanged || s.rightPanelOpen !== prev.rightPanelOpen;
     if (!scopeChanged) return;
 
     const key = scopeKey(currentScope(s));
@@ -2732,37 +2891,20 @@ if (typeof window !== "undefined") {
   });
 
   useStore.subscribe((s, prev) => {
-    if (s.prompt !== prev.prompt) {
+    if (snapshotScope(s) !== snapshotScope(prev)) {
+      restoringDraft = true;
+      useStore.setState({ prompt: "", referenceImages: [], referenceIds: [], referenceKinds: [], referenceLabels: [], referenceTags: [], referenceVideos: [], referenceAudios: [], recentSubmission: null });
+      void restoreScopedComposerDraft();
+    } else if (!restoringDraft && (s.prompt !== prev.prompt || s.referenceImages !== prev.referenceImages || s.referenceIds !== prev.referenceIds || s.referenceVideos !== prev.referenceVideos || s.referenceAudios !== prev.referenceAudios)) {
       storeRuntime.promptTimer = clearStoreTimeout(storeRuntime.promptTimer);
-      storeRuntime.promptTimer = setStoreTimeout(() => {
-        try {
-          localStorage.setItem(DRAFT_PROMPT_KEY, s.prompt);
-        } catch {}
-      }, 400);
-    }
-    if (s.referenceImages !== prev.referenceImages) {
-      // References are base64 data URLs sized against a ~4MB upload budget, so
-      // this is the largest thing the app ever writes — and localStorage is
-      // synchronous, main-thread and disk-backed. Serialising several MB on
-      // the spot janks the UI at exactly the moment the user is adding or
-      // reordering images. Debounced like the prompt beside it, and skipped
-      // outright past a size the quota would reject anyway (typically 5MB for
-      // the whole origin, shared with the prompt and settings drafts): the
-      // stringify is most of the cost, so checking first avoids doing the
-      // expensive part only to throw it away.
-      storeRuntime.refsTimer = clearStoreTimeout(storeRuntime.refsTimer);
-      storeRuntime.refsTimer = setStoreTimeout(() => {
-        const bytes = s.referenceImages.reduce((n, r) => n + r.length, 0);
-        try {
-          if (bytes > DRAFT_REFS_MAX_BYTES) localStorage.removeItem(DRAFT_REFS_KEY);
-          else localStorage.setItem(DRAFT_REFS_KEY, JSON.stringify(s.referenceImages));
-        } catch {
-          // Quota exceeded anyway — drop the cached refs but keep the prompt.
-          try {
-            localStorage.removeItem(DRAFT_REFS_KEY);
-          } catch {}
-        }
-      }, 400);
+      const scope = snapshotScope(s);
+      const persist = () => {
+        if (scope === snapshotScope(useStore.getState())) void saveComposerSnapshot(scope, composerMetadata(useStore.getState())).catch(() => {
+          useStore.setState({ draftStorageWarning: "Draft could not be saved on this device." });
+        });
+      };
+      if (s.referenceImages !== prev.referenceImages || s.referenceIds !== prev.referenceIds || s.referenceVideos !== prev.referenceVideos || s.referenceAudios !== prev.referenceAudios) persist();
+      else storeRuntime.promptTimer = setStoreTimeout(persist, 400);
     }
     if (
       s.view !== prev.view ||
@@ -2802,4 +2944,5 @@ if (typeof window !== "undefined") {
       } catch {}
     }
   });
+  window.useStore = useStore;
 }

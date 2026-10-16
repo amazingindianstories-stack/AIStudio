@@ -20,9 +20,11 @@ import {
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
+import { GenerationFolderCue, GenerationTimestamp } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
 import { useConfirmedAction } from "./useConfirmedAction";
-import { aspectMaxWidth, aspectToPadding, cn, inlineMediaUrl, thumbUrl } from "@/lib/utils";
+import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
+import { setAssetDragData } from "@/lib/asset-drag-contract";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
 // under typical multi-megapixel originals while staying sharp at ~2x DPR.
@@ -168,7 +170,7 @@ function PromptText({ text }) {
   );
 }
 
-function FeedBlock({ item, index }) {
+export function FeedBlock({ item, index }) {
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
@@ -181,6 +183,7 @@ function FeedBlock({ item, index }) {
   return (
     <>
     <motion.div
+      data-generation-id={item.id}
       initial={{ opacity: 0, y: 18 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 240, damping: 26 }}
@@ -195,6 +198,10 @@ function FeedBlock({ item, index }) {
         {label} {index}
       </span>
 
+      <div className="flex min-w-0 items-center justify-between gap-2">
+        <GenerationFolderCue item={item} />
+        <GenerationTimestamp timestamp={item.createdAt} />
+      </div>
       <PromptText text={item.prompt} />
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
@@ -208,13 +215,14 @@ function FeedBlock({ item, index }) {
         onClick={() => item.status === "succeeded" && setActiveId(item.id)}
         draggable={item.status === "succeeded" && Boolean(item.url)}
         onDragStart={(e) => {
+          setAssetDragData(e.dataTransfer, [item], item);
           e.dataTransfer.setData("text/itemId", item.id);
           e.dataTransfer.setData("text/plain", item.url || "");
           e.dataTransfer.effectAllowed = "copy";
-          useStore.getState().setDraggedItem(item);
+          useStore.getState().setDraggedAssets({ items: [item], ids: [item.id], primaryItem: item });
         }}
         onDragEnd={() => {
-          useStore.getState().setDraggedItem(null);
+          useStore.getState().clearDraggedAssets();
         }}
         // Without the cap, a 9:16 result is 177% of the column's width — around
         // 1370px tall in a ~770px column — so the thread showed a slice of the
@@ -243,6 +251,8 @@ function FeedBlock({ item, index }) {
               poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
               controls
               playsInline
+              // A thread can hold dozens of clips; fetch nothing until played.
+              preload="none"
               className="absolute inset-0 h-full w-full bg-black object-contain"
             />
           )}
@@ -317,12 +327,12 @@ function FeedBlock({ item, index }) {
               </button>
               {item.url && (
                 <a
-                  href={inlineMediaUrl(item.url)}
-                  download
+                  href={generationDownloadUrl(item.id)}
+                  download={item.filename || true}
                   onClick={(e) => e.stopPropagation()}
                   className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
-                  aria-label="Download"
-                  title="Download"
+                  aria-label={item.filename ? `Download ${item.filename}` : "Download"}
+                  title={item.filename ? `Download ${item.filename}` : "Download"}
                 >
                   <Download className="h-4 w-4" />
                 </a>

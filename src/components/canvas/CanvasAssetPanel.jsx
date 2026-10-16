@@ -26,6 +26,7 @@ import { useStore } from "@/lib/store";
 import { useHistoryQuery } from "@/lib/use-history-query";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { ProgressiveImage } from "@/components/ProgressiveImage";
+import { setAssetDragData } from "@/lib/asset-drag-contract";
 
 const COLLAPSE_KEY = "veevee-canvas-asset-panel-collapsed-v1";
 const SCOPE_KEY = "veevee-canvas-asset-scope-v1";
@@ -288,6 +289,7 @@ function AssetThumb({
     <div
       draggable
       onDragStart={(e) => {
+        setAssetDragData(e.dataTransfer, [item], item);
         e.dataTransfer.setData("text/assetId", item.id);
         e.dataTransfer.effectAllowed = "copy";
       }}

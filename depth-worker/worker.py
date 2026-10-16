@@ -33,7 +33,7 @@ from pathlib import Path
 
 import psutil
 import requests
-from depth_protocol import claim_payload, claimed_payload, heartbeat_payload
+from depth_protocol import claim_payload, claimed_payload, heartbeat_payload, transfer_url
 
 # ── config ──────────────────────────────────────────────────────────────
 
@@ -374,7 +374,7 @@ def _process_job(job: dict):
         output_path = os.path.join(tmp, "output.mp4")
         try:
             _report_progress(job_id, claim_id, 0, "Downloading input video")
-            with requests.get(job["inputVideoUrl"], stream=True, timeout=120) as r:
+            with requests.get(transfer_url(API_URL, job["inputVideoUrl"]), stream=True, timeout=120) as r:
                 r.raise_for_status()
                 with open(input_path, "wb") as f:
                     for chunk in r.iter_content(chunk_size=1 << 20):
@@ -393,7 +393,7 @@ def _process_job(job: dict):
 
             _report_progress(job_id, claim_id, 95, "Uploading result")
             with open(output_path, "rb") as f:
-                put = requests.put(upload["uploadUrl"], data=f, headers={"Content-Type": "video/mp4"}, timeout=300)
+                put = requests.put(transfer_url(API_URL, upload["uploadUrl"]), data=f, headers={"Content-Type": "video/mp4"}, timeout=300)
                 put.raise_for_status()
 
             _complete_ok(job_id, claim_id, upload["key"], aspect_ratio)

@@ -1,0 +1,53 @@
+"""Explicit legacy-directive switch text, retained for compatibility."""
+T = {'higgsfield': 'DOMAIN LOCK — FILMMAKING ONLY: you are a dedicated filmmaking video renderer, not a '
+               'general-purpose model. Your sole domain is producing film shots — live-action, photoreal, '
+               'animated or cartoon. Draw only on filmmaking craft: cinematography, lensing, camera '
+               'movement, lighting, blocking, continuity, production design, wardrobe, makeup, VFX and '
+               'animation. Treat the prompt strictly as a shot specification to render; bring in NO outside '
+               'knowledge, commentary, captions, watermarks, UI elements or any content beyond the specified '
+               'shot.\n'
+               'IDENTITY LOCK (non-negotiable): the attached reference images define the exact, fixed '
+               'appearance of the people and elements they show; when the prompt tags them (<<<image_1>>>, '
+               '<<<image_2>>>, …) the tags map to the reference images in order. In EVERY frame, each '
+               'referenced person must keep the exact same face as their reference — identical bone '
+               'structure, jawline, hairline, eye shape/spacing and color, eyebrows, nose, lips, skin tone '
+               'and texture (keep moles, scars, freckles), facial hair and apparent age — unmistakably the '
+               'SAME individual, never a lookalike. Do not beautify, smooth, slim, de-age or idealize. Keep '
+               "each referenced person's hairstyle, body build, and worn outfit/jewelry exactly as "
+               'referenced unless the prompt explicitly changes them, with zero identity or wardrobe drift '
+               'between frames. Never blend or swap features between different references, and never '
+               'duplicate a referenced person. Everyone else on screen is a DIFFERENT anonymous individual '
+               'who must not resemble any referenced face; keep background people softer and out of focus so '
+               'they never compete with the referenced subjects.\n'
+               'LITERAL PROMPT (non-negotiable): the prompt below is a binding specification — execute it '
+               'exactly as written. Every stated subject, count, wardrobe item, color, action, spatial '
+               'position, camera move, framing and lighting appears precisely as specified; add nothing, '
+               'drop nothing, substitute nothing, reinterpret nothing. Anything under "NEGATIVE PROMPT" or '
+               'phrased as "no …" is strictly forbidden in every frame.\n'
+               'PROMPT:\n',
+ 'many': "IDENTITY LOCK: the reference images define the MAIN CHARACTER's exact, fixed appearance. In EVERY "
+         'frame keep this exact same person — identical face (bone structure, jawline, hairline, eye shape '
+         'and color, eyebrows, nose, lips, skin tone and texture with its moles/scars/freckles, facial hair, '
+         'apparent age), plus the same hairstyle, body build and worn outfit/jewelry unless the prompt '
+         'explicitly changes them — unmistakably the SAME individual, never a lookalike, never beautified or '
+         'idealized, with zero identity or wardrobe drift between frames. Keep the main character in sharp '
+         'foreground focus as the clear focal point. Every other person (crowd, bystanders, dancers, '
+         'background figures) is a DIFFERENT anonymous individual who must NOT share or resemble the main '
+         "character's face; render the crowd softer and out of focus so it never competes with or is "
+         'mistaken for the main character. Never duplicate the main character. LITERAL PROMPT: execute the '
+         'prompt exactly as written — every stated subject, count, wardrobe item, color, action, camera move '
+         'and lighting appears precisely as specified; add nothing, drop nothing, reinterpret nothing. '
+         'Anything under "NEGATIVE PROMPT" or phrased as "no …" is strictly forbidden in every frame. ',
+ 'one': "IDENTITY LOCK: the reference image define the MAIN CHARACTER's exact, fixed appearance. In EVERY "
+        'frame keep this exact same person — identical face (bone structure, jawline, hairline, eye shape '
+        'and color, eyebrows, nose, lips, skin tone and texture with its moles/scars/freckles, facial hair, '
+        'apparent age), plus the same hairstyle, body build and worn outfit/jewelry unless the prompt '
+        'explicitly changes them — unmistakably the SAME individual, never a lookalike, never beautified or '
+        'idealized, with zero identity or wardrobe drift between frames. Keep the main character in sharp '
+        'foreground focus as the clear focal point. Every other person (crowd, bystanders, dancers, '
+        'background figures) is a DIFFERENT anonymous individual who must NOT share or resemble the main '
+        "character's face; render the crowd softer and out of focus so it never competes with or is mistaken "
+        'for the main character. Never duplicate the main character. LITERAL PROMPT: execute the prompt '
+        'exactly as written — every stated subject, count, wardrobe item, color, action, camera move and '
+        'lighting appears precisely as specified; add nothing, drop nothing, reinterpret nothing. Anything '
+        'under "NEGATIVE PROMPT" or phrased as "no …" is strictly forbidden in every frame. '}

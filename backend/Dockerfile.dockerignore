@@ -1,0 +1,16 @@
+# Backend image context: backend source plus its pinned data files and requirements.
+**
+!backend/
+backend/**
+!backend/**/*.py
+!backend/testsupport/goldens/*.json
+!backend/apps/assets/data/*.onnx
+!backend/testsupport/data/*.jpg
+!backend/requirements.txt
+!backend/constraints-qualified.txt
+!backend/Dockerfile
+!backend/Dockerfile.dockerignore
+# Exclude generated Python files even inside otherwise allowed directories.
+backend/**/__pycache__/
+backend/**/.venv/
+backend/**/venv/

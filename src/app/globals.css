@@ -236,3 +236,15 @@ body {
     display: none;
   }
 }
+
+/* Size library navigation against the panel, not the whole browser. */
+.history-panel { container-type: inline-size; container-name: history; }
+.history-navigation { width: clamp(10.5rem, 30cqw, 15rem); max-width: 40%; }
+
+/* Keep model names readable when the video controls need a second row. */
+@container (max-width: 44rem) {
+  .composer-toolbar { flex-wrap: wrap; row-gap: .5rem; }
+  .composer-model { flex: 1 1 10rem; }
+  .composer-model-label { max-width: none; }
+  .composer-controls-row { align-items: flex-end; }
+}

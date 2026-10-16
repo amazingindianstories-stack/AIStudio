@@ -1,13 +1,16 @@
 "use client";
-import { uploadFileDirect, uploadOriginalReference } from "@/lib/client-reference-upload";
+import { uploadFileDirect, uploadOriginalReference, uploadContentType } from "@/lib/client-reference-upload";
+import { notify } from "@/lib/notify";
+import { useDirectMediaUrl } from "@/lib/media-resolver";
 
 import {
   useEffect,
   useRef,
   useState,
+  useMemo,
 
 } from "react";
-import { motion, Reorder, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import {
   Plus,
   Image as ImageIcon,
@@ -29,16 +32,22 @@ import {
   Box,
   FolderClosed,
   Layers,
+  Inbox,
   Sparkles,
   Volume2,
   SkipForward,
   ArrowRight,
+  GripVertical,
+  ArrowLeft,
+  Undo2,
 } from "lucide-react";
 import { useStore, restoreComposerDraft, findItem } from "@/lib/store";
+import { UNSORTED } from "@/lib/feed-scope";
 import { validateGenerationReference } from "@/lib/generation-reference-drag";
-import { parseMentionIndices } from "@/lib/mentions";
+import { getAssetDragData, isAssetDragEvent } from "@/lib/asset-drag-contract";
+import { parseMentionIndices, normalizePromptMentions } from "@/lib/mentions";
 import { limitDefinition } from "@/lib/limits";
-import { extractFrame, isVideoFile } from "@/lib/video-frame";
+import { extractFrame } from "@/lib/video-frame";
 import { VideoRefPicker } from "./VideoRefPicker";
 import { DepthComposer } from "./DepthComposer";
 import { UpscalerComposer } from "./UpscalerComposer";
@@ -51,8 +60,8 @@ import {
   aspectRatiosForModel,
   durationsForModel,
   durationRangeForModel,
-  maxReferenceImagesForVideoModel,
   maxReferenceVideosForVideoModel,
+  maxReferenceImagesForVideoModel,
   resolutionsForModel,
   supportsAudio,
   supportsDraftMode,
@@ -64,15 +73,13 @@ import {
   VIDEO_TASK_MODES,
   MAX_REFERENCE_VIDEOS,
 } from "@/lib/config";
-import { cn, referenceDisplayUrl } from "@/lib/utils";
+import { cn, referenceDisplayUrl, thumbUrl } from "@/lib/utils";
 import { isProviderModel } from "@/lib/model-registry";
 
 import {
-  REF_BATCH_BUDGET_BYTES,
-  REF_BUDGET_STEPS,
-  dataUrlBytes,
   downscaleBlob,
 } from "@/lib/client-image-budget";
+import { askText } from "@/lib/ask-text";
 
 const MODE_ICONS = {
   Image: ImageIcon,
@@ -112,20 +119,6 @@ export function PromptComposer() {
   // than a fixed enum (see durationRangeForModel) — non-null here switches
   // the Duration control below from Segment buttons to a slider.
   const durationRange = s.mode === "video" ? durationRangeForModel(s.model) : null;
-  // Reorder.Group's drag physics expect `values` to update synchronously
-  // within the same render as the gesture — bound straight to the Zustand
-  // store, the set()→subscription→re-render round trip added just enough
-  // lag to feel glitchy (items lagging the cursor, layout animations
-  // fighting each other). Buffering the LIVE drag in local state keeps every
-  // tick synchronous/local; only the settled result is committed to the
-  // store (onDragEnd below), which is also all reorderReferences needs since
-  // it only cares about start vs. end position, not the intermediate ones.
-  const [dragRefs, setDragRefs] = useState(s.referenceImages);
-  const dragRefsRef = useRef(dragRefs);
-  useEffect(() => {
-    dragRefsRef.current = s.referenceImages;
-    setDragRefs(s.referenceImages);
-  }, [s.referenceImages]);
   const fileRef = useRef(null);
   const firstFrameFileRef = useRef(null);
   const lastFrameFileRef = useRef(null);
@@ -159,13 +152,13 @@ export function PromptComposer() {
     if (!file) return;
     try {
       let dataUrl;
-      if (isVideoFile(file)) {
+      if (uploadContentType(file).startsWith("video/")) {
         const extracted = await extractFrame(file);
         dataUrl = extracted.dataUrl;
-      } else if (file.type.startsWith("image/")) {
+      } else if (uploadContentType(file).startsWith("image/")) {
         dataUrl = await downscaleBlob(file, 2048, 0.85);
       } else {
-        alert("Please select an image or video file.");
+        notify("Please select an image or video file.");
         return;
       }
       if (target === "first") {
@@ -175,7 +168,7 @@ export function PromptComposer() {
       }
     } catch (e) {
       console.error(`Failed to process ${target} frame:`, e);
-      alert(e?.message || `Failed to process ${file.name}`);
+      notify(e?.message || `Failed to process ${file.name}`);
     }
   };
 
@@ -235,132 +228,46 @@ export function PromptComposer() {
   const modeModels = MODELS.filter((m) => m.kind === s.mode);
   const activeMode = MODES.find((m) => m.id === s.mode);
 
-  // Read image File objects (from upload, paste, or drop) into references.
-  //
-  // Payload-budget ladder: encode the WHOLE batch at each step, summing raw
-  // bytes, and only step down (lower quality, then lower dimension) if the
-  // batch would still risk Vercel's 4.5MB body limit. Keeps typical 1–3 ref
-  // uploads at full REF_MAX_DIM fidelity — the density identity tiles are
-  // cropped from — while the last step (1024px/q0.8, today's behavior) is a
-  // guaranteed-to-fit floor.
+  // Staging capacity is independent of active-provider submission limits.
   const prepareImageFiles = async (files) => {
-    // 1. Video files handling:
-    // If the active model supports video references (Seedance 2.0 & 2.5), upload the video directly
-    // to storage so the model receives full motion, camera path, and temporal dynamics.
-    // Otherwise, fallback to browser-side frame extraction for image generation or image-only models.
-    const videoFiles = files.filter(isVideoFile);
-    if (videoFiles.length) {
-      if (s.mode === "video" && supportsVideoReference(s.model)) {
-        const maxVideos = maxReferenceVideosForVideoModel(s.model) ?? MAX_REFERENCE_VIDEOS;
-        const availableSlots = Math.max(0, maxVideos - s.referenceVideos.length);
-        const toUpload = videoFiles.slice(0, availableSlots);
-        if (toUpload.length < videoFiles.length) {
-          alert(
-            `${s.model} accepts at most ${maxVideos} reference clips. ` +
-            `Only ${toUpload.length} new clip${toUpload.length === 1 ? " was" : "s were"} added.`
-          );
-        }
-        for (const file of toUpload) {
-          try {
-            const uploaded = await uploadFileDirect(file, "video-reference");
-            s.addReferenceVideo(uploaded.ref, file.name);
-          } catch (e) {
-            console.error("Video reference upload failed", e);
-            alert(e?.message || `Could not upload ${file.name}.`);
-          }
-        }
-      } else {
-        setExtractingFrames(videoFiles.length);
-        for (const file of videoFiles) {
+    for (const file of files) {
+      if (stagedReferenceCount(useStore.getState()) >= 50) {
+        showDragNotice("error", "The draft can stage fifty attachments. Remove an attachment before adding more.");
+        break;
+      }
+      const type = uploadContentType(file);
+      try {
+        if (type.startsWith("audio/")) {
+          const uploaded = await uploadFileDirect(file, "audio-reference");
+          s.addAudioNote({ name: file.name, ref: uploaded.ref });
+        } else if (type.startsWith("video/") && s.mode === "video" && supportsVideoReference(s.model)) {
+          const uploaded = await uploadFileDirect(file, "video-reference");
+          s.addReferenceVideo(uploaded.ref, file.name);
+        } else if (type.startsWith("video/")) {
+          setExtractingFrames((count) => count + 1);
           try {
             const { dataUrl } = await extractFrame(file);
-            s.addReference(dataUrl, "video");
-          } catch (e) {
-            console.error("Frame extraction failed", e);
-            alert(
-              e?.message ||
-                `Could not read a frame from ${file.name}. Try a different format (MP4/WebM).`
-            );
-          }
-        }
-        setExtractingFrames(0);
-      }
+            const blob = await (await fetch(dataUrl)).blob();
+            s.addReference(await uploadOriginalReference(new File([blob], `${file.name}.jpg`, { type: blob.type })), "video", file.name);
+          } finally { setExtractingFrames((count) => count - 1); }
+        } else if (type.startsWith("image/")) {
+          s.addReference(await uploadOriginalReference(file), "image", file.name);
+        } else { showDragNotice("error", `Unsupported attachment: ${file.name}`); }
+      } catch (error) { showDragNotice("error", error.message || `Could not attach ${file.name}. Please retry.`); }
     }
-
-    // 2. Audio files handling:
-    for (const file of files.filter((f) => f.type.startsWith("audio/"))) {
-      if (!supportsAudio(s.model)) continue;
-      try {
-        const uploaded = await uploadFileDirect(file, "audio-reference");
-        s.addAudioNote({ name: file.name, ref: uploaded.ref });
-      } catch (e) {
-        alert(e?.message || `Could not upload ${file.name}.`);
-      }
-    }
-
-    // 3. Image files handling:
-    const imageFiles = files.filter((f) => f.type.startsWith("image/"));
-    if (!imageFiles.length) return;
-
-    const maxReferences =
-      isProviderModel(s.model, "seedream") ? 10 : s.mode === "video" ? maxReferenceImagesForVideoModel(s.model) : null;
-    const available =
-      maxReferences === null
-        ? imageFiles.length
-        : Math.max(0, maxReferences - s.referenceImages.length);
-    const acceptedReferenceFiles = imageFiles.slice(0, available);
-    if (acceptedReferenceFiles.length < imageFiles.length) {
-      alert(
-        `${s.model} accepts at most ${maxReferences} reference images. ` +
-          `Only the first ${acceptedReferenceFiles.length} new reference${acceptedReferenceFiles.length === 1 ? " was" : "s were"} added.`
-      );
-    }
-    if (!acceptedReferenceFiles.length) return;
-
-    const valid = acceptedReferenceFiles;
-
-    if (isProviderModel(s.model, "seedream")) {
-      for (const file of valid) {
-        try { s.addReference(await uploadOriginalReference(file)); }
-        catch (error) { alert(error.message); }
-      }
-      return;
-    }
-    let dataUrls = [];
-    for (let i = 0; i < REF_BUDGET_STEPS.length; i++) {
-      const { dim, quality } = REF_BUDGET_STEPS[i];
-      const encoded = await Promise.all(
-        valid.map(async (f) => {
-          try {
-            return await downscaleBlob(f, dim, quality);
-          } catch (e) {
-            console.error("Failed to downscale image", e);
-            return null;
-          }
-        })
-      );
-      dataUrls = encoded.filter((u) => u !== null);
-      if (!dataUrls.length) return;
-      const totalBytes = dataUrls.reduce((n, u) => n + dataUrlBytes(u), 0);
-      if (totalBytes <= REF_BATCH_BUDGET_BYTES || i === REF_BUDGET_STEPS.length - 1) break;
-    }
-
-    for (const dataUrl of dataUrls) s.addReference(dataUrl);
   };
 
   // Track whole batches through every async path, including failures and early
   // returns. A counter keeps overlapping drops from hiding an active upload.
   const addImageFiles = async (files) => {
-    const supported = files.filter((file) =>
-      isVideoFile(file) || file.type.startsWith("image/") ||
-      (file.type.startsWith("audio/") && supportsAudio(s.model))
-    );
+    const supported = files.filter((file) => /^(image|video|audio)\//.test(uploadContentType(file)));
+    if (supported.length !== files.length) showDragNotice("error", "Some dropped files have an unsupported format.");
     if (!supported.length) return;
     setPendingUploads((count) => count + 1);
     try {
       await prepareImageFiles(supported);
     } catch (error) {
-      alert(error?.message || "Could not prepare the attachments. Please try again.");
+      notify(error?.message || "Could not prepare the attachments. Please try again.");
     } finally {
       setPendingUploads((count) => count - 1);
     }
@@ -375,7 +282,7 @@ export function PromptComposer() {
   // clipboard actually carries images, so normal text paste is unaffected.
   const onPaste = (e) => {
     const files = Array.from(e.clipboardData?.files ?? []).filter((f) =>
-      f.type.startsWith("image/")
+      uploadContentType(f).startsWith("image/")
     );
     if (files.length) {
       e.preventDefault();
@@ -383,52 +290,128 @@ export function PromptComposer() {
     }
   };
 
+  const dragEnterCountRef = useRef(0);
+
   // Drag & drop image files from the OS file manager or generations from library/chat.
   const isFileDrag = (e) =>
     Array.from(e.dataTransfer?.types ?? []).includes("Files");
 
-  const isAssetDrag = (e) =>
-    Array.from(e.dataTransfer?.types ?? []).includes("text/itemid") ||
-    Boolean(s.draggedItem);
+  const isAssetDrag = (e) => {
+    return (
+      isAssetDragEvent(e) ||
+      Boolean(s.draggedItem) ||
+      Boolean(s.draggedAssets?.length)
+    );
+  };
+
+  const onDragEnter = (e) => {
+    const isFiles = isFileDrag(e);
+    const isAsset = isAssetDrag(e);
+    if (!isFiles && !isAsset) return;
+    dragEnterCountRef.current += 1;
+    if (dragEnterCountRef.current === 1) {
+      setDragging(true);
+    }
+  };
 
   const onDragOver = (e) => {
     const isFiles = isFileDrag(e);
     const isAsset = isAssetDrag(e);
     if (!isFiles && !isAsset) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    setDragging(true);
+
+    let valid = true;
+    if (isAsset) {
+      const primaryItem = s.draggedItem || (s.draggedAssets && s.draggedAssets[0]);
+      if (primaryItem) {
+        const val = validateGenerationReference(primaryItem, {
+          mode: s.mode,
+          model: s.model,
+          referenceImages: s.referenceImages,
+          referenceVideos: s.referenceVideos,
+        });
+        valid = val.valid;
+      }
+    }
+    e.dataTransfer.dropEffect = valid ? "copy" : "none";
+    if (!dragging) setDragging(true);
   };
 
-  const onDragLeave = (e) => {
-    if (!e.currentTarget.contains(e.relatedTarget )) setDragging(false);
+  const onDragLeave = (_e) => {
+    dragEnterCountRef.current = Math.max(0, dragEnterCountRef.current - 1);
+    if (dragEnterCountRef.current === 0) {
+      setDragging(false);
+    }
   };
 
   const onDrop = async (e) => {
+    dragEnterCountRef.current = 0;
     setDragging(false);
-    const itemId = e.dataTransfer.getData("text/itemId");
-    const item = (itemId ? findItem(s, itemId) : null) || s.draggedItem;
+    const assetPayload = getAssetDragData(e, s);
 
-    if (item) {
+    let itemsToProcess = [];
+    if (assetPayload.items && assetPayload.items.length > 0) {
+      itemsToProcess = [...assetPayload.items];
+    } else if (assetPayload.ids && assetPayload.ids.length > 0) {
+      itemsToProcess = assetPayload.ids
+        .map((id) => findItem(s, id))
+        .filter(Boolean);
+    } else if (s.draggedItem) {
+      itemsToProcess = [s.draggedItem];
+    }
+
+    if (itemsToProcess.length > 0) {
       e.preventDefault();
-      const validation = validateGenerationReference(item, {
-        mode: s.mode,
-        model: s.model,
-        referenceImages: s.referenceImages,
-        referenceVideos: s.referenceVideos,
-      });
+      let addedImagesCount = 0;
+      let addedVideosCount = 0;
+      let skippedCount = 0;
+      let lastErrorMessage = null;
 
-      if (!validation.valid) {
-        showDragNotice("error", validation.reason);
-        return;
+      let currentRefImages = [...s.referenceImages];
+      let currentRefVideos = [...s.referenceVideos];
+
+      for (const item of itemsToProcess) {
+        if (stagedReferenceCount(useStore.getState()) >= 50) { skippedCount += 1; lastErrorMessage = "The draft can stage fifty attachments. Remove one before adding more."; continue; }
+        const validation = validateGenerationReference(item, {
+          mode: s.mode,
+          model: s.model,
+          referenceImages: currentRefImages,
+          referenceVideos: currentRefVideos,
+        });
+
+        if (!validation.valid) {
+          skippedCount++;
+          lastErrorMessage = validation.reason;
+          continue;
+        }
+
+        if (validation.action === "add-image-ref") {
+          currentRefImages.push(item.url);
+          addedImagesCount++;
+          await s.addReferenceFromUrl(item.url);
+        } else if (validation.action === "add-video-ref") {
+          currentRefVideos.push(item.url);
+          addedVideosCount++;
+          s.addReferenceVideo(item.url, item.prompt || "Video reference");
+        }
       }
 
-      if (validation.action === "add-image-ref") {
-        showDragNotice("success", `Added reference image for ${s.model}.`);
-        await s.addReferenceFromUrl(item.url);
-      } else if (validation.action === "add-video-ref") {
-        showDragNotice("success", `Added reference clip for ${s.model}.`);
-        s.addReferenceVideo(item.url, item.prompt || "Video reference");
+      if (addedImagesCount === 0 && addedVideosCount === 0) {
+        showDragNotice("error", lastErrorMessage || "Cannot add reference.");
+      } else if (skippedCount > 0) {
+        const addedTotal = addedImagesCount + addedVideosCount;
+        showDragNotice(
+          "success",
+          `Added ${addedTotal} reference${addedTotal > 1 ? "s" : ""}. ${skippedCount} skipped: ${lastErrorMessage}`
+        );
+      } else {
+        const total = addedImagesCount + addedVideosCount;
+        showDragNotice(
+          "success",
+          total === 1
+            ? (addedVideosCount === 1 ? `Added reference clip for ${s.model}.` : `Added reference image for ${s.model}.`)
+            : `Added ${total} references for ${s.model}.`
+        );
       }
       return;
     }
@@ -457,6 +440,7 @@ export function PromptComposer() {
       transition={{ type: "spring", stiffness: 260, damping: 28 }}
       style={{ width: `min(100%, ${preferredWidth}px)` }}
       onPaste={onPaste}
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
@@ -464,8 +448,10 @@ export function PromptComposer() {
     >
       {/* drop overlay */}
       {dragging && (() => {
-        const dragValidation = s.draggedItem
-          ? validateGenerationReference(s.draggedItem, {
+        const primaryItem = s.draggedItem || (s.draggedAssets && s.draggedAssets[0]);
+        const dragCount = s.draggedAssets?.length || (primaryItem ? 1 : 0);
+        const dragValidation = primaryItem
+          ? validateGenerationReference(primaryItem, {
               mode: s.mode,
               model: s.model,
               referenceImages: s.referenceImages,
@@ -494,7 +480,9 @@ export function PromptComposer() {
               )}
               <p className="text-sm font-semibold text-white/95">
                 {dragValidation.valid
-                  ? `Drop to use as ${dragValidation.action === "add-video-ref" ? "video" : "image"} reference for ${s.model}`
+                  ? dragCount > 1
+                    ? `Drop to use ${dragCount} references for ${s.model}`
+                    : `Drop to use as ${dragValidation.action === "add-video-ref" ? "video" : "image"} reference for ${s.model}`
                   : "Cannot add reference"}
               </p>
               {!dragValidation.valid && (
@@ -502,9 +490,9 @@ export function PromptComposer() {
                   {dragValidation.reason}
                 </p>
               )}
-              {dragValidation.valid && s.draggedItem?.prompt && (
+              {dragValidation.valid && primaryItem?.prompt && (
                 <p className="max-w-md truncate text-xs text-white/60">
-                  &ldquo;{s.draggedItem.prompt}&rdquo;
+                  &ldquo;{primaryItem.prompt}&rdquo;
                 </p>
               )}
             </div>
@@ -608,112 +596,7 @@ export function PromptComposer() {
           resolveReferences in mentions.ts), so reordering renumbers any
           @imgN already typed in the prompt via s.reorderReferences to keep
           each tag pointing at the same image. */}
-      {dragRefs.length > 0 && (
-        <Reorder.Group
-          as="div"
-          axis="x"
-          values={dragRefs}
-          onReorder={(newOrder) => {
-            dragRefsRef.current = newOrder;
-            setDragRefs(newOrder);
-          }}
-          className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1"
-        >
-          {dragRefs.map((src, i) => (
-            <Reorder.Item
-              key={src}
-              value={src}
-              as="div"
-              // Without this the browser's own scroll/pan gesture on the
-              // (overflow-x-auto) row competes with Framer's pointer-based
-              // drag for the same horizontal axis — the trackpad/Magic Mouse
-              // case that made this feel unreliable: some drags started a
-              // page-scroll gesture instead of picking the tile up.
-              style={{ touchAction: "none" }}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              whileDrag={{ scale: 1.05, zIndex: 1 }}
-              // dragRefsRef.current rather than the dragRefs closure: the
-              // final onReorder tick and this onDragEnd can fire within the
-              // same gesture-end dispatch, before React has re-rendered with
-              // the last setDragRefs — reading the ref instead of the closed-
-              // over state guarantees the store gets the settled order.
-              onDragEnd={() => s.reorderReferences(dragRefsRef.current)}
-              title={s.referenceTags?.[i] ? `Insert ${s.referenceTags[i]} — drag to reorder` : `Insert @img${i + 1} — drag to reorder`}
-              className="group relative h-16 w-16 shrink-0 cursor-grab overflow-hidden rounded-lg ring-1 ring-line transition hover:ring-brand/50 active:cursor-grabbing bg-ink-800 flex items-center justify-center"
-              onClick={() => mentionRef.current?.insertTag(s.referenceTags?.[i] || `@img${i + 1}`)}
-            >
-              <div className="absolute inset-0 grid place-items-center bg-ink-800 text-white/20 pointer-events-none">
-                <UserRound className="h-6 w-6" />
-              </div>
-              {/* draggable=false + -webkit-user-drag:none: an <img> is
-                  natively draggable in every browser, and that native
-                  "drag the image out" gesture starts on the same mousedown
-                  Framer needs to detect a reorder drag — whichever one wins
-                  the race varies by OS/input device, which is exactly the
-                  "sometimes it just doesn't grab" symptom. Suppressing the
-                  native drag leaves the pointer event free for Framer. */}
-              <img
-                src={referenceDisplayUrl(src, s.portraitAssets)}
-                alt=""
-                draggable={false}
-                style={{ WebkitUserDrag: "none" }}
-                className="relative z-10 h-full w-full object-cover"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
-              />
-              <span className="absolute inset-x-0 bottom-0 z-20 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold text-brand backdrop-blur-sm truncate max-w-full">
-                {s.referenceTags?.[i] || `@img${i + 1}`}
-              </span>
-              {/* This is still an @imgN tag functionally — @vid1 already
-                  means something else entirely (an attached video-to-video
-                  clip, see VideoRefPicker) — this badge just flags "this
-                  particular image was a frame grabbed from a video file",
-                  cosmetic only. */}
-              {s.referenceKinds[i] === "video" && (
-                <span
-                  title="Extracted from a video file"
-                  className="absolute left-0.5 top-0.5 z-20 grid h-4 w-4 place-items-center rounded-full bg-black/70 text-white/85"
-                >
-                  <Clapperboard className="h-2.5 w-2.5" />
-                </span>
-              )}
-              {s.referenceKinds[i] === "portrait" && (
-                <span
-                  title={s.referenceLabels?.[i] ? `Character Persona: ${s.referenceLabels[i]}` : "BytePlus Portrait Persona"}
-                  className="absolute left-0.5 top-0.5 z-20 grid h-4 w-4 place-items-center rounded-full bg-brand text-black shadow-sm font-bold"
-                >
-                  <UserRound className="h-2.5 w-2.5" />
-                </span>
-              )}
-              {s.referenceKinds[i] === "material" && (
-                <span
-                  title={s.referenceLabels?.[i] ? `Material: ${s.referenceLabels[i]}` : "Material Library Asset"}
-                  className="absolute left-0.5 top-0.5 z-20 grid h-4 w-4 place-items-center rounded-full bg-purple-600 text-white shadow-sm font-bold"
-                >
-                  <Sparkles className="h-2.5 w-2.5" />
-                </span>
-              )}
-              <button
-                type="button"
-                aria-label={`Remove reference ${i + 1}`}
-                onPointerDown={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  s.removeReference(i);
-                }}
-                className="absolute right-1 top-1 z-30 grid h-5 w-5 place-items-center rounded-full bg-ink-950/85 text-white/90 shadow-md backdrop-blur-sm transition hover:bg-red-600 hover:text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
-              >
-                <X className="h-3 w-3 pointer-events-none" />
-              </button>
-            </Reorder.Item>
-          ))}
-        </Reorder.Group>
-      )}
+      {s.referenceImages.length > 0 && <ReferenceStrip store={s} insertTag={(tag) => mentionRef.current?.insertTag(tag)} />}
 
       {/* @audioN chips are persisted Seedance audio references. */}
       {s.audioNotes.length > 0 && (
@@ -861,7 +744,7 @@ export function PromptComposer() {
                 type="button"
                 onClick={() => {
                   if (!s.firstFrame && !s.continuationFrame) {
-                    alert("Please select a first frame first.");
+                    notify("Please select a first frame first.");
                     return;
                   }
                   lastFrameFileRef.current?.click();
@@ -977,7 +860,7 @@ export function PromptComposer() {
               <MenuItem
                 onClick={() => {
                   s.setPortraitGalleryOpen(true);
-                  close();
+                  close({ restoreFocus: false });
                 }}
               >
                 <Images className="h-4 w-4 text-brand" /> Portrait Gallery
@@ -985,6 +868,7 @@ export function PromptComposer() {
             </>
           )}
         </Dropdown>
+        <div className="flex min-w-0 flex-1 flex-col">
         <input
           ref={fileRef}
           type="file"
@@ -1016,6 +900,10 @@ export function PromptComposer() {
           }}
         />
 
+        {referenceSubmissionWarning(s) && <p role="status" className="mb-1 text-xs text-amber-200">{referenceSubmissionWarning(s)}</p>}
+        {s.draftStorageWarning && <p role="status" className="mb-1 text-xs text-amber-200">{s.draftStorageWarning}</p>}
+        {normalizePromptMentions(s.prompt) !== s.prompt && <p role="status" className="mb-1 text-xs text-amber-200">Some reference tags are informal. They remain literal text; use @img1 for an exact reference.</p>}
+        <div className="mb-2 flex gap-3 text-xs text-white/60"><button type="button" onClick={() => s.clearComposerDraft()}>New / Clear</button><button type="button" disabled={!s.recentSubmission} onClick={() => s.restoreRecentSubmission()}>Recent submission</button></div>
         <MentionTextarea
           ref={mentionRef}
           value={s.prompt}
@@ -1040,10 +928,11 @@ export function PromptComposer() {
               : "Describe the video… type @ to reference uploaded images (@img1, @img2)."
           }
         />
+        </div>
       </div>
 
       {/* toolbar */}
-      <div className="mt-2 flex min-w-0 items-center gap-2">
+      <div className="composer-controls-row mt-2 flex min-w-0 items-center gap-2">
         <div
           ref={toolbarMeasureRef}
           className="composer-toolbar flex min-w-0 flex-1 items-center gap-1.5 py-px"
@@ -1210,9 +1099,8 @@ export function PromptComposer() {
         >
           {() => (
             <div className="space-y-3">
-              {/* Edit/Extend only exist on Seedance 2.5 — BytePlus infers the
-                  task type from this plus an attached reference clip, not a
-                  request field (see providers/seedance.js). */}
+              {/* Seedance 2.5 maps the selected mode to an explicit omni task
+                  type when references are attached (see providers/seedance.js). */}
               {editExtendApplies && (
                 <div>
                   <Segment
@@ -1360,16 +1248,31 @@ export function PromptComposer() {
           panelClassName="min-w-[210px]"
           trigger={(open) => {
             const proj = s.projects.find((p) => p.id === s.activeProjectId);
-            const folder = proj?.folders.find((f) => f.id === s.activeFolderId);
+            function findFolder(nodes, id) {
+              for (const n of nodes) {
+                if (n.id === id) return n;
+                if (n.children?.length) {
+                  const res = findFolder(n.children, id);
+                  if (res) return res;
+                }
+              }
+              return null;
+            }
+            const allFolders = [
+              ...(s.libraryTree?.globalFolders ?? []),
+              ...(proj ? (s.libraryTree?.projects?.find((p) => p.id === proj.id)?.folders ?? proj.folders ?? []) : [])
+            ];
+            const folder = findFolder(allFolders, s.activeFolderId);
+            const folderLabel = s.activeFolderId === UNSORTED ? "Unsorted" : (folder ? folder.name : "All");
             return (
               <Chip open={open}>
                 <FolderClosed className="h-4 w-4 text-white/55" />
                 <span className="composer-project-label max-w-[110px] truncate font-medium">
-                  {proj ? proj.name : "No project"}
+                  {proj ? proj.name : "Global Library"}
                 </span>
                 <span className="composer-folder-separator text-white/35">/</span>
                 <span className="composer-folder-label max-w-[80px] truncate">
-                  {folder ? folder.name : "All"}
+                  {folderLabel}
                 </span>
                 <ChevronDown
                   className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")}
@@ -1380,16 +1283,50 @@ export function PromptComposer() {
         >
           {() => {
             const proj = s.projects.find((p) => p.id === s.activeProjectId);
+            const foldersToDisplay = proj
+              ? (s.libraryTree?.projects?.find((p) => p.id === proj.id)?.folders ?? proj.folders ?? [])
+              : (s.libraryTree?.globalFolders ?? []);
+
+            const renderFolderMenuItems = (folders, depth = 0) =>
+              folders.map((f) => (
+                <div key={f.id}>
+                  <MenuItem
+                    active={s.activeFolderId === f.id}
+                    onClick={() => s.setActiveFolder(f.id)}
+                    style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
+                  >
+                    <FolderClosed className="h-4 w-4 text-white/45" />
+                    <span className="flex-1 truncate">{f.name}</span>
+                    {s.activeFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
+                  </MenuItem>
+                  {f.children?.length > 0 && renderFolderMenuItems(f.children, depth + 1)}
+                </div>
+              ));
+
             return (
-              <div>
+              <div className="max-h-[340px] overflow-y-auto scroll-thin py-1">
                 <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
-                  Project
+                  Scope
                 </p>
+                <MenuItem
+                  active={s.activeProjectId === null}
+                  onClick={() => {
+                    s.setActiveProject(null);
+                    s.setActiveFolder(null);
+                  }}
+                >
+                  <Layers className="h-4 w-4 text-white/45" />
+                  <span className="flex-1 truncate">Global Library</span>
+                  {s.activeProjectId === null && <Check className="h-4 w-4 text-brand" />}
+                </MenuItem>
                 {s.projects.map((p) => (
                   <MenuItem
                     key={p.id}
                     active={p.id === s.activeProjectId}
-                    onClick={() => s.setActiveProject(p.id)}
+                    onClick={() => {
+                      s.setActiveProject(p.id);
+                      s.setActiveFolder(null);
+                    }}
                   >
                     <Layers className="h-4 w-4 text-white/45" />
                     <span className="flex-1 truncate">{p.name}</span>
@@ -1397,41 +1334,39 @@ export function PromptComposer() {
                   </MenuItem>
                 ))}
                 <MenuItem
-                  onClick={() => {
-                    const name = window.prompt("New project name");
-                    if (name?.trim()) s.createProject(name.trim());
+                  onClick={async () => {
+                    const name = await askText({ title: "New project", label: "Project name", confirmLabel: "Create" });
+                    if (name) s.createProject(name);
                   }}
                 >
                   <Plus className="h-4 w-4 text-white/60" />
                   <span className="flex-1">New project</span>
                 </MenuItem>
-                {proj && (
-                  <>
-                    <div className="my-1 h-px bg-line" />
-                    <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
-                      Folder
-                    </p>
-                    <MenuItem
-                      active={s.activeFolderId === null}
-                      onClick={() => s.setActiveFolder(null)}
-                    >
-                      <Layers className="h-4 w-4 text-white/45" />
-                      <span className="flex-1">All assets</span>
-                      {s.activeFolderId === null && <Check className="h-4 w-4 text-brand" />}
-                    </MenuItem>
-                    {proj.folders.map((f) => (
-                      <MenuItem
-                        key={f.id}
-                        active={s.activeFolderId === f.id}
-                        onClick={() => s.setActiveFolder(f.id)}
-                      >
-                        <FolderClosed className="h-4 w-4 text-white/45" />
-                        <span className="flex-1 truncate">{f.name}</span>
-                        {s.activeFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
-                      </MenuItem>
-                    ))}
-                  </>
-                )}
+
+                <div className="my-1 h-px bg-line" />
+                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
+                  Folder in {proj ? proj.name : "Global Library"}
+                </p>
+                <MenuItem
+                  active={s.activeFolderId === null}
+                  onClick={() => s.setActiveFolder(null)}
+                >
+                  <Layers className="h-4 w-4 text-white/45" />
+                  <span className="flex-1">
+                    {proj ? "All in project" : "Global Root"}
+                  </span>
+                  {s.activeFolderId === null && <Check className="h-4 w-4 text-brand" />}
+                </MenuItem>
+                <MenuItem
+                  active={s.activeFolderId === UNSORTED}
+                  onClick={() => s.setActiveFolder(UNSORTED)}
+                >
+                  <Inbox className="h-4 w-4 text-white/45" />
+                  <span className="flex-1">Unsorted</span>
+                  {s.activeFolderId === UNSORTED && <Check className="h-4 w-4 text-brand" />}
+                </MenuItem>
+
+                {renderFolderMenuItems(foldersToDisplay)}
               </div>
             );
           }}
@@ -1507,4 +1442,225 @@ function Segment({
       </div>
     </div>
   );
+}
+
+
+const REFERENCE_SESSION_TOKEN = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+
+/** Split a /api/media thumbnail URL into its media reference and requested width. */
+export function splitMediaThumb(src) {
+  if (typeof src !== "string" || !src.startsWith("/api/media/")) return { ref: null, width: undefined };
+  const [path, query = ""] = src.split("#")[0].split("?");
+  const width = Number(new URLSearchParams(query).get("w")) || undefined;
+  return { ref: path, width };
+}
+
+export function referenceThumbnailUrl(url, portraitAssets = []) {
+  const display = referenceDisplayUrl(url, portraitAssets);
+  return display?.startsWith("/api/media/uploads/image-reference/") ? thumbUrl(display, 512) : display;
+}
+
+/** Where a reference came from, for the strip badge and failure copy. Portrait
+ * Gallery references arrive as asset://, a provider URL carrying bp_asset_id,
+ * or a stored portrait upload; materials keep their composer kind. */
+export function referenceSource(ref, kind, portraitAssets = []) {
+  const value = typeof ref === "string" ? ref : "";
+  const assetId = value.startsWith("asset://")
+    ? value.slice("asset://".length).split(/[?&#]/)[0]
+    : value.match(/[#?&]bp[-_]asset(?:_id)?=([^&#]+)/)?.[1];
+  const path = value.split("#")[0];
+  const portrait = (Array.isArray(portraitAssets) ? portraitAssets : []).find((a) =>
+    (assetId && (a?.byteplusAssetId === assetId || a?.id === assetId)) || (a?.imageUrl && a.imageUrl.split("#")[0] === path));
+  if (kind === "portrait" || assetId || portrait || path.includes("/uploads/portrait/")) {
+    return { type: "portrait", name: portrait?.name || null };
+  }
+  if (kind === "material" || path.includes("/uploads/material/")) return { type: "material", name: null };
+  return { type: null, name: null };
+}
+
+/** Failed references stay in their original occurrence slots; a missing
+ * thumbnail never shifts @imgN numbering or replaces another occurrence. */
+function ReferenceThumbnail({ src, alt, className, portrait = false }) {
+  const [failed, setFailed] = useState(false);
+  // Private upload redirects expire; one token per page session keeps a fresh
+  // first request without re-fetching on every remount.
+  const displaySrc = useMemo(() => {
+    if (!src?.startsWith("/api/media/uploads/image-reference/")) return src;
+    const [path, fragment] = src.split("#");
+    const fresh = `${path}${path.includes("?") ? "&" : "?"}reference_request=${encodeURIComponent(REFERENCE_SESSION_TOKEN)}`;
+    return fragment ? `${fresh}#${fragment}` : fresh;
+  }, [src]);
+  // Prefer a direct storage URL when the backend can resolve one.
+  const { ref: mediaRef, width: mediaWidth } = splitMediaThumb(src);
+  const direct = useDirectMediaUrl(mediaRef, mediaWidth);
+  const imageSrc = mediaRef && direct.src !== (mediaWidth ? thumbUrl(mediaRef, mediaWidth) : mediaRef) ? direct.src : displaySrc;
+  useEffect(() => setFailed(false), [src]);
+  if (!src || failed) {
+    const [text, hint] = portrait
+      ? ["Portrait removed", "This portrait is no longer available. Remove it and pick a current portrait."]
+      : ["Reference unavailable", "This image is no longer available. Remove it and select another image."];
+    return <span className={`${className} flex items-center justify-center bg-ink-950 p-1 text-center text-[10px] text-white/55`} role="img" aria-label={`${alt || "Reference"}: ${text}`} title={hint}>{text}</span>;
+  }
+  return <img src={imageSrc} alt={alt} draggable={false} className={className} onError={() => { if (!direct.onError()) setFailed(true); }} />;
+}
+
+/** Pointer sorting is confined to the grip; the strip itself remains a native
+ * scroll surface. Only a completed gesture changes the draft's mention order. */
+export function ReferenceStrip({ store: s, insertTag }) {
+  const reducedMotion = useReducedMotion();
+  const strip = useRef(null);
+  const gesture = useRef(null);
+  const frame = useRef(null);
+  const [preview, setPreview] = useState(null);
+  const [announcement, setAnnouncement] = useState("");
+  const [positionId, setPositionId] = useState(null);
+  const [position, setPosition] = useState(1);
+  const [undoVisible, setUndoVisible] = useState(false);
+  const ids = s.referenceIds?.length === s.referenceImages.length ? s.referenceIds : s.referenceImages.map((_, i) => `legacy-reference-${i}`);
+  const visibleIds = preview?.ids || ids;
+  const focusCard = (id) => requestAnimationFrame(() => {
+    const card = Array.from(strip.current?.querySelectorAll('[data-reference-id]') || []).find((el) => el.dataset.referenceId === id);
+    card?.querySelector('[data-reference-grip]')?.focus({ preventScroll: true });
+    card?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+  const commit = (ordered, id) => {
+    if (ordered.every((value, i) => value === ids[i])) return;
+    s.reorderReferencesByIds(ordered);
+    setAnnouncement(`Reference ${ids.indexOf(id) + 1} moved to position ${ordered.indexOf(id) + 1}`);
+    setUndoVisible(true);
+    focusCard(id);
+  };
+  const move = (id, target) => {
+    const ordered = [...ids];
+    ordered.splice(ordered.indexOf(id), 1);
+    ordered.splice(Math.max(0, Math.min(ids.length - 1, target)), 0, id);
+    commit(ordered, id);
+  };
+  const updateGesture = (now = performance.now()) => {
+    const current = gesture.current;
+    const container = strip.current;
+    if (!current || !container) return;
+    const bounds = container.getBoundingClientRect();
+    // The edge speed is in pixels per 60 fps frame. Scale it by the real frame time so a busy or
+    // slow machine scrolls the strip as fast as a smooth one; cap the step after a stalled frame.
+    const elapsed = Math.min(64, Math.max(0, now - (current.lastFrame ?? now)));
+    current.lastFrame = now;
+    if (current.active) {
+      const edge = 52;
+      const speed = current.x < bounds.left + edge ? -Math.ceil((bounds.left + edge - current.x) / 4) : current.x > bounds.right - edge ? Math.ceil((current.x - bounds.right + edge) / 4) : 0;
+      current.scrollCarry = (current.scrollCarry || 0) + Math.max(-24, Math.min(24, speed)) * (elapsed * 60 / 1000);
+      const step = Math.trunc(current.scrollCarry);
+      current.scrollCarry -= step;
+      if (step) container.scrollLeft += step;
+      const cards = Array.from(container.querySelectorAll('[data-reference-id]'));
+      const others = cards.filter((el) => el.dataset.referenceId !== current.id);
+      const target = others.findIndex((el) => current.x < el.getBoundingClientRect().left + el.offsetWidth / 2);
+      const ordered = current.ids.filter((id) => id !== current.id);
+      ordered.splice(target === -1 ? ordered.length : target, 0, current.id);
+      current.ordered = ordered;
+      // Re-render the strip only when the drop order or the pointer moved, not on every frame.
+      const signature = `${ordered.join(",")}|${current.x}|${current.y}`;
+      if (signature !== current.previewSignature) {
+        current.previewSignature = signature;
+        setPreview({ ids: ordered, id: current.id, x: current.x, y: current.y });
+      }
+    }
+    frame.current = requestAnimationFrame(updateGesture);
+  };
+  useEffect(() => () => { cancelAnimationFrame(frame.current); gesture.current = null; }, []);
+  const start = (e, id) => {
+    if (e.button !== 0 || ids.length < 2) return;
+    e.preventDefault();
+    // Capture on the stationary scroll container. Moving a captured card in
+    // the DOM can release capture before the pointer reaches the strip edge.
+    strip.current.setPointerCapture(e.pointerId);
+    gesture.current = { id, ids: [...ids], ordered: [...ids], startX: e.clientX, x: e.clientX, y: e.clientY, active: false };
+    frame.current = requestAnimationFrame(updateGesture);
+  };
+  const end = (cancelled = false) => {
+    cancelAnimationFrame(frame.current);
+    const current = gesture.current;
+    gesture.current = null;
+    setPreview(null);
+    if (current?.active && !cancelled) commit(current.ordered, current.id);
+  };
+  const activeIndex = preview ? ids.indexOf(preview.id) : -1;
+  return <div className="mb-2" aria-label="Attached image references">
+    <div className="mb-1 flex items-center justify-between text-[11px] text-white/55">
+      <span>{ids.length} {ids.length === 1 ? "reference" : "references"}</span>
+      {undoVisible && <button type="button" className="flex items-center gap-1 text-brand" onClick={() => { s.undoReferenceReorder(); setUndoVisible(false); setAnnouncement("Reference reorder undone"); }}><Undo2 className="h-3 w-3" />Undo reorder</button>}
+    </div>
+    <div ref={strip}
+      onPointerMove={(e) => { const current = gesture.current; if (!current) return; current.x = e.clientX; current.y = e.clientY; if (Math.abs(current.x - current.startX) > 5) current.active = true; }}
+      onPointerUp={() => end()} onPointerCancel={() => end(true)}
+      data-testid="reference-strip" className="flex gap-2 overflow-x-auto overscroll-x-contain px-1 pb-2">
+      {visibleIds.map((id, i) => {
+        const sourceIndex = ids.indexOf(id);
+        const tag = s.referenceTags?.[sourceIndex] || `@img${sourceIndex + 1}`;
+        const source = referenceSource(s.referenceImages[sourceIndex], s.referenceKinds?.[sourceIndex], s.portraitAssets);
+        const label = s.referenceLabels?.[sourceIndex] || source.name || (source.type === "portrait" ? "Portrait" : `Reference ${sourceIndex + 1}`);
+        return <motion.div key={id} data-reference-id={id} data-reference-position={i + 1} layout={!gesture.current && !reducedMotion} transition={{ duration: reducedMotion ? 0 : 0.16 }}
+          onKeyDown={(e) => { if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); move(id, sourceIndex + (e.key === "ArrowLeft" ? -1 : 1)); } }}
+          className={cn("group relative w-24 shrink-0 rounded-lg border bg-ink-800 p-1 focus-within:ring-2 focus-within:ring-brand", preview?.id === id ? "border-brand border-l-4 ring-2 ring-brand/70 opacity-50" : "border-line")}>
+          <div className="relative">
+            <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag(tag)} className="block h-20 w-full overflow-hidden rounded focus-visible:outline-brand">
+              <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[sourceIndex], s.portraitAssets)} alt={label} portrait={source.type === "portrait"} className="h-full w-full object-cover" />
+              <span className="absolute bottom-0 left-0 right-0 truncate bg-black/65 text-[11px] font-semibold text-brand">{tag}</span>
+            </button>
+            {source.type === "portrait" && (
+              <span data-reference-source="portrait" title={source.name ? `Portrait Gallery: ${source.name}` : "From the Portrait Gallery"}
+                className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-brand text-black shadow-sm">
+                <UserRound className="h-2.5 w-2.5" />
+              </span>
+            )}
+            {source.type === "material" && (
+              <span data-reference-source="material" title={s.referenceLabels?.[sourceIndex] ? `Material: ${s.referenceLabels[sourceIndex]}` : "Material Library asset"}
+                className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-purple-600 text-white shadow-sm">
+                <Sparkles className="h-2.5 w-2.5" />
+              </span>
+            )}
+            {s.unavailableReferences?.includes(s.referenceImages[sourceIndex]) && (
+              <span data-reference-unavailable title="This portrait was removed or isn't ready for video. Remove it to generate."
+                className="pointer-events-none absolute inset-0 grid place-items-center rounded bg-red-950/75 text-[10px] font-semibold text-red-100 ring-2 ring-inset ring-red-400">
+                Unavailable
+              </span>
+            )}
+            <button type="button" aria-label={`Remove reference ${sourceIndex + 1}`} onClick={() => s.removeReference(sourceIndex)} className="absolute right-0 top-0 grid h-6 w-6 place-items-center rounded bg-ink-950/90 text-white"><X className="h-3 w-3" /></button>
+          </div>
+          <p title={label} className="truncate text-[10px] text-white/65">{label}</p>
+          <div className="flex items-center justify-center">
+            <button type="button" aria-label={`Move reference ${sourceIndex + 1} left`} disabled={sourceIndex === 0} onClick={() => move(id, sourceIndex - 1)} className="grid h-8 w-6 place-items-center disabled:opacity-20"><ArrowLeft className="h-3 w-3" /></button>
+            <button type="button" data-reference-grip aria-label={`Drag reference ${sourceIndex + 1} to reorder`} title="Drag to arrange; Alt + arrow keys also move" onPointerDown={(e) => start(e, id)}
+              className="grid h-11 w-11 cursor-grab touch-none place-items-center rounded hover:bg-white/10 active:cursor-grabbing"><GripVertical className="h-5 w-5" /></button>
+            <button type="button" aria-label={`Move reference ${sourceIndex + 1} right`} disabled={sourceIndex === ids.length - 1} onClick={() => move(id, sourceIndex + 1)} className="grid h-8 w-6 place-items-center disabled:opacity-20"><ArrowRight className="h-3 w-3" /></button>
+          </div>
+          <button type="button" aria-label={`Move reference ${sourceIndex + 1} to position`} onClick={() => { setPositionId(id); setPosition(sourceIndex + 1); }} className="sr-only w-full rounded text-[10px] text-white/60 focus:not-sr-only focus:text-brand">Move to position…</button>
+        </motion.div>;
+      })}
+    </div>
+    {preview && <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-24 rounded-lg border-2 border-brand bg-ink-800 p-1 shadow-xl" style={{ left: preview.x - 48, top: preview.y - 80 }}>
+      <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[activeIndex], s.portraitAssets)} alt="Reference" className="h-20 w-full rounded object-cover" />
+      <span className="text-xs text-brand">Position {preview.ids.indexOf(preview.id) + 1}</span>
+    </div>}
+    {positionId && <form className="flex items-center gap-2 rounded border border-line p-2" onSubmit={(e) => { e.preventDefault(); move(positionId, Number(position) - 1); setPositionId(null); }}>
+      <label className="text-xs">Move to position <input autoFocus type="number" min="1" max={ids.length} required value={position} onChange={(e) => setPosition(e.target.value)} className="ml-1 w-16 rounded bg-ink-950 p-1" /></label>
+      <button type="submit" className="text-xs text-brand">Move</button><button type="button" onClick={() => setPositionId(null)} className="text-xs">Cancel</button>
+    </form>}
+    <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</span>
+  </div>;
+}
+
+
+export function stagedReferenceCount(state) {
+  return (state.referenceImages?.length || 0) + (state.referenceVideos?.length || 0) + (state.audioNotes?.length || 0);
+}
+
+export function referenceSubmissionWarning(state) {
+  const messages = [];
+  const maxImages = isProviderModel(state.model, "seedream") ? 10 : state.mode === "video" ? maxReferenceImagesForVideoModel(state.model) : null;
+  const maxVideos = state.mode === "video" ? maxReferenceVideosForVideoModel(state.model) ?? MAX_REFERENCE_VIDEOS : 0;
+  if (maxImages !== null && state.referenceImages?.length > maxImages) messages.push(`${state.model} accepts at most ${maxImages} image references per submission`);
+  if (state.referenceVideos?.length > maxVideos || (state.referenceVideos?.length && !supportsVideoReference(state.model))) messages.push(`${state.model} cannot submit this many video references`);
+  if (state.audioNotes?.length && !supportsAudio(state.model)) messages.push(`${state.model} does not accept audio references`);
+  return messages.length ? `${messages.join(". ")}. All attachments remain staged; remove extras or choose a compatible model before generating.` : null;
 }

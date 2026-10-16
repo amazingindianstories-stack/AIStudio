@@ -4,14 +4,11 @@ import {
   disposeStoreRuntime,
   nextStoreRequestSequence,
   setStoreTimeout,
-  storeRuntime,
   storeRuntimeSnapshot,
 } from "./store-runtime.js";
 
-test("dispose clears polling, timers, and request counters for a later session", async () => {
+test("dispose clears timers and request counters for a later session", async () => {
   disposeStoreRuntime();
-  storeRuntime.polling.add("video-1");
-  storeRuntime.polling.add("depth-1");
   nextStoreRequestSequence("feed");
   nextStoreRequestSequence("counts");
   let staleTimerRan = false;
@@ -19,7 +16,6 @@ test("dispose clears polling, timers, and request counters for a later session",
 
   disposeStoreRuntime();
   assert.deepEqual(storeRuntimeSnapshot(), {
-    pollingIds: [],
     timerCount: 0,
     sequences: { feed: 0, counts: 0, thread: 0 },
     liveRunning: false,

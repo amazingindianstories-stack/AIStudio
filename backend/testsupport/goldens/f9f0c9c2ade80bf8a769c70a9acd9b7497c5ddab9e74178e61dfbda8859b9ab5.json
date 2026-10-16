@@ -1,0 +1,13 @@
+{
+  "request": {
+    "command": [
+      "node",
+      "scripts/django-migration/declared-foreign-keys.mjs"
+    ],
+    "input": null
+  },
+  "stdout": "[{\"table\":\"folders\",\"name\":\"folders_project_id_projects_id_fk\",\"columns\":[\"project_id\"],\"target_table\":\"projects\",\"target_columns\":[\"id\"],\"on_delete\":\"restrict\"},{\"table\":\"folders\",\"name\":\"folders_parent_id_folders_id_fk\",\"columns\":[\"parent_id\"],\"target_table\":\"folders\",\"target_columns\":[\"id\"],\"on_delete\":\"restrict\"},{\"table\":\"generation_naming\",\"name\":\"generation_naming_generation_id_generations_id_fk\",\"columns\":[\"generation_id\"],\"target_table\":\"generations\",\"target_columns\":[\"id\"],\"on_delete\":\"cascade\"},{\"table\":\"generations\",\"name\":\"generations_project_id_projects_id_fk\",\"columns\":[\"project_id\"],\"target_table\":\"projects\",\"target_columns\":[\"id\"],\"on_delete\":\"restrict\"},{\"table\":\"generations\",\"name\":\"generations_folder_id_folders_id_fk\",\"columns\":[\"folder_id\"],\"target_table\":\"folders\",\"target_columns\":[\"id\"],\"on_delete\":\"restrict\"},{\"table\":\"media_export_items\",\"name\":\"media_export_items_export_id_media_exports_id_fk\",\"columns\":[\"export_id\"],\"target_table\":\"media_exports\",\"target_columns\":[\"id\"],\"on_delete\":\"cascade\"},{\"table\":\"portrait_assets\",\"name\":\"portrait_assets_group_id_portrait_groups_id_fk\",\"columns\":[\"group_id\"],\"target_table\":\"portrait_groups\",\"target_columns\":[\"id\"],\"on_delete\":\"cascade\"}]",
+  "stdout_sha256": "2a9af8435faa9ebd19b24b9a647da09df179810f8d25dd8bd1843e6489badb69",
+  "source_revision": "d9ef93947910a65bec5fa33d3f2311d888f6a2f4",
+  "source_tree_sha256": "39ce8b2abb6a4440afa5f1d0b944c07717c691839eba171c49a941823e1ff6b9"
+}

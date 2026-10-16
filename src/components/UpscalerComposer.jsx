@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
+import { notify } from "@/lib/notify";
 import { motion } from "framer-motion";
 import {
   Sparkles,
@@ -14,6 +15,7 @@ import {
   Loader2,
   ChevronDown,
   Info,
+  AlertCircle,
 } from "lucide-react";
 import { useStore, findItem } from "@/lib/store";
 import {
@@ -21,10 +23,14 @@ import {
   MAGNIFIC_ENGINES,
   MAGNIFIC_PRECISION_FLAVORS,
   MAGNIFIC_SCALE_FACTORS,
-} from "@/lib/providers/magnific";
+} from "@/lib/magnific-ui";
 import { cn } from "@/lib/utils";
-import { uploadContentType, uploadOriginalReference } from "@/lib/client-reference-upload";
+import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
+import { getAssetDragData, validateUpscalerDrop } from "@/lib/asset-drag-contract";
+import { ProgressiveImage } from "./ProgressiveImage";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { UpscaleMediaToggle } from "./UpscaleMediaToggle";
+import { VideoUpscalerComposer } from "./VideoUpscalerComposer";
 
 const MODELS = [
   {
@@ -42,8 +48,8 @@ const MODELS = [
   {
     id: "Magnific Precision V1",
     label: "Precision V1",
-    badge: "Zero Hallucination",
-    desc: "Faithful 2x super-resolution for UI, logos, and product photos",
+    badge: "Image Enhancement",
+    desc: "Image enhancement with sharpen, grain and detail controls",
   },
 ];
 
@@ -57,62 +63,124 @@ export function UpscalerComposer() {
   const generating = s.generating;
 
   const [dragging, setDragging] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(true);
+  const [dragValid, setDragValid] = useState(true);
+  const [dragMessage, setDragMessage] = useState("");
+  const dragEnterCountRef = useRef(0);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [lastResult, setLastResult] = useState(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef(null);
+  const uploadAttemptRef = useRef(0);
 
+  useEffect(() => { uploadAttemptRef.current += 1; setUploading(false); setLastResult(null); }, [s.activeProjectId]);
+
+  const resultItem = lastResult ? findItem(s, lastResult.item.id) || lastResult.item : null;
   const activeModelId = params.model || "Magnific Creative";
+  // After every hook above, so hook order is identical across the switch.
+  if (s.upscalerMedia === "video") return <VideoUpscalerComposer />;
 
   const handleSelectFile = async (file) => {
     if (!file) return;
     const contentType = uploadContentType(file);
     if (!["image/png", "image/jpeg", "image/webp"].includes(contentType)) {
-      alert("Please upload a valid image file (PNG, JPEG, WebP).");
+      setUploadError("Magnific accepts PNG, JPEG or WebP images. Video upscaling is unsupported.");
       return;
     }
     if (file.size > 20 * 1024 * 1024) {
-      alert("Source images must be 20 MB or smaller.");
+      setUploadError("Source images must be 20 MB or smaller.");
       return;
     }
+    const attempt = ++uploadAttemptRef.current;
+    const projectId = s.activeProjectId;
     setUploading(true);
+    setUploadError("");
     try {
-      const url = await uploadOriginalReference(file);
+      const ready = await uploadFileDirect(file, "image-reference");
+      if (attempt !== uploadAttemptRef.current || useStore.getState().activeProjectId !== projectId) return;
+      const url = ready.ref;
       setUpscalerImage({
         url,
         name: file.name,
         size: file.size,
       });
     } catch (error) {
-      alert(error?.message || "Could not upload the source image. Please try again.");
+      if (attempt === uploadAttemptRef.current) setUploadError(error?.message || "Could not upload the source image. Please try again.");
     } finally {
-      setUploading(false);
+      if (attempt === uploadAttemptRef.current) setUploading(false);
     }
+  };
+
+  const onDragEnter = (e) => {
+    dragEnterCountRef.current += 1;
+    if (dragEnterCountRef.current === 1) {
+      setDragging(true);
+    }
+    const val = validateUpscalerDrop(e, s);
+    setDragValid(val.valid);
+    setDragMessage(val.reason || "");
   };
 
   const onDragOver = (e) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = "copy";
-    setDragging(true);
+    const val = validateUpscalerDrop(e, s);
+    setDragValid(val.valid);
+    setDragMessage(val.reason || "");
+    e.dataTransfer.dropEffect = val.valid ? "copy" : "none";
+    if (!dragging) setDragging(true);
   };
 
-  const onDragLeave = (e) => {
-    if (!e.currentTarget.contains(e.relatedTarget)) setDragging(false);
+  const onDragLeave = (_e) => {
+    dragEnterCountRef.current = Math.max(0, dragEnterCountRef.current - 1);
+    if (dragEnterCountRef.current === 0) {
+      setDragging(false);
+      setDragValid(true);
+      setDragMessage("");
+    }
   };
 
   const onDrop = (e) => {
     e.preventDefault();
+    dragEnterCountRef.current = 0;
     setDragging(false);
+    const val = validateUpscalerDrop(e, s);
+    if (!val.valid) {
+      setUploadError(val.reason || "Magnific accepts images. Video upscaling is unsupported.");
+      setDragValid(true);
+      setDragMessage("");
+      return;
+    }
+    setDragValid(true);
+    setDragMessage("");
 
     // Check for internal generation drag (from chat or library)
-    const itemId = e.dataTransfer.getData("text/itemId");
-    const item = (itemId ? findItem(s, itemId) : null) || s.draggedItem;
-    if (item && item.url) {
+    const assetPayload = getAssetDragData(e, s);
+    let itemsToProcess = [];
+    if (assetPayload.items && assetPayload.items.length > 0) {
+      itemsToProcess = [...assetPayload.items];
+    } else if (assetPayload.ids && assetPayload.ids.length > 0) {
+      itemsToProcess = assetPayload.ids
+        .map((id) => findItem(s, id))
+        .filter(Boolean);
+    } else if (s.draggedItem) {
+      itemsToProcess = [s.draggedItem];
+    }
+
+    if (itemsToProcess.length > 0) {
+      const firstItem = itemsToProcess[0];
+      if (firstItem.kind !== "image") {
+        notify("Upscaler only accepts image generations.");
+        return;
+      }
       setUpscalerImage({
-        url: item.url,
-        name: item.prompt ? item.prompt.slice(0, 50) : "Generation reference",
-        aspectRatio: item.aspectRatio,
-        item,
+        url: firstItem.url,
+        name: firstItem.prompt ? firstItem.prompt.slice(0, 50) : "Generation reference",
+        aspectRatio: firstItem.aspectRatio,
+        item: firstItem,
       });
+      if (itemsToProcess.length > 1) {
+        notify(`Upscaler only accepts 1 source image. Selected the first of ${itemsToProcess.length} dropped assets.`);
+      }
       return;
     }
 
@@ -154,9 +222,6 @@ export function UpscalerComposer() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 260, damping: 28 }}
       className="mx-auto w-full max-w-3xl rounded-2xl border border-line bg-ink-800/95 p-3.5 shadow-panel backdrop-blur-xl sm:p-5"
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
     >
       {/* Hidden file input */}
       <input
@@ -164,13 +229,25 @@ export function UpscalerComposer() {
         type="file"
         accept="image/png,image/jpeg,image/webp"
         className="hidden"
-        onChange={(e) => handleSelectFile(e.target.files?.[0])}
+        onChange={(e) => { handleSelectFile(e.target.files?.[0]); e.target.value = ""; }}
       />
 
       {/* Model selection tabs */}
       <div className="mb-4">
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-3">
-          <div className="flex items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
+        <div className="border-b border-line pb-3">
+          <div className="mb-2.5 flex items-center justify-between gap-2">
+            <UpscaleMediaToggle />
+            <button
+              type="button"
+              onClick={resetParams}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-white/50 hover:bg-white/5 hover:text-white/80 transition"
+              title="Reset parameters to defaults"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Reset</span>
+            </button>
+          </div>
+          <div className="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
             {MODELS.map((m) => {
               const active = activeModelId === m.id;
               return (
@@ -199,16 +276,6 @@ export function UpscalerComposer() {
               );
             })}
           </div>
-
-          <button
-            type="button"
-            onClick={resetParams}
-            className="flex items-center gap-1 rounded-lg px-2.5 py-1 text-xs text-white/50 hover:bg-white/5 hover:text-white/80 transition"
-            title="Reset parameters to defaults"
-          >
-            <RotateCcw className="h-3 w-3" />
-            <span>Reset</span>
-          </button>
         </div>
 
         {/* Model description banner */}
@@ -218,15 +285,20 @@ export function UpscalerComposer() {
       </div>
 
       {/* Image Input Section */}
-      <div className="mb-4">
+      <div className="mb-4" onDragEnter={onDragEnter} onDragOver={onDragOver} onDragLeave={onDragLeave} onDrop={onDrop}>
         {upscalerImage ? (
           <div className="relative flex items-center gap-4 rounded-xl border border-line bg-ink-900/60 p-3 shadow-inner">
-            <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-ink-950 ring-1 ring-line">
+            <div className="relative h-36 w-36 shrink-0 overflow-hidden rounded-lg bg-ink-950 ring-1 ring-line">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={typeof upscalerImage === "string" ? upscalerImage : upscalerImage.url}
                 alt="Source preview"
-                className="h-full w-full object-cover"
+                onLoad={(e) => {
+                  if (typeof upscalerImage !== "string" && !upscalerImage.width && useStore.getState().upscalerImage === upscalerImage) {
+                    setUpscalerImage({ ...upscalerImage, width: e.currentTarget.naturalWidth, height: e.currentTarget.naturalHeight });
+                  }
+                }}
+                className="h-full w-full object-contain"
               />
             </div>
             <div className="min-w-0 flex-1">
@@ -241,6 +313,7 @@ export function UpscalerComposer() {
               <p className="mt-0.5 truncate text-xs text-white/60">
                 {upscalerImage.name || "Image ready to upscale"}
               </p>
+              <p className="mt-1 text-[11px] text-white/40">{upscalerImage.width && upscalerImage.height ? `${upscalerImage.width} × ${upscalerImage.height} · ` : ""}Drag here to replace</p>
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
@@ -266,19 +339,48 @@ export function UpscalerComposer() {
             className={cn(
               "group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all duration-200",
               dragging
-                ? "border-brand bg-brand/10 text-brand"
+                ? dragValid
+                  ? "border-brand bg-brand/10 text-brand ring-1 ring-brand/40"
+                  : "border-red-500/80 bg-red-500/10 text-red-400 ring-1 ring-red-500/40 cursor-not-allowed"
                 : "border-line bg-ink-900/40 text-white/60 hover:border-brand/60 hover:bg-ink-900/80 hover:text-white"
             )}
           >
-            <div className="grid h-10 w-10 place-items-center rounded-full bg-white/5 ring-1 ring-line group-hover:bg-brand/20 group-hover:ring-brand/40">
-              <UploadCloud className="h-5 w-5 text-brand" />
-            </div>
+            {dragging && !dragValid ? (
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-red-500/15 ring-1 ring-red-500/40">
+                <AlertCircle className="h-5 w-5 text-red-400" />
+              </div>
+            ) : (
+              <div className="grid h-10 w-10 place-items-center rounded-full bg-white/5 ring-1 ring-line group-hover:bg-brand/20 group-hover:ring-brand/40">
+                <UploadCloud className="h-5 w-5 text-brand" />
+              </div>
+            )}
             <div>
-              <p className="text-xs font-semibold text-white">
-                Drop an image here or <span className="text-brand underline underline-offset-2">browse</span>
+              <p
+                className={cn(
+                  "text-xs font-semibold",
+                  dragging && !dragValid ? "text-red-300" : "text-white"
+                )}
+              >
+                {dragging
+                  ? dragValid
+                    ? dragMessage || "Drop image here to upscale"
+                    : dragMessage || "Upscaler only accepts images"
+                  : (
+                    <>
+                      Drop an image here or{" "}
+                      <span className="text-brand underline underline-offset-2">browse</span>
+                    </>
+                  )}
               </p>
-              <p className="mt-1 text-[11px] text-white/40">
-                Or drag any generation directly from the chat feed or library · PNG, JPEG, WebP
+              <p
+                className={cn(
+                  "mt-1 text-[11px]",
+                  dragging && !dragValid ? "text-red-400/80" : "text-white/40"
+                )}
+              >
+                {dragging && !dragValid
+                  ? "Videos and depth maps cannot be upscaled. Select an image generation."
+                  : "Or drag any generation directly from the chat feed or library · PNG, JPEG, WebP"}
               </p>
             </div>
           </div>
@@ -297,7 +399,7 @@ export function UpscalerComposer() {
                   <Wand2 className="h-3.5 w-3.5 text-brand" />
                   Prompt guidance (optional)
                 </span>
-                <span className="text-[10px] text-white/40">Re-prompting helps hallucinate sharp details</span>
+                <span className="text-[10px] text-white/40">Optional — describe details to sharpen</span>
               </label>
               <textarea
                 value={params.prompt || ""}
@@ -658,10 +760,9 @@ export function UpscalerComposer() {
             <div className="flex items-start gap-2.5 rounded-xl border border-blue-500/20 bg-blue-950/30 p-3 text-xs text-blue-200/90">
               <Info className="h-4 w-4 shrink-0 text-blue-400 mt-0.5" />
               <div>
-                <p className="font-semibold text-blue-100">Faithful 2x Super-Resolution</p>
+                <p className="font-semibold text-blue-100">Precision image enhancement</p>
                 <p className="mt-0.5 text-[11px] text-blue-200/70 leading-relaxed">
-                  Precision V1 doubles image resolution while maintaining 100% fidelity without hallucinating new
-                  elements. Recommended for UI assets, screenshots, vector logos, and small text.
+                  Adjust sharpening, grain and detail. Scale and prompt are not used by this model.
                 </p>
               </div>
             </div>
@@ -739,8 +840,11 @@ export function UpscalerComposer() {
           </>
         )}
 
+        {uploadError && <p role="alert" className="text-xs text-red-300">{uploadError}</p>}
+        {lastResult && <div className="rounded-xl border border-line p-3"><p className="text-xs text-white/60">Original and output · Job {lastResult.item.id}</p><div className="mt-2 grid grid-cols-2 gap-3"><ProgressiveImage alt="Original upscale source" src={typeof lastResult.source === "string" ? lastResult.source : lastResult.source.url} className="h-32 w-full object-contain" />{resultItem.url ? <ProgressiveImage alt="Magnific output" src={resultItem.url} className="h-32 w-full object-contain" /> : <p className="text-xs text-white/50">{resultItem.status || "Queued"} · Output appears in the library when complete</p>}</div></div>}
         {/* NSFW Filter & Submit Action */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+        <p className="text-[11px] text-white/40">Cost estimate unavailable.</p>
+        <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-ink-800 py-3">
           <label className="flex cursor-pointer items-center gap-2 text-xs text-white/60 hover:text-white transition">
             <input
               type="checkbox"
@@ -754,7 +858,7 @@ export function UpscalerComposer() {
 
           <button
             type="button"
-            onClick={generateUpscale}
+            onClick={async () => { setUploadError(""); const source = upscalerImage; const projectId = s.activeProjectId; const item = await generateUpscale(); if (useStore.getState().activeProjectId !== projectId) return; if (item?.id) setLastResult({ source, item }); else setUploadError("Could not start the upscale. Check the source and retry."); }}
             disabled={!upscalerImage || generating || uploading}
             className={cn(
               "flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-ink-950 shadow-md transition duration-200",

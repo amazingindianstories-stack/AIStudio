@@ -14,7 +14,6 @@ import {
   Palette,
   Box,
   Library,
-  ArrowLeft,
   Search,
   Sparkles,
   AudioLines,
@@ -25,7 +24,7 @@ import { useStore } from "@/lib/store";
 import { ASSET_KINDS } from "@/lib/types";
 import { sanitizeSlug } from "@/lib/mentions";
 import { cn, thumbUrl } from "@/lib/utils";
-import { uploadOriginalReference } from "@/lib/client-reference-upload";
+import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { AssetLightbox } from "./AssetLightbox";
@@ -83,11 +82,54 @@ export function AssetLibrary() {
   const assetsError = useStore((s) => s.assetsError);
   const projects = useStore((s) => s.projects);
   const activeProjectId = useStore((s) => s.activeProjectId);
+  const dialogRef = useRef(null);
   const activeProject = projects.find((p) => p.id === activeProjectId) ?? null;
 
   useEffect(() => {
     if (open) loadAssets(activeProjectId);
   }, [open, loadAssets, activeProjectId]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousFocus = document.activeElement;
+    const dialog = dialogRef.current;
+    const hasChildModal = () => Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]'))
+      .some((element) => element !== dialog && !element.hidden && element.getClientRects().length > 0);
+    const controls = () => Array.from(dialog?.querySelectorAll('button:not(:disabled), [href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])') || [])
+      .filter((element) => !element.closest('[hidden], [inert]') && element.getClientRects().length > 0);
+    const focusFirst = () => (controls()[0] || dialog)?.focus();
+    const frame = requestAnimationFrame(focusFirst);
+    const onKeyDown = (event) => {
+      if (event.defaultPrevented || hasChildModal()) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        if (useStore.getState().editingAsset) setEditing(null);
+        else { setOpen(false); setEditing(null); }
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = controls();
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (!first) { event.preventDefault(); dialog?.focus(); return; }
+      if (!dialog?.contains(document.activeElement) || (event.shiftKey && document.activeElement === first)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault(); first.focus();
+      }
+    };
+    const onFocusIn = (event) => {
+      if (!hasChildModal() && !dialog?.contains(event.target)) focusFirst();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("focusin", onFocusIn);
+      if (previousFocus?.isConnected) previousFocus.focus?.();
+    };
+  }, [open, setOpen, setEditing]);
 
   return (
     <AnimatePresence>
@@ -111,64 +153,16 @@ export function AssetLibrary() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 12 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="relative flex max-h-[88dvh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-ink-850 shadow-pop"
+            ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="Material Library" className="relative flex max-h-[88dvh] w-full max-w-[1200px] flex-col overflow-hidden rounded-2xl border border-line bg-ink-850 shadow-pop"
           >
-            <header className="flex items-center gap-2 border-b border-line px-5 py-3.5">
-              {editing ? (
-                <button
-                  onClick={() => setEditing(null)}
-                  className="grid h-8 w-8 place-items-center rounded-lg text-white/70 hover:bg-white/10"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-              ) : (
-                <Library className="h-5 w-5 text-brand" />
-              )}
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold text-white">
-                    {editing
-                      ? editing === "new"
-                        ? "Add Material Sheet"
-                        : "Edit Material Sheet"
-                      : "Material Library"}
-                  </h2>
-                  {activeProject && (
-                    <span className="rounded-md bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/80">
-                      {activeProject.name}
-                    </span>
-                  )}
-                </div>
-                <p className="text-[11px] text-white/40">
-                  {editing
-                    ? "Single reference sheet or turnaround per asset, referenceable by @name"
-                    : "Reusable turnaround sheets and materials for this project. Reference with @name in prompts."}
-                </p>
-              </div>
-              <span className="ml-auto" />
-              <button
-                onClick={() => {
-                  setOpen(false);
-                  setEditing(null);
-                }}
-                className="grid h-8 w-8 place-items-center rounded-lg text-white/70 hover:bg-white/10"
-              >
-                <X className="h-4 w-4" />
-              </button>
+            <header className="flex items-center gap-3 border-b border-line px-5 py-3.5">
+              <Library className="h-5 w-5 text-brand" />
+              <div><h2 className="text-sm font-semibold text-white">Material Library</h2><p className="text-[11px] text-white/40">{activeProject?.name || "All projects"} · Reusable sheets, referenced by @name</p></div>
+              <button aria-label="Close Material Library" onClick={() => { setOpen(false); setEditing(null); }} className="ml-auto grid h-8 w-8 place-items-center rounded-lg text-white/70 hover:bg-white/10"><X className="h-4 w-4" /></button>
             </header>
-
-            <div className="min-h-0 flex-1 overflow-y-auto scroll-thin p-5">
-              {editing ? (
-                <AssetEditor asset={editing === "new" ? null : editing} />
-              ) : (
-                <AssetList
-                  assets={assets}
-                  loading={assetsLoading}
-                  refreshing={assetsRefreshing}
-                  error={assetsError}
-                  activeProject={activeProject}
-                />
-              )}
+            <div className="relative min-h-0 flex-1 overflow-y-auto scroll-thin p-4">
+              <AssetList assets={assets} loading={assetsLoading} refreshing={assetsRefreshing} error={assetsError} activeProject={activeProject} />
+              {editing && <aside aria-label="Material editor" className="absolute inset-y-0 right-0 z-30 w-full max-w-lg overflow-y-auto border-l border-line bg-ink-850 p-4"><button aria-label="Close material editor" onClick={() => setEditing(null)} className="mb-3 text-xs text-white/60">Close editor</button><AssetEditor key={editing === "new" ? "new" : editing.id} asset={editing === "new" ? null : editing} /></aside>}
             </div>
           </motion.div>
         </motion.div>
@@ -193,6 +187,7 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
 
   const [activeTab, setActiveTab] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [density, setDensity] = useState("compact");
   const [selectedAssetForPreview, setSelectedAssetForPreview] = useState(null);
 
   const filteredAssets = useMemo(() => {
@@ -228,10 +223,10 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
 
   return (
     <>
-      <div className="space-y-4">
+      <div className={cn("space-y-3", selectedAssetForPreview && "lg:pr-[36rem]")}>
         {/* Top actions: Search bar + New Asset Button */}
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="relative flex-1">
+        <div className="sticky top-0 z-10 flex flex-wrap items-center gap-2 bg-ink-850 py-2">
+          <div className="relative min-w-[180px] flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/35" />
             <input
               type="text"
@@ -255,18 +250,10 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
           >
             <Plus className="h-4 w-4" /> Add Material
           </button>
-        </div>
-
+        <label className="flex items-center gap-2 text-xs text-white/60">View density<select aria-label="View density" value={density} onChange={(e) => setDensity(e.target.value)} className="rounded-lg bg-ink-800 p-2 text-white"><option value="compact">Compact</option><option value="comfortable">Comfortable</option></select></label>
         {/* Category Tabs */}
-        <div className="flex gap-1.5 overflow-x-auto pb-1 scroll-thin">
+        <div className="flex w-full flex-wrap gap-1.5 pb-1">
           {CATEGORY_TABS.map((tab) => {
-            const count =
-              tab.id === "all"
-                ? assets.length
-                : tab.id === "other"
-                ? assets.filter((a) => a.kind === "other" || a.kind === "audio").length
-                : assets.filter((a) => a.kind === tab.id).length;
-
             return (
               <button
                 key={tab.id}
@@ -279,23 +266,17 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
                 )}
               >
                 {tab.label}
-                <span
-                  className={cn(
-                    "rounded-full px-1.5 py-0.2 text-[10px]",
-                    activeTab === tab.id ? "bg-black/15 text-zinc-950 font-bold" : "bg-white/10 text-white/50"
-                  )}
-                >
-                  {count}
-                </span>
+
               </button>
             );
           })}
         </div>
 
+        </div>
         {/* Loading / Empty / Grid display */}
         {loading && assets.length === 0 ? (
           <div
-            className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
+            className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3", selectedAssetForPreview ? "lg:grid-cols-2" : density === "compact" ? "lg:grid-cols-5" : "lg:grid-cols-4")}
             role="status"
             aria-busy="true"
             aria-label="Loading materials"
@@ -341,7 +322,7 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
         ) : (
           <>
           {refreshing && <div role="status" className="mb-3 text-center text-xs text-white/40">Refreshing materials…</div>}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className={cn("grid grid-cols-2 gap-3 sm:grid-cols-3", selectedAssetForPreview ? "lg:grid-cols-2" : density === "compact" ? "lg:grid-cols-5" : "lg:grid-cols-4")}>
             {filteredAssets.map((a) => {
               const Icon = KIND_ICON[a.kind] || Box;
               const imageUrl = a.images?.[0];
@@ -423,6 +404,7 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
                       </h4>
                     </div>
 
+                    {a.uploader && <span title={a.uploader.name} className="mt-1 text-[10px] text-white/50">{a.uploader.avatarUrl ? <ProgressiveImage src={a.uploader.avatarUrl} alt={a.uploader.name} className="inline-block h-5 w-5 overflow-hidden rounded-full" imageClassName="object-cover" /> : a.uploader.name?.slice(0, 1)}</span>}
                     {a.description && (
                       <p className="mt-1 line-clamp-1 text-[11px] text-white/40" title={a.description}>
                         {a.description}
@@ -433,8 +415,8 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
                       {/* @tag pill */}
                       <button
                         onClick={() => insertTag(a.slug)}
-                        title="Click to insert @tag into prompt"
-                        className="inline-flex items-center gap-1 rounded-md bg-brand/15 px-2 py-1 text-xs font-mono font-semibold text-brand transition hover:bg-brand/25"
+                        title={`Insert @${a.slug} into prompt`}
+                        className="min-w-0 truncate rounded-md bg-brand/15 px-2 py-1 text-xs font-mono font-semibold text-brand transition hover:bg-brand/25"
                       >
                         @{a.slug}
                       </button>
@@ -443,10 +425,10 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
                       <button
                         onClick={() => handleAttach(a)}
                         title="Attach sheet to composer reference shelf and prompt"
-                        className="ml-auto inline-flex items-center gap-1 rounded-md border border-line bg-ink-750 px-2 py-1 text-xs font-medium text-white/80 transition hover:border-brand/40 hover:text-brand"
+                        className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-line bg-ink-750 px-2 py-1 text-xs font-medium text-white/80 transition hover:border-brand/40 hover:text-brand"
                       >
                         <Paperclip className="h-3 w-3" />
-                        <span>Attach</span>
+                        <span>Use in Prompt</span>
                       </button>
                     </div>
                   </div>
@@ -461,6 +443,7 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
       {/* Full Sheet Lightbox Modal */}
       {selectedAssetForPreview && (
         <AssetLightbox
+          embedded
           asset={selectedAssetForPreview}
           assets={filteredAssets}
           onClose={() => setSelectedAssetForPreview(null)}
@@ -500,6 +483,8 @@ function AssetEditor({ asset }) {
   const [saving, setSaving] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
+  useEffect(() => () => { if (image.startsWith("blob:")) URL.revokeObjectURL(image); }, [image]);
+
   // Live slug preview
   const liveSlug = useMemo(() => {
     return sanitizeSlug(name || "sheet");
@@ -509,11 +494,7 @@ function AssetEditor({ asset }) {
     if (!file || !file.type.startsWith("image/")) return;
     setSelectedFile(file);
     setError("");
-    const reader = new FileReader();
-    reader.onload = () => {
-      setImage(reader.result);
-    };
-    reader.readAsDataURL(file);
+    setImage(URL.createObjectURL(file));
   };
 
   const onFileInputChange = (e) => {
@@ -537,9 +518,11 @@ function AssetEditor({ asset }) {
     let finalImageUrl = image;
     if (selectedFile) {
       try {
-        finalImageUrl = await uploadOriginalReference(selectedFile);
+        finalImageUrl = { referenceId: (await uploadFileDirect(selectedFile, "material")).referenceId };
       } catch (uploadErr) {
-        console.warn("Direct reference upload failed, falling back to data URL:", uploadErr);
+        setSaving(false);
+        setError(uploadErr?.message || "Upload failed. Retry the upload.");
+        return;
       }
     }
 
@@ -664,7 +647,7 @@ function AssetEditor({ asset }) {
               Drag and drop your single turnaround sheet here, or click to browse
             </p>
             <p className="mt-1 text-xs text-white/35">
-              PNG, JPG, WEBP up to 20MB. Upload character sheets, props, scene plates, or styles.
+              Original image uploads go directly to storage. Upload character sheets, props, scene plates, or styles.
             </p>
           </div>
         )}

@@ -36,6 +36,15 @@ export const UNSORTED = "__unsorted__";
  */
 export function scopeKey(scope) {
   const q = scope.q.trim().toLowerCase();
+  if (scope.tab === "folder") {
+    return `folder:${scope.folderId ?? "*"}:${scope.kind}:${q}`;
+  }
+  if (scope.tab === "global_unsorted") {
+    return `global_unsorted:${scope.kind}:${q}`;
+  }
+  if (scope.tab === "library") {
+    return `library:${scope.folderId ?? "*"}:${scope.kind}:${q}`;
+  }
   if (scope.tab === "project") {
     return `project:${scope.projectId ?? "-"}:${scope.folderId ?? "*"}:${scope.kind}:${q}`;
   }
@@ -43,9 +52,31 @@ export function scopeKey(scope) {
 }
 
 /** The querystring shape of a scope. Mirrors parseHistoryFilter on the server. */
-export function scopeToQuery(scope)
-
- {
+export function scopeToQuery(scope) {
+  if (scope.tab === "folder") {
+    return {
+      folderId: scope.folderId ?? undefined,
+      kind: scope.kind,
+      q: scope.q,
+    };
+  }
+  if (scope.tab === "global_unsorted") {
+    return {
+      projectId: null,
+      folderId: null,
+      kind: scope.kind,
+      q: scope.q,
+    };
+  }
+  if (scope.tab === "library") {
+    return {
+      projectId: null,
+      folderId:
+        scope.folderId === UNSORTED ? null : scope.folderId ?? undefined,
+      kind: scope.kind,
+      q: scope.q,
+    };
+  }
   if (scope.tab === "project") {
     return {
       projectId: scope.projectId ?? undefined,
@@ -81,6 +112,22 @@ export function matchesScope(item, scope) {
   if (q && !item.prompt.toLowerCase().includes(q)) return false;
 
   if (scope.tab === "favorites") return Boolean(item.isFavorite);
+
+  if (scope.tab === "global_unsorted") {
+    return !item.projectId && !item.folderId;
+  }
+
+  if (scope.tab === "folder") {
+    if (!scope.folderId) return false;
+    return item.folderId === scope.folderId;
+  }
+
+  if (scope.tab === "library") {
+    if (item.projectId) return false;
+    if (scope.folderId === UNSORTED) return !item.folderId;
+    if (scope.folderId === null) return true;
+    return item.folderId === scope.folderId;
+  }
 
   if (scope.tab === "project") {
     if (!scope.projectId) return false;

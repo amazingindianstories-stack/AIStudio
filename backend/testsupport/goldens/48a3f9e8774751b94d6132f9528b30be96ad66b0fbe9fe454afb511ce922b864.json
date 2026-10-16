@@ -1,0 +1,13 @@
+{
+  "request": {
+    "command": [
+      "node",
+      "scripts/django-migration/declared-checks.mjs"
+    ],
+    "input": null
+  },
+  "stdout": "[{\"table\":\"generation_naming\",\"name\":\"generation_naming_sequence_check\",\"sql\":\"\\\"sequence\\\" > 0\"},{\"table\":\"folders\",\"name\":\"folders_color_check\",\"sql\":\"color IS NULL OR color IN ('gray', 'red', 'orange', 'yellow', 'green', 'blue', 'purple', 'pink')\"}]",
+  "stdout_sha256": "e923c2514e00f69fc80752b3fc658d5714300835079baa9af29daf68ea5c9907",
+  "source_revision": "d9ef93947910a65bec5fa33d3f2311d888f6a2f4",
+  "source_tree_sha256": "39ce8b2abb6a4440afa5f1d0b944c07717c691839eba171c49a941823e1ff6b9"
+}

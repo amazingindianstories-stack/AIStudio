@@ -5,14 +5,12 @@ import {
   dropEverywhere,
   findItem,
   mergeLiveItems,
-  adoptOrphanedJobs,
-  polling,
 } from "./store";
 import { clearFeedCache, getCached, putFeedCache } from "./feed-cache";
 
 /**
  * Tests for store.js's pool-management helpers — patchEverywhere,
- * dropEverywhere, findItem, mergeLiveItems, adoptOrphanedJobs — previously
+ * dropEverywhere, findItem, mergeLiveItems — previously
  * the largest untested module in the frontend. Exported solely for this file
  * (see the doc comment on patchEverywhere in store.js); every real caller
  * goes through the store's own actions.
@@ -228,67 +226,12 @@ test("mergeLiveItems: an empty incoming list never calls set at all", () => {
   assert.equal(setCalls, 0);
 });
 
-// ── adoptOrphanedJobs ────────────────────────────────────────────────────
-// Adopting calls startPolling, which schedules a real setTimeout that would
-// eventually reach the network. globalThis.setTimeout is stubbed for the
-// duration of the call so adoption is observable (did it try to schedule a
-// poll?) without ever touching the network or leaving a dangling timer
-// behind. Everything through pollQueue's setTimeout(...) call is synchronous,
-// so no await is needed around the stub.
-function withStubbedTimeout(run) {
-  const original = globalThis.setTimeout;
-  let called = false;
-  globalThis.setTimeout = () => {
-    called = true;
-    return 0;
-  };
-  try {
-    run();
-  } finally {
-    globalThis.setTimeout = original;
-  }
-  return called;
-}
-
-test("adoptOrphanedJobs: adopts a queued job that has been stale long enough", () => {
-  const item = makeItem({ id: "adopt-1", status: "queued", updatedAt: 0 });
-  const h = harness();
-  const scheduled = withStubbedTimeout(() => adoptOrphanedJobs([item], 60_000, h.set, h.get));
-  assert.equal(scheduled, true);
-});
-
-test("adoptOrphanedJobs: leaves a recently-touched queued job alone — its own tab is presumed still driving it", () => {
-  const item = makeItem({ id: "adopt-2", status: "queued", updatedAt: 59_000 });
-  const h = harness();
-  const scheduled = withStubbedTimeout(() => adoptOrphanedJobs([item], 60_000, h.set, h.get));
-  assert.equal(scheduled, false);
-});
-
-test("adoptOrphanedJobs: never touches a running job — nothing here could resume it", () => {
-  const item = makeItem({ id: "adopt-3", status: "running", updatedAt: 0 });
-  const h = harness();
-  const scheduled = withStubbedTimeout(() => adoptOrphanedJobs([item], 60_000, h.set, h.get));
-  assert.equal(scheduled, false);
-});
-
-test("adoptOrphanedJobs: skips a job this tab is already polling, even if stale — no duplicate driver", () => {
-  const item = makeItem({ id: "adopt-4", status: "queued", updatedAt: 0 });
-  polling.add("adopt-4");
-  try {
-    const h = harness();
-    const scheduled = withStubbedTimeout(() => adoptOrphanedJobs([item], 60_000, h.set, h.get));
-    assert.equal(scheduled, false);
-  } finally {
-    polling.delete("adopt-4");
-  }
-});
-
-test("adoptOrphanedJobs: falls back to the client clock when the server doesn't supply 'now'", () => {
-  // updatedAt "just now" against a client-clock fallback should read as fresh,
-  // not stale — this exercises the `typeof serverNow === "number"` branch
-  // rather than asserting on a hardcoded threshold value.
-  const item = makeItem({ id: "adopt-5", status: "queued", updatedAt: Date.now() });
-  const h = harness();
-  const scheduled = withStubbedTimeout(() => adoptOrphanedJobs([item], undefined, h.set, h.get));
-  assert.equal(scheduled, false);
+test("mergeLiveItems: a newer row also updates other cached scopes, and unseen rows mark them stale", () => {
+  const running = makeItem({ id: "job", status: "running", updatedAt: 1000 });
+  putFeedCache("project:p1:*:all:", { items: [running], nextCursor: null, at: Date.now() });
+  putFeedCache("favorites:all:", { items: [], nextCursor: null, at: Date.now() });
+  const h = harness({ items: [] });
+  mergeLiveItems([makeItem({ id: "job", status: "succeeded", updatedAt: 2000 })], h.set);
+  assert.equal(getCached("project:p1:*:all:").items[0].status, "succeeded");
+  assert.equal(getCached("favorites:all:").at, 0);
 });

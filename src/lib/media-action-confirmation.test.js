@@ -4,16 +4,20 @@ import { MEDIA_ACTION_COPY, mediaActionCopy } from "./media-action-confirmation.
 
 test("every risky media shortcut has explicit confirmation copy", () => {
   assert.deepEqual(Object.keys(MEDIA_ACTION_COPY).sort(), [
+    "addFavorite",
     "cloneToComposer",
     "continueShot",
     "deleteAsset",
     "deleteGeneration",
     "deletePortrait",
     "deletePortraitGroup",
+    "downloadOriginal",
     "editPrompt",
+    "editRetry",
     "finalizeDraft",
     "regenerate",
     "regenerateWithSameSeed",
+    "removeFavorite",
     "retryTextToVideo",
   ]);
   for (const copy of Object.values(MEDIA_ACTION_COPY)) {

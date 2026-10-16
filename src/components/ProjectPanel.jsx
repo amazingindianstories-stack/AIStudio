@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { notify } from "@/lib/notify";
 import {
   FolderClosed,
   FolderPlus,
@@ -18,238 +19,470 @@ import { MediaCard } from "./MediaCard";
 import { AssetGrid } from "./AssetGrid";
 import { UNSORTED } from "@/lib/feed-scope";
 import { cn } from "@/lib/utils";
+import { FolderTree, FolderOperationRail } from "./FolderTree";
+import { BreadcrumbBar } from "./BreadcrumbBar";
+import { ChildFolderList } from "./ChildFolderList";
+import { DestinationPickerModal } from "./DestinationPickerModal";
+import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
+import {
+  getAssetDragData,
+  getFolderDragData,
+  isFolderDragEvent,
+} from "@/lib/asset-drag-contract";
+import { askConfirm, askText } from "@/lib/ask-text";
 
 export function ProjectPanel({ cardWidth = 160 }) {
   const projects = useStore((s) => s.projects);
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeFolderId = useStore((s) => s.activeFolderId);
-  // `items` is now this scope's server-filtered page, not a global window the
-  // component has to filter down — so there is no useMemo chain here any more.
+  const libraryTree = useStore((s) => s.libraryTree);
   const items = useStore((s) => s.items);
   const loading = useStore((s) => s.loading);
   const counts = useStore((s) => s.counts);
   const search = useStore((s) => s.search);
   const filterKind = useStore((s) => s.filterKind);
-  const createProject = useStore((s) => s.createProject);
+  const setActiveProject = useStore((s) => s.setActiveProject);
   const setActiveFolder = useStore((s) => s.setActiveFolder);
+  const renameProject = useStore((s) => s.renameProject);
+  const deleteProject = useStore((s) => s.deleteProject);
   const createFolder = useStore((s) => s.createFolder);
-  const renameFolder = useStore((s) => s.renameFolder);
-  const deleteFolder = useStore((s) => s.deleteFolder);
-  const moveItem = useStore((s) => s.moveItem);
+  const moveFolder = useStore((s) => s.moveFolder);
+  const moveGenerationsToDestination = useStore((s) => s.moveGenerationsToDestination);
 
   const [briefView, setBriefView] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [newFolder, setNewFolder] = useState("");
-  const [dragOver, setDragOver] = useState(null);
+  const [addingScope, setAddingScope] = useState(null); // { projectId, parentId } or null
+  const [dragOverRoot, setDragOverRoot] = useState(null);
+  const [dragOverValid, setDragOverValid] = useState(true);
+  const rootCounterMap = useRef(new Map());
+
+  // Move Modal State
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [movingFolder, setMovingFolder] = useState(null);
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  // Switching project must not leave the brief editor open over a different
-  // project's brief.
+  // Switching project must close brief editor if opened
   useEffect(() => {
     setBriefView(false);
   }, [activeProjectId]);
 
-  const onAddFolder = async () => {
-    const name = newFolder.trim();
-    if (!name || !project) return;
-    await createFolder(project.id, name);
-    setNewFolder("");
-    setAdding(false);
+  const openFolderEditor = (scope) => setAddingScope({
+    projectId: scope.projectId ?? null,
+    parentId: scope.parentId ?? null,
+  });
+  useEffect(() => setAddingScope(null), [activeProjectId]);
+  const folderEditor = addingScope && (
+    <InlineFolderNameEditor
+      key={`${addingScope.projectId}:${addingScope.parentId}`}
+      label={addingScope.parentId ? "Subfolder name" : "Folder name"}
+      onCommit={(name) => createFolder({ name, ...addingScope })}
+      onClose={() => setAddingScope(null)}
+    />
+  );
+
+  const isRootDropValid = (dest, e) => {
+    const isFolder = isFolderDragEvent(e) || Boolean(getFolderDragData(e));
+    if (isFolder) {
+      if (dest.type === "global_unsorted" || dest.type === "project_unsorted") {
+        return false;
+      }
+    }
+    return true;
   };
 
-  const handleDrop = (folderId) => (e) => {
+  const handleDragEnterRoot = (key, dest) => (e) => {
+    rootCounterMap.current.set(key, (rootCounterMap.current.get(key) || 0) + 1);
+    const valid = isRootDropValid(dest, e);
+    setDragOverRoot(key);
+    setDragOverValid(valid);
+  };
+
+  const handleDragOverRoot = (key, dest) => (e) => {
     e.preventDefault();
-    const id = e.dataTransfer.getData("text/itemId");
-    setDragOver(null);
-    if (id) moveItem(id, folderId);
+    e.stopPropagation();
+    const valid = isRootDropValid(dest, e);
+    e.dataTransfer.dropEffect = valid ? "move" : "none";
+    if (dragOverRoot !== key) setDragOverRoot(key);
+    if (dragOverValid !== valid) setDragOverValid(valid);
   };
 
-  if (!project) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <Layers className="h-7 w-7 text-white/35" />
-        <p className="text-sm text-white/55">No project yet.</p>
-        <button
-          onClick={() => createProject("My Project")}
-          className="rounded-lg bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand hover:bg-brand/30"
-        >
-          Create a project
-        </button>
-      </div>
-    );
-  }
+  const handleDragLeaveRoot = (key) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const count = Math.max(0, (rootCounterMap.current.get(key) || 0) - 1);
+    rootCounterMap.current.set(key, count);
+    if (count === 0 && dragOverRoot === key) {
+      setDragOverRoot(null);
+      setDragOverValid(true);
+    }
+  };
+
+  const handleDropOnRoot = (dest, _key) => (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    rootCounterMap.current.clear();
+    setDragOverRoot(null);
+    setDragOverValid(true);
+
+    if (!isRootDropValid(dest, e)) {
+      notify("Folders cannot be moved into Unsorted.");
+      return;
+    }
+
+    const assetPayload = getAssetDragData(e, useStore.getState());
+    const folderId = getFolderDragData(e);
+
+    if (assetPayload.ids.length > 0) {
+      moveGenerationsToDestination(assetPayload.ids, dest).catch((err) =>
+        notify(err.message || "Failed to move items.")
+      );
+    } else if (folderId) {
+      moveFolder(folderId, dest).catch((err) =>
+        notify(err.message || "Failed to move folder.")
+      );
+    }
+  };
+
+  const openMoveModalForFolder = (folder) => {
+    setMovingFolder(folder);
+    setMoveModalOpen(true);
+  };
+
+  const onConfirmFolderMove = async (destination) => {
+    if (!movingFolder) return;
+    await moveFolder(movingFolder.id, destination);
+  };
 
   const filtering = Boolean(search.trim()) || filterKind !== "all";
+
+  // Derive active folder name for empty state
+  const activeFolderName = useMemo(() => {
+    if (activeFolderId === null) return null;
+    if (activeFolderId === UNSORTED) return "Unsorted";
+    function findName(nodes) {
+      for (const n of nodes) {
+        if (n.id === activeFolderId) return n.name;
+        if (n.children?.length) {
+          const res = findName(n.children);
+          if (res) return res;
+        }
+      }
+      return null;
+    }
+    const all = [
+      ...(libraryTree?.globalFolders ?? []),
+      ...(libraryTree?.projects?.flatMap((p) => p.folders ?? []) ?? []),
+    ];
+    return findName(all) || "Folder";
+  }, [activeFolderId, libraryTree]);
+
+  // Project Folders Tree
+  const projectFoldersTree = useMemo(() => {
+    if (!project) return [];
+    const projData = libraryTree?.projects?.find((p) => p.id === project.id);
+    return projData?.folders ?? [];
+  }, [project, libraryTree]);
+
+  // Global Folders Tree
+  const globalFoldersTree = useMemo(() => {
+    return libraryTree?.globalFolders ?? [];
+  }, [libraryTree]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex min-h-0 flex-1">
-        {/* folder rail */}
-        <div className="scroll-thin flex w-[clamp(7.5rem,26%,11rem)] shrink-0 flex-col overflow-y-auto border-r border-line p-2">
-          <FolderRow
-            label="All in project"
-            count={counts.project.total}
-            icon={<Layers className="h-4 w-4" />}
-            active={!briefView && activeFolderId === null}
-            dragOver={dragOver === "all"}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDragOver("all");
-            }}
-            onDragLeave={() => setDragOver(null)}
-            onDrop={handleDrop(null)}
-            onClick={() => {
-              setBriefView(false);
-              setActiveFolder(null);
-            }}
-          />
-          <FolderRow
-            label="Project brief"
-            icon={<FileText className="h-4 w-4" />}
-            active={briefView}
-            onClick={() => setBriefView(true)}
-          />
+        {/* Navigation Rail */}
+        <div className="flex min-h-0 w-[290px] max-w-[45vw] shrink-0 flex-col border-r border-line select-none">
+        <div className="scroll-thin min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-2">
+          {/* ── GLOBAL LIBRARY SECTION ── */}
+          <div className="mb-4 space-y-1">
+            <div className="flex items-center justify-between px-1.5 py-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                Global Library
+              </span>
+              <button
+                type="button"
+                onClick={() => openFolderEditor({ projectId: null, parentId: null })}
+                className="grid h-5 w-5 place-items-center rounded text-white/40 transition hover:bg-white/10 hover:text-white"
+                title="New global folder"
+                aria-label="New global folder"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+              </button>
+            </div>
 
-          <div className="mt-3 flex items-center justify-between px-1.5 py-1">
-            <span className="text-[10px] font-medium uppercase tracking-wide text-white/35">
-              Folders
-            </span>
-            <button
-              onClick={() => setAdding((v) => !v)}
-              className="grid h-5 w-5 place-items-center rounded text-white/45 transition hover:bg-white/10 hover:text-white"
-              aria-label="New folder"
-              title="New folder"
-            >
-              <FolderPlus className="h-3.5 w-3.5" />
-            </button>
+            {/* Global Library Root */}
+            <FolderRow
+              label="All Global"
+              count={counts.globalLibrary?.total}
+              icon={<Layers className="h-4 w-4" />}
+              active={!briefView && activeProjectId === null && activeFolderId === null}
+              dragOver={dragOverRoot === "global_root"}
+              dragOverValid={dragOverValid}
+              onDragEnter={handleDragEnterRoot("global_root", { type: "global_root" })}
+              onDragOver={handleDragOverRoot("global_root", { type: "global_root" })}
+              onDragLeave={handleDragLeaveRoot("global_root")}
+              onDrop={handleDropOnRoot({ type: "global_root" }, "global_root")}
+              onClick={() => {
+                setBriefView(false);
+                setActiveProject(null);
+                setActiveFolder(null);
+              }}
+            />
+
+            {/* Adding root global folder input */}
+            {addingScope && addingScope.projectId === null && addingScope.parentId === null && (
+              folderEditor
+            )}
+
+            {/* Hierarchical Global Folders Tree */}
+            <FolderTree
+              folders={globalFoldersTree}
+              activeFolderId={activeProjectId === null ? activeFolderId : null}
+              countsByFolder={counts.globalLibrary?.byFolder ?? {}}
+              projectId={null}
+              onSelectFolder={(fId) => {
+                setBriefView(false);
+                setActiveProject(null);
+                setActiveFolder(fId);
+              }}
+              onOpenMoveModal={openMoveModalForFolder}
+              onOpenNewFolderModal={(opts) => openFolderEditor(opts)}
+            />
+
+            {/* Adding subfolder input */}
+            {addingScope && addingScope.projectId === null && addingScope.parentId !== null && (
+              folderEditor
+            )}
+
+
           </div>
 
-          {adding && (
-            <input
-              autoFocus
-              value={newFolder}
-              onChange={(e) => setNewFolder(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") onAddFolder();
-                if (e.key === "Escape") {
-                  setAdding(false);
-                  setNewFolder("");
-                }
-              }}
-              onBlur={onAddFolder}
-              placeholder="Folder name"
-              className="mb-1 w-full rounded-md border border-line bg-ink-800 px-2 py-1 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
-            />
-          )}
+          {/* ── ACTIVE PROJECT WORKSPACE SECTION ── */}
+          {project ? (
+            <div className="border-t border-line/60 pt-3 space-y-1">
+              <div className="flex items-center justify-between px-1.5 py-1">
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-wider text-white/40 truncate max-w-[8.5rem]"
+                  title={`Active Project: ${project.name}`}
+                >
+                  {project.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openFolderEditor({ projectId: project.id, parentId: null })}
+                  className="grid h-5 w-5 place-items-center rounded text-white/40 transition hover:bg-white/10 hover:text-white"
+                  title="New project folder"
+                  aria-label="New project folder"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" />
+                </button>
+              </div>
 
-          <div className="flex flex-col gap-0.5">
-            {project.folders.map((f) => (
+              {/* Active Project Root / All Assets */}
               <FolderRow
-                key={f.id}
-                label={f.name}
-                count={counts.project.byFolder[f.id] ?? 0}
-                icon={<FolderClosed className="h-4 w-4" />}
-                active={!briefView && activeFolderId === f.id}
-                dragOver={dragOver === f.id}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(f.id);
-                }}
-                onDragLeave={() => setDragOver(null)}
-                onDrop={handleDrop(f.id)}
+                label="All Assets"
+                count={counts.project?.total}
+                icon={<Layers className="h-4 w-4" />}
+                active={!briefView && activeFolderId === null}
+                dragOver={dragOverRoot === `project_${project.id}`}
+                dragOverValid={dragOverValid}
+                onDragEnter={handleDragEnterRoot(`project_${project.id}`, { type: "project_root", projectId: project.id })}
+                onDragOver={handleDragOverRoot(`project_${project.id}`, { type: "project_root", projectId: project.id })}
+                onDragLeave={handleDragLeaveRoot(`project_${project.id}`)}
+                onDrop={handleDropOnRoot({ type: "project_root", projectId: project.id }, `project_${project.id}`)}
                 onClick={() => {
                   setBriefView(false);
-                  setActiveFolder(f.id);
+                  setActiveProject(project.id);
+                  setActiveFolder(null);
                 }}
-                onRename={() => {
-                  const name = window.prompt("Rename folder", f.name);
-                  if (name?.trim()) renameFolder(project.id, f.id, name.trim());
+                onRename={async () => {
+                  const newName = await askText({ title: "Rename project", label: "Project name", defaultValue: project.name, confirmLabel: "Rename" });
+                  if (newName && newName !== project.name) {
+                    renameProject(project.id, newName);
+                  }
                 }}
-                onDelete={() => {
-                  if (window.confirm(`Delete folder "${f.name}"? Items become unsorted.`))
-                    deleteFolder(project.id, f.id);
+                onDelete={async () => {
+                  if (await askConfirm({ title: `Delete project "${project.name}"?`, description: "Its items move to the Global Library.", confirmLabel: "Delete project", destructive: true })) {
+                    deleteProject(project.id);
+                  }
                 }}
               />
-            ))}
 
-            {project.folders.length === 0 && !adding && (
-              <p className="px-1.5 py-1 text-[11px] leading-snug text-white/30">
-                No folders yet — group shots, characters or locations here.
+              {/* Project Brief */}
+              <FolderRow
+                label="Project brief"
+                icon={<FileText className="h-3.5 w-3.5" />}
+                active={briefView}
+                onClick={() => {
+                  setActiveProject(project.id);
+                  setBriefView(true);
+                }}
+              />
+
+              {/* Folders Section Subheader */}
+              <div className="flex items-center justify-between px-1.5 pt-1.5 pb-0.5">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-white/35">
+                  Folders
+                </span>
+                <button
+                  type="button"
+                  onClick={() => openFolderEditor({ projectId: project.id, parentId: null })}
+                  className="grid h-4 w-4 place-items-center rounded text-white/45 transition hover:bg-white/10 hover:text-white"
+                  aria-label="New project folder"
+                  title="New project folder"
+                >
+                  <FolderPlus className="h-3 w-3" />
+                </button>
+              </div>
+
+              {/* Adding root project folder input */}
+              {addingScope && addingScope.projectId === project.id && addingScope.parentId === null && (
+                folderEditor
+              )}
+
+              {/* Hierarchical Project Folders Tree */}
+              <FolderTree
+                folders={projectFoldersTree}
+                activeFolderId={activeFolderId}
+                countsByFolder={counts.project?.byFolder ?? {}}
+                projectId={project.id}
+                onSelectFolder={(fId) => {
+                  setBriefView(false);
+                  setActiveProject(project.id);
+                  setActiveFolder(fId);
+                }}
+                onOpenMoveModal={openMoveModalForFolder}
+                onOpenNewFolderModal={(opts) => openFolderEditor(opts)}
+              />
+
+              {/* Adding subfolder input */}
+              {addingScope && addingScope.projectId === project.id && addingScope.parentId !== null && (
+                folderEditor
+              )}
+
+
+            </div>
+          ) : (
+            <div className="border-t border-line/60 pt-3 px-1.5 space-y-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                Workspace
+              </span>
+              <p className="text-xs text-white/40 leading-relaxed">
+                Global Library is active. Switch to a project using the selector above to open a project workspace.
               </p>
-            )}
-          </div>
-
-          {/* Items in the project that live in no folder. Previously invisible:
-              "All in project" showed them mixed in with everything else and
-              nothing offered them on their own, so filing a backlog meant
-              scrolling the whole project looking for what was not yet sorted. */}
-          {counts.project.unsorted > 0 && (
-            <div className="mt-3 border-t border-line pt-2">
+            </div>
+          )}
+        </div>
+        <div data-testid="sticky-unsorted-rail" className="shrink-0 border-t border-line bg-ink-850 p-2">
+            {/* Global Unsorted */}
+            <FolderRow
+              label="Unsorted"
+              count={counts.globalLibrary?.unsorted ?? 0}
+              icon={<Inbox className="h-4 w-4" />}
+              active={!briefView && activeProjectId === null && activeFolderId === UNSORTED}
+              dragOver={dragOverRoot === "global_unsorted"}
+              dragOverValid={dragOverValid}
+              onDragEnter={handleDragEnterRoot("global_unsorted", { type: "global_unsorted" })}
+              onDragOver={handleDragOverRoot("global_unsorted", { type: "global_unsorted" })}
+              onDragLeave={handleDragLeaveRoot("global_unsorted")}
+              onDrop={handleDropOnRoot({ type: "global_unsorted" }, "global_unsorted")}
+              onClick={() => {
+                setBriefView(false);
+                setActiveProject(null);
+                setActiveFolder(UNSORTED);
+              }}
+            />
+{project && <>
+              {/* Project Unsorted */}
               <FolderRow
                 label="Unsorted"
-                count={counts.project.unsorted}
-                icon={<Inbox className="h-4 w-4" />}
+                count={counts.project?.unsorted ?? 0}
+                icon={<Inbox className="h-3.5 w-3.5" />}
                 active={!briefView && activeFolderId === UNSORTED}
-                dragOver={dragOver === UNSORTED}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  setDragOver(UNSORTED);
-                }}
-                onDragLeave={() => setDragOver(null)}
-                onDrop={handleDrop(null)}
+                dragOver={dragOverRoot === "project_unsorted"}
+                dragOverValid={dragOverValid}
+                onDragEnter={handleDragEnterRoot("project_unsorted", { type: "project_unsorted", projectId: project.id })}
+                onDragOver={handleDragOverRoot("project_unsorted", { type: "project_unsorted", projectId: project.id })}
+                onDragLeave={handleDragLeaveRoot("project_unsorted")}
+                onDrop={handleDropOnRoot({ type: "project_unsorted", projectId: project.id }, "project_unsorted")}
                 onClick={() => {
                   setBriefView(false);
+                  setActiveProject(project.id);
                   setActiveFolder(UNSORTED);
                 }}
               />
-            </div>
-          )}
+</>}
+        </div>
+        <FolderOperationRail />
         </div>
 
-        {/* grid / brief */}
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {briefView ? (
-            <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        {/* Main Content Area */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-ink-900">
+          {briefView && project ? (
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <BriefEditor projectId={project.id} brief={project.brief ?? ""} />
             </div>
           ) : (
-            <AssetGrid
-              items={items}
-              loading={loading}
-              cardWidth={cardWidth}
-              empty={
-                <EmptyProject
-                  filtering={filtering}
-                  folderName={
-                    activeFolderId === null
-                      ? null
-                      : activeFolderId === UNSORTED
-                      ? "Unsorted"
-                      : project.folders.find((f) => f.id === activeFolderId)?.name ?? null
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {/* Dynamic Navigable Breadcrumb Bar */}
+              <BreadcrumbBar
+                onOpenMoveModal={openMoveModalForFolder}
+                onOpenNewFolderModal={() =>
+                  openFolderEditor({
+                    projectId: activeProjectId,
+                    parentId: activeFolderId === UNSORTED ? null : activeFolderId,
+                  })
+                }
+              />
+
+              {/* Immediate Child Folders (Finder-style Coexistence, hidden when in Unsorted) */}
+              {activeFolderId !== UNSORTED && (
+                <ChildFolderList
+                  parentId={activeFolderId}
+                  projectId={activeProjectId}
+                  onOpenMoveModal={openMoveModalForFolder}
+                  onOpenNewFolderModal={() =>
+                    openFolderEditor({
+                      projectId: activeProjectId,
+                      parentId: activeFolderId,
+                    })
                   }
                 />
-              }
-              renderItem={(item) => (
-                <div
-                  draggable
-                  onDragStart={(e) => {
-                    e.dataTransfer.setData("text/itemId", item.id);
-                    e.dataTransfer.setData("text/plain", item.url || "");
-                    e.dataTransfer.effectAllowed = "copy";
-                    useStore.getState().setDraggedItem(item);
-                  }}
-                  onDragEnd={() => {
-                    useStore.getState().setDraggedItem(null);
-                  }}
-                >
-                  <MediaCard item={item} selectable />
-                </div>
               )}
-            />
+
+              {/* Directly Contained Generations Grid */}
+              <AssetGrid
+                items={items}
+                loading={loading}
+                cardWidth={cardWidth}
+                empty={
+                  <EmptyProject
+                    filtering={filtering}
+                    folderName={activeFolderName}
+                  />
+                }
+                renderItem={(item) => (
+                  <MediaCard key={item.id} item={item} selectable />
+                )}
+              />
+            </div>
           )}
         </div>
       </div>
+
+      {/* Destination Picker Modal */}
+      <DestinationPickerModal
+        open={moveModalOpen}
+        onClose={() => {
+          setMoveModalOpen(false);
+          setMovingFolder(null);
+        }}
+        title={movingFolder ? `Move folder "${movingFolder.name}"` : "Move to..."}
+        movingFolderId={movingFolder?.id || null}
+        movingFolderCurrentParentId={movingFolder?.parentId || null}
+        onConfirm={onConfirmFolderMove}
+      />
     </div>
   );
 }
@@ -257,12 +490,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
 function EmptyProject({
   filtering,
   folderName,
-}
-
-) {
-  // Three genuinely different situations that all used to print the same
-  // sentence, the most misleading being a search that matched nothing being
-  // reported as "Nothing here yet".
+}) {
   if (filtering) {
     return (
       <EmptyState
@@ -271,19 +499,19 @@ function EmptyProject({
         body={
           folderName
             ? `Nothing in ${folderName} matches the current search and type filter.`
-            : "Nothing in this project matches the current search and type filter."
+            : "Nothing in this location matches the current search and type filter."
         }
       />
     );
   }
   return (
     <EmptyState
-      icon={<FolderClosed className="h-6 w-6" />}
-      title={folderName ? `${folderName} is empty` : "This project is empty"}
+      icon={<FolderClosed className="h-6 w-6 text-amber-400/70" />}
+      title={folderName ? `${folderName} is empty` : "This library is empty"}
       body={
         folderName
-          ? "Generate while this folder is selected, or drag items in from another folder."
-          : "Generations made while this project is selected land here."
+          ? "Generate while this folder is selected, or drag items and subfolders in."
+          : "Generate or organize assets using folders to structure your library."
       }
     />
   );
@@ -293,9 +521,7 @@ export function EmptyState({
   icon,
   title,
   body,
-}
-
-) {
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2.5 px-6 text-center">
       <div className="grid h-12 w-12 place-items-center rounded-2xl bg-ink-700 text-white/40 ring-1 ring-line">
@@ -313,26 +539,33 @@ function FolderRow({
   icon,
   active,
   dragOver,
+  dragOverValid = true,
   onClick,
+  onDragEnter,
   onDragOver,
   onDragLeave,
   onDrop,
   onRename,
   onDelete,
-}
-
-) {
+}) {
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); onClick?.(); } }}
       onClick={onClick}
+      onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       title={label}
       className={cn(
-        "group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition",
-        active ? "bg-brand/15 text-white" : "text-white/65 hover:bg-white/5",
-        dragOver && "bg-brand/10 ring-1 ring-brand/60"
+        "group flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-xs transition",
+        active ? "bg-brand/15 text-white font-medium" : "text-white/65 hover:bg-white/5",
+        dragOver &&
+          (dragOverValid !== false
+            ? "bg-brand/20 ring-1 ring-brand/60 text-white font-medium"
+            : "bg-red-500/20 ring-1 ring-red-500/60 text-red-300 cursor-not-allowed")
       )}
     >
       <span className={cn("shrink-0", active ? "text-brand" : "text-white/45")}>
@@ -370,7 +603,7 @@ function FolderRow({
       {count !== undefined && (
         <span
           className={cn(
-            "text-[11px] tabular-nums",
+            "text-[10px] tabular-nums",
             active ? "text-white/55" : "text-white/35",
             (onRename || onDelete) && "group-hover:hidden"
           )}
@@ -382,13 +615,11 @@ function FolderRow({
   );
 }
 
-function BriefEditor({ projectId, brief }) {
+export function BriefEditor({ projectId, brief }) {
   const [text, setText] = useState(brief);
   const [state, setState] = useState("idle");
   const initial = useRef(brief);
 
-  // A different project's brief must replace the textarea's contents, which a
-  // useState initialiser alone will not do — the component stays mounted.
   useEffect(() => {
     setText(brief);
     initial.current = brief;
@@ -417,8 +648,6 @@ function BriefEditor({ projectId, brief }) {
         <p className="text-[11px] font-medium uppercase tracking-wide text-white/40">
           Project brief
         </p>
-        {/* The old editor saved silently on blur, so there was no way to tell a
-            saved brief from a lost one. */}
         <span className="flex items-center gap-1.5 text-[11px] text-white/35">
           {state === "saving" && (
             <>

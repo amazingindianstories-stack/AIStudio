@@ -5,6 +5,7 @@ import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { LocalDataStatus } from "@/components/LocalDataStatus";
 import { TopBar } from "@/components/TopBar";
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { PromptComposer } from "@/components/PromptComposer";
@@ -15,6 +16,9 @@ import { PortraitGallery } from "@/components/PortraitGallery";
 import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
 import { CanvasView } from "@/components/canvas/CanvasView";
 import { StudioView } from "@/components/StudioView";
+import { Toaster } from "@/components/Toaster";
+import { TextPromptDialog } from "@/components/TextPromptDialog";
+import { useDesktopLayout } from "@/lib/use-desktop-layout";
 
 export default function Page() {
   const loadHistory = useStore((s) => s.loadHistory);
@@ -32,6 +36,8 @@ export default function Page() {
   // shortcut strip that replaces this panel while it is collapsed, so both
   // need to agree on which of the two is showing.
   const rightPanelOpen = useStore((s) => s.rightPanelOpen);
+  // One HistoryPanel at a time: hidden instances still poll and page the feed.
+  const isDesktop = useDesktopLayout();
   const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const currentUser = useStore((s) => s.currentUser);
   const setView = useStore((s) => s.setView);
@@ -119,10 +125,11 @@ export default function Page() {
   return (
     <MotionConfig
       reducedMotion="user"
-      transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+      transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
     >
       <div className="flex h-[100dvh] flex-col overflow-hidden bg-ink-900">
         <TopBar />
+        <LocalDataStatus />
 
         <div className="flex min-h-0 flex-1">
           {view === "canvas" ? (
@@ -180,7 +187,7 @@ export default function Page() {
                   inert={!rightPanelOpen}
                 >
                   <div className="h-full w-full">
-                    <HistoryPanel />
+                    {isDesktop && rightPanelOpen && <HistoryPanel />}
                   </div>
                 </div>
               </section>
@@ -190,7 +197,7 @@ export default function Page() {
 
         {/* mobile history drawer */}
         <AnimatePresence>
-          {view !== "canvas" && mobileHistoryOpen && (
+          {view !== "canvas" && mobileHistoryOpen && !isDesktop && (
             <>
               <motion.div
                 initial={{ opacity: 0 }}
@@ -233,6 +240,8 @@ export default function Page() {
         <AssetLibrary />
         <PortraitGallery />
       </div>
+      <Toaster />
+      <TextPromptDialog />
     </MotionConfig>
   );
 }

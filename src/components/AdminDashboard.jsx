@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import {
@@ -39,11 +39,12 @@ import {
   AlertTriangle,
   SlidersHorizontal,
 } from "lucide-react";
-import { formatCost } from "@/lib/pricing";
+import { formatCost } from "@/lib/format-cost";
 import { LIMIT_DEFINITIONS, } from "@/lib/limits";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
+import { apiErrorMessage } from "@/lib/api-error";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
  *  because that module pulls in the db client, which cannot be bundled for the
@@ -315,7 +316,7 @@ function HiggsfieldTokenCard() {
         body: JSON.stringify(parsed),
       });
       const j = await res.json();
-      if (!res.ok) throw new Error(j.error || `HTTP ${res.status}`);
+      if (!res.ok) throw new Error(apiErrorMessage(j, res.status));
       setState("ok");
       setMessage("Token seeded — Higgsfield generations should work now.");
       setValue("");
@@ -400,7 +401,7 @@ function UsersTab({
         body: JSON.stringify(form),
       });
       const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json.error || "Could not create the user.");
+      if (!response.ok) throw new Error(apiErrorMessage(json, response.status, "Could not create the user."));
       setForm({ email: "", password: "", name: "", role: "user" });
       setAdding(false);
       setNotice({ kind: "success", text: "User created." });
@@ -428,7 +429,7 @@ function UsersTab({
         body: JSON.stringify({ id, ...body }),
       });
       const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json.error || "Could not update the user.");
+      if (!response.ok) throw new Error(apiErrorMessage(json, response.status, "Could not update the user."));
       setNotice({ kind: "success", text: successMessage });
       reload();
       return true;
@@ -448,7 +449,7 @@ function UsersTab({
         method: "DELETE",
       });
       const json = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(json.error || "Could not delete the user.");
+      if (!response.ok) throw new Error(apiErrorMessage(json, response.status, "Could not delete the user."));
       setNotice({ kind: "success", text: `${user.name || user.email} was deleted.` });
       reload();
       return true;
@@ -719,7 +720,7 @@ function UsersTab({
                   body: JSON.stringify({ id: resetUser.id, password }),
                 });
                 const json = await response.json().catch(() => ({}));
-                if (!response.ok) return json.error || "Could not reset the password.";
+                if (!response.ok) return apiErrorMessage(json, response.status, "Could not reset the password.");
                 setNotice({ kind: "success", text: "Password reset." });
                 setResetUser(null);
                 reload();
@@ -960,7 +961,7 @@ function UserLimitsModal({
         body: JSON.stringify({ userId: user.id, key: def.key, value: nextValue }),
       });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json.error || "Could not update the limit.");
+      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not update the limit."));
       setSavedOverrides((s) => ({ ...s, [def.key]: nextValue }));
       onSaved();
       setSavedKey(def.key);
@@ -1700,7 +1701,7 @@ function PricingTab({ data, reload }) {
             {data.pricing.map((p) => (
               <tr key={p.model} className="border-t border-line">
                 <td className="px-3 py-2 font-medium">{p.model}</td>
-                <td className="px-3 py-2 text-xs text-white/55">{p.unit === "per_1000_images" ? "per 1,000 images" : p.unit}</td>
+                <td className="px-3 py-2 text-xs text-white/55">{{ per_1000_images: "per 1,000 images", per_1000_frames: "per 1,000 frames" }[p.unit] ?? p.unit}</td>
                 <td className="px-3 py-2">
                   <input
                     type="number"
@@ -1736,6 +1737,64 @@ function LimitsTab({ data, reload }) {
       {LIMIT_DEFINITIONS.map((def) => (
         <GlobalLimitCard key={def.key} def={def} data={data} reload={reload} />
       ))}
+      <PortraitStorageCard />
+    </div>
+  );
+}
+
+const PORTRAIT_SETTING_LABELS = {
+  portraitAssetTtlHours: { label: "Remove unused portraits after", unit: "hours" },
+  portraitPoolCapacity: { label: "Portrait storage size", unit: "portraits" },
+  portraitQueueWaitMinutes: { label: "Longest wait for portrait space", unit: "minutes" },
+};
+
+/** Automatic BytePlus portrait pool settings (shown only when the pool is on). */
+export function PortraitStorageCard() {
+  const [state, setState] = useState(null);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
+  const load = useCallback(async () => {
+    try {
+      const res = await apiFetch("/api/admin/portrait-settings", { cache: "no-store" });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) setState(json);
+    } catch { /* card stays hidden */ }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  if (!state?.enabled) return null;
+  const save = async (key, raw) => {
+    const value = Math.round(Number(raw));
+    setError("");
+    const res = await apiFetch("/api/admin/portrait-settings", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key, value }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) { setError(apiErrorMessage(json, res.status, "Could not save the setting.")); return; }
+    setState(json);
+    setSaved(key);
+    setTimeout(() => setSaved(""), 2000);
+  };
+  const usage = state.usage || {};
+  return (
+    <div className="rounded-xl border border-line p-4" data-portrait-storage-card>
+      <p className="mb-1 text-sm font-medium text-white">Portrait storage (BytePlus)</p>
+      <p className="mb-3 text-xs leading-5 text-white/45">
+        Faces in video references are registered automatically. {usage.live ?? 0} stored, {usage.inUse ?? 0} in use, {usage.registering ?? 0} preparing.
+        {usage.observedCapacity ? ` BytePlus reported its limit at ${usage.observedCapacity}.` : ""} Portraits in use are never removed.
+      </p>
+      <div className="space-y-2">
+        {Object.entries(PORTRAIT_SETTING_LABELS).map(([key, meta]) => (
+          <label key={key} className="flex flex-wrap items-center gap-2 text-xs text-white/70">
+            <span className="w-56">{meta.label}</span>
+            <input type="number" min={state.ranges[key].min} max={state.ranges[key].max} defaultValue={state.settings[key]}
+              onBlur={(e) => { if (Number(e.target.value) !== state.settings[key]) void save(key, e.target.value); }}
+              className="w-28 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none focus:border-brand/40" />
+            <span className="text-white/40">{meta.unit}</span>
+            {saved === key && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+          </label>
+        ))}
+      </div>
+      {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
     </div>
   );
 }

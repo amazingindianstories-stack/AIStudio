@@ -1,0 +1,13 @@
+{
+  "request": {
+    "command": [
+      "node",
+      "scripts/django-migration/limits-oracle.mjs"
+    ],
+    "input": "[null,\"\",\"2\",\"2tail\",\"2.9\",\"0x10\",\"-3\",\"+7\",\"\\ufeff3\",\"\\u00a02\",\"\\u20282\",\"\\u001c2\",\"\\uff11\\uff12\",\"9007199254740993\",\"9999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999999\",\"1e3\",\"Infinity\"]"
+  },
+  "stdout": "[{\"maxPromptLength\":30000,\"maxConcurrentJobs\":4},{\"maxPromptLength\":30000,\"maxConcurrentJobs\":4},{\"maxPromptLength\":2,\"maxConcurrentJobs\":2},{\"maxPromptLength\":2,\"maxConcurrentJobs\":2},{\"maxPromptLength\":2,\"maxConcurrentJobs\":2},{\"maxPromptLength\":30000,\"maxConcurrentJobs\":4},{\"maxPromptLength\":30000,\"maxConcurrentJobs\":4},{\"maxPromptLength\":7,\"maxConcurrentJobs\":4},{\"maxPromptLength\":3,\"maxConcurrentJobs\":3},{\"maxPromptLength\":2,\"maxConcurrentJobs\":2},{\"maxPromptLength\":2,\"maxConcurrentJobs\":2},{\"maxPromptLength\":30000,\"maxConcurrentJobs\":4},{\"maxPromptLength\":30000,\"maxConcurrentJobs\":4},{\"maxPromptLength\":9007199254740992,\"maxConcurrentJobs\":4},{\"maxPromptLength\":30000,\"maxConcurrentJobs\":4},{\"maxPromptLength\":1,\"maxConcurrentJobs\":1},{\"maxPromptLength\":30000,\"maxConcurrentJobs\":4}]\n",
+  "stdout_sha256": "ae5aafb05c4538eee70db5c36ca686be1a469e586f5180a428e437807a5bab5d",
+  "source_revision": "d9ef93947910a65bec5fa33d3f2311d888f6a2f4",
+  "source_tree_sha256": "39ce8b2abb6a4440afa5f1d0b944c07717c691839eba171c49a941823e1ff6b9"
+}

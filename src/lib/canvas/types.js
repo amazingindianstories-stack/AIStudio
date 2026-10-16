@@ -1,7 +1,6 @@
 /**
- * Canvas board data model — the `jsonb data` shape persisted per board
- * (see `.council/canvas-board/design.md` "Data model"). Framework-free,
- * shared by the client store, the DB layer, and the API routes.
+ * Canvas board data model - the `jsonb data` shape persisted per board.
+ * Framework-free; shared by the canvas store and the board serializer.
  */
 
 export const CANVAS_STATE_VERSION = 1;

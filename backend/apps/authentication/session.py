@@ -1,0 +1,61 @@
+"""Node-compatible HMAC sessions for the local Django implementation."""
+import base64
+import hashlib
+import hmac
+import json
+import math
+import time
+from django.conf import settings
+from .models import User
+
+TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+def encode(raw):
+    return base64.urlsafe_b64encode(raw).decode().rstrip('=')
+
+def verify(token, now):
+    try:
+        payload, signature = token.split('.')
+        expected = encode(hmac.new(settings.AUTH_SECRET.encode(), payload.encode(), hashlib.sha256).digest())
+        if not hmac.compare_digest(signature, expected):
+            return None
+        data = json.loads(base64.urlsafe_b64decode(payload + '=' * (-len(payload) % 4)))
+        uid, version, expiry = data.get('uid'), data.get('ver'), data.get('exp')
+        version = 0 if version is None else version
+        if not isinstance(uid, str) or not uid or type(version) is not int or version < 0:
+            return None
+        if type(expiry) not in (int, float) or not math.isfinite(expiry) or expiry < now:
+            return None
+        return uid, version, expiry
+    except (ValueError, TypeError, UnicodeError, AttributeError):
+        return None
+
+def lookup(request):
+    now = int(time.time() * 1000)
+    session = verify(request.COOKIES.get('veevee_session', ''), now)
+    if session is None:
+        return None
+    uid, version, expiry = session
+    try:
+        user = User.objects.only('id','email','name','role','color','avatar_url','is_active','auth_version').filter(id=uid, is_active=True, auth_version=version).first()
+    except (ValueError, models_validation_error):
+        return None
+    if user:
+        # Only the DB-validated actor may enter request logs. DRF wraps the
+        # underlying HttpRequest that outer middleware receives.
+        getattr(request, '_request', request).validated_actor_id = str(user.id)
+    if user and expiry - now < TTL_MS - 24 * 60 * 60 * 1000:
+        # Renew after one day using the original wire format and 30-day TTL.
+        payload = encode(json.dumps({'uid': str(user.id), 'ver': user.auth_version, 'exp': now + TTL_MS}, separators=(',', ':')).encode())
+        signature = encode(hmac.new(settings.AUTH_SECRET.encode(), payload.encode(), hashlib.sha256).digest())
+        request.renewed_session = payload + '.' + signature
+        getattr(request, '_request', request).renewed_session = request.renewed_session
+    return user
+
+from django.core.exceptions import ValidationError as models_validation_error
+
+
+def sign_session(user):
+    now = int(time.time()*1000)
+    payload = encode(json.dumps({'uid':str(user.id),'ver':user.auth_version,'exp':now+TTL_MS},separators=(',',':')).encode())
+    return payload+'.'+encode(hmac.new(settings.AUTH_SECRET.encode(),payload.encode(),hashlib.sha256).digest())
