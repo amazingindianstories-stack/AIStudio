@@ -17,7 +17,7 @@ from apps.generation.model_registry import capability, model_definition, is_prov
 from apps.generation.models import Generation
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
 from apps.generation.serialization import camel
-from apps.generation.references import reference_warnings
+from apps.generation.references import mention_indices, reference_warnings
 from apps.library.services.naming import assign_generation_naming
 from apps.media.audio_duration import audio_seconds
 from apps.media.audio_inputs import MAX_AUDIO_BYTES
@@ -278,6 +278,8 @@ def verify_reference_audio_durations(item, measure=None):
 
     A clip that cannot be read or measured is let through: the provider stays
     the authority, and a measuring problem here must never block an artist.
+    Only the clips the worker sends are checked: the @audioN tags the prompt
+    names, or every clip when it names none (resolve_references).
     """
     limits = capability(item.get('model'), 'referenceAudioSeconds', None)
     refs = item.get('referenceAudios') or []
@@ -286,9 +288,10 @@ def verify_reference_audio_durations(item, measure=None):
     measure = measure or measure_reference_audio
     rule = (f'{string(item.get("model"))} accepts reference audio clips of '
             f'{limits["clipMin"]}-{limits["clipMax"]}s each and {limits["totalMax"]}s in total')
+    sent = [n for n in mention_indices(item.get('prompt'), 'audio') if n <= len(refs)] or range(1, len(refs) + 1)
     total, complete = 0.0, True
-    for index, ref in enumerate(refs, start=1):
-        seconds = measure(ref)
+    for index in sent:
+        seconds = measure(refs[index - 1])
         if seconds is None:
             complete = False
             continue

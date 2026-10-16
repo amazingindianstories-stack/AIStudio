@@ -31,14 +31,28 @@ export function formatAudioSeconds(seconds) {
 }
 
 /**
+ * Indexes of the clips a submission sends: the @audioN tags the prompt names,
+ * or every clip when it names none. Mirrors resolve_references(prompt, uploads,
+ * "audio") in backend/apps/generation/references.py.
+ */
+export function sentAudioIndexes(prompt, count) {
+  const named = new Set();
+  for (const match of String(prompt || "").matchAll(/@audio([1-9][0-9]*)(?![a-z0-9_-])/gi)) {
+    if (Number(match[1]) <= count) named.add(Number(match[1]) - 1);
+  }
+  return named.size ? [...named].sort((a, b) => a - b) : [...Array(count).keys()];
+}
+
+/**
  * Which staged audio notes the model will refuse on length. Unknown durations
  * are left to the server check. Returns null when every measured clip fits.
  */
-export function referenceAudioProblem(model, notes = []) {
+export function referenceAudioProblem(model, notes = [], prompt = "") {
   const limits = referenceAudioLimits(model);
   if (!limits || !notes.length) return null;
   const rule = `${model} accepts reference audio clips of ${limits.clipMin}-${limits.clipMax}s each and ${limits.totalMax}s in total`;
-  const durations = notes.map((note) => (typeof note?.duration === "number" ? note.duration : null));
+  const sent = sentAudioIndexes(prompt, notes.length);
+  const durations = notes.map((note, index) => (sent.includes(index) && typeof note?.duration === "number" ? note.duration : null));
   const tooLong = [], tooShort = [];
   durations.forEach((seconds, index) => {
     if (seconds === null) return;
@@ -48,8 +62,8 @@ export function referenceAudioProblem(model, notes = []) {
   const named = (indexes, what) => indexes.map((i) => `@audio${i + 1} is ${what}${formatAudioSeconds(durations[i])}`).join(", ");
   if (tooLong.length) return { indexes: tooLong, message: `${named(tooLong, "")} long. ${rule}. Trim it before generating.` };
   if (tooShort.length) return { indexes: tooShort, message: `${named(tooShort, "only ")} long. ${rule}. Use a longer clip.` };
-  if (durations.every((seconds) => seconds !== null)) {
-    const total = durations.reduce((sum, seconds) => sum + seconds, 0);
+  if (sent.every((index) => durations[index] !== null)) {
+    const total = sent.reduce((sum, index) => sum + durations[index], 0);
     if (total > limits.totalMax + AUDIO_LIMIT_SLACK_SECONDS) {
       return { indexes: [], message: `The reference audio adds up to ${formatAudioSeconds(total)}. ${rule}. Shorten or remove a clip.` };
     }

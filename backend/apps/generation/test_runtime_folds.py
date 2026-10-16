@@ -220,11 +220,11 @@ class RealVideoDependencyWiringTests(__import__('django.test', fromlist=['Transa
 
 
 class SubmitTimeReferenceAudioCheckTests(SimpleTestCase):
-    def check(self, model, *seconds):
+    def check(self, model, *seconds, prompt='shot'):
         from .services.enqueue import verify_reference_audio_durations
         refs = [f'/api/media/uploads/audio-reference/{index}' for index in range(len(seconds))]
         lengths = dict(zip(refs, seconds))
-        verify_reference_audio_durations({'model': model, 'referenceAudios': refs}, measure=lengths.get)
+        verify_reference_audio_durations({'model': model, 'prompt': prompt, 'referenceAudios': refs}, measure=lengths.get)
 
     def test_clips_outside_the_model_limits_are_refused_with_their_index(self):
         from .services.enqueue import ReferenceAudioRejected
@@ -243,6 +243,19 @@ class SubmitTimeReferenceAudioCheckTests(SimpleTestCase):
             self.check('Seedance 2.5', 20.0, 20.0)
         self.assertIsNone(caught.exception.audio_index)
         self.check('Seedance 2.0 Mini', 7.5, 7.5)
+
+    def test_only_the_clips_the_prompt_sends_are_checked(self):
+        from .services.enqueue import ReferenceAudioRejected
+        # The worker sends only the @audioN clips the prompt names (resolve_references).
+        self.check('Seedance 2.5', 1.0, 12.0, 12.0, 12.0, prompt='she says @audio2 then @audio4')
+        with self.assertRaisesRegex(ReferenceAudioRejected, r'^@audio3 is only 1\.0s long') as caught:
+            self.check('Seedance 2.5', 12.0, 12.0, 1.0, prompt='@audio3 over @Audio1')
+        self.assertEqual(caught.exception.audio_index, 3)
+        with self.assertRaisesRegex(ReferenceAudioRejected, r'^The reference audio adds up to 32\.0s\.'):
+            self.check('Seedance 2.5', 16.0, 1.0, 16.0, prompt='@audio1 and @audio3')
+        # A tag beyond the staged clips names none of them, so every clip is sent.
+        with self.assertRaisesRegex(ReferenceAudioRejected, r'^@audio1 is only 1\.0s long'):
+            self.check('Seedance 2.5', 1.0, 12.0, prompt='@audio9 and @audio1x')
 
     def test_provider_tolerance_and_valid_clips_pass(self):
         self.check('Seedance 2.5', 30.15)

@@ -977,7 +977,7 @@ export const useStore = create((set, get) => ({
         set((state) => (state.audioNotes === s.audioNotes ? { audioNotes } : {}));
         s = { ...s, audioNotes };
       }
-      const audioProblem = referenceAudioProblem(s.model, audioNotes);
+      const audioProblem = referenceAudioProblem(s.model, audioNotes, prompt);
       if (audioProblem) {
         set({ generating: false });
         notify(audioProblem.message);

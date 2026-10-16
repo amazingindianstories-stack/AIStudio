@@ -109,7 +109,7 @@ export function PromptComposer() {
   const audioApplies = s.mode === "video" && supportsAudio(s.model);
   const draftApplies = s.mode === "video" && supportsDraftMode(s.model);
   const bitrateApplies = s.mode === "video" && supportsBitrateMode(s.model);
-  const audioProblem = s.mode === "video" ? referenceAudioProblem(s.model, s.audioNotes) : null;
+  const audioProblem = s.mode === "video" ? referenceAudioProblem(s.model, s.audioNotes, s.prompt) : null;
   // Edit/Extend only exist on Seedance 2.5 (config.supportsVideoEditExtend).
   // Both require BytePlus's ratio:"adaptive" and Edit also forces duration to
   // "match the source" — see the videoTaskMode branches on the Aspect
@@ -1670,7 +1670,7 @@ export function referenceSubmissionWarning(state) {
   if (maxImages !== null && state.referenceImages?.length > maxImages) messages.push(`${state.model} accepts at most ${maxImages} image references per submission`);
   if (state.referenceVideos?.length > maxVideos || (state.referenceVideos?.length && !supportsVideoReference(state.model))) messages.push(`${state.model} cannot submit this many video references`);
   if (state.audioNotes?.length && !supportsAudio(state.model)) messages.push(`${state.model} does not accept audio references`);
-  const audioProblem = state.mode === "video" ? referenceAudioProblem(state.model, state.audioNotes) : null;
+  const audioProblem = state.mode === "video" ? referenceAudioProblem(state.model, state.audioNotes, state.prompt) : null;
   if (audioProblem) messages.push(audioProblem.message.replace(/\.$/, ""));
   return messages.length ? `${messages.join(". ")}. All attachments remain staged; remove extras or choose a compatible model before generating.` : null;
 }

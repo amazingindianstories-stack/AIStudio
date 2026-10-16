@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { measureAudioDuration, referenceAudioProblem, withAudioDurations } from "./audio-duration";
+import { measureAudioDuration, referenceAudioProblem, sentAudioIndexes, withAudioDurations } from "./audio-duration";
 import { referenceAudioLimits } from "./config";
 
 const notes = (...durations) => durations.map((duration, i) => ({ name: `clip-${i}.mp3`, ref: `/api/media/uploads/audio-reference/${i}`, duration }));
@@ -24,6 +24,18 @@ test("too-short clips and the per-request total are refused", () => {
   const total = referenceAudioProblem("Seedance 2.5", notes(20, 20));
   assert.deepEqual(total.indexes, []);
   assert.match(total.message, /^The reference audio adds up to 40\.0s\./);
+});
+
+test("only the clips the prompt sends are checked, like the worker's resolve_references", () => {
+  assert.deepEqual(sentAudioIndexes("shot", 3), [0, 1, 2]);
+  assert.deepEqual(sentAudioIndexes("@audio3 over @Audio1 and @audio3", 3), [0, 2]);
+  assert.deepEqual(sentAudioIndexes("@audio9 and @audio1x", 2), [0, 1]);
+  assert.equal(referenceAudioProblem("Seedance 2.5", notes(1, 12, 12, 12), "she says @audio2 then @audio4"), null);
+  const short = referenceAudioProblem("Seedance 2.5", notes(12, 12, 1), "@audio3 over @Audio1");
+  assert.deepEqual(short.indexes, [2]);
+  assert.match(short.message, /^@audio3 is only 1\.0s long/);
+  assert.match(referenceAudioProblem("Seedance 2.5", notes(16, 1, 16), "@audio1 and @audio3").message, /^The reference audio adds up to 32\.0s\./);
+  assert.equal(referenceAudioProblem("Seedance 2.5", notes(16, undefined, 16), "@audio1 and @audio3")?.indexes.length, 0);
 });
 
 test("clips inside the limits, the provider tolerance or of unknown length pass", () => {
