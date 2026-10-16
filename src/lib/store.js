@@ -602,11 +602,12 @@ export const useStore = create((set, get) => ({
       referenceTags: (s.referenceTags || []).filter((_, i) => i !== index),
       unavailableReferences: (s.unavailableReferences || []).filter((ref) => ref !== s.referenceImages[index]),
     })),
-  reorderReferencesByIds: (ids) => set((s) => {
-    const { patch, mapping } = referencePermutation(s, ids);
-    return { ...patch, prompt: renumberImgMentions(s.prompt, mapping),
-      referenceReorderUndo: { ids: referenceIdsFor(s), afterIds: [...ids] } };
-  }),
+  // @imgN is positional: reordering never rewrites the prompt, so a typed
+  // @img1 means whatever occupies slot 1 after the move.
+  reorderReferencesByIds: (ids) => set((s) => ({
+    ...referencePermutation(s, ids),
+    referenceReorderUndo: { ids: referenceIdsFor(s), afterIds: [...ids] },
+  })),
   moveReference: ({ id, toIndex }) => {
     const ids = referenceIdsFor(get());
     const from = ids.indexOf(id);
@@ -617,8 +618,7 @@ export const useStore = create((set, get) => ({
   undoReferenceReorder: () => {
     const s = get(); const undo = s.referenceReorderUndo;
     if (!undo || JSON.stringify(referenceIdsFor(s)) !== JSON.stringify(undo.afterIds)) return;
-    const { patch, mapping } = referencePermutation(s, undo.ids);
-    set({ ...patch, prompt: renumberImgMentions(s.prompt, mapping), referenceReorderUndo: null });
+    set({ ...referencePermutation(s, undo.ids), referenceReorderUndo: null });
   },
   // Compatibility for old callers: match occurrences once, never indexOf equality.
   reorderReferences: (newOrder) => {

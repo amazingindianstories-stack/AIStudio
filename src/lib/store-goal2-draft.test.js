@@ -12,10 +12,39 @@ test('store moves duplicate occurrences without moving another source metadata',
     useStore.getState().moveReference({id:before[1],toIndex:0});
     assert.deepEqual(useStore.getState().referenceIds,[before[1],before[0]]);
     assert.deepEqual(useStore.getState().referenceLabels,['second','first']);
-    assert.equal(useStore.getState().prompt,'@img2 @img1 @img10 @img2x @slug');
+    // Tags are positional: a reorder never rewrites the typed prompt.
+    assert.equal(useStore.getState().prompt,'@img1 @img2 @img10 @img2x @slug');
     useStore.getState().undoReferenceReorder();
     assert.deepEqual(useStore.getState().referenceIds,before);
+    assert.deepEqual(useStore.getState().referenceLabels,['first','second']);
     assert.equal(useStore.getState().prompt,'@img1 @img2 @img10 @img2x @slug');
+  } finally {useStore.setState(previous,true);}
+});
+
+test('every reorder path keeps the prompt text while removal still renumbers later tags', () => {
+  const previous=useStore.getState();
+  const prompt='@img1 then @IMG3 and @img2, not @img30 @slug';
+  try {
+    useStore.setState({referenceImages:[],referenceIds:[],referenceKinds:[],referenceTags:[],referenceLabels:[],referenceVideos:[],referenceAudios:[],audioNotes:[],prompt});
+    for (const label of ['a','b','c']) useStore.getState().addReference(`/api/media/${label}`,'image',label);
+    const [a,b,c]=useStore.getState().referenceIds;
+    useStore.getState().reorderReferencesByIds([b,c,a]);
+    assert.deepEqual(useStore.getState().referenceLabels,['b','c','a']);
+    assert.equal(useStore.getState().prompt,prompt);
+    useStore.getState().moveReference({id:a,toIndex:0});
+    assert.deepEqual(useStore.getState().referenceLabels,['a','b','c']);
+    assert.equal(useStore.getState().prompt,prompt);
+    useStore.getState().reorderReferences(['/api/media/c','/api/media/a','/api/media/b']);
+    assert.deepEqual(useStore.getState().referenceLabels,['c','a','b']);
+    assert.equal(useStore.getState().prompt,prompt);
+    useStore.getState().undoReferenceReorder();
+    assert.deepEqual(useStore.getState().referenceIds,[a,b,c]);
+    assert.equal(useStore.getState().prompt,prompt);
+    assert.equal(useStore.getState().referenceReorderUndo,null);
+    // Removing slot 2 shifts @img3 to @img2 so it still names image c.
+    useStore.getState().removeReference(1);
+    assert.deepEqual(useStore.getState().referenceLabels,['a','c']);
+    assert.equal(useStore.getState().prompt,'@img1 then @IMG2 and @img2, not @img30 @slug');
   } finally {useStore.setState(previous,true);}
 });
 
