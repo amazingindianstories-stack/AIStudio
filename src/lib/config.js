@@ -187,6 +187,11 @@ export function supportsAudio(model) {
   return capability(model, "audio", false);
 }
 
+/** Provider duration limits for reference audio clips, or null when unchecked. */
+export function referenceAudioLimits(model) {
+  return capability(model, "referenceAudioSeconds", null);
+}
+
 /** Direct BytePlus Seedance render-quality controls. These are explicit
  * capabilities so similarly named Higgsfield compatibility models never
  * inherit request fields their MCP does not expose. */

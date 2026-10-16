@@ -20,6 +20,7 @@ import {
 import { useStore } from "@/lib/store";
 
 import { supportsVideoReference } from "@/lib/config";
+import { measureAudioDuration } from "@/lib/audio-duration";
 import { extractFrame } from "@/lib/video-frame";
 
 import { SettingsToolbar } from "./ComposerControls";
@@ -190,8 +191,8 @@ export function StudioChat({ conversationId }) {
       for (const file of files) {
         if (stagedReferenceCount(useStore.getState()) >= 50) { setError("The draft can stage fifty attachments. Remove an attachment before adding more."); break; }
         if (uploadContentType(file).startsWith("audio/")) {
-          const uploaded = await uploadFileDirect(file, "audio-reference");
-          s.addAudioNote({ name: file.name, ref: uploaded.ref });
+          const [uploaded, duration] = await Promise.all([uploadFileDirect(file, "audio-reference"), measureAudioDuration(file)]);
+          s.addAudioNote({ name: file.name, ref: uploaded.ref, ...(duration ? { duration } : {}) });
         } else if (uploadContentType(file).startsWith("video/") && mode === "video" && supportsVideoReference(model)) {
           const uploaded = await uploadFileDirect(file, "video-reference");
           s.addReferenceVideo(uploaded.ref, file.name);

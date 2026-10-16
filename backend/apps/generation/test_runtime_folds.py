@@ -217,3 +217,69 @@ class RealVideoDependencyWiringTests(__import__('django.test', fromlist=['Transa
                 submit_video(item, signal=Cancellation(), on_task=lambda *a: None, env={})
         self.assertNotIsInstance(caught.exception, NameError)
         self.assertIn('ARK_API_KEY', str(caught.exception))
+
+
+class SubmitTimeReferenceAudioCheckTests(SimpleTestCase):
+    def check(self, model, *seconds):
+        from .services.enqueue import verify_reference_audio_durations
+        refs = [f'/api/media/uploads/audio-reference/{index}' for index in range(len(seconds))]
+        lengths = dict(zip(refs, seconds))
+        verify_reference_audio_durations({'model': model, 'referenceAudios': refs}, measure=lengths.get)
+
+    def test_clips_outside_the_model_limits_are_refused_with_their_index(self):
+        from .services.enqueue import ReferenceAudioRejected
+        with self.assertRaisesRegex(ReferenceAudioRejected, r'^@audio1 is 34\.6s long\. Seedance 2\.5 accepts reference audio clips of 2-30s each and 30s in total\. Trim it') as caught:
+            self.check('Seedance 2.5', 34.6)
+        self.assertEqual(caught.exception.audio_index, 1)
+        with self.assertRaisesRegex(ReferenceAudioRejected, r'^@audio2 is only 1\.2s long') as caught:
+            self.check('Seedance 2.5', 10.0, 1.2)
+        self.assertEqual(caught.exception.audio_index, 2)
+        with self.assertRaisesRegex(ReferenceAudioRejected, r'^@audio1 is 16\.0s long\. Seedance 2\.0 accepts reference audio clips of 2-15s each and 15s in total'):
+            self.check('Seedance 2.0', 16.0)
+
+    def test_combined_length_is_limited_per_request(self):
+        from .services.enqueue import ReferenceAudioRejected
+        with self.assertRaisesRegex(ReferenceAudioRejected, r'^The reference audio adds up to 40\.0s\.') as caught:
+            self.check('Seedance 2.5', 20.0, 20.0)
+        self.assertIsNone(caught.exception.audio_index)
+        self.check('Seedance 2.0 Mini', 7.5, 7.5)
+
+    def test_provider_tolerance_and_valid_clips_pass(self):
+        self.check('Seedance 2.5', 30.15)
+        self.check('Seedance 2.5', 2.0, 28.0)
+        self.check('Seedance 2.0', 1.9)
+
+    def test_unmeasurable_clips_and_other_models_are_left_to_the_provider(self):
+        from .services.enqueue import ReferenceAudioRejected
+        self.check('Seedance 2.5', None)
+        self.check('Seedance 2.5', 25.0, None, 25.0)
+        with self.assertRaises(ReferenceAudioRejected):
+            self.check('Seedance 2.5', None, 31.0)
+        self.check('Higgsfield Seedance 2.0', 60.0)
+        self.check('Seedance 2.5')
+
+
+class AudioDurationProbeTests(SimpleTestCase):
+    def wav(self, seconds, rate=8000):
+        import wave
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as out:
+            out.setnchannels(1)
+            out.setsampwidth(2)
+            out.setframerate(rate)
+            out.writeframes(b'\0\0' * int(seconds * rate))
+        return buffer.getvalue()
+
+    def test_measures_real_audio_and_reports_unknown_for_junk(self):
+        import shutil
+        from apps.media.audio_duration import audio_seconds
+        if not shutil.which('ffprobe'):
+            self.skipTest('ffprobe is not installed (the production image has it)')
+        self.assertAlmostEqual(audio_seconds(self.wav(31.5)), 31.5, places=2)
+        self.assertIsNone(audio_seconds(b'not audio at all'))
+        self.assertIsNone(audio_seconds(b''))
+
+    def test_missing_ffprobe_means_unknown(self):
+        from apps.media.audio_duration import audio_seconds
+        with patch('apps.media.audio_duration.shutil.which', return_value=None):
+            self.assertIsNone(audio_seconds(self.wav(1)))

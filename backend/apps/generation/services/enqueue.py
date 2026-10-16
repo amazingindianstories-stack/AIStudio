@@ -1,4 +1,5 @@
 """Source-compatible enqueue validation and durable generation insertion."""
+import logging
 import re
 from urllib.parse import unquote
 import math
@@ -18,9 +19,14 @@ from apps.generation.providers.seedream import seedream_size, resolve_seedream_r
 from apps.generation.serialization import camel
 from apps.generation.references import reference_warnings
 from apps.library.services.naming import assign_generation_naming
+from apps.media.audio_duration import audio_seconds
+from apps.media.audio_inputs import MAX_AUDIO_BYTES
 from apps.media.images import save_reference_images
+from apps.media.storage import get_storage
 from .pricing import compute_cost, read_pricing
 from .seedream_references import prepare_seedream_references, require_native_image_runtime
+
+logger = logging.getLogger(__name__)
 
 
 class InvalidRequest(ValueError):
@@ -257,7 +263,55 @@ def verify_portrait_references(item, body, lookup=None):
             raise PortraitUnavailable(f'{named} {problem}. Remove it from the references and try again; nothing was queued.', index)
 
 
+class ReferenceAudioRejected(InvalidRequest):
+    def __init__(self, message, audio_index=None):
+        super().__init__(message)
+        self.audio_index = audio_index
+
+
+# BytePlus enforces a 30 s clip limit as "<= 30.2"; match what it really accepts.
+AUDIO_LIMIT_SLACK_SECONDS = 0.2
+
+
+def verify_reference_audio_durations(item, measure=None):
+    """Refuse audio the provider would reject on length, before anything is queued.
+
+    A clip that cannot be read or measured is let through: the provider stays
+    the authority, and a measuring problem here must never block an artist.
+    """
+    limits = capability(item.get('model'), 'referenceAudioSeconds', None)
+    refs = item.get('referenceAudios') or []
+    if not limits or not refs:
+        return
+    measure = measure or measure_reference_audio
+    rule = (f'{string(item.get("model"))} accepts reference audio clips of '
+            f'{limits["clipMin"]}-{limits["clipMax"]}s each and {limits["totalMax"]}s in total')
+    total, complete = 0.0, True
+    for index, ref in enumerate(refs, start=1):
+        seconds = measure(ref)
+        if seconds is None:
+            complete = False
+            continue
+        if seconds > limits['clipMax'] + AUDIO_LIMIT_SLACK_SECONDS:
+            raise ReferenceAudioRejected(f'@audio{index} is {seconds:.1f}s long. {rule}. Trim it and try again; nothing was queued.', index)
+        if seconds < limits['clipMin'] - AUDIO_LIMIT_SLACK_SECONDS:
+            raise ReferenceAudioRejected(f'@audio{index} is only {seconds:.1f}s long. {rule}. Use a longer clip and try again; nothing was queued.', index)
+        total += seconds
+    if complete and total > limits['totalMax'] + AUDIO_LIMIT_SLACK_SECONDS:
+        raise ReferenceAudioRejected(f'The reference audio adds up to {total:.1f}s. {rule}. Shorten or remove a clip and try again; nothing was queued.')
+
+
+def measure_reference_audio(ref):
+    try:
+        data = get_storage().read_reference_bytes(ref, max_bytes=MAX_AUDIO_BYTES)['bytes']
+    except Exception as error:
+        logger.warning('reference_audio_read_failed reason=%s', type(error).__name__)
+        return None
+    return audio_seconds(data)
+
+
 def prepare_video(item, body, identifier):
+    verify_reference_audio_durations(item)
     verify_portrait_references(item, body)
     verify_registered_portraits(item, body)
     result = {'costCents':compute_cost(item,read_pricing())}

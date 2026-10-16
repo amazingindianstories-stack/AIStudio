@@ -464,6 +464,20 @@ class EnqueueContractTests(TransactionTestCase):
         self.assertIn('Reference 2 ("R01_SC008_0008 (1)") was removed from the Portrait Gallery',response.json()['error'])
         self.assertEqual(Generation.objects.count(),before)
 
+    def test_overlong_reference_audio_is_refused_at_submit_with_its_index(self):
+        self.cookie()
+        lengths={'/api/media/uploads/audio-reference/short':12.0,'/api/media/uploads/audio-reference/dialogue':34.6}
+        before=Generation.objects.count()
+        with patch('apps.generation.enqueue_views.resolve_submission_references',side_effect=lambda data,user: data), \
+             patch('apps.generation.services.enqueue.measure_reference_audio',side_effect=lengths.get), \
+             patch('apps.generation.services.enqueue.save_reference_images') as save:
+            response=self.post('video',dict(prompt='shot',model='Seedance 2.5',duration=24,referenceAudios=list(lengths)))
+            save.assert_not_called()
+        self.assertEqual(response.status_code,400,response.content)
+        self.assertEqual((response.json()['code'],response.json()['audioIndex']),('REFERENCE_AUDIO_DURATION',2))
+        self.assertIn('@audio2 is 34.6s long. Seedance 2.5 accepts reference audio clips of 2-30s each and 30s in total',response.json()['error'])
+        self.assertEqual(Generation.objects.count(),before)
+
     def test_draft_finalization_expiry_cloning_and_no_provider_calls(self):
         self.cookie()
         source=self.row(user_id=session_fixtures.UID,bitrate_mode='standard',generate_audio=True,reference_videos=['uploads/native.mov'],seed=81,continuation_frame_url='original-first')

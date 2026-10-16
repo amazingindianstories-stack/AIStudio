@@ -79,6 +79,8 @@ def generate(request, kind):
         prepared = enqueue.prepare_image(item,data,str(identifier),user.id) if kind == 'image' else enqueue.prepare_video(item,data,str(identifier))
     except enqueue.PortraitUnavailable as error:
         return reply(request,{'error':str(error),'code':'PORTRAIT_UNAVAILABLE','referenceIndex':error.reference_index},400)
+    except enqueue.ReferenceAudioRejected as error:
+        return reply(request,{'error':str(error),'code':'REFERENCE_AUDIO_DURATION','audioIndex':error.audio_index},400)
     except enqueue.InvalidRequest as error:
         return reply(request,{'error':str(error)},400)
     except Exception:

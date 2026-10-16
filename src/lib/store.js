@@ -32,6 +32,7 @@ import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch } from "./api";
 import { apiErrorMessage } from "./api-error";
+import { referenceAudioProblem, withAudioDurations } from "./audio-duration";
 import {
   clearFeedCache,
   dedupeFirstPage,
@@ -955,7 +956,7 @@ export const useStore = create((set, get) => ({
     const prompt = s.prompt.trim();
     if (!prompt || s.generating) return [];
     if (s.referenceImages.some(ref => !ref)) {
-      set({ generationError: "Attach the missing draft references again before generating." });
+      notify("Attach the missing draft references again before generating.");
       return [];
     }
     if (s.mode === "video" && s.firstFrameMode && !s.firstFrame && !s.continuationFrame) {
@@ -968,17 +969,34 @@ export const useStore = create((set, get) => ({
     }
 
     set({ generating: true });
+    if (s.mode === "video" && s.audioNotes?.length) {
+      // The provider refuses clips outside its length limits after queueing;
+      // stop here instead, naming the clip, so the artist trims it first.
+      const audioNotes = await withAudioDurations(s.audioNotes);
+      if (audioNotes !== s.audioNotes) {
+        set((state) => (state.audioNotes === s.audioNotes ? { audioNotes } : {}));
+        s = { ...s, audioNotes };
+      }
+      const audioProblem = referenceAudioProblem(s.model, audioNotes);
+      if (audioProblem) {
+        set({ generating: false });
+        notify(audioProblem.message);
+        return [];
+      }
+    }
     try {
       const uploaded = await uploadDraftBinaryReferences(s);
       const current = get();
       if (current.currentUser?.id !== s.currentUser?.id || current.activeProjectId !== s.activeProjectId) {
-        set({ generating: false, generationError: "The user or project changed during upload. Review the draft before submitting." });
+        set({ generating: false });
+        notify("The user or project changed during upload. Review the draft before submitting.");
         return [];
       }
       if (current.referenceImages === s.referenceImages) set(uploaded);
       s = { ...s, ...uploaded };
     } catch (error) {
-      set({ generating: false, generationError: error.message || "Could not upload draft references." });
+      set({ generating: false });
+      notify(error.message || "Could not upload draft references.");
       return [];
     }
     const endpoint =
