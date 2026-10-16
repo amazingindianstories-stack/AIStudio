@@ -47,7 +47,6 @@ test('Generate 1080p final finalizes the draft on screen, after keyboard navigat
     await expect(panel.locator(`[data-asset-card-id="${b}"]`)).toBeVisible();
 
     // Open draft A, then move to draft B with the keyboard, as an artist browsing drafts would.
-    // Click the picture itself; the lower half of a small card carries the hover folder link and prompt.
     await panel.locator(`[data-asset-card-id="${a}"]`).click({ position: { x: 88, y: 24 } });
     const finalButton = page.getByRole('button', { name: 'Generate 1080p final' });
     const viewer = page.locator('div').filter({ has: page.getByRole('button', { name: 'Close viewer' }) }).filter({ has: finalButton }).last();

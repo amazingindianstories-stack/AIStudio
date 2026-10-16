@@ -248,3 +248,57 @@ body {
   .composer-model-label { max-width: none; }
   .composer-controls-row { align-items: flex-end; }
 }
+
+/* Library card face. It scales with the card's rendered width (set by the
+   panel width and the View > Thumbnail size control) in three steps, so the
+   avatar, checkbox, "..." button and "Draft" label are neither cramped on a
+   small card nor lost on a large one. */
+.media-card { container-type: inline-size; }
+.media-card-body {
+  --face-inset: 6px;
+  --face-avatar: 20px;
+  --face-avatar-text: 10px;
+  --face-control: 22px;
+  --face-icon: 13px;
+  --face-label: 10px;
+  --face-shade-w: 76px;
+  --face-shade-h: 38px;
+}
+@container (min-width: 200px) {
+  .media-card-body {
+    --face-inset: 8px;
+    --face-avatar: 24px;
+    --face-avatar-text: 11px;
+    --face-control: 26px;
+    --face-icon: 15px;
+    --face-label: 11px;
+    --face-shade-w: 96px;
+    --face-shade-h: 46px;
+  }
+}
+@container (min-width: 320px) {
+  .media-card-body {
+    --face-inset: 10px;
+    --face-avatar: 28px;
+    --face-avatar-text: 12px;
+    --face-control: 30px;
+    --face-icon: 17px;
+    --face-label: 12px;
+    --face-shade-w: 120px;
+    --face-shade-h: 56px;
+  }
+}
+.media-card-avatar { width: var(--face-avatar); height: var(--face-avatar); font-size: var(--face-avatar-text); }
+.media-card-control { width: calc(var(--face-control) - 4px); height: calc(var(--face-control) - 4px); }
+.media-card-more { width: var(--face-control); height: var(--face-control); }
+.media-card-icon { width: var(--face-icon); height: var(--face-icon); }
+.media-card-control .media-card-icon { width: calc(var(--face-icon) - 2px); height: calc(var(--face-icon) - 2px); }
+/* "Draft" sits on a soft corner shade that fades out before its edges. */
+.media-card-draft {
+  width: var(--face-shade-w);
+  height: var(--face-shade-h);
+  padding: calc(var(--face-inset) + 1px) calc(var(--face-inset) + 1px) 0 0;
+  font-size: var(--face-label);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
+  background: radial-gradient(ellipse farthest-side at 100% 0%, rgb(0 0 0 / 0.55), rgb(0 0 0 / 0.28) 45%, rgb(0 0 0 / 0) 100%);
+}
