@@ -191,7 +191,7 @@ if done:
                 print('     zip entries:', names, flush=True)
 
 # Managed portraits (when enabled): a face reference becomes a pool asset in the worker, as the real roles.
-status, pool, _ = call('GET', '/api/portraits/managed')
+status, pool, _ = call('GET', '/api/portraits')
 if isinstance(pool, dict) and pool.get('enabled'):
     import hashlib
     from apps.assets.models import ManagedPortraitAsset  # noqa: E402
@@ -212,8 +212,8 @@ if isinstance(pool, dict) and pool.get('enabled'):
             check('portraits: one paid submission claimed', ledger(identifier) == 'SUBMITTING', ledger(identifier))
             check('portraits: pool asset is ACTIVE', ManagedPortraitAsset.objects.filter(status='ACTIVE').exists(),
                   list(ManagedPortraitAsset.objects.values_list('status', 'error_code')))
-        status, pool, _ = call('GET', '/api/portraits/managed')
-        check('portraits: Gallery lists it as Ready', any(a.get('label') == 'Ready' for a in (pool or {}).get('assets', [])), str(pool)[:200])
+        status, pool, _ = call('GET', '/api/portraits')
+        check('portraits: Gallery lists it as ready', any(p.get('state') == 'ready' for p in (pool or {}).get('portraits', [])), str(pool)[:200])
         status, refused, _ = call('POST', '/api/assets/portraits/upload', {'referenceId': ready['referenceId']})
         check('portraits: manual upload refused', status == 410, f'{status} {str(refused)[:120]}')
         status, settings_, _ = call('GET', '/api/admin/portrait-settings')
