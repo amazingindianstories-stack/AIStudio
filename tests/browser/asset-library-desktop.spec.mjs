@@ -2,8 +2,8 @@ import { test, expect } from "@playwright/test";
 import { createHmac } from "node:crypto";
 
 // A plain click on a finished card opens the viewer; selection is explicit
-// through the card's Select checkbox, Space or modifier clicks.
-const selectCard = (card) => card.getByRole("button", { name: "Select", exact: true }).click();
+// through the card's hover Select checkbox, Space, modifier clicks or its menu.
+const selectCard = (card) => card.getByRole("checkbox", { name: "Select", exact: true }).click();
 
 function getAuthSecret() {
   if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;

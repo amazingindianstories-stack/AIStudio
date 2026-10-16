@@ -7,8 +7,8 @@ const USER_ID = 'e33e1832-9e29-427f-af61-796b842a4b37';
 const MULTI_SELECT_MODIFIER = process.platform === 'darwin' ? 'Meta' : 'Control';
 
 // A plain click on a finished card opens the viewer; selection is explicit
-// through the card's Select checkbox, Space or modifier clicks.
-const selectCard = (card) => card.getByRole('button', { name: 'Select', exact: true }).click();
+// through the card's hover Select checkbox, Space, modifier clicks or its menu.
+const selectCard = (card) => card.getByRole('checkbox', { name: 'Select', exact: true }).click();
 const test = base.extend({
   fixture: async ({ page, context, baseURL }, provideFixture) => {
     if (!process.env.AUTH_SECRET || !['localhost', '127.0.0.1'].includes(new URL(baseURL).hostname)) throw new Error('Isolated browser harness required');
