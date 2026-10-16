@@ -122,6 +122,15 @@ def _moderation(message):
     return blocked, MODERATION_MESSAGE if blocked else message or 'Generation failed.'
 
 
+def _learned_message(item, failures):
+    """Managed portraits: a privacy rejection of an inline image marks it as a face (so Retry registers it) and
+    returns the copy that says so; None when nothing was learned."""
+    from . import portrait_prepare
+    if any(portrait_prepare.privacy_rejection(result.get('error'), result.get('raw')) for result in failures) and portrait_prepare.learn_from_rejection(item):
+        return portrait_prepare.REJECTED_MESSAGE
+    return None
+
+
 def _metadata(item):
     return {'kind': item.kind, 'model': item.model, 'requestedAspectRatio': item.aspect_ratio}
 
@@ -171,7 +180,7 @@ def _best_of(item, deps, signal, owner, provider):
         blocked = any(_moderation(result.get('error'))[0] for result in results)
         reason = next((result['error'] for result in results if result.get('error')), 'All candidates failed to generate.')
         if blocked:
-            reason = _moderation('safety blocked')[1]
+            reason = _learned_message(item, results) or _moderation('safety blocked')[1]
         return _terminal(item, {'status': 'failed', 'error': reason, 'moderation_blocked': blocked, 'candidate_task_ids': None}, deps, signal, owner, provider)
     winner, judge_score = succeeded[0], None
     reference = deps.read_reference(item.reference_images[0]) if item.reference_images else None
@@ -315,6 +324,8 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
         provider.update(coordinator.provider_timestamps(result))
         if result['status'] == 'failed':
             blocked, message = (result.get('moderationBlocked'), result.get('error') or 'Generation failed.') if is_omni else _moderation(result.get('error'))
+            if blocked and not is_omni and not is_higgsfield:
+                message = _learned_message(item, [result]) or message
             return _terminal(item, {'status': 'failed', 'error': message, 'moderation_blocked': blocked}, deps, signal, owner, provider)
         if result['status'] != 'succeeded':
             return _pending(item, deps, signal, owner, {key: value for key, value in provider.items() if key != 'callback_received_at'}, 8000 if is_higgsfield else 5000)
