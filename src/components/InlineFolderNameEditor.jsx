@@ -35,7 +35,7 @@ export function InlineFolderNameEditor({ initialName = "", label, onCommit, onCl
   };
 
   return (
-    <form className="min-w-0 w-[180px] max-w-[180px] flex-1" onClick={(e) => e.stopPropagation()}
+    <form className="min-w-0 w-full max-w-[180px] flex-1" onClick={(e) => e.stopPropagation()}
       onSubmit={(e) => { e.preventDefault(); void commit(true); }}>
       <input title={name} aria-busy={saving} autoFocus aria-label={label} aria-invalid={Boolean(error)}
         value={name} readOnly={saving}
