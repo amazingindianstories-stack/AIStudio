@@ -1536,22 +1536,34 @@ export function ReferenceStrip({ store: s, insertTag }) {
     ordered.splice(Math.max(0, Math.min(ids.length - 1, target)), 0, id);
     commit(ordered, id);
   };
-  const updateGesture = () => {
+  const updateGesture = (now = performance.now()) => {
     const current = gesture.current;
     const container = strip.current;
     if (!current || !container) return;
     const bounds = container.getBoundingClientRect();
+    // The edge speed is in pixels per 60 fps frame. Scale it by the real frame time so a busy or
+    // slow machine scrolls the strip as fast as a smooth one; cap the step after a stalled frame.
+    const elapsed = Math.min(64, Math.max(0, now - (current.lastFrame ?? now)));
+    current.lastFrame = now;
     if (current.active) {
       const edge = 52;
       const speed = current.x < bounds.left + edge ? -Math.ceil((bounds.left + edge - current.x) / 4) : current.x > bounds.right - edge ? Math.ceil((current.x - bounds.right + edge) / 4) : 0;
-      container.scrollLeft += Math.max(-24, Math.min(24, speed));
+      current.scrollCarry = (current.scrollCarry || 0) + Math.max(-24, Math.min(24, speed)) * (elapsed * 60 / 1000);
+      const step = Math.trunc(current.scrollCarry);
+      current.scrollCarry -= step;
+      if (step) container.scrollLeft += step;
       const cards = Array.from(container.querySelectorAll('[data-reference-id]'));
       const others = cards.filter((el) => el.dataset.referenceId !== current.id);
       const target = others.findIndex((el) => current.x < el.getBoundingClientRect().left + el.offsetWidth / 2);
       const ordered = current.ids.filter((id) => id !== current.id);
       ordered.splice(target === -1 ? ordered.length : target, 0, current.id);
       current.ordered = ordered;
-      setPreview({ ids: ordered, id: current.id, x: current.x, y: current.y });
+      // Re-render the strip only when the drop order or the pointer moved, not on every frame.
+      const signature = `${ordered.join(",")}|${current.x}|${current.y}`;
+      if (signature !== current.previewSignature) {
+        current.previewSignature = signature;
+        setPreview({ ids: ordered, id: current.id, x: current.x, y: current.y });
+      }
     }
     frame.current = requestAnimationFrame(updateGesture);
   };
