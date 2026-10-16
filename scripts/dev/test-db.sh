@@ -29,13 +29,19 @@ docker run -d --name "$NAME" -p 127.0.0.1::5432 --tmpfs /var/lib/postgresql:rw \
 until docker exec "$NAME" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; do sleep 1; done
 PORT=$(docker port "$NAME" 5432/tcp | head -1 | sed 's/.*://')
 
-# Node runs the browser suite; ffmpeg makes native MOV fixtures; libvips backs image handling
-# (pyvips loads it from the lib directory next to the `vips` command, e.g. ~/.nix-profile/lib).
+# Node runs the browser suite; ffmpeg makes native MOV fixtures; libvips backs image handling.
+# pyvips loads libvips by name, so pass the first directory that holds it: next to the `vips`
+# command (nix profile), the Home Manager generation (nix-darwin module), or Homebrew.
 TOOLS=""; LIBS=""
 for tool in node ffmpeg vips; do
   if location=$(command -v "$tool"); then TOOLS="$TOOLS$(dirname "$location"):"; else echo "note: $tool not on PATH"; fi
 done
-if location=$(command -v vips); then LIBS=$(cd "$(dirname "$location")/../lib" && pwd); fi
+VIPS_BIN=$(dirname "$(command -v vips 2>/dev/null || echo /nonexistent/vips)")
+for dir in "$VIPS_BIN/../lib" "$HOME/.local/state/home-manager/gcroots/current-home/home-path/lib" \
+           "$HOME/.nix-profile/lib" /opt/homebrew/lib; do
+  if [ -e "$dir/libvips.42.dylib" ] || [ -e "$dir/libvips.so.42" ]; then LIBS=$(cd "$dir" && pwd); break; fi
+done
+[ -n "$LIBS" ] || echo "note: libvips library not found; image tests that need pyvips will fail"
 case "$(uname)" in Darwin) BROWSERS="$HOME/Library/Caches/ms-playwright" ;; *) BROWSERS="$HOME/.cache/ms-playwright" ;; esac
 
 cd "$ROOT"
