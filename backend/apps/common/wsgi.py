@@ -37,15 +37,15 @@ def signed_redirect(environ):
 
 
 def slow_request_slots(threads, configured=None):
-    """Slow-call slots for a worker: all threads but three, never fewer than two.
+    """Slow-call slots for a worker: half its threads, never fewer than two.
 
-    The three threads left over keep ordinary API work (feed polling, signed
-    redirects, auth) responsive while slow calls hold their slots. An explicit
-    VEEVEE_SLOW_REQUEST_SLOTS value wins.
+    The other half keeps ordinary API work (feed polling, signed redirects, auth)
+    responsive, and the cap bounds the memory of concurrent image submits (API
+    peak 2.5 GB of 4 GB at two slots). An explicit VEEVEE_SLOW_REQUEST_SLOTS value wins.
     """
     if configured not in (None, ''):
         return max(1, int(configured))
-    return max(2, int(threads) - 3)
+    return max(2, int(threads) // 2)
 
 
 def slow_request_application(application, *, slots=None):
