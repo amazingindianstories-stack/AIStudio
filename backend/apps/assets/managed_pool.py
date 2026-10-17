@@ -36,6 +36,7 @@ SETTINGS = {'portraitAssetTtlHours': (4, 1, 72), 'portraitPoolCapacity': (90, 1,
 PROCESSING_LIMIT_MS = 3 * 60 * 1000
 REGISTERING_STALE_MS = 2 * 60 * 1000
 DELETING_STALE_MS = 30 * 1000           # a DELETING row nobody finished (the worker that claimed it died)
+QUOTA_BACKOFF_MS = 60 * 1000             # after BytePlus reports quota, the pool counts what it accepted as its size for this long
 VERIFY_INTERVAL_MS = 60 * 1000           # re-confirm an ACTIVE asset with BytePlus (unbilled GetAsset) before a submission at most this often
 MIN_SIDE, MAX_SIDE, MIN_RATIO, MAX_RATIO = 300, 6000, 0.4, 2.5
 UPLOADS_PER_PASS, UPLOAD_PASS_SECONDS = 5, 6.0
@@ -118,10 +119,15 @@ def setting_values():
     return {key: parse(stored.get(key), definition) for key, definition in SETTINGS.items()}
 
 
-def effective_capacity(values, pool):
+def effective_capacity(values, pool, now):
+    """Slots we may fill: the admin capacity, capped by what BytePlus last accepted. That cap can be 0 (the quota is used up
+    outside the pool). Once QUOTA_BACKOFF_MS has passed since the last refusal one more registration is allowed as a probe."""
     capacity = values['portraitPoolCapacity']
-    if pool.observed_capacity:
-        capacity = min(capacity, max(1, pool.observed_capacity))
+    if pool.observed_capacity is not None:
+        observed = max(0, pool.observed_capacity)
+        if pool.last_quota_error_at is not None and now - pool.last_quota_error_at >= QUOTA_BACKOFF_MS:
+            observed += 1
+        capacity = min(capacity, observed)
     return capacity
 
 
@@ -250,7 +256,7 @@ def _take_slot(values, pool, now):
     """Under the pool lock: 'free' when a slot is free, an ACTIVE unpinned victim (now DELETING) when one can be evicted, else None.
     No second eviction starts while an earlier delete is unresolved: its slot is about to free (or the delete keeps failing),
     and evicting more would only empty the pool without ever making room."""
-    if ManagedPortraitAsset.objects.filter(status__in=LIVE).count() < effective_capacity(values, pool):
+    if ManagedPortraitAsset.objects.filter(status__in=LIVE).count() < effective_capacity(values, pool, now):
         return 'free'
     if _eviction_unresolved():
         return None
@@ -268,7 +274,7 @@ def _take_slot(values, pool, now):
 def has_room():
     """Read-only: whether a new portrait could get a slot now (a free slot, or an unused one to evict)."""
     pool = ManagedPortraitPool.objects.filter(pk=1).first() or ManagedPortraitPool(id=1, updated_at=0)
-    if ManagedPortraitAsset.objects.filter(status__in=LIVE).count() < effective_capacity(setting_values(), pool):
+    if ManagedPortraitAsset.objects.filter(status__in=LIVE).count() < effective_capacity(setting_values(), pool, now_ms()):
         return True
     pinned = ManagedPortraitPin.objects.values('asset_id')
     return not _eviction_unresolved() and ManagedPortraitAsset.objects.filter(status='ACTIVE').exclude(id__in=pinned).exists()
@@ -427,6 +433,17 @@ def remote_delete(asset, client):
     return True
 
 
+def _learn_capacity():
+    """BytePlus accepted a registration beyond the capacity it last refused at (a probe after the backoff): the quota has grown."""
+    with transaction.atomic():
+        _locked()
+        pool = _pool()
+        live = ManagedPortraitAsset.objects.filter(status__in=LIVE).count()
+        if pool.observed_capacity is not None and live > pool.observed_capacity:
+            pool.observed_capacity, pool.updated_at = live, now_ms()
+            pool.save(update_fields=['observed_capacity', 'updated_at'])
+
+
 def _register(asset, data, storage, client, user_id, requeue=False):
     from .byteplus import BytePlusAssetError
     key = asset.source_key
@@ -454,7 +471,7 @@ def _register(asset, data, storage, client, user_id, requeue=False):
             with transaction.atomic():
                 _locked()
                 pool = _pool()
-                pool.observed_capacity = max(1, ManagedPortraitAsset.objects.filter(status__in=LIVE).exclude(pk=asset.pk).count())
+                pool.observed_capacity = ManagedPortraitAsset.objects.filter(status__in=LIVE).exclude(pk=asset.pk).count()
                 pool.last_quota_error_at = pool.updated_at = now_ms()
                 pool.save(update_fields=['observed_capacity', 'last_quota_error_at', 'updated_at'])
             # A Gallery upload keeps its place in the queue instead of failing; a generation retries with a fresh claim.
@@ -474,6 +491,7 @@ def _register(asset, data, storage, client, user_id, requeue=False):
     if not identifier:
         _finish(asset, status='UNCERTAIN', error_code='create_no_id')
         return wait('portrait_uncertain', 10000)
+    _learn_capacity()
     active = response.get('Status') == 'Active'
     row = _finish(asset, byteplus_asset_id=identifier, status='ACTIVE' if active else 'PROCESSING',
                   receipt={**asset.receipt, 'state': 'ACKNOWLEDGED', 'remote_id': identifier, 'verified_at': now_ms()})

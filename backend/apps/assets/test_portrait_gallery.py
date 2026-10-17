@@ -204,6 +204,7 @@ class GalleryApiTests(GalleryBase):
         self.assertEqual((asset.status, asset.error_code), ('QUEUED', 'QuotaSharedPoolExceeded'), 'a quota error requeues an upload, it does not fail it')
         self.assertEqual(self.listing()['portraits'][0]['state'], 'waiting')
         self.fake.asset_capacity = None
+        ManagedPortraitPool.objects.update(last_quota_error_at=managed_pool.now_ms() - managed_pool.QUOTA_BACKOFF_MS - 1)     # the backoff has passed
         self.settle_uploads()
         asset.refresh_from_db()
         self.assertEqual(asset.status, 'ACTIVE')
