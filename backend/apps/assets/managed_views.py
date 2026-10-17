@@ -189,7 +189,7 @@ def register_one(user, item, created_at):
         return refuse('PORTRAIT_NOT_IMAGE', UNUSABLE)
     if row.byte_size > MAX_IMAGE_BYTES:
         return refuse('PORTRAIT_TOO_LARGE', 'This image is larger than 30 MB. Use a smaller file.')
-    dimensions = image_limits.stored_dimensions(get_storage(), row.key)      # a bounded header read, never a full decode
+    dimensions = image_limits.stored_dimensions(get_storage(), row.key)      # the header only (at most the first few MB are read), pixels are never decoded
     problem_kind = image_limits.side_problem(*dimensions) if dimensions else None
     if problem_kind:       # short copy: the card shows it under the file name (same wording as src/lib/portraits.js)
         return refuse('PORTRAIT_IMAGE_SIZE' if problem_kind == 'size' else 'PORTRAIT_IMAGE_RATIO', dimension_problem(*dimensions))

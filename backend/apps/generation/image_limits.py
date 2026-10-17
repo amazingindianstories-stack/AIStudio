@@ -21,15 +21,19 @@ SEEDANCE_MESSAGE = re.compile(r'[^\n]{1,100} is \d{1,6} x \d{1,6} px\. ' + re.es
                               + re.escape(SIZE_TAIL) + '|' + re.escape(WORKER_TAIL) + ')')
 
 
+ORIENTED_FORMATS = ('JPEG', 'MPO', 'WEBP', 'TIFF')     # EXIF orientation is parsed with the header; PNG's getexif() would decode every pixel
+
+
 def dimensions(chunks):
-    """(width, height) from an iterable of byte chunks, or None when the header cannot be read in the first few MB."""
+    """(width, height) from an iterable of byte chunks, or None when the header cannot be read in the first few MB.
+    Only the header is parsed, never the pixels. Orientation is honoured where the format keeps it in the header."""
     buffer = bytearray()
     for chunk in chunks:
         buffer += chunk
         try:
             with Image.open(io.BytesIO(buffer)) as image:       # lazy: reads only the header, no pixel decode
                 width, height = image.size
-                orientation = image.getexif().get(0x0112)
+                orientation = image.getexif().get(0x0112) if image.format in ORIENTED_FORMATS else None
         except Exception:
             if len(buffer) >= HEADER_BYTES:
                 return None
