@@ -144,3 +144,24 @@ test("a cancelled pointer ends the drag without clearing", () => {
   t.move(90, 50);
   assert.equal(t.queued(), 0);
 });
+
+test("a touch tap on the background clears the selection but a touch drag does not start a marquee", () => {
+  const tap = setup({ selected: ["c1"] });
+  tap.down(5, 150, { pointerType: "touch" });
+  tap.up();
+  assert.equal(tap.log.clicks, 1);
+  assert.deepEqual(tap.log.active, []);
+
+  const drag = setup({ selected: ["c1"] });
+  drag.down(5, 150, { pointerType: "touch" });
+  drag.move(230, 50);
+  drag.up();
+  assert.equal(drag.log.clicks, 0, "a scroll gesture is not a tap");
+  assert.deepEqual(drag.log.active, []);
+  assert.deepEqual(drag.log.selections, []);
+
+  const onCard = setup();
+  onCard.down(5, 5, { pointerType: "touch", target: { closest: () => ({}) } });
+  onCard.up();
+  assert.equal(onCard.log.clicks, 0);
+});

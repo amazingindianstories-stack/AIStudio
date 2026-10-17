@@ -79,9 +79,15 @@ export function createMarqueeController({
 
   return {
     pointerDown(e) {
-      if (e.button !== 0 || e.pointerType === "touch") return;
+      if (e.button !== 0) return;
       // A drag that starts on a card or a control belongs to that element.
       if (e.target.closest?.(`[${itemAttribute}]`) || e.target.closest?.(INTERACTIVE)) return;
+      // Touch never starts a marquee (a drag scrolls), but a tap on the
+      // background still deselects, so only the tap is tracked.
+      if (e.pointerType === "touch") {
+        drag = { tap: true, startScreen: { x: e.clientX, y: e.clientY }, moved: false, frame: 0 };
+        return;
+      }
       const el = getScroller();
       if (!el) return;
       try {
@@ -116,6 +122,10 @@ export function createMarqueeController({
     },
     pointerMove(e) {
       if (!drag) return;
+      if (drag.tap) {
+        if (Math.hypot(e.clientX - drag.startScreen.x, e.clientY - drag.startScreen.y) > DRAG_SLOP_PX) drag.moved = true;
+        return;
+      }
       if (!drag.moved) {
         if (Math.hypot(e.clientX - drag.startScreen.x, e.clientY - drag.startScreen.y) <= DRAG_SLOP_PX) return;
         drag.moved = true;
@@ -140,6 +150,10 @@ export function createMarqueeController({
       const current = drag;
       finish();
       if (!current) return;
+      if (current.tap) {
+        if (!current.moved) onClickBackground?.();
+        return;
+      }
       try {
         getScroller()?.releasePointerCapture?.(current.pointerId);
       } catch {
