@@ -13,10 +13,12 @@ def main():
     if os.environ.get('MIGRATION_TEST_ISOLATED') != '1' or target.hostname not in ('127.0.0.1', 'localhost') or target.path != '/veevee_django_migration':
         raise SystemExit('Browser fixtures require the verified disposable Django database')
     payload = json.load(sys.stdin)
+    statements = payload.get('statements') or [payload]     # several statements run in one transaction
     with psycopg.connect(url, row_factory=dict_row) as connection:
         with connection.cursor() as cursor:
-            cursor.execute(payload['query'], payload['parameters'])
-            rows = cursor.fetchall() if cursor.description else []
+            for statement in statements:
+                cursor.execute(statement['query'], statement['parameters'])
+                rows = cursor.fetchall() if cursor.description else []
     print(json.dumps(rows, default=str))
 
 

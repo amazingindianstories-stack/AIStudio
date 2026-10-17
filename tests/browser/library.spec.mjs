@@ -66,8 +66,12 @@ const test = base.extend({
     try { await provideFixture({ db, prefix, project, otherProject, globalRoot, projectRoot, globalChild, projectChild, createFolder, navigate, panel }); }
     finally {
       // Delete only this fixture's records, including folders created through real UI buttons.
-      await db`DELETE FROM managed_portrait_pins WHERE asset_id IN (SELECT id FROM managed_portrait_assets WHERE name LIKE ${`${prefix}%`})`;
-      await db`DELETE FROM managed_portrait_assets WHERE name LIKE ${`${prefix}%`}`;
+      // Under the pool lock, so the scheduler cannot pin an upload between the two deletes.
+      await db.transaction([
+        db.statement`SELECT pg_advisory_xact_lock(7461122019)`,
+        db.statement`DELETE FROM managed_portrait_pins WHERE asset_id IN (SELECT id FROM managed_portrait_assets WHERE name LIKE ${`${prefix}%`})`,
+        db.statement`DELETE FROM managed_portrait_assets WHERE name LIKE ${`${prefix}%`}`,
+      ]);
       await db`DELETE FROM folders WHERE name LIKE ${`${prefix}%`} OR project_id IN ${db(projectIds)}`;
       await db`DELETE FROM projects WHERE id IN ${db(projectIds)}`;
       await db`DELETE FROM activity_logs WHERE user_id = ${userId}`;
