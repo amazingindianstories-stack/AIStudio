@@ -1,7 +1,11 @@
 """Regression tests for review findings in the automatic portrait pool (timeouts, eviction, quota backoff, storage failures, queue order)."""
 import re
+import uuid
 from unittest.mock import patch
 
+from django.test import override_settings
+
+from apps.admin_dashboard import tests as session_fixtures
 from apps.admin_dashboard.models import AppSetting
 from apps.generation.models import Generation
 from apps.generation.services import executor
@@ -270,3 +274,32 @@ class DeletedGroupTests(GalleryBase):
         self.assertIn(pool, self.fake.groups)
         self.assertNotIn(old, self.fake.groups)
         self.assertNotIn(old_asset, remaining)
+
+
+class GrantFlagTests(GalleryBase):
+    def other_upload(self):
+        reference = self.upload(landscape(1), purpose='portrait', actor='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb')
+        return UploadSession.objects.get(pk=reference['referenceId']).key
+
+    def queries_for(self, key):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from apps.media.grants import authorize_owned_upload_read
+        with CaptureQueriesContext(connection) as queries:
+            with self.assertRaisesRegex(ValueError, 'private to its uploader'):
+                authorize_owned_upload_read(key, session_fixtures.UID)
+        return ' '.join(query['sql'] for query in queries)
+
+    def test_the_flag_off_path_never_reads_the_managed_table(self):
+        key = self.other_upload()
+        with override_settings(VEEVEE_MANAGED_PORTRAITS=False):
+            self.assertNotIn('managed_portrait_assets', self.queries_for(key))
+        with override_settings(VEEVEE_MANAGED_PORTRAITS=True):
+            self.assertIn('managed_portrait_assets', self.queries_for(key))
+
+    def test_the_gallery_still_publishes_other_artists_portraits_with_the_flag_on(self):
+        from apps.media.grants import authorize_owned_upload_read
+        key = self.other_upload()
+        ManagedPortraitAsset.objects.create(id=uuid.uuid4(), content_sha256='c' * 64, source_key=key, status='ACTIVE', receipt={},
+                                            created_at=1, updated_at=1, last_used_at=1)
+        self.assertEqual(authorize_owned_upload_read(key, session_fixtures.UID).key, key)
