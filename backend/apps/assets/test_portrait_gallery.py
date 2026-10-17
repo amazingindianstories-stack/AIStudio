@@ -536,6 +536,72 @@ class JanitorRecoveryTests(GalleryBase):
         self.assertEqual(self.fake.live_asset_count(), 0)
 
 
+class ThrottleClassificationTests(GalleryBase):
+    """Only an error about the image content refuses it as an asset; every other BytePlus error is a limit or a transient fault."""
+    TRANSIENT = ((400, 'FlowLimitExceeded'), (400, 'RequestLimitExceeded'), (403, 'ServerOverloaded'), (503, 'ServiceUnavailable'),
+                 (400, 'ServerBusy'), (401, 'AuthFailure'), (403, 'AccessDenied'), (408, 'RequestTimeout'), (409, 'Conflict.busy'),
+                 (500, 'InternalError'), (502, 'BadGateway'))
+
+    def test_no_transient_create_error_marks_a_face_as_refused(self):
+        for index, (status, code) in enumerate(self.TRANSIENT):
+            with self.subTest(status=status, code=code):
+                AppSetting.objects.filter(key=managed_pool.PAUSE_KEY).delete()
+                ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).delete()
+                self.fake.asset_throttle, self.fake.asset_throttle_error = 1, (status, code, 'try later')
+                job = self.enqueue([self.upload(face_variant(20 + index))])
+                executor.process_generation(job, heartbeat=False)
+                self.assertEqual(Generation.objects.get(pk=job).status, 'queued')
+                self.assertFalse(ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).exists())
+                AppSetting.objects.filter(key=managed_pool.PAUSE_KEY).update(value='0')
+                ManagedPortraitAsset.objects.filter(status='UNCERTAIN').update(status='DELETED')
+                self.assertEqual(self.run_worker(job).status, 'succeeded')
+                self.assertTrue(any(ref.startswith('asset://') for ref in self.submitted_refs()), 'registered as a portrait on the retry')
+
+    def test_a_transient_error_keeps_an_upload_in_the_queue(self):
+        self.add(landscape(1))
+        self.fake.asset_throttle, self.fake.asset_throttle_error = 1, (400, 'FlowLimitExceeded', 'too many')
+        managed_pool.process_uploads()
+        asset = ManagedPortraitAsset.objects.get()
+        self.assertEqual(asset.status, 'QUEUED')
+        self.assertFalse(ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).exists())
+        AppSetting.objects.filter(key=managed_pool.PAUSE_KEY).update(value='0')
+        self.settle_uploads()
+        self.assertEqual(ManagedPortraitAsset.objects.get().status, 'ACTIVE')
+
+    def test_a_limit_on_the_group_lookup_does_not_refuse_the_image(self):
+        self.add(landscape(1))
+        self.fake.asset_action_throttle['ListAssetGroups'] = 1
+        self.fake.asset_throttle_error = (400, 'FlowLimitExceeded', 'too many')
+        managed_pool.process_uploads()
+        self.assertEqual(ManagedPortraitAsset.objects.get().status, 'QUEUED')
+        AppSetting.objects.filter(key=managed_pool.PAUSE_KEY).update(value='0')
+        self.settle_uploads()
+        self.assertEqual(ManagedPortraitAsset.objects.get().status, 'ACTIVE')
+
+    def test_a_limit_on_get_asset_leaves_the_row_processing(self):
+        self.fake.asset_activation_polls = 3
+        self.add(landscape(1))
+        managed_pool.process_uploads()
+        self.fake.asset_action_throttle['GetAsset'] = 2
+        managed_pool.janitor()
+        managed_pool.janitor()
+        self.assertEqual(ManagedPortraitAsset.objects.get().status, 'PROCESSING')
+        for _ in range(4):
+            managed_pool.janitor()
+        self.assertEqual(ManagedPortraitAsset.objects.get().status, 'ACTIVE')
+
+    def test_a_limit_on_delete_and_list_assets_keeps_the_delete_pending(self):
+        self.add(landscape(1))
+        self.settle_uploads()
+        asset = ManagedPortraitAsset.objects.get()
+        managed_pool._mark_deleting(asset, 'evicted', 1)
+        self.fake.asset_action_throttle.update({'DeleteAsset': 1, 'ListAssets': 1})
+        managed_pool.janitor()
+        self.assertEqual((ManagedPortraitAsset.objects.get().status, self.fake.live_asset_count()), ('UNCERTAIN', 1))
+        managed_pool.janitor()
+        self.assertEqual((ManagedPortraitAsset.objects.get().status, self.fake.live_asset_count()), ('DELETED', 0))
+
+
 class MissedFaceTests(GalleryBase):
     def refuse_inline(self, data, mode):
         self.fake.reject_image_sha256 = {hashlib.sha256(data).hexdigest()}

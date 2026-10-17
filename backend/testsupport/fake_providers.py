@@ -73,6 +73,7 @@ class FakeProviders:
         self.asset_capacity = asset_capacity          # None = unlimited; int = BytePlus shared pool size
         self.asset_throttle = 0                       # the next N CreateAsset calls hit BytePlus's write limit
         self.asset_throttle_error = (400, 'QuotaWriteQPMExceeded', 'write requests per minute exceeded')   # as seen in production
+        self.asset_action_throttle = {}               # action -> the next N calls of it (GetAsset, DeleteAsset, ListAssets...) hit the limit
         self.asset_activation_polls = asset_activation_polls
         self.reject_image_sha256 = set()    # inline (data URL) images with these SHA-256s are refused as a real person
         self.reject_mode = 'create'         # 'create': 400 at task creation; 'async': accept the task, fail it when polled
@@ -179,6 +180,9 @@ class FakeProviders:
         now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         with self.lock:
             identifier = body.get('Id')
+            if self.asset_action_throttle.get(action, 0) > 0:
+                self.asset_action_throttle[action] -= 1
+                return error(*self.asset_throttle_error)
             if action == 'CreateAssetGroup':
                 gid = 'group-' + uuid.uuid4().hex[:16]
                 self.groups[gid] = {'Id': gid, 'Name': body.get('Name', ''), 'GroupType': body.get('GroupType', 'AIGC'),

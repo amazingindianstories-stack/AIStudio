@@ -7,6 +7,7 @@ its own claim fencing. A crashed slot is retried by the next scheduled slot.
 import logging
 import uuid
 from apps.common import leases
+from apps.common.resilience import recover
 from . import maintenance
 
 logger = logging.getLogger('veevee.maintenance')
@@ -64,6 +65,13 @@ def tick(*, now=None, handlers=None):
 
 
 def run(*, stop, interval=1):
+    failures = 0
     while not stop.is_set():
-        tick()
+        try:
+            tick()
+            failures = 0
+        except Exception as error:      # lease claim or a dropped connection: survive, reconnect, try again
+            failures += 1
+            recover(error, failures, stop=stop, logger=logger, name='scheduler')
+            continue
         stop.wait(interval)

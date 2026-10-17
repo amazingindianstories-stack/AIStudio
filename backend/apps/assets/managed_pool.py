@@ -41,8 +41,10 @@ QUOTA_BACKOFF_MS = 60 * 1000             # after BytePlus reports quota, the poo
 VERIFY_INTERVAL_MS = 60 * 1000           # re-confirm an ACTIVE asset with BytePlus (unbilled GetAsset) before a submission at most this often
 MIN_SIDE, MAX_SIDE, MIN_RATIO, MAX_RATIO = 300, 6000, 0.4, 2.5
 UPLOADS_PER_PASS, UPLOAD_PASS_SECONDS = 5, 6.0
-# BytePlus write limits (e.g. QuotaWriteQPMExceeded) answer 400 or 429: a rate limit, never a refusal of the image.
-THROTTLED = re.compile(r'Throttl|RateLimit|TooManyRequests|RequestLimitExceeded|QPM|QPS', re.I)
+# BytePlus limits (e.g. QuotaWriteQPMExceeded) answer 400, 429 or 503: a rate limit or overload, never a refusal of the image.
+THROTTLED = re.compile(r'Throttl|RateLimit|TooManyRequests|LimitExceeded|QPM|QPS|Overload|Busy|ServiceUnavailable', re.I)
+# Only an error about the image itself refuses it as an asset (the image then goes inline); every other error is transient.
+CONTENT_REFUSAL = re.compile(r'^moderation_rejected$|^InvalidParameter|^Invalid(Image|Asset|URL)|SensitiveContent|Privacy|^Unsupported(Image|Media)', re.I)
 PAUSE_KEY, PAUSE_MS = 'portraitRegisterPauseUntil', 60000      # after a write limit, no new registration for a minute
 
 
@@ -350,6 +352,11 @@ def throttled(error):
     return error.status == 429 or bool(THROTTLED.search(str(error.code)))
 
 
+def content_refusal(error):
+    """A 4xx whose code says BytePlus judged the image (moderation, invalid parameter or image), and not a limit."""
+    return isinstance(error.status, int) and 400 <= error.status < 500 and not throttled(error) and bool(CONTENT_REFUSAL.search(str(error.code)))
+
+
 def pause_remaining(now):
     """Milliseconds left of a registration pause after a BytePlus write limit, else 0."""
     from apps.admin_dashboard.models import AppSetting
@@ -532,13 +539,18 @@ def _register(asset, data, storage, client, user_id, requeue=False):
             _pause(now_ms())
             _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='throttled')
             return wait('portrait_paused', 15000)
-        definite = isinstance(error.status, int) and 400 <= error.status < 500
-        if definite:
+        if content_refusal(error):
             _finish(asset, status='FAILED', error_code=str(error.code)[:100])
             if refuse_as_asset(asset.content_sha256):       # a guess of the detector: the job goes on with the image inline
                 return wait('portrait_registering', 1000)
             message = PORTRAIT_REFUSED if error.code == 'moderation_rejected' else PORTRAIT_UNPREPARED
             return failed(message + NOT_CHARGED, 'portrait_rejected')
+        if isinstance(error.status, int) and 400 <= error.status < 500 and error.status not in (408, 409):
+            # Not about the image (credentials, a changed API, an unknown limit): nothing was created, so back off like a limit.
+            _pause(now_ms())
+            _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code=str(error.code)[:100])
+            return wait('portrait_paused', 15000)
+        # 5xx, timeouts, network: the call may have created the asset, so reconcile by name later.
         _finish(asset, status='UNCERTAIN', error_code=str(error.code)[:100])
         return wait('portrait_uncertain', 10000)
     except Exception:
