@@ -104,3 +104,28 @@ class QuotaBackoffTests(GalleryBase):
         self.assertEqual(self.run_worker(job).status, 'succeeded')
         self.assertEqual(self.fake.live_asset_count(), 2)
         self.assertGreaterEqual(ManagedPortraitPool.objects.get().observed_capacity, 2, 'the quota has grown again')
+
+
+class StorageFailureTests(GalleryBase):
+    def broken_storage(self):
+        return patch.object(self.storage, 'write_private_buffer', side_effect=OSError('disk full'))
+
+    def test_an_upload_whose_derived_copy_cannot_be_stored_fails_visibly_and_releases_its_pin(self):
+        self.add(landscape(1))
+        with patch.object(managed_pool, 'bounded_copy', return_value=b'jpeg'), self.broken_storage():
+            managed_pool.process_uploads()
+        asset = ManagedPortraitAsset.objects.get()
+        self.assertEqual((asset.status, asset.error_code), ('FAILED', 'storage_unwritable'))
+        self.assertFalse(ManagedPortraitPin.objects.exists())
+        self.assertEqual(self.listing()['portraits'][0]['state'], 'unusable')
+        self.assertEqual(asset_calls(self.fake, 'CreateAsset'), 0)
+
+    def test_a_generation_whose_derived_copy_cannot_be_stored_fails_not_charged_and_releases_its_pin(self):
+        job = self.enqueue([self.upload(face_variant(1))])
+        with patch.object(managed_pool, 'bounded_copy', return_value=b'jpeg'), self.broken_storage():
+            row = self.run_worker(job, passes=2)
+        self.assertEqual(row.status, 'failed')
+        self.assertIn('not charged', row.error)
+        self.assertEqual(ManagedPortraitAsset.objects.get().status, 'FAILED')
+        self.assertFalse(ManagedPortraitPin.objects.exists())
+        self.assertEqual(self.fake.seedance_payloads, [])

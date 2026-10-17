@@ -453,7 +453,11 @@ def _register(asset, data, storage, client, user_id, requeue=False):
         derived = None
     if derived is not None:
         key = f'portrait-pool/{asset.content_sha256}.jpg'
-        storage.write_private_buffer(derived, key, 'image/jpeg')
+        try:
+            storage.write_private_buffer(derived, key, 'image/jpeg')
+        except Exception:       # nothing was sent to BytePlus: settle the row so it does not sit REGISTERING with its pin
+            _finish(asset, status='FAILED', error_code='storage_unwritable')
+            return failed(PORTRAIT_UNPREPARED + NOT_CHARGED, 'portrait_rejected')
         asset = _finish(asset, registered_key=key)
     try:
         group_id = ensure_group(client)
