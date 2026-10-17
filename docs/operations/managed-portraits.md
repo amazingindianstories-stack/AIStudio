@@ -35,6 +35,12 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   deleted once nothing holds it.
 - Old references (a `#bp_asset_id=` marker on an image) are pooled by their bytes and never checked at
   BytePlus; a bare `asset://` link is refused at enqueue ("@imgN is an old portrait link that no longer exists").
+- The detector can take a non-human image (an animal, a sketch, tiny figures) for a face. When BytePlus
+  definitively refuses to register such an image (4xx, not quota) the image is remembered as
+  `provider_refused_asset` and the generation continues with it inline. Faces from Gallery uploads or learned
+  from a Seedance rejection keep failing clearly. A Seedance privacy rejection cannot turn a refused image back
+  into a face (no ping-pong; its failure shows the usual face copy without a Retry promise); only an explicit
+  Gallery upload of the same image does.
 - Admin → Limits → Portrait storage: TTL hours (1–72), pool size, longest wait.
 
 ## Pieces

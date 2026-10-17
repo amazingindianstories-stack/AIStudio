@@ -115,8 +115,7 @@ def learn_from_rejection(item, storage=None):
                 continue
             sha = managed_pool.content_sha256(storage.read(key))
             if sha not in sent_as_assets:
-                managed_pool.force_face(sha, 'provider_rejection')
-                learned += 1
+                learned += 1 if managed_pool.force_face(sha, 'provider_rejection') else 0
         return learned
     except Exception:
         logger.exception('portrait learning from a provider rejection failed')

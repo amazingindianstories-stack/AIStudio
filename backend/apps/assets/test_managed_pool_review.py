@@ -303,3 +303,58 @@ class GrantFlagTests(GalleryBase):
         ManagedPortraitAsset.objects.create(id=uuid.uuid4(), content_sha256='c' * 64, source_key=key, status='ACTIVE', receipt={},
                                             created_at=1, updated_at=1, last_used_at=1)
         self.assertEqual(authorize_owned_upload_read(key, session_fixtures.UID).key, key)
+
+
+class RefusedAssetTests(GalleryBase):
+    def refuse_creates(self):
+        original = self.fake.asset_api
+
+        def refuse(action, body):
+            if action == 'CreateAsset':
+                return 400, {'ResponseMetadata': {'Error': {'Code': 'InvalidParameter', 'Message': 'no face found in this image'}}}
+            return original(action, body)
+        patcher = patch.object(self.fake, 'asset_api', refuse)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_an_image_only_the_detector_took_for_a_face_goes_inline_when_the_asset_is_refused(self):
+        from hashlib import sha256
+        from .models import ReferenceFaceScan
+        image = face_variant(5)
+        self.refuse_creates()
+        row = self.run_worker(self.enqueue([self.upload(image)]))
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertTrue(self.submitted_refs()[0].startswith('data:image/'), 'sent inline')
+        scan = ReferenceFaceScan.objects.get(pk=sha256(image).hexdigest())
+        self.assertEqual((scan.has_face, scan.forced), (False, managed_pool.REFUSED))
+        self.assertEqual(ManagedPortraitAsset.objects.filter(status__in=managed_pool.LIVE).count(), 0)
+        self.assertFalse(ManagedPortraitPin.objects.exists())
+        creates = asset_calls(self.fake, 'CreateAsset')
+        again = self.run_worker(self.enqueue([self.upload(image)]))
+        self.assertEqual(again.status, 'succeeded', again.error)
+        self.assertEqual(asset_calls(self.fake, 'CreateAsset'), creates, 'not asked again')
+
+    def test_a_forced_face_still_fails_clearly_when_the_asset_is_refused(self):
+        from hashlib import sha256
+        image = face_variant(6)
+        managed_pool.force_face(sha256(image).hexdigest(), 'upload')
+        self.refuse_creates()
+        row = self.run_worker(self.enqueue([self.upload(image)]))
+        self.assertEqual(row.status, 'failed')
+        self.assertIn('not charged', row.error)
+        self.assertEqual(self.fake.seedance_payloads, [])
+
+    def test_a_provider_rejection_cannot_turn_a_refused_image_back_into_a_face(self):
+        from hashlib import sha256
+        from .models import ReferenceFaceScan
+        image = face_variant(7)
+        sha = sha256(image).hexdigest()
+        self.refuse_creates()
+        self.assertEqual(self.run_worker(self.enqueue([self.upload(image)])).status, 'succeeded')
+        self.assertFalse(managed_pool.force_face(sha, 'provider_rejection'))
+        self.assertEqual(ReferenceFaceScan.objects.get(pk=sha).forced, managed_pool.REFUSED)
+        self.assertFalse(managed_pool.scan_reference(image)[1])
+        from apps.generation.services import portrait_prepare
+        self.assertEqual(portrait_prepare.learn_from_rejection(Generation.objects.get()), 0, 'nothing learned, so no Retry promise')
+        self.assertTrue(managed_pool.force_face(sha, 'upload'), 'an explicit Gallery upload does')
+        self.assertTrue(managed_pool.scan_reference(image)[1])

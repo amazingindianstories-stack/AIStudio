@@ -32,6 +32,7 @@ ASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
 NAME_PREFIX = 'veevee-'
 POOL_GROUP_NAME = 'veevee-portraits'      # the one hidden BytePlus group; adopted by name so it survives a flag off and on
 SETTINGS = {'portraitAssetTtlHours': (4, 1, 72), 'portraitPoolCapacity': (90, 1, 10000), 'portraitQueueWaitMinutes': (15, 1, 240)}
+REFUSED = 'provider_refused_asset'      # ReferenceFaceScan.forced: the detector saw a face but BytePlus refused the asset, so the image goes inline
 PROCESSING_LIMIT_MS = 3 * 60 * 1000
 REGISTERING_STALE_MS = 2 * 60 * 1000
 DELETING_STALE_MS = 30 * 1000           # a DELETING row nobody finished (the worker that claimed it died)
@@ -139,6 +140,8 @@ def scan_reference(data, *, scanner=None, now=None):
     """Cached face scan for these exact bytes."""
     sha = content_sha256(data)
     cached = ReferenceFaceScan.objects.filter(pk=sha).first()
+    if cached and cached.forced == REFUSED:      # BytePlus refused to register it as a portrait: send it inline, whatever the detector says
+        return sha, False
     if cached and cached.forced:        # an upload or a provider rejection said so: a face, whatever the detector version
         return sha, True
     from .face_detect import DETECTOR_VERSION, scan
@@ -223,12 +226,26 @@ def _activated(asset, values, now):
 
 
 def force_face(sha, forced, now=None):
-    """Record that these exact bytes are a face (a Gallery upload or a provider rejection), whatever the detector says."""
+    """Record that these exact bytes are a face (a Gallery upload or a provider rejection), whatever the detector says.
+    Returns whether the image now counts as a face. A refused-asset marker is not overturned by a provider rejection (that
+    would loop forever: refused as an asset, rejected inline, learned as a face, refused as an asset...); only an explicit
+    Gallery upload replaces it."""
     now = now or now_ms()
     row, created = ReferenceFaceScan.objects.get_or_create(pk=sha, defaults={'has_face': True, 'faces': 1, 'detector_version': 'forced',
                                                                              'error': None, 'scanned_at': now, 'forced': forced})
-    if not created:
-        ReferenceFaceScan.objects.filter(pk=sha).update(has_face=True, forced=row.forced or forced, scanned_at=now)
+    if created:
+        return True
+    if row.forced == REFUSED and forced != 'upload':
+        return False
+    ReferenceFaceScan.objects.filter(pk=sha).update(has_face=True, forced=forced if row.forced == REFUSED else row.forced or forced, scanned_at=now)
+    return True
+
+
+def refuse_as_asset(sha, now=None):
+    """BytePlus refused to register this image as a portrait. When only our detector thought it a face (not an upload,
+    not learned from a provider rejection) it is sent inline from now on."""
+    updated = ReferenceFaceScan.objects.filter(pk=sha, forced__isnull=True).update(has_face=False, forced=REFUSED, scanned_at=now or now_ms())
+    return bool(updated)
 
 
 def _claimants():
@@ -486,6 +503,8 @@ def _register(asset, data, storage, client, user_id, requeue=False):
         definite = isinstance(error.status, int) and 400 <= error.status < 500
         if definite:
             _finish(asset, status='FAILED', error_code=str(error.code)[:100])
+            if refuse_as_asset(asset.content_sha256):       # a guess of the detector: the job goes on with the image inline
+                return wait('portrait_registering', 1000)
             message = PORTRAIT_REFUSED if error.code == 'moderation_rejected' else PORTRAIT_UNPREPARED
             return failed(message + NOT_CHARGED, 'portrait_rejected')
         _finish(asset, status='UNCERTAIN', error_code=str(error.code)[:100])
