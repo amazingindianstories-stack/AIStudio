@@ -539,7 +539,7 @@ class JanitorRecoveryTests(GalleryBase):
 class ThrottleClassificationTests(GalleryBase):
     """Only an error about the image content refuses it as an asset; every other BytePlus error is a limit or a transient fault."""
     TRANSIENT = ((400, 'FlowLimitExceeded'), (400, 'RequestLimitExceeded'), (403, 'ServerOverloaded'), (503, 'ServiceUnavailable'),
-                 (400, 'ServerBusy'), (401, 'AuthFailure'), (403, 'AccessDenied'), (408, 'RequestTimeout'), (409, 'Conflict.busy'),
+                 (400, 'ServerBusy'), (408, 'RequestTimeout'), (409, 'Conflict.busy'),
                  (500, 'InternalError'), (502, 'BadGateway'))
 
     def test_no_transient_create_error_marks_a_face_as_refused(self):
@@ -600,6 +600,63 @@ class ThrottleClassificationTests(GalleryBase):
         self.assertEqual((ManagedPortraitAsset.objects.get().status, self.fake.live_asset_count()), ('UNCERTAIN', 1))
         managed_pool.janitor()
         self.assertEqual((ManagedPortraitAsset.objects.get().status, self.fake.live_asset_count()), ('DELETED', 0))
+
+
+    def test_an_unknown_client_error_fails_the_upload_without_a_pause_and_the_queue_moves_on(self):
+        self.add(landscape(1), landscape(2))
+        self.fake.asset_throttle, self.fake.asset_throttle_error = 1, (401, 'AuthFailure', 'bad credentials')
+        managed_pool.process_uploads()
+        first, second = ManagedPortraitAsset.objects.order_by('created_at')
+        self.assertEqual((first.status, first.error_code), ('FAILED', 'AuthFailure'))
+        self.assertIn(second.status, ('ACTIVE', 'PROCESSING'), 'the next upload was not blocked behind it')
+        self.assertEqual(managed_pool.pause_remaining(managed_pool.now_ms()), 0, 'no global pause for an error that is not a limit')
+        self.assertFalse(ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).exists())
+
+    def test_a_face_job_with_an_unknown_client_error_fails_at_once_uncharged_and_is_not_refused(self):
+        self.fake.asset_throttle, self.fake.asset_throttle_error = 1, (403, 'AccessDenied', 'nope')
+        row = self.run_worker(self.enqueue([self.upload(face_variant(40))]), passes=3)
+        self.assertEqual(row.status, 'failed')
+        self.assertIn('not charged', row.error)
+        self.assertEqual(managed_pool.pause_remaining(managed_pool.now_ms()), 0)
+        self.assertFalse(ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).exists())
+        self.assertFalse(self.fake.seedance_payloads, 'nothing was submitted')
+
+    def test_an_upload_throttled_for_ten_minutes_fails_and_the_queue_moves_on(self):
+        self.add(landscape(1), landscape(2))
+        clock = [managed_pool.now_ms()]
+        self.fake.asset_throttle, self.fake.asset_throttle_error = 1000, (400, 'ImageSizeLimitExceeded', 'too large')
+        with patch.object(managed_pool, 'now_ms', lambda: clock[0]):
+            for _ in range(9):
+                managed_pool.process_uploads()
+                self.assertEqual(ManagedPortraitAsset.objects.order_by('created_at').first().status, 'QUEUED')
+                clock[0] += 70000
+            clock[0] += 120000
+            pause = AppSetting.objects.get(key=managed_pool.PAUSE_KEY).value
+            self.fake.asset_throttle = 1
+            managed_pool.process_uploads()
+            first, second = ManagedPortraitAsset.objects.order_by('created_at')
+            self.assertEqual((first.status, first.error_code), ('FAILED', 'throttled'))
+            self.assertEqual(AppSetting.objects.get(key=managed_pool.PAUSE_KEY).value, pause, 'giving up does not extend the pause')
+            self.assertFalse(ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).exists())
+            self.fake.asset_throttle = 0
+            managed_pool.process_uploads()
+            self.assertIn(ManagedPortraitAsset.objects.get(pk=second.pk).status, ('ACTIVE', 'PROCESSING'))
+
+    def test_a_face_job_throttled_for_ten_minutes_fails_uncharged(self):
+        self.fake.asset_throttle, self.fake.asset_throttle_error = 1000, (400, 'ImageSizeLimitExceeded', 'too large')
+        clock = [managed_pool.now_ms()]
+        job = self.enqueue([self.upload(face_variant(41))])
+        with patch.object(managed_pool, 'now_ms', lambda: clock[0]):
+            for _ in range(20):
+                Generation.objects.filter(pk=job).update(next_poll_at=0)
+                executor.process_generation(job, heartbeat=False)
+                if Generation.objects.get(pk=job).status == 'failed':
+                    break
+                clock[0] += 70000
+        row = Generation.objects.get(pk=job)
+        self.assertEqual(row.status, 'failed')
+        self.assertIn('not charged', row.error)
+        self.assertFalse(ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).exists())
 
 
 class MissedFaceTests(GalleryBase):

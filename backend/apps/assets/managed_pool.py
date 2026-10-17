@@ -45,6 +45,7 @@ UPLOADS_PER_PASS, UPLOAD_PASS_SECONDS = 5, 6.0
 THROTTLED = re.compile(r'Throttl|RateLimit|TooManyRequests|LimitExceeded|QPM|QPS|Overload|Busy|ServiceUnavailable', re.I)
 # Only an error about the image itself refuses it as an asset (the image then goes inline); every other error is transient.
 CONTENT_REFUSAL = re.compile(r'^moderation_rejected$|^InvalidParameter|^Invalid(Image|Asset|URL)|SensitiveContent|Privacy|^Unsupported(Image|Media)', re.I)
+THROTTLE_GIVE_UP_MS = 10 * 60 * 1000     # an image throttled this long without a break is failed, not requeued again
 PAUSE_KEY, PAUSE_MS = 'portraitRegisterPauseUntil', 60000      # after a write limit, no new registration for a minute
 
 
@@ -73,6 +74,7 @@ def wait(reason, delay_ms):
 NOT_CHARGED = ' Nothing was submitted, so this was not charged.'
 PORTRAIT_REFUSED = 'This portrait was refused (content check).'
 PORTRAIT_UNPREPARED = 'This portrait could not be prepared.'
+PORTRAIT_UNAVAILABLE = "We couldn't prepare a portrait from one of your references right now."
 PORTRAIT_MISSING = 'The portrait disappeared while preparing. Try again.'
 PORTRAIT_BUSY = ('Portrait storage stayed busy for {minutes} minutes, so this generation was stopped.' + NOT_CHARGED.replace('submitted, so this', 'submitted, so it')
                  + ' Try again shortly.')
@@ -357,6 +359,17 @@ def content_refusal(error):
     return isinstance(error.status, int) and 400 <= error.status < 500 and not throttled(error) and bool(CONTENT_REFUSAL.search(str(error.code)))
 
 
+def _throttle_record(asset, now):
+    """{'first_at', 'last_at', 'count'} of the throttling this image has met without a break (an earlier row of the same
+    image counts: a generation claims a new row each time)."""
+    record = (asset.receipt or {}).get('throttle')
+    if not record:
+        prior = (ManagedPortraitAsset.objects.filter(content_sha256=asset.content_sha256, status__in=('QUEUED', 'FAILED'),
+                 receipt__throttle__last_at__gte=now - THROTTLE_GIVE_UP_MS).exclude(pk=asset.pk).order_by('-updated_at').first())
+        record = prior.receipt['throttle'] if prior else None
+    return {'first_at': record['first_at'] if record else now, 'last_at': now, 'count': (record['count'] if record else 0) + 1}
+
+
 def pause_remaining(now):
     """Milliseconds left of a registration pause after a BytePlus write limit, else 0."""
     from apps.admin_dashboard.models import AppSetting
@@ -402,7 +415,8 @@ def claim_upload(asset_id, now=None):
         if slot != 'free':
             return slot, 'delete'
         asset.status, asset.updated_at, asset.last_used_at = 'REGISTERING', now, now
-        asset.receipt = {'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4()), 'registered_at': now}   # the processing clock starts here, not at upload
+        asset.receipt = {'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4()), 'registered_at': now,
+                         **({'throttle': asset.receipt['throttle']} if (asset.receipt or {}).get('throttle') else {})}   # the processing clock starts here, not at upload
         asset.save(update_fields=['status', 'updated_at', 'last_used_at', 'receipt'])
         pin(asset.id, asset)
         return asset, 'register'
@@ -536,8 +550,14 @@ def _register(asset, data, storage, client, user_id, requeue=False):
         if throttled(error):
             # The asset API's write limit: nothing was created, the image was not judged. Pause new registrations
             # for everyone, and retry this one later (an upload keeps its place; a generation claims again).
-            _pause(now_ms())
-            _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='throttled')
+            # A limit that outlasts THROTTLE_GIVE_UP_MS is a per-image error in disguise: stop requeueing and pausing for it.
+            now = now_ms()
+            record = _throttle_record(asset, now)
+            if now - record['first_at'] > THROTTLE_GIVE_UP_MS:
+                _finish(asset, status='FAILED', error_code='throttled', receipt={**(asset.receipt or {}), 'throttle': record})
+                return failed(PORTRAIT_UNAVAILABLE + NOT_CHARGED + ' Retry to try again.', 'portrait_rejected')
+            _pause(now)
+            _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='throttled', receipt={**(asset.receipt or {}), 'throttle': record})
             return wait('portrait_paused', 15000)
         if content_refusal(error):
             _finish(asset, status='FAILED', error_code=str(error.code)[:100])
@@ -546,10 +566,10 @@ def _register(asset, data, storage, client, user_id, requeue=False):
             message = PORTRAIT_REFUSED if error.code == 'moderation_rejected' else PORTRAIT_UNPREPARED
             return failed(message + NOT_CHARGED, 'portrait_rejected')
         if isinstance(error.status, int) and 400 <= error.status < 500 and error.status not in (408, 409):
-            # Not about the image (credentials, a changed API, an unknown limit): nothing was created, so back off like a limit.
-            _pause(now_ms())
-            _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code=str(error.code)[:100])
-            return wait('portrait_paused', 15000)
+            # Not about the image and not a limit (credentials, a changed API): nothing was created and retrying blindly would
+            # block the queue, so it fails now (not refused: a later Retry or upload may succeed). No pause, no requeue.
+            _finish(asset, status='FAILED', error_code=str(error.code)[:100])
+            return failed(PORTRAIT_UNAVAILABLE + NOT_CHARGED + ' Retry to try again.', 'portrait_rejected')
         # 5xx, timeouts, network: the call may have created the asset, so reconcile by name later.
         _finish(asset, status='UNCERTAIN', error_code=str(error.code)[:100])
         return wait('portrait_uncertain', 10000)
@@ -563,7 +583,7 @@ def _register(asset, data, storage, client, user_id, requeue=False):
     _learn_capacity()
     active = response.get('Status') == 'Active'
     row = _finish(asset, byteplus_asset_id=identifier, status='ACTIVE' if active else 'PROCESSING',
-                  receipt={**asset.receipt, 'state': 'ACKNOWLEDGED', 'remote_id': identifier, 'verified_at': now_ms()})
+                  receipt={**{k: v for k, v in asset.receipt.items() if k != 'throttle'}, 'state': 'ACKNOWLEDGED', 'remote_id': identifier, 'verified_at': now_ms()})
     if active:
         with transaction.atomic():
             _locked()
