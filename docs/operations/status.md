@@ -199,11 +199,24 @@ Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the relea
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
-2026-10-17: release candidate on `main` (nothing deployed yet; veevee.ai still on `dpl_qgFu...`, Railway
-on `a3b5d12`). Carries the 2026-10-16 merges (card menu, Nano Banana 2.1, Seedance audio limits) plus
-automatic portraits v2, curated failure copy, image size limits and 8 jobs per user / 16 videos
-overall. Rollout per `managed-portraits.md` (deploy flag off, migrate 60 -> 62, cutover dry run then
-apply, flag on, frontend, raise `maxConcurrentJobs` to 8, face canary), each step owner-approved.
+2026-10-17: **released `ee821c0`** (portraits v2, failure copy, image limits, 8 jobs per user / 16 videos
+overall, plus the 2026-10-16 merges). Railway API `29e6134f`, generation `8ba0b263`, export `f7bdca38`,
+scheduler `e001f0e4`; migrations 60 -> 62 (owner, `assets.0005`, `assets.0006`); `portraits_cutover` removed
+28 old BytePlus groups / 46 assets and retired 239 `portrait_assets` rows; `VEEVEE_MANAGED_PORTRAITS=1` on API,
+generation and scheduler; `settings.maxConcurrentJobs` = 8; Vercel `dpl_CZA4uTxE9dcVPyNTBzLJsNCk9RpZ`.
+Rollback targets: Railway api `5fb7579d` (flag off, same image) or `bb17da6d` (pre-release; needs the
+`managed_portraits_rollback` first, migrations are at 62), generation `1c01462b`/`c3ad599f`, export `04df8e9e`,
+scheduler `bbc4ebd2`/`86fc3d69`; Vercel `dpl_qgFuZGXbXE8LKPAqJYjX8Ktj7PNC`. Old portraits cannot come back.
+Pending: owner face canary (paid Seedance job with a face reference); confirm the BytePlus account allows 16
+concurrent Seedance tasks.
+
+**Incident 2026-10-17 08:16-08:19 UTC (about 3 min):** `/api/*` on veevee.ai returned 503
+`BACKEND_ROUTING_UNAVAILABLE` after the first frontend deploy. Production deployments had received
+`DJANGO_API_ORIGIN` and `GOAL4_PRIVATE_INGRESS_SECRET` per deployment from a private file left on the old Mac;
+the project only had them for Preview. Rolled back to `dpl_qgFu...`, then added both as encrypted Production
+project variables (values derived from the Green API configuration, identical to Preview), built with
+`--skip-domain`, verified the deployment with `vercel curl`, then promoted. Future frontend deploys need no
+private file; always deploy with `--skip-domain`, verify, then promote.
 
 2026-10-15: the generation worker now runs the versioned image (`a3b5d12`, release above). Any
 later worker deploy from this branch carries the Magnific code; keep `VEEVEE_MAGNIFIC_UPSCALE` set.
