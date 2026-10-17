@@ -436,6 +436,14 @@ test('Goal2 actual touch swipe scrolls thumbnails and touch grip alone reorders'
   for (let i = 1; i <= 10; i++) { await touch('touchMove', bounds.x + bounds.width - 50 - i * 45, bounds.y + 40); await page.waitForTimeout(16); }
   await touch('touchEnd');
   await expect.poll(() => strip.evaluate(el => el.scrollLeft)).toBeGreaterThan(100);
+  // The swipe ends in a momentum fling; wait until it stops, or it keeps scrolling over the wheel below.
+  let previous = -1;
+  await expect.poll(async () => {
+    const current = await strip.evaluate(el => el.scrollLeft);
+    const settled = current === previous;
+    previous = current;
+    return settled;
+  }, { intervals: [150] }).toBe(true);
   expect(await order(page)).toEqual(ids);
   await strip.hover(); await page.mouse.wheel(-2000, 0);
   await expect.poll(() => strip.evaluate(el => el.scrollLeft)).toBeLessThan(5);
