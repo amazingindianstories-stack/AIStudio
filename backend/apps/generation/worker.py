@@ -1,5 +1,6 @@
 """Independent Python generation coordinator: no loopback Next API calls."""
 from concurrent.futures import ThreadPoolExecutor
+import ctypes
 import logging
 import time
 from threading import Event
@@ -11,6 +12,17 @@ from .services.executor import process_generation
 from .services.deadline import Cancellation
 
 logger = logging.getLogger('veevee.generation')
+
+
+def release_freed_memory():
+    """Hand freed heap pages back to the OS (glibc only; a no-op elsewhere).
+
+    Jobs decode and base64 multi-megabyte images on several threads; without this the freed pages stay
+    resident and RSS ratchets up for the life of the process."""
+    try:
+        ctypes.CDLL('libc.so.6').malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
 
 
 class WorkerCancellation(Cancellation):
@@ -51,6 +63,7 @@ def run_once(*, concurrency=2, limit=25, process=None, stop=None):
             return 'worker_error'
         finally:
             connections.close_all()
+            release_freed_memory()
     with ThreadPoolExecutor(max_workers=max(1, min(10, int(concurrency)))) as pool:
         results = list(pool.map(handle, due))
     return {'processed': len(results), 'outcomes': {value: results.count(value) for value in set(results)}}
