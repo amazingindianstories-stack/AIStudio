@@ -222,3 +222,51 @@ class RollbackPinTests(GalleryBase):
             with self.assertRaisesRegex(CommandError, 'may still exist at BytePlus'):       # past the pin check; stop before the migration
                 call_command('managed_portraits_rollback', '--confirm', stdout=io.StringIO())
         self.assertFalse(ManagedPortraitPin.objects.exists())
+
+
+class DeletedGroupTests(GalleryBase):
+    def group(self, name, **extra):
+        identifier = self.fake.asset_api('CreateAssetGroup', {'Name': name})[1]['Result']['Id']
+        self.fake.groups[identifier].update(extra)
+        return identifier
+
+    def asset(self, group, **extra):
+        identifier = self.fake.asset_api('CreateAsset', {'GroupId': group, 'URL': 'https://example.invalid/x.png', 'Name': 'n'})[1]['Result']['Id']
+        self.fake.assets[identifier].update(extra)
+        return identifier
+
+    def test_the_pool_never_adopts_a_group_that_is_deleted(self):
+        gone = self.group(managed_pool.POOL_GROUP_NAME, Status='Deleted', CreateTime='2000-01-01T00:00:00Z')
+        live = self.group(managed_pool.POOL_GROUP_NAME, Status='Active')
+        self.assertEqual(managed_pool.ensure_group(managed_pool.default_client()), live)
+        ManagedPortraitPool.objects.update(byteplus_group_id=None)
+        del self.fake.groups[live]
+        created = managed_pool.ensure_group(managed_pool.default_client())
+        self.assertNotIn(created, (gone, live), 'with only a deleted group left a new one is created')
+
+    def run_cutover(self, *args):
+        import io
+        from django.core.management import call_command
+        out = io.StringIO()
+        call_command('portraits_cutover', *args, stdout=out)
+        return out.getvalue()
+
+    def test_cutover_ignores_deleted_groups_and_never_deletes_an_asset_of_unknown_group(self):
+        pool = self.group(managed_pool.POOL_GROUP_NAME, Status='Active')
+        pool_asset = self.asset(pool)
+        dead_pool = self.group(managed_pool.POOL_GROUP_NAME, Status='Deleted')
+        old = self.group('character-1', Status='Active')
+        old_asset = self.asset(old)
+        no_group = self.asset(old, GroupId=None)                        # a listing row without a GroupId
+        stranger = self.asset(old, GroupId='group-not-listed')
+        blank = self.asset(old, GroupId='')
+        dry = self.run_cutover()
+        self.assertIn('1 group(s), 1 asset(s)', dry)
+        self.assertIn('3 asset(s) with a missing or unknown group were NOT touched', dry)
+        self.assertNotIn(dead_pool, dry)
+        self.run_cutover('--apply', '--expect-assets', '1', '--expect-groups', '1')
+        remaining = {key for key, value in self.fake.assets.items() if value['Status'] != 'Deleted'}
+        self.assertEqual(remaining, {pool_asset, no_group, stranger, blank}, 'only the asset of a known old group was deleted')
+        self.assertIn(pool, self.fake.groups)
+        self.assertNotIn(old, self.fake.groups)
+        self.assertNotIn(old_asset, remaining)

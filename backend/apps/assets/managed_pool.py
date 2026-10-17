@@ -375,7 +375,8 @@ def _pool_group(client):
     found, token = [], None
     for _ in range(50):
         page = client.list_asset_groups(name=POOL_GROUP_NAME, max_results=50, next_token=token)
-        found += [item for item in page.get('Items') or [] if item.get('Name') == POOL_GROUP_NAME and item.get('Id')]
+        found += [item for item in page.get('Items') or []      # a group BytePlus reports as Deleted is gone, whatever its name
+                  if item.get('Name') == POOL_GROUP_NAME and item.get('Id') and item.get('Status') != 'Deleted']
         token = page.get('NextToken')
         if not token:
             break
