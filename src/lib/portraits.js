@@ -151,17 +151,15 @@ export async function downloadPortrait(portrait) {
   }
 }
 
-/** Copy for an image whose size the portrait store would refuse; null when it fits. */
-export function portraitDimensionProblem(name, width, height) {
+/** Short copy for an image whose size the portrait store would refuse (the tile shows the file name); null when it fits. */
+export function portraitDimensionProblem(width, height) {
   if (!(width > 0) || !(height > 0)) return null;
-  const label = name || "This image";
-  if (Math.min(width, height) < PORTRAIT_MIN_SIDE || Math.max(width, height) > PORTRAIT_MAX_SIDE) {
-    return `${label} is ${width} x ${height} px. Portraits need at least ${PORTRAIT_MIN_SIDE} px and at most ${PORTRAIT_MAX_SIDE} px on each side.`;
-  }
+  const size = `${width} x ${height} px`;
+  if (Math.min(width, height) < PORTRAIT_MIN_SIDE) return `Too small (${size}). Use at least ${PORTRAIT_MIN_SIDE} px on each side.`;
+  if (Math.max(width, height) > PORTRAIT_MAX_SIDE) return `Too large (${size}). Use at most ${PORTRAIT_MAX_SIDE} px on each side.`;
   const ratio = width / height;
-  if (ratio < PORTRAIT_MIN_RATIO || ratio > PORTRAIT_MAX_RATIO) {
-    return `${label} is ${width} x ${height} px. Portraits need a width to height ratio between ${PORTRAIT_MIN_RATIO} and ${PORTRAIT_MAX_RATIO}.`;
-  }
+  if (ratio > PORTRAIT_MAX_RATIO) return `Too wide (${size}). Crop it closer to the face.`;
+  if (ratio < PORTRAIT_MIN_RATIO) return `Too tall (${size}). Crop it closer to the face.`;
   return null;
 }
 

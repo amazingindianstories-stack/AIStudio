@@ -26,9 +26,9 @@ class GalleryUploadLimits(GalleryBase):
     def test_sides_and_ratio_are_refused_per_item_and_a_good_image_still_registers(self):
         result = self.add(png(240, 180), png(7000, 700), png(1000, 300), landscape())['results']
         self.assertEqual([item.get('error') for item in result], ['PORTRAIT_IMAGE_SIZE', 'PORTRAIT_IMAGE_SIZE', 'PORTRAIT_IMAGE_RATIO', None])
-        self.assertEqual(result[0]['message'], 'This image is 240 x 180 px. Portraits need at least 300 px and at most 6000 px on each side.')
-        self.assertIn('7000 x 700 px', result[1]['message'])
-        self.assertEqual(result[2]['message'], 'This image is 1000 x 300 px. Portraits need a width to height ratio between 0.4 and 2.5, so not too wide or too tall.')
+        self.assertEqual(result[0]['message'], 'Too small (240 x 180 px). Use at least 300 px on each side.')
+        self.assertEqual(result[1]['message'], 'Too large (7000 x 700 px). Use at most 6000 px on each side.')
+        self.assertEqual(result[2]['message'], 'Too wide (1000 x 300 px). Crop it closer to the face.')
         self.assertTrue(result[3]['ok'])
 
     def test_the_bounds_are_inclusive(self):

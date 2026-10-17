@@ -2009,7 +2009,7 @@ export const useStore = create((set, get) => ({
       let problem = portraitFileProblem(file);
       if (!problem) {
         const size = await readPortraitDimensions(file);
-        if (size) problem = portraitDimensionProblem(file.name, size.width, size.height);
+        if (size) problem = portraitDimensionProblem(size.width, size.height);
       }
       if (problem) {
         fail(key, problem);

@@ -479,7 +479,7 @@ test("Portrait Gallery refuses oversized and non-image drops per file and keeps 
   await gallery.dispatchEvent("drop", { dataTransfer: transfer });
   await expect(gallery.getByText(/larger than 30 MB/)).toBeVisible();
   await expect(gallery.getByText("Only image files can be portraits.")).toBeVisible();
-  await expect(gallery.getByText("tiny.png is 1 x 1 px. Portraits need at least 300 px and at most 6000 px on each side.")).toBeVisible();
+  await expect(gallery.getByText("Too small (1 x 1 px). Use at least 300 px on each side.")).toBeVisible();
   await expect(gallery.getByRole("article", { name: good, exact: true })).toBeVisible({ timeout: 60000 });
   await gallery.getByRole("button", { name: "Dismiss" }).first().click();
   await expect(gallery.locator('[data-portrait-upload="error"]')).toHaveCount(2);

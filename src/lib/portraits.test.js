@@ -110,12 +110,12 @@ test("only image items are taken from a library drop, and drops from outside the
 });
 
 test("images outside 300-6000 px per side or a 0.4-2.5 ratio are refused with their size in the copy", () => {
-  assert.equal(portraitDimensionProblem("a.jpg", 1000, 1500), null);
-  assert.equal(portraitDimensionProblem("a.jpg", 300, 300), null);
-  assert.equal(portraitDimensionProblem("a.jpg", 6000, 3000), null);
-  assert.equal(portraitDimensionProblem("a.jpg", 0, 0), null, "unknown size is left to the server");
-  assert.equal(portraitDimensionProblem("photo.jpg", 240, 180), "photo.jpg is 240 x 180 px. Portraits need at least 300 px and at most 6000 px on each side.");
-  assert.match(portraitDimensionProblem("big.png", 6001, 4000), /at most 6000 px/);
-  assert.match(portraitDimensionProblem("wide.png", 3000, 1000), /ratio between 0.4 and 2.5/);
-  assert.match(portraitDimensionProblem("tall.png", 1000, 3000), /ratio between 0.4 and 2.5/);
+  assert.equal(portraitDimensionProblem(1000, 1500), null);
+  assert.equal(portraitDimensionProblem(300, 300), null);
+  assert.equal(portraitDimensionProblem(6000, 3000), null);
+  assert.equal(portraitDimensionProblem(0, 0), null, "unknown size is left to the server");
+  assert.equal(portraitDimensionProblem(240, 180), "Too small (240 x 180 px). Use at least 300 px on each side.");
+  assert.equal(portraitDimensionProblem(6001, 4000), "Too large (6001 x 4000 px). Use at most 6000 px on each side.");
+  assert.match(portraitDimensionProblem(3000, 1000), /^Too wide/);
+  assert.match(portraitDimensionProblem(1000, 3000), /^Too tall/);
 });

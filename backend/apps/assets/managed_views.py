@@ -84,6 +84,15 @@ def visible():
             .exclude(status='FAILED', origin='reference'))
 
 
+def dimension_problem(width, height):
+    size = f'{width} x {height} px'
+    if min(width, height) < image_limits.MIN_SIDE:
+        return f'Too small ({size}). Use at least {image_limits.MIN_SIDE} px on each side.'
+    if max(width, height) > image_limits.MAX_SIDE:
+        return f'Too large ({size}). Use at most {image_limits.MAX_SIDE} px on each side.'
+    return f'Too wide ({size}). Crop it closer to the face.' if width > height else f'Too tall ({size}). Crop it closer to the face.'
+
+
 def display_name(asset, creator):
     if asset.name:
         return asset.name
@@ -182,12 +191,8 @@ def register_one(user, item, created_at):
         return refuse('PORTRAIT_TOO_LARGE', 'This image is larger than 30 MB. Use a smaller file.')
     dimensions = image_limits.stored_dimensions(get_storage(), row.key)      # a bounded header read, never a full decode
     problem_kind = image_limits.side_problem(*dimensions) if dimensions else None
-    if problem_kind == 'size':
-        return refuse('PORTRAIT_IMAGE_SIZE', f'This image is {dimensions[0]} x {dimensions[1]} px. Portraits need at least '
-                      f'{image_limits.MIN_SIDE} px and at most {image_limits.MAX_SIDE} px on each side.')
-    if problem_kind == 'ratio':
-        return refuse('PORTRAIT_IMAGE_RATIO', f'This image is {dimensions[0]} x {dimensions[1]} px. Portraits need a width to height '
-                      f'ratio between {image_limits.MIN_RATIO:g} and {image_limits.MAX_RATIO:g}, so not too wide or too tall.')
+    if problem_kind:       # short copy: the card shows it under the file name (same wording as src/lib/portraits.js)
+        return refuse('PORTRAIT_IMAGE_SIZE' if problem_kind == 'size' else 'PORTRAIT_IMAGE_RATIO', dimension_problem(*dimensions))
     now = managed_pool.now_ms()
     values = managed_pool.setting_values()
     with transaction.atomic():
