@@ -256,7 +256,7 @@ function insertNewItem(
 }
 
 // Gallery bookkeeping that is not rendered: request ordering, ids being deleted, and the status poll.
-const portraitRuntime = { token: 0, refreshing: false, deleting: new Set(), uploadSeq: 0, registrationTail: Promise.resolve(), timer: null, attempt: 0 };
+const portraitRuntime = { token: 0, refreshing: false, deleting: new Map(), listSeq: 0, uploadSeq: 0, registrationTail: Promise.resolve(), timer: null, attempt: 0 };
 
 /** Poll only while the gallery is open and something is preparing, waiting or uploading. */
 function portraitPollWanted(state) {
@@ -1906,6 +1906,7 @@ export const useStore = create((set, get) => ({
     const fresh = !more && !refresh;
     const q = fresh && typeof query === "string" ? query : before.query;
     const token = fresh ? ++portraitRuntime.token : portraitRuntime.token;
+    const requestId = ++portraitRuntime.listSeq;
     if (fresh) {
       portraitRuntime.attempt = 0;
       set({ portraits: { ...before, query: q, loading: true, error: null } });
@@ -1919,8 +1920,11 @@ export const useStore = create((set, get) => ({
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not load portraits."));
       if (token !== portraitRuntime.token) return;
-      // A portrait the person just deleted can still be in a page fetched before the delete landed.
-      const page = (Array.isArray(json.portraits) ? json.portraits : []).filter((item) => !portraitRuntime.deleting.has(item.id));
+      // A portrait the person just deleted can still be in a page requested before the delete landed,
+      // even when that page resolves after it. Only a request made after the delete can be trusted.
+      const stale = (id) => requestId <= (portraitRuntime.deleting.get(id) ?? 0);
+      const page = (Array.isArray(json.portraits) ? json.portraits : []).filter((item) => !stale(item.id));
+      for (const [id, until] of portraitRuntime.deleting) if (until < requestId) portraitRuntime.deleting.delete(id);
       const next = json.next ?? null;
       const pendingBefore = get().portraits.items.filter(isPortraitPending).length;
       set((state) => {
@@ -2064,7 +2068,7 @@ export const useStore = create((set, get) => ({
     const unique = [...new Set(ids || [])];
     if (!unique.length) return { ok: true, removed: 0, failed: [] };
     const removedItems = get().portraits.items.filter((item) => unique.includes(item.id));
-    for (const id of unique) portraitRuntime.deleting.add(id);
+    for (const id of unique) portraitRuntime.deleting.set(id, Infinity);
     set((state) => ({ portraits: { ...state.portraits, items: state.portraits.items.filter((item) => !unique.includes(item.id)) } }));
     let failed = [];
     try {
@@ -2084,7 +2088,11 @@ export const useStore = create((set, get) => ({
     } catch (error) {
       failed = unique.map((id) => ({ id, error: error?.message || "Could not delete these portraits. Try again." }));
     } finally {
-      for (const id of unique) portraitRuntime.deleting.delete(id);
+      // Lists requested up to now may still carry the deleted cards; refused ones are not hidden at all.
+      for (const id of unique) {
+        if (failed.some((f) => f.id === id)) portraitRuntime.deleting.delete(id);
+        else portraitRuntime.deleting.set(id, portraitRuntime.listSeq);
+      }
     }
     if (failed.length) {
       const back = removedItems.filter((item) => failed.some((f) => f.id === item.id));

@@ -78,6 +78,29 @@ test("deletePortraits removes at once with one request and puts refused ones bac
   });
 });
 
+test("a refresh requested before a delete landed cannot bring the deleted card back, even if it resolves after", async () => {
+  await withStore(async (stub) => {
+    useStore.setState({ portraits: { ...useStore.getState().portraits, enabled: true, items: [p("b", 2), p("a", 1)] } });
+    let releaseList;
+    const held = new Promise((resolve) => { releaseList = resolve; });
+    let lists = 0;
+    stub(async (url) => {
+      if (url === "/api/portraits/delete") return json({ results: [{ id: "a", ok: true }] });
+      lists += 1;
+      if (lists === 1) await held;
+      return json({ enabled: true, portraits: [p("b", 2), p("a", 1)], next: null });
+    });
+    const stale = useStore.getState().loadPortraits({ refresh: true });
+    const result = await useStore.getState().deletePortraits(["a"]);
+    assert.equal(result.ok, true);
+    releaseList();
+    await stale;
+    assert.deepEqual(useStore.getState().portraits.items.map((i) => i.id), ["b"], "the stale page must not re-add a");
+    await useStore.getState().loadPortraits({ refresh: true });
+    assert.deepEqual(useStore.getState().portraits.items.map((i) => i.id), ["b", "a"], "a request made after the delete is trusted again");
+  });
+});
+
 test("deletePortraits restores everything when the request itself fails", async () => {
   await withStore(async (stub) => {
     useStore.setState({ portraits: { ...useStore.getState().portraits, enabled: true, items: [p("b", 2), p("a", 1)] } });
