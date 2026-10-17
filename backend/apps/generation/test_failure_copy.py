@@ -73,13 +73,13 @@ class FailureCopyTests(SimpleTestCase):
             with self.subTest(diagnostic=diagnostic[:60]):
                 self.check(row('image', 'Nano Banana Pro'), diagnostic, expected)
 
-    def test_face_copy_follows_managed_portraits(self):
+    def test_retry_promise_only_when_the_face_was_learned(self):
         diagnostic = 'Seedance error (400 InputImageSensitiveContentDetected.PrivacyInformation): real person'
-        with override_settings(VEEVEE_MANAGED_PORTRAITS=True):
-            self.assertEqual(copy.public_message(row(), diagnostic), portrait_prepare.REJECTED_MESSAGE)
-            self.assertEqual(copy.public_message(row(), seedance.MODERATION_MESSAGE), portrait_prepare.REJECTED_MESSAGE)
-        with override_settings(VEEVEE_MANAGED_PORTRAITS=False):
-            self.assertEqual(copy.public_message(row(), diagnostic), copy.FACE_GALLERY)
+        for managed in (True, False):
+            with self.subTest(managed=managed), override_settings(VEEVEE_MANAGED_PORTRAITS=managed):
+                self.assertEqual(copy.public_message(row(), diagnostic), copy.FACE_GALLERY)
+                self.assertEqual(copy.public_message(row(), seedance.MODERATION_MESSAGE), copy.FACE_GALLERY)
+                self.assertEqual(copy.public_message(row(), portrait_prepare.REJECTED_MESSAGE), portrait_prepare.REJECTED_MESSAGE)
 
     def test_curated_messages_pass_through_verbatim(self):
         for message in (

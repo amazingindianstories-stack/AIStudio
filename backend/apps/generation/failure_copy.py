@@ -137,9 +137,8 @@ def kind_of(row):
 
 
 def _face(row):
-    from .services import portrait_prepare
-    if portrait_prepare.enabled() and row.kind == 'video':
-        return portrait_prepare.REJECTED_MESSAGE         # the missed face is learned, so a Retry sends it as a portrait
+    # The Retry promise (portrait_prepare.REJECTED_MESSAGE) is stored, and passes through, only when the missed
+    # face was actually learned; any other face rejection points at the Gallery, which works in both modes.
     return FACE_GALLERY
 
 
