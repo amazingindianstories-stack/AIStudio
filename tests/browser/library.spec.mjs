@@ -450,7 +450,8 @@ test("a multi-file drop uploads three at a time and registers the portraits in d
   await expect(gallery.locator("[data-portrait-upload]")).toHaveCount(4);
   await expect(gallery.locator('[data-portrait-upload="uploading"]').first()).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("portrait-gallery-uploading.png") });
-  await expect(gallery.locator("article[data-portrait-id]")).toHaveCount(4, { timeout: 60000 });
+  // The Gallery is shared, so other specs' portraits may be listed too; count only this drop's.
+  await expect(gallery.locator(`article[data-portrait-id][aria-label^="${library.prefix} drop "]`)).toHaveCount(4, { timeout: 60000 });
   await expect(gallery.locator("[data-portrait-upload]")).toHaveCount(0);
   // Files 2 and 3 finished before the first, yet nothing was registered ahead of it; file 4 may
   // follow in a later request, but always after the ones before it.
