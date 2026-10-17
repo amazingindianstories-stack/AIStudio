@@ -5,6 +5,8 @@ and before the paid guard's one-shot claim — so waiting never consumes a paid
 attempt and the paid contract (which fingerprints the job inputs) is untouched.
 Resolved asset ids are read back from the pins table at submission time.
 """
+import logging
+import re
 import time
 
 from django.conf import settings
@@ -14,14 +16,18 @@ from apps.assets.models import ManagedPortraitAsset, ManagedPortraitPin, Managed
 from apps.generation.model_registry import is_provider_model
 from apps.media.keys import media_key_from_ref
 
+logger = logging.getLogger('veevee.portraits')
 WAITING_STATUS = 'PORTRAIT_WAITING'
+REJECTED_MESSAGE = ("A face in your references wasn't prepared as a portrait, so it was rejected. "
+                    "It is now marked as a portrait - Retry will send it correctly.")
 MESSAGES = {
-    'portrait_pool_full': 'Waiting for portrait space — other generations are using it.',
-    'portrait_evicting': 'Making room for your portrait…',
-    'portrait_registering': 'Preparing portraits…',
-    'portrait_processing': 'Preparing portraits…',
-    'portrait_uncertain': 'Confirming a portrait with BytePlus…',
-    'portrait_deleting': 'Making room for your portrait…',
+    'portrait_pool_full': 'Waiting for portrait space - other generations are using it.',
+    'portrait_queued': 'Waiting for portrait space - other generations are using it.',
+    'portrait_evicting': 'Making room for your portrait...',
+    'portrait_registering': 'Preparing portraits...',
+    'portrait_processing': 'Preparing portraits...',
+    'portrait_uncertain': 'Confirming a portrait...',
+    'portrait_deleting': 'Making room for your portrait...',
 }
 
 
@@ -76,6 +82,44 @@ def prepare(item, *, storage=None, client=None, now=None):
         if outcome.kind == 'wait' and worst.kind != 'wait':
             worst = outcome
     return worst
+
+
+INPUT_IMAGE_PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
+
+
+def privacy_rejection(message, raw=None):
+    """True only when Seedance refused an input image as a real person (a face): by the BytePlus error code
+    InputImageSensitiveContentDetected.PrivacyInformation when the payload has one (the code decides), else by its
+    input-image wording. Output video or audio privacy, text policy and any other rejection are not about our references."""
+    error = raw.get('data', raw).get('error') if isinstance(raw, dict) and isinstance(raw.get('data', raw), dict) else None
+    code = error.get('code') if isinstance(error, dict) else ''
+    if code:
+        return code == INPUT_IMAGE_PRIVACY_CODE
+    return bool(re.search(r'input image[^.]{0,80}\b(real person|privacy)', message or '', re.I))
+
+
+def learn_from_rejection(item, storage=None):
+    """Seedance refused an image we sent inline: a face the detector missed. Remember the exact bytes of every inline
+    reference (all references minus the ones sent as pinned assets) as a face, so a Retry registers them as portraits.
+    Returns how many images were learned. Never raises: the failure itself is already being recorded."""
+    try:
+        if not applies(item) or not is_provider_model(item.model or '', 'byteplus'):
+            return 0
+        from apps.media.storage import get_storage
+        storage = storage or get_storage()
+        sent_as_assets = set(assets_for(item.id))
+        learned = 0
+        for ref in reference_urls(item):
+            key = storage_key(ref)
+            if not key:
+                continue
+            sha = managed_pool.content_sha256(storage.read(key))
+            if sha not in sent_as_assets:
+                learned += 1 if managed_pool.force_face(sha, 'provider_rejection') else 0
+        return learned
+    except Exception:
+        logger.exception('portrait learning from a provider rejection failed')
+        return 0
 
 
 def assets_for(generation_id):

@@ -142,7 +142,7 @@ def upload_bytes(data, content_type, filename, purpose='image-reference'):
     return (ready if status == 200 and (ready.get('referenceId') or ready.get('key')) else None), ready
 
 
-status, pool = call('GET', '/api/portraits/managed')
+status, pool = call('GET', '/api/portraits')
 if isinstance(pool, dict) and pool.get('enabled'):
     face = open(os.path.join(HERE, '..', 'backend', 'testsupport', 'data', 'face_public_domain.jpg'), 'rb').read()
     ready, detail = upload_bytes(face, 'image/jpeg', 'face.jpg')
@@ -152,13 +152,32 @@ if isinstance(pool, dict) and pool.get('enabled'):
                                        'resolution': '480p', 'draftMode': True, 'duration': 5, 'referenceImages': [{'referenceId': ready['referenceId']}]})
         row = wait(identifier) if identifier else {}
         check('face video finished (portrait prepared automatically)', row.get('status') == 'succeeded', row.get('error') or row.get('status'))
-        status, pool = call('GET', '/api/portraits/managed')
-        assets = (pool or {}).get('assets', [])
-        check('Gallery lists the managed portrait as Ready', any(a['label'] == 'Ready' for a in assets), assets[:2])
+        status, pool = call('GET', '/api/portraits')
+        items = (pool or {}).get('portraits', [])
+        check('Gallery lists the automatic face as ready', any(p['state'] == 'ready' and p['origin'] == 'reference' for p in items), items[:2])
         state = json.loads(urllib.request.urlopen('http://127.0.0.1:18099/state', timeout=10).read())
         check('fake BytePlus holds the registered asset', state['live_assets'] >= 1, state['live_assets'])
         status, refused = call('POST', '/api/assets/portraits/upload', {'referenceId': ready['referenceId']})
-        check('manual portrait upload is refused', status == 410, refused)
+        check('old portrait upload route is refused', status == 410, refused)
+    # Gallery upload: stored privately, queued, registered by the scheduler first come first served.
+    portrait = bytes(face[:-2]) + b'\x00\xff\xd9'  # same picture, new bytes, so it is a new pool asset
+    ready, detail = upload_bytes(portrait, 'image/jpeg', 'gallery-face.jpg', purpose='portrait')
+    check('gallery portrait uploads directly', ready is not None, detail)
+    if ready:
+        status, created = call('POST', '/api/portraits', {'uploads': [{'referenceId': ready['referenceId'], 'name': 'Smoke portrait'}]})
+        result = ((created or {}).get('results') or [{}])[0]
+        check('gallery upload accepted', status == 200 and result.get('ok'), created)
+        identifier, deadline, item = (result.get('portrait') or {}).get('id'), time.time() + 120, {}
+        while identifier and time.time() < deadline:
+            status, pool = call('GET', '/api/portraits?q=Smoke+portrait')
+            item = next((p for p in (pool or {}).get('portraits', []) if p['id'] == identifier), {})
+            if item.get('state') in ('ready', 'unusable'):
+                break
+            time.sleep(3)
+        check('gallery upload becomes ready', item.get('state') == 'ready', item)
+        if identifier:
+            status, deleted = call('POST', '/api/portraits/delete', {'ids': [identifier]})
+            check('gallery delete', status == 200 and all(r.get('ok') for r in deleted.get('results', [])), deleted)
 else:
     print('INFO managed portraits are off on this stack', flush=True)
 

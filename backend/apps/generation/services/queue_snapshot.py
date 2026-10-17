@@ -3,7 +3,7 @@ SQL = r'''
 with global_user_limit as (
       select coalesce(
         max(case when value ~ '^[0-9]{1,9}$' and value::int >= 1 then value::int end),
-        4
+        %(user_default)s
       ) as value
       from settings where key = 'maxConcurrentJobs'
     ), running_by_user as (
@@ -21,7 +21,7 @@ with global_user_limit as (
         least(coalesce(
           case when ul.value ~ '^[0-9]{1,9}$' and ul.value::int >= 1 then ul.value::int end,
           gl.value
-        ), 4) as user_cap
+        ), %(user_max)s) as user_cap
       from generations q
       cross join global_user_limit gl
       left join running_by_user r on r.user_id = q.user_id

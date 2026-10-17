@@ -109,9 +109,9 @@ class CoordinatorTests(TransactionTestCase):
     def test_aggregate_user_limit_across_kinds_and_other_user_progress(self):
         owner = uuid4()
         items = [self.job(user_id=owner, kind='image' if i % 2 == 0 else 'video', created_at=1000000+i)
-                 for i in range(5)]
+                 for i in range(admission.PER_USER_MAX + 1)]
         outcomes = self.race([lambda item=item: admission.admit_job(item.id, now=1000100) for item in items])
-        self.assertEqual(sum(value is not None for value in outcomes), 4)
+        self.assertEqual(sum(value is not None for value in outcomes), admission.PER_USER_MAX)
         self.assertIsNotNone(admission.admit_job(self.job().id, now=1000100))
         self.assertTrue(admission.queue_position(items[-1].id, now=1000100)['heldForConcurrency'])
 

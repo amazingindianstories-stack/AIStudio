@@ -77,7 +77,7 @@ class ManagedPortraitAsset(models.Model):
     source_key = models.TextField()                  # original in our storage (never modified)
     registered_key = models.TextField(null=True)     # derived copy when the original is outside BytePlus bounds
     byteplus_asset_id = models.TextField(null=True, unique=True)
-    status = models.TextField()                      # REGISTERING PROCESSING ACTIVE DELETING DELETED FAILED UNCERTAIN
+    status = models.TextField()                      # QUEUED REGISTERING PROCESSING ACTIVE DELETING DELETED FAILED UNCERTAIN
     receipt = models.JSONField(db_default={})
     error_code = models.TextField(null=True)
     created_by_id = models.UUIDField(null=True)
@@ -86,6 +86,9 @@ class ManagedPortraitAsset(models.Model):
     last_used_at = models.BigIntegerField()
     expires_at = models.BigIntegerField(null=True)
     deleted_at = models.BigIntegerField(null=True)
+    name = models.TextField(null=True)               # Gallery name (null for automatic faces)
+    origin = models.TextField(default='reference', db_default='reference')    # reference | upload
+    hidden_at = models.BigIntegerField(null=True)    # deleted from the Gallery while a generation still holds it
     class Meta:
         managed = True
         db_table = 'managed_portrait_assets'
@@ -119,6 +122,7 @@ class ReferenceFaceScan(models.Model):
     detector_version = models.TextField()
     error = models.TextField(null=True)
     scanned_at = models.BigIntegerField()
+    forced = models.TextField(null=True)             # upload | provider_rejection: always a face, whatever the detector says
     class Meta:
         managed = True
         db_table = 'reference_face_scans'
@@ -129,6 +133,7 @@ class ManagedPortraitWait(models.Model):
     generation_id = models.UUIDField(primary_key=True)
     started_at = models.BigIntegerField()
     reason = models.TextField()
+    queued_at = models.BigIntegerField(null=True)    # when it started waiting for a slot (reason portrait_pool_full): its place in the queue
     class Meta:
         managed = True
         db_table = 'managed_portrait_waits'

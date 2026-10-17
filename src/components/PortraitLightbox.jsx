@@ -8,7 +8,6 @@ import {
   Download,
   Trash2,
   Sparkles,
-  Copy,
   Check,
   Pencil,
   Eye,
@@ -16,27 +15,24 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { inlineMediaUrl } from "@/lib/utils";
-import { portraitAttachAllowed, portraitReadiness } from "@/lib/portrait-readiness";
+import { downloadPortrait, portraitAttachable, portraitStateLabel } from "@/lib/portraits";
 
 export function PortraitLightbox({
   asset,
   embedded = false,
   assets = [],
-  groupName = "General Character",
   onClose,
   onSelectAsset,
   onAttach,
   onDelete,
   onRename,
 }) {
-  const [copiedId, setCopiedId] = useState(false);
   const [addedPrompt, setAddedPrompt] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(asset?.name || "");
   const [isZoomed, setIsZoomed] = useState(false);
 
-  const currentIndex = assets.findIndex((a) => (a.id || a.byteplusAssetId) === (asset?.id || asset?.byteplusAssetId));
+  const currentIndex = assets.findIndex((a) => a.id === asset?.id);
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex >= 0 && currentIndex < assets.length - 1;
 
@@ -82,50 +78,32 @@ export function PortraitLightbox({
   }, [asset]);
 
   if (!asset) return null;
-  const readiness = portraitReadiness(asset);
+  const stateLabel = portraitStateLabel(asset);
 
-  const handleCopyId = () => {
-    const idToCopy = asset.byteplusAssetId || asset.id;
-    if (!idToCopy) return;
-    navigator.clipboard.writeText(idToCopy).then(() => {
-      setCopiedId(true);
-      setTimeout(() => setCopiedId(false), 2000);
-    });
-  };
+  // Beside the name when embedded; at the end of the action row when full screen.
+  const closeButton = (
+    <button
+      type="button"
+      onClick={onClose}
+      aria-label="Close Lightbox"
+      className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
+    >
+      <X className="h-4 w-4" />
+    </button>
+  );
 
   const handleAttach = () => {
-    onAttach(asset, asset.name || groupName || "Character");
+    onAttach(asset);
     setAddedPrompt(true);
     setTimeout(() => setAddedPrompt(false), 2500);
   };
 
   const handleSaveName = async () => {
     if (nameInput.trim() && nameInput.trim() !== asset.name) {
-      const result = await onRename(asset.id || asset.byteplusAssetId, nameInput.trim());
+      const result = await onRename(asset.id, nameInput.trim());
       if (result?.ok === false) return;
     }
     setEditingName(false);
-  };
-
-  const handleDownload = async () => {
-    if (!asset.imageUrl) return;
-    try {
-      const targetUrl = inlineMediaUrl(asset.imageUrl);
-      const res = await fetch(targetUrl);
-      if (!res.ok) throw new Error("Download failed");
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${(asset.name || "virtual-portrait").replace(/\s+/g, "-")}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch {
-      // Fallback: direct window open if cross-origin fetch is blocked
-      window.open(asset.imageUrl, "_blank");
-    }
   };
 
   return (
@@ -139,7 +117,9 @@ export function PortraitLightbox({
       }}
     >
       {/* Top Header Controls Bar */}
-      <header className="relative z-10 flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-lg backdrop-blur-lg">
+      <header className={embedded
+        ? "relative z-10 grid w-full grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-3 rounded-xl border border-white/10 bg-ink-900/90 p-3 shadow-lg"
+        : "relative z-10 flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-lg backdrop-blur-lg"}>
         <div className="flex min-w-0 items-center gap-2.5">
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-brand/15 text-brand">
             <Eye className="h-4 w-4" />
@@ -175,7 +155,7 @@ export function PortraitLightbox({
             ) : (
               <div className="flex items-center gap-2">
                 <h3 className="truncate text-sm font-semibold text-white">
-                  {asset.name || "Virtual Portrait"}
+                  {asset.name || "Portrait"}
                 </h3>
                 <button
                   onClick={() => setEditingName(true)}
@@ -184,42 +164,26 @@ export function PortraitLightbox({
                 >
                   <Pencil className="h-3 w-3" />
                 </button>
-                <span className="hidden rounded bg-white/10 px-2 py-0.5 text-[10px] font-medium text-white/70 sm:inline-block">
-                  {groupName}
-                </span>
               </div>
             )}
-            <div className="flex items-center gap-2 text-[11px] text-white/50">
-              <span>Virtual Portrait</span>
-              {asset.byteplusAssetId && (
-                <>
-                  <span>•</span>
-                  <button
-                    onClick={handleCopyId}
-                    title="Copy asset ID"
-                    className="flex items-center gap-1 font-mono text-[10px] text-white/60 hover:text-brand"
-                  >
-                    <span>{asset.byteplusAssetId}</span>
-                    {copiedId ? (
-                      <Check className="h-3 w-3 text-emerald-400" />
-                    ) : (
-                      <Copy className="h-3 w-3" />
-                    )}
-                  </button>
-                </>
-              )}
+            <div className="text-[11px] text-white/50">
+              <span>Portrait</span>
             </div>
           </div>
         </div>
 
+        {embedded && closeButton}
+
         {/* Action Buttons */}
-        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+        <div className={embedded ? "col-span-2 grid grid-cols-3 gap-1.5 [&>button:not(:first-child)]:w-full" : "flex flex-wrap items-center gap-1.5 sm:gap-2"}>
           {/* Use in Prompt */}
           <button
             type="button"
-            disabled={!portraitAttachAllowed(asset)}
+            disabled={!portraitAttachable(asset)}
             onClick={handleAttach}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${
+              embedded ? "col-span-3 justify-center" : ""
+            } ${
               addedPrompt
                 ? "bg-emerald-500 text-zinc-950 font-bold"
                 : "bg-white text-zinc-950 hover:bg-zinc-200"
@@ -249,7 +213,7 @@ export function PortraitLightbox({
           {/* Download */}
           <button
             type="button"
-            onClick={handleDownload}
+            onClick={() => void downloadPortrait(asset)}
             title="Download high-resolution image"
             className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
           >
@@ -257,7 +221,7 @@ export function PortraitLightbox({
           </button>
 
           {/* Open full raw in new tab */}
-          {asset.imageUrl && (
+          {!embedded && asset.imageUrl && (
             <a
               href={asset.imageUrl}
               target="_blank"
@@ -279,17 +243,12 @@ export function PortraitLightbox({
             <Trash2 className="h-4 w-4" />
           </button>
 
-          <div className="mx-1 h-5 w-px bg-white/15" />
-
-          {/* Close */}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close Lightbox"
-            className="grid h-8 w-8 place-items-center rounded-lg text-white/70 transition hover:bg-white/10 hover:text-white"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          {!embedded && (
+            <>
+              <div className="mx-1 h-5 w-px bg-white/15" />
+              {closeButton}
+            </>
+          )}
         </div>
       </header>
 
@@ -317,7 +276,7 @@ export function PortraitLightbox({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={asset.imageUrl}
-            alt={asset.name || "Virtual Portrait"}
+            alt={asset.name || "Portrait"}
             className={`select-none transition-all duration-200 ${
               isZoomed
                 ? "max-w-none origin-center transform p-8 scale-150"
@@ -326,19 +285,16 @@ export function PortraitLightbox({
           />
 
           {/* Status Badge Over Image */}
-          {!isZoomed && (
+          {!isZoomed && stateLabel && (
             <div className="absolute left-3 top-3 flex items-center gap-2 pointer-events-none">
               <span
-                title={readiness.detail}
-                aria-label={`Portrait registration: ${readiness.label}`}
+                title={asset.message || undefined}
                 className={`flex items-center gap-1.5 rounded-md px-2 py-1 text-[11px] font-semibold backdrop-blur-md shadow-md ${
-                  readiness.state === "registered" ? "bg-ink-950/85 text-emerald-400 ring-1 ring-emerald-500/40"
-                    : readiness.state === "error" ? "bg-red-500/25 text-red-300 ring-1 ring-red-500/40"
-                    : "bg-ink-950/85 text-amber-200 ring-1 ring-amber-500/40"
+                  asset.state === "unusable" ? "bg-red-500/25 text-red-300 ring-1 ring-red-500/40" : "bg-ink-950/85 text-amber-200 ring-1 ring-amber-500/40"
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${readiness.state === "registered" ? "bg-emerald-400" : readiness.state === "error" ? "bg-red-400" : "bg-amber-300"}`} />
-                {readiness.label}
+                <span className={`h-1.5 w-1.5 rounded-full ${asset.state === "unusable" ? "bg-red-400" : "bg-amber-300"}`} />
+                {stateLabel}
               </span>
             </div>
           )}
@@ -369,8 +325,7 @@ export function PortraitLightbox({
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-          <span className="max-w-full truncate" title={asset.uploader?.name || "Unknown uploader"}>{asset.uploader?.name || "Unknown uploader"}</span>
-          <span>Role: <strong className="text-white/80">{asset.role || "reference"}</strong></span>
+          <span className="max-w-full truncate" title={asset.createdBy?.name || "Added automatically"}>{asset.createdBy?.name || "Added automatically"}</span>
           {asset.createdAt && (
             <span className={embedded ? "w-full" : "hidden sm:inline"}>
               Added {new Date(asset.createdAt).toLocaleDateString()}

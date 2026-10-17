@@ -10,7 +10,11 @@ the media fetcher here when VEEVEE_LOCAL_PROVIDERS=fake.
     POST /provider  {"method", "url", "body"}  -> {"status", "payload"}
     GET  /media?url=...                         -> media bytes
     GET  /state                                 -> pool, groups, recent calls
-    POST /control   {"asset_capacity", "seedance_status", "asset_activation_polls", "reset"}
+    POST /control   {"asset_capacity", "seedance_status", "asset_activation_polls", "reset",
+                     "reject_image_sha256": [hex, ...], "reject_mode": "create" | "async"}
+                    Seedance refuses inline images with those SHA-256s as a real person (the "missed face"):
+                    "create" fails task creation (400 InputImageSensitiveContentDetected.PrivacyInformation),
+                    "async" accepts the task and fails it when polled. "reset" also clears both.
 """
 import json
 import sys
@@ -57,7 +61,8 @@ class Handler(BaseHTTPRequestHandler):
                 assets = [{k: v for k, v in a.items() if not k.startswith('_')} for a in FAKE.assets.values()]
                 return self._json(200, {'asset_capacity': FAKE.asset_capacity, 'live_assets': FAKE.live_asset_count(),
                                         'assets': assets, 'groups': list(FAKE.groups.values()),
-                                        'seedance_tasks': FAKE.task_counter, 'calls': FAKE.calls[-50:]})
+                                        'seedance_tasks': FAKE.task_counter, 'calls': FAKE.calls[-50:],
+                                        'reject_image_sha256': sorted(FAKE.reject_image_sha256), 'reject_mode': FAKE.reject_mode})
         if target.path == '/health':
             return self._json(200, {'ok': True})
         self._json(404, {'error': 'not found'})
@@ -76,9 +81,12 @@ class Handler(BaseHTTPRequestHandler):
             with FAKE.lock:
                 if change.get('reset'):
                     FAKE.groups.clear(); FAKE.assets.clear(); FAKE.calls.clear(); FAKE.seedance_payloads.clear()
-                for key in ('asset_capacity', 'seedance_status', 'asset_activation_polls'):
+                    FAKE.reject_image_sha256.clear(); FAKE.rejected_tasks.clear(); FAKE.reject_mode = 'create'
+                for key in ('asset_capacity', 'seedance_status', 'asset_activation_polls', 'reject_mode'):
                     if key in change:
                         setattr(FAKE, key, change[key])
+                if 'reject_image_sha256' in change:
+                    FAKE.reject_image_sha256 = {str(value).lower() for value in change['reject_image_sha256'] or []}
             return self._json(200, {'ok': True})
         self._json(404, {'error': 'not found'})
 

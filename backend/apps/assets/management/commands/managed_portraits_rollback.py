@@ -1,19 +1,22 @@
-"""Undo assets.0005_managed_portraits so a pre-portrait launcher (which asserts 60 migration rows) can start again.
+"""Undo assets.0005_managed_portraits and 0006_portrait_gallery so a pre-portrait launcher (which asserts 60 migration rows) can start again.
 
     python manage.py managed_portraits_rollback                    report only (default)
     python manage.py managed_portraits_rollback --delete-remote --confirm
 
 Run with the database owner's DATABASE_URL (the migration drops tables) after VEEVEE_MANAGED_PORTRAITS has been
-turned off on every service. Refuses while a generation still holds a portrait. Only the five managed-portrait
-tables and their migration row are removed; generations, media and every other table are untouched.
+turned off on every service. Releases the pins nobody holds any more (the janitor and the executor no longer run with the flag off:
+finished or deleted generations, and Gallery uploads' own pins), then refuses while a queued or running generation still holds a portrait. Only the five managed-portrait
+tables and their migration rows are removed (migrating assets to 0004 reverses 0006 and 0005); generations, media and every other table are untouched.
 """
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
+from django.db.models import F
 from django.db.migrations.recorder import MigrationRecorder
 
 from apps.assets import managed_pool
+from apps.generation.models import Generation
 from apps.assets.models import ManagedPortraitAsset, ManagedPortraitPin, ManagedPortraitPool
 
 MIGRATION = ('assets', '0005_managed_portraits')
@@ -24,7 +27,7 @@ class Command(BaseCommand):
     help = 'Remove the managed portrait pool (remote assets, tables, migration row) for a launcher rollback.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--delete-remote', action='store_true', help="delete every asset in Veevee's BytePlus pool group first")
+        parser.add_argument('--delete-remote', action='store_true', help="delete every asset in Veevee's BytePlus pool group, then the group, first")
         parser.add_argument('--confirm', action='store_true', help='perform the rollback (default: report only)')
 
     def handle(self, *args, delete_remote=False, confirm=False, **options):
@@ -42,10 +45,14 @@ class Command(BaseCommand):
             return
         if settings.VEEVEE_MANAGED_PORTRAITS:
             raise CommandError('VEEVEE_MANAGED_PORTRAITS is on; turn it off on every service (and here) first.')
+        released, uploads = self._release_unheld_pins()
+        if released or uploads:
+            self.stdout.write(f'released {released} pin(s) of finished generations and {uploads} Gallery upload pin(s).')
+        pins = ManagedPortraitPin.objects.count()
         if pins:
             raise CommandError(f'{pins} portrait pin(s) are held by queued/running generations; wait for them to finish.')
         if group and delete_remote:
-            self.stdout.write(f'deleted {self._empty_group(group)} remote asset(s); the pool group is empty.')
+            self.stdout.write(f'deleted {self._empty_group(group)} remote asset(s) and the pool group.')
         elif live:
             raise CommandError(f'{live} portrait(s) may still exist at BytePlus; add --delete-remote (or remove them first).')
         call_command('migrate', MIGRATION[0], '0004', interactive=False, verbosity=1)
@@ -54,18 +61,29 @@ class Command(BaseCommand):
             rows = cursor.fetchone()[0]
             cursor.execute('SELECT count(*) FROM pg_tables WHERE schemaname = current_schema() AND tablename = ANY(%s)', [list(TABLES)])
             remaining = cursor.fetchone()[0]
-        if remaining or MigrationRecorder(connection).migration_qs.filter(app=MIGRATION[0], name=MIGRATION[1]).exists():
+        if remaining or MigrationRecorder(connection).migration_qs.filter(app=MIGRATION[0], name__in=(MIGRATION[1], '0006_portrait_gallery')).exists():
             raise CommandError('rollback incomplete: managed portrait tables or migration row remain')
         self.stdout.write(f'rolled back: django_migrations rows={rows}')
 
+    def _release_unheld_pins(self):
+        """Pins whose generation is no longer queued or running (or no longer exists), and uploads' own pins. Returns (generations, uploads)."""
+        uploads = ManagedPortraitPin.objects.filter(generation_id=F('asset_id')).delete()[0]
+        active = Generation.objects.filter(status__in=('queued', 'running')).values('id')
+        return ManagedPortraitPin.objects.exclude(generation_id__in=active).delete()[0], uploads
+
     def _empty_group(self, group):
-        """Delete every asset in Veevee's own pool group, re-listing until BytePlus reports it empty."""
+        """Delete every asset in Veevee's own pool group, re-listing until BytePlus reports it empty, then the group itself."""
         client = managed_pool.default_client()
         deleted = 0
         for _ in range(20):
             items = client.list_assets(group_ids=[group], max_results=100).get('Items') or []
             items = [item for item in items if item.get('Status') != 'Deleted']
             if not items:
+                try:
+                    client.delete_asset_group(group)
+                except Exception as error:      # already gone is fine; anything else must not be left behind silently
+                    if getattr(error, 'code', None) not in ('NotFound.group_id', 'NotFound'):
+                        raise CommandError(f'could not delete the pool group: {getattr(error, "code", type(error).__name__)}') from error
                 ManagedPortraitAsset.objects.filter(status__in=managed_pool.LIVE).update(
                     status='DELETED', deleted_at=managed_pool.now_ms(), error_code='rollback')
                 return deleted

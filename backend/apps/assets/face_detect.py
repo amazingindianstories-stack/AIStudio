@@ -38,6 +38,8 @@ def _decode(data):
     with Image.open(io.BytesIO(data)) as image:
         if image.width * image.height > MAX_PIXELS:
             raise ValueError('image has too many pixels')
+        if image.format == 'JPEG':      # let libjpeg decode at a reduced size (still >= the detection size) instead of the full frame
+            image.draft('RGB', (DETECT_LONG_SIDE, DETECT_LONG_SIDE))
         image = ImageOps.exif_transpose(image).convert('RGB')
         scale = min(1.0, DETECT_LONG_SIDE / max(image.size))
         if scale < 1.0:

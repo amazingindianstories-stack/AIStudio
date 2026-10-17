@@ -405,6 +405,22 @@ export function validateDepthDrop(e, storeState = null) {
 }
 
 /**
+ * The library items carried by an in-app drag, or null when the drop is not one
+ * (for example files from the desktop).
+ */
+export function droppedLibraryItems(e, storeState = null) {
+  const isAsset =
+    isAssetDragEvent(e) ||
+    Boolean(storeState?.draggedItem) ||
+    Boolean(storeState?.draggedAssets?.length);
+  if (!isAsset) return null;
+  const payload = getAssetDragData(e, storeState);
+  return payload.items.length > 0
+    ? payload.items
+    : payload.ids.map((id) => storeState?.items?.find((i) => i.id === id)).filter(Boolean);
+}
+
+/**
  * Validates drop compatibility for Portrait Gallery.
  * Accepts image files and image generations. Rejects videos.
  *
@@ -413,20 +429,9 @@ export function validateDepthDrop(e, storeState = null) {
  * @returns {{ valid: boolean, reason?: string }}
  */
 export function validatePortraitDrop(e, storeState = null) {
-  const isAsset =
-    isAssetDragEvent(e) ||
-    Boolean(storeState?.draggedItem) ||
-    Boolean(storeState?.draggedAssets?.length);
+  const items = droppedLibraryItems(e, storeState);
 
-  if (isAsset) {
-    const payload = getAssetDragData(e, storeState);
-    const items =
-      payload.items.length > 0
-        ? payload.items
-        : payload.ids
-            .map((id) => storeState?.items?.find((i) => i.id === id))
-            .filter(Boolean);
-
+  if (items) {
     if (items.length > 0) {
       const hasImage = items.some((item) => item.kind === "image");
       if (!hasImage) {

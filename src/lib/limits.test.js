@@ -10,8 +10,8 @@ test("limitDefinition: finds a registered key, undefined for an unknown one", ()
 test("admin limit validation rejects concurrency values above the hard maximum", () => {
   const def = limitDefinition("maxConcurrentJobs");
   assert.equal(isLimitValueAllowed(1, def), true);
-  assert.equal(isLimitValueAllowed(4, def), true);
-  assert.equal(isLimitValueAllowed(5, def), false);
+  assert.equal(isLimitValueAllowed(8, def), true);
+  assert.equal(isLimitValueAllowed(9, def), false);
   assert.equal(isLimitValueAllowed(Number.NaN, def), false);
 });
 
@@ -24,12 +24,12 @@ test("LIMIT_DEFINITIONS: every entry has a positive default at or above its own 
   }
 });
 
-test("maxConcurrentJobs defaults to four aggregate image/video slots and has a hard maximum", () => {
+test("maxConcurrentJobs defaults to eight aggregate image/video slots and has a hard maximum", () => {
   const def = limitDefinition("maxConcurrentJobs");
-  assert.equal(def.defaultValue, 4);
+  assert.equal(def.defaultValue, 8);
   assert.equal(def.min, 1);
-  assert.equal(def.max, 4);
-  assert.equal(parseLimitValue("99", def), 4);
+  assert.equal(def.max, 8);
+  assert.equal(parseLimitValue("99", def), 8);
 });
 
 const maxPromptLength = limitDefinition("maxPromptLength");

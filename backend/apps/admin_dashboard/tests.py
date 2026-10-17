@@ -33,7 +33,7 @@ class SettingsTests(TransactionTestCase):
         self.assertEqual(self.client.get('/api/settings').status_code,401)
         self.cookie()
         response = self.client.get('/api/settings')
-        self.assertEqual(response.json(), {'maxPromptLength':30000,'maxConcurrentJobs':4})
+        self.assertEqual(response.json(), {'maxPromptLength':30000,'maxConcurrentJobs':8})
         self.assertNotIn('veevee_session', response.cookies)
         self.cookie(version=1)
         self.assertEqual(self.client.get('/api/settings').status_code,401)
@@ -44,7 +44,7 @@ class SettingsTests(TransactionTestCase):
             c.execute("INSERT INTO user_limits VALUES (%s,'maxPromptLength','nonsense',0),(%s,'maxConcurrentJobs','9tail',0)",[UID,UID])
         self.cookie(age=2*24*60*60*1000)
         response=self.client.get('/api/settings')
-        self.assertEqual(response.json(),{'maxPromptLength':30000,'maxConcurrentJobs':4})
+        self.assertEqual(response.json(),{'maxPromptLength':30000,'maxConcurrentJobs':8})
         self.assertEqual(response.cookies['veevee_session']['samesite'],'Lax')
         self.assertTrue(response.cookies['veevee_session']['httponly'])
         with connection.cursor() as c:
@@ -115,6 +115,9 @@ class CurrentNodeLimitParityTests(TransactionTestCase):
                                 input=json.dumps(cases), text=True, capture_output=True,
                                 check=True, cwd=root)
         expected = json.loads(result.stdout)
-        actual = [{key: parse(raw, definition) for key, definition in LIMITS.items()}
+        # The recording was made when the per-user cap was 4; parser semantics are checked against that definition.
+        recorded = {**LIMITS, 'maxConcurrentJobs': (4, 1, 4)}
+        actual = [{key: parse(raw, definition) for key, definition in recorded.items()}
                   for raw in cases]
         self.assertEqual(actual, expected)
+        self.assertEqual(LIMITS['maxConcurrentJobs'], (8, 1, 8), 'eight jobs per user by default, and at most eight')

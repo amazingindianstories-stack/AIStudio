@@ -52,8 +52,9 @@ EXPECTED = {'/api/admin/activity': ['GET'],
  '/api/generate/video/status': ['GET'],
  '/api/generations/[id]/download': ['GET', 'HEAD'],
  '/api/media-resolve': ['POST'],
- '/api/portraits/managed': ['GET'],
- '/api/portraits/managed/[id]': ['DELETE'],
+ '/api/portraits': ['GET', 'POST'],
+ '/api/portraits/[id]': ['PATCH'],
+ '/api/portraits/delete': ['POST'],
  '/api/admin/portrait-settings': ['GET', 'POST'],
  '/api/history/counts': ['GET'],
  '/api/history/exports/[id]/download': ['GET'],
@@ -119,10 +120,10 @@ def leaves(patterns,prefix=''):
 
 @override_settings(ROOT_URLCONF='config.urls')
 class CompleteApiCoverageTests(SimpleTestCase):
-    def test_all_95_explicit_methods_resolve_to_the_declared_python_handlers(self):
+    def test_all_97_explicit_methods_resolve_to_the_declared_python_handlers(self):
         # 90 migrated methods, the media resolver and the managed-portrait routes.
-        self.assertEqual(len(EXPECTED),74)
-        self.assertEqual(sum(map(len,EXPECTED.values())),95)
+        self.assertEqual(len(EXPECTED),75)
+        self.assertEqual(sum(map(len,EXPECTED.values())),97)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -187,8 +188,9 @@ NEGATIVE_STATUS = {
  '/api/generate/video/status': {'GET':401},
  '/api/generations/[id]/download': {'GET':401,'HEAD':401},
  '/api/media-resolve': {'POST':401},
- '/api/portraits/managed': {'GET':401},
- '/api/portraits/managed/[id]': {'DELETE':401},
+ '/api/portraits': {'GET':401,'POST':401},
+ '/api/portraits/[id]': {'PATCH':401},
+ '/api/portraits/delete': {'POST':401},
  '/api/admin/portrait-settings': {'GET':401,'POST':401},
  '/api/history/counts': {'GET':401},
  '/api/history/exports/[id]/download': {'GET':401},
@@ -283,7 +285,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         self.assertEqual(self.write_attempts,[])
         for effect in self.effects: effect.assert_not_called()
 
-    def test_all_90_methods_match_negative_request_contract_without_effects(self):
+    def test_all_97_methods_match_negative_request_contract_without_effects(self):
         # Empty/malformed payload failures on public routes are not proof of
         # account-only authorization. Paid video now requires login; valid-payload
         # zero-effects and owner checks are covered by enqueue contract tests.
@@ -303,7 +305,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*95)
+            self.assertEqual(len(seen),3*97)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):

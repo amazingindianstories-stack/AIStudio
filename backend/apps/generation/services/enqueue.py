@@ -5,6 +5,7 @@ import time
 from urllib.parse import unquote
 import math
 import uuid
+from django.conf import settings
 from django.db import transaction
 from apps.admin_dashboard.models import AppSetting, UserLimit
 from apps.admin_dashboard.views import LIMITS, parse
@@ -14,6 +15,7 @@ from apps.canvas.serialization import JS_WHITESPACE
 from apps.common.javascript import UNDEFINED, truthy, string, utf16_length
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
+from apps.generation import image_limits
 from apps.generation.model_registry import capability, is_provider_model
 from apps.generation.models import Generation
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
@@ -216,6 +218,17 @@ def verify_registered_portraits(item, body, client_factory=None):
         raise InvalidRequest('Portrait unavailable or remote registration could not be verified. No generation was queued.') from None
 
 
+def verify_no_retired_portrait_links(item, body):
+    """Automatic portraits: a bare asset:// link names a BytePlus asset of the old Gallery, deleted by portraits_cutover.
+    Refused here with the reference named; an image carrying only a #bp_asset_id marker is fine, the worker pools its bytes."""
+    labelled = [(f'@img{index}', value, index) for index, value in enumerate(body.get('referenceImages') or [], start=1)]
+    labelled += [(label, item.get(key), None) for key, label in (('firstFrame', 'The first frame'), ('lastFrame', 'The last frame'),
+                                                                 ('continuationFrame', 'The continuation frame'))]
+    for label, value, index in labelled:
+        if isinstance(value, str) and value.startswith('asset://'):
+            raise PortraitUnavailable(f'{label} is an old portrait link that no longer exists. Add the image again; nothing was queued.', index)
+
+
 class PortraitUnavailable(InvalidRequest):
     def __init__(self, message, reference_index=None):
         super().__init__(message)
@@ -323,10 +336,55 @@ def measure_reference_audio(ref):
     return audio_seconds(data)
 
 
+class ReferenceImageRejected(InvalidRequest):
+    def __init__(self, message, reference_index=None):
+        super().__init__(message)
+        self.reference_index = reference_index
+
+
+# Reading headers happens inside the enqueue request too; references reached after this budget are left to the worker's check.
+IMAGE_CHECK_BUDGET_SECONDS = 8.0
+
+
+def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMAGE_CHECK_BUDGET_SECONDS, clock=time.monotonic):
+    """Refuse Seedance image references the provider would reject on size, before anything is queued.
+
+    BytePlus needs a short side of at least 300 px and a ratio of 0.4-2.5. Larger images are not an error:
+    inline references are downscaled to 2048 px and pool assets are resized into the 6000 px / 30 MB bounds.
+    An image that cannot be read, or is reached after the time budget, is let through; the worker repeats
+    this check before any paid submission.
+    """
+    if not is_provider_model(item.get('model') or '', 'byteplus'):
+        return
+    from .video_execution import combined_references, read_assets
+    uploads = list(body.get('referenceImages') or [])
+    labelled = [(ref['tag'], ref['imageUrl'], int(tag[4:]) if (tag := ref['tag']).startswith('@img') and tag[4:].isdigit() else None) for ref in combined_references(item.get('prompt'), read_assets(item.get('projectId')), uploads)]
+    labelled += [(label, item.get(key), None) for key, label in (('firstFrame', 'The first frame'), ('lastFrame', 'The last frame'))]
+    measure = measure or image_limits.reference_dimensions
+    deadline = clock() + budget_seconds
+    for label, ref, index in labelled:
+        if not isinstance(ref, str) or not ref:
+            continue
+        if clock() >= deadline:
+            logger.warning('reference_image_check_budget_exhausted unchecked_from=%s', label)
+            break
+        size = measure(ref)
+        if size and image_limits.seedance_problem(*size):
+            raise ReferenceImageRejected(image_limits.seedance_message(label, *size, image_limits.SIZE_TAIL), index)
+
+
 def prepare_video(item, body, identifier):
     verify_reference_audio_durations(item)
-    verify_portrait_references(item, body)
-    verify_registered_portraits(item, body)
+    managed = getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False)
+    model = item.get('model') or ''
+    pooled = managed and not is_provider_model(model, 'omni') and not is_provider_model(model, 'higgsfield')
+    if pooled:      # the automatic pool makes every face a portrait at run time; old #bp_asset_id markers are ignored, not checked remotely
+        verify_no_retired_portrait_links(item, body)
+    elif not managed:
+        verify_portrait_references(item, body)
+    verify_reference_image_sizes(item, body)
+    if not pooled:
+        verify_registered_portraits(item, body)
     result = {'costCents':compute_cost(item,read_pricing())}
     if has_length(body.get('referenceImages')): result['referenceImages'] = save_reference_images(body['referenceImages'],identifier)
     for field,suffix,output in [('firstFrame','firstframe','continuationFrameUrl'),('lastFrame','lastframe','lastFrameUrl')]:

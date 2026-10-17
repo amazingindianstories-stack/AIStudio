@@ -11,7 +11,7 @@ from apps.generation.prompting.video_directive import build_video_directive
 from apps.generation.prompting.legacy_templates import T as LEGACY
 from .transport import HttpTransport,ProviderError,required_key
 
-MODERATION_MESSAGE = "BytePlus rejected the reference image — its privacy / anti-deepfake filter flags photorealistic faces (it can't tell an AI-generated face from a real one). Retry as text-to-video, or use a clearly stylized reference."
+MODERATION_MESSAGE = "BytePlus rejected the reference image - its privacy / anti-deepfake filter flags photorealistic faces (it can't tell an AI-generated face from a real one). Retry as text-to-video, or use a clearly stylized reference."
 
 
 class SeedanceError(ProviderError):
@@ -26,8 +26,8 @@ def is_moderation_message(text):
     return bool(re.search('SensitiveContent|Privacy|real person|portrait|sensitive',text or '',re.I))
 
 
-TEXT_POLICY_MESSAGE = 'BytePlus rejected the prompt under its text content policy. Review the prompt before submitting a new request.'
-NEUTRAL_POLICY_MESSAGE = 'BytePlus rejected the input under its content policy. Review the provider rejection details before submitting a new request.'
+TEXT_POLICY_MESSAGE = 'The video provider rejected the prompt under its text content policy. Review the prompt before submitting a new request.'
+NEUTRAL_POLICY_MESSAGE = 'The video provider rejected the input under its content policy. Change the prompt or references before submitting a new request.'
 
 
 def friendly_error(status,body):
@@ -42,6 +42,7 @@ def friendly_error(status,body):
     else:
         result = SeedanceError(f'Seedance error ({status} {code}): {message or body[:300]}' if code else
             f'Seedance create error {status}: {body[:400]}',code='seedance_error',status=status)
+    result.upstream_code = code      # the BytePlus error code, kept for callers that need it (not persisted)
     if status == 404 or code == 'InvalidEndpointOrModel.NotFound':
         return result
     # Name the policy that rejected the request; code/status stay unchanged.

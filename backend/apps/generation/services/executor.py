@@ -208,6 +208,8 @@ def execute_admitted(item, *, owner, signal=None, image_execute=None, video_subm
         if getattr(error, 'provider_response', None):
             response = error.provider_response
             responses = response if isinstance(response, list) else [response]
+        if getattr(error, 'code', None) == 'moderation' and portrait_prepare.privacy_rejection(str(error), {'error': {'code': getattr(error, 'upstream_code', '')}}) and portrait_prepare.learn_from_rejection(item):
+            failure['error'] = portrait_prepare.REJECTED_MESSAGE     # a face the detector missed is now a portrait; Retry sends it as one
         if submission_uncertain(error):
             # The provider may have accepted (and billed) this request. Keep the
             # evidence and say so; nothing here ever re-submits automatically.
@@ -331,8 +333,7 @@ def _prepare_portraits(item, owner):
                 publish_best_effort(item)
             coordinator.schedule_generation(item, delay_ms=outcome.delay_ms, owner=owner)
             return {'kind': 'portrait_waiting', 'reason': outcome.reason}
-        outcome = managed_pool.failed(f'Portrait storage stayed busy for {limit // 60000} minutes, so this generation was stopped. '
-                                      'Nothing was submitted, so it was not charged. Try again shortly.', 'portrait_wait_timeout')
+        outcome = managed_pool.failed(managed_pool.PORTRAIT_BUSY.format(minutes=limit // 60000), 'portrait_wait_timeout')
     coordinator.expected_version(item, owner=owner).update(status='failed', error=outcome.message, completed_at=now,
         provider_status=None, progress_message=None, updated_at=max(now, item.updated_at + 1))
     portrait_prepare.finish(item.id)

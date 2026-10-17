@@ -1,6 +1,5 @@
 "use client";
 
-import { portraitRegistrationWarning, portraitAttachAllowed, portraitReferenceUrl } from "./portrait-readiness";
 import { notify, dismissNotice } from "./notify";
 
 // The last reference-audio limit notice, so a later attempt can withdraw it once the clips change.
@@ -76,6 +75,22 @@ import {
   putMaterialCache,
 } from "./material-cache";
 import { askText } from "./ask-text";
+import { uploadFileDirect } from "./client-reference-upload";
+import {
+  PORTRAIT_UPLOAD_CONCURRENCY,
+  appendPortraitPage,
+  createOrderedRegistrar,
+  isPortraitPending,
+  mergePortraitPage,
+  portraitAttachable,
+  portraitDimensionProblem,
+  portraitFileProblem,
+  readPortraitDimensions,
+  portraitNameFromFile,
+  portraitPollDelay,
+  runPool,
+  sortPortraits,
+} from "./portraits";
 
 const EMPTY_COUNTS = {
   project: { total: 0, unsorted: 0, byFolder: {} },
@@ -240,6 +255,28 @@ function insertNewItem(
   });
 }
 
+// Gallery bookkeeping that is not rendered: request ordering, ids being deleted, and the status poll.
+const portraitRuntime = { token: 0, refreshing: false, deleting: new Map(), listSeq: 0, uploadSeq: 0, registrationTail: Promise.resolve(), timer: null, attempt: 0 };
+
+/** Poll only while the gallery is open and something is preparing, waiting or uploading. */
+function portraitPollWanted(state) {
+  return state.portraitGalleryOpen && state.portraits.enabled === true
+    && (state.portraitUploads.some((u) => u.state === "uploading" || u.state === "registering")
+      || state.portraits.items.some(isPortraitPending));
+}
+
+function schedulePortraitPoll(get) {
+  if (portraitRuntime.timer || !portraitPollWanted(get())) return;
+  portraitRuntime.timer = setTimeout(() => {
+    portraitRuntime.timer = null;
+    if (!portraitPollWanted(get())) { portraitRuntime.attempt = 0; return; }
+    // A hidden tab skips the request and checks again later.
+    if (typeof document !== "undefined" && document.hidden) { schedulePortraitPoll(get); return; }
+    portraitRuntime.attempt += 1;
+    void get().loadPortraits({ refresh: true });
+  }, portraitPollDelay(portraitRuntime.attempt));
+}
+
 // One read-only feed observes work performed by Django workers, including jobs
 // submitted by another browser or continuing after this browser closes.
 async function apiFetch(input, init) {
@@ -343,9 +380,6 @@ export const useStore = create((set, get) => ({
   referenceImages: [],
   // Reference values the server refused as removed/unready portraits; shown on their cards.
   unavailableReferences: [],
-  // BytePlus portrait library capacity seen this session (ms timestamps; 0 = not seen).
-  portraitQuotaFullAt: 0,
-  portraitQuotaFreedAt: 0,
   referenceIds: [],
   referenceReorderUndo: null,
   recentSubmission: null,
@@ -428,12 +462,11 @@ export const useStore = create((set, get) => ({
   assetLibraryOpen: false,
   editingAsset: null,
 
-  portraitGroups: [],
-  portraitGroupsLoading: false,
-  portraitAssets: [],
-  portraitAssetsLoading: false,
   portraitGalleryOpen: false,
-  selectedPortraitGroup: null,
+  // The shared Portrait Gallery (VEEVEE_MANAGED_PORTRAITS). enabled === null until the backend answers.
+  portraits: { enabled: null, items: [], next: null, loading: false, loadingMore: false, error: null, query: "" },
+  // Gallery uploads that have no server row yet (uploading, registering or refused), newest drop first.
+  portraitUploads: [],
 
   currentUser: null,
   usersById: {},
@@ -1866,265 +1899,220 @@ export const useStore = create((set, get) => ({
 
   setPortraitGalleryOpen: (portraitGalleryOpen) => set({ portraitGalleryOpen }),
 
-  // Automatic portrait pool (VEEVEE_MANAGED_PORTRAITS). enabled === null until the backend answers.
-  managedPortraits: { enabled: null, assets: [], usage: null, loading: false, error: null },
-  loadManagedPortraits: async () => {
-    set((state) => ({ managedPortraits: { ...state.managedPortraits, loading: true } }));
+  loadPortraits: async ({ more = false, refresh = false, query } = {}) => {
+    const before = get().portraits;
+    if (more && (!before.next || before.loading || before.loadingMore)) return;
+    if (refresh && portraitRuntime.refreshing) return;
+    const fresh = !more && !refresh;
+    const q = fresh && typeof query === "string" ? query : before.query;
+    const token = fresh ? ++portraitRuntime.token : portraitRuntime.token;
+    const requestId = ++portraitRuntime.listSeq;
+    if (fresh) {
+      portraitRuntime.attempt = 0;
+      set({ portraits: { ...before, query: q, loading: true, error: null } });
+    } else if (more) set({ portraits: { ...before, loadingMore: true } });
+    else portraitRuntime.refreshing = true;
     try {
-      const res = await apiFetch("/api/portraits/managed", { cache: "no-store" });
+      const params = new URLSearchParams({ limit: "100" });
+      if (more) params.set("cursor", before.next);
+      if (q) params.set("q", q);
+      const res = await apiFetch(`/api/portraits?${params}`, { cache: "no-store" });
       const json = await res.json().catch(() => ({}));
-      if (res.status === 404) {
-        set({ managedPortraits: { enabled: false, assets: [], usage: null, loading: false, error: null } });
+      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not load portraits."));
+      if (token !== portraitRuntime.token) return;
+      // A portrait the person just deleted can still be in a page requested before the delete landed,
+      // even when that page resolves after it. Only a request made after the delete can be trusted.
+      const stale = (id) => requestId <= (portraitRuntime.deleting.get(id) ?? 0);
+      const page = (Array.isArray(json.portraits) ? json.portraits : []).filter((item) => !stale(item.id));
+      for (const [id, until] of portraitRuntime.deleting) if (until < requestId) portraitRuntime.deleting.delete(id);
+      const next = json.next ?? null;
+      const pendingBefore = get().portraits.items.filter(isPortraitPending).length;
+      set((state) => {
+        const current = state.portraits;
+        const settled = { loading: false, loadingMore: false, error: null, query: q };
+        if (json.enabled !== true) return { portraits: { ...current, ...settled, enabled: false, items: [], next: null } };
+        if (more) return { portraits: { ...current, ...settled, enabled: true, items: appendPortraitPage(current.items, page), next } };
+        if (refresh) {
+          const merged = mergePortraitPage(current.items, page, next);
+          return { portraits: { ...current, ...settled, enabled: true, items: merged.items, next: merged.keepNext ? current.next : next } };
+        }
+        return { portraits: { ...current, ...settled, enabled: true, items: page, next } };
+      });
+      if (get().portraits.items.filter(isPortraitPending).length !== pendingBefore) portraitRuntime.attempt = 0;
+    } catch (error) {
+      if (token === portraitRuntime.token) {
+        set((state) => ({ portraits: { ...state.portraits, loading: false, loadingMore: false, error: error.message || "Could not load portraits." } }));
+      }
+    } finally {
+      if (refresh) portraitRuntime.refreshing = false;
+      schedulePortraitPoll(get);
+    }
+  },
+
+  // Bytes go straight to storage three at a time; the finished ones are then registered with the
+  // gallery in the order they were dropped, so the first dropped is the first prepared. That order
+  // holds across overlapping drops: a drop registers only after every earlier drop has settled.
+  uploadPortraits: async (files) => {
+    const list = Array.from(files || []);
+    if (!list.length) return { added: 0, failed: 0 };
+    portraitRuntime.attempt = 0;
+    const entries = list.map((file) => ({
+      key: `${Date.now().toString(36)}-${++portraitRuntime.uploadSeq}`,
+      name: portraitNameFromFile(file),
+      state: "uploading",
+      progress: 0,
+      error: null,
+      previewUrl: typeof Blob !== "undefined" && file instanceof Blob && typeof URL.createObjectURL === "function" && file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+    }));
+    set((state) => ({ portraitUploads: [...entries, ...state.portraitUploads] }));
+    const patch = (key, fields) => set((state) => ({
+      portraitUploads: state.portraitUploads.map((upload) => (upload.key === key ? { ...upload, ...fields } : upload)),
+    }));
+    const drop = (key) => set((state) => {
+      const gone = state.portraitUploads.find((upload) => upload.key === key);
+      if (gone?.previewUrl) URL.revokeObjectURL?.(gone.previewUrl);
+      return { portraitUploads: state.portraitUploads.filter((upload) => upload.key !== key) };
+    });
+    let added = 0, failed = 0;
+    const fail = (key, message) => { failed += 1; patch(key, { state: "error", error: message }); };
+    const registrar = createOrderedRegistrar(list.length, async (batch) => {
+      for (const item of batch) patch(entries[item.index].key, { state: "registering", progress: 100 });
+      try {
+        const res = await apiFetch("/api/portraits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ uploads: batch.map(({ referenceId, name }) => ({ referenceId, name })) }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not add these images to the gallery."));
+        const results = Array.isArray(json.results) ? json.results : [];
+        const accepted = [];
+        batch.forEach((item, position) => {
+          const result = results.find((r) => r.referenceId === item.referenceId) || results[position];
+          if (result?.ok && result.portrait) {
+            accepted.push(result.portrait);
+            drop(entries[item.index].key);
+          } else fail(entries[item.index].key, result?.message || "This image couldn't be added.");
+        });
+        added += accepted.length;
+        if (accepted.length) {
+          set((state) => {
+            const known = new Set(accepted.map((p) => p.id));
+            const needle = state.portraits.query.trim().toLowerCase();
+            const shown = accepted.filter((p) => !needle || String(p.name || "").toLowerCase().includes(needle));
+            return { portraits: { ...state.portraits, enabled: true, items: sortPortraits([...shown, ...state.portraits.items.filter((p) => !known.has(p.id))]) } };
+          });
+        }
+      } catch (error) {
+        for (const item of batch) fail(entries[item.index].key, error?.message || "Could not add this image. Try again.");
+      }
+      schedulePortraitPoll(get);
+    }, portraitRuntime.registrationTail);
+    portraitRuntime.registrationTail = registrar.finished;
+    schedulePortraitPoll(get);
+    await runPool(list, PORTRAIT_UPLOAD_CONCURRENCY, async (file, index) => {
+      const { key, name } = entries[index];
+      let problem = portraitFileProblem(file);
+      if (!problem) {
+        const size = await readPortraitDimensions(file);
+        if (size) problem = portraitDimensionProblem(size.width, size.height);
+      }
+      if (problem) {
+        fail(key, problem);
+        void registrar.settle(index, null);
         return;
       }
-      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not load portraits."));
-      set({ managedPortraits: { enabled: json.enabled === true, assets: json.assets || [], usage: json.usage || null, loading: false, error: null } });
-    } catch (error) {
-      set((state) => ({ managedPortraits: { ...state.managedPortraits, enabled: state.managedPortraits.enabled ?? false, loading: false,
-        error: error.message || "Could not load portraits." } }));
-    }
+      try {
+        const ready = await uploadFileDirect(file, "portrait", {
+          onProgress: ({ uploadedBytes, totalBytes }) => {
+            const progress = Math.min(99, Math.floor((uploadedBytes / Math.max(1, totalBytes)) * 100));
+            const current = get().portraitUploads.find((upload) => upload.key === key);
+            if (current && current.progress !== progress) patch(key, { progress });
+          },
+        });
+        void registrar.settle(index, { referenceId: ready.referenceId, name });
+      } catch (error) {
+        fail(key, error?.message || "Upload failed. Try again.");
+        void registrar.settle(index, null);
+      }
+    });
+    await registrar.done();
+    return { added, failed };
   },
-  deleteManagedPortrait: async (id) => {
+  dismissPortraitUpload: (key) => set((state) => {
+    const gone = state.portraitUploads.find((upload) => upload.key === key);
+    if (gone?.previewUrl) URL.revokeObjectURL?.(gone.previewUrl);
+    return { portraitUploads: state.portraitUploads.filter((upload) => upload.key !== key) };
+  }),
+
+  renamePortrait: async (id, name) => {
+    const clean = String(name || "").trim().slice(0, 120);
+    if (!clean) return { ok: false, error: "Enter a name." };
     try {
-      const res = await apiFetch(`/api/portraits/managed/${encodeURIComponent(id)}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/portraits/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: clean }),
+      });
       const json = await res.json().catch(() => ({}));
-      if (!res.ok || json.ok !== true) return { ok: false, error: apiErrorMessage(json, res.status, "Could not remove this portrait.") };
-      set((state) => ({ managedPortraits: { ...state.managedPortraits, assets: state.managedPortraits.assets.filter((a) => a.id !== id) } }));
-      void get().loadManagedPortraits();
-      return { ok: true };
+      if (!res.ok || !json.portrait) return { ok: false, error: apiErrorMessage(json, res.status, "Could not rename this portrait.") };
+      set((state) => ({ portraits: { ...state.portraits, items: state.portraits.items.map((item) => (item.id === id ? { ...item, ...json.portrait } : item)) } }));
+      return { ok: true, portrait: json.portrait };
     } catch {
-      return { ok: false, error: "Could not remove this portrait. Try again." };
-    }
-  },
-  setSelectedPortraitGroup: (selectedPortraitGroup) => set({ selectedPortraitGroup }),
-
-  loadPortraitGroups: async () => {
-    set({ portraitGroupsLoading: true });
-    try {
-      const res = await apiFetch("/api/assets/portraits", { cache: "no-store" });
-      const json = await res.json();
-      set({ portraitGroups: json.groups ?? [], portraitGroupsLoading: false });
-    } catch {
-      set({ portraitGroupsLoading: false });
+      return { ok: false, error: "Could not rename this portrait. Try again." };
     }
   },
 
-  createPortraitGroup: async (name, description = "", projectId) => {
+  // One request for the whole selection. The cards leave at once; any the server refused come back.
+  deletePortraits: async (ids) => {
+    const unique = [...new Set(ids || [])];
+    if (!unique.length) return { ok: true, removed: 0, failed: [] };
+    const removedItems = get().portraits.items.filter((item) => unique.includes(item.id));
+    for (const id of unique) portraitRuntime.deleting.set(id, Infinity);
+    set((state) => ({ portraits: { ...state.portraits, items: state.portraits.items.filter((item) => !unique.includes(item.id)) } }));
+    let failed = [];
     try {
-      const pid = projectId !== undefined ? projectId : get().activeProjectId;
-      const res = await apiFetch("/api/assets/portraits", {
+      const res = await apiFetch("/api/portraits/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, description, projectId: pid ?? undefined }),
+        body: JSON.stringify({ ids: unique }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        return { ok: false, error: apiErrorMessage(err, res.status, "Failed to create character group.") };
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not delete these portraits."));
+      const results = Array.isArray(json.results) ? json.results : [];
+      // NOT_FOUND means someone else already removed it from the shared gallery.
+      failed = unique
+        .map((id) => ({ id, result: results.find((r) => r.id === id) }))
+        .filter(({ result }) => !(result?.ok || result?.error === "NOT_FOUND"))
+        .map(({ id, result }) => ({ id, error: result?.message || "Could not delete this portrait." }));
+    } catch (error) {
+      failed = unique.map((id) => ({ id, error: error?.message || "Could not delete these portraits. Try again." }));
+    } finally {
+      // Lists requested up to now may still carry the deleted cards; refused ones are not hidden at all.
+      for (const id of unique) {
+        if (failed.some((f) => f.id === id)) portraitRuntime.deleting.delete(id);
+        else portraitRuntime.deleting.set(id, portraitRuntime.listSeq);
       }
-      const group = await res.json();
-      set((s) => ({
-        portraitGroups: [group, ...s.portraitGroups],
-        selectedPortraitGroup: group,
-      }));
-      return { ok: true, group };
-    } catch (err) {
-      return { ok: false, error: err?.message || "Network error" };
     }
-  },
-
-  deletePortraitGroup: async (id) => {
-    const prev = get().portraitGroups;
-    set((s) => ({
-      portraitGroups: s.portraitGroups.filter((g) => g.id !== id),
-      selectedPortraitGroup: s.selectedPortraitGroup?.id === id ? null : s.selectedPortraitGroup,
-    }));
-    try {
-      const res = await apiFetch(`/api/assets/portraits?id=${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Delete failed");
-      await get().loadAllPortraitAssets();
-      return { ok: true };
-    } catch (err) {
-      set({ portraitGroups: prev });
-      return { ok: false, error: err?.message || "Delete failed" };
+    if (failed.length) {
+      const back = removedItems.filter((item) => failed.some((f) => f.id === item.id));
+      set((state) => ({ portraits: { ...state.portraits, items: sortPortraits([...back, ...state.portraits.items.filter((item) => !back.some((b) => b.id === item.id))]) } }));
     }
+    return { ok: failed.length === 0, removed: unique.length - failed.length, failed };
   },
 
-  loadPortraitAssets: async (groupId) => {
-    try {
-      const res = await apiFetch(`/api/assets/portraits/${groupId}/assets`, { cache: "no-store" });
-      const json = await res.json();
-      const assets = json.assets ?? [];
-      set((s) => {
-        const nextGroups = s.portraitGroups.map((g) =>
-          g.id === groupId
-            ? {
-                ...g,
-                assets,
-                activeCount: assets.filter((a) => a.status === "Active").length,
-                processingCount: assets.filter((a) => a.status === "Processing").length,
-              }
-            : g
-        );
-        const selected =
-          s.selectedPortraitGroup?.id === groupId
-            ? {
-                ...s.selectedPortraitGroup,
-                assets,
-                activeCount: assets.filter((a) => a.status === "Active").length,
-                processingCount: assets.filter((a) => a.status === "Processing").length,
-              }
-            : s.selectedPortraitGroup;
-        return { portraitGroups: nextGroups, selectedPortraitGroup: selected };
-      });
-      return assets;
-    } catch {
-      return [];
-    }
-  },
-
-  uploadPortraitAsset: async (groupId, { dataUrl, name, role }) => {
-    try {
-      const res = await apiFetch(`/api/assets/portraits/${groupId}/assets`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ dataUrl, name, role }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        return { ok: false, error: apiErrorMessage(err, res.status, "Failed to upload portrait asset.") };
-      }
-      const asset = await res.json();
-      await get().loadPortraitAssets(groupId);
-      return { ok: true, asset };
-    } catch (err) {
-      return { ok: false, error: err?.message || "Network error uploading portrait asset." };
-    }
-  },
-
-  deletePortraitAsset: async (groupId, assetId) => {
-    try {
-      const res = await apiFetch(`/api/assets/portraits/${groupId}/assets?assetId=${assetId}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("Delete asset failed");
-      await get().loadPortraitAssets(groupId);
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err?.message || "Delete asset failed" };
-    }
-  },
-
-  loadAllPortraitAssets: async (projectId) => {
-    const pid = projectId !== undefined ? projectId : get().activeProjectId;
-    const requestId = (get().portraitRequestId || 0) + 1;
-    set({ portraitRequestId: requestId, portraitAssetsLoading: true, portraitSyncError: null, portraitSyncInProgress: false,
-      ...(get().portraitScope !== pid ? { portraitScope: pid, portraitAssets: [], portraitGroups: [] } : {}) });
-    try {
-      const url = pid ? `/api/assets/portraits?projectId=${encodeURIComponent(pid)}` : "/api/assets/portraits";
-      const res = await apiFetch(url, { cache: "no-store" });
-      const json = await res.json();
-      if (!res.ok || json.error) throw new Error(apiErrorMessage(json, res.status, "Could not load portraits."));
-      if (get().portraitRequestId !== requestId || get().activeProjectId !== pid) return [];
-      const assets = json.assets ?? [];
-      set({ portraitAssets: assets, portraitGroups: json.groups ?? [],
-        portraitAssetsLoading: false, portraitSyncError: json.syncError || null, portraitSyncInProgress: Boolean(json.syncInProgress) });
-      return assets;
-    } catch (err) {
-      if (get().portraitRequestId === requestId) {
-        set({ portraitAssetsLoading: false, portraitSyncError: err.message || "Could not load portraits." });
-      }
-      return [];
-    }
-  },
-
-  uploadPortraitImageDirect: async ({ referenceId, dataUrl, name, role = "reference", groupId, projectId }) => {
-    try {
-      const pid = projectId !== undefined ? projectId : get().activeProjectId;
-      const res = await apiFetch("/api/assets/portraits/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ referenceId, dataUrl, name, role, groupId, projectId: pid ?? undefined }),
-      });
-      if (!res.ok) {
-        if (res.status === 413) {
-          return { ok: false, error: "Image file is too large for the server (HTTP 413). Please select an image under 25MB." };
-        }
-        const err = await res.json().catch(() => ({}));
-        return { ok: false, error: apiErrorMessage(err, res.status, "Failed to upload portrait.") };
-      }
-      const json = await res.json();
-      await get().loadAllPortraitAssets(pid);
-      if (json.registrationErrorCode === "QuotaSharedPoolExceeded" || json.registrationError === "QuotaSharedPoolExceeded") set({ portraitQuotaFullAt: Date.now() });
-      return { ok: true, asset: json.asset, registrationError: portraitRegistrationWarning(json.registrationError, json.registrationErrorCode), libraryFull: json.registrationErrorCode === "QuotaSharedPoolExceeded" };
-    } catch (err) {
-      return { ok: false, error: err?.message || "Network error uploading portrait." };
-    }
-  },
-
-  deletePortraitAssetDirect: async (assetId) => {
-    const asset = get().portraitAssets.find(a => a.id === assetId);
-    if (!asset) return {ok:false,error:"This portrait is no longer available. Refresh the Gallery."};
-    const group = get().portraitGroups.find(g => g.id === asset.groupId);
-    if (!asset.groupId || !group) return {ok:false,error:"The portrait character scope is unavailable. Refresh the Gallery."};
-    const query = new URLSearchParams({assetId:asset.id,groupId:asset.groupId});
-    if (group?.projectId) query.set("projectId",group.projectId);
-    try {
-      const res = await apiFetch(`/api/assets/portraits?${query}`, {method:"DELETE"});
-      const ack = await res.json().catch(()=>null);
-      if (!res.ok || ack?.ok !== true) return {ok:false,error:apiErrorMessage(ack, res.status, "Deletion was not confirmed. Refresh before retrying.")};
-      if (ack.assetId !== asset.id || ack.groupId !== asset.groupId || !["confirmed","already_absent","not_registered","already_archived"].includes(ack.remoteDeletion)) return {ok:false,error:"Deletion acknowledgement did not match this portrait. Refresh before retrying."};
-      // A confirmed BytePlus deletion frees library space.
-      set(state => ({portraitAssets:state.portraitAssets.filter(a => a.id !== asset.id), ...(ack.remoteDeletion === "confirmed" ? {portraitQuotaFreedAt: Date.now()} : {})}));
-      return {ok:true, freedSpace: ack.remoteDeletion === "confirmed"};
-    } catch { return {ok:false,error:"Deletion response is uncertain. Refresh before retrying."}; }
-  },
-
-  renamePortraitAssetDirect: async (assetId, name) => {
-    try {
-      const res = await apiFetch("/api/assets/portraits", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assetId, name }),
-      });
-      if (!res.ok) throw new Error("Rename failed");
-      await get().loadAllPortraitAssets();
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err?.message || "Rename failed" };
-    }
-  },
-
-  renamePortraitGroupDirect: async (groupId, name) => {
-    try {
-      const res = await apiFetch("/api/assets/portraits", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ groupId, name }),
-      });
-      if (!res.ok) throw new Error("Rename group failed");
-      await get().loadAllPortraitAssets();
-      return { ok: true };
-    } catch (err) {
-      return { ok: false, error: err?.message || "Rename group failed" };
-    }
-  },
-
-  attachPortraitToComposer: (asset, characterName = "Character") => {
-    if (!portraitAttachAllowed(asset)) return {ok:false,error:"This portrait is not verified active in BytePlus."};
-    const refUrl = portraitReferenceUrl(asset);
-    if (!refUrl) return;
-
-    get().addReference(refUrl, "portrait", characterName);
-    set({portraitGalleryOpen:false});
-  },
-
-  attachPortraitsToComposer: (assets) => {
-    const unique = [...new Map(assets.map(asset => [asset.id || asset.byteplusAssetId || asset.imageUrl, asset])).values()];
-    if (unique.some(asset => !portraitAttachAllowed(asset))) return {ok:false,error:"Selected portraits include an unverified or unavailable BytePlus registration."};
+  // Adds the portraits as "portrait" references labelled with their names, then closes the gallery once.
+  attachPortraitsToComposer: (portraits) => {
+    const unique = [...new Map((portraits || []).filter(Boolean).map((p) => [p.id || p.imageUrl, p])).values()];
+    if (unique.some((p) => !portraitAttachable(p))) return { ok: false, error: "Portraits that can't be used can't be added to a prompt." };
     const state = get();
-    if (state.referenceImages.length + state.referenceVideos.length + state.referenceAudios.length + unique.length > 50) return {ok:false,error:"Stage at most 50 references; remove some attachments first."};
-    for (const asset of unique) get().attachPortraitToComposer(asset, asset.groupName || asset.name || "Character");
-    return {ok:true,count:unique.length};
+    if (state.referenceImages.length + state.referenceVideos.length + state.referenceAudios.length + unique.length > 50) {
+      return { ok: false, error: "Stage at most 50 references; remove some attachments first." };
+    }
+    // A portrait already in the prompt can be added again: each occurrence keeps its own reference id.
+    for (const p of unique) get().addReference(p.imageUrl, "portrait", p.name || "Portrait");
+    set({ portraitGalleryOpen: false });
+    return { ok: true, count: unique.length };
   },
   loadProjects: async () => {
     try {
@@ -2145,7 +2133,6 @@ export const useStore = create((set, get) => ({
       });
       if (nextProjectId) {
         void get().loadAssets(nextProjectId);
-        void get().loadAllPortraitAssets(nextProjectId);
       }
       void get().loadLibraryTree();
     } catch {
@@ -2898,12 +2885,11 @@ if (typeof window !== "undefined") {
       const st = useStore.getState();
       void st.loadFeed();
       void st.loadCounts();
-      // The chat thread, materials, and portraits depend on the project, so leave them alone when
+      // The chat thread and materials depend on the project, so leave them alone when
       // the user is merely filtering the library.
       if (projectChanged) {
         void st.loadThread();
         void st.loadAssets(st.activeProjectId);
-        void st.loadAllPortraitAssets(st.activeProjectId);
       }
     };
     // Only typing waits; clicking a folder should feel instant.

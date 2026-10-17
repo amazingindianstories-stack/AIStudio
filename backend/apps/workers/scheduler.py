@@ -24,12 +24,19 @@ def maintain_portraits():
     return janitor()
 
 
+def process_portrait_uploads():
+    """Register Gallery uploads first come first served (a few per pass) and finish pending portrait deletes."""
+    from apps.assets.managed_pool import process_uploads
+    return process_uploads()
+
+
 def default_handlers():
     from django.conf import settings
     handlers = {'depth': maintenance.reconcile_depth, 'video': maintenance.reconcile_videos,
                 'login': maintenance.cleanup_login_attempts, 'exports': cleanup_exports}
     if getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):
         handlers['portraits'] = maintain_portraits
+        handlers['portrait_uploads'] = process_portrait_uploads
     return handlers
 
 
@@ -39,7 +46,7 @@ def tick(*, now=None, handlers=None):
     # Every process startup sweeps its current slot, even after the exact cron
     # minute. Daily slots start at 03:17 UTC; other slots align to the epoch.
     periods = {'depth': (60000, 0), 'video': (900000, 0), 'exports': (900000, 0),
-               'login': (86400000, (3*60+17)*60000), 'portraits': (60000, 0)}
+               'login': (86400000, (3*60+17)*60000), 'portraits': (60000, 0), 'portrait_uploads': (3000, 0)}
     results = {}
     for name, (period, offset) in periods.items():
         if name not in handlers:

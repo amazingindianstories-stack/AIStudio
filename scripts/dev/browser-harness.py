@@ -122,6 +122,8 @@ class OfflineAudioTranscriber:
             raise ValueError('Invalid offline audio fixture.')
         return '[00:00.000 - 00:00.100] Sound: Offline audio fixture.'
 VEEVEE_AUDIO_TRANSCRIBER = OfflineAudioTranscriber
+# Production runs automatic portraits; the gallery and its scheduler janitor need the flag.
+VEEVEE_MANAGED_PORTRAITS = True
 ''')
     if args.install_browser:
         subprocess.run(['node', 'node_modules/playwright-core/cli.js', 'install', 'chromium'], check=True, cwd=ROOT)
@@ -151,6 +153,7 @@ VEEVEE_AUDIO_TRANSCRIBER = OfflineAudioTranscriber
         wait_ready(frontend + '/login', next_process)
         launch([sys.executable, 'backend/manage.py', 'generation_worker', '--interval', '.2'], 'generation-worker', env)
         launch([sys.executable, 'backend/manage.py', 'media_export_worker', '--interval', '.2'], 'export-worker', env)
+        launch([sys.executable, 'backend/manage.py', 'run_scheduler'], 'scheduler', env)
         command = ['node', 'node_modules/@playwright/test/cli.js', 'test']
         command.extend(['--trace', args.trace])
         if args.grep:
@@ -161,7 +164,7 @@ VEEVEE_AUDIO_TRANSCRIBER = OfflineAudioTranscriber
         processes.append(browser_process)
         browser_process.wait()
         print(json.dumps({'browser_exit_code': browser_process.returncode, 'frontend': 'Next transport only; no backend credentials',
-            'backend': 'Django Gunicorn', 'workers': ['Python generation', 'Python export'], 'logs': str(artifact)}), flush=True)
+            'backend': 'Django Gunicorn', 'workers': ['Python generation', 'Python export', 'Python scheduler'], 'logs': str(artifact)}), flush=True)
         return browser_process.returncode
     except KeyboardInterrupt:
         print("Browser qualification interrupted; stopping its owned process groups.", flush=True)

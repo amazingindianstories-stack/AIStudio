@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { fixtureDatabase } from './fixture-db.mjs';
+import { portraitPng } from './portrait-image.mjs';
 
 const userId = 'e33e1832-9e29-427f-af61-796b842a4b37';
 const diagnostics = new WeakMap();
@@ -172,13 +173,12 @@ test('Goal2 portrait six-selection bulk attach and repeated same portrait retain
   test.setTimeout(120000);
   await ready(page, context, baseURL);
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  const fixture = await context.request.get('/api/generations/10000000-0000-4000-8000-000000000001/download');
-  const buffer = await fixture.body();
   const prefix = `QA-${Date.now()}`;
   await page.getByRole('button', { name: 'material', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   const gallery = page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
-  await gallery.locator('input[type=file]').setInputFiles(Array.from({ length: 6 }, (_, i) => ({ name: `${prefix}-${i}.png`, mimeType: 'image/png', buffer })));
+  // Identical bytes would collapse into one gallery portrait, so each file is a different valid image.
+  await gallery.locator('input[type=file]').setInputFiles(Array.from({ length: 6 }, (_, i) => ({ name: `${prefix}-${i}.png`, mimeType: 'image/png', buffer: portraitPng(`${prefix}-${i}`) })));
   await expect(gallery.locator('article').filter({ hasText: prefix })).toHaveCount(6, { timeout: 90000 });
   const tiles = gallery.locator('article').filter({ hasText: prefix });
   await tiles.first().click();
@@ -488,52 +488,53 @@ test('Goal2 mixed image video audio namespaces survive an image finalization com
   } finally { release?.(); await page.unroute('**/api/uploads/*/finalize'); }
 });
 
-// Production deletes portraits through the remote-first handler in apps/production_runtime, which
-// returns the {assetId, groupId, remoteDeletion} acknowledgement the Gallery requires. That handler
-// only talks to the real BytePlus host, so the harness runs the plain handler ({ok: true}) and the
-// Gallery correctly refuses it. Re-enable once the handler is folded into apps/assets with an
-// injectable client (restructure plan, phase 2 step 1).
-test.fixme('Goal2 portrait inspector confirmed bulk deletion keeps partial failure selected for retry', async ({ page, context, baseURL }, testInfo) => {
+test('Goal2 portrait inspector confirmed bulk deletion keeps partial failure selected for retry', async ({ page, context, baseURL }, testInfo) => {
   await ready(page, context, baseURL);
-  const image = await context.request.get('/api/generations/10000000-0000-4000-8000-000000000001/download');
   const prefix = `QA-delete-${randomUUID().slice(0, 8)}`;
   await page.getByRole('button', { name: 'material', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   const gallery = page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
-  const buffer = await image.body();
-  await gallery.locator('input[type=file]').setInputFiles([0, 1].map(i => ({ name: `${prefix}-${i}.png`, mimeType: 'image/png', buffer })));
-  await expect(gallery.locator('article').filter({ hasText: prefix })).toHaveCount(2);
+  await gallery.locator('input[type=file]').setInputFiles([0, 1].map(i => ({ name: `${prefix}-${i}.png`, mimeType: 'image/png', buffer: portraitPng(`${prefix}-${i}`) })));
+  await expect(gallery.locator('article').filter({ hasText: prefix })).toHaveCount(2, { timeout: 90000 });
   await gallery.getByRole('textbox', { name: 'Search portraits', exact: true }).fill(prefix);
+  await expect(gallery.locator('article')).toHaveCount(2);
   await page.screenshot({ path: testInfo.outputPath('portrait-normal-two-fixtures.png') });
-  await gallery.getByRole('button', { name: `View ${prefix}-0`, exact: true }).click();
+  await gallery.locator('article').filter({ hasText: `${prefix}-0` }).dblclick();
   const inspector = page.getByRole('complementary', { name: 'Portrait Full View', exact: true });
   await expect(inspector).toBeVisible();
   await expect.poll(() => inspector.locator('img').first().evaluate(image => image.naturalWidth)).toBeGreaterThan(0);
   await page.screenshot({ path: testInfo.outputPath('portrait-right-inspector.png') });
   await inspector.getByRole('button', { name: 'Close Lightbox', exact: true }).click();
   const tiles = gallery.locator('article').filter({ hasText: prefix });
+  await expect(gallery.getByTestId('portrait-selection-toolbar')).toHaveCount(0);
   await tiles.first().click(); await tiles.nth(1).click({ modifiers: ['ControlOrMeta'] });
+  const sql = fixtureDatabase(process.env.E2E_DATABASE_URL);
+  const live = () => sql`SELECT id FROM managed_portrait_assets WHERE name LIKE ${`${prefix}%`} AND status NOT IN ('DELETING', 'DELETED') AND hidden_at IS NULL`;
   let attempts = 0;
-  await page.route('**/api/assets/portraits?assetId=*', async route => {
-    if (route.request().method() === 'DELETE' && ++attempts === 1) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'Fixture temporary delete failure' }) });
-    return route.continue();
+  // The first bulk request is cut down to its first id so the real endpoint deletes one portrait,
+  // and the answer reports the other as refused.
+  await page.route('**/api/portraits/delete', async route => {
+    if (++attempts > 1) return route.continue();
+    const { ids } = route.request().postDataJSON();
+    const response = await route.fetch({ postData: JSON.stringify({ ids: ids.slice(0, 1) }) });
+    await route.fulfill({ response, json: { results: [{ id: ids[0], ok: true }, { id: ids[1], ok: false, error: 'FIXTURE', message: 'Fixture temporary delete failure.' }] } });
   });
   try {
-    await gallery.getByRole('button', { name: /^Delete selected/ }).click();
+    await gallery.getByRole('button', { name: 'Delete 2', exact: true }).click();
     const confirmation = page.getByRole('alertdialog');
     await expect(confirmation).toContainText('Delete 2 portraits?');
     await confirmation.getByRole('button', { name: 'Delete 2', exact: true }).click();
-    await expect(gallery.getByRole('alert')).toContainText('Deleted 1; 1 failed');
+    await expect(gallery.getByRole('alert')).toContainText('Deleted 1');
+    await expect(gallery.getByRole('alert')).toContainText('1 could not be deleted');
     await expect(gallery.locator('article').filter({ hasText: prefix })).toHaveCount(1);
     await expect(gallery.getByRole('button', { name: 'Add 1 to prompt', exact: true })).toBeVisible();
-    expect(attempts).toBe(2);
-    const sql = fixtureDatabase(process.env.E2E_DATABASE_URL);
-    expect((await sql`SELECT id FROM portrait_assets WHERE name LIKE ${`${prefix}%`}`)).toHaveLength(1);
+    expect(attempts).toBe(1);
+    expect(await live()).toHaveLength(1);
     await page.screenshot({ path: testInfo.outputPath('portrait-partial-delete-failure.png') });
-    await page.unroute('**/api/assets/portraits?assetId=*');
-    await gallery.getByRole('button', { name: /^Delete selected/ }).click();
+    await gallery.getByRole('button', { name: 'Delete 1', exact: true }).click();
     await page.getByRole('alertdialog').getByRole('button', { name: 'Delete 1', exact: true }).click();
     await expect(gallery.locator('article').filter({ hasText: prefix })).toHaveCount(0);
-    expect((await sql`SELECT id FROM portrait_assets WHERE name LIKE ${`${prefix}%`}`)).toHaveLength(0);
-  } finally { await page.unroute('**/api/assets/portraits?assetId=*').catch(() => {}); }
+    expect(attempts).toBe(2);
+    expect(await live()).toHaveLength(0);
+  } finally { await page.unroute('**/api/portraits/delete').catch(() => {}); await sql.end?.(); }
 });

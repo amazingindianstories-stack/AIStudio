@@ -1,12 +1,14 @@
 from django.urls import path
 from .portraits import portraits, group_assets, upload
-from .managed_views import managed_delete, managed_list, manual_upload_guard, portrait_settings
+from .managed_views import (portrait_settings, portraits_collection, portraits_delete, portraits_rename,
+                            retired_in_managed_mode)
 
 urlpatterns = [
-    path('api/assets/portraits', portraits),
-    path('api/assets/portraits/upload', manual_upload_guard(upload)),
-    path('api/assets/portraits/<str:id>/assets', manual_upload_guard(group_assets)),
-    path('api/portraits/managed', managed_list),
-    path('api/portraits/managed/<uuid:id>', managed_delete),
+    path('api/assets/portraits', retired_in_managed_mode(portraits)),
+    path('api/assets/portraits/upload', retired_in_managed_mode(upload)),
+    path('api/assets/portraits/<str:id>/assets', retired_in_managed_mode(group_assets)),
+    path('api/portraits', portraits_collection),
+    path('api/portraits/delete', portraits_delete),
+    path('api/portraits/<uuid:id>', portraits_rename),
     path('api/admin/portrait-settings', portrait_settings),
 ]
