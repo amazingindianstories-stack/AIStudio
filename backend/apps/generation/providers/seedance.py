@@ -26,8 +26,8 @@ def is_moderation_message(text):
     return bool(re.search('SensitiveContent|Privacy|real person|portrait|sensitive',text or '',re.I))
 
 
-TEXT_POLICY_MESSAGE = 'BytePlus rejected the prompt under its text content policy. Review the prompt before submitting a new request.'
-NEUTRAL_POLICY_MESSAGE = 'BytePlus rejected the input under its content policy. Change the prompt or references before submitting a new request.'
+TEXT_POLICY_MESSAGE = 'The video provider rejected the prompt under its text content policy. Review the prompt before submitting a new request.'
+NEUTRAL_POLICY_MESSAGE = 'The video provider rejected the input under its content policy. Change the prompt or references before submitting a new request.'
 
 
 def friendly_error(status,body):

@@ -8,7 +8,7 @@ from .image_limits import SEEDANCE_MESSAGE, SIZE_TAIL, WORKER_TAIL, seedance_mes
 from .providers import kling, seedance, seedream
 from .services import portrait_prepare, video_execution
 
-FORBIDDEN = ('arn:', 'amazonaws', 'googleapis', 'asset-20', 'ep-2', 'Request id', 'sk-', 'private-fixture', 'BytePlus-', 'users')
+FORBIDDEN = ('arn:', 'amazonaws', 'googleapis', 'asset-20', 'ep-2', 'Request id', 'sk-', 'private-fixture', 'BytePlus', 'users')
 
 
 def row(kind='video', model='Seedance 2.5', blocked=None):
@@ -99,6 +99,20 @@ class FailureCopyTests(SimpleTestCase):
         ):
             with self.subTest(message=message[:60]):
                 self.assertEqual(copy.public_message(row(), message), message)
+
+    def test_no_public_message_names_the_provider_company(self):
+        exact, _ = copy._curated()
+        for message in sorted(exact):
+            with self.subTest(message=message[:60]):
+                self.assertNotIn('BytePlus', copy.public_message(row(), message))
+        for name, value in vars(copy).items():
+            if isinstance(value, str) and name.isupper():
+                self.assertNotIn('BytePlus', value, name)
+        for value in copy.GENERIC.values():
+            self.assertNotIn('BytePlus', value)
+        for message in (seedance.TEXT_POLICY_MESSAGE, seedance.NEUTRAL_POLICY_MESSAGE):
+            self.assertNotIn('BytePlus', message)
+            self.assertEqual(copy.public_message(row(), message), message)
 
     def test_em_dash_in_adapter_messages_is_shown_as_a_plain_dash(self):
         text = 'Too many reference images: 15. Nano Banana Pro accepts at most 14 images per prompt \u2014 remove 1.'
