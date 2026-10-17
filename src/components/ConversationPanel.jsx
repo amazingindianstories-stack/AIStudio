@@ -21,7 +21,7 @@ import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { GenerationFolderCue, GenerationTimestamp } from "./MediaCard";
-import { GenerationStatus } from "./GenerationStatus";
+import { GenerationStatus, waitingNote } from "./GenerationStatus";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
 import { setAssetDragData } from "@/lib/asset-drag-contract";
@@ -258,7 +258,7 @@ export function FeedBlock({ item, index }) {
           )}
 
           {pending && (
-            <GenerationStatus status={item.status} className="absolute inset-0" />
+            <GenerationStatus status={item.status} note={waitingNote(item)} className="absolute inset-0" />
           )}
 
           {item.status === "failed" && (

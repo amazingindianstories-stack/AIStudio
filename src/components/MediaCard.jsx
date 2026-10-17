@@ -32,7 +32,7 @@ import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { CreatorAvatar, GenerationDetails } from "./GenerationDetails";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { ProgressiveImage } from "./ProgressiveImage";
-import { GenerationStatus } from "./GenerationStatus";
+import { GenerationStatus, waitingNote } from "./GenerationStatus";
 import { setAssetDragData } from "@/lib/asset-drag-contract";
 
 // Grid cards render at ~160–320 CSS px; request a modest fixed width
@@ -561,7 +561,7 @@ export function MediaCard({
                 {item.queueNote}
               </span>
             )}
-            {item.kind === "video" && (item.providerStatus === "PORTRAIT_WAITING" || item.providerStatus === "SLOT_WAITING") && item.progressMessage && !item.pollWarning && (
+            {waitingNote(item) && (
               <span data-portrait-waiting style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-sky-200/80">
                 {item.progressMessage}
               </span>
