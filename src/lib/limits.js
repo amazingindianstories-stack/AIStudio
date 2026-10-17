@@ -27,9 +27,9 @@ export const LIMIT_DEFINITIONS = [
     description:
       "Maximum total running image and video jobs per user. The global image/video caps still apply, so this prevents one user from occupying every shared slot.",
     unit: "image/video jobs",
-    defaultValue: 4,
+    defaultValue: 8,
     min: 1,
-    max: 4,
+    max: 8,
   },
 ];
 

@@ -63,8 +63,7 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 1. Release gate **and** rehearsal pass records for the exact commit
    (`scripts/release/release_gate.sh`, `rehearse_local.sh` - the rehearsal applies the
    migration as the owner and runs the pool with the real database roles).
-2. The generation worker is on the versioned image (it is still on the old launcher after the
-   2026-10-13 incident) - that redeploy is its own approval and goes first, flag off.
+2. The generation worker is on the versioned image (done 2026-10-15, `a3b5d12`).
 3. Owner decision on the existing remote assets (59 Active + 51 archived): the pool needs free
    BytePlus slots (`QuotaSharedPoolExceeded` since 2026-10-13 18:21 IST). The approved plan is to
    clean them at rollout together with the old internal portrait state.
@@ -93,6 +92,10 @@ Nothing is deployed. Every production step below needs explicit owner approval.
    (idle) → scheduler. With the flag on, `production_runtime` does not install the old portrait lifecycle
    patches and `enqueue` skips the old portrait reference check.
 6. Deploy the frontend (Portrait Gallery v2) with the Vercel CLI.
+6a. Concurrency (same release): the code now allows 8 running jobs per user (`admission.PER_USER_MAX`) and
+   16 running videos overall (`MAX_CONCURRENT['video']`). Production stores `maxConcurrentJobs = 4` in
+   `settings`, which overrides the new default: raise it to 8 in Admin -> Limits. Before relying on 16
+   videos, confirm the BytePlus account allows that many concurrent Seedance tasks.
 7. Verify: startup logs pass preflight; `GET /api/portraits` → `enabled: true`; the old routes answer
    410; one owner-approved Seedance face job (paid canary) → asset ACTIVE, `asset://` in the receipt,
    MOV master; a Gallery upload goes waiting/preparing → ready; janitor and upload steps run (scheduler

@@ -74,9 +74,9 @@ class AdminContractTests(TransactionTestCase):
     def test_limits_coercion_rounding_personal_types_and_clearing(self):
         self.assertEqual(self.post('limits',{'key':'maxConcurrentJobs','value':'2.5'}).json(),{'ok':True})
         self.assertEqual(AppSetting.objects.get(pk='maxConcurrentJobs').value,'3')
-        self.assertEqual(self.post('limits',{'key':'maxConcurrentJobs','value':4.5}).status_code,400)
+        self.assertEqual(self.post('limits',{'key':'maxConcurrentJobs','value':8.5}).status_code,400)
         base={'userId':fixtures.UID,'key':'maxConcurrentJobs'}
-        for raw in ['2',True,{},4.1]: self.assertEqual(self.post('user-limits',{**base,'value':raw}).status_code,400)
+        for raw in ['2',True,{},8.1]: self.assertEqual(self.post('user-limits',{**base,'value':raw}).status_code,400)
         self.assertEqual(self.post('user-limits',{**base,'value':2.5}).status_code,200)
         self.assertEqual(UserLimit.objects.get(user_id=fixtures.UID,key='maxConcurrentJobs').value,'3')
         self.assertEqual(self.post('user-limits',{**base,'value':None}).status_code,200)
@@ -103,7 +103,7 @@ class AdminContractTests(TransactionTestCase):
         self.assertEqual((result['stats']['totalGenerations'],result['stats']['totalCostCents'],result['stats']['reconciledCostCents'],result['stats']['estimatedCostCents']),(4,50,30,20))
         self.assertEqual(result['users'][0]['genCount'],4)
         self.assertEqual(result['users'][0]['costCents'],50)
-        self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':4})
+        self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':8})
         self.assertEqual(len(result['pricing']),28)  # 23 frozen rows + 4 Magnific video rows + Nano Banana 2.1
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(Pricing.objects.get(pk='Nano Banana Pro').unit_cost_cents,777)

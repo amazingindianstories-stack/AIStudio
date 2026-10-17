@@ -6,7 +6,9 @@ from rest_framework.response import Response
 from apps.authentication.session import lookup
 from .models import AppSetting, UserLimit
 
-LIMITS = {'maxPromptLength': (30000, 1, None), 'maxConcurrentJobs': (4, 1, 4)}
+from apps.generation.services.admission import PER_USER_DEFAULT, PER_USER_MAX
+
+LIMITS = {'maxPromptLength': (30000, 1, None), 'maxConcurrentJobs': (PER_USER_DEFAULT, 1, PER_USER_MAX)}
 
 def parse(raw, definition):
     fallback, minimum, maximum = definition

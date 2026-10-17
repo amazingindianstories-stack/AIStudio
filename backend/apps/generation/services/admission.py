@@ -10,7 +10,8 @@ from apps.generation.models import Generation
 from apps.generation.serialization import generation_item
 from .queue_snapshot import SQL as SNAPSHOT_SQL
 
-MAX_CONCURRENT = {'image': 10, 'video': 6}
+MAX_CONCURRENT = {'image': 10, 'video': 16}   # across everyone; two artists can each run 8 Seedance jobs
+PER_USER_DEFAULT = PER_USER_MAX = 8                # maxConcurrentJobs: running image/video jobs per user
 SPEND_WINDOW_MS = 600000
 HELD_MESSAGE = 'Waiting for the API rate-limit window to clear — this will start automatically.'
 
@@ -41,7 +42,7 @@ def bills_gemini(item):
 
 def snapshot(item, *, now, best_of):
     with connection.cursor() as cursor:
-        cursor.execute(SNAPSHOT_SQL, {'kind': item.kind, 'item_id': item.id,
+        cursor.execute(SNAPSHOT_SQL, {'kind': item.kind, 'item_id': item.id, 'user_default': PER_USER_DEFAULT, 'user_max': PER_USER_MAX,
             'created_at': item.created_at, 'best_of': best_of,
             'window_start': now - SPEND_WINDOW_MS,
             'skirt_start': now - SPEND_WINDOW_MS - 6 * 60 * 60 * 1000})
