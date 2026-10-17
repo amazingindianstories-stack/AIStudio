@@ -32,6 +32,8 @@ NO_IMAGE = 'The model did not return an image. Change the prompt or references a
 NO_VIDEO = 'The provider finished but returned no video. Retry the generation.'
 CLIP_PREPARE = 'A reference clip could not be prepared for the provider. Try a different clip.'
 UPSCALE_FAILED = 'The upscaler could not process this file. Try different settings or another source, or retry later.'
+UPSCALE_BUSY = 'The upscale service is busy right now. Nothing was charged. Try again in a few minutes.'
+AUDIO_REJECTED = 'The transcription service rejected this audio. Try a different or shorter clip.'
 GENERIC = {
     'video': 'Something went wrong on our side and this video stopped. Retry it; if it keeps failing, let the team know.',
     'image': 'Something went wrong on our side and this image stopped. Retry it; if it keeps failing, let the team know.',
@@ -78,6 +80,7 @@ def _curated():
         portrait_prepare.REJECTED_MESSAGE,
         seedream.AMBIGUOUS_MESSAGE, seedream.NO_RESULT_MESSAGE, seedream.DOWNLOAD_FAILED_MESSAGE,
         poller.MAGNIFIC_TOO_LARGE, poller.MAGNIFIC_IMAGE_TOO_LARGE, poller.MAGNIFIC_SAVE_FAILED,
+        poller.POLL_ABANDONED, poller.DOWNLOAD_ABANDONED,
         upscale_submission.UPSCALE_REJECTED, upscale_submission.UPSCALE_PREPARE_FAILED,
         video_execution.FACE_NOT_READY, video_execution.LOOKUP_UNAVAILABLE,
         managed_pool.PORTRAIT_UNPREPARED + managed_pool.NOT_CHARGED, managed_pool.PORTRAIT_REFUSED + managed_pool.NOT_CHARGED,
@@ -90,6 +93,7 @@ def _curated():
         'All candidates failed to generate.', AUDIO_INPUT_INVALID, *audio_submission.INVALID_INPUT_MESSAGES,
         FACE_GALLERY, COPYRIGHT, POLICY, MODERATION_BLOCKED, AUDIO, BUSY, UNAVAILABLE, DROPPED, INTERRUPTED, PORTRAIT_ASSET,
         PORTRAIT_UNREGISTERED, DRAFT, RATIO_DURATION, IMAGE_REJECTED, NO_IMAGE, NO_VIDEO, CLIP_PREPARE, UPSCALE_FAILED,
+        UPSCALE_BUSY, AUDIO_REJECTED,
         *GENERIC.values(),
     }
     busy = managed_pool.PORTRAIT_BUSY.format(minutes='\0')
@@ -115,8 +119,10 @@ RULES = (
     (re.compile(r'specified asset|image_url\.url[^\n]{0,200}asset|asset-\d', re.I), PORTRAIT_ASSET),
     (re.compile(r'not registered and Active|Register and verify the existing portrait', re.I), PORTRAIT_UNREGISTERED),
     (re.compile(r'SensitiveContent|PolicyViolation|PROHIBITED_CONTENT|content policy|text content|\bSAFETY\b', re.I), POLICY),
+    (re.compile(r'^Magnific upscale was rate limited \(429\)', re.I), UPSCALE_BUSY),
     (re.compile(r'rate limit|too many requests|\bhttp 429|\(429|\b429\b[^\n]{0,20}(?:rate|limit|quota)|balance not enough|'
-                r'insufficient|quota|exhausted|out of credits|code 1102', re.I), BUSY),
+                r'insufficient|quota|exhausted|out of credits|code 1102|^Gemini image error \(503\)|'
+                r'ServerOverloaded|RateLimitExceeded|QuotaExceeded|TooManyRequests|RequestBurstTooFast', re.I), BUSY),
     (re.compile(r'api key not valid|invalid api key|api_key_invalid|InvalidEndpointOrModel|NotFound|\(404|do not have access|'
                 r'ModelNotOpen|model access failed|authentication|reauthenticat|gcloud auth|token family|no higgsfield mcp token|'
                 r'unauthori[sz]ed|forbidden|is not set|\(40[13]\b', re.I), UNAVAILABLE),
@@ -125,6 +131,7 @@ RULES = (
                 r'deadline|econnreset|etimedout|enotfound|interrupted|remote end closed|broken pipe', re.I), DROPPED),
     (re.compile(r'returned no image', re.I), NO_IMAGE),
     (re.compile(r'returned no video|no output (?:video|image)', re.I), NO_VIDEO),
+    (re.compile(r'^Gemini transcription failed \(4\d\d\)', re.I), AUDIO_REJECTED),
     (re.compile(r'^Seedream rejected the request', re.I), IMAGE_REJECTED),
     (re.compile(r'^Reference clip could not be prepared', re.I), CLIP_PREPARE),
 )

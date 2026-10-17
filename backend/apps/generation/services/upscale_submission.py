@@ -8,6 +8,12 @@ from .upscale_validation import validate_video_upscale_request, video_source_key
 
 UPSCALE_PREPARE_FAILED = 'The upscale source could not be prepared. Nothing was sent to Magnific.'
 UPSCALE_REJECTED = 'Magnific rejected this upscale. Nothing was charged; check the source and settings.'
+# Private diagnostic (failure_copy maps it to the busy copy); the status stays in the stored error.
+UPSCALE_RATE_LIMITED = 'Magnific upscale was rate limited (429). Nothing was charged.'
+
+
+def rejection_message(error):
+    return UPSCALE_RATE_LIMITED if getattr(error, 'status', None) == 429 else UPSCALE_REJECTED
 
 
 def definitive_rejection(error):
@@ -53,7 +59,7 @@ def submit_persisted_upscale(item, *, signal, mark_pending, save_receipt, mark_u
             'params':payload['params']},signal=signal)
     except Exception as error:
         if mark_failed is not None and definitive_rejection(error):
-            mark_failed(UPSCALE_REJECTED, 'REJECTED')
+            mark_failed(rejection_message(error), 'REJECTED')
             return None
         mark_uncertain()
         raise
@@ -97,7 +103,7 @@ def _submit_video(item, value, *, signal, mark_pending, save_receipt, mark_uncer
             'params':payload['params']},signal=signal)
     except Exception as error:
         if mark_failed is not None and definitive_rejection(error):
-            mark_failed(UPSCALE_REJECTED, 'REJECTED')
+            mark_failed(rejection_message(error), 'REJECTED')
             return None
         mark_uncertain()
         raise
@@ -157,7 +163,7 @@ def submit_claimed_upscale(item, *, owner, signal, storage=None, submit=None):
     import os
     if submit is None and os.environ.get('MOCK_GENERATION')=='1':
         submit=lambda payload,signal: {'taskId':'mock-magnific-'+str(current.id)}
-    task=submit_persisted_upscale(current,signal=signal,mark_pending=pending,save_receipt=receipt,
+    submit_persisted_upscale(current,signal=signal,mark_pending=pending,save_receipt=receipt,
         mark_uncertain=uncertain,storage=storage,submit=submit,
         mark_failed=failed)
     return Generation.objects.get(pk=current.id)

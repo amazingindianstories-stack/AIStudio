@@ -48,12 +48,12 @@ def get_transcriber():
         key = getattr(settings,'GOOGLE_API_KEY',None) or os.environ.get('GOOGLE_API_KEY')
         if not key:
             raise ValueError('GOOGLE_API_KEY is not configured.')
-        from apps.generation.providers.transport import HttpTransport
+        from apps.generation.providers.transport import HttpTransport, ProviderError
         client = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'],timeout=120)
         def transport(url,payload,headers,*,signal=None):
             response = client.request('POST',url,headers=headers,body=payload,signal=signal)
             if not response.ok:
-                raise ValueError(f'Gemini transcription failed ({response.status}).')
+                raise ProviderError(f'Gemini transcription failed ({response.status}).', status=response.status)
             return response.json()
         return GeminiTranscriber(key,transport)
     return provider if hasattr(provider, 'transcribe') and not isinstance(provider, type) else provider()
@@ -169,3 +169,17 @@ def _mark_audio_uncertain(expected):
             return
         Generation.objects.filter(pk=row.id).update(provider_status='SUBMISSION_UNCERTAIN',
             updated_at=max(int(time.time()*1000),row.updated_at+1))
+
+
+def _mark_audio_failed(expected, message):
+    """A definite provider refusal: the row ends failed and its audio capacity is released."""
+    metadata={'project_id','folder_id','location_version','is_favorite','favorited_at',
+        'flagged','flagged_at','flag_reason','updated_at'}
+    with transaction.atomic():
+        row=Generation.objects.select_for_update().filter(pk=expected.id).first()
+        if row is None or any(getattr(row,field.attname)!=getattr(expected,field.attname)
+                for field in Generation._meta.concrete_fields if field.attname not in metadata):
+            return
+        now=int(time.time()*1000)
+        Generation.objects.filter(pk=row.id).update(status='failed',error=message,provider_status='REJECTED',
+            completed_at=now,updated_at=max(now,row.updated_at+1))
