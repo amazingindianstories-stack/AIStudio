@@ -457,7 +457,7 @@ class EnqueueContractTests(TransactionTestCase):
         storage=StorageService(MemoryAdapter())
         with override_settings(VEEVEE_MEDIA_STORAGE=storage):
             response=self.post('video',dict(prompt='shot',model='Seedance 2.5',resolution='480p',draftMode=True,
-                referenceImages=[data_url()],firstFrame=data_url(),lastFrame=data_url(),generateAudio=True,seed=8))
+                referenceImages=[data_url(picture(400,400))],firstFrame=data_url(picture(400,400)),lastFrame=data_url(picture(401,400)),generateAudio=True,seed=8))
         self.assertEqual(response.status_code,200,response.content)
         item=response.json()
         self.assertEqual((item['draftMode'],item['bitrateMode'],item['generateAudio']),(True,'high',True))

@@ -17,6 +17,8 @@ from django.db.models import Max, Q
 from apps.authentication.session import lookup
 from apps.canvas.views import body, failure, node_route, reply
 from apps.common.responses import log_activity
+from apps.generation import image_limits
+from apps.media.storage import get_storage
 from apps.media.uploads import UploadError, resolve_owned_ready_upload
 
 from . import managed_pool
@@ -177,6 +179,14 @@ def register_one(user, item, created_at):
         return refuse('PORTRAIT_NOT_IMAGE', UNUSABLE)
     if row.byte_size > MAX_IMAGE_BYTES:
         return refuse('PORTRAIT_TOO_LARGE', 'This image is larger than 30 MB. Use a smaller file.')
+    dimensions = image_limits.stored_dimensions(get_storage(), row.key)      # a bounded header read, never a full decode
+    problem_kind = image_limits.side_problem(*dimensions) if dimensions else None
+    if problem_kind == 'size':
+        return refuse('PORTRAIT_IMAGE_SIZE', f'This image is {dimensions[0]} x {dimensions[1]} px. Portraits need at least '
+                      f'{image_limits.MIN_SIDE} px and at most {image_limits.MAX_SIDE} px on each side.')
+    if problem_kind == 'ratio':
+        return refuse('PORTRAIT_IMAGE_RATIO', f'This image is {dimensions[0]} x {dimensions[1]} px. Portraits need a width to height '
+                      f'ratio between {image_limits.MIN_RATIO:g} and {image_limits.MAX_RATIO:g}, so not too wide or too tall.')
     now = managed_pool.now_ms()
     values = managed_pool.setting_values()
     with transaction.atomic():

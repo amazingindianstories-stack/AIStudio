@@ -81,6 +81,8 @@ def generate(request, kind):
         return reply(request,{'error':str(error),'code':'PORTRAIT_UNAVAILABLE','referenceIndex':error.reference_index},400)
     except enqueue.ReferenceAudioRejected as error:
         return reply(request,{'error':str(error),'code':'REFERENCE_AUDIO_DURATION','audioIndex':error.audio_index},400)
+    except enqueue.ReferenceImageRejected as error:
+        return reply(request,{'error':str(error),'code':'REFERENCE_IMAGE_SIZE','referenceIndex':error.reference_index},400)
     except enqueue.InvalidRequest as error:
         return reply(request,{'error':str(error)},400)
     except Exception:

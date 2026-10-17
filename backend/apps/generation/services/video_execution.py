@@ -72,6 +72,12 @@ def combined_references(prompt, assets, uploads):
     return result
 
 
+FACE_NOT_READY = 'A face reference was not ready as a portrait. Nothing was sent to the provider, so this was not charged.'
+LOOKUP_UNAVAILABLE = 'Portrait registration lookup unavailable; submission stopped before provider execution.'
+PORTRAIT_REMOVE_TAIL = 'Remove it from the references and try again; nothing was sent to the provider, so this was not charged.'
+PORTRAIT_PROBLEMS = ('was removed from the Portrait Gallery', 'could not be prepared for video', 'is not ready for video yet')
+
+
 def managed_reference(ref, read, managed):
     """Managed-portrait mode: return ('asset://id', None) for a pinned face asset, else (None, raw image)."""
     import hashlib
@@ -83,7 +89,7 @@ def managed_reference(ref, read, managed):
     scan = ReferenceFaceScan.objects.filter(pk=sha).first()
     if scan is None or scan.has_face:
         # Never send a face (or an unscanned image) as raw pixels: BytePlus rejects it after billing.
-        raise ValueError('A face reference was not ready as a portrait. Nothing was sent to the provider, so this was not charged.')
+        raise ValueError(FACE_NOT_READY)
     return None, raw
 
 
@@ -112,7 +118,7 @@ def to_provider_data_urls(references, signal, *, read=None, prepare=None, portra
             portrait = portrait_lookup(ref) if isinstance(ref, str) else None
         except Exception:
             # Without the lookup we cannot tell a Gallery portrait from a plain image.
-            raise ValueError('Portrait registration lookup unavailable; submission stopped before provider execution.') from None
+            raise ValueError(LOOKUP_UNAVAILABLE) from None
         if portrait and portrait.get('byteplusAssetId') and (portrait.get('status') or '').lower() == 'active':
             output.append('asset://' + portrait['byteplusAssetId'])
             continue
@@ -122,8 +128,7 @@ def to_provider_data_urls(references, signal, *, read=None, prepare=None, portra
             name = portrait.get('name')
             named = f'Portrait "{str(name)[:80]}"' if name else 'A Gallery portrait'
             problem = portrait_reference_problem(portrait) or 'is not ready for video yet'
-            raise ValueError(f'{named} {problem}. Remove it from the references and try again; '
-                             'nothing was sent to the provider, so this was not charged.')
+            raise ValueError(f'{named} {problem}. ' + PORTRAIT_REMOVE_TAIL)
         output.append(_data_url(read(ref), prepare))
     return output
 
@@ -180,6 +185,25 @@ class Dependencies:
         return generate_video(input, signal=signal)
 
 
+class ReferenceImageRejected(ValueError):
+    pass
+
+
+def verify_reference_image_sizes(item, combined, measure=None):
+    """Fail the job, uncharged, when a Seedance image reference is under 300 px or outside the 0.4-2.5 ratio.
+
+    The enqueue request checks the same rule within a time budget; this covers what it did not reach.
+    """
+    from apps.generation import image_limits
+    measure = measure or image_limits.reference_dimensions
+    labelled = [(ref['tag'], ref['imageUrl']) for ref in combined]
+    labelled += [(label, ref) for label, ref in (('The first frame', item.continuation_frame_url), ('The last frame', item.last_frame_url)) if ref]
+    for label, ref in labelled:
+        size = measure(ref)
+        if size and image_limits.seedance_problem(*size):
+            raise ReferenceImageRejected(image_limits.seedance_message(label, *size, image_limits.WORKER_TAIL))
+
+
 def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None):
     """on_task records every accepted ID before any later submission can fail.
 
@@ -226,6 +250,7 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
         return {**base, **extra, 'task_id': task_id}
     combined = combined_references(item.prompt, deps.assets(item.project_id), item.reference_images or [])
     from .portrait_prepare import applies as managed_applies, assets_for
+    verify_reference_image_sizes(item, combined)       # before the first inline read or provider call: nothing is billed
     managed = {'managed': assets_for(item.id)} if managed_applies(item) else {}
     inlined = deps.inline([ref['imageUrl'] for ref in combined], signal, **managed)
     references = [{**ref, 'index': index + 1, 'dataUrl': inlined[index]} for index, ref in enumerate(combined)]
