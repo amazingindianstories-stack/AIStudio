@@ -32,7 +32,7 @@ import { encodeBlobWithBudget } from "./client-image-budget";
 import { renumberImgMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
-import { apiFetch as crossOriginFetch } from "./api";
+import { apiFetch as crossOriginFetch, retryWhileBusy, fetchRetryBusy } from "./api";
 import { apiErrorMessage } from "./api-error";
 import { referenceAudioProblem, withAudioDurations } from "./audio-duration";
 import {
@@ -290,6 +290,21 @@ async function apiFetch(input, init) {
     throw new Error("UNAUTHENTICATED");
   }
   return response;
+}
+
+// Slow calls (submits, upscales, inline media) can be turned away while the API
+// is busy; wait for a slot rather than dropping the user's action.
+function apiFetchRetryBusy(input, init = {}) {
+  return retryWhileBusy(() => apiFetch(input, init), { signal: init.signal });
+}
+
+async function fetchFrameBlob(url) {
+  const res = await fetchRetryBusy(inlineMediaUrl(url));
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new Error(apiErrorMessage(body, res.status));
+  }
+  return res.blob();
 }
 
 function submissionId() {
@@ -1087,7 +1102,7 @@ export const useStore = create((set, get) => ({
     const submissionKey = submissionId();
     try {
       for (let i = 0; i < count; i++) {
-        const res = await apiFetch(endpoint, {
+        const res = await apiFetchRetryBusy(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(submissionKey ? { "Idempotency-Key": `${submissionKey}-${i}` } : {}) },
           body: JSON.stringify(payload),
@@ -1211,7 +1226,7 @@ export const useStore = create((set, get) => ({
           ? s.upscalerImage
           : s.upscalerImage.url || s.upscalerImage.data;
 
-      const res = await apiFetch("/api/generate/upscale", {
+      const res = await apiFetchRetryBusy("/api/generate/upscale", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1257,7 +1272,7 @@ export const useStore = create((set, get) => ({
     set({ generating: true });
     try {
       const model = s.videoUpscalerParams.model;
-      const res = await apiFetch("/api/generate/upscale", {
+      const res = await apiFetchRetryBusy("/api/generate/upscale", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1297,7 +1312,7 @@ export const useStore = create((set, get) => ({
     if (!source || !item.upscaleParams) return { ok: false, error: "The original upscale settings are no longer available." };
     set({ generating: true });
     try {
-      const res = await apiFetch("/api/generate/upscale", {
+      const res = await apiFetchRetryBusy("/api/generate/upscale", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ [video ? "video" : "image"]: source, model: item.model, params: item.upscaleParams,
@@ -1472,7 +1487,7 @@ export const useStore = create((set, get) => ({
     set({ generating: true });
     const submissionKey = submissionId();
     try {
-      const res = await apiFetch("/api/generate/video", {
+      const res = await apiFetchRetryBusy("/api/generate/video", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(submissionKey ? { "Idempotency-Key": submissionKey } : {}) },
         body: JSON.stringify({
@@ -1650,9 +1665,7 @@ export const useStore = create((set, get) => ({
       if (typeof url === "string" && url.startsWith("data:")) {
         dataUrl = url;
       } else {
-        const res = await fetch(inlineMediaUrl(url));
-        const blob = await res.blob();
-        dataUrl = await encodeBlobWithBudget(blob);
+        dataUrl = await encodeBlobWithBudget(await fetchFrameBlob(url));
       }
       const targetModel = supportsFirstLastFrame(get().model) ? get().model : "Seedance 2.5";
       set({
@@ -1675,9 +1688,7 @@ export const useStore = create((set, get) => ({
       if (typeof url === "string" && url.startsWith("data:")) {
         dataUrl = url;
       } else {
-        const res = await fetch(inlineMediaUrl(url));
-        const blob = await res.blob();
-        dataUrl = await encodeBlobWithBudget(blob);
+        dataUrl = await encodeBlobWithBudget(await fetchFrameBlob(url));
       }
       const targetModel = supportsFirstLastFrame(get().model) ? get().model : "Seedance 2.5";
       set({

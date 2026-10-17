@@ -26,7 +26,8 @@ WORKER_COMMANDS = {
     'export': ['media_export_worker', '--interval', '2'],
     'scheduler': ['run_scheduler'],
 }
-GUNICORN = ['--bind', f'127.0.0.1:{UPSTREAM_PORT}', '--workers', '1', '--threads', '8', '--timeout', '25',
+API_THREADS = 8
+GUNICORN = ['--bind', f'127.0.0.1:{UPSTREAM_PORT}', '--workers', '1', '--threads', str(API_THREADS), '--timeout', '25',
             '--graceful-timeout', '5', '--access-logfile', '/dev/null', '--error-logfile', '-']
 
 
@@ -65,6 +66,7 @@ def run_api(env):
     if len(secret) < 48:
         raise SystemExit('VEEVEE_INGRESS_SECRET must be at least 48 characters')
     port = int(env.get('PORT', '18081'))
+    env['VEEVEE_API_THREADS'] = str(API_THREADS)  # config.wsgi sizes slow-call admission from it
     gateway_config = json.dumps({'secret': secret, 'port': port, 'paid_initial_routes': bool(env.get('VEEVEE_PAID_GUARD')),
                                  'new_exports': env.get('VEEVEE_EXPORT_ADMISSION') == '1',
                                  'magnific_upscale': env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'})

@@ -1,4 +1,5 @@
 import { inlineMediaUrl } from "./utils";
+import { fetchRetryBusy } from "./api";
 
 /** Helpers for the Portrait Gallery: ordering, paging, upload ordering, copy and download. */
 
@@ -150,7 +151,7 @@ const EXTENSION_BY_TYPE = { "image/jpeg": "jpg", "image/png": "png", "image/webp
 export async function downloadPortrait(portrait) {
   if (!portrait?.imageUrl) return;
   try {
-    const res = await fetch(inlineMediaUrl(portrait.imageUrl));
+    const res = await fetchRetryBusy(inlineMediaUrl(portrait.imageUrl));
     if (!res.ok) throw new Error("Download failed");
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);

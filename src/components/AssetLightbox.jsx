@@ -18,6 +18,9 @@ import {
   Box,
 } from "lucide-react";
 import { inlineMediaUrl } from "@/lib/utils";
+import { fetchRetryBusy } from "@/lib/api";
+import { apiErrorMessage } from "@/lib/api-error";
+import { notify } from "@/lib/notify";
 import { KIND_ICON, KIND_LABEL } from "./AssetLibrary";
 
 export function AssetLightbox({
@@ -122,7 +125,12 @@ export function AssetLightbox({
     if (!imageUrl) return;
     try {
       const targetUrl = inlineMediaUrl(imageUrl);
-      const res = await fetch(targetUrl);
+      const res = await fetchRetryBusy(targetUrl);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        notify(apiErrorMessage(body, res.status));
+        return;
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");

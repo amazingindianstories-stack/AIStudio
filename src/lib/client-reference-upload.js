@@ -21,6 +21,7 @@ export function uploadContentType(file) {
 }
 
 const CHUNK_BYTES = 8 * 1024 * 1024;
+const QUOTA_CODES = new Set(["UPLOAD_QUOTA_EXCEEDED", "UPLOAD_INFLIGHT_LIMIT"]);
 
 function uploadError(message, retryable = false, code = null) {
   const error = new Error(message);
@@ -72,9 +73,13 @@ async function jsonRequest(fetchImpl, url, body, signal, timeoutMs) {
   const response = await request(fetchImpl, url, { method: "POST", credentials: "same-origin",
     headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, signal, timeoutMs);
   const value = await response.json().catch(() => ({}));
-  if (!response.ok) throw uploadError(apiErrorMessage(value, response.status, "Upload failed. Try again."),
-    response.status === 408 || response.status === 429 || response.status >= 500,
-    typeof value.code === "string" ? value.code : typeof value.error === "string" ? value.error : null);
+  if (!response.ok) {
+    const code = typeof value.code === "string" ? value.code : typeof value.error === "string" ? value.error : null;
+    // A quota 429 lasts far longer than the retry window; only transient limits are retried.
+    const retryable = response.status === 408 || response.status >= 500
+      || (response.status === 429 && !QUOTA_CODES.has(code));
+    throw uploadError(apiErrorMessage(value, response.status, "Upload failed. Try again."), retryable, code);
+  }
   return value;
 }
 

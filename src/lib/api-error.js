@@ -46,6 +46,7 @@ const CODE_MESSAGES = {
   PREVIEW_PORTRAIT_GROUP_DELETE_REQUIRES_ARCHIVE: "Characters can't be deleted yet. Delete the portraits inside it instead.",
   PORTRAIT_IN_USE: "This portrait is being used by a generation right now. Try again when it finishes.",
   PORTRAITS_ARE_AUTOMATIC: "Portraits are created automatically from your references.",
+  SLOW_REQUEST_CAPACITY_BUSY: "Veevee is busy with other downloads and generations right now. Try again in a few seconds.",
   GENERATION_REQUIRES_RECONCILIATION: "This generation is still being checked with the provider. Try again later.",
 };
 

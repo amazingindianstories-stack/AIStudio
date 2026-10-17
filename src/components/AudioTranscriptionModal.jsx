@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AudioLines, Clipboard, Loader2, Upload, X } from "lucide-react";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiFetchRetryBusy } from "@/lib/api";
 import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 import { apiErrorMessage } from "@/lib/api-error";
 
@@ -56,7 +56,7 @@ export function AudioTranscriptionModal({ open, onClose, projectId }) {
     try {
       validateAudio(file);
       const { ref } = await uploadFileDirect(file, "audio-reference");
-      const res = await apiFetch("/api/audio/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audioRef: ref, name: file.name, projectId }) });
+      const res = await apiFetchRetryBusy("/api/audio/transcribe", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ audioRef: ref, name: file.name, projectId }) });
       const data = await res.json();
       if (!res.ok) throw new Error(apiErrorMessage(data, res.status, "Transcription failed."));
       setTranscript(data.transcript || ""); setFile(null); await loadHistory();
