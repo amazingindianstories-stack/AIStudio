@@ -241,10 +241,19 @@ def _first_in_line(claimant, since):
     return not any(other < (since, str(claimant)) for other in _claimants() if other[1] != str(claimant))
 
 
+def _eviction_unresolved():
+    """A delete we started (an eviction, an expiry, a Gallery delete) that BytePlus has not confirmed: DELETING, or UNCERTAIN after a failed call."""
+    return ManagedPortraitAsset.objects.filter(status__in=('DELETING', 'UNCERTAIN'), receipt__delete__state='CLAIMED').exists()
+
+
 def _take_slot(values, pool, now):
-    """Under the pool lock: 'free' when a slot is free, an ACTIVE unpinned victim (now DELETING) when one can be evicted, else None."""
+    """Under the pool lock: 'free' when a slot is free, an ACTIVE unpinned victim (now DELETING) when one can be evicted, else None.
+    No second eviction starts while an earlier delete is unresolved: its slot is about to free (or the delete keeps failing),
+    and evicting more would only empty the pool without ever making room."""
     if ManagedPortraitAsset.objects.filter(status__in=LIVE).count() < effective_capacity(values, pool):
         return 'free'
+    if _eviction_unresolved():
+        return None
     pinned = ManagedPortraitPin.objects.values('asset_id')
     victim = (ManagedPortraitAsset.objects.select_for_update().filter(status='ACTIVE').exclude(id__in=pinned)
               .order_by('last_used_at', 'created_at').first())
@@ -262,7 +271,7 @@ def has_room():
     if ManagedPortraitAsset.objects.filter(status__in=LIVE).count() < effective_capacity(setting_values(), pool):
         return True
     pinned = ManagedPortraitPin.objects.values('asset_id')
-    return ManagedPortraitAsset.objects.filter(status='ACTIVE').exclude(id__in=pinned).exists()
+    return not _eviction_unresolved() and ManagedPortraitAsset.objects.filter(status='ACTIVE').exclude(id__in=pinned).exists()
 
 
 def _claim(sha, source_key, generation_id, user_id, now):
