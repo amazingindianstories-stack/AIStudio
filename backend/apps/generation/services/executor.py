@@ -208,7 +208,7 @@ def execute_admitted(item, *, owner, signal=None, image_execute=None, video_subm
         if getattr(error, 'provider_response', None):
             response = error.provider_response
             responses = response if isinstance(response, list) else [response]
-        if getattr(error, 'code', None) == 'moderation' and portrait_prepare.privacy_rejection(str(error)) and portrait_prepare.learn_from_rejection(item):
+        if getattr(error, 'code', None) == 'moderation' and portrait_prepare.privacy_rejection(str(error), {'error': {'code': getattr(error, 'upstream_code', '')}}) and portrait_prepare.learn_from_rejection(item):
             failure['error'] = portrait_prepare.REJECTED_MESSAGE     # a face the detector missed is now a portrait; Retry sends it as one
         if submission_uncertain(error):
             # The provider may have accepted (and billed) this request. Keep the

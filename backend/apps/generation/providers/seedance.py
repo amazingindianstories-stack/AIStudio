@@ -42,6 +42,7 @@ def friendly_error(status,body):
     else:
         result = SeedanceError(f'Seedance error ({status} {code}): {message or body[:300]}' if code else
             f'Seedance create error {status}: {body[:400]}',code='seedance_error',status=status)
+    result.upstream_code = code      # the BytePlus error code, kept for callers that need it (not persisted)
     if status == 404 or code == 'InvalidEndpointOrModel.NotFound':
         return result
     # Name the policy that rejected the request; code/status stay unchanged.

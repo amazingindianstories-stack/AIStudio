@@ -84,15 +84,18 @@ def prepare(item, *, storage=None, client=None, now=None):
     return worst
 
 
+INPUT_IMAGE_PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
+
+
 def privacy_rejection(message, raw=None):
-    """True when a Seedance failure says an input image was refused as a real person (a face): by error code when the
-    provider payload has one, else by wording. Text-policy and other rejections are not about faces."""
+    """True only when Seedance refused an input image as a real person (a face): by the BytePlus error code
+    InputImageSensitiveContentDetected.PrivacyInformation when the payload has one (the code decides), else by its
+    input-image wording. Output video or audio privacy, text policy and any other rejection are not about our references."""
     error = raw.get('data', raw).get('error') if isinstance(raw, dict) and isinstance(raw.get('data', raw), dict) else None
     code = error.get('code') if isinstance(error, dict) else ''
-    text = f'{code} {message or ""}'
-    if re.search(r'InputText|input text|text content|prompt', text, re.I):
-        return False
-    return bool(re.search(r'PrivacyInformation|privacy|real person|portrait', text, re.I))
+    if code:
+        return code == INPUT_IMAGE_PRIVACY_CODE
+    return bool(re.search(r'input image[^.]{0,80}\b(real person|privacy)', message or '', re.I))
 
 
 def learn_from_rejection(item, storage=None):
