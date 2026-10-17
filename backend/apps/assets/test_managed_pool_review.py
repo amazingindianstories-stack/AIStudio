@@ -193,3 +193,32 @@ class RetiredPortraitReferenceTests(GalleryBase):
         self.assertEqual((body['code'], body['referenceIndex']), ('PORTRAIT_UNAVAILABLE', 2))
         self.assertIn('@img2 is an old portrait link that no longer exists. Add the image again', body['error'])
         self.assertFalse(Generation.objects.exists())
+
+
+class RollbackPinTests(GalleryBase):
+    def test_rollback_releases_pins_nobody_holds_and_still_refuses_for_running_generations(self):
+        import io
+        import uuid
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        from django.test import override_settings
+        done = self.run_worker(self.enqueue([self.upload(face_variant(1))]))
+        self.assertEqual(done.status, 'succeeded')
+        self.add(landscape(1))
+        managed_pool.process_uploads()
+        asset, upload = ManagedPortraitAsset.objects.get(origin='reference'), ManagedPortraitAsset.objects.get(origin='upload')
+        ManagedPortraitPin.objects.create(generation_id=done.id, asset=asset, pinned_at=1)             # its generation finished, nobody released it
+        ManagedPortraitPin.objects.create(generation_id=uuid.uuid4(), asset=asset, pinned_at=1)         # its generation was deleted
+        ManagedPortraitPin.objects.create(generation_id=upload.id, asset=upload, pinned_at=1)           # an upload's own pin
+        running = self.enqueue([self.upload(landscape(3))])
+        ManagedPortraitPin.objects.create(generation_id=running, asset=asset, pinned_at=1)
+        out = io.StringIO()
+        with override_settings(VEEVEE_MANAGED_PORTRAITS=False):
+            with self.assertRaisesRegex(CommandError, r'1 portrait pin\(s\) are held by queued/running generations'):
+                call_command('managed_portraits_rollback', '--confirm', '--delete-remote', stdout=out)
+            self.assertIn('released 2 pin(s) of finished generations and 1 Gallery upload pin(s)', out.getvalue())
+            self.assertEqual([str(pin) for pin in ManagedPortraitPin.objects.values_list('generation_id', flat=True)], [running], 'a queued generation keeps its pin')
+            Generation.objects.filter(pk=running).update(status='failed')
+            with self.assertRaisesRegex(CommandError, 'may still exist at BytePlus'):       # past the pin check; stop before the migration
+                call_command('managed_portraits_rollback', '--confirm', stdout=io.StringIO())
+        self.assertFalse(ManagedPortraitPin.objects.exists())

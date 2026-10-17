@@ -289,6 +289,7 @@ class ManagedPoolTests(TransactionTestCase):
         with self.assertRaisesRegex(CommandError, 'turn it off'):
             call_command('managed_portraits_rollback', '--confirm', '--delete-remote')
         with override_settings(VEEVEE_MANAGED_PORTRAITS=False):
+            Generation.objects.update(status='queued')          # a real holder: a queued generation keeps its pin
             managed_pool.pin(Generation.objects.first().id, ManagedPortraitAsset.objects.get())
             with self.assertRaisesRegex(CommandError, 'pin'):
                 call_command('managed_portraits_rollback', '--confirm', '--delete-remote')
