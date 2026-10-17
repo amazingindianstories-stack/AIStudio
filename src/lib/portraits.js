@@ -80,13 +80,26 @@ export function portraitFileProblem(file) {
  * null when the upload failed); every contiguous run of settled files starting
  * at the first unregistered one is sent, in order and at most 50 at a time, and
  * the sends are serialized so the server stamps them in that same order.
+ *
+ * Order also holds across drops: pass the previous drop's `finished` as `after`
+ * and none of this drop's files are sent until every file of that earlier drop
+ * has been registered, refused or failed. Order is strict within a drop; a
+ * failed or refused file never blocks anything, and a slow upload only holds
+ * back later drops until it settles. `finished` resolves once all `total`
+ * files have settled and their sends are done.
  */
-export function createOrderedRegistrar(total, register) {
+export function createOrderedRegistrar(total, register, after = Promise.resolve()) {
   const settled = new Array(total).fill(undefined);
+  const gate = Promise.resolve(after).catch(() => {});
   let next = 0;
+  let remaining = total;
   let chain = Promise.resolve();
+  let allSettled;
+  const everyone = new Promise((resolve) => { allSettled = resolve; });
+  if (!total) allSettled();
   return {
     settle(index, entry) {
+      if (settled[index] === undefined) remaining -= 1;
       settled[index] = entry ?? null;
       const batch = [];
       while (next < total && settled[next] !== undefined) {
@@ -95,11 +108,13 @@ export function createOrderedRegistrar(total, register) {
       }
       for (let at = 0; at < batch.length; at += PORTRAIT_BATCH_LIMIT) {
         const chunk = batch.slice(at, at + PORTRAIT_BATCH_LIMIT);
-        chain = chain.then(() => register(chunk));
+        chain = chain.then(() => gate).then(() => register(chunk));
       }
+      if (remaining === 0) allSettled();
       return chain;
     },
     done: () => chain,
+    finished: everyone.then(() => chain).catch(() => {}),
   };
 }
 

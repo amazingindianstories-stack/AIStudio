@@ -32,6 +32,28 @@ test("registration goes out in drop order even when files finish out of order", 
   assert.deepEqual(sent, [["a", "b", "c"], ["e"]], "a failed file is skipped, not waited for");
 });
 
+test("overlapping drops register in drop order, and a failed or refused file never blocks the queue", async () => {
+  const sent = [];
+  const register = async (batch) => { sent.push(batch.map((b) => b.name)); };
+  const entry = (name) => ({ referenceId: `r-${name}`, name });
+  const first = createOrderedRegistrar(2, register);
+  const second = createOrderedRegistrar(2, register, first.finished);
+  const third = createOrderedRegistrar(1, register, second.finished);
+  // The later drops finish uploading first.
+  void third.settle(0, entry("e"));
+  void second.settle(0, entry("c"));
+  void second.settle(1, entry("d"));
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(sent, [], "nothing goes while the first drop still has a file uploading");
+  void first.settle(1, entry("b"));
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.deepEqual(sent, [], "b still waits for a");
+  void first.settle(0, null);
+  await third.done();
+  assert.deepEqual(sent, [["b"], ["c"], ["d"], ["e"]], "one global order; the failed file only releases the queue");
+  await Promise.all([first.finished, second.finished, third.finished]);
+});
+
 test("registration batches are capped at 50 and sent one after another", async () => {
   const order = [];
   let running = 0, overlap = 0;

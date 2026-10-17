@@ -256,7 +256,7 @@ function insertNewItem(
 }
 
 // Gallery bookkeeping that is not rendered: request ordering, ids being deleted, and the status poll.
-const portraitRuntime = { token: 0, refreshing: false, deleting: new Set(), uploadSeq: 0, timer: null, attempt: 0 };
+const portraitRuntime = { token: 0, refreshing: false, deleting: new Set(), uploadSeq: 0, registrationTail: Promise.resolve(), timer: null, attempt: 0 };
 
 /** Poll only while the gallery is open and something is preparing, waiting or uploading. */
 function portraitPollWanted(state) {
@@ -1946,7 +1946,8 @@ export const useStore = create((set, get) => ({
   },
 
   // Bytes go straight to storage three at a time; the finished ones are then registered with the
-  // gallery in the order they were dropped, so the first dropped is the first prepared.
+  // gallery in the order they were dropped, so the first dropped is the first prepared. That order
+  // holds across overlapping drops: a drop registers only after every earlier drop has settled.
   uploadPortraits: async (files) => {
     const list = Array.from(files || []);
     if (!list.length) return { added: 0, failed: 0 };
@@ -2002,7 +2003,8 @@ export const useStore = create((set, get) => ({
         for (const item of batch) fail(entries[item.index].key, error?.message || "Could not add this image. Try again.");
       }
       schedulePortraitPoll(get);
-    });
+    }, portraitRuntime.registrationTail);
+    portraitRuntime.registrationTail = registrar.finished;
     schedulePortraitPoll(get);
     await runPool(list, PORTRAIT_UPLOAD_CONCURRENCY, async (file, index) => {
       const { key, name } = entries[index];
