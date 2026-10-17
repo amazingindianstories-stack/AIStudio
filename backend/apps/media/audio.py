@@ -12,7 +12,7 @@ from apps.generation.models import Generation
 from .storage import get_storage, MediaTooLargeError
 from .views import _body
 from .audio_inputs import capture_audio_input, InvalidAudioType, MAX_AUDIO_BYTES
-from .audio_wait import wait_for_audio, AudioResultPending
+from .audio_wait import wait_for_audio, AudioResultPending, AudioFailed
 from apps.generation.services.audio_submission import AUDIO_READY
 
 TRANSCRIPTION_PROMPT = 'Transcribe this audio for use as a video-generation prompt. Return only a clean, timestamped transcript in this exact format, one line per segment: [MM:SS.mmm - MM:SS.mmm] Speaker or sound: words or description. Include meaningful music, ambience, sound effects, pauses, and speaker changes. Do not add a title, markdown fence, commentary, or invented content.'
@@ -110,6 +110,8 @@ def transcribe(request):
         return JsonResponse({'error':'Use a common audio file such as MP3, WAV, M4A, OGG, AAC, FLAC or WebM.'},status=400)
     except AudioResultPending as error:
         return JsonResponse({'error':str(error),'id':str(error.identifier)},status=504)
+    except AudioFailed as error:
+        return JsonResponse({'error':str(error),'id':str(error.identifier)},status=429 if error.busy else 502)
     except Exception as error:
         # Provider exceptions may include tokens/URLs; preserve known public validation only.
         public = 'Transcription failed.'
