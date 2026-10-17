@@ -26,6 +26,11 @@ class Migration(migrations.Migration):
             field=models.TextField(db_default='reference', default='reference'),
         ),
         migrations.AddField(
+            model_name='managedportraitwait',
+            name='queued_at',
+            field=models.BigIntegerField(null=True),
+        ),
+        migrations.AddField(
             model_name='referencefacescan',
             name='forced',
             field=models.TextField(null=True),

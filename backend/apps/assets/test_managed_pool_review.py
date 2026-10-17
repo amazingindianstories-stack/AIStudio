@@ -7,7 +7,7 @@ from apps.generation.models import Generation
 from apps.generation.services import executor
 
 from . import managed_pool
-from .models import ManagedPortraitAsset, ManagedPortraitPin, ManagedPortraitPool
+from .models import ManagedPortraitAsset, ManagedPortraitPin, ManagedPortraitPool, ManagedPortraitWait
 from .test_portrait_gallery import GalleryBase, face_variant, landscape
 
 
@@ -129,3 +129,25 @@ class StorageFailureTests(GalleryBase):
         self.assertEqual(ManagedPortraitAsset.objects.get().status, 'FAILED')
         self.assertFalse(ManagedPortraitPin.objects.exists())
         self.assertEqual(self.fake.seedance_payloads, [])
+
+
+class QueuePlaceTests(GalleryBase):
+    def test_time_spent_waiting_for_something_else_does_not_buy_a_place_in_the_slot_queue(self):
+        AppSetting.objects.create(key='portraitPoolCapacity', value='1', updated_at=0)
+        holder = self.enqueue([self.upload(face_variant(1))])
+        executor.process_generation(holder, heartbeat=False)                 # registers and pins the only slot
+        first = self.enqueue([self.upload(face_variant(2))])
+        executor.process_generation(first, heartbeat=False)                  # waits for a slot: first in line
+        late = self.enqueue([self.upload(face_variant(3))])
+        ManagedPortraitWait.objects.create(generation_id=late, started_at=managed_pool.now_ms() - 10 * 60 * 1000, reason='portrait_processing')
+        executor.process_generation(late, heartbeat=False)                   # now it needs a slot too, but it queues behind `first`
+        wait = ManagedPortraitWait.objects.get(generation_id=late)
+        self.assertEqual(wait.reason, 'portrait_pool_full')
+        self.assertGreater(wait.queued_at, ManagedPortraitWait.objects.get(generation_id=first).queued_at)
+        self.assertLess(wait.started_at, wait.queued_at, 'the overall wait limit still counts from the first wait')
+        self.assertEqual(self.run_worker(holder).status, 'succeeded')
+        executor.process_generation(late, heartbeat=False)
+        self.assertEqual(Generation.objects.get(pk=late).provider_status, 'PORTRAIT_WAITING', 'the older waiter goes first')
+        self.assertEqual(ManagedPortraitAsset.objects.exclude(status='DELETED').count(), 1, 'nobody took the slot ahead of it')
+        self.assertEqual(self.run_worker(first).status, 'succeeded')
+        self.assertEqual(self.run_worker(late).status, 'succeeded')

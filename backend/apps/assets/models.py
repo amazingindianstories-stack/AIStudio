@@ -133,6 +133,7 @@ class ManagedPortraitWait(models.Model):
     generation_id = models.UUIDField(primary_key=True)
     started_at = models.BigIntegerField()
     reason = models.TextField()
+    queued_at = models.BigIntegerField(null=True)    # when it started waiting for a slot (reason portrait_pool_full): its place in the queue
     class Meta:
         managed = True
         db_table = 'managed_portrait_waits'

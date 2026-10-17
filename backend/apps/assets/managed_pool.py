@@ -237,7 +237,7 @@ def _claimants():
     last found the pool full, and QUEUED Gallery uploads."""
     from apps.generation.models import Generation
     queued = Generation.objects.filter(status='queued').values('id')
-    rows = [(row.started_at, str(row.generation_id)) for row in
+    rows = [(row.queued_at or row.started_at, str(row.generation_id)) for row in
             ManagedPortraitWait.objects.filter(reason='portrait_pool_full', generation_id__in=queued)]
     rows += [(row.created_at, str(row.id)) for row in ManagedPortraitAsset.objects.filter(status='QUEUED')]
     return sorted(rows)
@@ -306,7 +306,8 @@ def _claim(sha, source_key, generation_id, user_id, now):
                 asset.status, asset.updated_at = 'UNCERTAIN', now
                 asset.save(update_fields=['status', 'updated_at'])
             return wait('portrait_' + asset.status.lower(), 5000), asset, None
-        since = ManagedPortraitWait.objects.filter(generation_id=generation_id).values_list('started_at', flat=True).first() or now
+        waiting = ManagedPortraitWait.objects.filter(generation_id=generation_id, reason='portrait_pool_full').first()
+        since = (waiting.queued_at or waiting.started_at) if waiting else now     # only time spent waiting for a slot counts, not for processing
         if not _first_in_line(generation_id, since):
             return _pool_full(generation_id, now, 5000), None, None
         slot = _take_slot(values, pool, now)
@@ -324,15 +325,16 @@ def _claim(sha, source_key, generation_id, user_id, now):
 
 def _pool_full(generation_id, now, delay_ms):
     """This generation waits for a slot and is now in the queue (kept across passes so it keeps its place)."""
-    row, _ = ManagedPortraitWait.objects.get_or_create(generation_id=generation_id, defaults={'started_at': now, 'reason': 'portrait_pool_full'})
-    if row.reason != 'portrait_pool_full':
-        ManagedPortraitWait.objects.filter(generation_id=generation_id).update(reason='portrait_pool_full')
+    row, _ = ManagedPortraitWait.objects.get_or_create(generation_id=generation_id,
+                                                       defaults={'started_at': now, 'reason': 'portrait_pool_full', 'queued_at': now})
+    if row.reason != 'portrait_pool_full':      # it waited for something else until now (started_at keeps the overall wait limit)
+        ManagedPortraitWait.objects.filter(generation_id=generation_id).update(reason='portrait_pool_full', queued_at=now)
     return wait('portrait_pool_full', delay_ms)
 
 
 def _unclaim(generation_id):
     """The generation no longer waits for a slot (it got one, or shares an asset): it leaves the queue."""
-    ManagedPortraitWait.objects.filter(generation_id=generation_id, reason='portrait_pool_full').update(reason='portrait_registering')
+    ManagedPortraitWait.objects.filter(generation_id=generation_id, reason='portrait_pool_full').update(reason='portrait_registering', queued_at=None)
 
 
 def claim_upload(asset_id, now=None):
