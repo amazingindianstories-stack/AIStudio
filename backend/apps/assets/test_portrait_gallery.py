@@ -142,7 +142,8 @@ class GalleryApiTests(GalleryBase):
         result = self.add(*[landscape(n) for n in range(5)], names={0: 'First'})
         self.assertTrue(all(item['ok'] and not item['existing'] for item in result['results']))
         first = result['results'][0]['portrait']
-        self.assertEqual((first['name'], first['origin'], first['state'], first['inUse']), ('First', 'upload', 'waiting', False))
+        self.assertEqual((first['name'], first['origin'], first['state'], first['inUse']), ('First', 'upload', 'preparing', False),
+                         'with room in the pool a queued upload is simply next in line, not waiting for space')
         self.assertTrue(first['imageUrl'].startswith('/api/media/uploads/portrait/'))
         self.assertTrue(first['message'] and 'BytePlus' not in str(first))
         created = [item['portrait']['createdAt'] for item in result['results']]
@@ -209,6 +210,24 @@ class GalleryApiTests(GalleryBase):
         self.assertFalse(ManagedPortraitPin.objects.exists(), 'the temporary pin goes once the upload is ACTIVE')
         self.assertEqual(self.listing()['portraits'][0]['state'], 'ready')
         self.assertEqual(self.fake.live_asset_count(), 1)
+
+    def test_one_scheduler_pass_registers_several_uploads_oldest_first(self):
+        self.add(*[landscape(n) for n in range(7)])
+        report = managed_pool.process_uploads()
+        self.assertEqual(report['registered'], managed_pool.UPLOADS_PER_PASS)
+        order = list(ManagedPortraitAsset.objects.order_by('created_at').values_list('status', flat=True))
+        self.assertNotIn('QUEUED', order[:5], 'the five oldest uploads were registered in this pass')
+        self.assertEqual(order[5:], ['QUEUED', 'QUEUED'], 'the newest uploads wait for the next pass')
+        ticks = iter([0, 100])
+        self.assertEqual(managed_pool.process_uploads(clock=lambda: next(ticks))['registered'], 1, 'the time budget ends a pass early')
+
+    def test_full_pool_shows_waiting_for_space(self):
+        AppSetting.objects.create(key='portraitPoolCapacity', value='1', updated_at=0)
+        holder = self.enqueue([self.upload(face_variant(1))])
+        executor.process_generation(holder, heartbeat=False)
+        self.add(landscape(1))
+        item = self.listing()['portraits'][0]
+        self.assertEqual((item['state'], item['message']), ('waiting', 'Waiting for space - other generations are using it.'))
 
     def test_same_image_returns_the_existing_asset_and_shows_it_again(self):
         first = self.add(landscape(1), names={0: 'Mine'})['results'][0]['portrait']

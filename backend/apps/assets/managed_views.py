@@ -92,13 +92,13 @@ def display_name(asset, creator):
     return f'Face from {first or "prompt"} {day:%b} {day.day}'
 
 
-def serialize(asset, pins, creators):
+def serialize(asset, pins, creators, room=True):
     creator = creators.get(asset.created_by_id)
     if asset.status == 'ACTIVE':
         state, message = 'ready', None
     elif asset.status == 'FAILED':
         state, message = 'unusable', UNUSABLE
-    elif asset.status == 'QUEUED':
+    elif asset.status == 'QUEUED' and (not room or asset.error_code == 'QuotaSharedPoolExceeded'):   # with room, simply next in line
         state, message = 'waiting', WAITING
     else:
         state, message = 'preparing', 'Preparing...'
@@ -114,7 +114,8 @@ def serialize_rows(rows):
     for asset_id in ManagedPortraitPin.objects.filter(asset_id__in=[row.id for row in rows]).values_list('asset_id', flat=True):
         pins[asset_id] = pins.get(asset_id, 0) + 1
     creators = {user.id: user for user in User.objects.filter(id__in={row.created_by_id for row in rows if row.created_by_id})}
-    return [serialize(row, pins, creators) for row in rows]
+    room = managed_pool.has_room() if any(row.status == 'QUEUED' for row in rows) else True
+    return [serialize(row, pins, creators, room) for row in rows]
 
 
 def encode_cursor(row):

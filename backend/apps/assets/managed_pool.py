@@ -38,6 +38,7 @@ REGISTERING_STALE_MS = 2 * 60 * 1000
 DELETING_STALE_MS = 30 * 1000           # a DELETING row nobody finished (the worker that claimed it died)
 VERIFY_INTERVAL_MS = 60 * 1000           # re-confirm an ACTIVE asset with BytePlus (unbilled GetAsset) before a submission at most this often
 MIN_SIDE, MAX_SIDE, MIN_RATIO, MAX_RATIO = 300, 6000, 0.4, 2.5
+UPLOADS_PER_PASS, UPLOAD_PASS_SECONDS = 5, 6.0
 
 
 def now_ms():
@@ -253,6 +254,15 @@ def _take_slot(values, pool, now):
     victim.receipt = {**victim.receipt, 'delete': {'state': 'CLAIMED', 'reason': 'evicted', 'at': now}}
     victim.save(update_fields=['status', 'updated_at', 'receipt'])
     return victim
+
+
+def has_room():
+    """Read-only: whether a new portrait could get a slot now (a free slot, or an unused one to evict)."""
+    pool = ManagedPortraitPool.objects.filter(pk=1).first() or ManagedPortraitPool(id=1, updated_at=0)
+    if ManagedPortraitAsset.objects.filter(status__in=LIVE).count() < effective_capacity(setting_values(), pool):
+        return True
+    pinned = ManagedPortraitPin.objects.values('asset_id')
+    return ManagedPortraitAsset.objects.filter(status='ACTIVE').exclude(id__in=pinned).exists()
 
 
 def _claim(sha, source_key, generation_id, user_id, now):
@@ -603,10 +613,21 @@ def recover_processing(client, limit=20):
     return count
 
 
-def process_uploads(*, client=None, storage=None, now=None):
-    """Scheduler step (every few seconds): advance Gallery uploads one at a time, oldest first, behind everyone
-    who was waiting longer. Registers at most one upload per call and never blocks the pool lock on the network."""
+def process_uploads(*, client=None, storage=None, now=None, limit=UPLOADS_PER_PASS, budget_s=UPLOAD_PASS_SECONDS, clock=time.monotonic):
+    """Scheduler step (every few seconds): register Gallery uploads oldest first, behind everyone who was waiting
+    longer, one after another until `limit` or the time budget is used. Never holds the pool lock on the network."""
     client = client or default_client()
+    report = {'registered': 0, 'polled': 0, 'deleted': 0}
+    deadline = clock() + budget_s
+    while True:
+        step = _process_upload_once(client=client, storage=storage, now=now)
+        for key in report:
+            report[key] += step[key]
+        if not step['registered'] or report['registered'] >= limit or clock() >= deadline:
+            return report
+
+
+def _process_upload_once(*, client, storage=None, now=None):
     report = {'registered': 0, 'polled': 0, 'deleted': 0}
     report['deleted'] = recover_deletes(client, now=now, stale_ms=DELETING_STALE_MS, limit=5)
     for asset in ManagedPortraitAsset.objects.filter(status='PROCESSING', origin='upload').order_by('created_at')[:5]:

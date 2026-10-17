@@ -25,7 +25,7 @@ def maintain_portraits():
 
 
 def process_portrait_uploads():
-    """Register Gallery uploads first come first served, one at a time, and finish pending portrait deletes."""
+    """Register Gallery uploads first come first served (a few per pass) and finish pending portrait deletes."""
     from apps.assets.managed_pool import process_uploads
     return process_uploads()
 
