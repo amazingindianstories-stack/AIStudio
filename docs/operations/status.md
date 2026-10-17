@@ -199,6 +199,15 @@ Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the relea
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-17 ~09:50 UTC: **hotfix `981f993` released** (API `e48952f3`, generation `c1a4f34b`, scheduler
+`a1a04621`, export `1c4c5afe`, Vercel `dpl_CJvLGB5Woi3nSpaTeTaM3DdWciSs`; one video was running and finished
+normally). BytePlus answered CreateAsset with 400 `QuotaWriteQPMExceeded` during an 11-portrait burst; it was
+taken as a refusal and 4 face images were marked "send inline" (marks removed in production at 09:30). Write
+limits now pause registrations for 60 s without judging the image. Admission caps running tasks per BytePlus
+Seedance model (Admin -> Limits -> Seedance tasks per model, default 3 for the Individual account; BytePlus
+queues anything above its own limit out of sight), 8 videos overall, 8 per user. Rollback targets: API
+`29e6134f`, generation `8ba0b263`, scheduler `e001f0e4`, export `f7bdca38`, Vercel `dpl_CZA4uTxE9dcVPyNTBzLJsNCk9RpZ`.
+
 2026-10-17: **released `ee821c0`** (portraits v2, failure copy, image limits, 8 jobs per user / 16 videos
 overall, plus the 2026-10-16 merges). Railway API `29e6134f`, generation `8ba0b263`, export `f7bdca38`,
 scheduler `e001f0e4`; migrations 60 -> 62 (owner, `assets.0005`, `assets.0006`); `portraits_cutover` removed
