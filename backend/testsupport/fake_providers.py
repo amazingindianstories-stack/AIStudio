@@ -62,6 +62,13 @@ def mp4_bytes(size='160x90'):
             return handle.read()
 
 
+class MediaFault(Exception):
+    """An injected failure of a media download (the server answers with this HTTP status)."""
+    def __init__(self, status):
+        super().__init__(f'injected media failure {status}')
+        self.status = status
+
+
 class FakeProviders:
     """Stateful fake of every provider Veevee calls. Thread-safe."""
 
@@ -82,15 +89,28 @@ class FakeProviders:
         self.png, self.mov = png_bytes(), mov_bytes()
         self.mp4 = mp4_bytes() if shutil.which('ffmpeg') else b''
         self.magnific_tasks = {}
+        self.faults = []        # [{'match': regex on 'METHOD host/path' or 'FETCH url', 'status', 'payload', 'count'}]: the next N matching calls fail
         self._stack = contextlib.ExitStack()
 
     # ---- plain handler -------------------------------------------------
+    def fault(self, line):
+        """The injected failure for this call, if a configured fault matches it (each fault answers `count` calls)."""
+        with self.lock:
+            for fault in self.faults:
+                if fault.get('count', 1) > 0 and re.search(fault['match'], line):
+                    fault['count'] = fault.get('count', 1) - 1
+                    return fault.get('status', 429), fault.get('payload') or {'error': {'code': 'TooManyRequests', 'message': 'injected limit'}}
+        return None
+
     def handle(self, method, url, body=None):
         """Return (status, payload) where payload is a dict (JSON) for provider APIs."""
         parts = urlsplit(url)
         host, path = parts.hostname or '', parts.path or '/'
         with self.lock:
             self.calls.append((method, host + path + ('?' + parts.query if host == ASSET_HOST else '')))
+        injected = self.fault(f'{method} {host}{path}')
+        if injected:
+            return injected
         data = body if isinstance(body, dict) else (json.loads(body) if body else {})
         gemini = re.fullmatch(r'/v1beta/models/([a-z0-9.-]+):generateContent', path)
         if host == 'generativelanguage.googleapis.com' and gemini and method == 'POST':
@@ -248,6 +268,9 @@ class FakeProviders:
     def media(self, url):
         with self.lock:
             self.calls.append(('FETCH', url))
+        injected = self.fault(f'FETCH {url}')
+        if injected:
+            raise MediaFault(injected[0])
         if url == FAKE_MEDIA + 'seedream.png':
             return self.png, 'image/png'
         if url == FAKE_MEDIA + 'video.mov':
