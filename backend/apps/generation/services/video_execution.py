@@ -292,7 +292,9 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
             raise rejected[0]
         first_error = rejected[0]
         raise ProviderError(f'Video candidate submission failed (0/{count} accepted): {first_error}',
-            code=getattr(first_error, 'code', 'provider_error'), provider_response=[getattr(error, 'provider_response', None) for error in rejected if getattr(error, 'provider_response', None)])
+            code=getattr(first_error, 'code', 'provider_error'), status=getattr(first_error, 'status', None),
+            may_have_submitted=any(getattr(error, 'may_have_submitted', True) is not False for error in rejected),
+            provider_response=[getattr(error, 'provider_response', None) for error in rejected if getattr(error, 'provider_response', None)])
     responses = [getattr(error, 'provider_response', None) for error in rejected if getattr(error, 'provider_response', None)]
     return {**base, 'task_id': accepted[0], 'candidate_task_ids': accepted[1:] if count > 1 else None,
             'cost_cents': math.floor(item.cost_cents / count * len(accepted) + .5),

@@ -358,13 +358,14 @@ class WorkerTests(TransactionTestCase):
         from .serialization import generation_item
         self.assertIn('larger than 4 GB', generation_item(row)['error'])
 
-    def test_repeated_save_failures_end_the_job_after_three_attempts(self):
+    def test_repeated_save_failures_end_the_job_after_the_attempt_cap(self):
         storage = self.storage()
         identifier = self.completed(storage)
         def broken(*args):
             raise IOError('Provider media ended before its declared length.')
-        kinds = [self.advance_with(identifier, storage, broken)['kind'] for _ in range(3)]
-        self.assertEqual(kinds, ['poll_error', 'poll_error', 'failed'])
+        attempts = poller.MAGNIFIC_SAVE_ATTEMPTS
+        kinds = [self.advance_with(identifier, storage, broken)['kind'] for _ in range(attempts)]
+        self.assertEqual(kinds, ['poll_error'] * (attempts - 1) + ['failed'])
         from .serialization import generation_item
         self.assertEqual(generation_item(Generation.objects.get(pk=identifier))['error'], 'The upscaled master could not be downloaded and stored.')
 

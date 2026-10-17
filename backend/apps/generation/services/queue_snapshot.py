@@ -1,4 +1,8 @@
-"""Single-query queue fairness/spend snapshot, ported from the source contract."""
+"""Single-query queue fairness/spend snapshot, ported from the source contract.
+
+lane_running skips video jobs whose provider task has finished (poller.DOWNLOAD_PENDING, or the provider reported
+succeeded) and only our download is left: BytePlus no longer runs them. Spend skips failures marked unbilled (a throttle).
+"""
 SQL = r'''
 with global_user_limit as (
       select coalesce(
@@ -39,7 +43,8 @@ with global_user_limit as (
           and (created_at, id) < (%(created_at)s, %(item_id)s::uuid)) as older,
       exists(select 1 from eligible_queue where id = %(item_id)s::uuid) as user_eligible,
       (select count(*) from generations
-        where status = 'running' and kind = 'video' and model = any(%(lane_models)s::text[])) as lane_running,
+        where status = 'running' and kind = 'video' and model = any(%(lane_models)s::text[])
+          and coalesce(provider_status, '') not in ('DOWNLOAD_PENDING', 'succeeded')) as lane_running,
       (select count(*) from eligible_queue
         where id <> %(item_id)s::uuid and kind = 'video' and model = any(%(lane_models)s::text[])
           and (created_at, id) < (%(created_at)s, %(item_id)s::uuid)) as lane_older,
@@ -50,20 +55,20 @@ with global_user_limit as (
           and updated_at >= %(window_start)s
           and status in ('running', 'succeeded', 'failed')
           and ((kind = 'image' and model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or model = 'Gemini Omni Flash')
-          and not (status = 'failed' and coalesce(error, '') like '%%429%%')
+          and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as window_cents,
       (select count(*) from generations
         where created_at > %(skirt_start)s
           and updated_at >= %(window_start)s
           and status in ('running', 'succeeded', 'failed')
           and ((kind = 'image' and model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or model = 'Gemini Omni Flash')
-          and not (status = 'failed' and coalesce(error, '') like '%%429%%')
+          and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as window_rows,
       (select min(updated_at) from generations
         where created_at > %(skirt_start)s
           and updated_at >= %(window_start)s
           and status in ('running', 'succeeded', 'failed')
           and ((kind = 'image' and model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or model = 'Gemini Omni Flash')
-          and not (status = 'failed' and coalesce(error, '') like '%%429%%')
+          and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as oldest_updated_at
 '''

@@ -94,7 +94,8 @@ def settle_preparation_failure(expected, *, terminal):
 
 def process_audio(identifier, owner, *, signal, provider=None, storage=None):
     """Execute a fresh queued intent once; pending calls have no replay path."""
-    from apps.media.audio import get_transcriber, _persist_audio_result, _mark_audio_uncertain
+    from apps.media.audio import get_transcriber, _persist_audio_result, _mark_audio_uncertain, _mark_audio_failed
+    from .upscale_submission import definitive_rejection
     from apps.media.audio_inputs import validated_audio_input
     from apps.media.storage import get_storage
     from .coordinator import release_generation
@@ -132,8 +133,12 @@ def process_audio(identifier, owner, *, signal, provider=None, storage=None):
         # A paid response may arrive during cancellation. Persist it first.
         saved=_persist_audio_result(claimed,transcript,now_ms())
         return {'kind':'completed','item':saved}
-    except Exception:
+    except Exception as error:
         try:
+            if definitive_rejection(error):
+                # A 4xx (a 429 included) refused the call before any work: end the row so the user's slot is freed.
+                _mark_audio_failed(claimed,str(error))
+                return {'kind':'failed','item':Generation.objects.get(pk=identifier)}
             _mark_audio_uncertain(claimed)
         except Exception:
             pass  # Committed pending evidence remains held, never replayed.

@@ -96,20 +96,19 @@ class ProviderAdapterTests(SimpleTestCase):
         self.assertEqual(expected['omniStatuses'], [omni.map_status(v) for v in request['omniStatuses']])
         self.assertEqual(expected['omniErrors'], [omni.terminal_status_http_error(*v) for v in request['omniErrors']])
 
-    def test_gemini_transient_budget_no_image_and_auth_headers(self):
-        class Signal:
-            waits = []
-            def check(self):
-                pass
-            def wait(self, value):
-                self.waits.append(value)
+    def test_gemini_throttle_fails_at_once_unbilled_and_auth_headers(self):
         response = {'candidates': [{'content': {'parts': [{'inlineData': {'data': 'master', 'mimeType': 'image/png'}}]}}]}
-        transport = ScriptedTransport(result({'error': {}}, 429), result(response))
-        signal = Signal()
+        # A rate limit or overload was not processed: report it immediately (the paid guard allows one POST per job).
+        for status in (429, 503):
+            transport = ScriptedTransport(result({'error': {}}, status), result(response))
+            with self.assertRaises(ProviderError) as caught:
+                gemini.generate_image({'assembled': {'groups': [], 'instruction': 'literal'}}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+            self.assertEqual((caught.exception.status, caught.exception.may_have_submitted), (status, False))
+            self.assertEqual(len(transport.calls), 1)
+        transport = ScriptedTransport(result(response))
         value = gemini.generate_image({'assembled': {'groups': [], 'instruction': 'literal'}, 'seed': 42},
-            env={'GOOGLE_API_KEY': 'fixture'}, transport=transport, signal=signal, random_value=lambda: .5)
+            env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
         self.assertEqual(value, {'base64': 'master', 'mimeType': 'image/png'})
-        self.assertEqual(signal.waits, [4000])
         self.assertNotIn('fixture', transport.calls[0][0][1])
         self.assertEqual(transport.calls[0][1]['body']['generationConfig']['seed'], 42)
         # A 200 without an image is billed: surface it, never re-submit automatically.
