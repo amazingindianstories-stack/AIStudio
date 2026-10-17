@@ -40,7 +40,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { formatCost } from "@/lib/format-cost";
-import { LIMIT_DEFINITIONS, } from "@/lib/limits";
+import { LIMIT_DEFINITIONS, USER_LIMIT_DEFINITIONS } from "@/lib/limits";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
@@ -924,7 +924,7 @@ function UserLimitsModal({
 ) {
   const [values, setValues] = useState(() => {
     const init = {};
-    for (const def of LIMIT_DEFINITIONS) {
+    for (const def of USER_LIMIT_DEFINITIONS) {
       const override = user.limits[def.key];
       init[def.key] = override != null ? String(override) : "";
     }
@@ -937,7 +937,7 @@ function UserLimitsModal({
   // snapshot that reload() doesn't touch.
   const [savedOverrides, setSavedOverrides] = useState(() => {
     const init = {};
-    for (const def of LIMIT_DEFINITIONS) init[def.key] = user.limits[def.key] ?? null;
+    for (const def of USER_LIMIT_DEFINITIONS) init[def.key] = user.limits[def.key] ?? null;
     return init;
   });
   const [busyKey, setBusyKey] = useState(null);
@@ -983,7 +983,7 @@ function UserLimitsModal({
           Leave a field blank to use the global default (Limits tab). A value
           here overrides it for this user specifically.
         </p>
-        {LIMIT_DEFINITIONS.map((def) => (
+        {USER_LIMIT_DEFINITIONS.map((def) => (
           <div key={def.key} className="rounded-xl border border-line p-3">
             <label className="mb-1 block text-sm font-medium text-white">{def.label}</label>
             <p className="mb-2 text-xs leading-5 text-white/45">{def.description}</p>

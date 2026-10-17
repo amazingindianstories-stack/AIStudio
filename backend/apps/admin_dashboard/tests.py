@@ -116,7 +116,7 @@ class CurrentNodeLimitParityTests(TransactionTestCase):
                                 check=True, cwd=root)
         expected = json.loads(result.stdout)
         # The recording was made when the per-user cap was 4; parser semantics are checked against that definition.
-        recorded = {**LIMITS, 'maxConcurrentJobs': (4, 1, 4)}
+        recorded = {'maxPromptLength': LIMITS['maxPromptLength'], 'maxConcurrentJobs': (4, 1, 4)}
         actual = [{key: parse(raw, definition) for key, definition in recorded.items()}
                   for raw in cases]
         self.assertEqual(actual, expected)

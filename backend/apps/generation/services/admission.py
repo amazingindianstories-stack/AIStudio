@@ -10,8 +10,12 @@ from apps.generation.models import Generation
 from apps.generation.serialization import generation_item
 from .queue_snapshot import SQL as SNAPSHOT_SQL
 
-MAX_CONCURRENT = {'image': 10, 'video': 16}   # across everyone; two artists can each run 8 Seedance jobs
+MAX_CONCURRENT = {'image': 10, 'video': 8}    # running jobs across everyone
 PER_USER_DEFAULT = PER_USER_MAX = 8                # maxConcurrentJobs: running image/video jobs per user
+# BytePlus runs at most this many tasks per Seedance model per account (3 Individual, 10 Enterprise) and silently
+# queues the rest on its side; keeping the excess in our queue keeps the order fair and visible.
+LANE_SETTING, LANE_DEFAULT, LANE_MAX = 'seedanceConcurrency', 3, 50
+SLOT_WAITING = 'SLOT_WAITING'
 SPEND_WINDOW_MS = 600000
 HELD_MESSAGE = 'Waiting for the API rate-limit window to clear — this will start automatically.'
 
@@ -40,9 +44,33 @@ def bills_gemini(item):
     return (item.kind == 'image' and item.model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or item.model == 'Gemini Omni Flash'
 
 
+def lane_models(item):
+    """Model names sharing this video job's BytePlus model (versions of one model share its concurrency), else []."""
+    from apps.generation.model_registry import MODEL_REGISTRY, is_provider_model, provider_model_id
+    if item.kind != 'video' or not is_provider_model(item.model, 'byteplus'):
+        return []
+    target = provider_model_id(item.model)
+    names = set()
+    for model in MODEL_REGISTRY:
+        if model.get('provider') == 'byteplus' and provider_model_id(model['id']) == target:
+            names.update((model['id'], model['name']))
+    return sorted(names)
+
+
+def lane_capacity():
+    from apps.admin_dashboard.models import AppSetting
+    from apps.admin_dashboard.views import LIMITS, parse
+    return parse(AppSetting.objects.filter(key=LANE_SETTING).values_list('value', flat=True).first(), LIMITS[LANE_SETTING])
+
+
+def lane_message(item):
+    return f'Waiting for a free {item.model} slot - it starts automatically.'
+
+
 def snapshot(item, *, now, best_of):
     with connection.cursor() as cursor:
         cursor.execute(SNAPSHOT_SQL, {'kind': item.kind, 'item_id': item.id, 'user_default': PER_USER_DEFAULT, 'user_max': PER_USER_MAX,
+            'lane_models': lane_models(item),
             'created_at': item.created_at, 'best_of': best_of,
             'window_start': now - SPEND_WINDOW_MS,
             'skirt_start': now - SPEND_WINDOW_MS - 6 * 60 * 60 * 1000})
@@ -78,6 +106,10 @@ def queue_position(identifier, *, now=None):
     if not current['user_eligible']:
         return {'position': 1, 'status': item.status, 'heldForConcurrency': True}
     position = max(0, current['running'] + current['older'] - (MAX_CONCURRENT.get(item.kind, 2) - 1))
+    if lane_models(item):
+        lane = max(0, current['lane_running'] + current['lane_older'] - (lane_capacity() - 1))
+        if lane > position:
+            return {'position': lane, 'status': item.status, 'heldForProvider': True, 'heldReason': lane_message(item)}
     if position > 0 or not bills_gemini(item) or affordable(item, current, multiplier):
         return {'position': position, 'status': item.status}
     oldest = current['oldest_updated_at']
@@ -86,7 +118,9 @@ def queue_position(identifier, *, now=None):
             'retryAfterMs': 5000 if oldest is None else min(max(oldest + SPEND_WINDOW_MS - now, 5000), SPEND_WINDOW_MS)}
 
 
-def admit_job(identifier, *, now=None, owner=None):
+def admit_job(identifier, *, now=None, owner=None, held=None):
+    """Move a queued job to running when every limit allows it. `held` (a list) receives 'lane' when only the
+    provider's per-model limit kept it queued."""
     now = now_ms() if now is None else now
     with transaction.atomic():
         row = Generation.objects.filter(pk=identifier).first()
@@ -102,8 +136,13 @@ def admit_job(identifier, *, now=None, owner=None):
         current = snapshot(fresh, now=now, best_of=multiplier)
         if not current['user_eligible'] or current['running'] + current['older'] >= MAX_CONCURRENT[fresh.kind]:
             return None
+        if lane_models(fresh) and current['lane_running'] + current['lane_older'] >= lane_capacity():
+            if held is not None:
+                held.append('lane')
+            return None
         if bills_gemini(fresh) and not affordable(fresh, current, multiplier):
             return None
-        if not Generation.objects.filter(pk=identifier, status='queued').update(status='running', updated_at=now):
+        cleared = {'provider_status': None, 'progress_message': None} if fresh.provider_status == SLOT_WAITING else {}
+        if not Generation.objects.filter(pk=identifier, status='queued').update(status='running', updated_at=now, **cleared):
             return None
         return Generation.objects.get(pk=identifier)

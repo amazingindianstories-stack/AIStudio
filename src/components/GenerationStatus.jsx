@@ -2,8 +2,17 @@
 
 import { cn } from "@/lib/utils";
 
+/** Statuses whose progressMessage says why a queued video has not started yet. */
+const WAITING_STATUSES = new Set(["PORTRAIT_WAITING", "SLOT_WAITING"]);
+
+/** The reason a pending video is waiting (portrait preparation or a provider slot), else null. */
+export function waitingNote(item) {
+  if (item?.kind !== "video" || item.pollWarning || !WAITING_STATUSES.has(item.providerStatus)) return null;
+  return item.progressMessage || null;
+}
+
 /** Shared pending-generation treatment for chat results and library cards. */
-export function GenerationStatus({ status = "running", compact = false, className }) {
+export function GenerationStatus({ status = "running", compact = false, note = null, className }) {
   const label = status === "queued" ? "Queued" : "Creating";
 
   return (
@@ -25,6 +34,7 @@ export function GenerationStatus({ status = "running", compact = false, classNam
       <span className="text-[11px] font-medium tracking-wide text-white/50">
         {label}
       </span>
+      {note && <span data-generation-wait className="max-w-[28ch] text-[11px] leading-snug text-sky-200/80">{note}</span>}
     </div>
   );
 }

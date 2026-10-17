@@ -274,9 +274,13 @@ def process_generation(identifier, *, owner=None, signal=None, image_execute=Non
                 return deferred
             item = Generation.objects.get(pk=identifier)
         if was_queued:
-            item = admission.admit_job(identifier, owner=owner)
-            if item is None:
+            held = []
+            admitted = admission.admit_job(identifier, owner=owner, held=held)
+            if admitted is None:
+                if held:
+                    _show_slot_wait(Generation.objects.get(pk=identifier), owner)
                 return {'kind': 'not_admitted'}
+            item = admitted
             publish_best_effort(item)
         if item.model.startswith('Magnific ') and item.submission_input is not None and not item.task_id:
             if item.provider_status in ('SUBMISSION_PENDING','SUBMISSION_UNCERTAIN'):
@@ -339,6 +343,15 @@ def _prepare_portraits(item, owner):
     portrait_prepare.finish(item.id)
     publish_best_effort(Generation.objects.get(pk=item.id))
     return {'kind': 'failed', 'reason': outcome.reason}
+
+
+def _show_slot_wait(item, owner):
+    """The provider's per-model limit is full: say so on the card (cleared when the job is admitted)."""
+    message = admission.lane_message(item)
+    if item.status == 'queued' and (item.provider_status != admission.SLOT_WAITING or item.progress_message != message):
+        coordinator.expected_version(item, owner=owner).update(provider_status=admission.SLOT_WAITING, progress_message=message,
+                                                               updated_at=max(now_ms(), item.updated_at + 1))
+        publish_best_effort(Generation.objects.get(pk=item.id))
 
 
 def submission_uncertain(error):

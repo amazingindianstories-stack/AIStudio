@@ -222,6 +222,42 @@ class GalleryApiTests(GalleryBase):
         ticks = iter([0, 100])
         self.assertEqual(managed_pool.process_uploads(clock=lambda: next(ticks))['registered'], 1, 'the time budget ends a pass early')
 
+    def test_a_write_limit_pauses_registration_instead_of_refusing_the_image(self):
+        # Production 2026-10-17: QuotaWriteQPMExceeded (HTTP 400) was taken for a refusal and faces went inline.
+        self.add(landscape(1))
+        self.fake.asset_throttle = 1
+        managed_pool.process_uploads()
+        asset = ManagedPortraitAsset.objects.get()
+        self.assertEqual((asset.status, asset.error_code), ('QUEUED', 'throttled'), 'the upload keeps its place')
+        self.assertGreater(managed_pool.pause_remaining(managed_pool.now_ms()), 50000, 'new registrations pause for a minute')
+        calls = len(self.fake.calls)
+        managed_pool.process_uploads()
+        self.assertEqual(ManagedPortraitAsset.objects.get().status, 'QUEUED')
+        self.assertFalse([c for c in self.fake.calls[calls:] if 'CreateAsset' in str(c)], 'no CreateAsset during the pause')
+        job = self.enqueue([self.upload(face_variant(7))])
+        executor.process_generation(job, heartbeat=False)
+        row = Generation.objects.get(pk=job)
+        self.assertEqual((row.status, row.provider_status), ('queued', portrait_prepare.WAITING_STATUS))
+        self.assertIn('slow down', row.progress_message)
+        AppSetting.objects.filter(key=managed_pool.PAUSE_KEY).update(value='0')
+        self.settle_uploads()
+        self.assertEqual(ManagedPortraitAsset.objects.get(origin='upload').status, 'ACTIVE')
+        self.assertEqual(self.run_worker(job).status, 'succeeded')
+        self.assertTrue(any(ref.startswith('asset://') for ref in self.submitted_refs()))
+        self.assertFalse(ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).exists(), 'a write limit never marks a face as inline')
+
+    def test_a_write_limit_during_a_face_job_does_not_send_the_face_inline(self):
+        for status, code in ((400, 'QuotaWriteQPMExceeded'), (429, 'TooManyRequests')):
+            with self.subTest(code=code):
+                AppSetting.objects.filter(key=managed_pool.PAUSE_KEY).delete()
+                self.fake.asset_throttle, self.fake.asset_throttle_error = 1, (status, code, 'slow down')
+                job = self.enqueue([self.upload(face_variant(8 if status == 400 else 9))])
+                executor.process_generation(job, heartbeat=False)
+                self.assertEqual(Generation.objects.get(pk=job).status, 'queued')
+                self.assertFalse(ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).exists())
+                AppSetting.objects.filter(key=managed_pool.PAUSE_KEY).update(value='0')
+                self.assertEqual(self.run_worker(job).status, 'succeeded')
+
     def test_full_pool_shows_waiting_for_space(self):
         AppSetting.objects.create(key='portraitPoolCapacity', value='1', updated_at=0)
         holder = self.enqueue([self.upload(face_variant(1))])

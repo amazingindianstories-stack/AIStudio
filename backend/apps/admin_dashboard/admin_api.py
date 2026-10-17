@@ -14,10 +14,10 @@ from apps.canvas.views import body, property_of, truthy, node_route as canvas_ro
 from apps.canvas.serialization import JS_WHITESPACE, js_json
 from apps.generation.watermark import number_value
 from .models import AppSetting, Pricing, UserLimit
-from .views import LIMITS
+from .views import GLOBAL_ONLY, LIMITS
 
 COLORS = ['#34d399', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#f87171', '#22d3ee', '#fb923c']
-LABELS = {'maxPromptLength': 'max prompt length', 'maxConcurrentJobs': 'max concurrent jobs'}
+LABELS = {'maxPromptLength': 'max prompt length', 'maxConcurrentJobs': 'max concurrent jobs', 'seedanceConcurrency': 'Seedance tasks per model'}
 MISSING = object()
 
 
@@ -192,7 +192,7 @@ def user_limit_mutation(request):
     try:
         data = body(request)
         identifier, key = property_of(data, 'userId'), property_of(data, 'key')
-        if not isinstance(identifier, str) or not identifier or not isinstance(key, str) or key not in LIMITS:
+        if not isinstance(identifier, str) or not identifier or not isinstance(key, str) or key not in LIMITS or key in GLOBAL_ONLY:
             return reply(request, {'error': 'userId and a valid key are required.'}, 400)
         raw = data.get('value', MISSING)
         if raw is not None and not allowed(raw, key): return reply(request, {'error': f'Invalid {LABELS[key]}.'}, 400)

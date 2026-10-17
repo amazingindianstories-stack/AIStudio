@@ -71,6 +71,8 @@ class FakeProviders:
         self.seedance_payloads = []
         self.gemini_payloads = []       # (model code, body) for each generateContent call
         self.asset_capacity = asset_capacity          # None = unlimited; int = BytePlus shared pool size
+        self.asset_throttle = 0                       # the next N CreateAsset calls hit BytePlus's write limit
+        self.asset_throttle_error = (400, 'QuotaWriteQPMExceeded', 'write requests per minute exceeded')   # as seen in production
         self.asset_activation_polls = asset_activation_polls
         self.reject_image_sha256 = set()    # inline (data URL) images with these SHA-256s are refused as a real person
         self.reject_mode = 'create'         # 'create': 400 at task creation; 'async': accept the task, fail it when polled
@@ -198,6 +200,9 @@ class FakeProviders:
                     rows = [g for g in rows if g['Id'] in flt['GroupIds']]
                 return ok(self.page(rows, body))
             if action == 'CreateAsset':
+                if self.asset_throttle > 0:
+                    self.asset_throttle -= 1
+                    return error(*self.asset_throttle_error)
                 if body.get('GroupId') not in self.groups:
                     return error(404, 'NotFound.group_id', 'group not found')
                 live = [a for a in self.assets.values() if a['Status'] != 'Deleted']

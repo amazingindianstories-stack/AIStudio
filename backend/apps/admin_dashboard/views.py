@@ -6,9 +6,12 @@ from rest_framework.response import Response
 from apps.authentication.session import lookup
 from .models import AppSetting, UserLimit
 
-from apps.generation.services.admission import PER_USER_DEFAULT, PER_USER_MAX
+from apps.generation.services.admission import LANE_DEFAULT, LANE_MAX, LANE_SETTING, PER_USER_DEFAULT, PER_USER_MAX
 
-LIMITS = {'maxPromptLength': (30000, 1, None), 'maxConcurrentJobs': (PER_USER_DEFAULT, 1, PER_USER_MAX)}
+LIMITS = {'maxPromptLength': (30000, 1, None), 'maxConcurrentJobs': (PER_USER_DEFAULT, 1, PER_USER_MAX),
+          LANE_SETTING: (LANE_DEFAULT, 1, LANE_MAX)}
+GLOBAL_ONLY = {LANE_SETTING}        # account-wide provider limits: no per-user override
+USER_LIMITS = {key: value for key, value in LIMITS.items() if key not in GLOBAL_ONLY}
 
 def parse(raw, definition):
     fallback, minimum, maximum = definition
@@ -32,9 +35,9 @@ def effective_settings(request):
     user = lookup(request)
     if user is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
-    globals = dict(AppSetting.objects.filter(key__in=LIMITS).values_list('key', 'value'))
-    overrides = dict(UserLimit.objects.filter(user_id=user.id, key__in=LIMITS).values_list('key', 'value'))
-    response = Response({key: parse(overrides[key] if key in overrides else globals.get(key), definition) for key, definition in LIMITS.items()})
+    globals = dict(AppSetting.objects.filter(key__in=USER_LIMITS).values_list('key', 'value'))
+    overrides = dict(UserLimit.objects.filter(user_id=user.id, key__in=USER_LIMITS).values_list('key', 'value'))
+    response = Response({key: parse(overrides[key] if key in overrides else globals.get(key), definition) for key, definition in USER_LIMITS.items()})
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=30*24*60*60, httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')
     return response

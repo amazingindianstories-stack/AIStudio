@@ -333,6 +333,8 @@ class ExecutionPersistenceTests(TransactionTestCase):
         self.assertEqual((len(submit_calls),len(receipt_writes),item.task_id),(1,1,'accepted'))
 
     def test_accepted_receipt_cannot_cross_execution_ownership_or_prior_receipt(self):
+        from apps.admin_dashboard.models import AppSetting
+        AppSetting.objects.create(key='seedanceConcurrency',value='50',updated_at=1)   # each case leaves a Seedance job running
         for changed in ({'worker_lease_id':'other'},{'task_id':'other-task'},
                 {'user_id':uuid4()},{'status':'failed'}):
             with self.subTest(changed=changed):
