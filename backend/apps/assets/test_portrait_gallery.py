@@ -222,6 +222,23 @@ class GalleryApiTests(GalleryBase):
         ticks = iter([0, 100])
         self.assertEqual(managed_pool.process_uploads(clock=lambda: next(ticks))['registered'], 1, 'the time budget ends a pass early')
 
+    def test_a_rate_limited_registration_waits_instead_of_failing(self):
+        self.add(landscape(1))
+        self.fake.asset_throttle = 1
+        managed_pool.process_uploads()
+        asset = ManagedPortraitAsset.objects.get()
+        self.assertEqual((asset.status, asset.error_code), ('QUEUED', 'throttled'), 'a 429 keeps the upload in line')
+        self.settle_uploads()
+        asset.refresh_from_db()
+        self.assertEqual(asset.status, 'ACTIVE')
+        self.fake.asset_throttle = 1
+        job = self.enqueue([self.upload(face_variant(7))])
+        executor.process_generation(job, heartbeat=False)
+        self.assertEqual(Generation.objects.get(pk=job).status, 'queued', 'a face job waits through a 429, it does not fail')
+        self.assertFalse(ReferenceFaceScan.objects.filter(forced=managed_pool.REFUSED).exists(), 'a 429 is no refusal: the face is not sent inline')
+        self.assertEqual(self.run_worker(job).status, 'succeeded')
+        self.assertTrue(any(ref.startswith('asset://') for ref in self.submitted_refs()))
+
     def test_full_pool_shows_waiting_for_space(self):
         AppSetting.objects.create(key='portraitPoolCapacity', value='1', updated_at=0)
         holder = self.enqueue([self.upload(face_variant(1))])

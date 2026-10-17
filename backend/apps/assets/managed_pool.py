@@ -14,6 +14,7 @@ Invariants (each has tests):
 import hashlib
 import io
 import json
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -500,6 +501,10 @@ def _register(asset, data, storage, client, user_id, requeue=False):
             # A Gallery upload keeps its place in the queue instead of failing; a generation retries with a fresh claim.
             _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='QuotaSharedPoolExceeded')
             return wait('portrait_pool_full', 5000)
+        if error.status == 429 or re.search(r'Throttl|RateLimit|TooManyRequests|RequestLimitExceeded', str(error.code), re.I):
+            # The asset API's rate limit: nothing was created. Same as a full pool, without lowering its capacity.
+            _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='throttled')
+            return wait('portrait_registering', 3000)
         definite = isinstance(error.status, int) and 400 <= error.status < 500
         if definite:
             _finish(asset, status='FAILED', error_code=str(error.code)[:100])
@@ -688,7 +693,7 @@ def process_uploads(*, client=None, storage=None, now=None, limit=UPLOADS_PER_PA
         step = _process_upload_once(client=client, storage=storage, now=now)
         for key in report:
             report[key] += step[key]
-        if not step['registered'] or report['registered'] >= limit or clock() >= deadline:
+        if not step['registered'] or step.get('retry_later') or report['registered'] >= limit or clock() >= deadline:
             return report
 
 
@@ -721,8 +726,10 @@ def _process_upload_once(*, client, storage=None, now=None):
         _finish(asset, status='FAILED', error_code='source_unreadable')
         release_upload_pins()
         return report
-    _register(asset, data, storage, client, asset.created_by_id, requeue=True)
+    outcome = _register(asset, data, storage, client, asset.created_by_id, requeue=True)
     report['registered'] = 1
+    if outcome.kind == 'wait' and outcome.reason in ('portrait_pool_full', 'portrait_registering'):
+        report['retry_later'] = 1       # quota or rate limit: the next pass tries again, not this one
     release_upload_pins()
     return report
 
