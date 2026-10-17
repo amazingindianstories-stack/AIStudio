@@ -41,6 +41,9 @@ QUOTA_BACKOFF_MS = 60 * 1000             # after BytePlus reports quota, the poo
 VERIFY_INTERVAL_MS = 60 * 1000           # re-confirm an ACTIVE asset with BytePlus (unbilled GetAsset) before a submission at most this often
 MIN_SIDE, MAX_SIDE, MIN_RATIO, MAX_RATIO = 300, 6000, 0.4, 2.5
 UPLOADS_PER_PASS, UPLOAD_PASS_SECONDS = 5, 6.0
+# BytePlus write limits (e.g. QuotaWriteQPMExceeded) answer 400 or 429: a rate limit, never a refusal of the image.
+THROTTLED = re.compile(r'Throttl|RateLimit|TooManyRequests|RequestLimitExceeded|QPM|QPS', re.I)
+PAUSE_KEY, PAUSE_MS = 'portraitRegisterPauseUntil', 60000      # after a write limit, no new registration for a minute
 
 
 def now_ms():
@@ -325,6 +328,9 @@ def _claim(sha, source_key, generation_id, user_id, now):
             return wait('portrait_' + asset.status.lower(), 5000), asset, None
         waiting = ManagedPortraitWait.objects.filter(generation_id=generation_id, reason='portrait_pool_full').first()
         since = (waiting.queued_at or waiting.started_at) if waiting else now     # only time spent waiting for a slot counts, not for processing
+        paused = pause_remaining(now)
+        if paused:      # everyone keeps their place in the queue while BytePlus's write limit recovers
+            return _pool_full(generation_id, now, min(paused, 15000), 'portrait_paused'), None, None
         if not _first_in_line(generation_id, since):
             return _pool_full(generation_id, now, 5000), None, None
         slot = _take_slot(values, pool, now)
@@ -340,13 +346,32 @@ def _claim(sha, source_key, generation_id, user_id, now):
         return None, asset, 'register'
 
 
-def _pool_full(generation_id, now, delay_ms):
+def throttled(error):
+    return error.status == 429 or bool(THROTTLED.search(str(error.code)))
+
+
+def pause_remaining(now):
+    """Milliseconds left of a registration pause after a BytePlus write limit, else 0."""
+    from apps.admin_dashboard.models import AppSetting
+    raw = AppSetting.objects.filter(key=PAUSE_KEY).values_list('value', flat=True).first()
+    try:
+        return max(0, int(raw) - now) if raw else 0
+    except ValueError:
+        return 0
+
+
+def _pause(now):
+    from apps.admin_dashboard.models import AppSetting
+    AppSetting.objects.update_or_create(key=PAUSE_KEY, defaults={'value': str(now + PAUSE_MS), 'updated_at': now})
+
+
+def _pool_full(generation_id, now, delay_ms, reason='portrait_pool_full'):
     """This generation waits for a slot and is now in the queue (kept across passes so it keeps its place)."""
     row, _ = ManagedPortraitWait.objects.get_or_create(generation_id=generation_id,
                                                        defaults={'started_at': now, 'reason': 'portrait_pool_full', 'queued_at': now})
     if row.reason != 'portrait_pool_full':      # it waited for something else until now (started_at keeps the overall wait limit)
         ManagedPortraitWait.objects.filter(generation_id=generation_id).update(reason='portrait_pool_full', queued_at=now)
-    return wait('portrait_pool_full', delay_ms)
+    return wait(reason, delay_ms)
 
 
 def _unclaim(generation_id):
@@ -362,7 +387,7 @@ def claim_upload(asset_id, now=None):
         _locked()
         pool = _pool()
         asset = ManagedPortraitAsset.objects.select_for_update().filter(pk=asset_id, status='QUEUED').first()
-        if asset is None or not _first_in_line(asset.id, asset.created_at):
+        if asset is None or not _first_in_line(asset.id, asset.created_at) or pause_remaining(now):
             return None
         slot = _take_slot(values, pool, now)
         if slot is None:
@@ -501,10 +526,12 @@ def _register(asset, data, storage, client, user_id, requeue=False):
             # A Gallery upload keeps its place in the queue instead of failing; a generation retries with a fresh claim.
             _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='QuotaSharedPoolExceeded')
             return wait('portrait_pool_full', 5000)
-        if error.status == 429 or re.search(r'Throttl|RateLimit|TooManyRequests|RequestLimitExceeded', str(error.code), re.I):
-            # The asset API's rate limit: nothing was created. Same as a full pool, without lowering its capacity.
+        if throttled(error):
+            # The asset API's write limit: nothing was created, the image was not judged. Pause new registrations
+            # for everyone, and retry this one later (an upload keeps its place; a generation claims again).
+            _pause(now_ms())
             _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='throttled')
-            return wait('portrait_registering', 3000)
+            return wait('portrait_paused', 15000)
         definite = isinstance(error.status, int) and 400 <= error.status < 500
         if definite:
             _finish(asset, status='FAILED', error_code=str(error.code)[:100])
@@ -728,7 +755,7 @@ def _process_upload_once(*, client, storage=None, now=None):
         return report
     outcome = _register(asset, data, storage, client, asset.created_by_id, requeue=True)
     report['registered'] = 1
-    if outcome.kind == 'wait' and outcome.reason in ('portrait_pool_full', 'portrait_registering'):
+    if outcome.kind == 'wait' and outcome.reason in ('portrait_pool_full', 'portrait_paused'):
         report['retry_later'] = 1       # quota or rate limit: the next pass tries again, not this one
     release_upload_pins()
     return report

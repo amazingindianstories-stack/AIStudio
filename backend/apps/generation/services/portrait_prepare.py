@@ -25,6 +25,7 @@ MESSAGES = {
     'portrait_queued': 'Waiting for portrait space - other generations are using it.',
     'portrait_evicting': 'Making room for your portrait...',
     'portrait_registering': 'Preparing portraits...',
+    'portrait_paused': 'Preparing portraits - the portrait service asked us to slow down, this continues shortly.',
     'portrait_processing': 'Preparing portraits...',
     'portrait_uncertain': 'Confirming a portrait...',
     'portrait_deleting': 'Making room for your portrait...',
