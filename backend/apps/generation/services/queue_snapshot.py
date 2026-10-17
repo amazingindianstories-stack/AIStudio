@@ -12,7 +12,7 @@ with global_user_limit as (
       where status = 'running' and kind in ('image', 'video') and user_id is not null
       group by user_id
     ), ranked_queue as (
-      select q.id, q.kind, q.created_at,
+      select q.id, q.kind, q.model, q.created_at,
         row_number() over (
           partition by coalesce(q.user_id::text, q.id::text)
           order by q.created_at asc, q.id asc
@@ -38,6 +38,11 @@ with global_user_limit as (
         where id <> %(item_id)s::uuid and kind = %(kind)s
           and (created_at, id) < (%(created_at)s, %(item_id)s::uuid)) as older,
       exists(select 1 from eligible_queue where id = %(item_id)s::uuid) as user_eligible,
+      (select count(*) from generations
+        where status = 'running' and kind = 'video' and model = any(%(lane_models)s::text[])) as lane_running,
+      (select count(*) from eligible_queue
+        where id <> %(item_id)s::uuid and kind = 'video' and model = any(%(lane_models)s::text[])
+          and (created_at, id) < (%(created_at)s, %(item_id)s::uuid)) as lane_older,
       (select coalesce(sum(
           case when status = 'running' then cost_cents * %(best_of)s else cost_cents end
         ), 0) from generations

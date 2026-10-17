@@ -31,7 +31,22 @@ export const LIMIT_DEFINITIONS = [
     min: 1,
     max: 8,
   },
+  {
+    key: "seedanceConcurrency",
+    label: "Seedance tasks per model",
+    description:
+      "How many video jobs run at once on each Seedance model (2.5, 2.0, 2.0 Mini) across everyone. Match the BytePlus account: 3 for an Individual account, 10 for Enterprise. Extra jobs wait in Veevee's queue in arrival order and show that they are waiting for a free slot.",
+    unit: "running tasks per model",
+    defaultValue: 3,
+    min: 1,
+    max: 50,
+    // An account-wide provider limit: set globally, never per user.
+    globalOnly: true,
+  },
 ];
+
+/** Limits an administrator may override for one user. */
+export const USER_LIMIT_DEFINITIONS = LIMIT_DEFINITIONS.filter((d) => !d.globalOnly);
 
 export function limitDefinition(key) {
   return LIMIT_DEFINITIONS.find((d) => d.key === key);

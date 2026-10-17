@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { isLimitValueAllowed, LIMIT_DEFINITIONS, limitDefinition, parseLimitValue } from "./limits";
+import { isLimitValueAllowed, LIMIT_DEFINITIONS, limitDefinition, parseLimitValue, USER_LIMIT_DEFINITIONS } from "./limits";
 
 test("limitDefinition: finds a registered key, undefined for an unknown one", () => {
   assert.equal(limitDefinition("maxPromptLength")?.key, "maxPromptLength");
@@ -57,4 +57,13 @@ test("parseLimitValue: garbage, zero, or below-minimum values fall back to the d
 test("parseLimitValue: parses the leading integer out of a loosely-formatted value", () => {
   assert.equal(parseLimitValue("30000.5", maxPromptLength), 30000);
   assert.equal(parseLimitValue("  40000  ", maxPromptLength), 40000);
+});
+
+test("seedanceConcurrency is a global-only limit: default 3 per model, at most 50, never per user", () => {
+  const def = limitDefinition("seedanceConcurrency");
+  assert.equal(def.defaultValue, 3);
+  assert.equal(def.max, 50);
+  assert.equal(def.globalOnly, true);
+  assert.ok(!USER_LIMIT_DEFINITIONS.some((d) => d.key === "seedanceConcurrency"));
+  assert.ok(USER_LIMIT_DEFINITIONS.some((d) => d.key === "maxConcurrentJobs"));
 });

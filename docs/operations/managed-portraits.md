@@ -92,10 +92,11 @@ Nothing is deployed. Every production step below needs explicit owner approval.
    (idle) → scheduler. With the flag on, `production_runtime` does not install the old portrait lifecycle
    patches and `enqueue` skips the old portrait reference check.
 6. Deploy the frontend (Portrait Gallery v2) with the Vercel CLI.
-6a. Concurrency (same release): the code now allows 8 running jobs per user (`admission.PER_USER_MAX`) and
-   16 running videos overall (`MAX_CONCURRENT['video']`). Production stores `maxConcurrentJobs = 4` in
-   `settings`, which overrides the new default: raise it to 8 in Admin -> Limits. Before relying on 16
-   videos, confirm the BytePlus account allows that many concurrent Seedance tasks.
+6a. Concurrency: 8 running jobs per user (`admission.PER_USER_MAX`; production `settings.maxConcurrentJobs` = 8
+   since 2026-10-17) and 8 running videos overall (`MAX_CONCURRENT['video']`). BytePlus runs at most 3 tasks per
+   Seedance model on an Individual account (10 Enterprise) and silently queues the rest, so admission also caps
+   each BytePlus Seedance model (2.5, 2.0, 2.0 fast) at Admin -> Limits -> "Seedance tasks per model" (default 3).
+   Jobs over it stay queued here, first come first served, with "Waiting for a free <model> slot" on the card.
 7. Verify: startup logs pass preflight; `GET /api/portraits` → `enabled: true`; the old routes answer
    410; one owner-approved Seedance face job (paid canary) → asset ACTIVE, `asset://` in the receipt,
    MOV master; a Gallery upload goes waiting/preparing → ready; janitor and upload steps run (scheduler

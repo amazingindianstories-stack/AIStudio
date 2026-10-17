@@ -561,7 +561,7 @@ export function MediaCard({
                 {item.queueNote}
               </span>
             )}
-            {item.kind === "video" && item.providerStatus === "PORTRAIT_WAITING" && item.progressMessage && !item.pollWarning && (
+            {item.kind === "video" && (item.providerStatus === "PORTRAIT_WAITING" || item.providerStatus === "SLOT_WAITING") && item.progressMessage && !item.pollWarning && (
               <span data-portrait-waiting style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-sky-200/80">
                 {item.progressMessage}
               </span>

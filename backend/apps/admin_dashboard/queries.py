@@ -14,7 +14,7 @@ from apps.generation.history_parameters import decode_cursor, UUID_TEXT
 from .admin_api import node_route, admin, number, text, safe_user
 from .models import Pricing, AppSetting, UserLimit
 from .default_pricing import DEFAULT_PRICING
-from .views import LIMITS, parse
+from .views import LIMITS, USER_LIMITS, parse
 
 MAX_CSV_ROWS = 20000
 COST = """count(*)::int AS count,
@@ -89,7 +89,7 @@ def dashboard(request):
         global_values = dict(AppSetting.objects.filter(key__in=LIMITS).values_list('key', 'value'))
         limits = {key: parse(global_values.get(key), definition) for key, definition in LIMITS.items()}
         overrides = {}
-        for row in UserLimit.objects.filter(key__in=LIMITS):
+        for row in UserLimit.objects.filter(key__in=USER_LIMITS):
             overrides.setdefault(str(row.user_id), {})[row.key] = parse(row.value, LIMITS[row.key])
         per_user = {str(row['user_id']): row for row in query('SELECT user_id,' + COST + ' FROM generations GROUP BY user_id')}
         users = []
