@@ -218,6 +218,17 @@ def verify_registered_portraits(item, body, client_factory=None):
         raise InvalidRequest('Portrait unavailable or remote registration could not be verified. No generation was queued.') from None
 
 
+def verify_no_retired_portrait_links(item, body):
+    """Automatic portraits: a bare asset:// link names a BytePlus asset of the old Gallery, deleted by portraits_cutover.
+    Refused here with the reference named; an image carrying only a #bp_asset_id marker is fine, the worker pools its bytes."""
+    labelled = [(f'@img{index}', value, index) for index, value in enumerate(body.get('referenceImages') or [], start=1)]
+    labelled += [(label, item.get(key), None) for key, label in (('firstFrame', 'The first frame'), ('lastFrame', 'The last frame'),
+                                                                 ('continuationFrame', 'The continuation frame'))]
+    for label, value, index in labelled:
+        if isinstance(value, str) and value.startswith('asset://'):
+            raise PortraitUnavailable(f'{label} is an old portrait link that no longer exists. Add the image again; nothing was queued.', index)
+
+
 class PortraitUnavailable(InvalidRequest):
     def __init__(self, message, reference_index=None):
         super().__init__(message)
@@ -364,10 +375,16 @@ def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMA
 
 def prepare_video(item, body, identifier):
     verify_reference_audio_durations(item)
-    if not getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):     # the automatic pool makes every face a portrait at run time
+    managed = getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False)
+    model = item.get('model') or ''
+    pooled = managed and not is_provider_model(model, 'omni') and not is_provider_model(model, 'higgsfield')
+    if pooled:      # the automatic pool makes every face a portrait at run time; old #bp_asset_id markers are ignored, not checked remotely
+        verify_no_retired_portrait_links(item, body)
+    elif not managed:
         verify_portrait_references(item, body)
     verify_reference_image_sizes(item, body)
-    verify_registered_portraits(item, body)
+    if not pooled:
+        verify_registered_portraits(item, body)
     result = {'costCents':compute_cost(item,read_pricing())}
     if has_length(body.get('referenceImages')): result['referenceImages'] = save_reference_images(body['referenceImages'],identifier)
     for field,suffix,output in [('firstFrame','firstframe','continuationFrameUrl'),('lastFrame','lastframe','lastFrameUrl')]:

@@ -5,6 +5,7 @@ from unittest.mock import patch
 from apps.admin_dashboard.models import AppSetting
 from apps.generation.models import Generation
 from apps.generation.services import executor
+from apps.media.models import UploadSession
 
 from . import managed_pool
 from .models import ManagedPortraitAsset, ManagedPortraitPin, ManagedPortraitPool, ManagedPortraitWait
@@ -151,3 +152,44 @@ class QueuePlaceTests(GalleryBase):
         self.assertEqual(ManagedPortraitAsset.objects.exclude(status='DELETED').count(), 1, 'nobody took the slot ahead of it')
         self.assertEqual(self.run_worker(first).status, 'succeeded')
         self.assertEqual(self.run_worker(late).status, 'succeeded')
+
+
+class RetiredPortraitReferenceTests(GalleryBase):
+    def url_of(self, ref):
+        return '/api/media/' + UploadSession.objects.get(pk=ref['referenceId']).key
+
+    def post(self, refs):
+        payload = {'prompt': 'a slow pan across a candle-lit hall', 'model': 'Seedance 2.5', 'resolution': '480p', 'draftMode': True,
+                   'duration': 5, 'referenceImages': refs}
+        return self.client.post('/api/generate/video', payload, content_type='application/json')
+
+    def test_an_old_portrait_marker_on_an_image_is_pooled_by_its_bytes_not_checked_at_byteplus(self):
+        from .byteplus import BytePlusAssetError
+
+        class GoneClient:
+            def get_asset(self, identifier, **kwargs):
+                raise BytePlusAssetError('NotFound.asset_id', 'gone', 404)
+        patcher = patch('apps.assets.byteplus_readonly.get_asset_client', return_value=GoneClient())      # cutover deleted the old asset
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for number, marker in enumerate(('#bp_asset_id=asset-gone', '?bp_asset_id=asset-gone'), start=1):
+            with self.subTest(marker=marker):
+                key = f'assets/old-portrait-{number}.png'       # a legacy stored image: only upload-session URLs lose their marker on the way in
+                self.storage.primary.put(key, face_variant(number), 'image/png', 'private, no-store')
+                url = '/api/media/' + key + marker
+                response = self.post([url])
+                self.assertEqual(response.status_code, 200, response.content)
+                row = self.run_worker(response.json()['id'])
+                self.assertEqual(row.status, 'succeeded', row.error)
+                self.assertNotIn('asset-gone', self.submitted_refs()[0], 'the retired asset is never sent')
+                asset = ManagedPortraitAsset.objects.get(byteplus_asset_id=self.submitted_refs()[0][len('asset://'):])
+                self.assertEqual(asset.source_key, key, 'its own bytes were pooled')
+        self.assertFalse([call for call in self.fake.calls if 'asset-gone' in str(call)], 'nothing asked BytePlus about the retired asset')
+
+    def test_a_bare_old_portrait_link_is_refused_with_the_reference_named(self):
+        response = self.post([self.url_of(self.upload(landscape(1))), 'asset://asset-gone'])
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertEqual((body['code'], body['referenceIndex']), ('PORTRAIT_UNAVAILABLE', 2))
+        self.assertIn('@img2 is an old portrait link that no longer exists. Add the image again', body['error'])
+        self.assertFalse(Generation.objects.exists())
