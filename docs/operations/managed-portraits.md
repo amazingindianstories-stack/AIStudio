@@ -25,6 +25,16 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   person (at creation or asynchronously), the image bytes are remembered as a face and the failure says so;
   **Retry** then registers it and sends `asset://`. There is no automatic resubmission (the paid claim stays
   one-shot). Uploading the same image to the Gallery has the same effect.
+- A slot waiter's place in line is when it started waiting for a slot (not for processing); the overall
+  wait limit still counts from its first wait. No second eviction starts while an earlier delete is
+  unresolved (DELETING or UNCERTAIN), so a failing DeleteAsset cannot empty the pool.
+- When BytePlus reports a full quota the pool takes what it had accepted as its size (0 when the quota is
+  used elsewhere) and starts no registration for 60 s; after that one registration probes again.
+- Processing is timed from the start of registration (3 minutes), not from the upload. A timed-out or failed
+  asset that a generation still pins is not deleted: that generation fails (not charged) and the asset is
+  deleted once nothing holds it.
+- Old references (a `#bp_asset_id=` marker on an image) are pooled by their bytes and never checked at
+  BytePlus; a bare `asset://` link is refused at enqueue ("@imgN is an old portrait link that no longer exists").
 - Admin → Limits → Portrait storage: TTL hours (1–72), pool size, longest wait.
 
 ## Pieces
@@ -71,7 +81,8 @@ Nothing is deployed. Every production step below needs explicit owner approval.
    `python manage.py portraits_cutover --apply --expect-assets N --expect-groups M` (N, M from the dry
    run; it refuses on any difference, deletes every asset then every group, treats NotFound as done, then
    marks every `portrait_assets` row `Retired`, keeping the rows because old generations and media grants
-   refer to their image URLs). Safe to re-run; it never touches the pool group.
+   refer to their image URLs). Safe to re-run; it never touches the pool group, ignores groups whose Status is
+   Deleted, and never deletes an asset whose group is missing or not listed (it reports those by id).
 5. Set `VEEVEE_MANAGED_PORTRAITS=1` on API, generation worker and scheduler; redeploy API → generation
    (idle) → scheduler. With the flag on, `production_runtime` does not install the old portrait lifecycle
    patches and `enqueue` skips the old portrait reference check.
@@ -86,7 +97,8 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   three services and redeploy. Face references go inline again as before. The old portraits **cannot
   come back**: the cutover deleted them at BytePlus (their rows stay as `Retired`).
 - **To an old launcher** (needs the 60-row history):
-  1. Flag off on every service (above); wait until no generation holds a pin.
+  1. Flag off on every service (above); wait until no queued/running generation holds a pin (the command
+     itself releases pins of finished or deleted generations and uploads' own pins, and reports them).
   2. Report: `python manage.py managed_portraits_rollback` (owner DSN, flag off in that process).
   3. `python manage.py managed_portraits_rollback --delete-remote --confirm` - deletes every asset in
      Veevee's own pool group at BytePlus **and then the pool group** (irreversible; owner approval), then

@@ -14,7 +14,6 @@ Invariants (each has tests):
 import hashlib
 import io
 import json
-import re
 import time
 import uuid
 from dataclasses import dataclass
