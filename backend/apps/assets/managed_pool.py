@@ -301,7 +301,7 @@ def _claim(sha, source_key, generation_id, user_id, now):
             return wait('portrait_evicting', 1000), slot, 'delete'
         _unclaim(generation_id)
         asset = ManagedPortraitAsset.objects.create(id=uuid.uuid4(), content_sha256=sha, source_key=source_key, status='REGISTERING',
-            receipt={'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4())}, created_by_id=user_id,
+            receipt={'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4()), 'registered_at': now}, created_by_id=user_id,
             created_at=now, updated_at=now, last_used_at=now)
         pin(generation_id, asset)
         return None, asset, 'register'
@@ -336,7 +336,7 @@ def claim_upload(asset_id, now=None):
         if slot != 'free':
             return slot, 'delete'
         asset.status, asset.updated_at, asset.last_used_at = 'REGISTERING', now, now
-        asset.receipt = {'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4())}
+        asset.receipt = {'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4()), 'registered_at': now}   # the processing clock starts here, not at upload
         asset.save(update_fields=['status', 'updated_at', 'last_used_at', 'receipt'])
         pin(asset.id, asset)
         return asset, 'register'
@@ -497,10 +497,23 @@ def _poll(asset, client):
             row.save(update_fields=['status', 'receipt'])
             _activated(row, setting_values(), now_ms())
         return ready(asset.byteplus_asset_id)
-    if status == 'Failed' or now_ms() - asset.created_at > PROCESSING_LIMIT_MS:
-        _finish(asset, status='DELETING', error_code='processing_failed' if status == 'Failed' else 'processing_timeout')
-        if remote_delete(asset, client) and asset.origin == 'upload':
-            _finish(asset, status='FAILED', deleted_at=None)      # an upload stays visible as "can't be used"
+    registered_at = int((asset.receipt or {}).get('registered_at') or asset.created_at)
+    if status == 'Failed' or now_ms() - registered_at > PROCESSING_LIMIT_MS:
+        code = 'processing_failed' if status == 'Failed' else 'processing_timeout'
+        # Only a row that is still PROCESSING is condemned, and never one a generation holds: that generation fails
+        # cleanly (not charged) and releases its pin, then the next poll (janitor or upload pass) deletes the asset.
+        with transaction.atomic():
+            _locked()
+            row = ManagedPortraitAsset.objects.select_for_update().get(pk=asset.pk)
+            if row.status != 'PROCESSING':
+                return wait('portrait_registering', 1000)       # someone else already settled it
+            held = ManagedPortraitPin.objects.filter(asset=row).exclude(generation_id=row.id).exists()
+            if not held:
+                row.status, row.error_code, row.updated_at = 'DELETING', code, now_ms()
+                row.receipt = {**(row.receipt or {}), 'delete': {'state': 'CLAIMED', 'reason': code, 'at': row.updated_at}}
+                row.save(update_fields=['status', 'error_code', 'updated_at', 'receipt'])
+        if not held and remote_delete(row, client) and row.origin == 'upload':
+            _finish(row, status='FAILED', deleted_at=None)      # an upload stays visible as "can't be used"
         return failed(PORTRAIT_UNPREPARED + NOT_CHARGED, 'portrait_rejected')
     return wait('portrait_processing', 3000)
 
