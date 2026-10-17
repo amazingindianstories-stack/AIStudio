@@ -314,7 +314,8 @@ class WorkerTests(TransactionTestCase):
         row = Generation.objects.get(pk=identifier)
         self.assertEqual(row.status, 'failed')
         from .serialization import generation_item
-        self.assertEqual(generation_item(row)['error'], 'Upscale generation failed.')
+        from .failure_copy import UPSCALE_FAILED
+        self.assertEqual(generation_item(row)['error'], UPSCALE_FAILED)
 
     def test_scheduler_leaves_magnific_rows_to_the_leased_worker(self):
         from apps.workers import maintenance

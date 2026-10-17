@@ -62,6 +62,14 @@ def wait(reason, delay_ms):
     return Outcome('wait', reason=reason, delay_ms=delay_ms)
 
 
+NOT_CHARGED = ' Nothing was submitted, so this was not charged.'
+PORTRAIT_REFUSED = 'This portrait was refused (content check).'
+PORTRAIT_UNPREPARED = 'This portrait could not be prepared.'
+PORTRAIT_MISSING = 'The portrait disappeared while preparing. Try again.'
+PORTRAIT_BUSY = ('Portrait storage stayed busy for {minutes} minutes, so this generation was stopped.' + NOT_CHARGED.replace('submitted, so this', 'submitted, so it')
+                 + ' Try again shortly.')
+
+
 def failed(message, reason='failed'):
     return Outcome('failed', reason=reason, message=message)
 
@@ -436,9 +444,8 @@ def _register(asset, data, storage, client, user_id, requeue=False):
         definite = isinstance(error.status, int) and 400 <= error.status < 500
         if definite:
             _finish(asset, status='FAILED', error_code=str(error.code)[:100])
-            message = ('This portrait was refused (content check).' if error.code == 'moderation_rejected'
-                       else 'This portrait could not be prepared.')
-            return failed(message + ' Nothing was submitted, so this was not charged.', 'portrait_rejected')
+            message = PORTRAIT_REFUSED if error.code == 'moderation_rejected' else PORTRAIT_UNPREPARED
+            return failed(message + NOT_CHARGED, 'portrait_rejected')
         _finish(asset, status='UNCERTAIN', error_code=str(error.code)[:100])
         return wait('portrait_uncertain', 10000)
     except Exception:
@@ -466,7 +473,7 @@ def _poll(asset, client):
     except BytePlusAssetError as error:
         if error.code in ('NotFound.asset_id', 'NotFound'):
             _finish(asset, status='FAILED', error_code='missing_after_create')
-            return failed('The portrait disappeared while preparing. Try again.', 'portrait_missing')
+            return failed(PORTRAIT_MISSING, 'portrait_missing')
         return wait('portrait_processing', 5000)
     except Exception:
         return wait('portrait_processing', 5000)
@@ -484,7 +491,7 @@ def _poll(asset, client):
         _finish(asset, status='DELETING', error_code='processing_failed' if status == 'Failed' else 'processing_timeout')
         if remote_delete(asset, client) and asset.origin == 'upload':
             _finish(asset, status='FAILED', deleted_at=None)      # an upload stays visible as "can't be used"
-        return failed('This portrait could not be prepared. Nothing was submitted, so this was not charged.', 'portrait_rejected')
+        return failed(PORTRAIT_UNPREPARED + NOT_CHARGED, 'portrait_rejected')
     return wait('portrait_processing', 3000)
 
 

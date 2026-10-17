@@ -11,7 +11,7 @@ from apps.generation.prompting.video_directive import build_video_directive
 from apps.generation.prompting.legacy_templates import T as LEGACY
 from .transport import HttpTransport,ProviderError,required_key
 
-MODERATION_MESSAGE = "BytePlus rejected the reference image — its privacy / anti-deepfake filter flags photorealistic faces (it can't tell an AI-generated face from a real one). Retry as text-to-video, or use a clearly stylized reference."
+MODERATION_MESSAGE = "BytePlus rejected the reference image - its privacy / anti-deepfake filter flags photorealistic faces (it can't tell an AI-generated face from a real one). Retry as text-to-video, or use a clearly stylized reference."
 
 
 class SeedanceError(ProviderError):
@@ -27,7 +27,7 @@ def is_moderation_message(text):
 
 
 TEXT_POLICY_MESSAGE = 'BytePlus rejected the prompt under its text content policy. Review the prompt before submitting a new request.'
-NEUTRAL_POLICY_MESSAGE = 'BytePlus rejected the input under its content policy. Review the provider rejection details before submitting a new request.'
+NEUTRAL_POLICY_MESSAGE = 'BytePlus rejected the input under its content policy. Change the prompt or references before submitting a new request.'
 
 
 def friendly_error(status,body):

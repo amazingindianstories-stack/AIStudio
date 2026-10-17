@@ -1,6 +1,5 @@
 """Current rowToItem public shape; provider_responses is never exposed."""
 from uuid import UUID
-import re
 
 REQUIRED = ('id', 'kind', 'status', 'prompt', 'model', 'aspect_ratio',
             'depth_reap_attempts', 'is_favorite', 'flagged', 'created_at', 'updated_at')
@@ -46,33 +45,6 @@ def generation_item(row):
 
 
 def public_error(row, diagnostic):
-    """Provider/transport diagnostics are private, including historical rows.
-
-    A provider can echo credentials in any spelling, so pattern redaction cannot
-    establish a safe public message. Only exact backend messages are retained.
-    """
-    from .providers.seedance import MODERATION_MESSAGE
-    if diagnostic == MODERATION_MESSAGE:
-        return MODERATION_MESSAGE
-    if row.moderation_blocked:
-        return 'Generation was blocked by provider moderation. Adjust the prompt or references.'
-    if isinstance(diagnostic, str) and re.fullmatch(
-            r'Generation exceeded the [0-9]{1,5}-second internal deadline\.', diagnostic):
-        return diagnostic
-    if diagnostic in (
-        'Provider reported success but returned no video.',
-        'Omni reported success but returned no video.',
-        'All candidates failed to generate.',
-    ):
-        return diagnostic
-    if row.model.startswith('Magnific '):
-        from .services.poller import MAGNIFIC_IMAGE_TOO_LARGE, MAGNIFIC_SAVE_FAILED, MAGNIFIC_TOO_LARGE
-        from .services.upscale_submission import UPSCALE_REJECTED, UPSCALE_PREPARE_FAILED
-        if diagnostic in (MAGNIFIC_TOO_LARGE, MAGNIFIC_IMAGE_TOO_LARGE, MAGNIFIC_SAVE_FAILED, UPSCALE_REJECTED, UPSCALE_PREPARE_FAILED):
-            return diagnostic
-        return 'Upscale generation failed.'
-    if row.kind == 'audio':
-        return 'Audio transcription failed.'
-    if row.kind == 'depth':
-        return 'Depth generation failed.'
-    return 'Video generation failed.' if row.kind == 'video' else 'Image generation failed.'
+    """Provider/transport diagnostics are private, including historical rows (see failure_copy)."""
+    from .failure_copy import public_message
+    return public_message(row, diagnostic)

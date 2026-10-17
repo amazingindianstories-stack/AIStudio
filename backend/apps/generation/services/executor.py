@@ -333,8 +333,7 @@ def _prepare_portraits(item, owner):
                 publish_best_effort(item)
             coordinator.schedule_generation(item, delay_ms=outcome.delay_ms, owner=owner)
             return {'kind': 'portrait_waiting', 'reason': outcome.reason}
-        outcome = managed_pool.failed(f'Portrait storage stayed busy for {limit // 60000} minutes, so this generation was stopped. '
-                                      'Nothing was submitted, so it was not charged. Try again shortly.', 'portrait_wait_timeout')
+        outcome = managed_pool.failed(managed_pool.PORTRAIT_BUSY.format(minutes=limit // 60000), 'portrait_wait_timeout')
     coordinator.expected_version(item, owner=owner).update(status='failed', error=outcome.message, completed_at=now,
         provider_status=None, progress_message=None, updated_at=max(now, item.updated_at + 1))
     portrait_prepare.finish(item.id)
