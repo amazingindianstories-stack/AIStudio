@@ -199,6 +199,12 @@ Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the relea
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-17: release candidate on `main` (nothing deployed yet; veevee.ai still on `dpl_qgFu...`, Railway
+on `a3b5d12`). Carries the 2026-10-16 merges (card menu, Nano Banana 2.1, Seedance audio limits) plus
+automatic portraits v2, curated failure copy, image size limits and 8 jobs per user / 16 videos
+overall. Rollout per `managed-portraits.md` (deploy flag off, migrate 60 -> 62, cutover dry run then
+apply, flag on, frontend, raise `maxConcurrentJobs` to 8, face canary), each step owner-approved.
+
 2026-10-15: the generation worker now runs the versioned image (`a3b5d12`, release above). Any
 later worker deploy from this branch carries the Magnific code; keep `VEEVEE_MAGNIFIC_UPSCALE` set.
 
