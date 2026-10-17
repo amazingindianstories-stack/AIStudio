@@ -6,6 +6,7 @@ import { test as base, expect } from "@playwright/test";
 import { createHmac, randomUUID } from "node:crypto";
 import { fixtureDatabase } from './fixture-db.mjs';
 import { openTreeFolder } from './tree.mjs';
+import { portraitPng } from './portrait-image.mjs';
 
 
 // This suite creates disposable records. Never infer a remote/production target.
@@ -65,6 +66,7 @@ const test = base.extend({
     try { await provideFixture({ db, prefix, project, otherProject, globalRoot, projectRoot, globalChild, projectChild, createFolder, navigate, panel }); }
     finally {
       // Delete only this fixture's records, including folders created through real UI buttons.
+      await db`DELETE FROM managed_portrait_pins WHERE asset_id IN (SELECT id FROM managed_portrait_assets WHERE name LIKE ${`${prefix}%`})`;
       await db`DELETE FROM managed_portrait_assets WHERE name LIKE ${`${prefix}%`}`;
       await db`DELETE FROM folders WHERE name LIKE ${`${prefix}%`} OR project_id IN ${db(projectIds)}`;
       await db`DELETE FROM projects WHERE id IN ${db(projectIds)}`;
@@ -404,10 +406,9 @@ test("Portrait Gallery is one shared flat grid with drag-to-select, bulk toolbar
   await page.screenshot({ path: testInfo.outputPath("portrait-gallery-viewer.png") });
 });
 
-test("a multi-file drop uploads three at a time and registers the portraits in drop order", async ({ page, context, library }, testInfo) => {
+test("a multi-file drop uploads three at a time and registers the portraits in drop order", async ({ page, library }, testInfo) => {
   test.setTimeout(120000);
-  const image = await context.request.get("/api/generations/10000000-0000-4000-8000-000000000001/download");
-  const bytes = (await image.body()).toString("base64");
+  const bytes = portraitPng(`${library.prefix} shared`).toString("base64");
   const names = [1, 2, 3, 4].map((n) => `${library.prefix} drop ${n}`);
   const ids = new Map();
   let releaseFirst; const firstHeld = new Promise((resolve) => { releaseFirst = resolve; });
@@ -430,7 +431,7 @@ test("a multi-file drop uploads three at a time and registers the portraits in d
     if (new URL(request.url()).pathname === "/api/portraits" && request.method() === "POST") registrations.push(request.postDataJSON().uploads.map((u) => u.name));
   });
   const gallery = await openPortraitGallery(page);
-  await expect(gallery).toContainText("Drop images here");
+  await expect(gallery.getByRole("textbox", { name: "Search portraits", exact: true })).toBeVisible();
   const transfer = await page.evaluateHandle(({ names, bytes }) => {
     const data = new DataTransfer();
     names.forEach((name, i) => {
@@ -451,16 +452,17 @@ test("a multi-file drop uploads three at a time and registers the portraits in d
   await page.screenshot({ path: testInfo.outputPath("portrait-gallery-uploading.png") });
   await expect(gallery.locator("article[data-portrait-id]")).toHaveCount(4, { timeout: 60000 });
   await expect(gallery.locator("[data-portrait-upload]")).toHaveCount(0);
-  // Three finished before the first, yet nothing was registered ahead of it.
-  expect(registrations).toEqual([names]);
+  // Files 2 and 3 finished before the first, yet nothing was registered ahead of it; file 4 may
+  // follow in a later request, but always after the ones before it.
+  expect(registrations.flat()).toEqual(names);
+  expect(registrations[0].slice(0, 3)).toEqual(names.slice(0, 3));
   const rows = await library.db`SELECT name FROM managed_portrait_assets WHERE name LIKE ${`${library.prefix} drop %`} ORDER BY created_at ASC, id ASC`;
   expect(rows.map((row) => row.name)).toEqual(names);
   await page.screenshot({ path: testInfo.outputPath("portrait-gallery-registered.png") });
 });
 
-test("Portrait Gallery refuses oversized and non-image drops per file and keeps the rest", async ({ page, context, library }) => {
-  const image = await context.request.get("/api/generations/10000000-0000-4000-8000-000000000001/download");
-  const bytes = (await image.body()).toString("base64");
+test("Portrait Gallery refuses oversized and non-image drops per file and keeps the rest", async ({ page, library }) => {
+  const bytes = portraitPng(`${library.prefix} shared`).toString("base64");
   const good = `${library.prefix} good`;
   const gallery = await openPortraitGallery(page);
   const transfer = await page.evaluateHandle(({ good, bytes }) => {
@@ -468,15 +470,19 @@ test("Portrait Gallery refuses oversized and non-image drops per file and keeps 
     const raw = Uint8Array.from(atob(bytes), (c) => c.charCodeAt(0));
     data.items.add(new File([raw, new TextEncoder().encode(good)], `${good}.png`, { type: "image/png" }));
     data.items.add(new File([new Uint8Array(31 * 1024 * 1024)], "too-big.png", { type: "image/png" }));
+    // A real 1x1 PNG: decodable, but far below the 300 px minimum.
+    const tiny = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH2kAAAAASUVORK5CYII="), (c) => c.charCodeAt(0));
+    data.items.add(new File([tiny], "tiny.png", { type: "image/png" }));
     data.items.add(new File([new Uint8Array(10)], "clip.mp4", { type: "video/mp4" }));
     return data;
   }, { good, bytes });
   await gallery.dispatchEvent("drop", { dataTransfer: transfer });
   await expect(gallery.getByText(/larger than 30 MB/)).toBeVisible();
   await expect(gallery.getByText("Only image files can be portraits.")).toBeVisible();
+  await expect(gallery.getByText("tiny.png is 1 x 1 px. Portraits need at least 300 px and at most 6000 px on each side.")).toBeVisible();
   await expect(gallery.getByRole("article", { name: good, exact: true })).toBeVisible({ timeout: 60000 });
   await gallery.getByRole("button", { name: "Dismiss" }).first().click();
-  await expect(gallery.locator('[data-portrait-upload="error"]')).toHaveCount(1);
+  await expect(gallery.locator('[data-portrait-upload="error"]')).toHaveCount(2);
 });
 
 test("Portrait Gallery fits a phone: 16px gutters and no horizontal scroll", async ({ page, library }, testInfo) => {

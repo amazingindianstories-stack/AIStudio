@@ -6,6 +6,7 @@ import { test, expect } from '@playwright/test';
 import { createHmac, createHash, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fixtureDatabase } from './fixture-db.mjs';
+import { portraitPng } from './portrait-image.mjs';
 
 const USER_ID = 'e33e1832-9e29-427f-af61-796b842a4b37';
 async function authenticate(context, baseURL) {
@@ -239,13 +240,12 @@ test('Portrait upload and full preview feed a character plus motion clip into Se
   await ready(page);
   await page.getByRole('button', { name: /^Model:/ }).click();
   await page.getByRole('menuitem', { name: /^Seedance 2\.5(?:\s|$)/ }).click();
-  const fixtureImage = await context.request.get('/api/generations/10000000-0000-4000-8000-000000000001/download');
   const name = `Portrait ${randomUUID().slice(0, 8)}`;
   await page.getByRole('button', { name: 'material', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   const gallery = page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
   const registered = page.waitForResponse(response => new URL(response.url()).pathname === '/api/portraits' && response.request().method() === 'POST');
-  await gallery.locator('input[type="file"]').setInputFiles({ name: `${name}.png`, mimeType: 'image/png', buffer: await fixtureImage.body() });
+  await gallery.locator('input[type="file"]').setInputFiles({ name: `${name}.png`, mimeType: 'image/png', buffer: portraitPng(name) });
   const registration = await registered;
   expect(registration.ok()).toBeTruthy();
   expect((await registration.json()).results[0].ok).toBe(true);

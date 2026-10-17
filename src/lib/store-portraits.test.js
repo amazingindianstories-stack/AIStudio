@@ -153,3 +153,50 @@ test("attachPortraitsToComposer refuses unusable portraits and more than 50 refe
     assert.equal(useStore.getState().referenceImages.length, 49);
   });
 });
+
+test("the status poll runs only while something is preparing, backs off, pauses when hidden and stops when closed", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const documentBefore = globalThis.document;
+  try {
+    await withStore(async (stub, calls) => {
+      let items = [p("a", 2, { state: "preparing" }), p("b", 1)];
+      stub(() => json({ enabled: true, portraits: items, next: null }));
+      useStore.setState({ portraitGalleryOpen: true });
+      await useStore.getState().loadPortraits({ query: "" });
+      assert.equal(calls.length, 1);
+      t.mock.timers.tick(2999);
+      assert.equal(calls.length, 1, "first poll is 3 seconds after the load");
+      t.mock.timers.tick(1);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(calls.length, 2);
+      assert.match(calls[1].url, /limit=100/);
+      t.mock.timers.tick(3000);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(calls.length, 2, "nothing changed, so the next poll waits longer than 3 seconds");
+      t.mock.timers.tick(1500);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(calls.length, 3);
+      globalThis.document = { hidden: true };
+      t.mock.timers.tick(60000);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(calls.length, 3, "a hidden tab makes no requests");
+      globalThis.document = { hidden: false };
+      items = [p("a", 2, { state: "ready" }), p("b", 1)];
+      t.mock.timers.tick(15000);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(calls.length, 4, "polling resumes when the tab is visible again");
+      assert.equal(useStore.getState().portraits.items[0].state, "ready");
+      t.mock.timers.tick(60000);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(calls.length, 4, "nothing is preparing any more, so polling has stopped");
+      items = [p("a", 2, { state: "waiting" }), p("b", 1)];
+      await useStore.getState().loadPortraits({ refresh: true });
+      useStore.setState({ portraitGalleryOpen: false });
+      t.mock.timers.tick(60000);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(calls.length, 5, "closing the gallery stops the poll");
+    });
+  } finally {
+    globalThis.document = documentBefore;
+  }
+});

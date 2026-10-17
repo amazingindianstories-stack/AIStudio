@@ -5,6 +5,7 @@ import {
   appendPortraitPage,
   createOrderedRegistrar,
   mergePortraitPage,
+  portraitDimensionProblem,
   portraitDropImages,
   portraitFileProblem,
   portraitNameFromFile,
@@ -106,4 +107,15 @@ test("only image items are taken from a library drop, and drops from outside the
   assert.equal(droppedLibraryItems(files, null), null);
   const inApp = droppedLibraryItems({ dataTransfer: { types: [], getData: () => "" } }, { draggedAssets: items });
   assert.deepEqual(portraitDropImages(inApp).map((i) => i.id), ["i"]);
+});
+
+test("images outside 300-6000 px per side or a 0.4-2.5 ratio are refused with their size in the copy", () => {
+  assert.equal(portraitDimensionProblem("a.jpg", 1000, 1500), null);
+  assert.equal(portraitDimensionProblem("a.jpg", 300, 300), null);
+  assert.equal(portraitDimensionProblem("a.jpg", 6000, 3000), null);
+  assert.equal(portraitDimensionProblem("a.jpg", 0, 0), null, "unknown size is left to the server");
+  assert.equal(portraitDimensionProblem("photo.jpg", 240, 180), "photo.jpg is 240 x 180 px. Portraits need at least 300 px and at most 6000 px on each side.");
+  assert.match(portraitDimensionProblem("big.png", 6001, 4000), /at most 6000 px/);
+  assert.match(portraitDimensionProblem("wide.png", 3000, 1000), /ratio between 0.4 and 2.5/);
+  assert.match(portraitDimensionProblem("tall.png", 1000, 3000), /ratio between 0.4 and 2.5/);
 });

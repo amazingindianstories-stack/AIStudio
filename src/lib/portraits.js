@@ -4,6 +4,10 @@ import { inlineMediaUrl } from "./utils";
 
 export const PORTRAIT_MAX_BYTES = 30 * 1024 * 1024;
 export const PORTRAIT_BATCH_LIMIT = 50;
+export const PORTRAIT_MIN_SIDE = 300;
+export const PORTRAIT_MAX_SIDE = 6000;
+export const PORTRAIT_MIN_RATIO = 0.4;
+export const PORTRAIT_MAX_RATIO = 2.5;
 export const PORTRAIT_UPLOAD_CONCURRENCY = 3;
 export const PORTRAIT_POLL_FIRST_MS = 3000;
 export const PORTRAIT_POLL_MAX_MS = 15000;
@@ -145,4 +149,48 @@ export async function downloadPortrait(portrait) {
   } catch {
     window.open(portrait.imageUrl, "_blank");
   }
+}
+
+/** Copy for an image whose size the portrait store would refuse; null when it fits. */
+export function portraitDimensionProblem(name, width, height) {
+  if (!(width > 0) || !(height > 0)) return null;
+  const label = name || "This image";
+  if (Math.min(width, height) < PORTRAIT_MIN_SIDE || Math.max(width, height) > PORTRAIT_MAX_SIDE) {
+    return `${label} is ${width} x ${height} px. Portraits need at least ${PORTRAIT_MIN_SIDE} px and at most ${PORTRAIT_MAX_SIDE} px on each side.`;
+  }
+  const ratio = width / height;
+  if (ratio < PORTRAIT_MIN_RATIO || ratio > PORTRAIT_MAX_RATIO) {
+    return `${label} is ${width} x ${height} px. Portraits need a width to height ratio between ${PORTRAIT_MIN_RATIO} and ${PORTRAIT_MAX_RATIO}.`;
+  }
+  return null;
+}
+
+/** Reads the file's pixel size in the browser; null when it cannot be decoded here (the server then decides). */
+export async function readPortraitDimensions(file) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const size = { width: bitmap.width, height: bitmap.height };
+      bitmap.close?.();
+      return size;
+    } catch {
+      /* fall through to an <img> decode */
+    }
+  }
+  if (typeof Image === "function" && typeof URL?.createObjectURL === "function") {
+    const url = URL.createObjectURL(file);
+    try {
+      return await new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+        image.onerror = reject;
+        image.src = url;
+      });
+    } catch {
+      /* undecodable here, for example HEIC: let the server judge it */
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  return null;
 }

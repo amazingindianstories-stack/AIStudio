@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { fixtureDatabase } from './fixture-db.mjs';
+import { portraitPng } from './portrait-image.mjs';
 
 const userId = 'e33e1832-9e29-427f-af61-796b842a4b37';
 const diagnostics = new WeakMap();
@@ -172,14 +173,12 @@ test('Goal2 portrait six-selection bulk attach and repeated same portrait retain
   test.setTimeout(120000);
   await ready(page, context, baseURL);
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  const fixture = await context.request.get('/api/generations/10000000-0000-4000-8000-000000000001/download');
-  const buffer = await fixture.body();
   const prefix = `QA-${Date.now()}`;
   await page.getByRole('button', { name: 'material', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   const gallery = page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
-  // Identical bytes would collapse into one gallery portrait, so each file carries its own tail.
-  await gallery.locator('input[type=file]').setInputFiles(Array.from({ length: 6 }, (_, i) => ({ name: `${prefix}-${i}.png`, mimeType: 'image/png', buffer: Buffer.concat([buffer, Buffer.from(`${prefix}-${i}`)]) })));
+  // Identical bytes would collapse into one gallery portrait, so each file is a different valid image.
+  await gallery.locator('input[type=file]').setInputFiles(Array.from({ length: 6 }, (_, i) => ({ name: `${prefix}-${i}.png`, mimeType: 'image/png', buffer: portraitPng(`${prefix}-${i}`) })));
   await expect(gallery.locator('article').filter({ hasText: prefix })).toHaveCount(6, { timeout: 90000 });
   const tiles = gallery.locator('article').filter({ hasText: prefix });
   await tiles.first().click();
@@ -491,13 +490,11 @@ test('Goal2 mixed image video audio namespaces survive an image finalization com
 
 test('Goal2 portrait inspector confirmed bulk deletion keeps partial failure selected for retry', async ({ page, context, baseURL }, testInfo) => {
   await ready(page, context, baseURL);
-  const image = await context.request.get('/api/generations/10000000-0000-4000-8000-000000000001/download');
   const prefix = `QA-delete-${randomUUID().slice(0, 8)}`;
   await page.getByRole('button', { name: 'material', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   const gallery = page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
-  const buffer = await image.body();
-  await gallery.locator('input[type=file]').setInputFiles([0, 1].map(i => ({ name: `${prefix}-${i}.png`, mimeType: 'image/png', buffer: Buffer.concat([buffer, Buffer.from(`${prefix}-${i}`)]) })));
+  await gallery.locator('input[type=file]').setInputFiles([0, 1].map(i => ({ name: `${prefix}-${i}.png`, mimeType: 'image/png', buffer: portraitPng(`${prefix}-${i}`) })));
   await expect(gallery.locator('article').filter({ hasText: prefix })).toHaveCount(2, { timeout: 90000 });
   await gallery.getByRole('textbox', { name: 'Search portraits', exact: true }).fill(prefix);
   await expect(gallery.locator('article')).toHaveCount(2);

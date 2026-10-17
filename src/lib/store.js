@@ -83,7 +83,9 @@ import {
   isPortraitPending,
   mergePortraitPage,
   portraitAttachable,
+  portraitDimensionProblem,
   portraitFileProblem,
+  readPortraitDimensions,
   portraitNameFromFile,
   portraitPollDelay,
   runPool,
@@ -2004,7 +2006,11 @@ export const useStore = create((set, get) => ({
     schedulePortraitPoll(get);
     await runPool(list, PORTRAIT_UPLOAD_CONCURRENCY, async (file, index) => {
       const { key, name } = entries[index];
-      const problem = portraitFileProblem(file);
+      let problem = portraitFileProblem(file);
+      if (!problem) {
+        const size = await readPortraitDimensions(file);
+        if (size) problem = portraitDimensionProblem(file.name, size.width, size.height);
+      }
       if (problem) {
         fail(key, problem);
         void registrar.settle(index, null);
