@@ -5,6 +5,7 @@ import time
 from threading import Event
 from uuid import uuid4
 from django.db import connections
+from apps.common.resilience import recover
 from .services.admission import reap_stale_running_images
 from .services.coordinator import select_due_generations
 from .services.executor import process_generation
@@ -58,6 +59,13 @@ def run_once(*, concurrency=2, limit=25, process=None, stop=None):
 
 def run_worker(*, interval=2, concurrency=2, stop=None):
     stop = stop or Event()
+    failures = 0
     while not stop.is_set():
-        run_once(concurrency=concurrency, stop=stop)
+        try:
+            run_once(concurrency=concurrency, stop=stop)
+            failures = 0
+        except Exception as error:      # reap, select or a dropped connection: survive, reconnect, try again
+            failures += 1
+            recover(error, failures, stop=stop, logger=logger, name='generation_worker')
+            continue
         stop.wait(max(.1, interval))
