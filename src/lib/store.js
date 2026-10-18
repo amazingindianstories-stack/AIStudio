@@ -843,6 +843,17 @@ export const useStore = create((set, get) => ({
   loadMoreHistory: async () => {
     const s = get();
     if (!s.hasMoreHistory) return;
+    const key = scopeKey(currentScope(s));
+    const cursor = getCached(key)?.nextCursor;
+    if (!cursor) return;
+    // The grid's scroller and the viewer's arrow keys can ask for the same next
+    // page at once; they share one request.
+    await dedupeFirstPage(`more:${key}:${cursor}`, () => get().fetchMoreHistory());
+  },
+
+  fetchMoreHistory: async () => {
+    const s = get();
+    if (!s.hasMoreHistory) return;
     const scope = currentScope(s);
     const key = scopeKey(scope);
     const cached = getCached(key);

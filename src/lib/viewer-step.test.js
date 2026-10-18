@@ -80,6 +80,22 @@ test("the end of a loaded page continues into the next page of the same folder q
   });
 });
 
+test("the grid's scroller and the viewer asking for the same next page share one request", async (t) => {
+  const items = [row("n3", 300)];
+  await withFolderViewer(t, { items, nextCursor: "c1", open: "n3" }, async () => {
+    let calls = 0;
+    t.mock.method(globalThis, "fetch", async () => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return Response.json({ items: [row("n2", 200)], nextCursor: null });
+    });
+    await Promise.all([useStore.getState().loadMoreHistory(), stepViewer("ArrowRight")]);
+    assert.equal(calls, 1);
+    assert.deepEqual(useStore.getState().items.map((i) => i.id), ["n3", "n2"]);
+    assert.equal(useStore.getState().activeId, "n2");
+  });
+});
+
 test("a next page with nothing viewable keeps loading until something is, then stops at the true end", async (t) => {
   const items = [row("n5", 500)];
   await withFolderViewer(t, { items, nextCursor: "c1", open: "n5" }, async () => {
