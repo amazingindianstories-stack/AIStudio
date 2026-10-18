@@ -70,9 +70,9 @@ export const HISTORY_PAGE_SIZE = 20;
 
 /** Valid durations per model. Higgsfield's Seedance/DoP cap at 12s, so don't
  *  offer 15s for them (it would be silently clamped — wasted/confusing).
- *  Omni's duration IS a real, enforced request field (response_format.duration,
- *  a protobuf-Duration string like "4s" — see providers/omni.js header) —
- *  [4,6,8] here is just the UI's offered set. */
+ *  Omni's duration IS a real request field (response_format.duration, a
+ *  string like "4s" - see backend providers/omni.py). Gemini Omni Flash 1.1
+ *  outputs 3-10s; [4,6,8,10] here is the UI's offered set. */
 export function durationsForModel(model) {
   return capability(model, "durations", DURATIONS);
 }
@@ -91,10 +91,9 @@ export function durationRangeForModel(model) {
 }
 
 /** Valid resolutions per model. Seedance 2.0 Mini supports 480p/720p only
- *  (per its MCP schema — no 1080p/4k SKU on the mini). Omni doesn't accept a
- *  resolution request param (probe-confirmed) — "720p" is exposed as the
- *  single non-choice for UI consistency with other models' resolution
- *  picker; the provider ignores it. */
+ *  (per its MCP schema - no 1080p/4k SKU on the mini). Gemini Omni Flash 1.1
+ *  sends response_format.resolution: 360p (a third of the 720p price) or 720p;
+ *  its upscaled 1080p/4k have no published price yet, so they are not offered. */
 export function resolutionsForModel(model, kind, hasReference = false) {
   const definition = getModelDefinition(model);
   if (hasReference && definition?.capabilities?.referenceResolutions) {
@@ -103,7 +102,7 @@ export function resolutionsForModel(model, kind, hasReference = false) {
   return definition?.capabilities?.resolutions ?? RESOLUTIONS[kind];
 }
 
-/** Valid aspect ratios per model. Omni is probe-confirmed 16:9/9:16 only —
+/** Valid aspect ratios per model. Omni is documented 16:9/9:16 only -
  *  everything else keeps today's full per-kind list. */
 export function aspectRatiosForModel(model, kind) {
   return capability(model, "aspectRatios", ASPECT_RATIOS[kind]);
@@ -241,12 +240,10 @@ export function supportsVideoEditExtend(model) {
  *   request-side seed field, which is grounds for caution, not confidence
  *   either way. `scripts/probe-kling-seed.js` verifies this for free
  *   (invalid-parameter trick, no task created) — run it before flipping this.
- * - Omni (Gemini Interactions API): explicitly NOT included. providers/omni.js's
- *   own header documents a narrow, probe-verified request body
- *   (`{model, input, background, response_format}`) and states unknown
- *   top-level parameters 400 the whole request — there is no probe evidence
- *   `seed` is one of the accepted ones, and guessing wrong breaks every Omni
- *   video generation, not just seed reproducibility.
+ * - Omni (Gemini Interactions API): explicitly NOT included. Google's Gemini
+ *   Omni Flash 1.1 guide (ai.google.dev/gemini-api/docs/omni, read
+ *   2026-10-18) documents no seed field, and the preview probe found that an
+ *   unknown top-level parameter 400s the whole request.
  * - Higgsfield MCP: not included for the same reason as Kling/Omni — no
  *   catalog or probe evidence either way, and Higgsfield is already out of
  *   the model picker (2026-07-30) so there's no live path to verify against

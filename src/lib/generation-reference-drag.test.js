@@ -147,7 +147,7 @@ test("validateGenerationReference for video generations", () => {
   // Dropping into video mode without videoReference support (Omni)
   const omniDrop = validateGenerationReference(videoItem, {
     mode: "video",
-    model: "Gemini Omni Flash",
+    model: "Gemini Omni Flash 1.1",
   });
   assert.equal(omniDrop.valid, false);
   assert.match(omniDrop.reason, /does not support video references/);

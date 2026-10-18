@@ -1214,9 +1214,9 @@ export function PromptComposer() {
                 value={`${s.batchCount}×`}
                 onChange={(v) => s.setBatchCount(parseInt(v))}
               />
-              {/* Only where the provider has the field. Omni's Interactions
-                  request exposes no audio parameter, so showing this for it
-                  would be a control that does nothing. */}
+              {/* Only where the provider has the field. Gemini Omni Flash 1.1
+                  always generates sound from the prompt and its Interactions
+                  request has no audio parameter, so a toggle would do nothing. */}
               {audioApplies && (
                 <div>
                   <Segment

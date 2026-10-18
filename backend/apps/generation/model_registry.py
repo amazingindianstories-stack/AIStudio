@@ -158,15 +158,30 @@ MODEL_REGISTRY = [{'id': 'seedream-5-pro',
                    'videoBestOf': True,
                    'firstFrameContinuation': True,
                    'firstLastFrame': True}},
+ # ai.google.dev/gemini-api/docs/models/gemini-omni-flash and /docs/omni (read 2026-10-18): stable model code,
+ # Interactions API, output 3-10s at 24 FPS, 16:9/9:16, resolution 360p/720p (1080p/4k are upscaled; their price
+ # is not published in text, so they are not offered). Audio is generated from the prompt; there is no audio field.
+ {'id': 'gemini-omni-1-1-flash',
+  'name': 'Gemini Omni Flash 1.1',
+  'kind': 'video',
+  'provider': 'omni',
+  'providerModelId': 'gemini-omni-1.1-flash',
+  'offered': True,
+  'badge': 'NEW',
+  'hint': 'Google Interactions API · 360p draft or 720p · 4-10s · 16:9/9:16 · sound from the prompt',
+  'pricingKey': 'Gemini Omni Flash 1.1',
+  'capabilities': {'aspectRatios': ['16:9', '9:16'], 'resolutions': ['360p', '720p'], 'durations': [4, 6, 8, 10],
+                   # Google: 360p costs a third of 720p (blog.google build-with-gemini-omni-1-1-flash, 2026-08-27).
+                   'resolutionPriceFactors': {'360p': 1 / 3, '720p': 1}}},
+ # Retired: Google shuts gemini-omni-flash-preview down on 2026-10-22 (ai.google.dev/gemini-api/docs/deprecations).
+ # Kept so historical rows keep their label, pricing row and spend accounting; new jobs are refused.
  {'id': 'gemini-omni-flash',
   'name': 'Gemini Omni Flash',
   'kind': 'video',
   'provider': 'omni',
   'providerModelId': 'gemini-omni-flash-preview',
-  'providerModelEnv': 'OMNI_MODEL',
-  'offered': True,
-  'badge': 'NEW',
-  'hint': 'Google Interactions API — full NBP-style reference scaffolding, 16:9/9:16 only',
+  'offered': False,
+  'retiredFor': 'gemini-omni-1-1-flash',
   'pricingKey': 'Gemini Omni Flash',
   'capabilities': {'aspectRatios': ['16:9', '9:16'], 'resolutions': ['720p'], 'durations': [4, 6, 8]}},
  {'id': 'depth-anything-local',
@@ -310,3 +325,12 @@ def provider_model_id(name, env=None):
 
 def capability(name, key, fallback=False):
     return (model_definition(name) or {}).get('capabilities', {}).get(key, fallback)
+
+
+def retirement_message(name):
+    """The refusal for a new job on a retired model, naming its replacement; None while the model is current."""
+    model = model_definition(name)
+    if not model or not model.get('retiredFor'):
+        return None
+    replacement = model_definition(model['retiredFor'])
+    return f'{model["name"]} has been retired. Choose {replacement["name"]} instead.'

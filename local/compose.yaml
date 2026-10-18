@@ -15,6 +15,7 @@ x-backend: &backend
     PYTHONUNBUFFERED: "1"
     VEEVEE_LOCAL_PROVIDERS: ${VEEVEE_LOCAL_PROVIDERS:-fake}
     VEEVEE_MANAGED_PORTRAITS: ${VEEVEE_MANAGED_PORTRAITS:-1}
+    VEEVEE_GEMINI_OMNI: ${VEEVEE_GEMINI_OMNI:-1}      # paid guard admits Gemini Omni Flash 1.1 (fake provider here)
     VEEVEE_FAKE_PROVIDER_URL: http://fake-providers:8099
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
     AUTH_SECRET: ${AUTH_SECRET}
