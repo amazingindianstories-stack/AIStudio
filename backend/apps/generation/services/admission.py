@@ -40,8 +40,14 @@ def best_of_multiplier():
     return min(4, max(1, numeric(os.environ.get('FACE_BEST_OF'), 2) or 2))
 
 
+def gemini_video_models():
+    """Every Gemini Omni name and id, retired ones included: their spend stays in the window it was made in."""
+    from apps.generation.model_registry import MODEL_REGISTRY
+    return sorted(name for model in MODEL_REGISTRY if model.get('provider') == 'omni' for name in (model['id'], model['name']))
+
+
 def bills_gemini(item):
-    return (item.kind == 'image' and item.model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or item.model == 'Gemini Omni Flash'
+    return (item.kind == 'image' and item.model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or item.model in gemini_video_models()
 
 
 def lane_models(item):
@@ -70,7 +76,7 @@ def lane_message(item):
 def snapshot(item, *, now, best_of):
     with connection.cursor() as cursor:
         cursor.execute(SNAPSHOT_SQL, {'kind': item.kind, 'item_id': item.id, 'user_default': PER_USER_DEFAULT, 'user_max': PER_USER_MAX,
-            'lane_models': lane_models(item),
+            'lane_models': lane_models(item), 'gemini_video_models': gemini_video_models(),
             'created_at': item.created_at, 'best_of': best_of,
             'window_start': now - SPEND_WINDOW_MS,
             'skirt_start': now - SPEND_WINDOW_MS - 6 * 60 * 60 * 1000})

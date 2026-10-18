@@ -97,6 +97,12 @@ DEFAULT_PRICING = [{'model': 'Seedream 5.0 Pro',
   'unit': 'per_second',
   'notes': 'gemini-omni-flash-preview (Interactions API); ~$0.10/s 720p output; duration prompt-driven, '
            'billed by requested seconds'},
+ {'model': 'Gemini Omni Flash 1.1',
+  'unitCostCents': 11,
+  'unit': 'per_second',
+  'notes': 'gemini-omni-1.1-flash (Interactions API); base = 720p. Published (2026-10): 5,792 video output tokens per '
+           'second at $17.50 per 1M = $0.1014/s, rounded up to whole cents; 360p x1/3 (Google blog); input and '
+           'thinking tokens not included'},
  {'model': 'Magnific Creative',
   'unitCostCents': 20,
   'unit': 'per_image',

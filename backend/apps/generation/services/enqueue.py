@@ -16,7 +16,7 @@ from apps.common.javascript import UNDEFINED, truthy, string, utf16_length
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
 from apps.generation import image_limits
-from apps.generation.model_registry import capability, is_provider_model
+from apps.generation.model_registry import capability, is_provider_model, retirement_message
 from apps.generation.models import Generation
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
 from apps.generation.serialization import camel
@@ -72,8 +72,15 @@ def validate_prompt(prompt,user_id=None):
         raise InvalidRequest(f'Prompt is too long (max {maximum} characters, this one is {length}). An admin can raise this limit from the dashboard.')
 
 
+def refuse_retired(model):
+    """A retired model keeps its history but takes no new jobs; it is never silently swapped for its replacement."""
+    message = retirement_message(model)
+    if message: raise InvalidRequest(message)
+
+
 def image_input(body, user_id):
     model = default(body.get('model'),'Nano Banana Pro')
+    refuse_retired(model)
     resolution = body.get('resolution')
     if resolution is None: resolution = '2K' if is_provider_model(body.get('model'),'seedream') else UNDEFINED
     item = dict(kind='image',prompt=trim(body.get('prompt')),model=model,
@@ -86,6 +93,7 @@ def image_input(body, user_id):
 
 def video_input(body, user_id=None):
     model = default(body.get('model'),'Higgsfield Seedance 2.0')
+    refuse_retired(model)
     prompt, ratio, resolution = trim(body.get('prompt')), default(body.get('aspectRatio'),'16:9'), default(body.get('resolution'),'1080p')
     if 'bitrateMode' in body and body['bitrateMode'] not in ('standard','high'):
         raise InvalidRequest('Bitrate must be either standard or high.')
@@ -129,10 +137,10 @@ def video_input(body, user_id=None):
         if not capability(model,'editExtend'): raise InvalidRequest(f'{string(model)} does not support {"Edit" if mode == "edit" else "Extend"}.')
         if not videos: raise InvalidRequest(f'Attach a reference clip to {"edit" if mode == "edit" else "extend"} a video.')
     if is_provider_model(model,'omni'):
-        if ratio not in capability(model,'aspectRatios',[]): raise InvalidRequest(f'Gemini Omni Flash supports 16:9/9:16 aspect ratios only (got {string(ratio)}).')
+        if ratio not in capability(model,'aspectRatios',[]): raise InvalidRequest(f'{string(model)} supports 16:9/9:16 aspect ratios only (got {string(ratio)}).')
         durations = capability(model,'durations',[])
         if not integer(duration) or duration not in durations:
-            raise InvalidRequest(f'Gemini Omni Flash supports {"/".join(map(str,durations))}s durations (got {string(duration)}).')
+            raise InvalidRequest(f'{string(model)} supports {"/".join(map(str,durations))}s durations (got {string(duration)}).')
     return clean(dict(kind='video',prompt=prompt,model=model,aspectRatio=ratio,resolution=resolution,duration=duration,
         generateAudio=body.get('generateAudio') is True and bool(capability(model,'audio')),
         referenceVideos=videos if videos else UNDEFINED,referenceAudios=audios if audios else UNDEFINED,

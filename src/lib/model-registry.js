@@ -185,15 +185,30 @@ export const MODEL_REGISTRY = [
     },
   },
   {
+    // ai.google.dev/gemini-api/docs/models/gemini-omni-flash and /docs/omni (read 2026-10-18): stable
+    // model code, output 3-10s, 16:9/9:16, 360p/720p (1080p/4k are upscaled and their price is not
+    // published in text, so they are not offered). Audio comes from the prompt; there is no audio field.
+    id: "gemini-omni-1-1-flash",
+    name: "Gemini Omni Flash 1.1",
+    kind: "video",
+    provider: "omni",
+    providerModelId: "gemini-omni-1.1-flash",
+    offered: true,
+    badge: "NEW",
+    hint: "Google Interactions API · 360p draft or 720p · 4-10s · 16:9/9:16 · sound from the prompt",
+    pricingKey: "Gemini Omni Flash 1.1",
+    capabilities: { aspectRatios: ["16:9", "9:16"], resolutions: ["360p", "720p"], durations: [4, 6, 8, 10] },
+  },
+  {
+    // Retired: Google shuts gemini-omni-flash-preview down on 2026-10-22. Kept so history keeps
+    // its label; the composer moves its settings to the replacement and the server refuses new jobs.
     id: "gemini-omni-flash",
     name: "Gemini Omni Flash",
     kind: "video",
     provider: "omni",
     providerModelId: "gemini-omni-flash-preview",
-    providerModelEnv: "OMNI_MODEL",
-    offered: true,
-    badge: "NEW",
-    hint: "Google Interactions API — full NBP-style reference scaffolding, 16:9/9:16 only",
+    offered: false,
+    retiredFor: "gemini-omni-1-1-flash",
     pricingKey: "Gemini Omni Flash",
     capabilities: { aspectRatios: ["16:9", "9:16"], resolutions: ["720p"], durations: [4, 6, 8] },
   },
@@ -379,6 +394,12 @@ export function offeredModels() {
   return MODEL_REGISTRY.filter((model) => model.offered).map(
     ({ id, name, kind, badge, hint }) => ({ id, name, kind, badge, hint })
   );
+}
+
+/** The model a composer should use for `name`: a retired model's replacement, otherwise `name`. */
+export function composerModel(name) {
+  const retiredFor = getModelDefinition(name)?.retiredFor;
+  return retiredFor ? getModelDefinition(retiredFor).name : name;
 }
 
 export function capability(name, key, fallback = false) {

@@ -159,6 +159,24 @@ class CoordinatorTests(TransactionTestCase):
             self.assertTrue(admission.queue_position(later.id, now=1000010)['heldForBudget'])
             self.assertIsNone(admission.admit_job(fast.id, now=1000010))
 
+    def test_gemini_omni_flash_1_1_and_retired_omni_spend_share_the_gemini_window(self):
+        # Retired Gemini Omni Flash rows stay billed in the window they were made in; 1.1 is held by them and holds images.
+        self.assertEqual(admission.gemini_video_models(), ['Gemini Omni Flash', 'Gemini Omni Flash 1.1', 'gemini-omni-1-1-flash', 'gemini-omni-flash'])
+        old = self.job(kind='video', status='succeeded', model='Gemini Omni Flash', cost_cents=140)
+        new = self.job(kind='video', model='Gemini Omni Flash 1.1', cost_cents=37, created_at=1000001)
+        self.assertTrue(admission.bills_gemini(new))
+        self.assertTrue(admission.bills_gemini(old))
+        self.assertFalse(admission.bills_gemini(self.job(kind='video', status='succeeded', model='Seedance 2.5', cost_cents=900)))
+        with patch.dict('os.environ', {'GEMINI_SPEND_LIMIT_CENTS': '150', 'FACE_BEST_OF': '2'}):
+            self.assertTrue(admission.queue_position(new.id, now=1000010)['heldForBudget'])
+            self.assertIsNone(admission.admit_job(new.id, now=1000010))
+            Generation.objects.filter(pk=old.id).delete()
+            # Empty-window forward progress: the Seedance row above never counted, so 1.1 starts.
+            self.assertIsNotNone(admission.admit_job(new.id, now=1000010))
+            # Its running spend (x best-of) now holds the next Gemini image.
+            image = self.job(model='Nano Banana Pro', cost_cents=80, created_at=1000002)
+            self.assertTrue(admission.queue_position(image.id, now=1000010)['heldForBudget'])
+
     def test_stale_timeout_excludes_provider_backed_video(self):
         stale = self.job(status='running', updated_at=1)
         remote = self.job(kind='video', status='running', task_id='remote', updated_at=1)

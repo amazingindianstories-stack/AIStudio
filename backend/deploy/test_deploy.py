@@ -168,6 +168,11 @@ class LegacyConfigTests(SimpleTestCase):
         api = self.legacy.translate('api', {**self.api_env(), 'MAGNIFIC_API_KEY': 'mk', 'VEEVEE_MAGNIFIC_UPSCALE': '1'})
         self.assertEqual((api['MAGNIFIC_API_KEY'], api['VEEVEE_MAGNIFIC_UPSCALE']), ('mk', '1'))
 
+    def test_gemini_omni_switch_passes_through_only_when_set(self):
+        for component, env in (('generation', self.worker_env('generation')), ('api', self.api_env())):
+            self.assertNotIn('VEEVEE_GEMINI_OMNI', self.legacy.translate(component, env))
+            self.assertEqual(self.legacy.translate(component, {**env, 'VEEVEE_GEMINI_OMNI': '1'})['VEEVEE_GEMINI_OMNI'], '1')
+
     def test_worker_mapping_matches_the_old_launcher(self):
         generation = self.legacy.translate('generation', self.worker_env('generation'))
         self.assertEqual((generation['VEEVEE_LEASE_PREFIX'], generation['VEEVEE_NAMING_PREFIX']), ('lease:g4preview:x:', 'g4preview:y:'))

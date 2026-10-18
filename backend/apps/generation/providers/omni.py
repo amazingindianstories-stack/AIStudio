@@ -1,4 +1,13 @@
-"""Google Interactions video adapter with credential-scoped downloads."""
+"""Google Interactions video adapter (Gemini Omni Flash) with credential-scoped downloads.
+
+Gemini Omni Flash 1.1 (`gemini-omni-1.1-flash`), per ai.google.dev/gemini-api/docs/omni, /docs/models/gemini-omni-flash
+and ai.google.dev/api/interactions-api (VideoResponseFormat), read 2026-10-18: POST /v1beta/interactions with `model`,
+`input` (text and inline image parts) and `response_format` {type: video, aspect_ratio 16:9|9:16, duration, resolution
+360p|720p|1080p|4k}; with `background` the interaction is polled by GET /v1beta/interactions/{id}, and the REST result
+carries the video in `steps[].content[]` (inline base64 `data`, or a Files API `uri`). There is no seed, negative
+prompt, system instruction or audio field. The retired preview (`gemini-omni-flash-preview`, shut down 2026-10-22) is
+never submitted again; building its payload remains possible only as evidence for the historical parity tests.
+"""
 import base64
 import json
 import os
@@ -6,15 +15,15 @@ import re
 from urllib.parse import quote, urlsplit
 
 from apps.common.javascript import string
-from apps.generation.model_registry import provider_model_id
+from apps.generation.model_registry import capability, model_definition, provider_model_id, retirement_message
 from .transport import HttpTransport, ProviderError, required_key
 
 
-def build_input(assembled):
+def build_input(assembled, model_name):
     groups = assembled['groups']
     count = sum(len(group['images']) for group in groups)
     if count > 14:
-        raise ValueError(f'Too many reference images: {count}. Gemini Omni Flash accepts at most 14 images per prompt — remove {count - 14}.')
+        raise ValueError(f'Too many reference images: {count}. {model_name} accepts at most 14 images per prompt — remove {count - 14}.')
     budget, parts, identity = 14 - count, [], False
     for group in groups:
         parts.append({'type': 'text', 'text': group['header']})
@@ -51,11 +60,26 @@ def build_endpoint(*, vertex=False, project=None, location=None):
     return 'https://generativelanguage.googleapis.com/v1beta/interactions'
 
 
-def build_payload(input, aspect_ratio, duration, env=None):
+def build_payload(input, aspect_ratio, duration, env=None, *, model, resolution=None):
+    """`resolution` is sent only when given: the retired preview had no such field."""
+    name = model_definition(model)['name']
     if aspect_ratio not in ('16:9', '9:16'):
-        raise ValueError(f'Gemini Omni Flash only supports 16:9/9:16 aspect ratios (got "{aspect_ratio}").')
-    return {'model': provider_model_id('Gemini Omni Flash', env), 'input': input, 'background': True,
-            'response_format': {'type': 'video', 'aspect_ratio': aspect_ratio, 'duration': string(duration) + 's'}}
+        raise ValueError(f'{name} only supports 16:9/9:16 aspect ratios (got "{aspect_ratio}").')
+    response_format = {'type': 'video', 'aspect_ratio': aspect_ratio, 'duration': string(duration) + 's'}
+    if resolution is not None:
+        response_format['resolution'] = resolution
+    return {'model': provider_model_id(model, env), 'input': input, 'background': True, 'response_format': response_format}
+
+
+def submission_model(name):
+    """The current Omni registry entry for a new submission; refuses retired, unknown and non-Omni models."""
+    model = model_definition(name)
+    if not model or model.get('provider') != 'omni':
+        raise ValueError(f'{name or "This model"} is not a Gemini Omni model.')
+    retired = retirement_message(name)
+    if retired:
+        raise ValueError(retired)
+    return model
 
 
 def map_status(raw):
@@ -97,11 +121,15 @@ def authentication(env, vertex_auth=None):
 
 
 def extract_video(result, headers=None, *, transport=None, signal=None):
+    uri = None
     for step in result.get('steps') or []:
         for part in step.get('content') or []:
             if part.get('type') == 'video' and part.get('data'):
                 return {'base64': part['data'], 'mimeType': part.get('mime_type') or 'video/mp4'}
-    uri = (result.get('output_video') or {}).get('uri')
+            if part.get('type') == 'video' and part.get('uri') and not uri:
+                uri = part['uri']
+    # REST carries a URI-delivered video in steps; `output_video` is the SDK convenience field.
+    uri = uri or (result.get('output_video') or {}).get('uri')
     if uri:
         host = assert_google_host(uri)
         transport = transport or HttpTransport(allowed_hosts=[host], max_response_bytes=512 * 1024 * 1024)
@@ -114,7 +142,16 @@ def extract_video(result, headers=None, *, transport=None, signal=None):
 
 def create_video_task(input, *, transport=None, env=None, signal=None, vertex_auth=None):
     env = os.environ if env is None else env
-    payload = build_payload(build_input(input['assembled']), input['aspectRatio'], input['duration'], env)
+    model = submission_model(input.get('modelDisplay'))
+    resolution, duration = input.get('resolution') or '720p', input['duration']
+    # Refused before any credential or network use: an unoffered size or length is also an unpriced one.
+    resolutions, durations = capability(model['id'], 'resolutions', []), capability(model['id'], 'durations', [])
+    if resolution not in resolutions:
+        raise ValueError(f'{model["name"]} supports {"/".join(resolutions)} only (got {string(resolution)}).')
+    if type(duration) is not int or duration not in durations:
+        raise ValueError(f'{model["name"]} supports {"/".join(map(str, durations))}s durations (got {string(duration)}).')
+    payload = build_payload(build_input(input['assembled'], model['name']), input['aspectRatio'], duration, env,
+                            model=model['id'], resolution=resolution)
     endpoint, headers = authentication(env, vertex_auth)
     transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com', 'aiplatform.googleapis.com'], max_response_bytes=512 * 1024 * 1024)
     response = transport.request('POST', endpoint, headers={**headers, 'Content-Type': 'application/json'}, body=payload, signal=signal)

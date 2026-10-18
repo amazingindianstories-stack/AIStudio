@@ -119,7 +119,10 @@ const results=[];for(const value of JSON.parse(s)){try{const r=await fn(...Objec
                 except enqueue.InvalidRequest as error: actual={'status':400,'body':{'error':str(error)}}
                 except Exception: actual={'status':500}
                 with self.subTest(value=value):
-                    if len(value.get('referenceAudios',[])) > 10:
+                    if value.get('model') == 'Gemini Omni Flash':
+                        # Retired 2026-10-18 (Google shuts the preview down 2026-10-22): refused before anything else.
+                        self.assertEqual(actual,{'status':400,'body':{'error':'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'}})
+                    elif len(value.get('referenceAudios',[])) > 10:
                         # Preserve the inert historical oracle: it proves the old
                         # silent source loss. Goal3 intentionally rejects before cost.
                         self.assertEqual(oracle['status'],200)
@@ -394,6 +397,43 @@ class EnqueueContractTests(TransactionTestCase):
         Pricing.objects.filter(pk='Nano Banana 2.1').update(unit_cost_cents=5)
         response=self.post('image',dict(prompt='lantern at dusk again',model='Nano Banana 2.1',resolution='2K'))
         self.assertEqual(Generation.objects.get(pk=response.json()['id']).cost_cents,8)
+
+    def test_gemini_omni_flash_1_1_enqueue_stores_its_controls_and_estimate_and_refuses_the_retired_model(self):
+        # Default row: 11 estimator cents per second at 720p, a third of that at 360p; no audio field.
+        self.cookie()
+        cases=[('Gemini Omni Flash 1.1','720p',4,'16:9',44),('Gemini Omni Flash 1.1','720p',10,'9:16',110),
+               ('Gemini Omni Flash 1.1','360p',6,'16:9',22),('gemini-omni-1-1-flash','360p',10,'9:16',37)]
+        for index,(model,resolution,duration,ratio,cents) in enumerate(cases):
+            with self.subTest(model=model,resolution=resolution,duration=duration):
+                response=self.post('video',dict(prompt=f'lantern river {index}',model=model,aspectRatio=ratio,resolution=resolution,
+                                                duration=duration,generateAudio=True,seed=4))
+                self.assertEqual(response.status_code,200,response.content)
+                row=Generation.objects.get(pk=response.json()['id'])
+                self.assertEqual((row.kind,row.status,row.model,row.resolution,row.duration,row.aspect_ratio,row.cost_cents,row.generate_audio,row.seed),
+                                 ('video','queued',model,resolution,duration,ratio,cents,False,None))
+        self.assertEqual(Pricing.objects.get(pk='Gemini Omni Flash 1.1').unit_cost_cents,11)
+        before=Generation.objects.count()
+        for change,error in [({'resolution':'1080p'},'Gemini Omni Flash 1.1 supports 360p/720p only (got 1080p).'),
+                             ({'resolution':'4k'},'Gemini Omni Flash 1.1 supports 360p/720p only (got 4k).'),
+                             ({'duration':3},'Gemini Omni Flash 1.1 supports 4/6/8/10s durations (got 3).'),
+                             ({'duration':12},'Gemini Omni Flash 1.1 supports 4/6/8/10s durations (got 12).'),
+                             ({'aspectRatio':'21:9'},'Gemini Omni Flash 1.1 supports 16:9/9:16 aspect ratios only (got 21:9).'),
+                             ({'model':'Gemini Omni Flash'},'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'),
+                             ({'model':'gemini-omni-flash'},'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.')]:
+            with self.subTest(change=change):
+                body={**dict(prompt='lantern river',model='Gemini Omni Flash 1.1',aspectRatio='16:9',resolution='720p',duration=8),**change}
+                response=self.post('video',body)
+                self.assertEqual((response.status_code,response.json()),(400,{'error':error}))
+        self.assertEqual(Generation.objects.count(),before)
+        # Historical rows keep their model and their stored cost; the retired pricing row stays for them.
+        old=self.row(model='Gemini Omni Flash',draft_mode=False,duration=8,resolution='720p',cost_cents=80,user_id=session_fixtures.UID)
+        self.assertEqual(Pricing.objects.get(pk='Gemini Omni Flash').unit_cost_cents,10)
+        old.refresh_from_db()
+        self.assertEqual((old.model,old.cost_cents),('Gemini Omni Flash',80))
+        # An admin price edit is the estimate from then on, without a deploy.
+        Pricing.objects.filter(pk='Gemini Omni Flash 1.1').update(unit_cost_cents=12)
+        response=self.post('video',dict(prompt='lantern river again',model='Gemini Omni Flash 1.1',aspectRatio='16:9',resolution='360p',duration=8))
+        self.assertEqual(Generation.objects.get(pk=response.json()['id']).cost_cents,32)
 
     def test_seedream_no_reference_admission_preserved_without_native_runtime(self):
         import sys

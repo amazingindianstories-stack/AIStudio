@@ -1677,8 +1677,8 @@ function PricingTab({ data, reload }) {
           <span className="text-white/60">Images:</span> per image × resolution
           factor (1K ×1, 2K ×1.5, 4K ×3).{" "}
           <span className="text-white/60">Videos:</span> per second × duration ×
-          resolution factor (480p ×0.44, 720p ×1, 1080p ×2.46), where the base
-          rate is the 720p rate.
+          resolution factor (480p ×0.44, 720p ×1, 1080p ×2.46; Gemini Omni
+          Flash 1.1 360p ×1/3), where the base rate is the 720p rate.
         </p>
         <p>
           A <span className="text-white/60">· audio</span> row is a surcharge
@@ -1877,7 +1877,7 @@ const STATUS_ROWS_FALLBACK = [
   { id: "higgsfield", name: "Higgsfield MCP" },
   { id: "seedance", name: "BytePlus ModelArk / Seedance" },
   { id: "kling", name: "KlingAI Image" },
-  { id: "omni", name: "Gemini Omni Flash" },
+  { id: "omni", name: "Gemini Omni Flash 1.1" },
   { id: "postgres", name: "Postgres" },
   { id: "storage", name: "Media Storage" },
 ];
