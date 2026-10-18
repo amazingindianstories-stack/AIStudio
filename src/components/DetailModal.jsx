@@ -24,6 +24,10 @@ import {
   Flag,
 } from "lucide-react";
 import { GenerationFolderCue, GenerationTimestamp } from "./MediaCard";
+import { ViewerMedia } from "./ViewerMedia";
+import { viewerList } from "@/lib/viewer-navigation";
+import { stepViewer } from "@/lib/viewer-step";
+import { useViewerPreload } from "@/lib/viewer-media";
 import { useStore } from "@/lib/store";
 import { cn, thumbUrl, referenceDisplayUrl, generationDownloadUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS } from "@/lib/config";
@@ -185,7 +189,9 @@ function ReferenceCollage({ images }) {
 export function DetailModal() {
   const reducedMotion = useReducedMotion();
   const activeId = useStore((s) => s.activeId);
+  const activeSource = useStore((s) => s.activeSource);
   const items = useStore((s) => s.items);
+  const threadItems = useStore((s) => s.threadItems);
   const rightTab = useStore((s) => s.rightTab);
   const activeProjectId = useStore((s) => s.activeProjectId);
   // rightTab/search/filterKind are no longer read here: the feed arrives
@@ -215,11 +221,15 @@ export function DetailModal() {
   const suppressNextNativeFullscreenEscapeRef = useRef(false);
   const escapeCloseTimerRef = useRef(null);
 
-  // `items` is already the scope the user is looking at — server-filtered and
-  // in the same order the grid renders. Keep the project guard here as a
-  // second line of defence so a stale feed/cache response can never make the
-  // viewer jump into another project.
-  const item = items.find((i) => i.id === activeId) || null;
+  // `items` is the scope the grid is showing - server-filtered and in the same
+  // order the grid renders. Keep the project guard here as a second line of
+  // defence so a stale feed/cache response can never make the viewer jump into
+  // another project.
+  const item =
+    (activeSource === "thread" ? threadItems : items).find((i) => i.id === activeId) ||
+    items.find((i) => i.id === activeId) ||
+    threadItems.find((i) => i.id === activeId) ||
+    null;
   const navigableItems = useMemo(
     () =>
       items.filter(
@@ -232,6 +242,18 @@ export function DetailModal() {
       ),
     [activeProjectId, items, rightTab]
   );
+
+  // The viewer walks the list of the surface it was opened from, in the order
+  // that surface shows it: the grid's own scope (folder, Unsorted, search,
+  // filter...) or the chat thread. A grid opened viewer stops navigating if the
+  // grid has since moved to another scope, rather than reaching into it.
+  const viewerItems = useMemo(
+    () => (activeSource === "feed" ? navigableItems : viewerList(activeSource, { threadItems })),
+    [activeSource, navigableItems, threadItems]
+  );
+  // Direction of the last press decides which side gets its media warmed first.
+  const stepRef = useRef({ busy: false, direction: 1 });
+  useViewerPreload(viewerItems, item?.id ?? null, stepRef.current.direction);
 
   useEffect(() => {
     if (!activeId) return;
@@ -341,18 +363,18 @@ export function DetailModal() {
       if (hasFullscreenMedia()) return;
       const delta = event.key === "ArrowUp" || event.key === "ArrowLeft" ? -1 : 1;
 
-      if (navigableItems.length < 2) return;
+      if (useStore.getState().activeSource === "single") return;
       event.preventDefault();
-      const currentIndex = navigableItems.findIndex(
-        (candidate) => candidate.id === item.id
-      );
-      const nextIndex =
-        (currentIndex + delta + navigableItems.length) % navigableItems.length;
-      setActiveId(navigableItems[nextIndex].id);
+      if (stepRef.current.busy) return;
+      stepRef.current.busy = true;
+      stepRef.current.direction = delta;
+      void stepViewer(event.key).finally(() => {
+        stepRef.current.busy = false;
+      });
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [closeModal, confirmation.dialogProps.open, item, navigableItems, setActiveId]);
+  }, [closeModal, confirmation.dialogProps.open, item]);
 
   return (
     <>
@@ -385,44 +407,12 @@ export function DetailModal() {
               </button>
 
               <div className="h-full min-h-0 w-full max-w-5xl overflow-hidden rounded-2xl bg-black ring-1 ring-white/10">
-                {item.kind === "image" && item.url && (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={item.url}
-                    alt={item.prompt}
-                    className="h-full w-full object-contain"
-                  />
-                )}
-                {item.kind === "video" && unplayableUrl === item.url && (
-                  <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-white/80">
-                    <p>This browser cannot play this video. Download the original for full-quality playback.</p>
-                    <a href={generationDownloadUrl(item.id)} download={item.filename || true} className="rounded-lg bg-brand px-4 py-2 text-ink-900">Download original</a>
-                  </div>
-                )}
-                {item.kind === "video" && unplayableUrl !== item.url && (
-                  <video
-                    data-detail-video
-                    src={item.url}
-                    poster={item.poster}
-                    controls
-                    autoPlay
-                    loop
-                    playsInline
-                    onError={() => setUnplayableUrl(item.url)}
-                    className="h-full w-full object-contain"
-                  />
-                )}
-                {item.kind === "depth" && item.url && (
-                  <video
-                    data-detail-video
-                    src={item.url}
-                    controls
-                    autoPlay
-                    loop
-                    playsInline
-                    className="h-full w-full object-contain"
-                  />
-                )}
+                <ViewerMedia
+                  item={item}
+                  source={activeSource}
+                  unplayableUrl={unplayableUrl}
+                  onUnplayable={setUnplayableUrl}
+                />
               </div>
             </div>
 
