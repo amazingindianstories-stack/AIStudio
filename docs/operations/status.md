@@ -199,6 +199,13 @@ Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the relea
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-18: **Gemini Omni Flash 1.1 merged to `main`, NOT deployed.** Google shuts `gemini-omni-flash-preview`
+down on 2026-10-22 (replacement `gemini-omni-1.1-flash`, GA 2026-08-27). The old model is retired (new jobs
+refused with a clear message; history still renders and counts in the Gemini spend window). Omni video never
+passed the paid guard in production; 1.1 is admitted only with `VEEVEE_GEMINI_OMNI=1` on API and generation,
+pinned to the Interactions create endpoint and the job's own ratio/size/length. 360p/720p, 4-10 s, 11 estimator
+cents/s at 720p. Before setting the flag: one owner-approved live probe (4 s 360p, about $0.14).
+
 2026-10-18: **rate-limit hardening merged to `main`, NOT deployed** (owner: more changes before the next
 production push). Production still runs `981f993`. Audit of every provider and our own API: Gemini 429s no
 longer retry inside the job (the paid guard refused the retry and users saw a generic error after ~33 s);
