@@ -83,8 +83,8 @@ function ElapsedTime({ since }) {
 }
 
 /** A library card is the media and very little else: the creator's avatar,
- *  "Draft" on drafts, and - on hover or keyboard focus - a select checkbox and
- *  a "..." button. Everything else (details and actions) lives in the card's
+ *  "Draft" on drafts, a star on favourites, and - on hover or keyboard focus -
+ *  a select checkbox, a "..." button and the favourite toggle. Everything else (details and actions) lives in the card's
  *  context menu, opened by right click, the "..." button, the keyboard
  *  (ContextMenu key or Shift+F10) or a long press on touch. The face scales
  *  with the card's rendered width through the container queries on
@@ -669,6 +669,10 @@ export function MediaCard({
             />
           )}
 
+          {/* Bottom right: the favourite star owns the corner (a mark while
+              favourited, a one-click toggle on hover) and "..." sits beside it,
+              so neither moves when the hover controls appear. */}
+          <div className="media-card-corner absolute bottom-[var(--face-inset)] right-[var(--face-inset)] flex items-center">
           <button
             ref={moreRef}
             type="button"
@@ -692,12 +696,38 @@ export function MediaCard({
               }
             }}
             className={cn(
-              "media-card-more pointer-events-auto absolute bottom-[var(--face-inset)] right-[var(--face-inset)] grid place-items-center rounded-full bg-black/55 text-white/90 shadow-sm backdrop-blur-sm hover:bg-black/75 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 [@media(hover:none)]:opacity-100",
+              "media-card-more pointer-events-auto grid place-items-center rounded-full bg-black/55 text-white/90 shadow-sm backdrop-blur-sm hover:bg-black/75 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 [@media(hover:none)]:opacity-100",
               menuOpen ? "bg-black/75 opacity-100" : revealOnHover
             )}
           >
             <MoreHorizontal className="media-card-icon" />
           </button>
+          {done && (
+            <button
+              type="button"
+              aria-label={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
+              aria-pressed={item.isFavorite === true}
+              title={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
+              tabIndex={-1}
+              data-favorite-star
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                // Free and undone by a second click, so it toggles at once;
+                // the context menu keeps its confirmed Favourite item.
+                e.stopPropagation();
+                void toggleFavorite(item.id);
+              }}
+              className={cn(
+                "media-card-more pointer-events-auto grid place-items-center rounded-full bg-black/55 shadow-sm backdrop-blur-sm transition-[opacity,transform,color] duration-150 hover:bg-black/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70 active:scale-90 motion-reduce:active:scale-100",
+                item.isFavorite
+                  ? "text-amber-300 opacity-100"
+                  : cn("text-white/90 hover:text-amber-200 [@media(hover:none)]:opacity-100", revealOnHover)
+              )}
+            >
+              <Star className={cn("media-card-icon", item.isFavorite && "fill-current")} />
+            </button>
+          )}
+          </div>
         </div>
       </div>
     </motion.div>
