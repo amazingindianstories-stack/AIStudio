@@ -97,6 +97,9 @@ export function MediaCard({
 ) {
   const reducedMotion = useReducedMotion();
   const setActiveId = useStore((s) => s.setActiveId);
+  // A selectable card sits in the library grid and steps through that grid;
+  // a lone card (inline in a chat) has no list around it.
+  const viewerSource = selectable ? "feed" : "single";
   const removeItem = useStore((s) => s.removeItem);
   const retryTextToVideo = useStore((s) => s.retryTextToVideo);
   const regenerate = useStore((s) => s.regenerate);
@@ -235,7 +238,7 @@ export function MediaCard({
       selectRange(item.id, itemIds);
     } else if (done) {
       // A normal click on a finished card opens the viewer.
-      setActiveId(item.id);
+      setActiveId(item.id, viewerSource);
     } else {
       // Queued, rendering and failed cards have no viewer; their actions do.
       openAtPoint(e.clientX, e.clientY);
@@ -244,7 +247,7 @@ export function MediaCard({
 
   const handleDoubleClick = () => {
     if (done) {
-      setActiveId(item.id);
+      setActiveId(item.id, viewerSource);
     }
   };
 
@@ -258,7 +261,7 @@ export function MediaCard({
       if (done) {
         e.preventDefault();
         e.stopPropagation();
-        setActiveId(item.id);
+        setActiveId(item.id, viewerSource);
       }
     } else if (e.key === " " && selectable) {
       e.preventDefault();
@@ -333,7 +336,7 @@ export function MediaCard({
         label: "Open details",
         hint: "Open the viewer",
         icon: Maximize2,
-        onSelect: () => setActiveId(item.id),
+        onSelect: () => setActiveId(item.id, viewerSource),
       },
       done && item.url && {
         key: "download",

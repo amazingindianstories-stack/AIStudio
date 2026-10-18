@@ -212,7 +212,7 @@ export function FeedBlock({ item, index }) {
       </div>
 
       <div
-        onClick={() => item.status === "succeeded" && setActiveId(item.id)}
+        onClick={() => item.status === "succeeded" && setActiveId(item.id, "thread")}
         draggable={item.status === "succeeded" && Boolean(item.url)}
         onDragStart={(e) => {
           setAssetDragData(e.dataTransfer, [item], item);
