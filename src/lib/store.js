@@ -420,6 +420,11 @@ export const useStore = create((set, get) => ({
   depthWorkerStatus: null,
   rightTab: "project",
   activeId: null,
+  // The surface the viewer was opened from ("feed" grid, "thread" or "single"
+  // card) and, for the grid, the scope it showed. Arrow keys walk only that
+  // surface's list; see viewer-navigation.js.
+  activeSource: "feed",
+  activeFeedKey: "",
   // The currently-mounted AssetGrid's packed column layout (arrays of item
   // ids, left to right) — published by AssetGrid whenever it repacks, so
   // DetailModal's Up/Down keys can walk visual neighbors instead of flat
@@ -703,7 +708,12 @@ export const useStore = create((set, get) => ({
       rightTab,
       ...(s.rightTab !== rightTab ? CLEAR_SELECTION_PATCH : {}),
     })),
-  setActiveId: (activeId) => set({ activeId }),
+  setActiveId: (activeId, source = "feed") =>
+    set((s) => ({
+      activeId,
+      activeSource: activeId ? source : "feed",
+      activeFeedKey: activeId ? s.feedKey : "",
+    })),
   // `columns` is AssetGrid's packColumns() output (arrays of items). Stored
   // as id arrays only — DetailModal doesn't need the items themselves, and
   // this avoids holding a second reference to objects that already live in
