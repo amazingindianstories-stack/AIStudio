@@ -199,6 +199,13 @@ Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the relea
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-18: **context-aware viewer navigation merged to `main`, NOT deployed.** The viewer's arrow keys walk the
+list it was opened from (the grid's folder/Unsorted/filter scope in grid order, a chat thread, or nothing for a
+lone card), continue into the next keyset page of the same scope instead of wrapping early, and Up/Down follow the
+card's column again. The thumbnail shows at once and neighbours are resolved in one batched `media-resolve` and
+warmed from direct storage URLs (images only; video masters are never prefetched), so stepping adds no per-step
+`/api/media` traffic through Vercel. Real GCS signed URLs are verified only after deploy.
+
 2026-10-18: **Gemini Omni Flash 1.1 merged to `main`, NOT deployed.** Google shuts `gemini-omni-flash-preview`
 down on 2026-10-22 (replacement `gemini-omni-1.1-flash`, GA 2026-08-27). The old model is retired (new jobs
 refused with a clear message; history still renders and counts in the Gemini spend window). Omni video never
