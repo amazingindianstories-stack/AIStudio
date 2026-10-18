@@ -4,7 +4,6 @@ Provider/transport errors stay retryable. Every terminal mutation compares the
 observed task/status/version and, when supplied, worker ownership.
 """
 import os
-import re
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -30,9 +29,9 @@ MAGNIFIC_VIDEO_MAX_BYTES = 4 * 1024 * 1024 * 1024
 # still start inside the 30-minute link lifetime. The lease heartbeat keeps the
 # job claimed meanwhile, and the second worker slot keeps serving other jobs.
 MAGNIFIC_VIDEO_DOWNLOAD_SECONDS = 600
-# Output links expire 30 minutes after generation (docs.magnific.com/quickstart);
-# a few spaced attempts fit well inside that window.
-MAGNIFIC_SAVE_ATTEMPTS = 3
+# Output links expire 30 minutes after generation (docs.magnific.com/quickstart); six attempts with the
+# download backoff below span about 12 minutes of retries, inside that window.
+MAGNIFIC_SAVE_ATTEMPTS = 6
 MAGNIFIC_TOO_LARGE = 'The upscaled master is larger than 4 GB and could not be stored. Use H.264, a lower resolution or a shorter clip.'
 MAGNIFIC_SAVE_FAILED = 'The upscaled master could not be downloaded and stored.'
 # Image results are held in memory (2 GB worker, two jobs at a time): bound the
@@ -43,8 +42,28 @@ MAGNIFIC_IMAGE_MAX_PIXELS = 160000000
 MAGNIFIC_IMAGE_TOO_LARGE = 'The upscaled image is larger than Veevee can store (80 MB or 160 megapixels). Choose a smaller scale or source image.'
 
 
+# Marks a job whose provider task is finished and only our download is left (the Seedance lane no longer counts it).
+DOWNLOAD_PENDING = 'DOWNLOAD_PENDING'
+# Continuous provider/download errors are retried this long (summed backoff), then the job ends instead of
+# occupying a worker and a lane slot forever. The task is never resubmitted.
+GIVE_UP_MS = 6 * 60 * 60 * 1000
+POLL_ABANDONED = ('We could not confirm this job with the provider for over 6 hours, so it was stopped. '
+                  'It may have finished there; nothing was resubmitted.')
+DOWNLOAD_ABANDONED = ('The provider finished this job, but its output could not be downloaded and saved for over '
+                      '6 hours, so it was stopped. Nothing was resubmitted.')
+
+
 def retry_after_ms(count):
     return min(60000, 30000 * 2 ** max(0, min(10, (count or 1) - 1)))
+
+
+def download_retry_ms(count):
+    return min(300000, 30000 * 2 ** max(0, min(10, (count or 1) - 1)))
+
+
+def waited_ms(delay, count):
+    """Backoff already slept before the count-th consecutive failure."""
+    return sum(delay(index) for index in range(1, count))
 
 
 def video_extension(result):
@@ -163,9 +182,29 @@ def _poll_error(item, deps, owner):
         if not query.update(poll_error_count=F('poll_error_count') + 1, last_poll_error_at=deps.now()):
             return {'kind': 'raced'}
         current = Generation.objects.get(pk=item.id)
+        abandoned = waited_ms(retry_after_ms, current.poll_error_count) >= GIVE_UP_MS
         delay = retry_after_ms(current.poll_error_count)
-        coordinator.schedule_generation(current, now=deps.now(), delay_ms=delay, owner=owner)
+        if not abandoned:
+            coordinator.schedule_generation(current, now=deps.now(), delay_ms=delay, owner=owner)
+    if abandoned:
+        return _terminal(current, {'status': 'failed', 'error': POLL_ABANDONED}, deps, Cancellation(30000), owner, {})
     return {'kind': 'poll_error', 'pollErrorCount': current.poll_error_count, 'retryAfterMs': delay}
+
+
+def _download_error(item, deps, owner, message, *, max_attempts=None, window_ms=None):
+    """The provider reported completion but fetching the output failed. Download attempts count from the first
+    failure, not from earlier status-check errors; the job ends at the attempt cap or when the window is spent."""
+    count = (item.poll_error_count or 0) if item.provider_status == DOWNLOAD_PENDING else 0
+    count += 1
+    if (max_attempts and count >= max_attempts) or (window_ms and waited_ms(download_retry_ms, count) >= window_ms):
+        return _terminal(item, {'status': 'failed', 'error': message}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
+    with transaction.atomic():
+        query = coordinator.expected_version(item, owner=owner).filter(task_id=item.task_id)
+        if not query.update(poll_error_count=count, last_poll_error_at=deps.now(), provider_status=DOWNLOAD_PENDING):
+            return {'kind': 'raced'}
+        delay = download_retry_ms(count)
+        coordinator.schedule_generation(Generation.objects.get(pk=item.id), now=deps.now(), delay_ms=delay, owner=owner)
+    return {'kind': 'poll_error', 'pollErrorCount': count, 'retryAfterMs': delay}
 
 
 def _best_of(item, deps, signal, owner, provider):
@@ -205,7 +244,10 @@ def _best_of(item, deps, signal, owner, provider):
                 judge_score = {'identity': scores[best]} if scores[best] is not None else None
             winner = judged[best][0]
     signal.check()
-    saved = deps.save_url(winner['videoUrl'], video_extension(winner), f'{item.id}/{uuid4().hex}', _metadata(item))
+    try:
+        saved = deps.save_url(winner['videoUrl'], video_extension(winner), f'{item.id}/{uuid4().hex}', _metadata(item))
+    except Exception:
+        return _download_error(item, deps, owner, DOWNLOAD_ABANDONED, window_ms=GIVE_UP_MS)
     return _terminal(item, {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio,
         'candidate_task_ids': None, 'judge_score': judge_score}, deps, signal, owner, provider)
 
@@ -236,9 +278,7 @@ def advance_magnific(item, *, signal=None, owner=None, dependencies=None):
     except Exception:
         # Links expire 30 minutes after completion; retrying past a few spaced
         # attempts only leaves the job running forever.
-        if (item.poll_error_count or 0) + 1 >= MAGNIFIC_SAVE_ATTEMPTS:
-            return _terminal(item, {'status': 'failed', 'error': MAGNIFIC_SAVE_FAILED}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
-        raise
+        return _download_error(item, deps, owner, MAGNIFIC_SAVE_FAILED, max_attempts=MAGNIFIC_SAVE_ATTEMPTS)
     updates = {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio}
     if type(outcome.get('costCents')) is int:
         updates.update(cost_cents=outcome['costCents'], cost_basis='reconciled')
@@ -288,9 +328,7 @@ def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):
     except MediaTooLargeError:
         return _terminal(item, {'status': 'failed', 'error': MAGNIFIC_TOO_LARGE}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
     except Exception:
-        if (item.poll_error_count or 0) + 1 >= MAGNIFIC_SAVE_ATTEMPTS:
-            return _terminal(item, {'status': 'failed', 'error': MAGNIFIC_SAVE_FAILED}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
-        raise
+        return _download_error(item, deps, owner, MAGNIFIC_SAVE_FAILED, max_attempts=MAGNIFIC_SAVE_ATTEMPTS)
     # The master is stored: record it even if the job's own budget ran out meanwhile.
     return _terminal(item, {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio},
                      deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
@@ -351,7 +389,10 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
             if not url:
                 return _terminal(item, {'status': 'failed', 'error': 'Provider reported success but returned no video.'}, deps, signal, owner, provider)
             signal.check()
-            saved = deps.save_url(url, video_extension(result), f'{item.id}/{uuid4().hex}', _metadata(item))
+            try:
+                saved = deps.save_url(url, video_extension(result), f'{item.id}/{uuid4().hex}', _metadata(item))
+            except Exception:
+                return _download_error(item, deps, owner, DOWNLOAD_ABANDONED, window_ms=GIVE_UP_MS)
             if (model_definition(item.model) or {}).get('usageCost') == 'seedance-token':
                 cost = seedance_token_cost(item.model, result.get('totalTokens'), bool(item.reference_videos), deps.pricing())
                 if cost is not None:

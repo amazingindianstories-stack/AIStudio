@@ -62,6 +62,13 @@ def mp4_bytes(size='160x90'):
             return handle.read()
 
 
+class MediaFault(Exception):
+    """An injected failure of a media download (the server answers with this HTTP status)."""
+    def __init__(self, status):
+        super().__init__(f'injected media failure {status}')
+        self.status = status
+
+
 class FakeProviders:
     """Stateful fake of every provider Veevee calls. Thread-safe."""
 
@@ -73,6 +80,7 @@ class FakeProviders:
         self.asset_capacity = asset_capacity          # None = unlimited; int = BytePlus shared pool size
         self.asset_throttle = 0                       # the next N CreateAsset calls hit BytePlus's write limit
         self.asset_throttle_error = (400, 'QuotaWriteQPMExceeded', 'write requests per minute exceeded')   # as seen in production
+        self.asset_action_throttle = {}               # action -> the next N calls of it (GetAsset, DeleteAsset, ListAssets...) hit the limit
         self.asset_activation_polls = asset_activation_polls
         self.reject_image_sha256 = set()    # inline (data URL) images with these SHA-256s are refused as a real person
         self.reject_mode = 'create'         # 'create': 400 at task creation; 'async': accept the task, fail it when polled
@@ -81,15 +89,28 @@ class FakeProviders:
         self.png, self.mov = png_bytes(), mov_bytes()
         self.mp4 = mp4_bytes() if shutil.which('ffmpeg') else b''
         self.magnific_tasks = {}
+        self.faults = []        # [{'match': regex on 'METHOD host/path' or 'FETCH url', 'status', 'payload', 'count'}]: the next N matching calls fail
         self._stack = contextlib.ExitStack()
 
     # ---- plain handler -------------------------------------------------
+    def fault(self, line):
+        """The injected failure for this call, if a configured fault matches it (each fault answers `count` calls)."""
+        with self.lock:
+            for fault in self.faults:
+                if fault.get('count', 1) > 0 and re.search(fault['match'], line):
+                    fault['count'] = fault.get('count', 1) - 1
+                    return fault.get('status', 429), fault.get('payload') or {'error': {'code': 'TooManyRequests', 'message': 'injected limit'}}
+        return None
+
     def handle(self, method, url, body=None):
         """Return (status, payload) where payload is a dict (JSON) for provider APIs."""
         parts = urlsplit(url)
         host, path = parts.hostname or '', parts.path or '/'
         with self.lock:
             self.calls.append((method, host + path + ('?' + parts.query if host == ASSET_HOST else '')))
+        injected = self.fault(f'{method} {host}{path}')
+        if injected:
+            return injected
         data = body if isinstance(body, dict) else (json.loads(body) if body else {})
         gemini = re.fullmatch(r'/v1beta/models/([a-z0-9.-]+):generateContent', path)
         if host == 'generativelanguage.googleapis.com' and gemini and method == 'POST':
@@ -179,6 +200,9 @@ class FakeProviders:
         now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         with self.lock:
             identifier = body.get('Id')
+            if self.asset_action_throttle.get(action, 0) > 0:
+                self.asset_action_throttle[action] -= 1
+                return error(*self.asset_throttle_error)
             if action == 'CreateAssetGroup':
                 gid = 'group-' + uuid.uuid4().hex[:16]
                 self.groups[gid] = {'Id': gid, 'Name': body.get('Name', ''), 'GroupType': body.get('GroupType', 'AIGC'),
@@ -244,6 +268,9 @@ class FakeProviders:
     def media(self, url):
         with self.lock:
             self.calls.append(('FETCH', url))
+        injected = self.fault(f'FETCH {url}')
+        if injected:
+            raise MediaFault(injected[0])
         if url == FAKE_MEDIA + 'seedream.png':
             return self.png, 'image/png'
         if url == FAKE_MEDIA + 'video.mov':

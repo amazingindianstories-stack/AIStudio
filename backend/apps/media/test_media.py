@@ -435,6 +435,18 @@ class EndpointTests(TransactionTestCase):
         row=Generation.objects.get(pk=response.json()['id'])
         self.assertEqual((row.status,row.provider_status),('queued','AUDIO_READY'))
 
+    def test_audio_api_reports_a_definite_provider_refusal_instead_of_pending(self):
+        from .audio_wait import wait_for_audio
+        def refused(intent):
+            Generation.objects.filter(pk=intent.id).update(status='failed',provider_status='REJECTED',
+                error='Gemini transcription error (429): Resource has been exhausted')
+            return wait_for_audio(intent,timeout=0)
+        with patch.object(audio,'wait_for_audio',side_effect=refused):
+            response=self.client.post('/api/audio/transcribe',{'audioRef':'data:audio/wav;base64,YWJj'},content_type='application/json')
+        self.assertEqual(response.status_code,429)
+        self.assertIn('busy',response.json()['error'])
+        self.assertNotIn('Resource has been exhausted',response.json()['error'])
+
     def test_audio_api_returns_worker_transcript_using_existing_response_contract(self):
         from apps.generation.services.audio_submission import process_audio
         from apps.generation.services.deadline import Cancellation

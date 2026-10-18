@@ -15,13 +15,15 @@ the media fetcher here when VEEVEE_LOCAL_PROVIDERS=fake.
                     Seedance refuses inline images with those SHA-256s as a real person (the "missed face"):
                     "create" fails task creation (400 InputImageSensitiveContentDetected.PrivacyInformation),
                     "async" accepts the task and fails it when polled. "reset" also clears both.
+                    "faults": [{"match": regex, "status": 429, "payload": {...}, "count": N}] makes the next N calls whose
+                    "METHOD host/path" (provider APIs) or "FETCH url" (media downloads) matches fail with that answer.
 """
 import json
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-from testsupport.fake_providers import FakeProviders
+from testsupport.fake_providers import FakeProviders, MediaFault
 
 FAKE = FakeProviders()
 
@@ -48,6 +50,8 @@ class Handler(BaseHTTPRequestHandler):
             url = (parse_qs(target.query).get('url') or [''])[0]
             try:
                 data, mime = FAKE.media(url)
+            except MediaFault as exc:
+                return self._json(exc.status, {'error': str(exc)})
             except AssertionError as exc:
                 return self._json(404, {'error': str(exc)})
             self.send_response(200)
@@ -62,7 +66,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {'asset_capacity': FAKE.asset_capacity, 'live_assets': FAKE.live_asset_count(),
                                         'assets': assets, 'groups': list(FAKE.groups.values()),
                                         'seedance_tasks': FAKE.task_counter, 'calls': FAKE.calls[-50:],
-                                        'reject_image_sha256': sorted(FAKE.reject_image_sha256), 'reject_mode': FAKE.reject_mode})
+                                        'reject_image_sha256': sorted(FAKE.reject_image_sha256), 'reject_mode': FAKE.reject_mode,
+                                        'faults': FAKE.faults})
         if target.path == '/health':
             return self._json(200, {'ok': True})
         self._json(404, {'error': 'not found'})
@@ -81,7 +86,9 @@ class Handler(BaseHTTPRequestHandler):
             with FAKE.lock:
                 if change.get('reset'):
                     FAKE.groups.clear(); FAKE.assets.clear(); FAKE.calls.clear(); FAKE.seedance_payloads.clear()
-                    FAKE.reject_image_sha256.clear(); FAKE.rejected_tasks.clear(); FAKE.reject_mode = 'create'
+                    FAKE.reject_image_sha256.clear(); FAKE.rejected_tasks.clear(); FAKE.reject_mode = 'create'; FAKE.faults.clear()
+                if 'faults' in change:
+                    FAKE.faults = [dict(fault) for fault in change['faults'] or []]
                 for key in ('asset_capacity', 'seedance_status', 'asset_activation_polls', 'reject_mode'):
                     if key in change:
                         setattr(FAKE, key, change[key])

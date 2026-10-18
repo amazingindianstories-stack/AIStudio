@@ -30,13 +30,32 @@ class CapacityClosingIterator:
             self.capacity.release()
 
 
-def slow_request_application(application, *, slots=2):
+def signed_redirect(environ):
+    """A download asking for a storage redirect streams nothing through this process."""
+    query = parse_qs(environ.get('QUERY_STRING', ''))
+    return bool({'1'} & (set(query.get('signed', [])) | set(query.get('redirect', [])))) and not environ.get('HTTP_RANGE')
+
+
+def slow_request_slots(threads, configured=None):
+    """Slow-call slots for a worker: half its threads, never fewer than two.
+
+    The other half keeps ordinary API work (feed polling, signed redirects, auth)
+    responsive, and the cap bounds the memory of concurrent image submits (API
+    peak 2.5 GB of 4 GB at two slots). An explicit VEEVEE_SLOW_REQUEST_SLOTS value wins.
+    """
+    if configured not in (None, ''):
+        return max(1, int(configured))
+    return max(2, int(threads) // 2)
+
+
+def slow_request_application(application, *, slots=None):
     """Reserve capacity through streaming completion/disconnect, before any work.
 
-    Two slow calls per four-thread worker leave capacity for ordinary API work.
+    Slow calls beyond the slot count are refused with a retryable 429 so they
+    cannot starve ordinary API work; clients wait out SLOW_REQUEST_CAPACITY_BUSY.
     This is process-local admission, not a distributed spend or request budget.
     """
-    capacity = threading.BoundedSemaphore(slots)
+    capacity = threading.BoundedSemaphore(2 if slots is None else slots)
     def handle(environ, start_response):
         path = environ.get('PATH_INFO', '')
         method = environ.get('REQUEST_METHOD', 'GET')
@@ -44,7 +63,7 @@ def slow_request_application(application, *, slots=2):
                     '/api/generate/image','/api/generate/video') or
                 method == 'PUT' and (path == '/api/uploads/local' or path.startswith('/api/uploads/') and path.endswith('/local')) or
                 method == 'GET' and (path in ('/api/media-grant','/api/generate/upscale/status') or
-                    path.startswith('/api/generations/') and path.endswith('/download') or
+                    path.startswith('/api/generations/') and path.endswith('/download') and not signed_redirect(environ) or
                     path.startswith('/api/media/') and '1' in parse_qs(environ.get('QUERY_STRING','')).get('inline',[])))
         if not slow:
             return application(environ, start_response)

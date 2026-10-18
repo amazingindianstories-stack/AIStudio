@@ -12,7 +12,7 @@ from apps.generation.models import Generation
 from .storage import get_storage, MediaTooLargeError
 from .views import _body
 from .audio_inputs import capture_audio_input, InvalidAudioType, MAX_AUDIO_BYTES
-from .audio_wait import wait_for_audio, AudioResultPending
+from .audio_wait import wait_for_audio, AudioResultPending, AudioFailed
 from apps.generation.services.audio_submission import AUDIO_READY
 
 TRANSCRIPTION_PROMPT = 'Transcribe this audio for use as a video-generation prompt. Return only a clean, timestamped transcript in this exact format, one line per segment: [MM:SS.mmm - MM:SS.mmm] Speaker or sound: words or description. Include meaningful music, ambience, sound effects, pauses, and speaker changes. Do not add a title, markdown fence, commentary, or invented content.'
@@ -48,12 +48,12 @@ def get_transcriber():
         key = getattr(settings,'GOOGLE_API_KEY',None) or os.environ.get('GOOGLE_API_KEY')
         if not key:
             raise ValueError('GOOGLE_API_KEY is not configured.')
-        from apps.generation.providers.transport import HttpTransport
+        from apps.generation.providers.transport import HttpTransport, ProviderError
         client = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'],timeout=120)
         def transport(url,payload,headers,*,signal=None):
             response = client.request('POST',url,headers=headers,body=payload,signal=signal)
             if not response.ok:
-                raise ValueError(f'Gemini transcription failed ({response.status}).')
+                raise ProviderError(f'Gemini transcription failed ({response.status}).', status=response.status)
             return response.json()
         return GeminiTranscriber(key,transport)
     return provider if hasattr(provider, 'transcribe') and not isinstance(provider, type) else provider()
@@ -110,6 +110,8 @@ def transcribe(request):
         return JsonResponse({'error':'Use a common audio file such as MP3, WAV, M4A, OGG, AAC, FLAC or WebM.'},status=400)
     except AudioResultPending as error:
         return JsonResponse({'error':str(error),'id':str(error.identifier)},status=504)
+    except AudioFailed as error:
+        return JsonResponse({'error':str(error),'id':str(error.identifier)},status=429 if error.busy else 502)
     except Exception as error:
         # Provider exceptions may include tokens/URLs; preserve known public validation only.
         public = 'Transcription failed.'
@@ -169,3 +171,17 @@ def _mark_audio_uncertain(expected):
             return
         Generation.objects.filter(pk=row.id).update(provider_status='SUBMISSION_UNCERTAIN',
             updated_at=max(int(time.time()*1000),row.updated_at+1))
+
+
+def _mark_audio_failed(expected, message):
+    """A definite provider refusal: the row ends failed and its audio capacity is released."""
+    metadata={'project_id','folder_id','location_version','is_favorite','favorited_at',
+        'flagged','flagged_at','flag_reason','updated_at'}
+    with transaction.atomic():
+        row=Generation.objects.select_for_update().filter(pk=expected.id).first()
+        if row is None or any(getattr(row,field.attname)!=getattr(expected,field.attname)
+                for field in Generation._meta.concrete_fields if field.attname not in metadata):
+            return
+        now=int(time.time()*1000)
+        Generation.objects.filter(pk=row.id).update(status='failed',error=message,provider_status='REJECTED',
+            completed_at=now,updated_at=max(now,row.updated_at+1))

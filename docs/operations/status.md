@@ -199,6 +199,16 @@ Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the relea
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-18: **rate-limit hardening merged to `main`, NOT deployed** (owner: more changes before the next
+production push). Production still runs `981f993`. Audit of every provider and our own API: Gemini 429s no
+longer retry inside the job (the paid guard refused the retry and users saw a generic error after ~33 s);
+provider overload codes show the busy copy; a Seedance job whose output download fails frees its lane slot and
+gives up after 6 h; our own slow-call 429 is retried by the client and slots are half the API threads; portrait
+assets are refused only for image-content errors and a stuck image no longer blocks the upload queue; worker and
+scheduler loops survive database errors; `MALLOC_ARENA_MAX=2` plus a per-job `malloc_trim` stop the memory
+ratchet (generation worker reached 1.84 GB of 2 GB, API 2.5 GB of 4 GB, released only by deploys). Watch Railway
+memory after the next deploy. The local fake provider server takes `/control {"faults": [...]}` to replay limits.
+
 2026-10-17 ~09:50 UTC: **hotfix `981f993` released** (API `e48952f3`, generation `c1a4f34b`, scheduler
 `a1a04621`, export `1c4c5afe`, Vercel `dpl_CJvLGB5Woi3nSpaTeTaM3DdWciSs`; one video was running and finished
 normally). BytePlus answered CreateAsset with 400 `QuotaWriteQPMExceeded` during an 11-portrait burst; it was

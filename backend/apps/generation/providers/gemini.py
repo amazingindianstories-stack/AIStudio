@@ -1,7 +1,6 @@
-"""Gemini image payload and bounded source-compatible transient retries."""
+"""Gemini image payload and request; a throttled request is reported at once, never retried in place."""
 import json
 import os
-import random
 import re
 from apps.generation.model_registry import model_definition
 from apps.generation.services.deadline import Cancellation
@@ -75,39 +74,33 @@ def build_payload(input):
     return {'contents': [{'role': 'user', 'parts': build_parts(input['assembled'], definition(input.get('modelDisplay'))['name'])}], 'generationConfig': config}
 
 
-UNPROCESSED_RETRY_STATUSES = frozenset({429, 503})
+# Rate limit and overload reject the request before any generation, so nothing was billed.
+UNPROCESSED_STATUSES = frozenset({429, 503})
 
 
-def generate_image(input, *, transport=None, env=None, signal=None, random_value=random.random):
+def generate_image(input, *, transport=None, env=None, signal=None):
     env = os.environ if env is None else env
     key = required_key(env, 'GOOGLE_API_KEY')
     url = endpoint(input.get('modelDisplay'))
     body = build_payload(input)
     transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
     signal = signal or Cancellation()
-    slept, last_error = 0, ''
-    for attempt in range(1, 5):
-        signal.check()
-        response = transport.request('POST', url,
-            headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, body=body, signal=signal)
-        if not response.ok:
-            last_error = f'Gemini image error ({response.status}): {response.text[:400]}'
-            # Retry only rejections that were not processed (rate limit,
-            # overloaded). Other errors may have consumed paid generation.
-            if response.status in UNPROCESSED_RETRY_STATUSES:
-                hint = retry_delay_ms(response.text)
-                wait = min(hint if hint is not None else 4000 * 2 ** (attempt-1) * (.75 + random_value() * .5), 90000 - slept)
-                if wait > 0:
-                    slept += wait
-                    signal.wait(wait)
-                    continue
-            raise ProviderError(last_error, status=response.status)
-        result = response.json()
-        candidate = (result.get('candidates') or [{}])[0]
-        parts = (candidate.get('content') or {}).get('parts') or []
-        image = next((part['inlineData'] for part in parts if (part.get('inlineData') or {}).get('data')), None)
-        if not image:
-            # A 200 is billed; never re-submit it automatically.
-            raise ProviderError(f"Gemini returned no image ({candidate.get('finishReason') or 'no candidates'}).")
-        return {'base64': image['data'], 'mimeType': image.get('mimeType') or 'image/png'}
-    raise ProviderError(last_error or 'Gemini image generation failed.')
+    signal.check()
+    response = transport.request('POST', url,
+        headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, body=body, signal=signal)
+    if not response.ok:
+        error = ProviderError(f'Gemini image error ({response.status}): {response.text[:400]}', status=response.status)
+        # No in-request retry: the paid guard allows one POST per job, so a retry could only fail and hide this error
+        # while holding the worker. Fail now with the busy state; the user retries once the limit clears.
+        if response.status in UNPROCESSED_STATUSES:
+            error.may_have_submitted = False
+            error.provider_response = {'provider': 'gemini', 'httpStatus': response.status, 'unbilled': True}
+        raise error
+    result = response.json()
+    candidate = (result.get('candidates') or [{}])[0]
+    parts = (candidate.get('content') or {}).get('parts') or []
+    image = next((part['inlineData'] for part in parts if (part.get('inlineData') or {}).get('data')), None)
+    if not image:
+        # A 200 is billed; never re-submit it automatically.
+        raise ProviderError(f"Gemini returned no image ({candidate.get('finishReason') or 'no candidates'}).")
+    return {'base64': image['data'], 'mimeType': image.get('mimeType') or 'image/png'}

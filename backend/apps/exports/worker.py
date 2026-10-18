@@ -8,6 +8,7 @@ import tempfile
 import time
 import uuid
 import zipfile
+from apps.common.resilience import recover
 from apps.media.storage import get_storage, MediaNotFoundError
 from . import services
 from .models import MediaExport
@@ -186,11 +187,15 @@ def run_once(*, owner=None, storage=None, clock=None, stop=None):
 
 
 def run_worker(*, interval=2.0, stop=None):
+    failures = 0
     while stop is None or not stop.is_set():
         try:
             run_once(stop=stop)
+            failures = 0
         except Exception as error:
-            logger.error('media_export_loop_error error_type=%s', type(error).__name__)
+            failures += 1
+            recover(error, failures, stop=stop, logger=logger, name='media_export_worker')
+            continue
         if stop is None:
             time.sleep(interval)
         else:
