@@ -10,6 +10,7 @@ import { create } from "zustand";
 import { installOperationTracking } from "./operation-state";
 import { snapshotScope, composerMetadata, metadataToDraft, saveComposerSnapshot, loadComposerSnapshot } from "./composer-snapshots";
 import { newReferenceId, referenceIdsFor, referencePermutation } from "./reference-order";
+import { composerModel } from "./model-registry";
 
 import {
   DEFAULTS,
@@ -1742,7 +1743,9 @@ export const useStore = create((set, get) => ({
     }
     set({
       mode: item.kind,
-      model: item.model,
+      // A row made with a retired model reuses its replacement. Gemini Omni Flash's 16:9/9:16, 720p and
+      // 4/6/8s all exist on Gemini Omni Flash 1.1, so the stored settings below stay valid.
+      model: composerModel(item.model),
       productionContext: { sourceGenerationId: item.id, relation: "clone" },
       destinationProjectId: item.projectId,
       destinationFolderId: item.folderId ?? null,
@@ -2756,8 +2759,10 @@ export function restoreComposerDraft() {
         d.mode === "image" || d.mode === "video" ? d.mode : undefined;
       if (mode) patch.mode = mode;
       const effMode = mode ?? useStore.getState().mode;
-      if (MODELS.some((m) => m.name === d.model && m.kind === effMode)) {
-        patch.model = d.model;
+      // A retired model (Gemini Omni Flash) restores as its replacement, visibly, in the picker.
+      const restoredModel = composerModel(d.model);
+      if (MODELS.some((m) => m.name === restoredModel && m.kind === effMode)) {
+        patch.model = restoredModel;
       }
       const effModel = (patch.model ) ?? DEFAULTS[effMode].model;
       if (aspectRatiosForModel(effModel, effMode).includes(d.aspectRatio)) {

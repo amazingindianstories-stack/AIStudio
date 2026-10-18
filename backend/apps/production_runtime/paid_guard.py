@@ -37,6 +37,8 @@ def quote_for(contract,config):
    from apps.generation.providers import gemini
    endpoint=gemini.endpoint(contract['model']) if provider=='gemini' else 'https://ark.ap-southeast.bytepluses.com/api/v3/images/generations'
    return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[endpoint],'provider_payload_allowed_values':{}}
+  if contract['kind']=='video' and provider=='omni':
+   return omni_quote(contract)
   require(contract['kind']=='video' and definition.get('id') in ('seedance','seedance-25'),'Only Seedance 2.0 or 2.5 video authorized')
   return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':['https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks'],'provider_payload_allowed_values':{'output_format':['mov']} if definition.get('id')=='seedance-25' else {}}
  require(config['approved_scope']==SCOPE and config['maximum_total_cents']==CAP)
@@ -58,6 +60,21 @@ def quote_for(contract,config):
  require(contract['kind'] in ('image','video') and contract['user_id'] is not None and not contract['draft_task_id'],'New authenticated generation only; finalization separately held')
  if contract['kind']=='video':require(quote.get('provider_payload_allowed_values',{}).get('output_format')==['mov'],'Native MOV payload guard required')
  return quote
+def omni_quote(contract):
+ """Gemini Omni Flash 1.1 (VEEVEE_GEMINI_OMNI, unlimited scope only): the one Interactions create endpoint, with the
+ model code and this job's own ratio, size and length pinned in the payload. Retired Omni models are refused."""
+ from django.conf import settings
+ from apps.generation.model_registry import capability,provider_model_id
+ from apps.generation.providers import omni
+ require(getattr(settings,'VEEVEE_GEMINI_OMNI',False) is True,'Gemini Omni Flash 1.1 is not enabled')
+ model=omni.submission_model(contract['model'])
+ require(not contract['draft_task_id'],'New Omni generation only')
+ for field,key in (('resolution','resolutions'),('duration','durations'),('aspect_ratio','aspectRatios')):
+  require(contract.get(field) in capability(model['id'],key,[]),'Request outside the Omni contract')
+ return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[omni.build_endpoint()],
+  'provider_payload_allowed_values':{'model':[provider_model_id(model['id'],{})],'background':[True],'response_format.type':['video'],
+   'response_format.aspect_ratio':[contract['aspect_ratio']],'response_format.resolution':[contract['resolution']],
+   'response_format.duration':[str(contract['duration'])+'s']}}
 def magnific_quote(contract):
  """Magnific upscales (VEEVEE_MAGNIFIC_UPSCALE): one exact create endpoint per model."""
  from django.conf import settings

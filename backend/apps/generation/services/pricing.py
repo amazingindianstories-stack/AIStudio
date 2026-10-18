@@ -31,7 +31,8 @@ def compute_cost(input, pricing):
         return 0
     if row['unit'] == 'per_second':
         duration = input.get('duration') or 0
-        cents = row['unitCostCents'] * duration * {'480p': .44, '720p': 1, '1080p': 2.46}.get(input.get('resolution'), 1)
+        factors = capability(input['model'], 'resolutionPriceFactors', None) or {'480p': .44, '720p': 1, '1080p': 2.46}
+        cents = row['unitCostCents'] * duration * factors.get(input.get('resolution'), 1)
         if truthy(input.get('generateAudio')):
             audio = rows.get(definition.get('audioPricingKey', input['model'] + ' · audio'))
             if audio:

@@ -70,6 +70,8 @@ class FakeProviders:
         self.seedance_status = seedance_status
         self.seedance_payloads = []
         self.gemini_payloads = []       # (model code, body) for each generateContent call
+        self.omni_payloads, self.omni_polls = [], {}    # Interactions create bodies; interaction id -> GETs so far
+        self.omni_running_polls = 1     # GETs answered in_progress before an interaction completes
         self.asset_capacity = asset_capacity          # None = unlimited; int = BytePlus shared pool size
         self.asset_throttle = 0                       # the next N CreateAsset calls hit BytePlus's write limit
         self.asset_throttle_error = (400, 'QuotaWriteQPMExceeded', 'write requests per minute exceeded')   # as seen in production
@@ -97,6 +99,26 @@ class FakeProviders:
                 self.gemini_payloads.append((gemini[1], data))
             return 200, {'candidates': [{'content': {'parts': [{'inlineData': {'mimeType': 'image/png', 'data': base64.b64encode(self.png).decode()}}]},
                                          'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 10, 'candidatesTokenCount': 1290}}
+        # Gemini Omni Flash (Interactions API, background): create returns an id; GET returns the documented REST shape,
+        # the video inline in steps[].content[] (ai.google.dev/gemini-api/docs/omni, read 2026-10-18).
+        if host == 'generativelanguage.googleapis.com' and path == '/v1beta/interactions' and method == 'POST':
+            with self.lock:
+                self.task_counter += 1
+                interaction = f'v1_omni-sim-{self.task_counter}'
+                self.omni_payloads.append(data)
+                self.omni_polls[interaction] = 0
+            return 200, {'id': interaction, 'status': 'in_progress', 'model': data.get('model'), 'object': 'interaction'}
+        omni = re.fullmatch(r'/v1beta/interactions/(v1_omni-sim-\d+)', path)
+        if host == 'generativelanguage.googleapis.com' and omni and method == 'GET' and omni[1] in self.omni_polls:
+            with self.lock:
+                self.omni_polls[omni[1]] += 1
+                done = self.omni_polls[omni[1]] > self.omni_running_polls
+            if not done:
+                return 200, {'id': omni[1], 'status': 'in_progress', 'object': 'interaction'}
+            video, mime = (self.mp4, 'video/mp4') if self.mp4 else (self.mov, 'video/quicktime')
+            return 200, {'id': omni[1], 'status': 'completed', 'object': 'interaction', 'steps': [
+                {'type': 'user_input', 'content': [{'type': 'text', 'text': 'prompt'}]},
+                {'type': 'model_output', 'content': [{'type': 'video', 'mime_type': mime, 'data': base64.b64encode(video).decode()}]}]}
         if host.endswith('bytepluses.com') and path.endswith('/images/generations') and method == 'POST':
             return 200, {'data': [{'url': FAKE_MEDIA + 'seedream.png'}], 'usage': {'generated_images': 1}}
         if host.endswith('bytepluses.com') and path.endswith('/contents/generations/tasks') and method == 'POST':

@@ -114,6 +114,23 @@ class FailureCopyTests(SimpleTestCase):
             self.assertNotIn('BytePlus', message)
             self.assertEqual(copy.public_message(row(), message), message)
 
+    def test_gemini_omni_flash_1_1_failures(self):
+        omni = row('video', 'Gemini Omni Flash 1.1')
+        for diagnostic, expected in (
+            ('Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.', None),
+            ('Gemini Omni Flash 1.1 supports 360p/720p only (got 1080p).', GENERIC_VIDEO),
+            ('Omni create error (429): {"error": {"code": 429, "message": "Resource exhausted.", "status": "RESOURCE_EXHAUSTED"}}', copy.BUSY),
+            ('Omni create error (400): {"error": {"code": 400, "message": "Request contains an invalid argument.", "status": "INVALID_ARGUMENT"}}', GENERIC_VIDEO),
+            ('Omni create error (403): {"error": {"message": "Method doesn\'t allow unregistered callers", "status": "PERMISSION_DENIED"}}', copy.UNAVAILABLE),
+            ('The prompt was blocked by safety filters.', copy.POLICY),
+            ('Omni generation ended with status "budget_exceeded".', GENERIC_VIDEO),
+            ('Omni completed but returned no video (no inline data or uri).', copy.NO_VIDEO),
+            ('Too many reference images: 15. Gemini Omni Flash 1.1 accepts at most 14 images per prompt \u2014 remove 1.',
+             'Too many reference images: 15. Gemini Omni Flash 1.1 accepts at most 14 images per prompt - remove 1.'),
+        ):
+            with self.subTest(diagnostic=diagnostic[:60]):
+                self.check(omni, diagnostic, expected)
+
     def test_em_dash_in_adapter_messages_is_shown_as_a_plain_dash(self):
         text = 'Too many reference images: 15. Nano Banana Pro accepts at most 14 images per prompt \u2014 remove 1.'
         self.assertEqual(copy.public_message(row('image', 'Nano Banana Pro'), text), text.replace('\u2014', '-'))

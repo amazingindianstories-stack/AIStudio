@@ -63,6 +63,7 @@ _CURATED_PATTERNS = (
     r'Seedream accepts at most 10 references\.',
     r'Reference \d{1,3} could not be read\. Upload it again\.',
     r'Prompt is required\.',
+    rf'{_MODEL} has been retired\. Choose {_MODEL} instead\.',
 )
 
 

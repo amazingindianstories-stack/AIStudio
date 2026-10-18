@@ -63,6 +63,35 @@ class AdmissionTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             paid_guard.quote_for(contract(kind='image', model='Nano Banana 2.1', resolution='512'), limited)
 
+    @override_settings(VEEVEE_GEMINI_OMNI=True)
+    def test_gemini_omni_flash_1_1_is_pinned_to_the_interactions_endpoint_and_its_own_payload(self):
+        for model in ('Gemini Omni Flash 1.1', 'gemini-omni-1-1-flash'):
+            for resolution, duration, ratio in (('360p', 4, '16:9'), ('720p', 10, '9:16')):
+                quote = paid_guard.quote_for(contract(kind='video', model=model, resolution=resolution, duration=duration, aspect_ratio=ratio), UNLIMITED)
+                self.assertEqual(quote, {'maximum_cents': 0, 'pricing_status': 'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE',
+                    'allowed_paid_endpoints': ['https://generativelanguage.googleapis.com/v1beta/interactions'],
+                    'provider_payload_allowed_values': {'model': ['gemini-omni-1.1-flash'], 'background': [True], 'response_format.type': ['video'],
+                        'response_format.aspect_ratio': [ratio], 'response_format.resolution': [resolution], 'response_format.duration': [f'{duration}s']}})
+        valid = dict(kind='video', model='Gemini Omni Flash 1.1', resolution='720p', duration=8, aspect_ratio='16:9')
+        refusals = [({'model': 'Gemini Omni Flash'}, 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'),
+                    ({'model': 'gemini-omni-flash'}, 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'),
+                    ({'resolution': '1080p'}, 'Request outside the Omni contract'), ({'resolution': '4k'}, 'Request outside the Omni contract'),
+                    ({'duration': 12}, 'Request outside the Omni contract'), ({'duration': '8'}, 'Request outside the Omni contract'),
+                    ({'aspect_ratio': '1:1'}, 'Request outside the Omni contract'), ({'draft_task_id': 'v1_x'}, 'New Omni generation only'),
+                    ({'user_id': None}, 'New authenticated initial jobs only')]
+        for change, message in refusals:
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, message):
+                paid_guard.quote_for(contract(**{**valid, **change}), UNLIMITED)
+        # Limited scope has no reviewed Omni quote (and needs a MOV guard Omni cannot meet): refused.
+        limited = {'approved_scope': paid_guard.LIMITED_SCOPE, 'maximum_total_cents': paid_guard.CAP,
+                   'reviewed_maximum_quotes': paid_guard.operator_quotes('a' * 64), 'operator_budget_uncertainty_accepted': True}
+        with self.assertRaisesRegex(ValueError, 'No verified maximum charge quote'):
+            paid_guard.quote_for(contract(**valid), limited)
+
+    def test_gemini_omni_flash_1_1_needs_its_switch(self):
+        with override_settings(VEEVEE_GEMINI_OMNI=False), self.assertRaisesRegex(ValueError, 'Gemini Omni Flash 1.1 is not enabled'):
+            paid_guard.quote_for(contract(kind='video', model='Gemini Omni Flash 1.1', resolution='720p', duration=8, aspect_ratio='16:9'), UNLIMITED)
+
     def test_unauthenticated_and_unsupported_jobs_are_rejected(self):
         with self.assertRaises(ValueError):
             paid_guard.quote_for(contract(kind='video', model='Seedance 2.5', user_id=None), UNLIMITED)
@@ -187,6 +216,32 @@ class OneClaimPerPostTests(TransactionTestCase):
                 HttpTransport(allowed_hosts=['x']).request('POST', SEEDANCE_ENDPOINT, body={'output_format': 'mp4'})
         self.assertEqual(sent, [])
         self.assertEqual(ledger[row.id], 'ATTEMPTING')
+
+    @override_settings(VEEVEE_GEMINI_OMNI=True)
+    def test_gemini_omni_flash_1_1_claim_allows_only_its_own_endpoint_and_payload(self):
+        from apps.generation.providers import omni
+        from apps.generation.providers.transport import HttpTransport, ProviderError
+        row = contract(kind='video', model='Gemini Omni Flash 1.1', resolution='360p', duration=6, aspect_ratio='9:16')
+        body = omni.build_payload([{'type': 'text', 'text': 'literal'}], '9:16', 6, {}, model='Gemini Omni Flash 1.1', resolution='360p')
+        endpoint = 'https://generativelanguage.googleapis.com/v1beta/interactions'
+        cases = [(endpoint, body, True),
+                 ('https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent', body, False),
+                 (endpoint, {**body, 'model': 'gemini-omni-flash-preview'}, False),
+                 (endpoint, {**body, 'response_format': {**body['response_format'], 'resolution': '4k'}}, False),
+                 (endpoint, {**body, 'response_format': {**body['response_format'], 'duration': '10s'}}, False),
+                 (endpoint, {**body, 'background': False}, False)]
+        for url, payload, allowed in cases:
+            ledger, sent = {row['id']: 'ATTEMPTING'}, []
+            with self.subTest(url=url, payload=payload), self.installed(ledger, sent):
+                paid_guard.STATE.active = {'id': row['id'], 'contract': row, 'quote': paid_guard.quote_for(row, UNLIMITED)}
+                transport = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
+                if allowed:
+                    transport.request('POST', url, body=payload)
+                else:
+                    with self.assertRaises((ProviderError, ValueError)):
+                        transport.request('POST', url, body=payload)
+            self.assertEqual(sent, [('POST', url, payload)] if allowed else [])
+            self.assertEqual(ledger[row['id']], 'SUBMITTING' if allowed else 'ATTEMPTING')
 
     def test_nano_banana_2_1_claim_allows_only_its_own_endpoint(self):
         from apps.generation.providers import gemini

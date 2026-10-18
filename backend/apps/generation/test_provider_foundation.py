@@ -17,17 +17,30 @@ class PureProviderParityTests(SimpleTestCase):
     def test_registry_seedream_payloads_and_reference_resolution_match_node(self):
         # Magnific video upscalers (2026-10-14) and Nano Banana 2.1 (2026-10-16) postdate
         # the frozen Node registry; compare the frozen entries and assert the additions explicitly.
-        added = [item for item in MODEL_REGISTRY if item.get('capabilities', {}).get('upscaleMedia') == 'video' or item['id'] == 'nano-banana-2-1']
+        # Gemini Omni Flash 1.1 (2026-10-18) postdates it as well.
+        added = [item for item in MODEL_REGISTRY if item.get('capabilities', {}).get('upscaleMedia') == 'video'
+                 or item['id'] in ('nano-banana-2-1', 'gemini-omni-1-1-flash')]
         self.assertEqual([(item['name'], item['provider'], item['kind'], item['pricingKey']) for item in added], [
             ('Nano Banana 2.1', 'gemini', 'image', 'Nano Banana 2.1'),
+            ('Gemini Omni Flash 1.1', 'omni', 'video', 'Gemini Omni Flash 1.1'),
             *[(name, 'magnific', 'upscale', name) for name in ('Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz')]])
         self.assertEqual(provider_model_id('Nano Banana 2.1', {}), 'gemini-nano-banana-2.1')
+        self.assertEqual(provider_model_id('Gemini Omni Flash 1.1', {'OMNI_MODEL': 'gemini-omni-flash-preview'}), 'gemini-omni-1.1-flash')
         # Nano Banana Pro's Gemini model code moved from the provider constant into its
         # registry entry (2026-10-16); the frozen Node entry predates that field.
         self.assertEqual(provider_model_id('Nano Banana Pro', {}), 'gemini-3-pro-image')
         pro = ('nano-banana-pro', 'Nano Banana Pro')
+        # Gemini Omni Flash was retired on 2026-10-18: no longer offered, no OMNI_MODEL override, no picker
+        # badge or hint, and it names its replacement. Everything else in the frozen entry is unchanged.
+        omni_frozen = {'providerModelEnv': 'OMNI_MODEL', 'offered': True, 'badge': 'NEW',
+                       'hint': 'Google Interactions API \u2014 full NBP-style reference scaffolding, 16:9/9:16 only'}
+        retired = next(item for item in MODEL_REGISTRY if item['id'] == 'gemini-omni-flash')
+        self.assertEqual((retired['offered'], retired['retiredFor']), (False, 'gemini-omni-1-1-flash'))
+        self.assertFalse({'providerModelEnv', 'badge', 'hint'} & set(retired))
         frozen = [{key: value for key, value in item.items() if not (item['id'] == pro[0] and key == 'providerModelId')}
                   for item in MODEL_REGISTRY if item not in added]
+        frozen = [{**{key: value for key, value in item.items() if key != 'retiredFor'}, **omni_frozen}
+                  if item['id'] == retired['id'] else item for item in frozen]
         request = {'modelIds': [item['id'] for item in frozen] + [item['name'] for item in frozen] + ['unknown'],
                    'seedream': [], 'references': []}
         for resolution in ('1K', '1.5K', '2K', '4K', None):

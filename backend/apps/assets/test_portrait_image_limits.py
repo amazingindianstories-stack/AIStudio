@@ -69,7 +69,7 @@ class SeedanceReferenceLimits(GalleryBase):
 
     def test_other_models_and_the_time_budget_are_left_alone(self):
         small = data_url(png(100, 100))
-        item = {'model': 'Gemini Omni Flash', 'prompt': '@img1'}
+        item = {'model': 'Gemini Omni Flash 1.1', 'prompt': '@img1'}
         enqueue.verify_reference_image_sizes(item, {'referenceImages': [small]})
         ticks = iter(range(0, 1000, 20))
         enqueue.verify_reference_image_sizes({'model': 'Seedance 2.5', 'prompt': '@img1'}, {'referenceImages': [small]},

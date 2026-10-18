@@ -31,7 +31,7 @@ def result(data, status=200):
 class ProviderAdapterTests(SimpleTestCase):
     def test_omni_oauth_uncertainty_never_replays_paid_submission(self):
         from unittest.mock import Mock
-        payload={'assembled':{'groups':[],'instruction':'fixture'},'aspectRatio':'16:9','duration':4}
+        payload={'assembled':{'groups':[],'instruction':'fixture'},'aspectRatio':'16:9','duration':4,'modelDisplay':'Gemini Omni Flash 1.1'}
         transport=Mock()
         auth=Mock(side_effect=RuntimeError('synthetic refresh failure'))
         with self.assertRaises(RuntimeError):
@@ -82,11 +82,13 @@ class ProviderAdapterTests(SimpleTestCase):
                 return {'value': call()}
             except ValueError as error:
                 return {'error': str(error)}
-        maps = {'geminiParts': ('assembled', gemini.build_parts), 'omniParts': ('assembled', omni.build_input),
+        # The frozen Omni outputs are the retired preview's (gemini-omni-flash-preview, no resolution field); building
+        # them by its registry name keeps that historical evidence. Omni Flash 1.1 has its own exact tests below.
+        maps = {'geminiParts': ('assembled', gemini.build_parts), 'omniParts': ('assembled', lambda value: omni.build_input(value, 'Gemini Omni Flash')),
                 'klingInput': ('assembled', lambda value: kling.build_input(value, 'Kling Image 3.0')),
                 'magnific': ('magnific', lambda value: magnific.build_payload(value['variant'], value)),
                 'magnificParams': ('magnificParams', lambda value: magnific.params_for_model(value['model'], value['params'])),
-                'kling': ('kling', kling.build_payload), 'omni': ('omni', lambda value: omni.build_payload(*value, env={}))}
+                'kling': ('kling', kling.build_payload), 'omni': ('omni', lambda value: omni.build_payload(*value, env={}, model='Gemini Omni Flash'))}
         for key, (input_key, function) in maps.items():
             for index, entry in enumerate(request[input_key]):
                 with self.subTest(key=key, index=index):
@@ -220,19 +222,140 @@ class ProviderAdapterTests(SimpleTestCase):
     def test_omni_credentials_scoped_downloads_and_terminal_errors(self):
         transport = ScriptedTransport(result({'id': 'task/id'}), result({'status': 'completed', 'steps': [{'content': [{'type': 'video', 'data': 'original', 'mime_type': 'video/mp4'}]}]}))
         options = {'transport': transport, 'env': {'GOOGLE_API_KEY': 'fixture'}}
-        task_id = omni.create_video_task({'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '16:9', 'duration': 4}, **options)
+        task_id = omni.create_video_task({'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '16:9', 'duration': 4,
+                                          'modelDisplay': 'Gemini Omni Flash 1.1'}, **options)
         self.assertEqual(omni.get_video_status(task_id, **options), {'status': 'succeeded', 'videoBase64': 'original', 'mimeType': 'video/mp4'})
         self.assertTrue(transport.calls[-1][0][1].endswith('/task%2Fid'))
         for uri in ('https://evil.invalid/video', 'http://googleapis.com/video', 'https://user@googleapis.com/video', 'https://googleapis.com:444/video'):
-            download = ScriptedTransport()
-            with self.assertRaises(ValueError):
-                omni.extract_video({'output_video': {'uri': uri}}, {'x-goog-api-key': 'fixture'}, transport=download)
-            self.assertFalse(download.calls)
+            for shape in ({'output_video': {'uri': uri}}, {'steps': [{'type': 'model_output', 'content': [{'type': 'video', 'uri': uri}]}]}):
+                download = ScriptedTransport()
+                with self.assertRaises(ValueError):
+                    omni.extract_video(shape, {'x-goog-api-key': 'fixture'}, transport=download)
+                self.assertFalse(download.calls)
         download = ScriptedTransport(HttpResult(200, b'original-master', {'content-type': 'video/mp4'}))
         self.assertEqual(base64.b64decode(omni.extract_video({'output_video': {'uri': 'https://storage.googleapis.com/fixture'}}, transport=download)['base64']), b'original-master')
         self.assertEqual(omni.get_video_status('gone', transport=ScriptedTransport(result({'error': {'message': 'gone'}}, 404)), env={'GOOGLE_API_KEY': 'fixture'})['status'], 'failed')
         with self.assertRaises(ProviderError):
             omni.get_video_status('task', transport=ScriptedTransport(result({}, 401)), env={'GOOGLE_API_KEY': 'fixture'})
+
+    def test_omni_flash_1_1_create_payload_endpoint_and_headers_are_exact(self):
+        # ai.google.dev/gemini-api/docs/omni and /api/interactions-api VideoResponseFormat (read 2026-10-18).
+        first, second, tile = ({'mimeType': 'image/png', 'data': 'first-original'}, {'mimeType': 'image/jpeg', 'data': 'second-original'},
+                               {'mimeType': 'image/jpeg', 'data': 'tile'})
+        assembled = {'instruction': '@img1 walks through the lantern market', 'groups': [
+            {'tag': '@img1', 'header': 'REFERENCE @img1', 'images': [first, second], 'identity': True, 'tiles': [tile]}]}
+        parts = [{'type': 'text', 'text': 'REFERENCE @img1'}, {'type': 'image', 'mime_type': 'image/png', 'data': 'first-original'},
+                 {'type': 'image', 'mime_type': 'image/jpeg', 'data': 'second-original'}, {'type': 'image', 'mime_type': 'image/jpeg', 'data': 'tile'},
+                 {'type': 'text', 'text': 'SCENE: @img1 walks through the lantern market'}]
+        cases = [(display, resolution, ratio, duration) for display in ('Gemini Omni Flash 1.1', 'gemini-omni-1-1-flash')
+                 for resolution in ('360p', '720p') for ratio in ('16:9', '9:16') for duration in (4, 6, 8, 10)]
+        for display, resolution, ratio, duration in cases:
+            with self.subTest(display=display, resolution=resolution, ratio=ratio, duration=duration):
+                transport = ScriptedTransport(result({'id': 'v1_interaction', 'status': 'in_progress'}))
+                task = omni.create_video_task({'assembled': assembled, 'aspectRatio': ratio, 'duration': duration, 'resolution': resolution,
+                                               'modelDisplay': display}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+                self.assertEqual(task, 'v1_interaction')
+                [((method, url), options)] = transport.calls
+                self.assertEqual((method, url), ('POST', 'https://generativelanguage.googleapis.com/v1beta/interactions'))
+                self.assertEqual(options['headers'], {'x-goog-api-key': 'fixture', 'Content-Type': 'application/json'})
+                body = options['body']
+                self.assertEqual(list(body), ['model', 'input', 'background', 'response_format'])
+                self.assertEqual({key: body[key] for key in ('model', 'background', 'response_format')}, {
+                    'model': 'gemini-omni-1.1-flash', 'background': True,
+                    'response_format': {'type': 'video', 'aspect_ratio': ratio, 'duration': f'{duration}s', 'resolution': resolution}})
+                self.assertEqual(body['input'][:5], parts)
+                self.assertEqual(len(body['input']), 6)
+                self.assertTrue(body['input'][5]['text'].startswith('FINAL CHECK: every person referenced above'))
+        # The documented default size is sent explicitly when a row has none.
+        transport = ScriptedTransport(result({'id': 'v1_default'}))
+        omni.create_video_task({'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '16:9', 'duration': 8,
+                                'modelDisplay': 'Gemini Omni Flash 1.1'}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+        self.assertEqual(transport.calls[0][1]['body'], {'model': 'gemini-omni-1.1-flash', 'input': [{'type': 'text', 'text': 'literal'}],
+            'background': True, 'response_format': {'type': 'video', 'aspect_ratio': '16:9', 'duration': '8s', 'resolution': '720p'}})
+        # A resource `name` instead of an `id` is still recorded as the receipt (existing adapter contract).
+        transport = ScriptedTransport(result({'name': 'interactions/v1_named'}))
+        self.assertEqual(omni.create_video_task({'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '9:16', 'duration': 4,
+            'modelDisplay': 'Gemini Omni Flash 1.1'}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport), 'interactions/v1_named')
+
+    def test_omni_flash_1_1_refuses_retired_unoffered_and_unconfigured_requests_before_any_network(self):
+        base = {'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '16:9', 'duration': 8, 'resolution': '720p',
+                'modelDisplay': 'Gemini Omni Flash 1.1'}
+        image = {'mimeType': 'image/png', 'data': 'x'}
+        many = {'groups': [{'tag': '@img1', 'header': 'h', 'images': [image] * 15, 'tiles': []}], 'instruction': 'scene'}
+        cases = [
+            ({'modelDisplay': 'Gemini Omni Flash'}, ValueError, 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'),
+            ({'modelDisplay': 'gemini-omni-flash'}, ValueError, 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'),
+            ({'modelDisplay': 'Seedance 2.5'}, ValueError, 'Seedance 2.5 is not a Gemini Omni model.'),
+            ({'modelDisplay': None}, ValueError, 'This model is not a Gemini Omni model.'),
+            ({'resolution': '1080p'}, ValueError, 'Gemini Omni Flash 1.1 supports 360p/720p only (got 1080p).'),
+            ({'resolution': '4k'}, ValueError, 'Gemini Omni Flash 1.1 supports 360p/720p only (got 4k).'),
+            ({'duration': 3}, ValueError, 'Gemini Omni Flash 1.1 supports 4/6/8/10s durations (got 3).'),
+            ({'duration': 12}, ValueError, 'Gemini Omni Flash 1.1 supports 4/6/8/10s durations (got 12).'),
+            ({'duration': '8'}, ValueError, 'Gemini Omni Flash 1.1 supports 4/6/8/10s durations (got 8).'),
+            ({'aspectRatio': '1:1'}, ValueError, 'Gemini Omni Flash 1.1 only supports 16:9/9:16 aspect ratios (got "1:1").'),
+            ({'assembled': many}, ValueError, 'Too many reference images: 15. Gemini Omni Flash 1.1 accepts at most 14 images per prompt \u2014 remove 1.'),
+        ]
+        for change, error, message in cases:
+            with self.subTest(change=change):
+                transport = ScriptedTransport()
+                with self.assertRaises(error) as raised:
+                    omni.create_video_task({**base, **change}, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+                self.assertEqual(str(raised.exception), message)
+                self.assertEqual(transport.calls, [])
+        # Missing credentials never select mock success, and nothing is sent.
+        transport = ScriptedTransport()
+        with self.assertRaises(ProviderError) as raised:
+            omni.create_video_task(base, env={}, transport=transport)
+        self.assertEqual((str(raised.exception), raised.exception.code), ('GOOGLE_API_KEY is not set.', 'missing_configuration'))
+        self.assertEqual(transport.calls, [])
+
+    def test_omni_flash_1_1_create_errors_are_reported_once_and_never_resubmitted(self):
+        request = {'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '16:9', 'duration': 4, 'modelDisplay': 'Gemini Omni Flash 1.1'}
+        for status, body, message in ((400, {'error': {'code': 400, 'message': 'Request contains an invalid argument.', 'status': 'INVALID_ARGUMENT'}},
+                                       'Omni create error (400): '),
+                                      (429, {'error': {'code': 429, 'message': 'Resource exhausted.', 'status': 'RESOURCE_EXHAUSTED'}}, 'Omni create error (429): '),
+                                      (500, {'error': {'code': 500, 'message': 'Internal error.'}}, 'Omni create error (500): '),
+                                      (200, {'status': 'in_progress'}, 'Omni create returned no interaction id.')):
+            with self.subTest(status=status):
+                transport = ScriptedTransport(result(body, status))
+                with self.assertRaises(ProviderError) as raised:
+                    omni.create_video_task(request, env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
+                self.assertTrue(str(raised.exception).startswith(message), str(raised.exception))
+                if status != 200:
+                    self.assertEqual(raised.exception.status, status)
+                    self.assertIn(json.dumps(body)[:40], str(raised.exception))
+                self.assertEqual(len(transport.calls), 1)
+
+    def test_omni_flash_1_1_status_reads_the_documented_rest_shapes(self):
+        env = {'GOOGLE_API_KEY': 'fixture'}
+        def status(body, code=200, download=None):
+            transport = ScriptedTransport(result(body, code))
+            value = omni.get_video_status('v1_task', transport=transport, download_transport=download, env=env)
+            [((method, url), options)] = transport.calls
+            self.assertEqual((method, url, options['headers']), ('GET', 'https://generativelanguage.googleapis.com/v1beta/interactions/v1_task', {'x-goog-api-key': 'fixture'}))
+            return value
+        completed = {'id': 'v1_task', 'status': 'completed', 'model': 'gemini-omni-1.1-flash', 'object': 'interaction', 'steps': [
+            {'type': 'user_input', 'content': [{'type': 'text', 'text': 'prompt'}]},
+            {'type': 'thought', 'content': [{'type': 'thought', 'text': 'planning'}]},
+            {'type': 'model_output', 'content': [{'type': 'video', 'mime_type': 'video/mp4', 'data': 'AAAAIGZ0eXBpc29t'}]}]}
+        self.assertEqual(status(completed), {'status': 'succeeded', 'videoBase64': 'AAAAIGZ0eXBpc29t', 'mimeType': 'video/mp4'})
+        for raw in ('in_progress', 'queued', None):
+            self.assertEqual(status({'id': 'v1_task', 'status': raw}), {'status': 'running'})
+        self.assertEqual(status({'status': 'failed', 'error': {'message': 'The prompt was blocked by safety filters.'}}),
+                         {'status': 'failed', 'error': 'The prompt was blocked by safety filters.', 'moderationBlocked': True})
+        self.assertEqual(status({'status': 'budget_exceeded'}),
+                         {'status': 'failed', 'error': 'Omni generation ended with status "budget_exceeded".', 'moderationBlocked': False})
+        # URI delivery: the Files API download goes only to a Google host, with the same credential header.
+        uri = 'https://generativelanguage.googleapis.com/v1beta/files/abc-123:download?alt=media'
+        download = ScriptedTransport(HttpResult(200, b'mp4-master-bytes', {'content-type': 'video/mp4'}))
+        value = status({'status': 'completed', 'steps': [{'type': 'model_output', 'content': [{'type': 'video', 'mime_type': 'video/mp4', 'uri': uri}]}]},
+                       download=download)
+        self.assertEqual((base64.b64decode(value['videoBase64']), value['mimeType']), (b'mp4-master-bytes', 'video/mp4'))
+        self.assertEqual(download.calls, [(('GET', uri), {'headers': {'x-goog-api-key': 'fixture'}, 'signal': None})])
+        with self.assertRaisesRegex(ProviderError, 'returned no video'):
+            omni.get_video_status('v1_task', transport=ScriptedTransport(result({'status': 'completed', 'steps': []})), env=env)
+        self.assertEqual(status({'error': {'message': 'Interaction not found.'}}, 404),
+                         {'status': 'failed', 'error': 'Interaction not found.', 'moderationBlocked': False})
 
     def test_magnific_task_protocol_and_output_list(self):
         transport = ScriptedTransport(result({'data': {'task_id': 'task'}}), result({'data': {'status': 'COMPLETED', 'generated': ['one', 'two']}}))

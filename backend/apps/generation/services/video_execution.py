@@ -227,7 +227,8 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
         return {**base, 'task_id': task_id}
     if is_provider_model(item.model, 'omni'):
         assembled = deps.assemble(item.prompt, deps.assets(item.project_id), item.reference_images or [], {'aspectRatio': item.aspect_ratio, 'medium': 'video'})
-        task_id = deps.omni_submit({'assembled': assembled, 'aspectRatio': item.aspect_ratio, 'duration': item.duration or 4}, signal=signal)
+        task_id = deps.omni_submit({'assembled': assembled, 'aspectRatio': item.aspect_ratio, 'duration': item.duration or 4,
+                                    'resolution': item.resolution, 'modelDisplay': item.model}, signal=signal)
         on_task(task_id, 0, 1)
         return {**base, 'task_id': task_id}
     if is_provider_model(item.model, 'higgsfield'):
