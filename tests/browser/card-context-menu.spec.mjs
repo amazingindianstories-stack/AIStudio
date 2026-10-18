@@ -2,8 +2,9 @@ import { test, expect } from '@playwright/test';
 import { createHmac, randomUUID } from 'node:crypto';
 import { fixtureDatabase } from './fixture-db.mjs';
 
-// Library cards carry only the creator avatar, "Draft" on drafts, and a hover
-// checkbox and "..." button; details and actions live in the card's menu.
+// Library cards carry only the creator avatar, "Draft" on drafts, a star on
+// favourites, and a hover checkbox, "..." button and favourite toggle; details
+// and actions live in the card's menu.
 
 const USER_ID = 'e33e1832-9e29-427f-af61-796b842a4b37';
 async function authenticate(context, baseURL) {
@@ -68,13 +69,14 @@ async function insideViewport(page) {
   return box;
 }
 
-test2('card context: the card face is only the avatar, Draft, and the hover checkbox and "..." button', async ({ page, library }) => {
+test2('card context: the card face is only the avatar, Draft, and the hover checkbox, "..." button and favourite star', async ({ page, library }) => {
   const { draftCard, imageCard } = library;
   await page.mouse.move(2, 2);
   for (const card of [draftCard, imageCard]) {
     await expect(card.locator('.media-card-avatar')).toBeVisible();
     await expect(card.getByRole('checkbox', { name: 'Select' })).toHaveCSS('opacity', '0');
     await expect(card.getByRole('button', { name: 'More actions' })).toHaveCSS('opacity', '0');
+    await expect(card.getByRole('button', { name: 'Add to favourites' })).toHaveCSS('opacity', '0');
     await expect(card.locator('time')).toHaveCount(0);
   }
   await expect(draftCard.locator('[data-draft-label]')).toHaveText('Draft');
@@ -89,8 +91,9 @@ test2('card context: the card face is only the avatar, Draft, and the hover chec
   await expect(imageCard.getByRole('button', { name: 'More actions' })).toHaveCSS('opacity', '1');
   // No hover pane, toolbar, prompt or folder link appears any more.
   await expect(page.getByRole('toolbar')).toHaveCount(0);
-  await expect(imageCard.getByRole('button')).toHaveCount(1);
-  expect(await imageCard.getByRole('button').getAttribute('aria-label')).toBe('More actions');
+  await expect(imageCard.getByRole('button')).toHaveCount(2);
+  expect(await imageCard.getByRole('button').evaluateAll(buttons => buttons.map(b => b.getAttribute('aria-label'))))
+    .toEqual(['More actions', 'Add to favourites']);
   await expect(imageCard.getByText(library.tag)).toHaveCount(0);
 
   // The checkbox selects and stays visible while selected.
@@ -99,6 +102,44 @@ test2('card context: the card face is only the avatar, Draft, and the hover chec
   await page.mouse.move(2, 2);
   await expect(imageCard.getByRole('checkbox', { name: 'Select' })).toHaveCSS('opacity', '1');
   await expect(imageCard.getByRole('checkbox', { name: 'Select' })).toHaveAttribute('aria-checked', 'true');
+});
+
+test2('card context: the favourite star owns the corner, toggles in one click and never moves', async ({ page, library }) => {
+  const { draftCard } = library;
+  const star = draftCard.locator('[data-favorite-star]');
+  const more = draftCard.getByRole('button', { name: 'More actions' });
+  const at = async () => [await star.boundingBox(), await more.boundingBox()].map(b => [Math.round(b.x), Math.round(b.y)]);
+  await page.mouse.move(2, 2);
+  const rest = await at();
+  await draftCard.hover();
+  await expect(star).toHaveCSS('opacity', '1');
+  expect(await at()).toEqual(rest);
+  // The star is the corner control; "..." sits just inside it.
+  const [starBox, moreBox, cardBox] = [await star.boundingBox(), await more.boundingBox(), await draftCard.boundingBox()];
+  expect(starBox.x).toBeGreaterThan(moreBox.x + moreBox.width - 1);
+  expect(cardBox.x + cardBox.width - (starBox.x + starBox.width)).toBeLessThan(16);
+
+  const saved = page.waitForResponse(response => response.url().endsWith('/api/history') && response.request().method() === 'PATCH');
+  await star.click();
+  expect((await saved).ok()).toBeTruthy();
+  // No confirmation for the one-click toggle (the menu's Favourite still asks).
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);
+  await expect(star).toHaveAttribute('aria-pressed', 'true');
+  await expect(star).toHaveAccessibleName('Remove from favourites');
+  await page.mouse.move(2, 2);
+  // A favourite keeps its star at rest, in the same place; "..." hides.
+  await expect(star).toHaveCSS('opacity', '1');
+  await expect(more).toHaveCSS('opacity', '0');
+  expect(await at()).toEqual(rest);
+  await expect(draftCard.locator('[data-draft-label]')).toHaveText('Draft');
+  const row = await library.db`SELECT is_favorite FROM generations WHERE id=${library.draft}`;
+  expect(row[0].is_favorite).toBe(true);
+
+  await draftCard.hover();
+  await star.click();
+  await expect(star).toHaveAttribute('aria-pressed', 'false');
+  await page.mouse.move(2, 2);
+  await expect(star).toHaveCSS('opacity', '0');
 });
 
 test2('card context: right click opens the menu at the pointer with the generation details', async ({ page, library }) => {

@@ -84,20 +84,33 @@ test('a finished Seedance 2.5 draft offers retry, finalization, download and the
   }, { usersById: { u1: { name: 'Asha', email: 'asha@example.test', color: '#fff' } } });
 });
 
-test('the card face holds only the avatar, the draft label, the checkbox and the "..." button', async () => {
+test('the card face holds only the avatar, the draft label, the checkbox, the "..." button and the favourite star', async () => {
   const base = { ...failed, status: 'succeeded', error: null, moderationBlocked: false, url: '/api/media/generations/v.mov', createdAt: Date.now(), userId: 'u1' };
   const users = { usersById: { u1: { name: 'Asha', email: 'asha@example.test' } } };
   await harness({ ...base, id: 'draft-1', draftMode: true }, async ({ card }) => {
     assert.equal(card.querySelector('[data-draft-label]').textContent, 'Draft');
     assert.doesNotMatch(card.className, /outline-dashed/);
     const controls = [...card.querySelectorAll('button')].map(b => b.getAttribute('aria-label'));
-    assert.deepEqual(controls, ['Select', 'More actions']);
+    // The star owns the bottom-right corner; "..." sits just inside it.
+    assert.deepEqual(controls, ['Select', 'More actions', 'Add to favourites']);
+    assert.equal(card.querySelector('[data-favorite-star]').getAttribute('aria-pressed'), 'false');
     assert.equal(card.querySelector('.media-card-avatar').textContent, 'A');
     assert.equal(card.querySelector('time'), null);
     assert.equal(card.textContent.replace(/\s/g, ''), 'DraftA');
   }, users);
   await harness({ ...base, id: 'final-1', draftMode: false }, async ({ card }) => {
     assert.equal(card.querySelector('[data-draft-label]'), null);
+  }, users);
+  await harness({ ...base, id: 'fav-1', draftMode: true, isFavorite: true }, async ({ card }) => {
+    const star = card.querySelector('[data-favorite-star]');
+    assert.equal(star.getAttribute('aria-pressed'), 'true');
+    assert.equal(star.getAttribute('aria-label'), 'Remove from favourites');
+    // A favourite's star stays at rest (not hover-only) and is filled.
+    assert.doesNotMatch(star.className, /opacity-0/);
+    assert.match(star.querySelector('svg').getAttribute('class'), /fill-current/);
+  }, users);
+  await harness({ ...base, id: 'running-1', status: 'running', url: null }, async ({ card }) => {
+    assert.equal(card.querySelector('[data-favorite-star]'), null, 'only finished generations can be favourited');
   }, users);
 });
 

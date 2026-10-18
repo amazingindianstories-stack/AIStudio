@@ -254,11 +254,12 @@ body {
 
 /* Library card face. It scales with the card's rendered width (set by the
    panel width and the View > Thumbnail size control) in three steps, so the
-   avatar, checkbox, "..." button and "Draft" label are neither cramped on a
+   avatar, checkbox, "..." button, favourite star and "Draft" label are neither cramped on a
    small card nor lost on a large one. */
 .media-card { container-type: inline-size; }
 .media-card-body {
   --face-inset: 6px;
+  --face-gap: 4px;
   --face-avatar: 20px;
   --face-avatar-text: 10px;
   --face-control: 22px;
@@ -270,6 +271,7 @@ body {
 @container (min-width: 200px) {
   .media-card-body {
     --face-inset: 8px;
+    --face-gap: 5px;
     --face-avatar: 24px;
     --face-avatar-text: 11px;
     --face-control: 26px;
@@ -282,6 +284,7 @@ body {
 @container (min-width: 320px) {
   .media-card-body {
     --face-inset: 10px;
+    --face-gap: 6px;
     --face-avatar: 28px;
     --face-avatar-text: 12px;
     --face-control: 30px;
@@ -294,6 +297,7 @@ body {
 .media-card-avatar { width: var(--face-avatar); height: var(--face-avatar); font-size: var(--face-avatar-text); }
 .media-card-control { width: calc(var(--face-control) - 4px); height: calc(var(--face-control) - 4px); }
 .media-card-more { width: var(--face-control); height: var(--face-control); }
+.media-card-corner { gap: var(--face-gap); }
 .media-card-icon { width: var(--face-icon); height: var(--face-icon); }
 .media-card-control .media-card-icon { width: calc(var(--face-icon) - 2px); height: calc(var(--face-icon) - 2px); }
 /* "Draft" sits on a soft corner shade that fades out before its edges. */
