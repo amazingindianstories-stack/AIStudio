@@ -16,6 +16,7 @@ from apps.generation.prompting.video_directive import build_video_directive
 from apps.generation.prompting.legacy_templates import T as LEGACY
 from apps.media.storage import get_storage
 from apps.media.remote import validated_target,PinnedHTTPSConnection
+from apps.generation import provider_errors
 from .transport import HttpTransport,HttpResult,ProviderError
 from .seedance import legacy_directive
 from apps.generation.services.deadline import Cancellation
@@ -349,7 +350,8 @@ class HiggsfieldClient:
         if response.status == 401:
             raise AuthError('Higgsfield authorization expired.',status=401)
         if not response.ok:
-            raise ProviderError(f'MCP {method} {response.status}: {response.text[:300]}')
+            raise ProviderError(f'MCP {method} {response.status}: {response.text[:300]}',provider_response=provider_errors.capture(
+                'higgsfield',phase=method,status=response.status,body=response.text,headers=response.headers))
         messages = parse_json_rpc_messages(response.text,response_headers.get('content-type',''))
         answer = next((message for message in messages if isinstance(message,dict) and type(message.get('id')) is type(identifier) and message.get('id') == identifier),None)
         if answer is None:
@@ -368,10 +370,12 @@ class HiggsfieldClient:
                 self.ensure_session(signal)
                 response = self.rpc('tools/call',{'name':name,'arguments':args},signal=signal)
                 if response.get('error'):
-                    raise ProviderError(f'{name}: {json.dumps(response["error"],separators=(",",":"))[:300]}')
+                    raise ProviderError(f'{name}: {json.dumps(response["error"],separators=(",",":"))[:300]}',
+                        provider_response=provider_errors.capture('higgsfield',phase=name,body=json.dumps({'error':response['error']})))
                 result = response.get('result') or {}
                 if result.get('isError') and not tolerate_error:
-                    raise ProviderError(f'Higgsfield {name}: {_tool_error_text(result)[:300] or "tool error"}')
+                    raise ProviderError(f'Higgsfield {name}: {_tool_error_text(result)[:300] or "tool error"}',
+                        provider_response=provider_errors.capture('higgsfield',phase=name,code='tool_error',message=_tool_error_text(result) or 'tool error'))
                 return result
             except AuthError:
                 if attempt:
@@ -417,22 +421,26 @@ class HiggsfieldClient:
 
     def job_status(self,job_id,signal=None):
         result = self.call_tool('job_status',{'jobId':job_id,'sync':False},signal=signal,tolerate_error=True)
+        def failed(message,code):
+            return {'status':'failed','error':message,'providerError':provider_errors.capture('higgsfield',phase='task',code=code,
+                message=message,task_id=job_id)}
         if result.get('isError'):
             message = 'Higgsfield job_status: '+(_tool_error_text(result)[:200] or 'error')
             if (result.get('structuredContent') or {}).get('retryable') is False:
-                return {'status':'failed','error':message}
-            raise ProviderError(message)
+                return failed(message,'tool_error')
+            raise ProviderError(message,provider_response=provider_errors.capture('higgsfield',phase='status',code='tool_error',
+                message=message,task_id=job_id))
         generation = (result.get('structuredContent') or {}).get('generation') or {}
         status = generation.get('status')
         if status == 'completed':
             media = generation.get('results') or {}
             return {'status':'succeeded','url':media.get('rawUrl') or media.get('minUrl')}
         if status in ('failed','canceled'):
-            return {'status':'failed','error':'Higgsfield generation failed.'}
+            return failed('Higgsfield generation failed.',status)
         if status == 'nsfw':
-            return {'status':'failed','error':MODERATION}
+            return failed(MODERATION,status)
         if status in ('ip_detected','ip_detect'):
-            return {'status':'failed','error':'Higgsfield flagged possible IP in the content.'}
+            return failed('Higgsfield flagged possible IP in the content.',status)
         return {'status':'running' if status == 'in_progress' else 'queued'}
 
     def await_job(self,job_id,options=None,signal=None):
@@ -444,7 +452,8 @@ class HiggsfieldClient:
             if result['status'] in ('succeeded','failed'):
                 return result
             (signal.wait if signal else self.wait)(4000)
-        return {'status':'failed','error':'Higgsfield generation timed out.'}
+        return {'status':'failed','error':'Higgsfield generation timed out.','providerError':provider_errors.local('higgsfield','timeout',
+            'Higgsfield generation timed out.',phase='timeout',task_id=job_id)}
 
 
 def video_payload(input,env=None):

@@ -17,9 +17,11 @@ FORMATS = ('jpeg', 'jpg', 'png', 'webp', 'bmp', 'tiff', 'gif', 'heic', 'heif')
 MAX_FILE_BYTES = 30 * 1024 * 1024
 
 class BytePlusAssetError(Exception):
-    def __init__(self, message, code='byteplus_asset_error', status=400, details=None):
+    """``code`` is what callers branch on (``moderation_rejected`` for a compliance refusal); ``provider_error`` keeps
+    BytePlus's exact answer (its own code, message and ResponseMetadata.RequestId) for receipts and the admin view."""
+    def __init__(self, message, code='byteplus_asset_error', status=400, details=None, provider_error=None):
         super().__init__(message)
-        self.code, self.status, self.details = code, status, details
+        self.code, self.status, self.details, self.provider_error = code, status, details, provider_error
 
 class Deadline:
     def __init__(self, seconds=45):
@@ -120,22 +122,27 @@ class BytePlusClient:
         signed = sign_request(body=raw, ak=self.config['ak'], sk=self.config['sk'], region=self.config['region'],
             headers={'content-type': 'application/json', 'host': self.config['host']}, query=query, date=self.date)
         url = self.config['base_url'].rstrip('/') + '/?Action=' + quote(action) + '&Version=2024-01-01'
+        from apps.generation import provider_errors
         try:
             result = self.transport.request('POST', url, headers=signed['headers'], raw_body=raw.encode(), signal=signal)
         except Exception as exc:
-            raise BytePlusAssetError('Network error contacting BytePlus Asset API.', 'network_error', 502) from exc
+            raise BytePlusAssetError('Network error contacting BytePlus Asset API.', 'network_error', 502, provider_error=provider_errors.local(
+                'byteplus-assets', getattr(exc, 'code', None) or 'network_error', str(exc) or type(exc).__name__, phase=action)) from exc
+        def record():   # only for a failure: BytePlus's own code, message and ResponseMetadata.RequestId
+            return provider_errors.capture('byteplus-assets', phase=action, status=result.status, body=result.text, headers=result.headers)
         try:
             payload = result.json()
         except ValueError as exc:
-            raise BytePlusAssetError(f'BytePlus Asset API returned non-JSON response ({result.status}): {result.text[:300]}', 'invalid_response', result.status) from exc
+            raise BytePlusAssetError(f'BytePlus Asset API returned non-JSON response ({result.status}): {result.text[:300]}', 'invalid_response',
+                                     result.status, provider_error=record()) from exc
         error = payload.get('ResponseMetadata', {}).get('Error')
         if not result.ok or error:
             error = error or payload.get('error') or {}
             code = error.get('Code') or error.get('code') or 'unknown_error'
             message = error.get('Message') or error.get('message') or result.text[:300]
             if re.search(r'SensitiveContent|Privacy|real person|portrait', code + message, re.I):
-                raise BytePlusAssetError('Asset rejected by BytePlus compliance filter: ' + message, 'moderation_rejected', result.status, payload)
-            raise BytePlusAssetError(f'BytePlus Asset API error ({result.status} {code}): {message}', code, result.status, payload)
+                raise BytePlusAssetError('Asset rejected by BytePlus compliance filter: ' + message, 'moderation_rejected', result.status, payload, record())
+            raise BytePlusAssetError(f'BytePlus Asset API error ({result.status} {code}): {message}', code, result.status, payload, record())
         return payload.get('Result', payload)
 
     def create_asset_group(self, name, description='', group_type='AIGC', project_name='default', signal=None):

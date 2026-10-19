@@ -9,6 +9,7 @@ from apps.generation.model_registry import capability,is_provider_model,provider
 from apps.generation.prompting.shot_spec import parse_ref_roles
 from apps.generation.prompting.video_directive import build_video_directive
 from apps.generation.prompting.legacy_templates import T as LEGACY
+from apps.generation import provider_errors
 from .transport import HttpTransport,ProviderError,required_key
 
 MODERATION_MESSAGE = "BytePlus rejected the reference image - its privacy / anti-deepfake filter flags photorealistic faces (it can't tell an AI-generated face from a real one). Retry as text-to-video, or use a clearly stylized reference."
@@ -171,14 +172,8 @@ def _submit(input,body,*,env=None,transport=None,signal=None,final=False):
         # Explicit client rejection is safe to continue. Timeout/gateway/server
         # failures cannot establish whether a paid task was accepted remotely.
         error.may_have_submitted = not (400 <= response.status < 500 and response.status != 408)
-        error.provider_response = {'provider':'seedance','httpStatus':response.status,'rawBody':response.text,'receivedAt':int(time.time()*1000)}
-        if not final:
-            try:
-                parsed = response.json()
-            except ValueError:
-                parsed = {}
-            headers = {key.lower():value for key,value in response.headers.items()}
-            error.provider_response['requestId'] = headers.get('x-request-id') or headers.get('x-tt-logid') or parsed.get('request_id') or parsed.get('RequestId') or (parsed.get('error') or {}).get('request_id')
+        error.provider_response = provider_errors.capture('seedance',phase='finalize' if final else 'create',
+            status=response.status,body=response.text,headers=response.headers)
         raise error
     result = response.json()
     identifier = result.get('id') or result.get('task_id') or (result.get('data') or {}).get('id')
@@ -211,6 +206,9 @@ def normalize_video_task_payload(payload=None):
     if status == 'failed':
         error = source.get('error')
         result['error'] = (error.get('message') if isinstance(error,dict) else None) or error or 'Generation failed'
+        # The task's own failure (code, message, task id) for the row's provider_responses and the user's message.
+        result['providerError'] = provider_errors.capture('seedance',phase='task',body=json.dumps(source,default=str),
+            task_id=source.get('id') if isinstance(source.get('id'),str) else None)
     tokens = (source.get('usage') or {}).get('total_tokens')
     if type(tokens) in (int,float) and math.isfinite(tokens):
         result['totalTokens'] = tokens
@@ -229,5 +227,7 @@ def get_video_task(task_id,options=None,*,env=None,transport=None,signal=None):
     response = transport.request('GET',endpoint+'/contents/generations/tasks/'+quote(task_id,safe=''),
         headers={'Authorization':'Bearer '+key},signal=signal or (options or {}).get('signal'))
     if not response.ok:
-        raise SeedanceError(f'Seedance poll error {response.status}: {response.text[:500]}')
+        raise SeedanceError(f'Seedance poll error {response.status}: {response.text[:500]}',status=response.status,
+            provider_response=provider_errors.capture('seedance',phase='status',status=response.status,body=response.text,
+                headers=response.headers,task_id=task_id))
     return normalize_video_task_payload(response.json())

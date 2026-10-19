@@ -35,6 +35,59 @@ PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
 PRIVACY_MESSAGE = 'The request failed because the input image may contain real person.'
 TRANSCRIPT = '[00:00.000 - 00:01.000] Narrator: simulated transcription from the fake provider.'
 AGENT_REPLY = 'Simulated agent reply: tell me more about the scene you want to make.'
+REQUEST_ID = '021760850000000fixture0001'     # BytePlus-style request id (fixture; never a real one)
+
+
+# ---- each provider's real error shape (as their APIs answer; the values are fixtures) -------------------------
+def byteplus_error(code, message, *, param=None, request_id=REQUEST_ID):
+    """ModelArk (Seedance/Seedream) error body: the request id rides at the end of the message."""
+    error = {'code': code, 'message': f'{message} Request id: {request_id}', 'type': 'BadRequest'}
+    if param:
+        error['param'] = param
+    return {'error': error}
+
+
+GOOGLE_STATUS = {400: 'INVALID_ARGUMENT', 403: 'PERMISSION_DENIED', 404: 'NOT_FOUND', 408: 'DEADLINE_EXCEEDED', 429: 'RESOURCE_EXHAUSTED',
+                 500: 'INTERNAL', 503: 'UNAVAILABLE', 504: 'DEADLINE_EXCEEDED'}
+
+
+def google_error(status, message='Request failed.', reason=None):
+    """Gemini / Interactions API error body (google.rpc.Status), optionally with an ErrorInfo reason."""
+    error = {'code': status, 'message': message, 'status': GOOGLE_STATUS.get(status, 'UNKNOWN')}
+    if reason:
+        error['details'] = [{'@type': 'type.googleapis.com/google.rpc.ErrorInfo', 'reason': reason, 'domain': 'googleapis.com'}]
+    return {'error': error}
+
+
+def kling_error(code, message, request_id='req-sim'):
+    return {'code': code, 'message': message, 'request_id': request_id}
+
+
+def magnific_error(message, invalid_params=None):
+    return {'message': message, **({'invalid_params': invalid_params} if invalid_params else {})}
+
+
+def asset_error(action, code, message, request_id='req-asset-fixture'):
+    """BytePlus OpenAPI (asset library) error body."""
+    return {'ResponseMetadata': {'RequestId': request_id, 'Action': action, 'Version': '2024-01-01',
+                                 'Error': {'Code': code, 'Message': message}}}
+
+
+def jsonrpc_error(identifier, code, message):
+    return {'jsonrpc': '2.0', 'id': identifier, 'error': {'code': code, 'message': message}}
+
+
+# A representative refusal per provider: (HTTP status, body), for faults and tests.
+PROVIDER_ERRORS = {
+    'seedance': (400, byteplus_error('InputAudioSensitiveContentDetected',
+                                     'The request failed because the input audio may contain sensitive information.', param='content[10]')),
+    'seedream': (400, byteplus_error('OutputImageSensitiveContentDetected', 'The request failed because the output image may contain sensitive information.')),
+    'gemini': (400, google_error(400, 'API key not valid. Please pass a valid API key.', 'API_KEY_INVALID')),
+    'omni': (429, google_error(429, 'Resource has been exhausted (e.g. check quota).')),
+    'kling': (429, kling_error(1102, 'Account balance not enough')),
+    'magnific': (400, magnific_error('Invalid request', [{'field': 'image', 'reason': 'Image exceeds the maximum size'}])),
+    'byteplus-assets': (400, asset_error('CreateAsset', 'InvalidParameter.ImageInvalid', 'The image cannot be used as an asset.')),
+}
 
 
 def png_bytes(size=(64, 48)):
@@ -99,6 +152,11 @@ class FakeProviders:
         self.kling_payloads, self.kling_tasks = [], {}  # create bodies; task id -> {'body', 'polls'}
         self.kling_running_polls = 1    # GETs answered 'processing' before a Kling task succeeds
         self.faults = []        # [{'match': regex on 'METHOD host/path' or 'FETCH url', 'status', 'payload', 'count'}]: the next N matching calls fail
+        # Accepted tasks that the provider then fails (each provider's own failed-task shape): None = tasks succeed.
+        self.seedance_task_error = None     # {'code', 'message'}: every polled Seedance task fails with it
+        self.omni_task_error = None         # {'code', 'message'}: the interaction ends status 'failed' with it
+        self.kling_task_error = None        # task_status_msg: the task ends task_status 'failed'
+        self.magnific_task_error = None     # data.error: the task ends status 'FAILED'
         self._stack = contextlib.ExitStack()
 
     # ---- plain handler -------------------------------------------------
@@ -154,6 +212,8 @@ class FakeProviders:
                 done = self.omni_polls[omni[1]] > self.omni_running_polls
             if not done:
                 return 200, {'id': omni[1], 'status': 'in_progress', 'object': 'interaction'}
+            if self.omni_task_error:
+                return 200, {'id': omni[1], 'status': 'failed', 'object': 'interaction', 'error': dict(self.omni_task_error)}
             video, mime = (self.mp4, 'video/mp4') if self.mp4 else (self.mov, 'video/quicktime')
             return 200, {'id': omni[1], 'status': 'completed', 'object': 'interaction', 'steps': [
                 {'type': 'user_input', 'content': [{'type': 'text', 'text': 'prompt'}]},
@@ -177,11 +237,13 @@ class FakeProviders:
                 return 200, {'id': f'cgt-sim-{self.task_counter}'}
         task = re.search(r'/contents/generations/tasks/(cgt-sim-\d+)$', path)
         if host.endswith('bytepluses.com') and task and method == 'GET':
-            status = 'failed' if task[1] in self.rejected_tasks else self.seedance_status
+            status = 'failed' if task[1] in self.rejected_tasks or self.seedance_task_error else self.seedance_status
             payload = {'id': task[1], 'status': status, 'created_at': 1, 'updated_at': 2,
                        'usage': {'completion_tokens': 100000, 'total_tokens': 100000}}
             if task[1] in self.rejected_tasks:
                 payload['error'] = {'code': PRIVACY_CODE, 'message': PRIVACY_MESSAGE}
+            elif self.seedance_task_error:
+                payload['error'] = dict(self.seedance_task_error)
             elif self.seedance_status == 'succeeded':
                 payload['content'] = {'video_url': FAKE_MEDIA + 'video.mov'}
             return 200, payload
@@ -204,6 +266,8 @@ class FakeProviders:
                     generated = [MAGNIFIC_CDN + status[2] + '-preview.mp4?token=t', MAGNIFIC_CDN + status[2] + '.mov?token=t']
             else:
                 generated = [MAGNIFIC_IMAGE_CDN + status[2] + '.png?token=t']
+            if self.magnific_task_error:
+                return 200, {'data': {'task_id': status[2], 'status': 'FAILED', 'error': self.magnific_task_error, 'generated': []}}
             return 200, {'data': {'task_id': status[2], 'status': 'COMPLETED', 'generated': generated}}
         # Kling image tasks (kling.ai/document-api/api/image/3-0-omni/image-generation, read 2026-10-19): create returns
         # a task id; GET returns task_status submitted/processing/succeed/failed and task_result.images[].url.
@@ -224,6 +288,9 @@ class FakeProviders:
                 created['polls'] += 1
                 done = created['polls'] > self.kling_running_polls
             task = {'task_id': kling[1], 'task_status': 'succeed' if done else 'processing', 'created_at': 1, 'updated_at': 2}
+            if done and self.kling_task_error:
+                task.update(task_status='failed', task_status_msg=self.kling_task_error)
+                return 200, {'code': 0, 'message': 'SUCCEED', 'request_id': 'req-sim', 'data': task}
             if done:
                 body = created['body']
                 units = KLING_MODELS[body['model_name']] * (2 if body.get('image') and body['model_name'] == 'kling-v2-1' else 1)

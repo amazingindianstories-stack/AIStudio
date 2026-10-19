@@ -4,6 +4,7 @@ import io
 import json
 from pathlib import Path
 import subprocess
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from PIL import Image
@@ -356,10 +357,19 @@ class ProviderAdapterTests(SimpleTestCase):
         self.assertEqual(status(completed), {'status': 'succeeded', 'videoBase64': 'AAAAIGZ0eXBpc29t', 'mimeType': 'video/mp4'})
         for raw in ('in_progress', 'queued', None):
             self.assertEqual(status({'id': 'v1_task', 'status': raw}), {'status': 'running'})
-        self.assertEqual(status({'status': 'failed', 'error': {'message': 'The prompt was blocked by safety filters.'}}),
-                         {'status': 'failed', 'error': 'The prompt was blocked by safety filters.', 'moderationBlocked': True})
+        clock = patch('apps.generation.provider_errors.now_ms', return_value=7)
+        clock.start()
+        self.addCleanup(clock.stop)
+        # A failed interaction keeps its own record: the provider's message (a plain "failed" is no code), the task id.
+        blocked = {'status': 'failed', 'error': {'message': 'The prompt was blocked by safety filters.'}}
+        self.assertEqual(status(blocked), {'status': 'failed', 'error': 'The prompt was blocked by safety filters.', 'moderationBlocked': True,
+                                           'providerError': {'provider': 'omni', 'phase': 'task', 'source': 'provider',
+                                                             'message': 'The prompt was blocked by safety filters.', 'taskId': 'v1_task',
+                                                             'rawBody': json.dumps(blocked), 'receivedAt': 7}})
         self.assertEqual(status({'status': 'budget_exceeded'}),
-                         {'status': 'failed', 'error': 'Omni generation ended with status "budget_exceeded".', 'moderationBlocked': False})
+                         {'status': 'failed', 'error': 'Omni generation ended with status "budget_exceeded".', 'moderationBlocked': False,
+                          'providerError': {'provider': 'omni', 'phase': 'task', 'source': 'provider', 'code': 'budget_exceeded',
+                                            'taskId': 'v1_task', 'rawBody': '{"status": "budget_exceeded"}', 'receivedAt': 7}})
         # URI delivery: the Files API download goes only to a Google host, with the same credential header.
         uri = 'https://generativelanguage.googleapis.com/v1beta/files/abc-123:download?alt=media'
         download = ScriptedTransport(HttpResult(200, b'mp4-master-bytes', {'content-type': 'video/mp4'}))
@@ -369,8 +379,12 @@ class ProviderAdapterTests(SimpleTestCase):
         self.assertEqual(download.calls, [(('GET', uri), {'headers': {'x-goog-api-key': 'fixture'}, 'signal': None})])
         with self.assertRaisesRegex(ProviderError, 'returned no video'):
             omni.get_video_status('v1_task', transport=ScriptedTransport(result({'status': 'completed', 'steps': []})), env=env)
-        self.assertEqual(status({'error': {'message': 'Interaction not found.'}}, 404),
-                         {'status': 'failed', 'error': 'Interaction not found.', 'moderationBlocked': False})
+        self.assertEqual(status({'error': {'code': 404, 'message': 'Interaction not found.', 'status': 'NOT_FOUND'}}, 404),
+                         {'status': 'failed', 'error': 'Interaction not found.', 'moderationBlocked': False,
+                          'providerError': {'provider': 'omni', 'phase': 'status', 'source': 'provider', 'httpStatus': 404,
+                                            'code': 'NOT_FOUND', 'message': 'Interaction not found.', 'taskId': 'v1_task',
+                                            'rawBody': '{"error": {"code": 404, "message": "Interaction not found.", "status": "NOT_FOUND"}}',
+                                            'receivedAt': 7}})
 
     def test_magnific_task_protocol_and_output_list(self):
         transport = ScriptedTransport(result({'data': {'task_id': 'task'}}), result({'data': {'status': 'COMPLETED', 'generated': ['one', 'two']}}))

@@ -367,7 +367,13 @@ class WorkerTests(TransactionTestCase):
         kinds = [self.advance_with(identifier, storage, broken)['kind'] for _ in range(attempts)]
         self.assertEqual(kinds, ['poll_error'] * (attempts - 1) + ['failed'])
         from .serialization import generation_item
-        self.assertEqual(generation_item(Generation.objects.get(pk=identifier))['error'], 'The upscaled master could not be downloaded and stored.')
+        row = Generation.objects.get(pk=identifier)
+        self.assertEqual(generation_item(row)['error'], 'The upscaled master could not be downloaded and stored.'
+                         ' Error code: output_download_failed. Task id: ' + row.task_id + '.')
+        (record,) = row.provider_responses
+        self.assertEqual({key: record[key] for key in ('provider', 'model', 'phase', 'source', 'code', 'message')},
+                         {'provider': 'magnific', 'model': row.model, 'phase': 'download', 'source': 'veevee',
+                          'code': 'output_download_failed', 'message': 'Provider media ended before its declared length.'})
 
     def test_a_stored_master_is_recorded_even_after_the_job_deadline(self):
         from .services.deadline import Cancellation

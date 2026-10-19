@@ -61,6 +61,7 @@ class Outcome:
     reason: str = ''
     delay_ms: int = 0
     message: str = ''
+    detail: dict = None       # failed: BytePlus's exact answer (provider_errors record), shown with the message
 
 
 def ready(asset_id):
@@ -80,8 +81,15 @@ PORTRAIT_BUSY = ('Portrait storage stayed busy for {minutes} minutes, so this ge
                  + ' Try again shortly.')
 
 
-def failed(message, reason='failed'):
-    return Outcome('failed', reason=reason, message=message)
+def failed(message, reason='failed', detail=None):
+    return Outcome('failed', reason=reason, message=message, detail=detail)
+
+
+def _last_error(asset, error, **receipt):
+    """The asset's receipt with BytePlus's exact answer for this failure (code, message, RequestId) kept for support."""
+    record = getattr(error, 'provider_error', None)
+    merged = {**(asset.receipt or {}), **receipt}
+    return {**merged, 'lastError': record} if isinstance(record, dict) else merged
 
 
 # ---------------------------------------------------------------- BytePlus transport
@@ -490,7 +498,7 @@ def remote_delete(asset, client):
         if error.code in ('NotFound.asset_id', 'NotFound'):
             _finish(asset, status='DELETED', deleted_at=now_ms())
             return True
-        _finish(asset, status='UNCERTAIN', error_code=str(error.code)[:100])
+        _finish(asset, status='UNCERTAIN', error_code=str(error.code)[:100], receipt=_last_error(asset, error))
         return False
     except Exception:
         _finish(asset, status='UNCERTAIN', error_code='delete_unverified')
@@ -545,7 +553,7 @@ def _register(asset, data, storage, client, user_id, requeue=False):
                 pool.last_quota_error_at = pool.updated_at = now_ms()
                 pool.save(update_fields=['observed_capacity', 'last_quota_error_at', 'updated_at'])
             # A Gallery upload keeps its place in the queue instead of failing; a generation retries with a fresh claim.
-            _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='QuotaSharedPoolExceeded')
+            _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='QuotaSharedPoolExceeded', receipt=_last_error(asset, error))
             return wait('portrait_pool_full', 5000)
         if throttled(error):
             # The asset API's write limit: nothing was created, the image was not judged. Pause new registrations
@@ -554,24 +562,24 @@ def _register(asset, data, storage, client, user_id, requeue=False):
             now = now_ms()
             record = _throttle_record(asset, now)
             if now - record['first_at'] > THROTTLE_GIVE_UP_MS:
-                _finish(asset, status='FAILED', error_code='throttled', receipt={**(asset.receipt or {}), 'throttle': record})
-                return failed(PORTRAIT_UNAVAILABLE + NOT_CHARGED + ' Retry to try again.', 'portrait_rejected')
+                _finish(asset, status='FAILED', error_code='throttled', receipt=_last_error(asset, error, throttle=record))
+                return failed(PORTRAIT_UNAVAILABLE + NOT_CHARGED + ' Retry to try again.', 'portrait_rejected', error.provider_error)
             _pause(now)
-            _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='throttled', receipt={**(asset.receipt or {}), 'throttle': record})
+            _finish(asset, status='QUEUED' if requeue else 'FAILED', error_code='throttled', receipt=_last_error(asset, error, throttle=record))
             return wait('portrait_paused', 15000)
         if content_refusal(error):
-            _finish(asset, status='FAILED', error_code=str(error.code)[:100])
+            _finish(asset, status='FAILED', error_code=str(error.code)[:100], receipt=_last_error(asset, error))
             if refuse_as_asset(asset.content_sha256):       # a guess of the detector: the job goes on with the image inline
                 return wait('portrait_registering', 1000)
             message = PORTRAIT_REFUSED if error.code == 'moderation_rejected' else PORTRAIT_UNPREPARED
-            return failed(message + NOT_CHARGED, 'portrait_rejected')
+            return failed(message + NOT_CHARGED, 'portrait_rejected', error.provider_error)
         if isinstance(error.status, int) and 400 <= error.status < 500 and error.status not in (408, 409):
             # Not about the image and not a limit (credentials, a changed API): nothing was created and retrying blindly would
             # block the queue, so it fails now (not refused: a later Retry or upload may succeed). No pause, no requeue.
-            _finish(asset, status='FAILED', error_code=str(error.code)[:100])
-            return failed(PORTRAIT_UNAVAILABLE + NOT_CHARGED + ' Retry to try again.', 'portrait_rejected')
+            _finish(asset, status='FAILED', error_code=str(error.code)[:100], receipt=_last_error(asset, error))
+            return failed(PORTRAIT_UNAVAILABLE + NOT_CHARGED + ' Retry to try again.', 'portrait_rejected', error.provider_error)
         # 5xx, timeouts, network: the call may have created the asset, so reconcile by name later.
-        _finish(asset, status='UNCERTAIN', error_code=str(error.code)[:100])
+        _finish(asset, status='UNCERTAIN', error_code=str(error.code)[:100], receipt=_last_error(asset, error))
         return wait('portrait_uncertain', 10000)
     except Exception:
         _finish(asset, status='UNCERTAIN', error_code='create_unverified')
@@ -598,8 +606,8 @@ def _poll(asset, client):
         remote = client.get_asset(asset.byteplus_asset_id)
     except BytePlusAssetError as error:
         if error.code in ('NotFound.asset_id', 'NotFound'):
-            _finish(asset, status='FAILED', error_code='missing_after_create')
-            return failed(PORTRAIT_MISSING, 'portrait_missing')
+            _finish(asset, status='FAILED', error_code='missing_after_create', receipt=_last_error(asset, error))
+            return failed(PORTRAIT_MISSING, 'portrait_missing', error.provider_error)
         return wait('portrait_processing', 5000)
     except Exception:
         return wait('portrait_processing', 5000)
@@ -630,7 +638,11 @@ def _poll(asset, client):
                 row.save(update_fields=['status', 'error_code', 'updated_at', 'receipt'])
         if not held and remote_delete(row, client) and row.origin == 'upload':
             _finish(row, status='FAILED', deleted_at=None)      # an upload stays visible as "can't be used"
-        return failed(PORTRAIT_UNPREPARED + NOT_CHARGED, 'portrait_rejected')
+        from apps.generation import provider_errors
+        detail = provider_errors.capture('byteplus-assets', phase='GetAsset', code=code, message='Asset status: ' + (status or 'unknown'),
+                                         task_id=asset.byteplus_asset_id, source='veevee',
+                                         body=json.dumps({key: value for key, value in (remote or {}).items() if key != 'URL'}, default=str))
+        return failed(PORTRAIT_UNPREPARED + NOT_CHARGED, 'portrait_rejected', detail)
     return wait('portrait_processing', 3000)
 
 

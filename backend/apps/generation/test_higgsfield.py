@@ -64,16 +64,24 @@ class HiggsfieldTests(SimpleTestCase):
     def test_tool_failures_and_terminal_status(self):
         client=self.make_client()
         client.call_tool=Mock(return_value={'isError':True,'content':[{'text':'gone'}],'structuredContent':{'retryable':False}})
-        self.assertEqual(client.job_status('missing'),{'status':'failed','error':'Higgsfield job_status: gone'})
+        with patch('apps.generation.provider_errors.now_ms',return_value=7):
+            self.assertEqual(client.job_status('missing'),{'status':'failed','error':'Higgsfield job_status: gone',
+                'providerError':{'provider':'higgsfield','phase':'task','source':'provider','code':'tool_error',
+                                 'message':'Higgsfield job_status: gone','taskId':'missing','receivedAt':7}})
         client.call_tool.return_value={'isError':True,'content':[{'text':'retry'}]}
-        with self.assertRaises(ProviderError):
+        with self.assertRaises(ProviderError) as raised:
             client.job_status('transient')
+        self.assertEqual({key:raised.exception.provider_response[key] for key in ('phase','code','taskId')},
+                         {'phase':'status','code':'tool_error','taskId':'transient'})
         for source,status in [('completed','succeeded'),('in_progress','running'),('waiting','queued'),('nsfw','failed'),('ip_detect','failed')]:
             client.call_tool.return_value={'structuredContent':{'generation':{'status':source,'results':{'rawUrl':'raw','minUrl':'compressed'}}}}
             result=client.job_status('job')
             self.assertEqual(result['status'],status)
             if source == 'completed':
                 self.assertEqual(result['url'],'raw')
+            if status == 'failed':
+                # Higgsfield's terminal status is the exact code (nsfw, ip_detect), with the task it ended.
+                self.assertEqual((result['providerError']['code'],result['providerError']['taskId']),(source,'job'))
 
     def test_preset_notice_retries_only_explicit_non_submission(self):
         client=self.make_client()

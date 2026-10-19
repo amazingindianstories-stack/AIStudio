@@ -16,6 +16,12 @@ def rejection_message(error):
     return UPSCALE_RATE_LIMITED if getattr(error, 'status', None) == 429 else UPSCALE_REJECTED
 
 
+def rejection_records(item, error):
+    """The provider's own refusal record, stamped with the model, for the failed row's provider_responses."""
+    record = getattr(error, 'provider_response', None)
+    return [{**record, 'model': record.get('model') or item.model}] if isinstance(record, dict) else None
+
+
 def definitive_rejection(error):
     """Only the provider's own 4xx refusal of the create call proves no task exists.
     Anything after it answered (receipt checks, persistence) stays uncertain."""
@@ -59,7 +65,7 @@ def submit_persisted_upscale(item, *, signal, mark_pending, save_receipt, mark_u
             'params':payload['params']},signal=signal)
     except Exception as error:
         if mark_failed is not None and definitive_rejection(error):
-            mark_failed(rejection_message(error), 'REJECTED')
+            mark_failed(rejection_message(error), 'REJECTED', responses=rejection_records(item, error))
             return None
         mark_uncertain()
         raise
@@ -103,7 +109,7 @@ def _submit_video(item, value, *, signal, mark_pending, save_receipt, mark_uncer
             'params':payload['params']},signal=signal)
     except Exception as error:
         if mark_failed is not None and definitive_rejection(error):
-            mark_failed(rejection_message(error), 'REJECTED')
+            mark_failed(rejection_message(error), 'REJECTED', responses=rejection_records(item, error))
             return None
         mark_uncertain()
         raise
@@ -157,9 +163,10 @@ def submit_claimed_upscale(item, *, owner, signal, storage=None, submit=None):
     def uncertain():
         Generation.objects.filter(pk=current.id,worker_lease_id=owner,task_id__isnull=True,
             provider_status='SUBMISSION_PENDING').update(provider_status='SUBMISSION_UNCERTAIN',updated_at=now_ms())
-    def failed(message, provider_status):
+    def failed(message, provider_status, responses=None):
         timestamp=now_ms()
-        update({'status':'failed','error':message,'provider_status':provider_status,'completed_at':timestamp})
+        update({'status':'failed','error':message,'provider_status':provider_status,'completed_at':timestamp,
+                **({'provider_responses':responses} if responses else {})})
     import os
     if submit is None and os.environ.get('MOCK_GENERATION')=='1':
         submit=lambda payload,signal: {'taskId':'mock-magnific-'+str(current.id)}

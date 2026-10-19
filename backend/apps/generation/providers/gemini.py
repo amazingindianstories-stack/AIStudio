@@ -3,6 +3,7 @@ import json
 import os
 import re
 from apps.generation.model_registry import model_definition
+from apps.generation import provider_errors
 from apps.generation.services.deadline import Cancellation
 from .transport import HttpTransport, ProviderError, required_key
 
@@ -89,12 +90,14 @@ def generate_image(input, *, transport=None, env=None, signal=None):
     response = transport.request('POST', url,
         headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, body=body, signal=signal)
     if not response.ok:
-        error = ProviderError(f'Gemini image error ({response.status}): {response.text[:400]}', status=response.status)
+        error = ProviderError(f'Gemini image error ({response.status}): {response.text[:400]}', status=response.status,
+                              provider_response=provider_errors.capture('gemini', phase='create', status=response.status,
+                                                                        body=response.text, headers=response.headers))
         # No in-request retry: the paid guard allows one POST per job, so a retry could only fail and hide this error
         # while holding the worker. Fail now with the busy state; the user retries once the limit clears.
         if response.status in UNPROCESSED_STATUSES:
             error.may_have_submitted = False
-            error.provider_response = {'provider': 'gemini', 'httpStatus': response.status, 'unbilled': True}
+            error.provider_response['unbilled'] = True
         raise error
     result = response.json()
     candidate = (result.get('candidates') or [{}])[0]
@@ -102,5 +105,17 @@ def generate_image(input, *, transport=None, env=None, signal=None):
     image = next((part['inlineData'] for part in parts if (part.get('inlineData') or {}).get('data')), None)
     if not image:
         # A 200 is billed; never re-submit it automatically.
-        raise ProviderError(f"Gemini returned no image ({candidate.get('finishReason') or 'no candidates'}).")
+        raise ProviderError(f"Gemini returned no image ({candidate.get('finishReason') or 'no candidates'}).",
+                            provider_response=no_image_record(result, candidate))
     return {'base64': image['data'], 'mimeType': image.get('mimeType') or 'image/png'}
+
+
+def no_image_record(result, candidate):
+    """Why a billed 200 carried no image: the prompt block reason or the candidate's finish reason, never its parts."""
+    feedback = result.get('promptFeedback') if isinstance(result.get('promptFeedback'), dict) else {}
+    summary = {key: value for key, value in {'finishReason': candidate.get('finishReason'), 'finishMessage': candidate.get('finishMessage'),
+               'safetyRatings': candidate.get('safetyRatings'), 'promptFeedback': feedback or None}.items() if value}
+    return provider_errors.capture('gemini', phase='create', status=200, body=json.dumps(summary),
+                                   code=feedback.get('blockReason') or candidate.get('finishReason') or 'NO_CANDIDATES',
+                                   message=candidate.get('finishMessage') or feedback.get('blockReasonMessage') or '',
+                                   request_id=result.get('responseId') if isinstance(result.get('responseId'), str) else None)

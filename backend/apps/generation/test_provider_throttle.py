@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.media.audio_inputs import capture_audio_input
 from apps.media.storage import MemoryAdapter, StorageService
 from apps.production_runtime import paid_guard
+from testsupport.fake_providers import GOOGLE_STATUS, google_error
 from . import failure_copy
 from .models import Generation
 from .providers import seedream
@@ -27,7 +28,8 @@ HOUR = 3600 * 1000
 
 
 def throttle(status, body=None):
-    return HttpResult(status, json.dumps(body or {'error': {'status': 'THROTTLED'}}).encode())
+    """The provider's answer; Google's own error shape (google.rpc.Status) unless a body is given."""
+    return HttpResult(status, json.dumps(body or google_error(status)).encode())
 
 
 class LedgerCursor:
@@ -114,7 +116,11 @@ class GeminiThrottleTests(TransactionTestCase):
                 self.assertIn(f'({status})', row.error)
                 self.assertNotIn('No paid submission', row.error)
                 self.assertNotIn('may still have been accepted', row.error, 'a throttle was not processed, so it is not uncertain')
-                self.assertEqual(generation_item(row)['error'], failure_copy.BUSY)
+                self.assertEqual(generation_item(row)['error'], failure_copy.BUSY + f' Provider code: {GOOGLE_STATUS[status]}.')
+                (record,) = row.provider_responses
+                self.assertEqual({key: record[key] for key in ('provider', 'model', 'phase', 'httpStatus', 'code', 'message', 'unbilled')},
+                                 {'provider': 'gemini', 'model': row.model, 'phase': 'create', 'httpStatus': status,
+                                  'code': GOOGLE_STATUS[status], 'message': 'Request failed.', 'unbilled': True})
 
     def test_unbilled_throttle_rows_do_not_count_toward_the_gemini_spend_window(self):
         for status in (429, 503):
@@ -214,7 +220,12 @@ class PollerThrottleTests(TransactionTestCase):
         self.assertEqual((outcome['kind'], outcome['item'].error), ('failed', poller.DOWNLOAD_ABANDONED))
         self.assertGreaterEqual(waited, 6 * HOUR)
         self.assertLess(waited, 7 * HOUR)
-        self.assertEqual(generation_item(outcome['item'])['error'], poller.DOWNLOAD_ABANDONED)
+        self.assertEqual(generation_item(outcome['item'])['error'],
+                         poller.DOWNLOAD_ABANDONED + ' Error code: output_download_failed. Task id: task-original.')
+        (record,) = outcome['item'].provider_responses
+        self.assertEqual({key: record[key] for key in ('provider', 'phase', 'source', 'code', 'message', 'taskId')},
+                         {'provider': 'seedance', 'phase': 'download', 'source': 'veevee', 'code': 'output_download_failed',
+                          'message': '403 link expired', 'taskId': 'task-original'})
         self.assertEqual(outcome['item'].task_id, 'task-original', 'the provider task is kept; nothing is resubmitted')
 
     def test_status_polls_that_never_work_fail_honestly_after_six_hours(self):
@@ -224,7 +235,7 @@ class PollerThrottleTests(TransactionTestCase):
         self.assertEqual((outcome['kind'], outcome['item'].error), ('failed', poller.POLL_ABANDONED))
         self.assertGreaterEqual(waited, 6 * HOUR)
         self.assertLess(waited, 7 * HOUR)
-        self.assertEqual(generation_item(outcome['item'])['error'], poller.POLL_ABANDONED)
+        self.assertEqual(generation_item(outcome['item'])['error'], poller.POLL_ABANDONED + ' Error code: poll_abandoned. Task id: task-original.')
 
     def test_a_recovering_status_poll_restarts_the_window(self):
         item = self.job()
@@ -261,7 +272,7 @@ class SeedreamOverloadCopyTests(TransactionTestCase):
                 outcome = executor.process_generation(row.id, owner='worker', image_execute=image, heartbeat=False, env={})
                 row.refresh_from_db()
                 self.assertEqual(outcome['kind'], 'failed')
-                self.assertEqual(generation_item(row)['error'], failure_copy.BUSY)
+                self.assertEqual(generation_item(row)['error'], failure_copy.BUSY + f' Provider code: {code}.')
                 self.assertEqual(('may still have been accepted' in row.error), status >= 500,
                                  'a 5xx stays uncertain; only the copy changes')
 
@@ -319,7 +330,9 @@ class AudioThrottleTests(TransactionTestCase):
         self.assertEqual((outcome['kind'], row.status), ('failed', 'failed'))
         self.assertNotEqual(row.provider_status, 'SUBMISSION_UNCERTAIN')
         self.assertIn('429', row.error)
-        self.assertEqual(generation_item(row)['error'], failure_copy.BUSY)
+        self.assertEqual(generation_item(row)['error'], failure_copy.BUSY + ' Provider code: RESOURCE_EXHAUSTED.')
+        self.assertEqual([(record['provider'], record['phase'], record['httpStatus'], record['code']) for record in row.provider_responses],
+                         [('gemini', 'transcribe', 429, 'RESOURCE_EXHAUSTED')])
         self.assertTrue(audio_capacity_available(row.user_id), 'a throttle must not lock the user out of transcription')
 
     def test_other_definite_4xx_fail_with_the_rejected_copy_and_5xx_stays_uncertain(self):
@@ -337,4 +350,4 @@ class AudioThrottleTests(TransactionTestCase):
                 self.assertEqual(row.provider_status == 'SUBMISSION_UNCERTAIN', uncertain)
                 self.assertEqual(row.status, 'running' if uncertain else 'failed')
                 if not uncertain:
-                    self.assertEqual(generation_item(row)['error'], failure_copy.AUDIO_REJECTED)
+                    self.assertEqual(generation_item(row)['error'], failure_copy.AUDIO_REJECTED + ' Provider code: INVALID_ARGUMENT.')

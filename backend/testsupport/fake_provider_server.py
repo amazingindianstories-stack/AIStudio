@@ -16,7 +16,10 @@ the media fetcher here when VEEVEE_LOCAL_PROVIDERS=fake.
                     "create" fails task creation (400 InputImageSensitiveContentDetected.PrivacyInformation),
                     "async" accepts the task and fails it when polled. "reset" also clears both.
                     "faults": [{"match": regex, "status": 429, "payload": {...}, "count": N}] makes the next N calls whose
-                    "METHOD host/path" (provider APIs) or "FETCH url" (media downloads) matches fail with that answer.
+                    "METHOD host/path" (provider APIs) or "FETCH url" (media downloads) matches fail with that answer
+                    (testsupport.fake_providers.PROVIDER_ERRORS has each provider's real error shape).
+                    "seedance_task_error" / "omni_task_error" ({"code", "message"}), "kling_task_error" and
+                    "magnific_task_error" (message): accepted tasks then fail the way that provider reports it; null clears.
 """
 import json
 import sys
@@ -88,9 +91,11 @@ class Handler(BaseHTTPRequestHandler):
                     FAKE.groups.clear(); FAKE.assets.clear(); FAKE.calls.clear(); FAKE.seedance_payloads.clear()
                     FAKE.kling_payloads.clear(); FAKE.kling_tasks.clear()
                     FAKE.reject_image_sha256.clear(); FAKE.rejected_tasks.clear(); FAKE.reject_mode = 'create'; FAKE.faults.clear()
+                    FAKE.seedance_task_error = FAKE.omni_task_error = FAKE.kling_task_error = FAKE.magnific_task_error = None
                 if 'faults' in change:
                     FAKE.faults = [dict(fault) for fault in change['faults'] or []]
-                for key in ('asset_capacity', 'seedance_status', 'asset_activation_polls', 'reject_mode'):
+                for key in ('asset_capacity', 'seedance_status', 'asset_activation_polls', 'reject_mode', 'seedance_task_error',
+                            'omni_task_error', 'kling_task_error', 'magnific_task_error'):
                     if key in change:
                         setattr(FAKE, key, change[key])
                 if 'reject_image_sha256' in change:

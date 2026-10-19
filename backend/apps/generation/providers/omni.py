@@ -15,6 +15,7 @@ import re
 from urllib.parse import quote, urlsplit
 
 from apps.common.javascript import string
+from apps.generation import provider_errors
 from apps.generation.model_registry import capability, model_definition, provider_model_id, retirement_message
 from .transport import HttpTransport, ProviderError, required_key
 
@@ -135,9 +136,13 @@ def extract_video(result, headers=None, *, transport=None, signal=None):
         transport = transport or HttpTransport(allowed_hosts=[host], max_response_bytes=512 * 1024 * 1024)
         response = transport.request('GET', uri, headers=headers or {}, signal=signal)
         if not response.ok:
-            raise ProviderError(f'Failed to download Omni video from uri ({response.status}).', status=response.status)
+            raise ProviderError(f'Failed to download Omni video from uri ({response.status}).', status=response.status,
+                                provider_response=provider_errors.capture('omni', phase='download', status=response.status,
+                                                                          headers=response.headers))
         return {'base64': base64.b64encode(response.body).decode(), 'mimeType': (response.headers or {}).get('content-type') or 'video/mp4'}
-    raise ProviderError('Omni completed but returned no video (no inline data or uri).')
+    raise ProviderError('Omni completed but returned no video (no inline data or uri).', provider_response=provider_errors.local(
+        'omni', 'no_video', 'Omni completed but returned no video (no inline data or uri).', phase='task',
+        task_id=result.get('id') if isinstance(result.get('id'), str) else None))
 
 
 def create_video_task(input, *, transport=None, env=None, signal=None, vertex_auth=None):
@@ -156,11 +161,15 @@ def create_video_task(input, *, transport=None, env=None, signal=None, vertex_au
     transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com', 'aiplatform.googleapis.com'], max_response_bytes=512 * 1024 * 1024)
     response = transport.request('POST', endpoint, headers={**headers, 'Content-Type': 'application/json'}, body=payload, signal=signal)
     if not response.ok:
-        raise ProviderError(f'Omni create error ({response.status}): {response.text[:400]}', status=response.status)
+        raise ProviderError(f'Omni create error ({response.status}): {response.text[:400]}', status=response.status,
+                            provider_response=provider_errors.capture('omni', phase='create', status=response.status,
+                                                                      body=response.text, headers=response.headers))
     result = response.json()
     task_id = result.get('id') or result.get('name')
     if not task_id:
-        raise ProviderError('Omni create returned no interaction id.')
+        raise ProviderError('Omni create returned no interaction id.', provider_response=provider_errors.local(
+            'omni', 'no_interaction_id', 'Omni create returned no interaction id.', phase='create',
+            status=response.status, body=response.text, headers=response.headers))
     return task_id
 
 
@@ -172,8 +181,11 @@ def get_video_status(task_id, *, transport=None, download_transport=None, env=No
     if not response.ok:
         terminal = terminal_status_http_error(response.status, response.text)
         if terminal:
-            return terminal
-        raise ProviderError(f'Omni status error ({response.status}): {response.text[:400]}', status=response.status)
+            return {**terminal, 'providerError': provider_errors.capture('omni', phase='status', status=response.status,
+                                                                         body=response.text, headers=response.headers, task_id=task_id)}
+        raise ProviderError(f'Omni status error ({response.status}): {response.text[:400]}', status=response.status,
+                            provider_response=provider_errors.capture('omni', phase='status', status=response.status,
+                                                                      body=response.text, headers=response.headers, task_id=task_id))
     result = response.json()
     status = map_status(result.get('status'))
     if status == 'succeeded':
@@ -181,5 +193,12 @@ def get_video_status(task_id, *, transport=None, download_transport=None, env=No
         return {'status': status, 'videoBase64': video['base64'], 'mimeType': video['mimeType']}
     if status == 'failed':
         message = (result.get('error') or {}).get('message') or f'Omni generation ended with status "{result.get("status", "undefined")}".'
-        return {'status': status, 'error': message, 'moderationBlocked': bool(re.search(r'polic|safety|moderat|block', message, re.I))}
+        # The interaction's own error code, else a telling terminal status (budget_exceeded, incomplete ...) is the code;
+        # a plain "failed" leaves the provider's message to explain itself.
+        summary = {key: result[key] for key in ('id', 'status', 'error') if result.get(key) is not None}
+        parsed = provider_errors.parse_body(summary)
+        record = provider_errors.capture('omni', phase='task', body=json.dumps(summary), task_id=task_id,
+                                         code=parsed.get('code') or (result.get('status') if result.get('status') != 'failed' else None))
+        return {'status': status, 'error': message, 'moderationBlocked': bool(re.search(r'polic|safety|moderat|block', message, re.I)),
+                'providerError': record}
     return {'status': status}

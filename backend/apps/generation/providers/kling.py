@@ -12,6 +12,7 @@ from apps.common.javascript import utf16_length
 from apps.generation.model_registry import MODEL_REGISTRY
 from apps.generation.services.deadline import Cancellation
 from apps.generation.watermark import WHITESPACE
+from apps.generation import provider_errors
 from .transport import HttpTransport, ProviderError, required_key
 
 DEFAULT_HOST = 'https://api-singapore.klingai.com'
@@ -141,12 +142,18 @@ def request(path, *, method='GET', body=None, transport=None, env=None, signal=N
     host = api_host(env)
     transport = transport or HttpTransport(allowed_hosts=[urlsplit(host).hostname])
     response = transport.request(method, host + path, headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}, body=body, signal=signal)
+    phase = 'create' if method == 'POST' else 'status'
+    task_id = path.rsplit('/', 1)[1] if phase == 'status' else None
     try:
         result = response.json()
     except ValueError:
-        raise ProviderError(f'Kling returned a non-JSON {response.status} response: {response.text[:300]}', status=response.status)
+        raise ProviderError(f'Kling returned a non-JSON {response.status} response: {response.text[:300]}', status=response.status,
+                            provider_response=provider_errors.capture('kling', phase=phase, status=response.status, body=response.text,
+                                                                      headers=response.headers, task_id=task_id))
     if not response.ok or type(result.get('code')) is not int or result['code'] != 0:
-        raise ProviderError(f"Kling {path} failed (http {response.status}, code {result.get('code', 'undefined')}): {result.get('message') or 'no message'}", status=response.status)
+        raise ProviderError(f"Kling {path} failed (http {response.status}, code {result.get('code', 'undefined')}): {result.get('message') or 'no message'}", status=response.status,
+                            provider_response=provider_errors.capture('kling', phase=phase, status=response.status, body=response.text,
+                                                                      headers=response.headers, task_id=task_id))
     return result
 
 
@@ -154,20 +161,32 @@ def submit_image(input, **options):
     result = request(CREATE_PATH, method='POST', body=build_payload(input), **options)
     task_id = (result.get('data') or {}).get('task_id')
     if not task_id:
-        raise ProviderError('Kling accepted the request but returned no task_id.')
+        raise ProviderError('Kling accepted the request but returned no task_id.', provider_response=provider_errors.local(
+            'kling', 'no_task_id', 'Kling accepted the request but returned no task_id.', phase='create',
+            request_id=result.get('request_id') if isinstance(result.get('request_id'), str) else None))
     return task_id
 
 
+def task_failure(task_id, message, *, code=None, request_id=None):
+    """A definitive end of an accepted task: the executor fails the job instead of polling it again."""
+    error = ProviderError(message, code='task_failed', provider_response=provider_errors.capture(
+        'kling', phase='task', code=code, message=message, task_id=task_id, request_id=request_id))
+    error.terminal = True
+    return error
+
+
 def resolve_image(task_id, **options):
-    task = request(CREATE_PATH + '/' + quote(task_id, safe=''), **options)['data']
+    result = request(CREATE_PATH + '/' + quote(task_id, safe=''), **options)
+    task, request_id = result['data'], result.get('request_id') if isinstance(result.get('request_id'), str) else None
     if task.get('task_status') == 'succeed':
         images = (task.get('task_result') or {}).get('images') or [{}]
         url = images[0].get('url')
         if not url:
-            raise ProviderError('Kling reported success but returned no image URL.')
+            raise task_failure(task_id, 'Kling reported success but returned no image URL.', code='no_image_url', request_id=request_id)
         return {'status': 'succeeded', 'url': url, **({'unitDeduction': task['final_unit_deduction']} if 'final_unit_deduction' in task else {})}
     if task.get('task_status') == 'failed':
-        raise ProviderError('Kling generation failed: ' + task['task_status_msg'] if task.get('task_status_msg') else 'Kling generation failed with no reason given.')
+        raise task_failure(task_id, 'Kling generation failed: ' + task['task_status_msg'] if task.get('task_status_msg') else 'Kling generation failed with no reason given.',
+                           request_id=request_id)
     return {'status': 'running' if task.get('task_status') == 'submitted' else 'queued', 'task': task}
 
 
@@ -180,4 +199,5 @@ def generate_image(input, *, timeout_ms=240000, poll_ms=3000, signal=None, **opt
         result = resolve_image(task_id, signal=signal, **options)
         if result['status'] == 'succeeded':
             return result
-    raise ProviderError(f'Kling task {task_id} did not finish within {math.floor(timeout_ms / 1000 + .5)}s.')
+    message = f'Kling task {task_id} did not finish within {math.floor(timeout_ms / 1000 + .5)}s.'
+    raise ProviderError(message, provider_response=provider_errors.local('kling', 'timeout', message, phase='timeout', task_id=task_id))

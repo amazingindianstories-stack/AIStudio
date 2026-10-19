@@ -63,6 +63,18 @@ class Dependencies:
         return mock_placeholder(identifier, prompt, aspect_ratio, model)
 
 
+def task_ended(result, fallback, provider, task_id):
+    """An accepted task the provider ended without a usable image. A definitive end (failed, or done with no image)
+    fails the job; only our own wait running out (Higgsfield's await timeout) leaves it to be polled again."""
+    from apps.generation import provider_errors
+    from apps.generation.providers.transport import ProviderError
+    message = result.get('error') or fallback
+    record = result.get('providerError') or provider_errors.capture(provider, phase='task', message=message, task_id=task_id)
+    error = ProviderError(message, code='task_failed', provider_response=record)
+    error.terminal = record.get('source') != 'veevee'
+    return error
+
+
 def bounded_best_of(configured, image_size):
     try:
         requested = float(configured or 2)
@@ -157,7 +169,7 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
             task_id = receipt(deps.higgsfield_submit(payload, signal=signal))
         done = deps.higgsfield_await(task_id, signal=signal)
         if done.get('status') != 'succeeded' or not done.get('url'):
-            raise RuntimeError(done.get('error') or 'Higgsfield image generation failed.')
+            raise task_ended(done, 'Higgsfield image generation failed.', 'higgsfield', task_id)
         saved = save(fetch(done['url']), 'png')
     elif provider == 'kling':
         task_id = item.task_id
@@ -176,7 +188,7 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
             if done.get('status') == 'succeeded':
                 break
             if done.get('status') == 'failed':
-                raise RuntimeError(done.get('error') or 'Kling image generation failed.')
+                raise task_ended(done, 'Kling image generation failed.', 'kling', task_id)
             signal.wait(3000)
         reconciled = kling_units_to_cents(done.get('unitDeduction'))
         if reconciled is not None:

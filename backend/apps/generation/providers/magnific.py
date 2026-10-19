@@ -4,6 +4,7 @@ import os
 import re
 from urllib.parse import quote, urlsplit
 from apps.common.javascript import number, string, truthy, UNDEFINED
+from apps.generation import provider_errors
 from .transport import HttpTransport, ProviderError, required_key
 
 BASE_URL = 'https://api.magnific.com'
@@ -82,11 +83,21 @@ def submit_upscale(input, *, transport=None, env=None, signal=None):
         details = ', '.join(f"{item.get('field', 'undefined')}: {item.get('reason', 'undefined')}" for item in result['invalid_params']) if isinstance(result.get('invalid_params'), list) else None
         message = result.get('message')
         error = f'{message} ({details})' if message and details else details or message or f'Magnific API error ({response.status})'
-        raise ProviderError(error, status=response.status)
+        raise ProviderError(error, status=response.status, provider_response=provider_errors.capture(
+            'magnific', phase='create', status=response.status, body=response.text, headers=response.headers))
     data = result.get('data') or {}
     if not data.get('task_id'):
-        raise ProviderError('Magnific API did not return a valid task_id.')
+        raise ProviderError('Magnific API did not return a valid task_id.', provider_response=provider_errors.local(
+            'magnific', 'no_task_id', 'Magnific API did not return a valid task_id.', phase='create',
+            status=response.status, body=response.text, headers=response.headers))
     return {'taskId': data['task_id'], 'status': data.get('status') or 'CREATED', 'variant': variant, 'endpoint': request['endpoint']}
+
+
+def task_failure(task_id, data, result, response):
+    """A FAILED task's record: Magnific gives a message (data.error) and no code."""
+    message = data.get('error') if isinstance(data.get('error'), str) else result.get('message')
+    return provider_errors.capture('magnific', phase='task', message=message or 'Magnific upscale task failed.',
+                                   body=response.text, headers=response.headers, task_id=task_id)
 
 
 def get_upscale_status(task_id, *, model='Magnific Creative', api_key=None, transport=None, env=None, signal=None):
@@ -104,7 +115,9 @@ def get_upscale_status(task_id, *, model='Magnific Creative', api_key=None, tran
     except ValueError:
         result = {}
     if not response.ok:
-        raise ProviderError(result.get('message') or f'Failed to fetch Magnific task status ({response.status})', status=response.status)
+        raise ProviderError(result.get('message') or f'Failed to fetch Magnific task status ({response.status})', status=response.status,
+                            provider_response=provider_errors.capture('magnific', phase='status', status=response.status,
+                                                                      body=response.text, headers=response.headers, task_id=task_id))
     data = result.get('data') or {}
     status = (data.get('status') or 'IN_PROGRESS').upper()
     if status == 'COMPLETED':
@@ -113,7 +126,8 @@ def get_upscale_status(task_id, *, model='Magnific Creative', api_key=None, tran
             raise ProviderError('Magnific task completed but returned no output image URL.')
         return {'status': 'succeeded', 'generatedUrls': urls, 'generatedUrl': urls[0], 'taskId': task_id}
     if status == 'FAILED':
-        return {'status': 'failed', 'error': data.get('error') or result.get('message') or 'Magnific upscale task failed.', 'taskId': task_id}
+        return {'status': 'failed', 'error': data.get('error') or result.get('message') or 'Magnific upscale task failed.', 'taskId': task_id,
+                'providerError': task_failure(task_id, data, result, response)}
     return {'status': 'running', 'taskId': task_id}
 
 
@@ -199,10 +213,13 @@ def submit_video_upscale(input, *, transport=None, env=None, signal=None):
         details = ', '.join(f"{item.get('field', 'undefined')}: {item.get('reason', 'undefined')}" for item in result['invalid_params']) if isinstance(result.get('invalid_params'), list) else None
         message = result.get('message')
         error = f'{message} ({details})' if message and details else details or message or f'Magnific API error ({response.status})'
-        raise ProviderError(error, status=response.status)
+        raise ProviderError(error, status=response.status, provider_response=provider_errors.capture(
+            'magnific', phase='create', status=response.status, body=response.text, headers=response.headers))
     data = result.get('data') or {}
     if not data.get('task_id'):
-        raise ProviderError('Magnific API did not return a valid task_id.')
+        raise ProviderError('Magnific API did not return a valid task_id.', provider_response=provider_errors.local(
+            'magnific', 'no_task_id', 'Magnific API did not return a valid task_id.', phase='create',
+            status=response.status, body=response.text, headers=response.headers))
     return {'taskId': data['task_id'], 'status': data.get('status') or 'CREATED', 'endpoint': request['endpoint']}
 
 
@@ -231,7 +248,9 @@ def get_video_upscale_status(task_id, *, model, output_format='h264', api_key=No
     except ValueError:
         result = {}
     if not response.ok:
-        raise ProviderError(result.get('message') or f'Failed to fetch Magnific task status ({response.status})', status=response.status)
+        raise ProviderError(result.get('message') or f'Failed to fetch Magnific task status ({response.status})', status=response.status,
+                            provider_response=provider_errors.capture('magnific', phase='status', status=response.status,
+                                                                      body=response.text, headers=response.headers, task_id=task_id))
     data = result.get('data') or {}
     status = (data.get('status') or 'IN_PROGRESS').upper()
     if status == 'COMPLETED':
@@ -240,5 +259,6 @@ def get_video_upscale_status(task_id, *, model, output_format='h264', api_key=No
             raise ProviderError('Magnific task completed but returned no output video URL.')
         return {'status': 'succeeded', 'generatedUrls': urls, 'generatedUrl': video_master_url(urls, output_format), 'taskId': task_id}
     if status == 'FAILED':
-        return {'status': 'failed', 'error': data.get('error') or result.get('message') or 'Magnific upscale task failed.', 'taskId': task_id}
+        return {'status': 'failed', 'error': data.get('error') or result.get('message') or 'Magnific upscale task failed.', 'taskId': task_id,
+                'providerError': task_failure(task_id, data, result, response)}
     return {'status': 'running', 'taskId': task_id}

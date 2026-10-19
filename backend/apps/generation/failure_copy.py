@@ -1,9 +1,13 @@
 """What a user is told when a generation fails.
 
 ``generations.error`` is private: it can hold provider echoes, request ids, hostnames, credentials or internal
-exception text. Only two kinds of text leave the backend: our own curated messages (taken from the constants that
+exception text. Only two kinds of sentence leave the backend: our own curated messages (taken from the constants that
 produce them, passed through verbatim) and the copy below, which classifies a diagnostic into a plain sentence
 without ever repeating it.
+
+After that sentence comes the exact provider detail, read only from the structured record in
+``generations.provider_responses`` (see provider_errors): the provider's code, the field it blamed, its request id and
+the task id, each validated against a strict pattern, so support can quote them to the provider.
 """
 import re
 from functools import lru_cache
@@ -42,6 +46,14 @@ GENERIC = {
     'upscale': 'Something went wrong on our side and this upscale stopped. Retry it; if it keeps failing, let the team know.',
 }
 AUDIO_INPUT_INVALID = 'Audio input is invalid or unavailable.'
+# The provider answered with an error we have no plainer sentence for: the exact detail follows, so never "our side".
+PROVIDER_ERROR = {
+    'video': 'The video provider returned an error, so this video stopped.',
+    'image': 'The image provider returned an error, so this image stopped.',
+    'audio': 'The transcription service returned an error, so this transcription stopped.',
+    'depth': 'The depth service returned an error, so this depth map stopped.',
+    'upscale': 'The upscaler returned an error, so this upscale stopped.',
+}
 
 _MODEL = r'[\w .\-()]{1,60}'
 # Our own templated messages (inputs are numbers, tags and model names), anchored in full.
@@ -95,7 +107,7 @@ def _curated():
         FACE_GALLERY, COPYRIGHT, POLICY, MODERATION_BLOCKED, AUDIO, BUSY, UNAVAILABLE, DROPPED, INTERRUPTED, PORTRAIT_ASSET,
         PORTRAIT_UNREGISTERED, DRAFT, RATIO_DURATION, IMAGE_REJECTED, NO_IMAGE, NO_VIDEO, CLIP_PREPARE, UPSCALE_FAILED,
         UPSCALE_BUSY, AUDIO_REJECTED,
-        *GENERIC.values(),
+        *GENERIC.values(), *PROVIDER_ERROR.values(),
     }
     busy = managed_pool.PORTRAIT_BUSY.format(minutes='\0')
     patterns = [re.compile(pattern) for pattern in _CURATED_PATTERNS]
@@ -151,7 +163,21 @@ def _face(row):
 
 
 def public_message(row, diagnostic):
-    """The text safe to show for a failed generation's private diagnostic."""
+    """The text safe to show for a failed generation: the plain sentence, then the exact provider detail."""
+    from . import provider_errors
+    sentence = _sentence(row, diagnostic)
+    entry = provider_errors.primary(getattr(row, 'provider_responses', None))
+    detail = provider_errors.user_detail(entry)
+    if not detail:
+        return sentence
+    kind = kind_of(row)
+    if entry.get('source') != 'veevee':
+        sentence = provider_errors.policy_sentence(entry) or (PROVIDER_ERROR[kind] if sentence == GENERIC[kind] else sentence)
+    return sentence + ' ' + detail
+
+
+def _sentence(row, diagnostic):
+    """The plain sentence for a private diagnostic (never the diagnostic itself)."""
     kind = kind_of(row)
     if not isinstance(diagnostic, str) or not diagnostic.strip():
         return GENERIC[kind]

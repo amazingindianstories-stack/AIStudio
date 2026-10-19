@@ -3,6 +3,7 @@ import os
 import re
 from apps.generation.model_registry import provider_model_id
 from apps.generation.references import asset_slugs, mention_indices, TAG, FLAGS, TOKEN_END, image_typo, reference_warnings
+from apps.generation import provider_errors
 from .transport import HttpTransport, ProviderError, required_key
 
 AMBIGUOUS_MESSAGE = 'Seedream connection ended without a confirmed result. The request may have been charged; it was not resubmitted.'
@@ -91,8 +92,9 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
     except Exception as error:
         if signal:
             signal.check()
-        raise ProviderError(AMBIGUOUS_MESSAGE,
-                            code='ambiguous_submission') from error
+        raise ProviderError(AMBIGUOUS_MESSAGE, code='ambiguous_submission', provider_response=provider_errors.local(
+            'seedream', getattr(error, 'code', None) or 'ambiguous_submission', str(error) or type(error).__name__,
+            phase='create')) from error
     try:
         result = response.json()
     except ValueError:
@@ -103,11 +105,15 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
                    'Seedream rate limit reached. Try again later.' if response.status == 429 else
                    'Seedream authentication or model access failed.' if response.status in (401, 403) else
                    'Seedream rejected the request. Check reference files and content requirements.')
-        raise ProviderError(f'{message} ({response.status}, {code})', code=code, status=response.status)
+        raise ProviderError(f'{message} ({response.status}, {code})', code=code, status=response.status,
+                            provider_response=provider_errors.capture('seedream', phase='create', status=response.status,
+                                                                      body=response.text, headers=response.headers))
     data = (result or {}).get('data') or []
     url = data[0].get('url') if len(data) == 1 and isinstance(data[0], dict) else None
     if not isinstance(url, str) or not url.startswith('https://'):
-        raise ProviderError(NO_RESULT_MESSAGE)
+        raise ProviderError(NO_RESULT_MESSAGE, provider_response=provider_errors.local(
+            'seedream', 'no_result', NO_RESULT_MESSAGE, phase='create', status=response.status, body=response.text,
+            headers=response.headers))
     if signal:
         signal.check()
     if fetcher is None:
@@ -116,7 +122,8 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
     try:
         content = fetcher(url)
     except Exception as error:
-        raise ProviderError(DOWNLOAD_FAILED_MESSAGE, code='output_download_failed') from error
+        raise ProviderError(DOWNLOAD_FAILED_MESSAGE, code='output_download_failed', provider_response=provider_errors.local(
+            'seedream', 'output_download_failed', str(error) or type(error).__name__, phase='download')) from error
     if signal:
         signal.check()
     return content[0] if isinstance(content, tuple) else content

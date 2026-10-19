@@ -45,6 +45,15 @@ class GeminiTranscriber:
         return transcript
 
 
+def transcription_error(response):
+    """The provider's refusal of a transcription, with its exact record (code, message, request id)."""
+    from apps.generation import provider_errors
+    from apps.generation.providers.transport import ProviderError
+    return ProviderError(f'Gemini transcription failed ({response.status}).', status=response.status,
+                         provider_response=provider_errors.capture('gemini', phase='transcribe', status=response.status,
+                                                                   body=response.text, headers=response.headers))
+
+
 def get_transcriber():
     provider = getattr(settings,'VEEVEE_AUDIO_TRANSCRIBER',None)
     if isinstance(provider,str):
@@ -53,12 +62,12 @@ def get_transcriber():
         key = getattr(settings,'GOOGLE_API_KEY',None) or os.environ.get('GOOGLE_API_KEY')
         if not key:
             raise ValueError('GOOGLE_API_KEY is not configured.')
-        from apps.generation.providers.transport import HttpTransport, ProviderError
+        from apps.generation.providers.transport import HttpTransport
         client = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'],timeout=120)
         def transport(url,payload,headers,*,signal=None):
             response = client.request('POST',url,headers=headers,body=payload,signal=signal)
             if not response.ok:
-                raise ProviderError(f'Gemini transcription failed ({response.status}).', status=response.status)
+                raise transcription_error(response)
             return response.json()
         return GeminiTranscriber(key,transport)
     return provider if hasattr(provider, 'transcribe') and not isinstance(provider, type) else provider()
@@ -66,13 +75,13 @@ def get_transcriber():
 
 def configured_transcriber():
     import os
-    from apps.generation.providers.transport import HttpTransport, ProviderError, required_key
+    from apps.generation.providers.transport import HttpTransport, required_key
     key = required_key(os.environ, 'GOOGLE_API_KEY', 'GOOGLE_API_KEY is not configured.')
     client = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
     def request(url, payload, headers, *, signal=None):
         response = client.request('POST', url, headers=headers, body=payload, signal=signal)
         if not response.ok:
-            raise ProviderError(f'Gemini transcription failed ({response.status}).', status=response.status)
+            raise transcription_error(response)
         return response.json()
     return GeminiTranscriber(key, request)
 
@@ -178,7 +187,7 @@ def _mark_audio_uncertain(expected):
             updated_at=max(int(time.time()*1000),row.updated_at+1))
 
 
-def _mark_audio_failed(expected, message):
+def _mark_audio_failed(expected, message, responses=None):
     """A definite provider refusal: the row ends failed and its audio capacity is released."""
     metadata={'project_id','folder_id','location_version','is_favorite','favorited_at',
         'flagged','flagged_at','flag_reason','updated_at'}
@@ -189,4 +198,5 @@ def _mark_audio_failed(expected, message):
             return
         now=int(time.time()*1000)
         Generation.objects.filter(pk=row.id).update(status='failed',error=message,provider_status='REJECTED',
+            **({'provider_responses':responses} if responses else {}),
             completed_at=now,updated_at=max(now,row.updated_at+1))

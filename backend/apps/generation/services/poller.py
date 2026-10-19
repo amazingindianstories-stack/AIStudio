@@ -12,6 +12,7 @@ from django.db.models import F
 
 from apps.common.leases import now_ms
 from apps.generation.model_registry import is_provider_model, model_definition
+from apps.generation import provider_errors
 from apps.generation.models import Generation
 from apps.generation.providers import magnific, omni
 from apps.generation.realtime import publish_best_effort
@@ -150,6 +151,22 @@ def _learned_message(item, failures):
     return None
 
 
+def _with_records(item, *records):
+    """The row's provider_responses with these failure records appended (model stamped), for a terminal update."""
+    added = [{**record, 'model': record.get('model') or item.model} for record in records if provider_errors.is_record(record)]
+    if not added:
+        return {}
+    existing = item.provider_responses if isinstance(item.provider_responses, list) else []
+    return {'provider_responses': [*existing, *added]}
+
+
+def _local_record(item, code, error=None, *, phase):
+    """Our side gave up on this task (status checks or the output download): its task id and what failed."""
+    provider = provider_errors.provider_for_model(item.model) or 'unknown'
+    message = (str(error) or type(error).__name__) if error is not None else code
+    return provider_errors.local(provider, code, message, phase=phase, task_id=item.task_id)
+
+
 def _metadata(item):
     return {'kind': item.kind, 'model': item.model, 'requestedAspectRatio': item.aspect_ratio}
 
@@ -176,7 +193,7 @@ def _pending(item, deps, signal, owner, provider, delay=5000):
     return {'kind': 'pending', 'item': persisted} if persisted else {'kind': 'raced'}
 
 
-def _poll_error(item, deps, owner):
+def _poll_error(item, deps, owner, error=None):
     with transaction.atomic():
         query = coordinator.expected_version(item, owner=owner).filter(task_id=item.task_id)
         if not query.update(poll_error_count=F('poll_error_count') + 1, last_poll_error_at=deps.now()):
@@ -187,17 +204,22 @@ def _poll_error(item, deps, owner):
         if not abandoned:
             coordinator.schedule_generation(current, now=deps.now(), delay_ms=delay, owner=owner)
     if abandoned:
-        return _terminal(current, {'status': 'failed', 'error': POLL_ABANDONED}, deps, Cancellation(30000), owner, {})
+        record = getattr(error, 'provider_response', None)
+        record = record if provider_errors.is_record(record) else _local_record(current, 'poll_abandoned', error, phase='status')
+        return _terminal(current, {'status': 'failed', 'error': POLL_ABANDONED, **_with_records(current, record)}, deps,
+                         Cancellation(30000), owner, {})
     return {'kind': 'poll_error', 'pollErrorCount': current.poll_error_count, 'retryAfterMs': delay}
 
 
-def _download_error(item, deps, owner, message, *, max_attempts=None, window_ms=None):
+def _download_error(item, deps, owner, message, *, max_attempts=None, window_ms=None, error=None):
     """The provider reported completion but fetching the output failed. Download attempts count from the first
     failure, not from earlier status-check errors; the job ends at the attempt cap or when the window is spent."""
     count = (item.poll_error_count or 0) if item.provider_status == DOWNLOAD_PENDING else 0
     count += 1
     if (max_attempts and count >= max_attempts) or (window_ms and waited_ms(download_retry_ms, count) >= window_ms):
-        return _terminal(item, {'status': 'failed', 'error': message}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
+        record = _local_record(item, 'output_download_failed', error, phase='download')
+        return _terminal(item, {'status': 'failed', 'error': message, **_with_records(item, record)}, deps, Cancellation(30000), owner,
+                         {'provider_status': 'COMPLETED'})
     with transaction.atomic():
         query = coordinator.expected_version(item, owner=owner).filter(task_id=item.task_id)
         if not query.update(poll_error_count=count, last_poll_error_at=deps.now(), provider_status=DOWNLOAD_PENDING):
@@ -220,7 +242,9 @@ def _best_of(item, deps, signal, owner, provider):
         reason = next((result['error'] for result in results if result.get('error')), 'All candidates failed to generate.')
         if blocked:
             reason = _learned_message(item, results) or _moderation('safety blocked')[1]
-        return _terminal(item, {'status': 'failed', 'error': reason, 'moderation_blocked': blocked, 'candidate_task_ids': None}, deps, signal, owner, provider)
+        records = [result.get('providerError') for result in results]
+        return _terminal(item, {'status': 'failed', 'error': reason, 'moderation_blocked': blocked, 'candidate_task_ids': None,
+                                **_with_records(item, *records)}, deps, signal, owner, provider)
     winner, judge_score = succeeded[0], None
     reference = deps.read_reference(item.reference_images[0]) if item.reference_images else None
     if reference:
@@ -246,8 +270,8 @@ def _best_of(item, deps, signal, owner, provider):
     signal.check()
     try:
         saved = deps.save_url(winner['videoUrl'], video_extension(winner), f'{item.id}/{uuid4().hex}', _metadata(item))
-    except Exception:
-        return _download_error(item, deps, owner, DOWNLOAD_ABANDONED, window_ms=GIVE_UP_MS)
+    except Exception as error:
+        return _download_error(item, deps, owner, DOWNLOAD_ABANDONED, window_ms=GIVE_UP_MS, error=error)
     return _terminal(item, {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio,
         'candidate_task_ids': None, 'judge_score': judge_score}, deps, signal, owner, provider)
 
@@ -267,7 +291,8 @@ def advance_magnific(item, *, signal=None, owner=None, dependencies=None):
     if outcome['status'] == 'running':
         return _pending(item, deps, signal, owner, {'provider_status': 'IN_PROGRESS'})
     if outcome['status'] == 'failed':
-        return _terminal(item, {'status': 'failed', 'error': outcome.get('error') or 'Magnific upscale task failed.'}, deps, signal, owner, {'provider_status': 'FAILED'})
+        return _terminal(item, {'status': 'failed', 'error': outcome.get('error') or 'Magnific upscale task failed.',
+                                **_with_records(item, outcome.get('providerError'))}, deps, signal, owner, {'provider_status': 'FAILED'})
     signal.check()
     try:
         data, _ = deps.fetch_magnific_image(outcome['generatedUrl'])
@@ -275,10 +300,10 @@ def advance_magnific(item, *, signal=None, owner=None, dependencies=None):
         saved = deps.save_buffer(data, extension, f'{item.id}/{uuid4().hex}', _metadata(item))
     except MediaTooLargeError:
         return _terminal(item, {'status': 'failed', 'error': MAGNIFIC_IMAGE_TOO_LARGE}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
-    except Exception:
+    except Exception as error:
         # Links expire 30 minutes after completion; retrying past a few spaced
         # attempts only leaves the job running forever.
-        return _download_error(item, deps, owner, MAGNIFIC_SAVE_FAILED, max_attempts=MAGNIFIC_SAVE_ATTEMPTS)
+        return _download_error(item, deps, owner, MAGNIFIC_SAVE_FAILED, max_attempts=MAGNIFIC_SAVE_ATTEMPTS, error=error)
     updates = {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio}
     if type(outcome.get('costCents')) is int:
         updates.update(cost_cents=outcome['costCents'], cost_basis='reconciled')
@@ -319,7 +344,8 @@ def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):
     if outcome['status'] == 'running':
         return _pending(item, deps, signal, owner, {'provider_status': 'IN_PROGRESS'}, 10000)
     if outcome['status'] == 'failed':
-        return _terminal(item, {'status': 'failed', 'error': outcome.get('error') or 'Magnific upscale task failed.'}, deps, signal, owner, {'provider_status': 'FAILED'})
+        return _terminal(item, {'status': 'failed', 'error': outcome.get('error') or 'Magnific upscale task failed.',
+                                **_with_records(item, outcome.get('providerError'))}, deps, signal, owner, {'provider_status': 'FAILED'})
     url = outcome['generatedUrl']
     signal.check()
     try:
@@ -327,8 +353,8 @@ def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):
         saved = deps.save_magnific_video(url, video_extension({'url': url}), f'{item.id}/{uuid4().hex}', _metadata(item))
     except MediaTooLargeError:
         return _terminal(item, {'status': 'failed', 'error': MAGNIFIC_TOO_LARGE}, deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
-    except Exception:
-        return _download_error(item, deps, owner, MAGNIFIC_SAVE_FAILED, max_attempts=MAGNIFIC_SAVE_ATTEMPTS)
+    except Exception as error:
+        return _download_error(item, deps, owner, MAGNIFIC_SAVE_FAILED, max_attempts=MAGNIFIC_SAVE_ATTEMPTS, error=error)
     # The master is stored: record it even if the job's own budget ran out meanwhile.
     return _terminal(item, {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio},
                      deps, Cancellation(30000), owner, {'provider_status': 'COMPLETED'})
@@ -364,13 +390,15 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
             blocked, message = (result.get('moderationBlocked'), result.get('error') or 'Generation failed.') if is_omni else _moderation(result.get('error'))
             if blocked and not is_omni and not is_higgsfield:
                 message = _learned_message(item, [result]) or message
-            return _terminal(item, {'status': 'failed', 'error': message, 'moderation_blocked': blocked}, deps, signal, owner, provider)
+            return _terminal(item, {'status': 'failed', 'error': message, 'moderation_blocked': blocked,
+                                    **_with_records(item, result.get('providerError'))}, deps, signal, owner, provider)
         if result['status'] != 'succeeded':
             return _pending(item, deps, signal, owner, {key: value for key, value in provider.items() if key != 'callback_received_at'}, 8000 if is_higgsfield else 5000)
         updates = {'status': 'succeeded'}
         if is_omni:
             if not result.get('videoBase64'):
-                return _terminal(item, {'status': 'failed', 'error': 'Omni reported success but returned no video.'}, deps, signal, owner, provider)
+                return _terminal(item, {'status': 'failed', 'error': 'Omni reported success but returned no video.',
+                                        **_with_records(item, _local_record(item, 'no_video', phase='task'))}, deps, signal, owner, provider)
             saved = None
             for attempt in range(2):
                 signal.check()
@@ -387,17 +415,18 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
         else:
             url = result.get('url') or result.get('videoUrl')
             if not url:
-                return _terminal(item, {'status': 'failed', 'error': 'Provider reported success but returned no video.'}, deps, signal, owner, provider)
+                return _terminal(item, {'status': 'failed', 'error': 'Provider reported success but returned no video.',
+                                        **_with_records(item, _local_record(item, 'no_video', phase='task'))}, deps, signal, owner, provider)
             signal.check()
             try:
                 saved = deps.save_url(url, video_extension(result), f'{item.id}/{uuid4().hex}', _metadata(item))
-            except Exception:
-                return _download_error(item, deps, owner, DOWNLOAD_ABANDONED, window_ms=GIVE_UP_MS)
+            except Exception as error:
+                return _download_error(item, deps, owner, DOWNLOAD_ABANDONED, window_ms=GIVE_UP_MS, error=error)
             if (model_definition(item.model) or {}).get('usageCost') == 'seedance-token':
                 cost = seedance_token_cost(item.model, result.get('totalTokens'), bool(item.reference_videos), deps.pricing())
                 if cost is not None:
                     updates.update(cost_cents=cost, cost_basis='reconciled')
         updates.update(url=saved['url'], aspect_ratio=saved.get('aspectRatio') or item.aspect_ratio)
         return _terminal(item, updates, deps, signal, owner, provider)
-    except Exception:
-        return _poll_error(item, deps, owner)
+    except Exception as error:
+        return _poll_error(item, deps, owner, error)
