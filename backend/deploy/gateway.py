@@ -16,7 +16,7 @@ MAX_TOTAL_BYTES=16*1024*1024
 SAFE_READ=re.compile(r'^/api/[^?]+$')
 SAFE_POST=re.compile(r'^/api/(?:auth/(?:login|logout)|uploads/init|uploads/[0-9a-f-]{36}/(?:finalize|cancel))$')
 SAFE_PUT=re.compile(r'^/api/uploads/[0-9a-f-]{36}/local$')
-ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/activity','/api/admin/status'))
+ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/errors','/api/admin/activity','/api/admin/status'))
 # Admin data mutations (Django answers 401 without a session and 403 for a non-admin).
 ADMIN_MUTATIONS={'/api/admin/users':('POST','PATCH','DELETE'),'/api/admin/pricing':('POST',),'/api/admin/limits':('POST',),'/api/admin/user-limits':('POST',)}
 AGENT_MESSAGES=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/messages')

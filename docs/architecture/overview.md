@@ -53,9 +53,14 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `exports` | ZIP manifests and the export worker |
 | `workers` | Depth protocol, depth enqueue, cron routes, scheduler |
 | `media` | Storage, uploads, signed grants, remote fetch, downloads, audio transcription |
-| `admin_dashboard` | Admin views, pricing, settings, limits, status checks |
+| `admin_dashboard` | Admin views, pricing, settings, limits, status checks, provider error log (`/api/admin/errors`) |
 | `common` | Middleware, leases, responses, health, activity log |
 | `production_runtime` | Green production policies: paid guard, export admission, namespaces, portrait lifecycle |
+
+Provider failures are recorded once, in `generation/provider_errors.py`: every adapter keeps the provider's code,
+message, blamed field, request id and task id (redacted, raw body capped at 4 KB) in `generations.provider_responses`
+or a portrait asset's `receipt.lastError`. `generation/failure_copy.py` shows the user a plain sentence followed by
+that exact detail, and the admin Errors tab reads the same records (older rows are parsed from their raw body).
 
 `backend/testsupport` holds fake providers and the frozen historical Node outputs used as test
 oracles. `backend/deploy` holds the entrypoint, the gateway and the legacy configuration reader.

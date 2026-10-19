@@ -14,6 +14,7 @@ from django.urls import resolve, get_resolver, URLResolver
 EXPECTED = {'/api/admin/activity': ['GET'],
  '/api/admin/audit/runtime': ['POST'],
  '/api/admin/data': ['GET'],
+ '/api/admin/errors': ['GET'],
  '/api/admin/limits': ['POST'],
  '/api/admin/logs': ['GET'],
  '/api/admin/migrate-schema': ['POST'],
@@ -120,10 +121,10 @@ def leaves(patterns,prefix=''):
 
 @override_settings(ROOT_URLCONF='config.urls')
 class CompleteApiCoverageTests(SimpleTestCase):
-    def test_all_97_explicit_methods_resolve_to_the_declared_python_handlers(self):
-        # 90 migrated methods, the media resolver and the managed-portrait routes.
-        self.assertEqual(len(EXPECTED),75)
-        self.assertEqual(sum(map(len,EXPECTED.values())),97)
+    def test_all_98_explicit_methods_resolve_to_the_declared_python_handlers(self):
+        # 90 migrated methods, the media resolver, the managed-portrait routes and the admin provider error log.
+        self.assertEqual(len(EXPECTED),76)
+        self.assertEqual(sum(map(len,EXPECTED.values())),98)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -152,6 +153,7 @@ NEGATIVE_STATUS = {
  '/api/admin/activity': {'GET':401},
  '/api/admin/audit/runtime': {'POST':401},
  '/api/admin/data': {'GET':401},
+ '/api/admin/errors': {'GET':401},
  '/api/admin/limits': {'POST':401},
  '/api/admin/logs': {'GET':401},
  '/api/admin/migrate-schema': {'POST':401},
@@ -287,7 +289,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         self.assertEqual(self.write_attempts,[])
         for effect in self.effects: effect.assert_not_called()
 
-    def test_all_97_methods_match_negative_request_contract_without_effects(self):
+    def test_all_98_methods_match_negative_request_contract_without_effects(self):
         # Empty/malformed payload failures on public routes are not proof of
         # account-only authorization. Paid video now requires login; valid-payload
         # zero-effects and owner checks are covered by enqueue contract tests.
@@ -307,7 +309,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*97)
+            self.assertEqual(len(seen),3*98)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):

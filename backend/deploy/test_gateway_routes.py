@@ -30,6 +30,9 @@ class ProductionRouteTableTests(SimpleTestCase):
             ('POST', '/api/admin/users', True), ('PATCH', '/api/admin/users', True), ('DELETE', '/api/admin/users', True),
             ('POST', '/api/admin/pricing', True), ('POST', '/api/admin/limits', True), ('POST', '/api/admin/user-limits', True),
             ('GET', '/api/admin/status', True), ('HEAD', '/api/admin/status', True),
+            # Read-only provider error log (Django requires an admin session); nothing writes through it.
+            ('GET', '/api/admin/errors', True), ('HEAD', '/api/admin/errors', True),
+            ('POST', '/api/admin/errors', False), ('DELETE', '/api/admin/errors', False), ('GET', '/api/admin/errors/x', False),
             # Unchanged admin reads and portrait settings.
             ('GET', '/api/admin/data', True), ('GET', '/api/admin/logs', True), ('GET', '/api/admin/activity', True),
             ('GET', '/api/admin/portrait-settings', True), ('POST', '/api/admin/portrait-settings', True),
