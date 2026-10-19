@@ -12,6 +12,7 @@ ignored: their behaviour now lives in reviewed source. Values are never logged.
 import base64
 import hashlib
 import json
+import re
 from urllib.parse import quote
 
 API_VARIABLE = 'GOAL4_PREVIEW_CONFIGURATION'
@@ -25,11 +26,17 @@ PROVIDER_KEYS = {'ARK_API_KEY', 'ARK_BASE_URL', 'GOOGLE_API_KEY', 'SEEDANCE_MODE
 BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPLUS_ARK_REGION', 'BYTEPLUS_ARK_HOST', 'BYTEPLUS_ARK_BASE_URL'}
 PASS_THROUGH = ('PATH', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID',
                 'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE',
-                'VEEVEE_MAGNIFIC_UPSCALE', 'VEEVEE_GEMINI_OMNI')
+                'VEEVEE_MAGNIFIC_UPSCALE', 'VEEVEE_GEMINI_OMNI', 'VEEVEE_KLING')
 # Magnific output hosts, observed in live tasks; signed, expiring links. Video
 # results come from cdn-magnific.freepik.com (2026-10-14), image results from
 # ai-statics.magnific.com (2026-10-15).
 MAGNIFIC_MEDIA_HOSTS = ('cdn-magnific.freepik.com', 'ai-statics.magnific.com')
+# Kling image result hosts, not yet observed in a live task. h1.inkwai.com is the result-URL example in Kling's
+# image API reference (kling.ai/document-api/api/image/3-0-omni/image-generation, read 2026-10-19);
+# cdn.klingai.com is the host in published sample responses of the same API. The first live canary must confirm.
+KLING_MEDIA_HOSTS = ('h1.inkwai.com', 'cdn.klingai.com')
+# KLING_API_HOST may only name a Kling API origin (the key is sent there); see apps.generation.providers.kling.
+KLING_HOST = re.compile(r'https://(?:[a-z0-9-]+\.)+klingai\.com/?')
 
 
 class LegacyConfigError(SystemExit):
@@ -87,6 +94,21 @@ def _common(cfg, env, *, browser_origins, app_origin):
     return out
 
 
+def _kling(component, env, out):
+    """``VEEVEE_KLING=1`` (a Railway service variable on the API and the generation worker) admits Kling images.
+    Only the generation worker calls Kling (submit, poll, download), so only it receives the ``KLING_API`` service
+    variable; an optional ``KLING_API_HOST`` must be a Kling host and reaches both, so their paid-guard quotes agree."""
+    if env.get('VEEVEE_KLING') != '1' or component not in ('api', 'generation'):
+        return out
+    host = env.get('KLING_API_HOST')
+    if host:
+        need(KLING_HOST.fullmatch(host), 'KLING_API_HOST must be an https://<name>.klingai.com address')
+        out['KLING_API_HOST'] = host
+    if component == 'generation' and env.get('KLING_API'):
+        out['KLING_API'] = env['KLING_API']
+    return out
+
+
 def _portrait_reads(env):
     reads = json.loads(env['GOAL4_PREVIEW_PORTRAIT_CONFIGURATION'])['read_environment']
     need(set(reads) <= BYTEPLUS_KEYS and reads.get('BYTEPLUS_ACCESS_KEY_ID') and reads.get('BYTEPLUS_SECRET_ACCESS_KEY'), 'portrait environment')
@@ -123,7 +145,7 @@ def translate(component, env):
         if portraits:
             out.update(_portrait_reads(env))
             out['VEEVEE_PORTRAIT_LIFECYCLE'] = '1'
-        return _managed_portraits(component, env, out)
+        return _kling(component, env, _managed_portraits(component, env, out))
     cfg = json.loads(env[WORKER_VARIABLE])
     need(cfg.get('kind') == component, 'configuration belongs to another worker')
     need(str(cfg.get('role', '')).startswith('goal4_') and cfg['role'].endswith('_worker'), 'unexpected worker role')
@@ -139,10 +161,12 @@ def translate(component, env):
     need(isinstance(hosts, list) and len(hosts) <= 8, 'provider media hosts')
     if env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1':
         hosts = [*hosts, *(host for host in MAGNIFIC_MEDIA_HOSTS if host not in hosts)]
+    if env.get('VEEVEE_KLING') == '1' and component == 'generation':
+        hosts = [*hosts, *(host for host in KLING_MEDIA_HOSTS if host not in hosts)]
     out['VEEVEE_PROVIDER_MEDIA_HOSTS'] = ','.join(hosts)
     if cfg.get('new_exports'):
         out['VEEVEE_EXPORT_ADMISSION'] = '1'
-    return _managed_portraits(component, env, out)
+    return _kling(component, env, _managed_portraits(component, env, out))
 
 
 def preflight_contract(component, env):

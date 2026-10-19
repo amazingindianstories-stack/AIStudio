@@ -15,8 +15,11 @@ from apps.generation.watermark import WHITESPACE
 from .transport import HttpTransport, ProviderError, required_key
 
 DEFAULT_HOST = 'https://api-singapore.klingai.com'
+# KLING_API_HOST may only name a Kling API host: the key is sent there as a bearer token.
+HOST_PATTERN = re.compile(r'https://(?:[a-z0-9-]+\.)+klingai\.com')
+CREATE_PATH = '/v1/images/generations'
 PROMPT_MAX = 2500
-MODELS = [{'modelName': m['providerModelId'], 'display': m['name'],
+MODELS = [{'id': m['id'], 'modelName': m['providerModelId'], 'display': m['name'],
            'resolutions': m['capabilities']['resolutions'],
            'twoKNeedsNoReference': '2K' not in m['capabilities']['referenceResolutions'],
            'aspectRatios': m['capabilities']['aspectRatios']}
@@ -31,7 +34,8 @@ SUBJECT_RULE = ('reproduce exactly what this shows — same shapes, colours, mat
 
 
 def spec(model):
-    return next((m for m in MODELS if m['display'].lower() == model.strip(WHITESPACE).lower()), None)
+    name = model.strip(WHITESPACE).lower()
+    return next((m for m in MODELS if name in (m['display'].lower(), m['id'])), None)
 
 
 def nearest_aspect_ratio(width, height):
@@ -117,10 +121,24 @@ def prep_reference(mime_type, encoded):
     return {'mimeType': mime_type, 'data': base64.b64encode(data).decode()}
 
 
+def api_host(env=None):
+    """The configured Kling API origin (KLING_API_HOST or the documented default), refused unless it is a Kling host."""
+    env = os.environ if env is None else env
+    host = (env.get('KLING_API_HOST') or DEFAULT_HOST).strip().removesuffix('/')
+    if not HOST_PATTERN.fullmatch(host):
+        raise ProviderError('KLING_API_HOST must be an https://<name>.klingai.com address with no path or port.', code='missing_configuration')
+    return host
+
+
+def create_url(env=None):
+    """The one endpoint that creates (and bills) a Kling image task."""
+    return api_host(env) + CREATE_PATH
+
+
 def request(path, *, method='GET', body=None, transport=None, env=None, signal=None):
     env = os.environ if env is None else env
     key = required_key(env, 'KLING_API', 'KLING_API is not set, so Kling models cannot be called. Create an API key in the Kling console and set KLING_API.')
-    host = (env.get('KLING_API_HOST') or DEFAULT_HOST).removesuffix('/')
+    host = api_host(env)
     transport = transport or HttpTransport(allowed_hosts=[urlsplit(host).hostname])
     response = transport.request(method, host + path, headers={'Authorization': f'Bearer {key}', 'Content-Type': 'application/json'}, body=body, signal=signal)
     try:
@@ -133,7 +151,7 @@ def request(path, *, method='GET', body=None, transport=None, env=None, signal=N
 
 
 def submit_image(input, **options):
-    result = request('/v1/images/generations', method='POST', body=build_payload(input), **options)
+    result = request(CREATE_PATH, method='POST', body=build_payload(input), **options)
     task_id = (result.get('data') or {}).get('task_id')
     if not task_id:
         raise ProviderError('Kling accepted the request but returned no task_id.')
@@ -141,7 +159,7 @@ def submit_image(input, **options):
 
 
 def resolve_image(task_id, **options):
-    task = request('/v1/images/generations/' + quote(task_id, safe=''), **options)['data']
+    task = request(CREATE_PATH + '/' + quote(task_id, safe=''), **options)['data']
     if task.get('task_status') == 'succeed':
         images = (task.get('task_result') or {}).get('images') or [{}]
         url = images[0].get('url')

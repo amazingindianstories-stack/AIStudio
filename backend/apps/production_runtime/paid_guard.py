@@ -33,6 +33,8 @@ def quote_for(contract,config):
   definition=model_definition(contract['model']) or {};provider=definition.get('provider')
   if provider=='magnific':
    return magnific_quote(contract)
+  if provider=='kling':
+   return kling_quote(contract,definition)
   if contract['kind']=='image':
    require(provider in ('gemini','seedream'),'Only configured Gemini or Seedream image providers authorized')
    # Each Gemini image model is pinned to its own generateContent endpoint (registry model code).
@@ -77,6 +79,20 @@ def omni_quote(contract):
   'provider_payload_allowed_values':{'model':[provider_model_id(model['id'],{})],'background':[True],'response_format.type':['video'],
    'response_format.aspect_ratio':[contract['aspect_ratio']],'response_format.resolution':[contract['resolution']],
    'response_format.duration':[str(contract['duration'])+'s']}}
+def kling_quote(contract,definition):
+ """Kling Image 3.0 / 2.1 (VEEVEE_KLING, unlimited scope only): the one create endpoint on the configured Kling host,
+ with this job's registry model code, a single image and its own ratio and size pinned in the payload."""
+ from django.conf import settings
+ from apps.generation.providers import kling
+ require(getattr(settings,'VEEVEE_KLING',False) is True,definition['name']+' is not enabled. Choose another image model.')
+ require(contract['kind']=='image' and not contract['draft_task_id'],'New Kling image generation only')
+ resolution=contract.get('resolution') or '1K';aspect=contract.get('aspect_ratio') or '1:1'
+ capabilities=definition.get('capabilities') or {}
+ require(resolution in capabilities.get('resolutions',[]) and aspect in capabilities.get('aspectRatios',[]),'Request outside the Kling contract')
+ try:endpoint=kling.create_url()
+ except RuntimeError as error:raise ValueError(str(error)) from error
+ return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[endpoint],
+  'provider_payload_allowed_values':{'model_name':[definition['providerModelId']],'n':[1],'aspect_ratio':[aspect],'resolution':[resolution.lower()]}}
 def audio_quote(contract):
  """Audio transcription (unlimited scope only): one generateContent call on the configured transcription model,
  for this job's own immutable snapshot. The exact request body is checked by audio_payload_matches."""
@@ -151,6 +167,11 @@ def install_paid_guard(config):
   with transaction.atomic():return register(audio_persist_original(fields))
  def execute(item,**kwargs):
   contract=execution_contract(item);quote=quote_for(contract,config)
+  if getattr(item,'task_id',None):
+   # A row holding an accepted task (a Kling image whose poll or download was interrupted) only resumes polling:
+   # its one claim was spent on that task, so it runs with no claim and every POST is refused.
+   require(not getattr(STATE,'active',None),'Nested paid execution denied')
+   return execute_original(item,**kwargs)
   require(connection.get_autocommit(),'Paid one-shot transition must commit before provider I/O')
   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[item.id,fingerprint(contract),'RESERVED','ATTEMPTING'])
   require(not getattr(STATE,'active',None),'Nested paid execution denied')

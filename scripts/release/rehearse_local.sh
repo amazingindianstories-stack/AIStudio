@@ -9,6 +9,7 @@
 # Pending migrations are applied first as the copy's owner (REHEARSAL_OBSERVER_URL), exactly as a
 # production rollout does. REHEARSAL_MANAGED_PORTRAITS=0 rehearses with the automatic portrait pool off.
 # REHEARSAL_MAGNIFIC=0 rehearses with Magnific upscaling off (the gateway must then refuse it).
+# REHEARSAL_KLING=0 rehearses with Kling images off (the paid guard must then refuse them at enqueue).
 # API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway); only its Gemini host
 # (the admin chat agent) is answered by the fake provider network (scripts/release/rehearsal_api/sitecustomize.py).
 # Workers run scripts/release/rehearsal_worker.py: the production code with the provider
@@ -40,7 +41,7 @@ COMMON="-e DJANGO_SECRET_KEY=rehearsal-django-secret-$(openssl rand -hex 16) -e 
  -e DJANGO_ALLOWED_HOSTS=127.0.0.1 -e DJANGO_BROWSER_ORIGINS=https://veevee.ai -e PUBLIC_APP_URL=https://veevee.ai
  -e VEEVEE_MEDIA_BACKEND=filesystem -e VEEVEE_MEDIA_ROOT=/media -e MOCK_GENERATION=0 -e MOCK_ASSET_PROVIDER=0
  -e ARK_API_KEY=rehearsal-fake-key -e GOOGLE_API_KEY=rehearsal-fake-key -e AWS_EC2_METADATA_DISABLED=true -e PYTHONUNBUFFERED=1
- -e MAGNIFIC_API_KEY=rehearsal-fake-key -e VEEVEE_MAGNIFIC_UPSCALE=${REHEARSAL_MAGNIFIC:-1}"
+ -e MAGNIFIC_API_KEY=rehearsal-fake-key -e VEEVEE_MAGNIFIC_UPSCALE=${REHEARSAL_MAGNIFIC:-1} -e VEEVEE_KLING=${REHEARSAL_KLING:-1}"
 # shellcheck disable=SC2086
 docker run --rm --network "$NET" $COMMON -e DATABASE_URL="$REHEARSAL_OBSERVER_URL" -w /app "$IMAGE" python manage.py migrate --noinput \
   > "$BASE/migrate.txt" 2>&1 || { cat "$BASE/migrate.txt"; echo "== migration failed"; exit 1; }
@@ -54,7 +55,7 @@ docker run -d --name vr-api --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:
   -e VEEVEE_REHEARSAL=1 -e PYTHONPATH=/scripts/release/rehearsal_api "$IMAGE" python -m deploy.entrypoint api >/dev/null
 # shellcheck disable=SC2086
 docker run -d --name vr-gen --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED $NS -e DATABASE_URL="$WORKER_DB" \
-  -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/release/rehearsal_worker.py generation >/dev/null
+  -e KLING_API=rehearsal-fake-key -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/release/rehearsal_worker.py generation >/dev/null
 # shellcheck disable=SC2086
 docker run -d --name vr-export --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $NS -e DATABASE_URL="$WORKER_DB" \
   -e VEEVEE_REHEARSAL=1 -e VEEVEE_EXPORT_ADMISSION=1 "$IMAGE" python /scripts/release/rehearsal_worker.py export >/dev/null

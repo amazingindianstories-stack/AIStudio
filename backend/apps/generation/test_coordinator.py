@@ -159,6 +159,23 @@ class CoordinatorTests(TransactionTestCase):
             self.assertTrue(admission.queue_position(later.id, now=1000010)['heldForBudget'])
             self.assertIsNone(admission.admit_job(fast.id, now=1000010))
 
+    def test_kling_images_neither_spend_nor_wait_on_the_gemini_window(self):
+        # Kling bills its own account, like Seedream; it shares only the image concurrency and per-user limits.
+        self.assertEqual(admission.non_gemini_image_models(), ['Kling Image 2.1', 'Kling Image 3.0', 'Seedream 5.0 Pro',
+                                                                'kling-image-21', 'kling-image-3', 'seedream-5-pro'])
+        kling = self.job(status='succeeded', model='Kling Image 3.0', cost_cents=140)
+        self.assertFalse(admission.bills_gemini(kling))
+        self.assertTrue(admission.bills_gemini(self.job(status='succeeded', model='Higgsfield Nano Banana Pro', cost_cents=0)))
+        gemini = self.job(model='Nano Banana Pro', cost_cents=20, created_at=1000001)
+        with patch.dict('os.environ', {'GEMINI_SPEND_LIMIT_CENTS': '150', 'FACE_BEST_OF': '2'}):
+            self.assertNotIn('heldForBudget', admission.queue_position(gemini.id, now=1000010))
+            Generation.objects.filter(pk=gemini.id).update(status='succeeded', cost_cents=140)
+            waiting = self.job(model='Kling Image 2.1', cost_cents=1, created_at=1000002)
+            self.assertNotIn('heldForBudget', admission.queue_position(waiting.id, now=1000010))
+            self.assertIsNotNone(admission.admit_job(waiting.id, now=1000010))
+            self.assertTrue(admission.queue_position(self.job(model='Nano Banana 2.1', cost_cents=20, created_at=1000003).id,
+                                                     now=1000010)['heldForBudget'], 'Gemini spend still holds Gemini images')
+
     def test_gemini_omni_flash_1_1_and_retired_omni_spend_share_the_gemini_window(self):
         # Retired Gemini Omni Flash rows stay billed in the window they were made in; 1.1 is held by them and holds images.
         self.assertEqual(admission.gemini_video_models(), ['Gemini Omni Flash', 'Gemini Omni Flash 1.1', 'gemini-omni-1-1-flash', 'gemini-omni-flash'])

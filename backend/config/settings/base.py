@@ -115,6 +115,8 @@ VEEVEE_EXPORT_ADMISSION = os.environ.get('VEEVEE_EXPORT_ADMISSION') == '1'
 VEEVEE_MAGNIFIC_UPSCALE = os.environ.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'
 # Paid Gemini Omni Flash 1.1 video through the paid guard (off unless '1'; switched on after live acceptance).
 VEEVEE_GEMINI_OMNI = os.environ.get('VEEVEE_GEMINI_OMNI') == '1'
+# Paid Kling Image 3.0 / 2.1 through the paid guard (off unless '1'; the API and generation worker both need it).
+VEEVEE_KLING = os.environ.get('VEEVEE_KLING') == '1'
 # Worker lease and filename-sequence namespaces (live Green state; see
 # apps/production_runtime/namespacing.py). Empty means no namespace.
 VEEVEE_LEASE_PREFIX = os.environ.get('VEEVEE_LEASE_PREFIX', '')

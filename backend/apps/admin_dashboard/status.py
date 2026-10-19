@@ -70,6 +70,14 @@ def configured(key):
     return outcome('ok', key + ' set (config-presence only)') if os.environ.get(key) else outcome('unknown', key + ' not set')
 
 
+def kling():
+    # Production gives KLING_API to the generation worker only; the API process that serves this page never holds it.
+    from django.conf import settings
+    if not os.environ.get('KLING_API') and getattr(settings, 'VEEVEE_KLING', False):
+        return outcome('unknown', 'Enabled (VEEVEE_KLING); KLING_API is held by the generation worker, not this API process')
+    return configured('KLING_API')
+
+
 def omni():
     if os.environ.get('OMNI_USE_VERTEX') == '1':
         return outcome('ok', 'Vertex configured (config-presence only)') if os.environ.get('GOOGLE_CLOUD_PROJECT') else outcome('unknown', 'OMNI_USE_VERTEX=1 but GOOGLE_CLOUD_PROJECT not set')
@@ -135,7 +143,7 @@ CHECKS = [
     ('gemini', 'Gemini / Nano Banana Pro', gemini),
     ('gemini-nano-banana-2-1', 'Gemini / Nano Banana 2.1', lambda: gemini(model='Nano Banana 2.1')),
     ('higgsfield', 'Higgsfield MCP', higgsfield),
-    ('seedance', 'BytePlus ModelArk / Seedance', lambda: configured('ARK_API_KEY')), ('kling', 'KlingAI Image', lambda: configured('KLING_API')),
+    ('seedance', 'BytePlus ModelArk / Seedance', lambda: configured('ARK_API_KEY')), ('kling', 'KlingAI Image', kling),
     ('omni', 'Gemini Omni Flash 1.1', omni), ('postgres', 'Postgres', postgres), ('generation-indexes', 'Generation Indexes', generation_indexes),
     ('stuck-generations', 'Stuck Generations', stuck_generations), ('storage', 'Media Storage', storage),
     ('ffmpeg-runtime', 'ffmpeg Runtime', ffmpeg), ('media-delivery', 'Media Delivery', media_delivery),

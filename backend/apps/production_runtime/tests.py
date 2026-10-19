@@ -1,5 +1,6 @@
 """Paid guard: admission rules and one-claim-per-POST behaviour (no real DB schema needed)."""
 import contextlib
+import os
 import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -151,7 +152,7 @@ class FakeCursor:
 
 class OneClaimPerPostTests(TransactionTestCase):
     @contextlib.contextmanager
-    def installed(self, ledger, sent):
+    def installed(self, ledger, sent, execute=None):
         from apps.generation.services import enqueue, executor, upscale_submission, audio_submission
         from apps.generation.providers.transport import HttpTransport
         originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
@@ -169,7 +170,7 @@ class OneClaimPerPostTests(TransactionTestCase):
             transport.request('POST', SEEDANCE_ENDPOINT, body=body)  # a retry loop must be refused
 
         HttpTransport.request = fake_request
-        executor.execute_admitted = fake_execute
+        executor.execute_admitted = execute or fake_execute
         enqueue._goal4_paid_guard_installed = False
         try:
             with patch('django.db.connection.cursor', lambda: FakeCursor(ledger)), \
@@ -313,6 +314,194 @@ class MagnificOneClaimTests(TransactionTestCase):
             with self.subTest(posts=posts, ledger=ledger), self.assertRaises(error):
                 self.run_submit(ledger, sent, posts, row)
             self.assertEqual(sent, [])
+
+
+KLING_CREATE = 'https://api-singapore.klingai.com/v1/images/generations'
+
+
+def kling_body(**change):
+    from apps.generation.providers import kling
+    return {**kling.build_payload({'model': 'Kling Image 3.0', 'prompt': 'literal', 'aspectRatio': '16:9', 'resolution': '2K'}), **change}
+
+
+@override_settings(VEEVEE_KLING=True)
+class KlingAdmissionTests(SimpleTestCase):
+    def test_each_model_is_pinned_to_the_create_endpoint_its_model_code_one_image_and_this_jobs_ratio_and_size(self):
+        for model, code in (('Kling Image 3.0', 'kling-v3'), ('kling-image-3', 'kling-v3'), ('Kling Image 2.1', 'kling-v2-1'),
+                            ('kling-image-21', 'kling-v2-1')):
+            for resolution, ratio, wire in (('1K', '1:1', '1k'), ('2K', '21:9', '2k'), (None, '3:2', '1k')):
+                with self.subTest(model=model, resolution=resolution):
+                    quote = paid_guard.quote_for(contract(kind='image', model=model, resolution=resolution, aspect_ratio=ratio), UNLIMITED)
+                    self.assertEqual(quote, {'maximum_cents': 0, 'pricing_status': 'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE',
+                        'allowed_paid_endpoints': [KLING_CREATE],
+                        'provider_payload_allowed_values': {'model_name': [code], 'n': [1], 'aspect_ratio': [ratio], 'resolution': [wire]}})
+
+    def test_the_configured_kling_host_moves_the_endpoint_and_any_other_host_is_refused(self):
+        row = contract(kind='image', model='Kling Image 2.1', resolution='1K', aspect_ratio='1:1')
+        with patch.dict(os.environ, {'KLING_API_HOST': 'https://api.klingai.com/'}):
+            self.assertEqual(paid_guard.quote_for(row, UNLIMITED)['allowed_paid_endpoints'], ['https://api.klingai.com/v1/images/generations'])
+        for host in ('http://api.klingai.com', 'https://evil.example', 'https://api.klingai.com.evil.example', 'https://api.klingai.com:8443',
+                     'https://api.klingai.com/v2'):
+            with self.subTest(host=host), patch.dict(os.environ, {'KLING_API_HOST': host}), self.assertRaisesRegex(ValueError, 'KLING_API_HOST'):
+                paid_guard.quote_for(row, UNLIMITED)
+
+    def test_requests_outside_the_kling_contract_are_refused_before_anything_is_reserved(self):
+        valid = dict(kind='image', model='Kling Image 3.0', resolution='2K', aspect_ratio='16:9')
+        refusals = [({'resolution': '4K'}, 'Request outside the Kling contract'), ({'resolution': '2k'}, 'Request outside the Kling contract'),
+                    ({'aspect_ratio': '5:4'}, 'Request outside the Kling contract'), ({'kind': 'video'}, 'New Kling image generation only'),
+                    ({'draft_task_id': 'x'}, 'New authenticated initial jobs only'), ({'user_id': None}, 'New authenticated initial jobs only')]
+        for change, message in refusals:
+            with self.subTest(change=change), self.assertRaisesRegex(ValueError, message):
+                paid_guard.quote_for(contract(**{**valid, **change}), UNLIMITED)
+        limited = {'approved_scope': paid_guard.LIMITED_SCOPE, 'maximum_total_cents': paid_guard.CAP,
+                   'reviewed_maximum_quotes': paid_guard.operator_quotes('a' * 64), 'operator_budget_uncertainty_accepted': True}
+        with self.assertRaisesRegex(ValueError, 'No verified maximum charge quote'):
+            paid_guard.quote_for(contract(**valid), limited)
+
+    def test_kling_needs_its_switch(self):
+        for model, name in (('Kling Image 3.0', 'Kling Image 3.0'), ('Kling Image 2.1', 'Kling Image 2.1'), ('kling-image-3', 'Kling Image 3.0')):
+            with self.subTest(model=model), override_settings(VEEVEE_KLING=False), \
+                    self.assertRaisesRegex(ValueError, '^' + name + r' is not enabled\. Choose another image model\.$'):
+                paid_guard.quote_for(contract(kind='image', model=model, resolution='1K', aspect_ratio='1:1'), UNLIMITED)
+
+
+@override_settings(VEEVEE_KLING=True)
+class KlingOneClaimTests(TransactionTestCase):
+    """A Kling image claims RESERVED->ATTEMPTING->SUBMITTING once, for exactly its own payload."""
+    installed = OneClaimPerPostTests.installed
+
+    def row(self, **fields):
+        return SimpleNamespace(**contract(kind='image', model='Kling Image 3.0', resolution='2K', aspect_ratio='16:9', **fields))
+
+    def execute_posting(self, *posts):
+        from apps.generation.providers.transport import HttpTransport
+
+        def execute(item, **kwargs):
+            for url, body in posts:
+                HttpTransport(allowed_hosts=['api-singapore.klingai.com', 'api.klingai.com']).request('POST', url, body=body)
+        return execute
+
+    def test_the_exact_payload_is_claimed_once_and_sent(self):
+        row, sent = self.row(), []
+        ledger = {row.id: 'RESERVED'}
+        with self.installed(ledger, sent, self.execute_posting((KLING_CREATE, kling_body()))) as executor:
+            executor.execute_admitted(row)
+        self.assertEqual(sent, [('POST', KLING_CREATE, {'model_name': 'kling-v3', 'prompt': 'literal', 'n': 1, 'aspect_ratio': '16:9',
+                                                        'resolution': '2k'})])
+        self.assertEqual(ledger[row.id], 'SUBMITTING')
+
+    def test_a_second_post_is_refused(self):
+        row, sent = self.row(), []
+        ledger = {row.id: 'RESERVED'}
+        with self.installed(ledger, sent, self.execute_posting((KLING_CREATE, kling_body()), (KLING_CREATE, kling_body()))) as executor:
+            with self.assertRaisesRegex(RuntimeError, 'No paid submission retry'):
+                executor.execute_admitted(row)
+        self.assertEqual(len(sent), 1)
+        self.assertEqual(ledger[row.id], 'SUBMITTING')
+
+    def test_a_post_without_a_claim_is_refused(self):
+        from apps.generation.providers.transport import HttpTransport, ProviderError
+        sent = []
+        with self.installed({}, sent):
+            with self.assertRaises(ProviderError) as caught:
+                HttpTransport(allowed_hosts=['api-singapore.klingai.com']).request('POST', KLING_CREATE, body=kling_body())
+        self.assertEqual((caught.exception.code, caught.exception.may_have_submitted), ('preview_paid_scope', False))
+        self.assertEqual(sent, [])
+        with self.installed({}, sent, self.execute_posting((KLING_CREATE, kling_body()))) as executor:
+            with self.assertRaisesRegex(RuntimeError, 'No paid submission retry'):
+                executor.execute_admitted(self.row())     # never reserved by the API
+        self.assertEqual(sent, [])
+
+    def test_any_other_model_count_ratio_size_or_endpoint_is_refused_unsent(self):
+        from apps.generation.providers.transport import ProviderError
+        without_n = {key: value for key, value in kling_body().items() if key != 'n'}
+        cases = [(KLING_CREATE, kling_body(model_name='kling-v2-1'), ValueError), (KLING_CREATE, kling_body(model_name='kling-v3-omni'), ValueError),
+                 (KLING_CREATE, kling_body(n=2), ValueError), (KLING_CREATE, without_n, ValueError),
+                 (KLING_CREATE, kling_body(aspect_ratio='1:1'), ValueError), (KLING_CREATE, kling_body(resolution='1k'), ValueError),
+                 ('https://api-singapore.klingai.com/v1/images/omni-image', kling_body(), ProviderError),
+                 ('https://api.klingai.com/v1/images/generations', kling_body(), ProviderError)]
+        for url, body, error in cases:
+            row, sent = self.row(), []
+            ledger = {row.id: 'RESERVED'}
+            with self.subTest(url=url, body=body), self.installed(ledger, sent, self.execute_posting((url, body))) as executor:
+                with self.assertRaises(error):
+                    executor.execute_admitted(row)
+            self.assertEqual(sent, [])
+            self.assertEqual(ledger[row.id], 'ATTEMPTING')
+
+    def test_an_accepted_task_resumes_polling_without_a_claim_and_cannot_post(self):
+        from apps.generation.providers.transport import HttpTransport, ProviderError
+        row, sent = self.row(task_id='kling-task-1'), []
+        ledger = {row.id: 'SUBMITTING'}
+        poll = 'https://api-singapore.klingai.com/v1/images/generations/kling-task-1'
+
+        def resume(item, **kwargs):
+            transport = HttpTransport(allowed_hosts=['api-singapore.klingai.com'])
+            transport.request('GET', poll)
+            transport.request('POST', KLING_CREATE, body=kling_body())
+        with self.installed(ledger, sent, resume) as executor:
+            with self.assertRaises(ProviderError) as caught:
+                executor.execute_admitted(row)
+        self.assertEqual(caught.exception.code, 'preview_paid_scope')
+        self.assertEqual(sent, [('GET', poll, None)])
+        self.assertEqual(ledger[row.id], 'SUBMITTING')
+        sent.clear()
+        with override_settings(VEEVEE_KLING=False), self.installed(ledger, sent, resume) as executor:
+            with self.assertRaisesRegex(ValueError, 'not enabled'):
+                executor.execute_admitted(row)
+        self.assertEqual(sent, [])
+
+
+@override_settings(VEEVEE_KLING=True)
+class KlingWorkerTests(TransactionTestCase):
+    """The real worker, paid guard and Kling adapter over the fake provider network (only the ledger function is faked)."""
+
+    @contextlib.contextmanager
+    def guarded(self, ledger):
+        from django.db import connection
+        from apps.generation.services import enqueue, executor, upscale_submission, audio_submission
+        from apps.generation.test_provider_throttle import LedgerCursor
+        originals = (enqueue.persist, executor.execute_admitted, upscale_submission.submit_claimed_upscale,
+                     audio_submission.persist_audio_intent, audio_submission.transcribe_claimed)
+        flag = getattr(enqueue, '_goal4_paid_guard_installed', False)
+        real_cursor = connection.cursor
+        enqueue._goal4_paid_guard_installed = False
+        try:
+            with patch.object(connection, 'cursor', lambda *args, **kwargs: LedgerCursor(real_cursor(*args, **kwargs), ledger)):
+                paid_guard.install_paid_guard(UNLIMITED)    # wraps the transport FakeProviders installed; undone with it
+                yield
+        finally:
+            (enqueue.persist, executor.execute_admitted, upscale_submission.submit_claimed_upscale,
+             audio_submission.persist_audio_intent, audio_submission.transcribe_claimed) = originals
+            enqueue._goal4_paid_guard_installed = flag
+            paid_guard.STATE.active = None
+
+    def test_one_paid_post_then_polls_and_a_failed_download_resumes_without_resubmitting(self):
+        from apps.generation.models import Generation
+        from apps.generation.services import executor
+        from apps.media.storage import MemoryAdapter, StorageService
+        from testsupport.fake_providers import FakeProviders
+        storage = StorageService(MemoryAdapter())
+        row = Generation.objects.create(id=uuid.uuid4(), kind='image', status='queued', prompt='a lighthouse at dusk', model='Kling Image 3.0',
+            aspect_ratio='16:9', resolution='2K', cost_cents=3, user_id=uuid.uuid4(), created_at=executor.now_ms(), updated_at=executor.now_ms())
+        ledger = {row.id: 'RESERVED'}
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch.dict(os.environ, {'KLING_API': 'fixture', 'MOCK_GENERATION': '0'}), \
+                FakeProviders() as fake, self.guarded(ledger):
+            fake.kling_running_polls = 0
+            fake.faults.append({'match': r'^FETCH https://h1\.inkwai\.com/', 'status': 503, 'count': 1})
+            first = executor.process_generation(str(row.id), heartbeat=False)
+            self.assertEqual((first['kind'], ledger[row.id]), ('pending', 'SUBMITTING'))
+            Generation.objects.filter(pk=row.id).update(next_poll_at=0)
+            second = executor.process_generation(str(row.id), heartbeat=False)
+        row.refresh_from_db()
+        self.assertEqual((second['kind'], row.task_id, row.cost_cents, row.cost_basis), ('succeeded', 'kling-sim-1', 3, 'reconciled'))
+        self.assertEqual(ledger[row.id], 'SUBMITTING')
+        self.assertEqual(fake.kling_payloads, [{'model_name': 'kling-v3', 'prompt': 'a lighthouse at dusk', 'n': 1, 'aspect_ratio': '16:9',
+                                                'resolution': '2k'}])
+        poll = ('GET', 'api-singapore.klingai.com/v1/images/generations/kling-sim-1')
+        download = ('FETCH', 'https://h1.inkwai.com/bs2/upload-kling-api/sim/kling-sim-1.png')
+        self.assertEqual(fake.calls, [('POST', 'api-singapore.klingai.com/v1/images/generations'), poll, download, poll, download])
+        self.assertEqual(storage.primary.objects[row.url[len('/api/media/'):]][0], fake.png, 'the Kling master bytes are stored unchanged')
 
 
 class ExportAdmissionTests(TransactionTestCase):

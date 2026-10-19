@@ -27,6 +27,9 @@ from unittest.mock import patch
 FAKE_MEDIA = 'https://fake-media.invalid/'
 MAGNIFIC_CDN = 'https://cdn-magnific.freepik.com/'
 MAGNIFIC_IMAGE_CDN = 'https://ai-statics.magnific.com/'
+# Kling's image API reference gives its result URLs as h1.inkwai.com/bs2/... (deploy.legacy_config.KLING_MEDIA_HOSTS).
+KLING_CDN = 'https://h1.inkwai.com/'
+KLING_MODELS = {'kling-v3': 8, 'kling-v2-1': 4}     # model_name -> list-price units per text-to-image result
 ASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
 PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
 PRIVACY_MESSAGE = 'The request failed because the input image may contain real person.'
@@ -93,6 +96,8 @@ class FakeProviders:
         self.png, self.mov = png_bytes(), mov_bytes()
         self.mp4 = mp4_bytes() if shutil.which('ffmpeg') else b''
         self.magnific_tasks = {}
+        self.kling_payloads, self.kling_tasks = [], {}  # create bodies; task id -> {'body', 'polls'}
+        self.kling_running_polls = 1    # GETs answered 'processing' before a Kling task succeeds
         self.faults = []        # [{'match': regex on 'METHOD host/path' or 'FETCH url', 'status', 'payload', 'count'}]: the next N matching calls fail
         self._stack = contextlib.ExitStack()
 
@@ -200,6 +205,31 @@ class FakeProviders:
             else:
                 generated = [MAGNIFIC_IMAGE_CDN + status[2] + '.png?token=t']
             return 200, {'data': {'task_id': status[2], 'status': 'COMPLETED', 'generated': generated}}
+        # Kling image tasks (kling.ai/document-api/api/image/3-0-omni/image-generation, read 2026-10-19): create returns
+        # a task id; GET returns task_status submitted/processing/succeed/failed and task_result.images[].url.
+        if host.endswith('.klingai.com') and path == '/v1/images/generations' and method == 'POST':
+            if data.get('model_name') not in KLING_MODELS or data.get('n') != 1:
+                return 400, {'code': 1201, 'message': 'Invalid request parameters', 'request_id': 'req-sim'}
+            with self.lock:
+                self.task_counter += 1
+                task = f'kling-sim-{self.task_counter}'
+                self.kling_payloads.append(data)
+                self.kling_tasks[task] = {'body': data, 'polls': 0}
+            return 200, {'code': 0, 'message': 'SUCCEED', 'request_id': 'req-sim',
+                         'data': {'task_id': task, 'task_status': 'submitted', 'created_at': 1, 'updated_at': 1}}
+        kling = re.fullmatch(r'/v1/images/generations/(kling-sim-\d+)', path)
+        if host.endswith('.klingai.com') and kling and method == 'GET' and kling[1] in self.kling_tasks:
+            with self.lock:
+                created = self.kling_tasks[kling[1]]
+                created['polls'] += 1
+                done = created['polls'] > self.kling_running_polls
+            task = {'task_id': kling[1], 'task_status': 'succeed' if done else 'processing', 'created_at': 1, 'updated_at': 2}
+            if done:
+                body = created['body']
+                units = KLING_MODELS[body['model_name']] * (2 if body.get('image') and body['model_name'] == 'kling-v2-1' else 1)
+                task.update(final_unit_deduction=str(units),
+                            task_result={'images': [{'index': 0, 'url': KLING_CDN + 'bs2/upload-kling-api/sim/' + kling[1] + '.png'}]})
+            return 200, {'code': 0, 'message': 'SUCCEED', 'request_id': 'req-sim', 'data': task}
         if host == ASSET_HOST and method == 'POST' and path == '/':
             action = (parse_qs(parts.query).get('Action') or [''])[0]
             return self.asset_api(action, data)
@@ -310,6 +340,8 @@ class FakeProviders:
             return self.png, 'image/png'
         if url == FAKE_MEDIA + 'video.mov':
             return self.mov, 'video/quicktime'
+        if url.startswith(KLING_CDN + 'bs2/upload-kling-api/sim/kling-sim-') and url.endswith('.png'):
+            return self.png, 'image/png'
         if url.startswith((MAGNIFIC_CDN, MAGNIFIC_IMAGE_CDN)):
             path = url.split('?')[0]
             if path.endswith('.png'):
@@ -337,7 +369,7 @@ class FakeProviders:
             return fake.request(transport_self, method, url, **kwargs)
         self._stack.enter_context(patch('apps.generation.providers.transport.HttpTransport.request', request))
         for target in ('apps.media.remote.get_media_fetcher', 'apps.media.persistence.get_media_fetcher',
-                       'apps.generation.services.poller.get_media_fetcher'):
+                       'apps.generation.services.poller.get_media_fetcher', 'apps.generation.services.image_execution.get_media_fetcher'):
             self._stack.enter_context(patch(target, lambda: fake.fetch))
         return self
 

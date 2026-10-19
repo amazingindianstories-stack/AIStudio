@@ -174,6 +174,44 @@ class LegacyConfigTests(SimpleTestCase):
             self.assertNotIn('VEEVEE_GEMINI_OMNI', self.legacy.translate(component, env))
             self.assertEqual(self.legacy.translate(component, {**env, 'VEEVEE_GEMINI_OMNI': '1'})['VEEVEE_GEMINI_OMNI'], '1')
 
+    def test_kling_switch_key_host_and_result_hosts(self):
+        kling = {'KLING_API': 'kk', 'KLING_API_HOST': 'https://api.klingai.com'}
+        envs = {'api': self.api_env(), **{kind: self.worker_env(kind) for kind in ('generation', 'export', 'scheduler')}}
+        for component, env in envs.items():
+            off = self.legacy.translate(component, {**env, **kling})
+            self.assertFalse({'VEEVEE_KLING', 'KLING_API', 'KLING_API_HOST'} & set(off), 'a key set ahead of the flag stays out of Django')
+            self.assertNotIn('h1.inkwai.com', off.get('VEEVEE_PROVIDER_MEDIA_HOSTS', ''))
+            on = self.legacy.translate(component, {**env, **kling, 'VEEVEE_KLING': '1'})
+            self.assertEqual(on['VEEVEE_KLING'], '1', component)
+            # Only the generation worker calls Kling; the API quotes the same host but never holds the key.
+            self.assertEqual(on.get('KLING_API'), 'kk' if component == 'generation' else None, component)
+            self.assertEqual(on.get('KLING_API_HOST'), 'https://api.klingai.com' if component in ('api', 'generation') else None, component)
+        generation = self.legacy.translate('generation', {**envs['generation'], 'KLING_API': 'kk', 'VEEVEE_KLING': '1'})
+        self.assertNotIn('KLING_API_HOST', generation, 'the documented default host needs no variable')
+        self.assertEqual(generation['VEEVEE_PROVIDER_MEDIA_HOSTS'], 'cdn.example,h1.inkwai.com,cdn.klingai.com')
+        both = self.legacy.translate('generation', {**envs['generation'], 'VEEVEE_KLING': '1', 'VEEVEE_MAGNIFIC_UPSCALE': '1'})
+        self.assertEqual(both['VEEVEE_PROVIDER_MEDIA_HOSTS'],
+                         'cdn.example,cdn-magnific.freepik.com,ai-statics.magnific.com,h1.inkwai.com,cdn.klingai.com')
+        self.assertNotIn('KLING_API', both, 'switched on without a key: Kling jobs fail as not configured, nothing else changes')
+        for host in ('http://api.klingai.com', 'https://evil.example', 'https://api.klingai.com.evil.example', 'https://klingai.com',
+                     'https://api.klingai.com:8443', 'https://api.klingai.com/v2', 'https://user@api.klingai.com'):
+            for component in ('api', 'generation'):
+                with self.subTest(host=host, component=component), self.assertRaises(self.legacy.LegacyConfigError):
+                    self.legacy.translate(component, {**envs[component], 'VEEVEE_KLING': '1', 'KLING_API_HOST': host})
+
+    def test_kling_result_hosts_pass_the_provider_media_fetcher(self):
+        import socket
+        from apps.media.remote import UnsafeMediaURL, validated_target
+        public = lambda host, port, type=None: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('1.1.1.1', 443))]
+        hosts = self.legacy.translate('generation', {**self.worker_env('generation'), 'VEEVEE_KLING': '1'})['VEEVEE_PROVIDER_MEDIA_HOSTS'].split(',')
+        # Kling's documented result URL shape; signed query strings are kept.
+        for url in ('https://h1.inkwai.com/bs2/upload-ylab-stunt/1fa0ac67d8ce6cd55b50d68b967b3a59.png',
+                    'https://cdn.klingai.com/bs2/upload-kling-api/0923471513/image/a-0.png?x-kcdn-sig=t'):
+            self.assertEqual(validated_target(url, hosts, public)[0], url.split('/')[2])
+        for url in ('https://h2.inkwai.com/x.png', 'https://p1-kling.klingai.com/x.png', 'http://h1.inkwai.com/x.png'):
+            with self.subTest(url=url), self.assertRaises(UnsafeMediaURL):
+                validated_target(url, hosts, public)
+
     def test_worker_mapping_matches_the_old_launcher(self):
         generation = self.legacy.translate('generation', self.worker_env('generation'))
         self.assertEqual((generation['VEEVEE_LEASE_PREFIX'], generation['VEEVEE_NAMING_PREFIX']), ('lease:g4preview:x:', 'g4preview:y:'))
