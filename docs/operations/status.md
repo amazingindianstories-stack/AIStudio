@@ -201,10 +201,10 @@ Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the relea
 ## Next safe action
 2026-10-19 ~05:22 UTC: **released `main` `4e7a915`** (#86 rate-limit hardening + memory fix, #87 Gemini Omni
 Flash 1.1, #88 viewer navigation, #89 favourite star). Release gate and local rehearsal passed on the commit.
-Railway api `622f8afa`, generation `9c46f08b`, export `49383387`, scheduler `73b333ed`; Vercel
+Railway api `622f8afa`, generation `9c46f08b` (after the flag: `0182d113`, `ecaca500`), export `49383387`, scheduler `73b333ed`; Vercel
 `dpl_H2HM8MQuUaTh4McsPpFBkoUDza2V` (built with `--skip-domain`, verified with `vercel curl`, promoted). No
 migrations, no variable changes. One queued Seedance job went through the worker switch and succeeded.
-`VEEVEE_GEMINI_OMNI` is still unset (Omni 1.1 refused until the owner-approved probe). Rollback targets: api
+~05:50 UTC: owner-approved live probe of `gemini-omni-1.1-flash` (4 s, 360p, from the generation service) completed in ~21 s with an inline MP4 in `steps[].content` (the shape `omni.extract_video` reads); then `VEEVEE_GEMINI_OMNI=1` set on api (`0182d113`) and generation (`ecaca500`), same image. Flag rollback: unset it. Rollback targets: api
 `e48952f3`, generation `c1a4f34b`, export `1c4c5afe`, scheduler `a1a04621`, Vercel
 `dpl_CJvLGB5Woi3nSpaTeTaM3DdWciSs`. Pending: watch Railway memory on generation and API for a day.
 
