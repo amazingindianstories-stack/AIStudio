@@ -41,6 +41,11 @@ def generation_item(row):
     # Magnific upscales reopen and regenerate with their exact validated parameters.
     if row.model.startswith('Magnific ') and isinstance(row.submission_input, dict) and isinstance(row.submission_input.get('params'), dict):
         result['upscaleParams'] = row.submission_input['params']
+    # Transcriptions list under their file name, as the transcription response describes them.
+    if row.kind == 'audio' and isinstance(row.submission_input, dict) and row.submission_input.get('operation') == 'audio-transcription':
+        original = row.submission_input.get('originalName')
+        result['productionMetadata'] = {'type': 'audio-transcription', 'originalName': original if isinstance(original, str) else 'audio',
+                                        'transcript': row.prompt, 'sourceAudio': (row.reference_audios or [None])[0]}
     return result
 
 

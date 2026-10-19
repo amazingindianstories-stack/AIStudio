@@ -21,6 +21,7 @@ test("machine codes are translated and never shown raw", () => {
   assert.equal(apiErrorMessage({ error: "SOME_NEW_CODE" }, 400, "Could not save."), "Could not save.");
   assert.equal(apiErrorMessage({ error: "SOME_NEW_CODE" }, 429), "Too many requests. Wait a moment and try again.");
   assert.equal(apiErrorMessage({ error: "PREVIEW_PORTRAIT_GROUP_DELETE_REQUIRES_ARCHIVE" }, 409), "Characters can't be deleted yet. Delete the portraits inside it instead.");
+  assert.equal(apiErrorMessage({ error: "This operation is not available.", code: "PREVIEW_OPERATION_DISABLED" }, 403), "This is turned off on this deployment.");
 });
 
 test("caller fallback applies when the body has no message", () => {

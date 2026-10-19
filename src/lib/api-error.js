@@ -48,6 +48,7 @@ const CODE_MESSAGES = {
   PORTRAITS_ARE_AUTOMATIC: "Portraits are created automatically from your references.",
   SLOW_REQUEST_CAPACITY_BUSY: "Veevee is busy with other downloads and generations right now. Try again in a few seconds.",
   GENERATION_REQUIRES_RECONCILIATION: "This generation is still being checked with the provider. Try again later.",
+  PREVIEW_OPERATION_DISABLED: "This is turned off on this deployment.",
 };
 
 const STATUS_MESSAGES = {

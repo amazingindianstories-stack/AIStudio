@@ -30,6 +30,8 @@ MAGNIFIC_IMAGE_CDN = 'https://ai-statics.magnific.com/'
 ASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
 PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
 PRIVACY_MESSAGE = 'The request failed because the input image may contain real person.'
+TRANSCRIPT = '[00:00.000 - 00:01.000] Narrator: simulated transcription from the fake provider.'
+AGENT_REPLY = 'Simulated agent reply: tell me more about the scene you want to make.'
 
 
 def png_bytes(size=(64, 48)):
@@ -118,8 +120,19 @@ class FakeProviders:
         if host == 'generativelanguage.googleapis.com' and gemini and method == 'POST':
             with self.lock:
                 self.gemini_payloads.append((gemini[1], data))
+            if 'systemInstruction' in data:     # the admin chat agent (apps/agents)
+                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': AGENT_REPLY}]}, 'finishReason': 'STOP'}],
+                             'usageMetadata': {'promptTokenCount': 40, 'candidatesTokenCount': 12}}
+            contents = data.get('contents') if isinstance(data.get('contents'), list) else []
+            parts = [part for item in contents if isinstance(item, dict) for part in item.get('parts') or [] if isinstance(part, dict)]
+            if any(str((part.get('inlineData') or {}).get('mimeType', '')).startswith('audio/') for part in parts):
+                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': TRANSCRIPT}]}, 'finishReason': 'STOP'}],
+                             'usageMetadata': {'promptTokenCount': 120, 'candidatesTokenCount': 20}}
             return 200, {'candidates': [{'content': {'parts': [{'inlineData': {'mimeType': 'image/png', 'data': base64.b64encode(self.png).decode()}}]},
                                          'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 10, 'candidatesTokenCount': 1290}}
+        model = re.fullmatch(r'/v1beta/models/([a-z0-9.-]+)', path)
+        if host == 'generativelanguage.googleapis.com' and model and method == 'GET':     # models.get (admin status probe)
+            return 200, {'name': 'models/' + model[1], 'supportedGenerationMethods': ['generateContent']}
         # Gemini Omni Flash (Interactions API, background): create returns an id; GET returns the documented REST shape,
         # the video inline in steps[].content[] (ai.google.dev/gemini-api/docs/omni, read 2026-10-18).
         if host == 'generativelanguage.googleapis.com' and path == '/v1beta/interactions' and method == 'POST':

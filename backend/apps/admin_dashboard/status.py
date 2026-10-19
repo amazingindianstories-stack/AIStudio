@@ -16,7 +16,7 @@ from apps.generation.model_registry import provider_model_id
 from apps.media.storage import get_storage
 from apps.media.keys import media_key_from_ref
 from apps.canvas.views import reply, failure
-from .admin_api import node_route, admin
+from .admin_api import node_route, admin_gate
 from .queries import query
 
 
@@ -34,7 +34,14 @@ def http_status(url, headers=None, timeout=5):
         return status
 
 
-def gemini(transport=http_status, model='Nano Banana Pro'):
+def provider_status(url, headers=None, timeout=5):
+    """A provider metadata GET through the provider transport (no redirects, no proxy credentials, body bounded)."""
+    from apps.generation.providers.transport import HttpTransport
+    return HttpTransport(allowed_hosts={'generativelanguage.googleapis.com'}, timeout=timeout,
+                         max_response_bytes=1024 * 1024).request('GET', url, headers=headers or {}).status
+
+
+def gemini(transport=provider_status, model='Nano Banana Pro'):
     # Model metadata read (models.get); no generation is requested.
     key = os.environ.get('GOOGLE_API_KEY')
     if not key: return outcome('unknown', 'GOOGLE_API_KEY not set')
@@ -182,6 +189,7 @@ def run_all_checks(checks=None, timeout_ms=5000):
 
 @node_route(['GET'])
 def status_view(request):
-    if admin(request) is None: return reply(request, {'error': 'FORBIDDEN'}, 403)
+    refused = admin_gate(request)[1]
+    if refused: return refused
     try: return reply(request, run_all_checks())
     except Exception: return failure()

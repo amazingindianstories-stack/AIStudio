@@ -147,17 +147,19 @@ class CompleteApiCoverageTests(SimpleTestCase):
 # Login with a wrong password intentionally records a throttle failure and is
 # covered separately by authentication tests, not this no-mutation matrix.
 NEGATIVE_STATUS = {
- '/api/admin/activity': {'GET':403},
- '/api/admin/audit/runtime': {'POST':403},
- '/api/admin/data': {'GET':403},
- '/api/admin/limits': {'POST':403},
- '/api/admin/logs': {'GET':403},
- '/api/admin/migrate-schema': {'POST':403},
- '/api/admin/pricing': {'POST':403},
+ # Admin routes: 401 without a valid session (403 is for a signed-in non-admin). Token seeding also accepts a
+ # setup secret instead of a session, so it keeps a single 403 refusal.
+ '/api/admin/activity': {'GET':401},
+ '/api/admin/audit/runtime': {'POST':401},
+ '/api/admin/data': {'GET':401},
+ '/api/admin/limits': {'POST':401},
+ '/api/admin/logs': {'GET':401},
+ '/api/admin/migrate-schema': {'POST':401},
+ '/api/admin/pricing': {'POST':401},
  '/api/admin/set-token': {'POST':403},
- '/api/admin/status': {'GET':403},
- '/api/admin/user-limits': {'POST':403},
- '/api/admin/users': {'POST':403,'PATCH':403,'DELETE':403},
+ '/api/admin/status': {'GET':401},
+ '/api/admin/user-limits': {'POST':401},
+ '/api/admin/users': {'POST':401,'PATCH':401,'DELETE':401},
  '/api/agent-conversations/[id]/messages/[messageId]': {'PATCH':403},
  '/api/agent-conversations/[id]/messages': {'POST':403},
  '/api/agent-conversations/[id]': {'GET':403},

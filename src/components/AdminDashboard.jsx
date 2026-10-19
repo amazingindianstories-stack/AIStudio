@@ -38,6 +38,7 @@ import {
   AlertCircle,
   AlertTriangle,
   SlidersHorizontal,
+  Lock,
 } from "lucide-react";
 import { formatCost } from "@/lib/format-cost";
 import { LIMIT_DEFINITIONS, USER_LIMIT_DEFINITIONS } from "@/lib/limits";
@@ -53,6 +54,9 @@ import { apiErrorMessage } from "@/lib/api-error";
 const ACTIVITY_PAGE_SIZE = 50;
 
 const CHART_COLORS = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#f87171"];
+
+/** The ingress gateway refused the route: this deployment keeps the operation off (not a failure). */
+const OPERATION_OFF = "PREVIEW_OPERATION_DISABLED";
 
 export function AdminDashboard() {
   const [data, setData] = useState(null);
@@ -148,7 +152,7 @@ export function AdminDashboard() {
         </div>
 
         {tab === "status" ? (
-          <StatusTab />
+          <StatusTab operations={data?.operations} />
         ) : !data ? (
           <p className="py-20 text-center text-white/40">Loading…</p>
         ) : tab === "overview" ? (
@@ -175,6 +179,16 @@ export function AdminDashboard() {
         />
       )}
     </div>
+  );
+}
+
+/** A control this deployment keeps off on purpose: neutral, not an error. */
+function OperationOff({ children }) {
+  return (
+    <p className="flex items-start gap-2 text-xs leading-5 text-white/50">
+      <Lock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/35" aria-hidden="true" />
+      <span>{children}</span>
+    </p>
   );
 }
 
@@ -293,7 +307,7 @@ function Overview({ data }) {
         </Panel>
       </div>
 
-      <HiggsfieldTokenCard />
+      <HiggsfieldTokenCard available={data.operations?.higgsfieldToken !== false} />
     </div>
   );
 }
@@ -301,7 +315,7 @@ function Overview({ data }) {
 /** Recovery card: when the Higgsfield OAuth token family dies (generations
  *  fail with "token refresh failed"), run `npm run hf:login` locally and
  *  paste the resulting .higgsfield-mcp-token.json here. */
-function HiggsfieldTokenCard() {
+function HiggsfieldTokenCard({ available }) {
   const [value, setValue] = useState("");
   const [state, setState] = useState("idle");
   const [message, setMessage] = useState("");
@@ -315,7 +329,11 @@ function HiggsfieldTokenCard() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed),
       });
-      const j = await res.json();
+      const j = await res.json().catch(() => ({}));
+      if (j?.code === OPERATION_OFF) {
+        setState("off");
+        return;
+      }
       if (!res.ok) throw new Error(apiErrorMessage(j, res.status));
       setState("ok");
       setMessage("Token seeded — Higgsfield generations should work now.");
@@ -325,6 +343,17 @@ function HiggsfieldTokenCard() {
       setMessage(e?.message || "Failed.");
     }
   };
+
+  if (!available || state === "off") {
+    return (
+      <Panel title="Higgsfield MCP token">
+        <OperationOff>
+          Off on this deployment. No Higgsfield model is offered, so there is nothing to re-seed, and the token is a
+          provider credential this page should not store.
+        </OperationOff>
+      </Panel>
+    );
+  }
 
   return (
     <Panel title="Higgsfield MCP token">
@@ -1657,13 +1686,31 @@ function ActivityLog({
 }
 
 function PricingTab({ data, reload }) {
+  // Per-model save state: "saving", "saved" or an error message.
+  const [saveState, setSaveState] = useState({});
+  // The server returns rows in storage order, which moves a row after each save; keep a stable order.
+  const pricingRows = useMemo(
+    () => [...data.pricing].sort((a, b) => a.model.localeCompare(b.model, undefined, { numeric: true, sensitivity: "base" })),
+    [data.pricing]
+  );
   const save = async (model, unitCostCents, unit) => {
-    await apiFetch("/api/admin/pricing", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, unitCostCents, unit }),
-    });
-    reload();
+    const current = data.pricing.find((p) => p.model === model);
+    if (current && current.unitCostCents === unitCostCents) return;
+    setSaveState((s) => ({ ...s, [model]: "saving" }));
+    try {
+      const res = await apiFetch("/api/admin/pricing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, unitCostCents, unit }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not save this rate."));
+      setSaveState((s) => ({ ...s, [model]: "saved" }));
+      setTimeout(() => setSaveState((s) => (s[model] === "saved" ? { ...s, [model]: undefined } : s)), 2000);
+      reload();
+    } catch (error) {
+      setSaveState((s) => ({ ...s, [model]: error instanceof Error ? error.message : "Could not save this rate." }));
+    }
   };
   return (
     <div className="space-y-2">
@@ -1698,19 +1745,27 @@ function PricingTab({ data, reload }) {
             </tr>
           </thead>
           <tbody>
-            {data.pricing.map((p) => (
+            {pricingRows.map((p) => (
               <tr key={p.model} className="border-t border-line">
                 <td className="px-3 py-2 font-medium">{p.model}</td>
                 <td className="px-3 py-2 text-xs text-white/55">{{ per_1000_images: "per 1,000 images", per_1000_frames: "per 1,000 frames" }[p.unit] ?? p.unit}</td>
                 <td className="px-3 py-2">
-                  <input
-                    type="number"
-                    defaultValue={p.unitCostCents}
-                    onBlur={(e) =>
-                      save(p.model, Number(e.target.value), p.unit)
-                    }
-                    className="w-24 rounded-lg border border-line bg-ink-700 px-2 py-1 text-sm outline-none focus:border-brand/40"
-                  />
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      defaultValue={p.unitCostCents}
+                      aria-label={`Cost in cents for ${p.model}`}
+                      onBlur={(e) =>
+                        save(p.model, Number(e.target.value), p.unit)
+                      }
+                      className="w-24 rounded-lg border border-line bg-ink-700 px-2 py-1 text-sm outline-none focus:border-brand/40"
+                    />
+                    {saveState[p.model] === "saving" && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-white/40" />}
+                    {saveState[p.model] === "saved" && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-400" />}
+                  </div>
+                  {saveState[p.model] && !["saving", "saved"].includes(saveState[p.model]) && (
+                    <p role="alert" className="mt-1 max-w-[12rem] text-xs text-red-300">{saveState[p.model]}</p>
+                  )}
                 </td>
                 <td className="max-w-[26rem] px-3 py-2 text-xs leading-snug text-white/40">
                   {p.notes}
@@ -1809,6 +1864,7 @@ function GlobalLimitCard({
   const [value, setValue] = useState(String(data.limits[def.key] ?? def.defaultValue));
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   // Re-sync if another admin session changed it and this tab reloads —
   // mirrors PricingTab's defaultValue-per-row approach, just for one field.
@@ -1818,18 +1874,31 @@ function GlobalLimitCard({
 
   const save = async () => {
     const n = Math.round(Number(value));
-    if (!Number.isFinite(n) || n < def.min || (def.max != null && n > def.max)) return;
+    if (!Number.isFinite(n) || n < def.min || (def.max != null && n > def.max)) {
+      setSaved(false);
+      setError(def.max != null ? `Enter a whole number from ${def.min} to ${def.max}.` : `Enter a whole number of at least ${def.min}.`);
+      return;
+    }
+    if (n === data.limits[def.key]) {
+      setError("");
+      return;
+    }
     setSaving(true);
     setSaved(false);
+    setError("");
     try {
-      await apiFetch("/api/admin/limits", {
+      const res = await apiFetch("/api/admin/limits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: def.key, value: n }),
       });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not save this limit."));
       reload();
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not save this limit.");
     } finally {
       setSaving(false);
     }
@@ -1857,6 +1926,7 @@ function GlobalLimitCard({
         {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
         {saved && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
       </div>
+      {error && <p role="alert" className="mt-2 text-xs text-red-300">{error}</p>}
     </div>
   );
 }
@@ -1904,7 +1974,7 @@ function StatusBadge({ status }) {
 /** One row as rendered — either a live result, or a placeholder while nothing
  *  has ever loaded successfully (`pending` = per-row "Checking…" spinner). */
 
-function StatusTab() {
+function StatusTab({ operations }) {
   const [results, setResults] = useState(null);
   const [checkedAt, setCheckedAt] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -1912,6 +1982,8 @@ function StatusTab() {
   const [audit, setAudit] = useState(null);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditError, setAuditError] = useState(null);
+  const [auditRefused, setAuditRefused] = useState(false);
+  const auditOff = operations?.runtimeAudit === false || auditRefused;
 
   const load = async () => {
     setLoading(true);
@@ -1942,6 +2014,10 @@ function StatusTab() {
       const response = await apiFetch("/api/admin/audit/runtime", { method: "POST" });
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
+        if (body?.code === OPERATION_OFF) {
+          setAuditRefused(true);
+          return;
+        }
         throw new Error(response.status === 429
           ? `Diagnostics are cooling down. Try again in ${body.retryAfterSeconds ?? 60} seconds.`
           : `Diagnostics returned HTTP ${response.status}.`);
@@ -2112,19 +2188,30 @@ function StatusTab() {
         <div className="flex flex-wrap items-center gap-3">
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Audit diagnostics</p>
-            <p className="mt-1 text-xs text-white/45">
-              Validation-only provider checks plus temporary database fixtures that are always removed.
-            </p>
+            {auditOff ? (
+              <div className="mt-1">
+                <OperationOff>
+                  Off on this deployment. The audit writes temporary test rows into the live database and runs the job
+                  executor, so it only runs on a local or staging stack. The dependency checks above are read-only.
+                </OperationOff>
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-white/45">
+                Validation-only provider checks plus temporary database fixtures that are always removed.
+              </p>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={runAudit}
-            disabled={auditLoading}
-            className="flex items-center gap-1.5 rounded-lg border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/80 transition hover:text-white disabled:opacity-40"
-          >
-            {auditLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
-            {auditLoading ? "Running…" : "Run audit diagnostics"}
-          </button>
+          {!auditOff && (
+            <button
+              type="button"
+              onClick={runAudit}
+              disabled={auditLoading}
+              className="flex items-center gap-1.5 rounded-lg border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/80 transition hover:text-white disabled:opacity-40"
+            >
+              {auditLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Activity className="h-4 w-4" />}
+              {auditLoading ? "Running…" : "Run audit diagnostics"}
+            </button>
+          )}
         </div>
         {auditError && <p role="alert" className="mt-3 text-xs text-red-300">{auditError}</p>}
         {audit && (

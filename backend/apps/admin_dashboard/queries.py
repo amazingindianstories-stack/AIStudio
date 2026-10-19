@@ -11,7 +11,7 @@ from apps.common.leases import now_ms
 from apps.canvas.serialization import JS_WHITESPACE, js_json
 from apps.canvas.views import reply, failure, truthy
 from apps.generation.history_parameters import decode_cursor, UUID_TEXT
-from .admin_api import node_route, admin, number, text, safe_user
+from .admin_api import node_route, admin_gate, number, text, safe_user
 from .models import Pricing, AppSetting, UserLimit
 from .default_pricing import DEFAULT_PRICING
 from .views import LIMITS, USER_LIMITS, parse
@@ -82,9 +82,28 @@ def statistics():
             'byKind': [{'name': kind, 'value': kinds.get(kind, 0)} for kind in ('image', 'video')], 'byModel': models, 'overTime': days, 'models': [row['name'] for row in models]}
 
 
+# Dashboard controls whose routes the ingress gateway may refuse (deploy/gateway.py is the single authority).
+GATED_OPERATIONS = {'runtimeAudit': ('POST', '/api/admin/audit/runtime'), 'higgsfieldToken': ('POST', '/api/admin/set-token')}
+
+
+def operations():
+    """Which gated admin operations reach Django here, so the dashboard shows refused ones as off instead of failing.
+
+    Only the deployed entrypoint runs the API (VEEVEE_RUNTIME_COMPONENT=api), and it always starts the gateway in
+    front of it; elsewhere (tests, manage.py runserver) nothing sits in between. These routes ignore the gateway's
+    feature flags, so its defaults answer for them.
+    """
+    from django.conf import settings
+    if getattr(settings, 'VEEVEE_RUNTIME_COMPONENT', None) != 'api':
+        return {name: True for name in GATED_OPERATIONS}
+    from deploy.gateway import allowed
+    return {name: allowed(method, path) for name, (method, path) in GATED_OPERATIONS.items()}
+
+
 @node_route(['GET'])
 def dashboard(request):
-    if admin(request) is None: return reply(request, {'error': 'FORBIDDEN'}, 403)
+    refused = admin_gate(request)[1]
+    if refused: return refused
     try:
         global_values = dict(AppSetting.objects.filter(key__in=LIMITS).values_list('key', 'value'))
         limits = {key: parse(global_values.get(key), definition) for key, definition in LIMITS.items()}
@@ -98,7 +117,7 @@ def dashboard(request):
             users.append({**safe_user(user), 'limits': overrides.get(str(user.id), {}), 'genCount': totals.get('count', 0),
                           'costCents': totals.get('cost', 0), 'reconciledCostCents': totals.get('reconciled', 0), 'estimatedCostCents': totals.get('estimated', 0)})
         users.sort(key=lambda row: -row['costCents'])
-        return reply(request, {'users': users, 'stats': statistics(), 'pricing': price_rows(), 'limits': limits})
+        return reply(request, {'users': users, 'stats': statistics(), 'pricing': price_rows(), 'limits': limits, 'operations': operations()})
     except Exception: return failure()
 
 
@@ -122,7 +141,8 @@ def activity_page(params):
 
 @node_route(['GET'])
 def activity(request):
-    if admin(request) is None: return reply(request, {'error': 'FORBIDDEN'}, 403)
+    refused = admin_gate(request)[1]
+    if refused: return refused
     try: return reply(request, activity_page(request.query_params))
     except Exception: return failure()
 
@@ -180,7 +200,8 @@ def csv_response(params):
 
 @node_route(['GET'])
 def logs(request):
-    if admin(request) is None: return reply(request, {'error': 'FORBIDDEN'}, 403)
+    refused = admin_gate(request)[1]
+    if refused: return refused
     try:
         if first(request.query_params, 'format') == 'csv':
             from apps.common.responses import renew_session

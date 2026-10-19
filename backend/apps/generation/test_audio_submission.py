@@ -139,6 +139,14 @@ class AudioClaimTests(TransactionTestCase):
         values.update(changes)
         return Generation.objects.create(**values)
 
+    def test_history_lists_a_transcription_under_its_file_name(self):
+        from apps.generation.serialization import generation_item
+        row=self.job(status='succeeded',prompt='[00:00.000 - 00:01.000] Speaker: hello',reference_audios=['/api/media/uploads/a.wav'],
+            submission_input={'version':2,'operation':'audio-transcription','originalName':'take 3.wav'})
+        self.assertEqual(generation_item(row)['productionMetadata'],{'type':'audio-transcription','originalName':'take 3.wav',
+            'transcript':'[00:00.000 - 00:01.000] Speaker: hello','sourceAudio':'/api/media/uploads/a.wav'})
+        self.assertNotIn('productionMetadata',generation_item(self.job(kind='image',submission_input=None)))
+
     def test_worker_cancellation_before_claim_and_during_response_preserves_evidence(self):
         from unittest.mock import Mock
         from apps.generation.services.audio_submission import process_audio

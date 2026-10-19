@@ -16,18 +16,33 @@ MAX_TOTAL_BYTES=16*1024*1024
 SAFE_READ=re.compile(r'^/api/[^?]+$')
 SAFE_POST=re.compile(r'^/api/(?:auth/(?:login|logout)|uploads/init|uploads/[0-9a-f-]{36}/(?:finalize|cancel))$')
 SAFE_PUT=re.compile(r'^/api/uploads/[0-9a-f-]{36}/local$')
-ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/activity'))
+ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/activity','/api/admin/status'))
+# Admin data mutations (Django answers 401 without a session and 403 for a non-admin).
+ADMIN_MUTATIONS={'/api/admin/users':('POST','PATCH','DELETE'),'/api/admin/pricing':('POST',),'/api/admin/limits':('POST',),'/api/admin/user-limits':('POST',)}
+AGENT_MESSAGES=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/messages')
 DEPTH_POST_ROUTES=frozenset(('/api/generate/depth','/api/worker/depth/claim','/api/worker/depth/heartbeat','/api/worker/depth/progress','/api/worker/depth/upload-url','/api/worker/depth/complete'))
+# Response-header waits beyond the default 25 s: enqueue may normalize large references, transcription
+# waits for its worker result (Django answers 504 itself after 120 s), an agent turn runs a short tool loop.
+LONG_POSTS={'/api/generate/image':120,'/api/generate/video':120,'/api/audio/transcribe':125}
+def upstream_wait(method,path):
+    if method!='POST':return 25
+    return LONG_POSTS.get(path,120 if AGENT_MESSAGES.fullmatch(path) else 25)
 def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
-    # Exact DB-backed Django admin reads; Django still checks the session role.
-    # Status contacts external dependencies; runtime audit takes leases and writes fixtures.
+    # Exact DB-backed Django admin reads plus the read-only dependency status; Django still checks the session role.
+    # Runtime audit stays closed: it writes (rolled-back) fixtures into the live database and runs the executor.
+    # Higgsfield token seeding stays closed: no offered model uses it, and it stores a provider credential.
     if method in ('GET','HEAD') and path in ADMIN_READ_PATHS:return True
+    if method in ADMIN_MUTATIONS.get(path,()):return True
     # Managed portrait pool settings (Django requires an admin session for both methods).
     if method in ('GET','HEAD','POST') and path=='/api/admin/portrait-settings':return True
     if new_exports and method=="POST" and re.fullmatch(r"/api/history/exports(?:/[0-9a-f-]{36}/(?:items|finalize))?",path):return True
     # Everything else under /api is allowed except provider execution, internal worker/callback ingress and export scheduling.
     if paid_initial_routes and method=='POST' and path in ('/api/generate/image','/api/generate/video','/api/generate/video/finalize'):return True
     if paid_initial_routes and magnific_upscale and method=='POST' and path=='/api/generate/upscale':return True
+    # Audio transcription: the paid guard registers the job and claims its one Gemini call in the worker.
+    if paid_initial_routes and method=='POST' and path=='/api/audio/transcribe':return True
+    # Admin agent chat: its Gemini calls go through the agent transport's exact endpoint and payload allowlist.
+    if paid_initial_routes and method=='POST' and AGENT_MESSAGES.fullmatch(path):return True
     if method in ('GET','HEAD') and path=='/api/generate/video/status':return True
     # Depth maps: artist enqueue/status and the external GPU worker protocol
     # (Django authenticates the worker with DEPTH_WORKER_TOKEN).
@@ -97,9 +112,8 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
             try:
                 conn.request(self.command,path + ('?' + target.query if target.query else ''),body=body,headers=headers)
                 upstream_socket=conn.sock
-                # Initial enqueue may normalize large references; only response headers get120s.
-                if self.command=='POST' and path in ('/api/generate/image','/api/generate/video'):
-                    upstream_socket.settimeout(120)
+                # Only response headers get the longer wait; streaming the body stays on 25 s.
+                upstream_socket.settimeout(upstream_wait(self.command,path))
                 response=conn.getresponse()
                 if upstream_socket is not None:upstream_socket.settimeout(25)
                 length=response.getheader('Content-Length')
@@ -116,7 +130,7 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
                 self.close_connection=True
             except socket.timeout:
                 if not headers_sent:
-                    submission=self.command=='POST' and path in ('/api/generate/image','/api/generate/video')
+                    submission=self.command=='POST' and path in LONG_POSTS
                     message=('The upstream request timed out and may still have been accepted. Check your library/status before trying again.' if submission else 'The upstream request timed out. Its completion could not be verified.')
                     data=json.dumps({'error':message,'code':'UPSTREAM_TIMEOUT_SUBMISSION_UNCERTAIN' if submission else 'UPSTREAM_TIMEOUT'}).encode()
                     self.send_response(502);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.send_header('Vary','Cookie');self.end_headers()
