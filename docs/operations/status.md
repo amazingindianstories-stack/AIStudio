@@ -199,22 +199,30 @@ Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the relea
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
-2026-10-18: **context-aware viewer navigation merged to `main`, NOT deployed.** The viewer's arrow keys walk the
+2026-10-19 ~05:22 UTC: **released `main` `4e7a915`** (#86 rate-limit hardening + memory fix, #87 Gemini Omni
+Flash 1.1, #88 viewer navigation, #89 favourite star). Release gate and local rehearsal passed on the commit.
+Railway api `622f8afa`, generation `9c46f08b` (after the flag: `0182d113`, `ecaca500`), export `49383387`, scheduler `73b333ed`; Vercel
+`dpl_H2HM8MQuUaTh4McsPpFBkoUDza2V` (built with `--skip-domain`, verified with `vercel curl`, promoted). No
+migrations, no variable changes. One queued Seedance job went through the worker switch and succeeded.
+~05:50 UTC: owner-approved live probe of `gemini-omni-1.1-flash` (4 s, 360p, from the generation service) completed in ~21 s with an inline MP4 in `steps[].content` (the shape `omni.extract_video` reads); then `VEEVEE_GEMINI_OMNI=1` set on api (`0182d113`) and generation (`ecaca500`), same image. Flag rollback: unset it. Rollback targets: api
+`e48952f3`, generation `c1a4f34b`, export `1c4c5afe`, scheduler `a1a04621`, Vercel
+`dpl_CJvLGB5Woi3nSpaTeTaM3DdWciSs`. Pending: watch Railway memory on generation and API for a day.
+
+2026-10-18: **context-aware viewer navigation merged to `main`, released 2026-10-19.** The viewer's arrow keys walk the
 list it was opened from (the grid's folder/Unsorted/filter scope in grid order, a chat thread, or nothing for a
 lone card), continue into the next keyset page of the same scope instead of wrapping early, and Up/Down follow the
 card's column again. The thumbnail shows at once and neighbours are resolved in one batched `media-resolve` and
 warmed from direct storage URLs (images only; video masters are never prefetched), so stepping adds no per-step
 `/api/media` traffic through Vercel. Real GCS signed URLs are verified only after deploy.
 
-2026-10-18: **Gemini Omni Flash 1.1 merged to `main`, NOT deployed.** Google shuts `gemini-omni-flash-preview`
+2026-10-18: **Gemini Omni Flash 1.1 merged to `main`, released 2026-10-19 (flag still off).** Google shuts `gemini-omni-flash-preview`
 down on 2026-10-22 (replacement `gemini-omni-1.1-flash`, GA 2026-08-27). The old model is retired (new jobs
 refused with a clear message; history still renders and counts in the Gemini spend window). Omni video never
 passed the paid guard in production; 1.1 is admitted only with `VEEVEE_GEMINI_OMNI=1` on API and generation,
 pinned to the Interactions create endpoint and the job's own ratio/size/length. 360p/720p, 4-10 s, 11 estimator
 cents/s at 720p. Before setting the flag: one owner-approved live probe (4 s 360p, about $0.14).
 
-2026-10-18: **rate-limit hardening merged to `main`, NOT deployed** (owner: more changes before the next
-production push). Production still runs `981f993`. Audit of every provider and our own API: Gemini 429s no
+2026-10-18: **rate-limit hardening merged to `main`, released 2026-10-19.** Audit of every provider and our own API: Gemini 429s no
 longer retry inside the job (the paid guard refused the retry and users saw a generic error after ~33 s);
 provider overload codes show the busy copy; a Seedance job whose output download fails frees its lane slot and
 gives up after 6 h; our own slow-call 429 is retried by the client and slots are half the API threads; portrait
