@@ -219,6 +219,15 @@ more than one layer blocking it:
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-19 ~09:30 UTC: **released `main` `8b3e02a`** (#91: audio transcription, admin agent chat, admin user/limit/
+pricing changes and Status unblocked; runtime audit and Higgsfield token seeding stay closed). Release gate and
+rehearsal (89/89) passed on the merge commit. Railway api `201c65aa`, generation `cf500cfb`, export `65974829`,
+scheduler `a4e6b1e1`; Vercel `dpl_7fhSdebmD9TA8VjCoERgPmdb3Bqi`. No variable changes (`VEEVEE_GEMINI_OMNI=1` kept).
+Queue was empty. Signed-out probes through veevee.ai: transcribe/admin routes reach Django (401), runtime audit and
+set-token refused by the gateway (403). Pending: first real transcription and agent message (only fakes so far).
+Rollback targets: api `0182d113`, generation `ecaca500`, export `49383387`, scheduler `73b333ed`, Vercel
+`dpl_H2HM8MQuUaTh4McsPpFBkoUDza2V`.
+
 2026-10-19 ~05:22 UTC: **released `main` `4e7a915`** (#86 rate-limit hardening + memory fix, #87 Gemini Omni
 Flash 1.1, #88 viewer navigation, #89 favourite star). Release gate and local rehearsal passed on the commit.
 Railway api `622f8afa`, generation `9c46f08b` (after the flag: `0182d113`, `ecaca500`), export `49383387`, scheduler `73b333ed`; Vercel
