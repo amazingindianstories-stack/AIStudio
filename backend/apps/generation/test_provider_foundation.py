@@ -41,6 +41,13 @@ class PureProviderParityTests(SimpleTestCase):
                   for item in MODEL_REGISTRY if item not in added]
         frozen = [{**{key: value for key, value in item.items() if key != 'retiredFor'}, **omni_frozen}
                   if item['id'] == retired['id'] else item for item in frozen]
+        # The Kling picker hints lost their em dash on 2026-10-19 (user-facing copy); the frozen Node entries keep it.
+        kling_frozen = {'kling-image-3': 'Strong prompt adherence, 1K/2K — takes a single reference image',
+                        'kling-image-21': 'Cheapest text-to-image here (~$0.014) — 2K only without a reference'}
+        for item in frozen:
+            if item['id'] in kling_frozen:
+                self.assertEqual(item['hint'], kling_frozen[item['id']].replace(' — ', ' - '))
+        frozen = [{**item, 'hint': kling_frozen[item['id']]} if item['id'] in kling_frozen else item for item in frozen]
         request = {'modelIds': [item['id'] for item in frozen] + [item['name'] for item in frozen] + ['unknown'],
                    'seedream': [], 'references': []}
         for resolution in ('1K', '1.5K', '2K', '4K', None):

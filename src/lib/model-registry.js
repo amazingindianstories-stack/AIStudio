@@ -65,7 +65,7 @@ export const MODEL_REGISTRY = [
     providerModelId: "kling-v3",
     offered: true,
     badge: "NEW",
-    hint: "Strong prompt adherence, 1K/2K — takes a single reference image",
+    hint: "Strong prompt adherence, 1K/2K - takes a single reference image",
     pricingKey: "Kling Image 3.0",
     capabilities: {
       aspectRatios: KLING_ASPECTS,
@@ -83,7 +83,7 @@ export const MODEL_REGISTRY = [
     providerModelId: "kling-v2-1",
     offered: true,
     badge: "BUDGET",
-    hint: "Cheapest text-to-image here (~$0.014) — 2K only without a reference",
+    hint: "Cheapest text-to-image here (~$0.014) - 2K only without a reference",
     pricingKey: "Kling Image 2.1",
     imageToImagePricingKey: "Kling Image 2.1 · image-to-image",
     capabilities: {

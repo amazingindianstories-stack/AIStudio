@@ -19,7 +19,7 @@ DEFAULT_HOST = 'https://api-singapore.klingai.com'
 HOST_PATTERN = re.compile(r'https://(?:[a-z0-9-]+\.)+klingai\.com')
 CREATE_PATH = '/v1/images/generations'
 PROMPT_MAX = 2500
-MODELS = [{'modelName': m['providerModelId'], 'display': m['name'],
+MODELS = [{'id': m['id'], 'modelName': m['providerModelId'], 'display': m['name'],
            'resolutions': m['capabilities']['resolutions'],
            'twoKNeedsNoReference': '2K' not in m['capabilities']['referenceResolutions'],
            'aspectRatios': m['capabilities']['aspectRatios']}
@@ -34,7 +34,8 @@ SUBJECT_RULE = ('reproduce exactly what this shows — same shapes, colours, mat
 
 
 def spec(model):
-    return next((m for m in MODELS if m['display'].lower() == model.strip(WHITESPACE).lower()), None)
+    name = model.strip(WHITESPACE).lower()
+    return next((m for m in MODELS if name in (m['display'].lower(), m['id'])), None)
 
 
 def nearest_aspect_ratio(width, height):

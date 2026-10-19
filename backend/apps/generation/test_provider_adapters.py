@@ -204,6 +204,12 @@ class ProviderAdapterTests(SimpleTestCase):
             with self.assertRaises(ProviderError):
                 kling.submit_image({'model': 'Kling Image 3.0', 'prompt': 'literal'}, transport=ScriptedTransport(value), env={'KLING_API': 'fixture'})
 
+    def test_kling_models_resolve_by_name_or_registry_id(self):
+        for model, code in (('Kling Image 3.0', 'kling-v3'), ('kling-image-3', 'kling-v3'), (' kling image 2.1 ', 'kling-v2-1'), ('kling-image-21', 'kling-v2-1')):
+            self.assertEqual(kling.build_payload({'model': model, 'prompt': 'literal'})['model_name'], code, model)
+        with self.assertRaisesRegex(ValueError, 'not a Kling model'):
+            kling.build_payload({'model': 'kling-v3', 'prompt': 'literal'})
+
     def test_kling_key_is_only_ever_sent_to_a_kling_api_host(self):
         self.assertEqual(kling.create_url({}), 'https://api-singapore.klingai.com/v1/images/generations')
         self.assertEqual(kling.create_url({'KLING_API_HOST': 'https://api.klingai.com/'}), 'https://api.klingai.com/v1/images/generations')
