@@ -65,7 +65,7 @@ class Handler(BaseHTTPRequestHandler):
                 assets = [{k: v for k, v in a.items() if not k.startswith('_')} for a in FAKE.assets.values()]
                 return self._json(200, {'asset_capacity': FAKE.asset_capacity, 'live_assets': FAKE.live_asset_count(),
                                         'assets': assets, 'groups': list(FAKE.groups.values()),
-                                        'seedance_tasks': FAKE.task_counter, 'calls': FAKE.calls[-50:],
+                                        'seedance_tasks': FAKE.task_counter, 'kling_tasks': len(FAKE.kling_tasks), 'calls': FAKE.calls[-50:],
                                         'reject_image_sha256': sorted(FAKE.reject_image_sha256), 'reject_mode': FAKE.reject_mode,
                                         'faults': FAKE.faults})
         if target.path == '/health':
@@ -86,6 +86,7 @@ class Handler(BaseHTTPRequestHandler):
             with FAKE.lock:
                 if change.get('reset'):
                     FAKE.groups.clear(); FAKE.assets.clear(); FAKE.calls.clear(); FAKE.seedance_payloads.clear()
+                    FAKE.kling_payloads.clear(); FAKE.kling_tasks.clear()
                     FAKE.reject_image_sha256.clear(); FAKE.rejected_tasks.clear(); FAKE.reject_mode = 'create'; FAKE.faults.clear()
                 if 'faults' in change:
                     FAKE.faults = [dict(fault) for fault in change['faults'] or []]

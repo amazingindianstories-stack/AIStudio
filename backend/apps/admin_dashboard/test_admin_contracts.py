@@ -242,6 +242,18 @@ class AdminPureParityTests(SimpleTestCase):
         omni = next(row for row in added if row['model'] == 'Gemini Omni Flash 1.1')
         self.assertEqual((omni['unitCostCents'], omni['unit']), (11, 'per_second'))
 
+    def test_kling_status_names_where_the_key_lives(self):
+        from django.test import override_settings
+        with patch.dict('os.environ', {'KLING_API': 'fixture'}):
+            self.assertEqual(status.kling(), {'status': 'ok', 'detail': 'KLING_API set (config-presence only)'})
+        with patch.dict('os.environ', {}, clear=True):
+            self.assertEqual(status.kling(), {'status': 'unknown', 'detail': 'KLING_API not set'})
+            with override_settings(VEEVEE_KLING=True):
+                # Production: the API serves this page; only the generation worker holds the key.
+                self.assertEqual(status.kling(), {'status': 'unknown',
+                                                  'detail': 'Enabled (VEEVEE_KLING); KLING_API is held by the generation worker, not this API process'})
+        self.assertIn(('kling', 'KlingAI Image', status.kling), status.CHECKS)
+
     def test_gemini_status_probes_read_each_image_model_without_generating(self):
         seen=[]
         def transport(url,headers):

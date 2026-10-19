@@ -5,7 +5,7 @@ import os
 import re
 from urllib.parse import urlsplit
 from PIL import Image
-from apps.generation.providers.kling import MODELS, DEFAULT_HOST
+from apps.generation.providers.kling import MODELS, api_host
 from apps.generation.providers.transport import HttpTransport
 from apps.generation.services.deadline import Cancellation
 
@@ -45,8 +45,7 @@ def run(*,env=None,transport=None,signal=None):
     env = os.environ if env is None else env
     key = env.get('KLING_API')
     if not key: return {'configured':False}
-    host = str(env.get('KLING_API_HOST') or DEFAULT_HOST).rstrip('/')
-    if not host.startswith('https://'): raise ValueError('Kling host is not a secure URL')
+    host = api_host(env)
     transport = transport or HttpTransport(allowed_hosts=[urlsplit(host).hostname],timeout=20)
     signal = signal or Cancellation(20000)
     def call(path,body=None):

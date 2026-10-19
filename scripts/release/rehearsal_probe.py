@@ -162,6 +162,34 @@ else:
     status, refused, _ = call('POST', '/api/generate/upscale', IMAGE_UPSCALE)
     check('Magnific off: gateway refuses upscale', status == 403 and isinstance(refused, dict) and refused.get('code') == 'PREVIEW_PAID_PROVIDER_DISABLED', f'{status} {str(refused)[:160]}')
 
+# Kling images (VEEVEE_KLING): through the gateway, the paid guard's pinned create endpoint and payload, the worker's
+# poll and the result download; the key lives only on the generation worker, as in production.
+KLING_CASES = (('Kling Image 3.0', {'resolution': '2K', 'aspectRatio': '16:9'}, 3), ('Kling Image 2.1', {'aspectRatio': '1:1'}, 1))
+if os.environ.get('VEEVEE_KLING') == '1':
+    kling = {}
+    for model, extra, _ in KLING_CASES:
+        identifier = enqueue('image', {'prompt': 'rehearsal: a lighthouse at dusk', 'model': model, **extra})
+        if identifier:
+            kling[model] = identifier
+    for model, _, cents in KLING_CASES:
+        if model not in kling:
+            continue
+        row = wait(kling[model])
+        check(f'{model}: worker completed', row.status == 'succeeded', f'{row.status} {row.error}')
+        check(f'{model}: one paid submission claimed', ledger(kling[model]) == 'SUBMITTING', ledger(kling[model]))
+        check(f'{model}: provider task kept', bool(row.task_id), row.task_id)
+        check(f'{model}: Kling-reported cost recorded', (row.cost_cents, row.cost_basis) == (cents, 'reconciled'), f'{row.cost_cents} {row.cost_basis}')
+        check(f'{model}: named', GenerationNaming.objects.filter(generation_id=row.id).exists())
+        if row.url:
+            status, data, headers = call('GET', row.url, raw=True)
+            check(f'{model}: media readable through the API', status in (200, 206) and len(data) > 100, f'{status} {len(data)}')
+        results[model] = kling[model]
+else:
+    status, refused, _ = call('POST', '/api/generate/image', {'prompt': 'rehearsal: a lighthouse at dusk', 'model': 'Kling Image 3.0',
+                                                               'projectId': str(project.id)}, {'Idempotency-Key': 'rehearsal-' + uuid.uuid4().hex})
+    check('Kling off: enqueue refused as not enabled', status == 409 and isinstance(refused, dict)
+          and refused.get('error') == 'Kling Image 3.0 is not enabled. Choose another image model.', f'{status} {str(refused)[:160]}')
+
 done = [identifier for identifier in results.values() if Generation.objects.get(pk=identifier).status == 'succeeded']
 if done:
     status, export, _ = call('POST', '/api/history/exports', {})

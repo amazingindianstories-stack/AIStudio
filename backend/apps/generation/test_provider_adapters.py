@@ -204,6 +204,16 @@ class ProviderAdapterTests(SimpleTestCase):
             with self.assertRaises(ProviderError):
                 kling.submit_image({'model': 'Kling Image 3.0', 'prompt': 'literal'}, transport=ScriptedTransport(value), env={'KLING_API': 'fixture'})
 
+    def test_kling_key_is_only_ever_sent_to_a_kling_api_host(self):
+        self.assertEqual(kling.create_url({}), 'https://api-singapore.klingai.com/v1/images/generations')
+        self.assertEqual(kling.create_url({'KLING_API_HOST': 'https://api.klingai.com/'}), 'https://api.klingai.com/v1/images/generations')
+        for host in ('http://api.klingai.com', 'https://evil.example', 'https://api.klingai.com.evil.example', 'https://klingai.com',
+                     'https://api.klingai.com:8443', 'https://api.klingai.com/v2', 'https://user@api.klingai.com'):
+            transport = ScriptedTransport(result({'code': 0, 'data': {'task_id': 'never'}}))
+            with self.subTest(host=host), self.assertRaisesRegex(ProviderError, 'KLING_API_HOST'):
+                kling.submit_image({'model': 'Kling Image 3.0', 'prompt': 'literal'}, transport=transport, env={'KLING_API': 'fixture', 'KLING_API_HOST': host})
+            self.assertEqual(transport.calls, [])
+
     def test_kling_reference_bytes_preserved_or_explicitly_converted(self):
         def encoded(size, format):
             buffer = io.BytesIO()

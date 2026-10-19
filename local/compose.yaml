@@ -16,6 +16,7 @@ x-backend: &backend
     VEEVEE_LOCAL_PROVIDERS: ${VEEVEE_LOCAL_PROVIDERS:-fake}
     VEEVEE_MANAGED_PORTRAITS: ${VEEVEE_MANAGED_PORTRAITS:-1}
     VEEVEE_GEMINI_OMNI: ${VEEVEE_GEMINI_OMNI:-1}      # paid guard admits Gemini Omni Flash 1.1 (fake provider here)
+    VEEVEE_KLING: ${VEEVEE_KLING:-1}                  # paid guard admits Kling Image 3.0 / 2.1 (fake provider here)
     VEEVEE_FAKE_PROVIDER_URL: http://fake-providers:8099
     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY}
     AUTH_SECRET: ${AUTH_SECRET}
@@ -85,7 +86,8 @@ services:
   generation:
     <<: *backend
     command: ["python", "-m", "deploy.entrypoint", "generation"]
-    environment: { <<: *worker-env, VEEVEE_PAID_GUARD: "${VEEVEE_PAID_GUARD}" }
+    # As in production, only the generation worker holds the Kling key (a fixed fake: never a real key here).
+    environment: { <<: *worker-env, VEEVEE_PAID_GUARD: "${VEEVEE_PAID_GUARD}", KLING_API: local-fake-kling-key }
     networks: [internal]
 
   export:

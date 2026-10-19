@@ -46,8 +46,16 @@ def gemini_video_models():
     return sorted(name for model in MODEL_REGISTRY if model.get('provider') == 'omni' for name in (model['id'], model['name']))
 
 
+def non_gemini_image_models():
+    """Image model names and ids billed by their own provider account (Seedream, Kling), never by the Gemini key:
+    they neither spend nor wait on the Gemini window."""
+    from apps.generation.model_registry import MODEL_REGISTRY
+    return sorted(name for model in MODEL_REGISTRY if model['kind'] == 'image' and model.get('provider') in ('seedream', 'kling')
+                  for name in (model['id'], model['name']))
+
+
 def bills_gemini(item):
-    return (item.kind == 'image' and item.model not in ('Seedream 5.0 Pro', 'seedream-5-pro')) or item.model in gemini_video_models()
+    return (item.kind == 'image' and item.model not in non_gemini_image_models()) or item.model in gemini_video_models()
 
 
 def lane_models(item):
@@ -77,6 +85,7 @@ def snapshot(item, *, now, best_of):
     with connection.cursor() as cursor:
         cursor.execute(SNAPSHOT_SQL, {'kind': item.kind, 'item_id': item.id, 'user_default': PER_USER_DEFAULT, 'user_max': PER_USER_MAX,
             'lane_models': lane_models(item), 'gemini_video_models': gemini_video_models(),
+            'non_gemini_image_models': non_gemini_image_models(),
             'created_at': item.created_at, 'best_of': best_of,
             'window_start': now - SPEND_WINDOW_MS,
             'skirt_start': now - SPEND_WINDOW_MS - 6 * 60 * 60 * 1000})

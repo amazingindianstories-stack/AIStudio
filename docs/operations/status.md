@@ -219,6 +219,20 @@ more than one layer blocking it:
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-19: **Kling Image 3.0 / 2.1 merged to `main`, not released (flag off).** Production had no Kling key and
+the paid guard refused every Kling job ("Only configured Gemini or Seedream image providers authorized"). Kling is
+now admitted only with `VEEVEE_KLING=1` on API and generation, pinned to the one create endpoint on the Kling host
+and to the job's own model code, `n=1`, ratio and size; with the flag off the composer's Kling choice is refused at
+enqueue as "Kling Image 3.0 is not enabled". `KLING_API` (Railway variable on generation only; the API never holds
+it) and an optional `KLING_API_HOST` (a `*.klingai.com` origin, else startup is refused) reach Django only while
+the flag is on. Result hosts `h1.inkwai.com` (Kling's API reference example) and `cdn.klingai.com` (published sample
+responses) join the generation worker's media allowlist with the flag; neither is seen live yet, and on
+2026-10-15 Magnific image and video results came from different hosts, so the first live canary must confirm the
+real host (an unlisted host leaves the job running and re-polling until the allowlist is fixed). Also: a Kling
+image whose poll or download was interrupted after Kling accepted it now resumes polling without a claim (the
+guard used to refuse the resume and leave it running forever), and Kling images no longer count in or wait on
+the Gemini spend window. Before setting the flag: one owner-approved live canary per model (about $0.03 each).
+
 2026-10-19 ~09:30 UTC: **released `main` `8b3e02a`** (#91: audio transcription, admin agent chat, admin user/limit/
 pricing changes and Status unblocked; runtime audit and Higgsfield token seeding stay closed). Release gate and
 rehearsal (89/89) passed on the merge commit. Railway api `201c65aa`, generation `cf500cfb`, export `65974829`,
