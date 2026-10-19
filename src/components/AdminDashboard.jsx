@@ -45,6 +45,7 @@ import { LIMIT_DEFINITIONS, USER_LIMIT_DEFINITIONS } from "@/lib/limits";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
+import { AdminErrorsTab } from "./AdminErrorsTab";
 import { apiErrorMessage } from "@/lib/api-error";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
@@ -129,6 +130,7 @@ export function AdminDashboard() {
               ["overview", "Overview", LayoutDashboard],
               ["users", "Users", UsersIcon],
               ["logs", "Logs", ScrollText],
+              ["errors", "Errors", AlertTriangle],
               ["pricing", "Pricing", DollarSign],
               ["limits", "Limits", SlidersHorizontal],
               ["status", "Status", Activity],
@@ -161,6 +163,8 @@ export function AdminDashboard() {
           <UsersTab data={data} reload={load} currentUserId={currentUser?.id ?? null} />
         ) : tab === "logs" ? (
           <LogsTab data={data} usersById={usersById} />
+        ) : tab === "errors" ? (
+          <AdminErrorsTab data={data} usersById={usersById} />
         ) : tab === "pricing" ? (
           <PricingTab data={data} reload={load} />
         ) : (
