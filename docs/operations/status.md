@@ -181,6 +181,26 @@ The live ingress gateway refuses `POST /api/generate/upscale`, `/api/audio/trans
 `/api/queue/execute`. Unchanged by the cutover; enabling them is a separate owner decision.
 Upscale is open since 2026-10-15 behind `VEEVEE_MAGNIFIC_UPSCALE` (see the release above).
 
+**Fixed in code 2026-10-19 (branch `fix/unblock-production-features`), not deployed.** Each route had
+more than one layer blocking it:
+- Audio transcription: gateway; the paid guard refused the worker's Gemini POST (audio bypasses
+  `execute_admitted`); the view created its row without `reserve()`, so worker RLS hid it (requests
+  ended in a 504 "still pending"). Now: the API registers the intent in the transaction that creates
+  it, the worker claims RESERVED→ATTEMPTING only after its own never-replay claim committed, and the
+  single POST must be the configured model's `generateContent` with this job's exact snapshot bytes,
+  MIME and prompt (ATTEMPTING→SUBMITTING). A refused claim provably sent nothing and ends the row.
+- Admin agent chat (admin-only, no job row): gateway; paid guard. Now: a dedicated
+  `AgentTransport` (exempt like the BytePlus asset transports) that allows only POST
+  `generateContent` on `AGENT_LLM_MODEL` (default `gemini-flash-latest`) with the agent's own system
+  prompts and tool sets, no generation config, bounded body.
+- Admin users/pricing/limits/user-limits and the read-only dependency status: gateway only. Django
+  answers 401 without a session and 403 for a non-admin.
+- Still closed: runtime audit (writes rolled-back fixtures into the live database and runs the
+  executor; MIG-04 assumes Cloud SQL), Higgsfield token seeding (no Higgsfield model is offered; it
+  stores a provider credential), the retired schema endpoint, webhooks, queue execute, worker export
+  access. The dashboard shows the first two as off instead of failing.
+- No production variable changes are needed.
+
 ## P5 - UI performance (progress)
 - `5cae45a`: one mounted assets panel (desktop only when open; drawer on mobile); ZIP status poll backs off, pauses when hidden, stops after 2 h; depth status 12 s only in Depth mode, else 60 s.
 - `de7c76c`: draft videos marked with a dashed amber border + "Draft" label (owner request).

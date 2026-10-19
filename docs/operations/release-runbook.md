@@ -31,8 +31,10 @@ the preconditions below are its record.
 2. `scripts/release/rehearse_local.sh <commit>` - the commit's image on an internal
    (no-internet) Docker network against a restored Green copy with production roles/RLS: API with
    the real entrypoint (paid guard, export admission, portrait lifecycle, gateway), workers via
-   `rehearsal_worker.py` (fake provider network installed before the paid guard). The probe
-   drives Nano Banana, Seedream, Seedance draft → final and a ZIP export through the gateway.
+   `rehearsal_worker.py` (fake provider network installed before the paid guard; the API's own
+   Gemini host, used by the admin agent, is faked by `scripts/release/rehearsal_api/`). The probe
+   drives Nano Banana, Seedream, Seedance draft → final, Magnific, an audio transcription, an admin
+   agent message, admin user/limit changes and a ZIP export through the gateway.
    Verified to fail on the 2026-10-13 missing-import regression.
 3. `stage_railway_deploy.py` refuses a commit without both pass records.
 4. Proposed, not built (needs owner budget approval): a tiny real paid canary per provider right

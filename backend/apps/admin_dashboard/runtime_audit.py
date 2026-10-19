@@ -18,7 +18,7 @@ from apps.authentication.models import User
 from apps.common.leases import claim, now_ms
 from apps.generation.models import Generation
 from apps.canvas.views import reply, failure
-from .admin_api import node_route, admin
+from .admin_api import node_route, admin_gate
 from .models import UserLimit
 from .queries import query, log_rows, csv_response
 
@@ -203,8 +203,8 @@ def run_runtime_audit(actor_id, checks=None, *, kling_transport=None, kling_env=
 
 @node_route(['POST'])
 def runtime_audit(request):
-    actor=admin(request)
-    if actor is None: return reply(request,{'error':'FORBIDDEN'},403)
+    actor,refused=admin_gate(request)
+    if refused: return refused
     try:
         if not claim('lease:admin-runtime-audit',str(uuid.uuid4()),ttl_ms=60000):
             response=reply(request,{'error':'COOLDOWN','retryAfterSeconds':60},429)

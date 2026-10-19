@@ -152,9 +152,10 @@ class FakeCursor:
 class OneClaimPerPostTests(TransactionTestCase):
     @contextlib.contextmanager
     def installed(self, ledger, sent):
-        from apps.generation.services import enqueue, executor, upscale_submission
+        from apps.generation.services import enqueue, executor, upscale_submission, audio_submission
         from apps.generation.providers.transport import HttpTransport
-        originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale)
+        originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
+                     audio_submission.persist_audio_intent, audio_submission.transcribe_claimed)
         installed_flag = getattr(enqueue, '_goal4_paid_guard_installed', False)
 
         def fake_request(self, method, url, **kwargs):
@@ -176,7 +177,8 @@ class OneClaimPerPostTests(TransactionTestCase):
                 paid_guard.install_paid_guard(UNLIMITED)
                 yield executor
         finally:
-            enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale = originals
+            (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
+             audio_submission.persist_audio_intent, audio_submission.transcribe_claimed) = originals
             enqueue._goal4_paid_guard_installed = installed_flag
             paid_guard.STATE.active = None
 

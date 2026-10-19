@@ -50,6 +50,21 @@ class AdminContractTests(TransactionTestCase):
         User.objects.filter(pk=fixtures.UID).update(role='admin')
         self.assertEqual(self.post('migrate-schema',{}).status_code,410)
 
+    def test_admin_routes_answer_401_without_a_session(self):
+        self.client.cookies.clear()
+        for method,path in [('get','data'),('get','logs'),('get','activity'),('get','status'),('post','users'),('patch','users'),('delete','users'),('post','limits'),('post','user-limits'),('post','pricing'),('post','audit/runtime'),('post','migrate-schema')]:
+            response=getattr(self.client,method)('/api/admin/'+path)
+            self.assertEqual((response.status_code,response.json()),(401,{'error':'UNAUTHENTICATED'}),path)
+        # Token seeding also accepts a setup secret instead of a session, so it keeps one refusal for both.
+        response=self.client.post('/api/admin/set-token')
+        self.assertEqual((response.status_code,response.json()),(403,{'error':'FORBIDDEN'}))
+
+    def test_malformed_user_ids_are_not_found_instead_of_failing(self):
+        for response in (self.client.delete('/api/admin/users?id=not-a-uuid'),
+                         self.client.patch('/api/admin/users',json.dumps({'id':'not-a-uuid','name':'x'}),content_type='application/json'),
+                         self.post('user-limits',{'userId':'not-a-uuid','key':'maxConcurrentJobs','value':2})):
+            self.assertEqual((response.status_code,response.json()),(404,{'error':'User not found.'}))
+
     def test_users_safe_fields_uniqueness_self_protection_and_revocation(self):
         user=self.create_user()
         self.assertEqual((user['email'],user['name'],user['role']),('new@example.invalid','Person','user'))
@@ -241,6 +256,17 @@ class AdminPureParityTests(SimpleTestCase):
             self.assertEqual(status.gemini(transport,model='Nano Banana 2.1')['status'],'unknown')
         self.assertEqual([(key,name) for key,name,_ in status.CHECKS[:2]],
                          [('gemini','Gemini / Nano Banana Pro'),('gemini-nano-banana-2-1','Gemini / Nano Banana 2.1')])
+
+    def test_gemini_status_probe_is_a_provider_transport_get(self):
+        from apps.generation.providers.transport import HttpResult, HttpTransport
+        seen=[]
+        def request(transport,method,url,**kwargs):
+            seen.append((method,url,kwargs.get('headers'),transport.allowed_hosts))
+            return HttpResult(200,b'{}')
+        with patch.object(HttpTransport,'request',request),patch.dict('os.environ',{'GOOGLE_API_KEY':'fixture'}):
+            self.assertEqual(status.gemini(),{'status':'ok','detail':'HTTP 200'})
+        self.assertEqual(seen,[('GET','https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image',{'x-goog-api-key':'fixture'},
+                                frozenset({'generativelanguage.googleapis.com'}))])
 
     def test_status_timeout_error_and_fixed_shape_without_external_calls(self):
         checks=[('success','Success',lambda:{'status':'ok','detail':'fixture'}),('slow','Slow',lambda:time.sleep(.04))]

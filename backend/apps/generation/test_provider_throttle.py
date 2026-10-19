@@ -62,8 +62,9 @@ class LedgerCursor:
 def guard_installed(ledger, sent, responses):
     """The production paid guard over a transport that answers with `responses`; a second POST per job is refused."""
     from apps.generation.providers.transport import HttpTransport
-    from apps.generation.services import enqueue, upscale_submission
-    originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale)
+    from apps.generation.services import enqueue, upscale_submission, audio_submission
+    originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
+                 audio_submission.persist_audio_intent, audio_submission.transcribe_claimed)
     flag = getattr(enqueue, '_goal4_paid_guard_installed', False)
 
     def provider(self, method, url, **kwargs):
@@ -78,7 +79,8 @@ def guard_installed(ledger, sent, responses):
             paid_guard.install_paid_guard(UNLIMITED)
             yield
     finally:
-        enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale = originals
+        (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
+         audio_submission.persist_audio_intent, audio_submission.transcribe_claimed) = originals
         enqueue._goal4_paid_guard_installed = flag
         paid_guard.STATE.active = None
 

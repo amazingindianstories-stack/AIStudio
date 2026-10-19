@@ -39,9 +39,9 @@ print(f'     project with assets: {project.id}', flush=True)
 failures = []
 
 
-def call(method, path, body=None, headers=None, raw=False):
-    connection_ = http.client.HTTPConnection('127.0.0.1', 18081, timeout=120)
-    sent = {'x-veevee-g4-ingress': SECRET, 'Cookie': 'veevee_session=' + cookie, 'Origin': 'https://veevee.ai',
+def call(method, path, body=None, headers=None, raw=False, session=None):
+    connection_ = http.client.HTTPConnection('127.0.0.1', 18081, timeout=150)
+    sent = {'x-veevee-g4-ingress': SECRET, 'Cookie': 'veevee_session=' + (session or cookie), 'Origin': 'https://veevee.ai',
             'Sec-Fetch-Site': 'same-origin', 'X-Forwarded-Proto': 'https'}
     if body is not None:
         sent['Content-Type'] = 'application/json'
@@ -220,6 +220,76 @@ if isinstance(pool, dict) and pool.get('enabled'):
         check('portraits: admin settings reachable through the gateway', status in (200, 403), status)
 else:
     print('     managed portraits off in this rehearsal', flush=True)
+
+def upload(data, purpose, content_type, filename):
+    import hashlib
+    status, session, _ = call('POST', '/api/uploads/init', {'version': 1, 'purpose': purpose, 'contentType': content_type,
+        'byteSize': len(data), 'filename': filename, 'requestKey': uuid.uuid4().hex, 'sha256': hashlib.sha256(data).hexdigest()})
+    if status not in (200, 201) or not session.get('uploadUrl'):
+        return session
+    call('PUT', session['uploadUrl'], data, {'Content-Type': content_type, 'Content-Range': f'bytes 0-{len(data) - 1}/{len(data)}'})
+    return call('POST', f'/api/uploads/{session["uploadId"]}/finalize', {'version': 1})[1]
+
+
+# Audio transcription: the gateway admits it, the API registers the intent in the paid ledger (the worker role sees
+# only registered rows), and the worker claims its single Gemini call exactly once.
+import struct  # noqa: E402
+from testsupport.fake_providers import AGENT_REPLY, TRANSCRIPT  # noqa: E402
+pcm = b'\x00\x00' * 8000
+wav = (b'RIFF' + struct.pack('<I', 36 + len(pcm)) + b'WAVEfmt ' + struct.pack('<IHHIIHH', 16, 1, 1, 8000, 16000, 2, 16)
+       + b'data' + struct.pack('<I', len(pcm)) + pcm)
+ready = upload(wav, 'audio-reference', 'audio/wav', 'rehearsal.wav')
+check('audio: reference uploaded', isinstance(ready, dict) and ready.get('ref'), str(ready)[:200])
+if isinstance(ready, dict) and ready.get('ref'):
+    status, transcribed, _ = call('POST', '/api/audio/transcribe', {'audioRef': ready['ref'], 'name': 'rehearsal.wav', 'projectId': str(project.id)})
+    check('audio: transcript returned through the gateway', status == 200 and isinstance(transcribed, dict) and transcribed.get('transcript') == TRANSCRIPT,
+          f'{status} {str(transcribed)[:200]}')
+    if status == 200:
+        check('audio: one paid submission claimed', ledger(transcribed['id']) == 'SUBMITTING', ledger(transcribed['id']))
+        row = Generation.objects.get(pk=transcribed['id'])
+        check('audio: saved as a completed history item', (row.status, row.provider_status, row.prompt) == ('succeeded', 'COMPLETED', TRANSCRIPT),
+              f'{row.status} {row.provider_status}')
+        status, history, _ = call('GET', f'/api/history?kind=audio&limit=5&projectId={project.id}')
+        check('audio: listed in the project history', status == 200 and any(item.get('id') == transcribed['id'] for item in history.get('items', [])),
+              f'{status} {str(history)[:160]}')
+
+# Admin: agent chat (its own transport and endpoint allowlist, no job row) and admin mutations through the gateway.
+admin = User.objects.filter(role='admin', is_active=True).order_by('created_at').first()
+check('admin: an admin account exists in the copy', admin is not None)
+if admin is not None:
+    admin_session = sign_session(admin)
+    status, created, _ = call('POST', '/api/agent-conversations', {'op': 'createConversation', 'projectId': str(project.id), 'agentKind': 'image',
+                                                                   'name': 'rehearsal'}, session=admin_session)
+    check('agent: conversation created', status == 200 and created.get('conversation', {}).get('id'), f'{status} {str(created)[:160]}')
+    if status == 200:
+        conversation = created['conversation']['id']
+        status, turn, _ = call('POST', f'/api/agent-conversations/{conversation}/messages', {'content': 'A quiet courtyard at dawn', 'images': []},
+                               session=admin_session)
+        check('agent: reply through the gateway and the agent transport',
+              status == 200 and (turn.get('assistantMessage') or {}).get('content') == AGENT_REPLY, f'{status} {str(turn)[:200]}')
+        call('POST', '/api/agent-conversations', {'op': 'deleteConversation', 'id': conversation}, session=admin_session)
+    status, refused, _ = call('POST', f'/api/agent-conversations/{uuid.uuid4()}/messages', {'content': 'x'})
+    check('agent: refused for the non-admin session' if user.role != 'admin' else 'agent: unknown conversation answered by Django',
+          status == (404 if user.role == 'admin' else 403), f'{status} {str(refused)[:120]}')
+    email = f'rehearsal-{uuid.uuid4().hex[:12]}@example.invalid'
+    status, made, _ = call('POST', '/api/admin/users', {'email': email, 'password': 'rehearsal-password', 'name': 'Rehearsal'}, session=admin_session)
+    check('admin: user created through the gateway', status == 200 and made.get('user', {}).get('email') == email, f'{status} {str(made)[:160]}')
+    if status == 200:
+        target = made['user']['id']
+        status, edited, _ = call('PATCH', '/api/admin/users', {'id': target, 'name': 'Rehearsal Renamed'}, session=admin_session)
+        check('admin: user edited', status == 200 and edited.get('user', {}).get('name') == 'Rehearsal Renamed', f'{status} {str(edited)[:160]}')
+        status, limited, _ = call('POST', '/api/admin/user-limits', {'userId': target, 'key': 'maxConcurrentJobs', 'value': 2}, session=admin_session)
+        check('admin: user limit changed', (status, limited) == (200, {'ok': True}), f'{status} {limited}')
+        status, removed, _ = call('DELETE', f'/api/admin/users?id={target}', session=admin_session)
+        check('admin: user deleted', (status, removed) == (200, {'ok': True}), f'{status} {removed}')
+    status, data, _ = call('GET', '/api/admin/data', session=admin_session)
+    check('admin: dashboard shows the gated operations as off', status == 200 and data.get('operations') == {'runtimeAudit': False, 'higgsfieldToken': False},
+          f'{status} {str(data.get("operations") if isinstance(data, dict) else data)[:120]}')
+    status, checks, _ = call('GET', '/api/admin/status', session=admin_session)
+    check('admin: dependency status reachable', status == 200 and len(checks.get('checks', [])) > 5, f'{status} {str(checks)[:160]}')
+    for path in ('/api/admin/audit/runtime', '/api/admin/set-token'):
+        status, refused, _ = call('POST', path, {}, session=admin_session)
+        check(f'admin: {path} stays closed', status == 403 and refused.get('code') == 'PREVIEW_OPERATION_DISABLED', f'{status} {str(refused)[:120]}')
 
 print(json.dumps({'failures': failures, 'checked': len(results)}), flush=True)
 sys.exit(1 if failures else 0)

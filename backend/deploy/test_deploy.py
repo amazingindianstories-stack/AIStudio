@@ -52,7 +52,8 @@ class GatewayAllowlistTests(SimpleTestCase):
             self.assertTrue(allowed(method, '/api/admin/portrait-settings'), method)
         self.assertTrue(allowed('GET', '/api/portraits/managed'))
         self.assertTrue(allowed('DELETE', '/api/portraits/managed/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'))
-        self.assertFalse(allowed('POST', '/api/admin/users'))
+        self.assertTrue(allowed('POST', '/api/admin/users'))
+        self.assertFalse(allowed('POST', '/api/admin/audit/runtime'))
 
     def test_magnific_upscale_route_needs_paid_routes_and_its_flag(self):
         self.assertFalse(gateway.allowed('POST', '/api/generate/upscale', True, True))
@@ -60,7 +61,7 @@ class GatewayAllowlistTests(SimpleTestCase):
         self.assertFalse(gateway.allowed('POST', '/api/generate/upscale', False, True, True))
         self.assertTrue(gateway.allowed('POST', '/api/generate/upscale', True, True, True))
         for method, path in (('GET', '/api/generate/upscale/status'), ('PUT', '/api/generate/upscale'), ('POST', '/api/generate/upscale/x'),
-                             ('POST', '/api/audio/transcribe'), ('POST', '/api/queue/execute')):
+                             ('POST', '/api/queue/execute')):
             self.assertFalse(gateway.allowed(method, path, True, True, True), (method, path))
         # Everything allowed before stays allowed; nothing else opens with the flag.
         for method, path in (('POST', '/api/generate/image'), ('POST', '/api/generate/video'), ('GET', '/api/history'),

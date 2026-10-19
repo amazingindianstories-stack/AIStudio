@@ -9,7 +9,7 @@ and the worker must claim each attempt and each provider POST exactly once.
 Configured by ``settings.VEEVEE_PAID_GUARD``; no credentials, database access
 or patching happens on import.
 """
-import json,hashlib,threading,re,math,copy
+import json,hashlib,threading,re,math,copy,base64
 LIMITED_SCOPE='GOAL4_EXISTING_GREEN_PREVIEW_NEW_IMAGE_AND_SEEDANCE_PAID_ONLY'
 UNLIMITED_SCOPE='GOAL4_EXISTING_GREEN_PREVIEW_UNLIMITED_NEW_IMAGE_AND_SEEDANCE_20_25_PAID_ONLY'
 SCOPE=LIMITED_SCOPE;SCHEMA='goal4_preview_paid_budget';CAP=2000
@@ -27,6 +27,8 @@ def quote_for(contract,config):
   # still claims exactly one submission for the new final row.
   draft_final=bool(contract['draft_task_id']) and contract['kind']=='video'
   require(contract['user_id'] is not None and (not contract['draft_task_id'] or draft_final),'New authenticated initial jobs only')
+  if contract['kind']=='audio':
+   return audio_quote(contract)
   from apps.generation.model_registry import model_definition
   definition=model_definition(contract['model']) or {};provider=definition.get('provider')
   if provider=='magnific':
@@ -75,6 +77,32 @@ def omni_quote(contract):
   'provider_payload_allowed_values':{'model':[provider_model_id(model['id'],{})],'background':[True],'response_format.type':['video'],
    'response_format.aspect_ratio':[contract['aspect_ratio']],'response_format.resolution':[contract['resolution']],
    'response_format.duration':[str(contract['duration'])+'s']}}
+def audio_quote(contract):
+ """Audio transcription (unlimited scope only): one generateContent call on the configured transcription model,
+ for this job's own immutable snapshot. The exact request body is checked by audio_payload_matches."""
+ from django.conf import settings
+ from apps.media.audio import transcription_endpoint
+ from apps.media.audio_inputs import AUDIO_EXTENSIONS,MAX_AUDIO_BYTES
+ model=getattr(settings,'AUDIO_TRANSCRIPTION_MODEL',None);value=contract.get('submission_input')
+ require(not contract['draft_task_id'] and isinstance(value,dict) and type(value.get('version')) is int and value['version']==2
+  and value.get('operation')=='audio-transcription','New audio transcription only')
+ require(isinstance(model,str) and re.fullmatch(r'gemini-[a-z0-9.-]{1,60}',model) is not None and value.get('model')==model
+  and contract['model']==f'Gemini ({model})','Audio transcription outside the configured model')
+ require(value.get('mimeType') in AUDIO_EXTENSIONS and type(value.get('byteLength')) is int and 0<=value['byteLength']<=MAX_AUDIO_BYTES
+  and isinstance(value.get('sha256'),str) and re.fullmatch('[a-f0-9]{64}',value['sha256']) is not None,'Audio input outside the transcription contract')
+ return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[transcription_endpoint(model)],'provider_payload_allowed_values':{}}
+def audio_payload_matches(body,contract):
+ """Exactly the transcription request for this job: its own snapshot bytes and MIME, the fixed prompt, nothing else."""
+ from apps.media.audio import TRANSCRIPTION_PROMPT
+ value=contract['submission_input']
+ try:
+  (content,)=body['contents'];inline,text=content['parts'];data=inline['inlineData']
+  decoded=base64.b64decode(data['data'],validate=True)
+ except (KeyError,TypeError,ValueError):return False
+ return (set(body)=={'contents','generationConfig'} and body['generationConfig']=={'temperature':0.1}
+  and set(content)=={'role','parts'} and content['role']=='user' and set(inline)=={'inlineData'} and set(data)=={'mimeType','data'}
+  and data['mimeType']==value['mimeType'] and text=={'text':TRANSCRIPTION_PROMPT}
+  and len(decoded)==value['byteLength'] and hashlib.sha256(decoded).hexdigest()==value['sha256'])
 def magnific_quote(contract):
  """Magnific upscales (VEEVEE_MAGNIFIC_UPSCALE): one exact create endpoint per model."""
  from django.conf import settings
@@ -104,18 +132,23 @@ def install_paid_guard(config):
  unlimited=config['approved_scope']==UNLIMITED_SCOPE
  require(config.get('unlimited_new_jobs') is True if unlimited else config['maximum_total_cents']==CAP)
  require(not getattr(enqueue,'_goal4_paid_guard_installed',False),'Duplicate paid guard install')
- from apps.generation.services import upscale_submission
+ from apps.generation.services import upscale_submission,audio_submission
  persist_original=enqueue.persist;execute_original=executor.execute_admitted;request_original=HttpTransport.request
  upscale_original=upscale_submission.submit_claimed_upscale
+ audio_persist_original=audio_submission.persist_audio_intent;audio_transcribe_original=audio_submission.transcribe_claimed
+ def register(row):
+  row.refresh_from_db();contract=execution_contract(row)
+  try:quote=quote_for(contract,config)
+  except ValueError as error:STATE.api_error=str(error);raise
+  try:
+   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.reserve(%s,%s,%s,%s,%s)',[row.id,row.user_id,quote['maximum_cents'],fingerprint(quote),fingerprint(contract)])
+  except Exception:STATE.api_error='Paid Preview budget unavailable or exhausted; no provider submission occurred.';raise
+  return row
  def persist(item):
-  with transaction.atomic():
-   row=persist_original(item);row.refresh_from_db();contract=execution_contract(row)
-   try:quote=quote_for(contract,config)
-   except ValueError as error:STATE.api_error=str(error);raise
-   try:
-    with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.reserve(%s,%s,%s,%s,%s)',[row.id,row.user_id,quote['maximum_cents'],fingerprint(quote),fingerprint(contract)])
-   except Exception:STATE.api_error='Paid Preview budget unavailable or exhausted; no provider submission occurred.';raise
-   return row
+  with transaction.atomic():return register(persist_original(item))
+ def persist_audio(fields):
+  # The audio view creates its intent directly; register it in the same transaction as enqueue.persist does.
+  with transaction.atomic():return register(audio_persist_original(fields))
  def execute(item,**kwargs):
   contract=execution_contract(item);quote=quote_for(contract,config)
   require(connection.get_autocommit(),'Paid one-shot transition must commit before provider I/O')
@@ -133,6 +166,19 @@ def install_paid_guard(config):
   STATE.active={'id':item.id,'contract':contract,'quote':quote}
   try:return upscale_original(item,**kwargs)
   finally:STATE.active=None
+ def transcribe_audio(claimed,*args,**kwargs):
+  # Audio bypasses execute_admitted. Its claim follows the committed SUBMISSION_PENDING fence (never replayed), so a
+  # refused claim here provably sent nothing and process_audio ends the row instead of holding it uncertain.
+  try:
+   require(not getattr(STATE,'active',None),'Nested paid execution denied')
+   contract=execution_contract(claimed);quote=quote_for(contract,config)
+   require(connection.get_autocommit(),'Paid one-shot transition must commit before provider I/O')
+   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[claimed.id,fingerprint(contract),'RESERVED','ATTEMPTING'])
+  except Exception as error:
+   raise ProviderError('Paid Preview claim refused for this transcription; nothing was sent.',code='preview_paid_scope',may_have_submitted=False) from error
+  STATE.active={'id':claimed.id,'contract':contract,'quote':quote}
+  try:return audio_transcribe_original(claimed,*args,**kwargs)
+  finally:STATE.active=None
  def request(self,method,url,**kwargs):
   # BytePlus asset-library transports (GetAsset, list, create/delete asset) are
   # not generation and each enforces its own exact endpoint/payload allowlist.
@@ -142,6 +188,8 @@ def install_paid_guard(config):
    if not active or method.upper()!='POST' or url not in active['quote']['allowed_paid_endpoints']:
     raise ProviderError('Paid Preview endpoint is outside the reserved scope.',code='preview_paid_scope',may_have_submitted=False)
    body=kwargs.get('body');require(isinstance(body,dict),'Quoted JSON payload required')
+   if active['contract']['kind']=='audio' and not audio_payload_matches(body,active['contract']):
+    raise ProviderError('Transcription payload is outside the reserved scope.',code='preview_paid_scope',may_have_submitted=False)
    if active['contract']['kind']=='image' and not unlimited:
     require(not body.get('tools'),'Paid grounding/tool calls not authorized')
     generation=body.setdefault('generationConfig',{});generation.setdefault('maxOutputTokens',32768);generation.setdefault('candidateCount',1)
@@ -158,6 +206,7 @@ def install_paid_guard(config):
   return request_original(self,method,url,**kwargs)
  enqueue.persist=persist;executor.execute_admitted=execute;HttpTransport.request=request;enqueue._goal4_paid_guard_installed=True
  upscale_submission.submit_claimed_upscale=submit_upscale
+ audio_submission.persist_audio_intent=persist_audio;audio_submission.transcribe_claimed=transcribe_audio
  return {'status':'INSTALLED_FAIL_CLOSED_SHARED_NEW_JOB_ONE_SHOT_GUARD','maximum_total_cents':None if unlimited else CAP,'reservations_released_automatically':False,'provider_billing_cap_measured':False}
 def wrap_wsgi(application):
  def guarded(environ,start_response):

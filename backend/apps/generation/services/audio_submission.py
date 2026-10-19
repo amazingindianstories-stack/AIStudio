@@ -9,6 +9,31 @@ from apps.generation.models import Generation
 AUDIO_READY = 'AUDIO_READY'
 
 
+def persist_audio_intent(fields):
+    """Commit a new queued transcription intent.
+
+    The production paid guard wraps this to register the row in the paid
+    ledger inside the same transaction (the worker role sees only registered
+    rows), so callers must go through this module attribute.
+    """
+    return Generation.objects.create(**fields)
+
+
+def transcribe_claimed(claimed, provider, encoded, mime, model, *, signal):
+    """The intent's single provider call, made only after its claim committed.
+
+    The production paid guard wraps this with its one-shot ledger claim.
+    """
+    signal.check()
+    return provider.transcribe(encoded,mime,model,signal=signal)
+
+
+def never_sent(error):
+    """A refusal raised before any provider request left this process."""
+    from apps.generation.providers.transport import ProviderError
+    return isinstance(error,ProviderError) and error.may_have_submitted is False
+
+
 def audio_limits():
     global_limit=getattr(settings,'AUDIO_MAX_CONCURRENT',2)
     user_limit=getattr(settings,'AUDIO_MAX_PER_USER',1)
@@ -126,8 +151,7 @@ def process_audio(identifier, owner, *, signal, provider=None, storage=None):
     if claimed is None:
         return {'kind':'unclaimed'}
     try:
-        signal.check()
-        transcript=provider.transcribe(encoded,mime,model,signal=signal)
+        transcript=transcribe_claimed(claimed,provider,encoded,mime,model,signal=signal)
         if not isinstance(transcript,str) or not transcript.strip():
             raise ValueError('Gemini returned an empty transcription.')
         # A paid response may arrive during cancellation. Persist it first.
@@ -135,8 +159,9 @@ def process_audio(identifier, owner, *, signal, provider=None, storage=None):
         return {'kind':'completed','item':saved}
     except Exception as error:
         try:
-            if definitive_rejection(error):
-                # A 4xx (a 429 included) refused the call before any work: end the row so the user's slot is freed.
+            if definitive_rejection(error) or never_sent(error):
+                # A 4xx (a 429 included) refused the call before any work, or nothing was sent at all
+                # (e.g. the paid guard refused the claim): end the row so the user's slot is freed.
                 _mark_audio_failed(claimed,str(error))
                 return {'kind':'failed','item':Generation.objects.get(pk=identifier)}
             _mark_audio_uncertain(claimed)

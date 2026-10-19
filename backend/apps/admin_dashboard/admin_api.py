@@ -12,6 +12,7 @@ from apps.common.responses import log_activity, public_user
 from apps.common.leases import now_ms
 from apps.canvas.views import body, property_of, truthy, node_route as canvas_route, reply, failure
 from apps.canvas.serialization import JS_WHITESPACE, js_json
+from apps.generation.history_parameters import UUID_TEXT
 from apps.generation.watermark import number_value
 from .models import AppSetting, Pricing, UserLimit
 from .views import GLOBAL_ONLY, LIMITS
@@ -37,6 +38,14 @@ def node_route(methods):
 def admin(request):
     user = lookup(request)
     return user if user and user.role == 'admin' else None
+
+
+def admin_gate(request):
+    """(admin, None) for an admin session, else (None, response): 401 without a session, 403 for a non-admin."""
+    user = lookup(request)
+    if user is None: return None, reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    if user.role != 'admin': return None, reply(request, {'error': 'FORBIDDEN'}, 403)
+    return user, None
 
 
 def text(value):
@@ -80,15 +89,15 @@ def safe_user(user):
 
 @node_route(['POST', 'PATCH', 'DELETE'])
 def user_mutations(request):
-    actor = admin(request)
-    if actor is None: return reply(request, {'error': 'FORBIDDEN'}, 403)
+    actor, refused = admin_gate(request)
+    if refused: return refused
     try:
         if request.method == 'DELETE':
             identifiers = request.query_params.getlist('id')
             identifier = identifiers[0] if identifiers else None
             if not identifier: return reply(request, {'error': 'Missing id.'}, 400)
             if identifier == str(actor.id): return reply(request, {'error': "You can't delete your own account."}, 400)
-            target = User.objects.filter(pk=identifier).first()
+            target = User.objects.filter(pk=identifier).first() if UUID_TEXT.fullmatch(identifier) else None
             if target is None: return reply(request, {'error': 'User not found.'}, 404)
             target.delete()
             from apps.media.avatars import delete_avatar_image
@@ -120,7 +129,7 @@ def user_mutations(request):
             return reply(request, {'user': safe_user(target)})
         identifier = data.get('id') if isinstance(data.get('id'), str) else ''
         if not identifier: return reply(request, {'error': 'Missing id.'}, 400)
-        target = User.objects.filter(pk=identifier).first()
+        target = User.objects.filter(pk=identifier).first() if UUID_TEXT.fullmatch(identifier) else None
         if target is None: return reply(request, {'error': 'User not found.'}, 404)
         if 'role' in data and data['role'] not in ('admin', 'user'): return reply(request, {'error': 'Invalid role.'}, 400)
         if 'isActive' in data and type(data['isActive']) is not bool: return reply(request, {'error': 'Invalid account status.'}, 400)
@@ -156,7 +165,8 @@ def user_mutations(request):
 
 @node_route(['POST'])
 def pricing_mutation(request):
-    if admin(request) is None: return reply(request, {'error': 'FORBIDDEN'}, 403)
+    refused = admin_gate(request)[1]
+    if refused: return refused
     try:
         data = body(request)
         model = trimmed(property_of(data, 'model'))
@@ -173,7 +183,8 @@ def pricing_mutation(request):
 
 @node_route(['POST'])
 def global_limit_mutation(request):
-    if admin(request) is None: return reply(request, {'error': 'FORBIDDEN'}, 403)
+    refused = admin_gate(request)[1]
+    if refused: return refused
     try:
         data = body(request)
         key = property_of(data, 'key')
@@ -187,8 +198,8 @@ def global_limit_mutation(request):
 
 @node_route(['POST'])
 def user_limit_mutation(request):
-    actor = admin(request)
-    if actor is None: return reply(request, {'error': 'FORBIDDEN'}, 403)
+    actor, refused = admin_gate(request)
+    if refused: return refused
     try:
         data = body(request)
         identifier, key = property_of(data, 'userId'), property_of(data, 'key')
@@ -196,7 +207,7 @@ def user_limit_mutation(request):
             return reply(request, {'error': 'userId and a valid key are required.'}, 400)
         raw = data.get('value', MISSING)
         if raw is not None and not allowed(raw, key): return reply(request, {'error': f'Invalid {LABELS[key]}.'}, 400)
-        if not User.objects.filter(pk=identifier).exists(): return reply(request, {'error': 'User not found.'}, 404)
+        if not UUID_TEXT.fullmatch(identifier) or not User.objects.filter(pk=identifier).exists(): return reply(request, {'error': 'User not found.'}, 404)
         value = None if raw is None else rounded(raw)
         if value is None: UserLimit.objects.filter(user_id=identifier, key=key).delete()
         else: UserLimit.objects.update_or_create(user_id=identifier, key=key, defaults={'value': text(value), 'updated_at': now_ms()})
@@ -228,5 +239,6 @@ def token_mutation(request):
 
 @node_route(['POST'])
 def retired_schema_migration(request):
-    if admin(request) is None: return reply(request, {'error': 'FORBIDDEN'}, 403)
+    refused = admin_gate(request)[1]
+    if refused: return refused
     return reply(request, {'error': 'SCHEMA_MIGRATION_ENDPOINT_RETIRED'}, 410)

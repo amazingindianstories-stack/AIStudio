@@ -9,7 +9,8 @@
 # Pending migrations are applied first as the copy's owner (REHEARSAL_OBSERVER_URL), exactly as a
 # production rollout does. REHEARSAL_MANAGED_PORTRAITS=0 rehearses with the automatic portrait pool off.
 # REHEARSAL_MAGNIFIC=0 rehearses with Magnific upscaling off (the gateway must then refuse it).
-# API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway).
+# API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway); only its Gemini host
+# (the admin chat agent) is answered by the fake provider network (scripts/release/rehearsal_api/sitecustomize.py).
 # Workers run scripts/release/rehearsal_worker.py: the production code with the provider
 # network replaced by testsupport.fake_providers before the paid guard is installed.
 set -eu
@@ -50,7 +51,7 @@ NS="-e VEEVEE_LEASE_PREFIX=lease:g4preview:$REHEARSAL_PREFIX: -e VEEVEE_NAMING_P
 # shellcheck disable=SC2086
 docker run -d --name vr-api --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED -e DATABASE_URL="$API_DB" \
   -e VEEVEE_INGRESS_SECRET="$SECRET" -e PORT=18081 -e VEEVEE_EXPORT_ADMISSION=1 -e VEEVEE_PORTRAIT_LIFECYCLE=1 -e "VEEVEE_PAID_GUARD=$PAID" \
-  "$IMAGE" python -m deploy.entrypoint api >/dev/null
+  -e VEEVEE_REHEARSAL=1 -e PYTHONPATH=/scripts/release/rehearsal_api "$IMAGE" python -m deploy.entrypoint api >/dev/null
 # shellcheck disable=SC2086
 docker run -d --name vr-gen --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED $NS -e DATABASE_URL="$WORKER_DB" \
   -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/release/rehearsal_worker.py generation >/dev/null

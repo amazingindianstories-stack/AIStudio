@@ -13,9 +13,14 @@ from .storage import get_storage, MediaTooLargeError
 from .views import _body
 from .audio_inputs import capture_audio_input, InvalidAudioType, MAX_AUDIO_BYTES
 from .audio_wait import wait_for_audio, AudioResultPending, AudioFailed
+from apps.generation.services import audio_submission
 from apps.generation.services.audio_submission import AUDIO_READY
 
 TRANSCRIPTION_PROMPT = 'Transcribe this audio for use as a video-generation prompt. Return only a clean, timestamped transcript in this exact format, one line per segment: [MM:SS.mmm - MM:SS.mmm] Speaker or sound: words or description. Include meaningful music, ambience, sound effects, pauses, and speaker changes. Do not add a title, markdown fence, commentary, or invented content.'
+
+
+def transcription_endpoint(model):
+    return f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
 
 
 class GeminiTranscriber:
@@ -30,7 +35,7 @@ class GeminiTranscriber:
             {'text':TRANSCRIPTION_PROMPT}]}], 'generationConfig':{'temperature':0.1}}
         if signal:
             signal.check()
-        arguments=(f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent',
+        arguments=(transcription_endpoint(model),
             payload, {'Content-Type':'application/json','x-goog-api-key':self.api_key})
         result = self.transport(*arguments,signal=signal) if signal is not None else self.transport(*arguments)
         parts = ((result.get('candidates') or [{}])[0].get('content') or {}).get('parts') or []
@@ -92,10 +97,10 @@ def transcribe(request):
         storage = get_storage()
         submission_input = capture_audio_input(storage,ref,identifier,model=model,name=name)
         # Commit before worker I/O; this handler only waits for durable results.
-        intent = Generation.objects.create(id=identifier,kind='audio',status='queued',prompt='',
+        intent = audio_submission.persist_audio_intent(dict(id=identifier,kind='audio',status='queued',prompt='',
             model=f'Gemini ({model})',aspect_ratio='audio',reference_audios=[ref],project_id=project,
             user_id=user.id,cost_cents=0,cost_basis='estimated',created_at=now,updated_at=now,
-            provider_status=AUDIO_READY,submission_input=submission_input)
+            provider_status=AUDIO_READY,submission_input=submission_input))
         saved = wait_for_audio(intent)
         transcript = saved.prompt
         item = {'id':str(identifier),'kind':'audio','status':'succeeded','prompt':transcript,

@@ -17,9 +17,9 @@ class PortraitGalleryRouteTests(SimpleTestCase):
             for flags in ((True, True), (False, False)):
                 self.assertTrue(gateway.allowed(method, path, *flags), (method, path, flags))
 
-    def test_admin_portrait_settings_stay_reachable_and_other_admin_routes_do_not(self):
+    def test_admin_portrait_settings_stay_reachable_and_gated_admin_routes_do_not(self):
         self.assertTrue(gateway.allowed('POST', '/api/admin/portrait-settings'))
-        self.assertFalse(gateway.allowed('POST', '/api/admin/users'))
+        self.assertFalse(gateway.allowed('POST', '/api/admin/audit/runtime'))
 
     def test_launchers_accept_the_migration_counts_before_and_after_each_portrait_migration(self):
         from deploy import legacy_config
