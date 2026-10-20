@@ -6,7 +6,7 @@ from apps.library.baseline_sql.permanent_names_v1 import resolve_generation_file
 
 
 class Command(BaseCommand):
-    help = 'Report backfill count and legacy ZIP/download name disagreements on an approved database copy.'
+    help = 'Report backfill count, legacy ZIP/download name disagreements and shared names on an approved database copy.'
 
     def handle(self, **options):
         with connection.cursor() as cursor:
@@ -32,5 +32,11 @@ class Command(BaseCommand):
             cursor.execute('SELECT generation_id,filename FROM media_export_items ORDER BY export_id,position')
             frozen_disagreements = [{'generationId': str(gid), 'frozenExportFilename': name, 'downloadName': current[str(gid)]}
                 for gid, name in cursor.fetchall() if str(gid) in current and name.rsplit('/', 1)[-1] != current[str(gid)]]
+        groups = {}
+        for gid, name in current.items():
+            groups.setdefault(name.rsplit('.', 1)[0].lower(), []).append(gid)
+        duplicates = [{'nameKey': key, 'count': len(ids), 'generationIds': ids}
+            for key, ids in sorted(groups.items()) if len(ids) > 1]
         self.stdout.write(json.dumps({'backfillRows': len(rows), 'newZipLeafChanges': disagreements,
-            'existingExportDisagreements': frozen_disagreements}, ensure_ascii=False, sort_keys=True))
+            'existingExportDisagreements': frozen_disagreements, 'duplicateNameGroups': duplicates,
+            'duplicateNameRows': sum(group['count'] for group in duplicates)}, ensure_ascii=False, sort_keys=True))

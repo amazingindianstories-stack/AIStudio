@@ -69,8 +69,7 @@ def bound_filename(prefix, serial, extension, reserved_extension_bytes=0):
     return prefix.rstrip('_') + digest + suffix
 
 
-def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequence=1,
-                                kind='image', url='', media_key='', content_type='', reserved_extension_bytes=0):
+def name_prefix(ancestry=None, namespace='global_unsorted'):
     tokens = ['unsorted']
     if namespace.startswith('folder:'):
         tokens = []
@@ -81,8 +80,13 @@ def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequ
     prefix = '_'.join(tokens)
     if prefix.split('.')[0].upper() in RESERVED:
         prefix = '_' + prefix
-    return bound_filename(prefix, format_serial(sequence), resolve_extension(kind, url, media_key, content_type),
-                          reserved_extension_bytes)
+    return prefix
+
+
+def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequence=1,
+                                kind='image', url='', media_key='', content_type='', reserved_extension_bytes=0):
+    return bound_filename(name_prefix(ancestry, namespace), format_serial(sequence),
+                          resolve_extension(kind, url, media_key, content_type), reserved_extension_bytes)
 
 
 def batch_resolve_generation_filenames(generation_ids):
@@ -123,5 +127,6 @@ def batch_resolve_generation_filenames(generation_ids):
             'filename':(permanent_name + '.' + resolve_extension(kind, url)) if permanent_name else resolve_generation_filename(
                 ancestry, namespace, sequence, kind, url, reserved_extension_bytes=0 if url else MAX_EXTENSION_BYTES),
             'namespace':namespace, 'sequence':sequence,
+            'prefix':None if permanent_name else name_prefix(ancestry, namespace),
             'extension':resolve_extension(kind, url)}
     return result

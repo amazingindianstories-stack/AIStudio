@@ -39,6 +39,8 @@ class PermanentNameMigrationTests(TransactionTestCase):
             self.assertEqual(audit['backfillRows'], 3)
             self.assertEqual(len(audit['newZipLeafChanges']), 1)
             self.assertEqual(len(audit['existingExportDisagreements']), 1)
+            self.assertEqual([(g['nameKey'], g['count']) for g in audit['duplicateNameGroups']], [('unsorted_0001', 2)])
+            self.assertEqual(audit['duplicateNameRows'], 2)
             executor = MigrationExecutor(connection)
             executor.migrate(final)
             from apps.generation.models import Generation as CurrentGeneration
@@ -48,6 +50,18 @@ class PermanentNameMigrationTests(TransactionTestCase):
             self.assertEqual(Item.objects.get(export_id=export.id).filename, 'Global/Scene/Take/Take_0011.mov')
             self.assertEqual(Counter.objects.get(namespace=f'folder:{child.id}').next_sequence, 12)
             self.assertEqual(Naming.objects.count(), 1)
+            self.assertEqual(sorted(CurrentGeneration.objects.filter(pk__in=[rows[1].id, rows[2].id]).values_list(
+                'legacy_name_duplicate', flat=True)), [0, 1])
+            self.assertEqual(Counter.objects.get(namespace='name:unsorted').next_sequence, 2)
+            self.assertEqual(Counter.objects.get(namespace='name:scene_take').next_sequence, 12)
+            from apps.library.services import folder_engine
+            from apps.library.services.naming import assign_generation_naming
+            unsorted = folder_engine.create_folder(name='Unsorted')
+            filed = CurrentGeneration.objects.create(kind='video', status='succeeded', prompt='new', model='fixture',
+                aspect_ratio='1:1', url='/api/media/master.mov', created_at=3, updated_at=3, folder_id=unsorted['id'])
+            assign_generation_naming(filed.id, filed.folder_id)
+            filed.refresh_from_db()
+            self.assertEqual(filed.permanent_name, 'Unsorted_0002')
             self.assertFalse(MigrationExecutor(connection).migration_plan(final))
         finally:
             MigrationExecutor(connection).migrate(final)

@@ -101,7 +101,8 @@ class ZIPHierarchyTests(TransactionTestCase):
         first, second = self.generation(folder=root), self.generation(folder=root)
         child = self.folder(str(first.id), parent=root)
         third = self.generation(folder=child)
-        Generation.objects.filter(pk__in=[first.id, second.id, third.id]).update(permanent_name='Frozen_0001')
+        for copy, row in enumerate((first, second, third)):
+            Generation.objects.filter(pk=row.id).update(permanent_name='Frozen_0001', legacy_name_duplicate=copy)
         _, paths = self.paths([first, second, third])
         self.assertEqual(len(set(paths)), 3)
         self.assertEqual(paths[0], f'Global/Root/{first.id}_1/Frozen_0001.mov')

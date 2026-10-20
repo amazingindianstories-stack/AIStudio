@@ -18,7 +18,8 @@ class SubmissionInputMigrationTests(TransactionTestCase):
                 aspect_ratio='1:1',url='/api/media/generations/original.mov',created_at=1,updated_at=2)
             executor=MigrationExecutor(connection)
             plan=executor.migration_plan(final)
-            self.assertEqual([(m.app_label,m.name) for m,backward in plan],[('generation','0002_generation_submission_input'), ('generation','0003_generation_permanent_name')])
+            self.assertEqual([(m.app_label,m.name) for m,backward in plan],[('generation','0002_generation_submission_input'), ('generation','0003_generation_permanent_name'),
+                ('generation','0004_generation_unique_permanent_name')])
             executor.migrate(final)
             from .models import Generation
             row=Generation.objects.get(pk=identifier)

@@ -59,6 +59,57 @@ class PermanentNamesTests(TransactionTestCase):
             self.assertLessEqual(len(name.encode('utf-8')), 255)
             self.assertEqual(safe_zip_member_path(name), name)
 
+    def filed(self, folder):
+        row = self.generation(folder_id=folder['id'], project_id=folder['projectId'])
+        assign_generation_naming(row.id, row.folder_id, row.project_id)
+        return Generation.objects.get(pk=row.id).permanent_name
+
+    def test_names_stay_unique_across_rename_recreate_projects_and_case(self):
+        from apps.projects.models import Project
+        User.objects.filter(pk=UID).update(role='admin')
+        first = folders.create_folder(name='Scene1')
+        self.assertEqual(self.filed(first), 'Scene1_0001')
+        folders.rename_folder(folder_id=first['id'], name='Scene1 old')
+        self.assertEqual(self.filed(folders.create_folder(name='Scene1')), 'Scene1_0002')
+        take = folders.create_folder(name='Take')
+        self.assertEqual(self.filed(take), 'Take_0001')
+        folders.move_generations(ids=[str(Generation.objects.get(folder_id=take['id']).id)], destination={'type': 'global_unsorted'})
+        folders.delete_folder(folder_id=take['id'], actor_id=UID)
+        self.assertEqual(self.filed(folders.create_folder(name='Take')), 'Take_0002')
+        projects = [Project.objects.create(name=name, created_at=1, updated_at=1) for name in ('A', 'B')]
+        self.assertEqual([self.filed(folders.create_folder(name='Shot', project_id=str(p.id))) for p in projects],
+            ['Shot_0001', 'Shot_0002'])
+        self.assertEqual(self.filed(folders.create_folder(name='scene1', project_id=str(projects[0].id))), 'scene1_0003')
+        names = list(Generation.objects.exclude(permanent_name=None).values_list('permanent_name', flat=True))
+        self.assertEqual(len({name.lower() for name in names}), len(names))
+
+    def test_concurrent_first_filing_in_same_named_folders_allocates_distinct_names(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from django.db import connections
+        from apps.projects.models import Project
+        rows = []
+        for name in ('A', 'B', 'C', 'D'):
+            project = Project.objects.create(name=name, created_at=1, updated_at=1)
+            folder = folders.create_folder(name='Cut', project_id=str(project.id))
+            rows += [self.generation(folder_id=folder['id'], project_id=project.id) for _ in range(3)]
+        def file(row):
+            try:
+                assign_generation_naming(row.id, row.folder_id, row.project_id)
+            finally:
+                connections.close_all()
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(file, rows))
+        names = sorted(Generation.objects.filter(pk__in=[r.id for r in rows]).values_list('permanent_name', flat=True))
+        self.assertEqual(names, [f'Cut_{n:04d}' for n in range(1, 13)])
+
+    def test_database_rejects_a_second_generation_with_a_case_variant_name(self):
+        from django.db import IntegrityError, transaction
+        self.filed(folders.create_folder(name='Reel'))
+        for name in ('Reel_0001', 'reel_0001', 'REEL_0001'):
+            row = self.generation()
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                Generation.objects.filter(pk=row.id).update(permanent_name=name)
+
     def test_delete_role_and_ownership_matrix_for_all_generation_kinds(self):
         from uuid import uuid4
         self.cookie()

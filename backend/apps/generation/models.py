@@ -1,6 +1,7 @@
 from django.contrib.postgres.functions import RandomUUID
 from django.db import models
 from django.db.models.expressions import RawSQL
+from django.db.models.functions import Lower
 from apps.common.indexes import PostgreSQLIndex
 
 from apps.projects.models import Project
@@ -10,6 +11,7 @@ from apps.library.models import Folder
 class Generation(models.Model):
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     permanent_name = models.TextField(null=True)
+    legacy_name_duplicate = models.IntegerField(default=0, db_default=0)
     kind = models.TextField()
     status = models.TextField()
     prompt = models.TextField()
@@ -89,4 +91,8 @@ class Generation(models.Model):
                 condition=models.Q(RawSQL("kind = 'video' and status in ('queued', 'running') and task_id is not null", [], output_field=models.BooleanField()))),
             PostgreSQLIndex(name='generations_coordinator_due_idx', fields=['status','next_poll_at','created_at'],
                 condition=models.Q(RawSQL("(kind = 'video' and status in ('queued', 'running')) or (kind = 'image' and (status = 'queued' or (status = 'running' and model like 'Magnific %%')))", [], output_field=models.BooleanField()))),
+        ]
+        constraints = [
+            models.UniqueConstraint(Lower('permanent_name'), models.F('legacy_name_duplicate'),
+                name='generations_permanent_name_key', condition=models.Q(permanent_name__isnull=False)),
         ]
