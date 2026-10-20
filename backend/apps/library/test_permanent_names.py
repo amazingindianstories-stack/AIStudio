@@ -44,6 +44,21 @@ class PermanentNamesTests(TransactionTestCase):
         from apps.library.filenames import batch_resolve_generation_filenames
         return batch_resolve_generation_filenames([row.id])[str(row.id)]['filename']
 
+    def test_name_frozen_before_the_master_exists_fits_every_supported_extension(self):
+        from apps.exports.zip_paths import safe_zip_member_path
+        parent = None
+        for letter in 'ABC':
+            parent = folders.create_folder(name=letter * 100, parent_id=parent and parent['id'])
+        row = self.generation(folder_id=parent['id'])
+        Generation.objects.filter(pk=row.id).update(url='')
+        assign_generation_naming(row.id, row.folder_id)
+        for extension in ('png', 'webp', 'webm', 'mov'):
+            Generation.objects.filter(pk=row.id).update(url='/api/media/generated/master.' + extension)
+            name = self.filename(row)
+            self.assertTrue(name.endswith('.' + extension))
+            self.assertLessEqual(len(name.encode('utf-8')), 255)
+            self.assertEqual(safe_zip_member_path(name), name)
+
     def test_delete_role_and_ownership_matrix_for_all_generation_kinds(self):
         from uuid import uuid4
         self.cookie()

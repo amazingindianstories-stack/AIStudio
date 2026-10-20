@@ -44,3 +44,30 @@ test("server 403s on library deletes and moves reach the caller as short clear e
     useStore.setState(previous, true);
   }
 });
+
+test("a partly failed bulk delete reports the failed item instead of resolving silently", async () => {
+  const previous = useStore.getState();
+  const originalFetch = globalThis.fetch;
+  const deleted = [];
+  globalThis.fetch = async (url, options) => {
+    const address = new URL(String(url), "http://veevee.test");
+    if (options?.method === "DELETE" && address.pathname === "/api/history") {
+      const id = address.searchParams.get("id");
+      deleted.push(id);
+      return id === "running"
+        ? new Response(JSON.stringify({ error: "GENERATION_REQUIRES_RECONCILIATION" }), { status: 409 })
+        : new Response(JSON.stringify({ ok: true }));
+    }
+    return new Response(JSON.stringify({ globalFolders: [], projects: [] }));
+  };
+  try {
+    useStore.setState({ currentUser: { id: "admin", role: "admin" }, items: [{ id: "done" }, { id: "running" }] });
+    await assert.rejects(useStore.getState().deleteGenerations(["done", "running"]), {
+      message: "This generation is still rendering. Wait for it to finish, then delete it.",
+    });
+    assert.deepEqual(deleted, ["done", "running"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+    useStore.setState(previous, true);
+  }
+});

@@ -13,6 +13,7 @@ MIME_EXTENSIONS = {'image/jpeg':'jpg', 'image/jpg':'jpg', 'image/png':'png',
 
 
 MAX_TOKEN_CHARS = 120
+MAX_EXTENSION_BYTES = max(len(extension) for extension in EXTENSIONS)
 
 
 def slugify_token(raw, fallback='folder'):
@@ -56,9 +57,9 @@ def format_serial(sequence):
     return str(max(1, math.floor(number))).zfill(4)
 
 
-def bound_filename(prefix, serial, extension):
+def bound_filename(prefix, serial, extension, reserved_extension_bytes=0):
     suffix = f'_{serial}.{extension}'
-    available = 255 - len(suffix.encode('utf-8'))
+    available = 255 - len(suffix.encode('utf-8')) - max(0, reserved_extension_bytes - len(extension))
     if len(prefix.encode('utf-8')) <= available:
         return prefix + suffix
     digest = '_' + hashlib.sha256(prefix.encode('utf-8')).hexdigest()[:16]
@@ -69,7 +70,7 @@ def bound_filename(prefix, serial, extension):
 
 
 def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequence=1,
-                                kind='image', url='', media_key='', content_type=''):
+                                kind='image', url='', media_key='', content_type='', reserved_extension_bytes=0):
     tokens = ['unsorted']
     if namespace.startswith('folder:'):
         tokens = []
@@ -80,7 +81,8 @@ def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequ
     prefix = '_'.join(tokens)
     if prefix.split('.')[0].upper() in RESERVED:
         prefix = '_' + prefix
-    return bound_filename(prefix, format_serial(sequence), resolve_extension(kind, url, media_key, content_type))
+    return bound_filename(prefix, format_serial(sequence), resolve_extension(kind, url, media_key, content_type),
+                          reserved_extension_bytes)
 
 
 def batch_resolve_generation_filenames(generation_ids):
@@ -118,7 +120,8 @@ def batch_resolve_generation_filenames(generation_ids):
             current = folders.get(current['parent_id'])
         identifier = str(identifier)
         result[identifier] = {'generationId':identifier,
-            'filename':(permanent_name + '.' + resolve_extension(kind, url)) if permanent_name else resolve_generation_filename(ancestry, namespace, sequence, kind, url),
+            'filename':(permanent_name + '.' + resolve_extension(kind, url)) if permanent_name else resolve_generation_filename(
+                ancestry, namespace, sequence, kind, url, reserved_extension_bytes=0 if url else MAX_EXTENSION_BYTES),
             'namespace':namespace, 'sequence':sequence,
             'extension':resolve_extension(kind, url)}
     return result

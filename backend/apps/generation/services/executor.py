@@ -105,7 +105,7 @@ def _fenced_completion_update(item,owner,updates):
     receipt/progress state, account, lease owner and any competing master.
     New model fields are protected automatically rather than silently ignored.
     """
-    metadata={'project_id','folder_id','location_version','is_favorite','favorited_at',
+    metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
         'flagged','flagged_at','flag_reason','updated_at','worker_lease_until'}
     with transaction.atomic():
         current=Generation.objects.select_for_update().filter(pk=item.id,worker_lease_id=owner).first()
