@@ -18,6 +18,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { modeAvailable } from "@/lib/config";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { AccountSettings } from "./AccountSettings";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,7 @@ export function TopBar() {
   const mode = useStore((s) => s.mode);
   const setMode = useStore((s) => s.setMode);
   const view = useStore((s) => s.view);
+  const availableModelIds = useStore((s) => s.availableModelIds);
   const setView = useStore((s) => s.setView);
   const mobileHistoryOpen = useStore((s) => s.mobileHistoryOpen);
   const setMobileHistoryOpen = useStore((s) => s.setMobileHistoryOpen);
@@ -110,7 +112,7 @@ export function TopBar() {
         <span className="hidden h-6 w-px shrink-0 bg-line sm:block" aria-hidden />
 
         <nav aria-label="Sections" className="flex min-w-0 items-center gap-0.5 sm:gap-1">
-          {DESTINATIONS.map((d) => {
+          {DESTINATIONS.filter((d) => d.id === "board" || modeAvailable(d.id, availableModelIds)).map((d) => {
             const active = d.id === activeDestination;
             return (
               <button

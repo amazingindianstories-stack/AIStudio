@@ -10,12 +10,15 @@ import { create } from "zustand";
 import { installOperationTracking } from "./operation-state";
 import { snapshotScope, composerMetadata, metadataToDraft, saveComposerSnapshot, loadComposerSnapshot } from "./composer-snapshots";
 import { newReferenceId, referenceIdsFor, referencePermutation } from "./reference-order";
-import { composerModel } from "./model-registry";
+import { composerModel, getModelDefinition, isModelAvailable } from "./model-registry";
 
 import {
   DEFAULTS,
-  MODELS,
   HISTORY_PAGE_SIZE,
+  fallbackModel,
+  isPickerModel,
+  modeAvailable,
+  pickerModels,
   aspectRatiosForModel,
   durationsForModel,
   durationRangeForModel,
@@ -202,6 +205,73 @@ function upscaleComposerState(s, item) {
     upscalerParams: { ...s.upscalerParams, model: item.model,
       ...(MAGNIFIC_SCALE_FACTORS.includes(item.resolution) ? { scaleFactor: item.resolution } : {}), ...(item.upscaleParams ?? {}) },
   };
+}
+
+const MODEL_AVAILABILITY_KEY = "veevee-model-availability-v1";
+
+/** The server's list of models new jobs may use (registry ids); null for anything else. */
+function availabilityIds(value) {
+  return Array.isArray(value) && value.every((id) => typeof id === "string") ? value : null;
+}
+
+/** The last list this browser received, so a reload starts from it instead of offering a
+ *  switched-off model until the session answers. A convenience only: the next answer replaces
+ *  it, and enqueue still refuses whatever is off. */
+function cachedAvailability() {
+  try {
+    return availabilityIds(JSON.parse(localStorage.getItem(MODEL_AVAILABILITY_KEY)));
+  } catch {
+    return null;
+  }
+}
+
+function cacheAvailability(ids) {
+  try {
+    localStorage.setItem(MODEL_AVAILABILITY_KEY, JSON.stringify(ids));
+  } catch {
+    /* storage denied: the next load starts from the full list until the session answers */
+  }
+}
+
+/** The composer model for reopening a job made with `name`: its own (or a retired model's
+ *  replacement) while the `mode` picker offers it, otherwise that picker's fallback with a short
+ *  notice saying so. `model` is null when the picker offers nothing. */
+export function composerChoice(name, mode, availableIds, media) {
+  const model = composerModel(name);
+  if (isPickerModel(model, availableIds, mode, media)) return { model, notice: null };
+  const label = getModelDefinition(model)?.name ?? model;
+  const fallback = fallbackModel(mode, availableIds, media);
+  return { model: fallback, notice: fallback ? `${label} isn't available right now. Using ${fallback} instead.` : `${label} isn't available right now.` };
+}
+
+/** Reopens a Magnific row in the upscaler, on a fallback upscaler (with a notice) when its own is unavailable. */
+function reopenUpscale(get, set, item, extra = {}) {
+  const choice = composerChoice(item.model, "upscale", get().availableModelIds, item.kind === "video" ? "video" : "image");
+  if (!choice.model) return { ok: false, error: choice.notice };
+  set({ ...upscaleComposerState(get(), { ...item, model: choice.model }), ...extra });
+  if (!choice.notice) return { ok: true };
+  notify(choice.notice, { tone: "info" });
+  return { ok: true, notice: choice.notice };
+}
+
+/** Moves every composer choice the pickers no longer offer onto one they do. Applying the same
+ *  answer again changes nothing, so arrivals and restores never loop. */
+function reconcileAvailability(get, set) {
+  const ids = get().availableModelIds;
+  if (!modeAvailable(get().mode, ids)) get().setMode(["image", "video"].find((mode) => modeAvailable(mode, ids)) ?? "image");
+  const s = get();
+  if ((s.mode === "image" || s.mode === "video") && !isPickerModel(s.model, ids, s.mode)) {
+    const model = fallbackModel(s.mode, ids);
+    if (model) s.setModel(model);
+  }
+  for (const [media, key] of [["image", "upscalerParams"], ["video", "videoUpscalerParams"]]) {
+    const current = get()[key].model;
+    const model = isPickerModel(current, ids, "upscale", media) ? current : fallbackModel("upscale", ids, media);
+    if (model && model !== current) set((state) => ({ [key]: { ...state[key], model } }));
+  }
+  const media = get().upscalerMedia === "video" ? "video" : "image";
+  const other = media === "video" ? "image" : "video";
+  if (!pickerModels(ids, "upscale", media).length && pickerModels(ids, "upscale", other).length) set({ upscalerMedia: other });
 }
 
 /** Look a row up across every pool. Callers act on an id the user clicked, and
@@ -490,6 +560,9 @@ export const useStore = create((set, get) => ({
   portraitUploads: [],
 
   currentUser: null,
+  // Registry ids of the models new jobs may use (GET /api/auth/me `availability`); null until
+  // known, when every offered model shows. See isModelAvailable.
+  availableModelIds: null,
   usersById: {},
   limits: {},
 
@@ -1547,10 +1620,7 @@ export const useStore = create((set, get) => ({
   editInComposer: (id) => {
     const item = findItem(get(), id);
     if (!item) return { ok: false, error: "This generation is no longer available." };
-    if (isMagnificUpscale(item)) {
-      set(upscaleComposerState(get(), item));
-      return { ok: true };
-    }
+    if (isMagnificUpscale(item)) return reopenUpscale(get, set, item);
     set({ mode: item.kind, prompt: item.prompt });
     return { ok: true };
   },
@@ -1567,9 +1637,14 @@ export const useStore = create((set, get) => ({
     // submit what it loaded.
     if (get().generating) return { ok: false, error: "Another generation is already starting." };
     const original = findItem(get(), id);
-    if (isMagnificUpscale(original)) return get().resubmitUpscale(original);
+    if (isMagnificUpscale(original)) {
+      if (isModelAvailable(original.model, get().availableModelIds)) return get().resubmitUpscale(original);
+      return get().cloneToComposer(id);
+    }
     const cloned = await get().cloneToComposer(id);
     if (cloned?.ok === false) return cloned;
+    // A fallback model makes a different job: leave it in the composer, with its notice, unsent.
+    if (cloned?.notice) return { ok: true };
     if (!get().prompt.trim()) return { ok: false, error: "The saved prompt is empty." };
     await get().generate();
     return { ok: true };
@@ -1588,6 +1663,7 @@ export const useStore = create((set, get) => ({
     if (!item || item.seed == null) return { ok: false, error: "The original seed is unavailable." };
     const cloned = await get().cloneToComposer(id);
     if (cloned?.ok === false) return cloned;
+    if (cloned?.notice) return { ok: true };
     set({ seed: item.seed });
     if (!get().prompt.trim()) return { ok: false, error: "The saved prompt is empty." };
     await get().generate();
@@ -1613,6 +1689,8 @@ export const useStore = create((set, get) => ({
     if (!supportsFirstFrameContinuation(item.model)) {
       return { ok: false, error: `${item.model} doesn't support continuing a shot yet.` };
     }
+    const choice = composerChoice(item.model, "video", get().availableModelIds);
+    if (!choice.model) return { ok: false, error: choice.notice };
     try {
       const { extractFrame } = await import("./video-frame");
       // Infinity is clamped to (duration - 0.05) by seekTo — the same
@@ -1642,6 +1720,10 @@ export const useStore = create((set, get) => ({
         referenceImages: [],
         referenceKinds: [],
       });
+      if (choice.notice) {
+        get().setModel(choice.model);
+        notify(choice.notice, { tone: "info" });
+      }
       return { ok: true };
     } catch (e) {
       console.error("Failed to extract the last frame for continuation:", e);
@@ -1770,9 +1852,14 @@ export const useStore = create((set, get) => ({
       if (!(item.kind === "video" ? item.referenceVideos?.[0] : item.referenceImages?.[0])) {
         return { ok: false, error: "The original upscale source is no longer available." };
       }
-      set({ ...upscaleComposerState(get(), item), destinationProjectId: item.projectId, destinationFolderId: item.folderId ?? null });
-      return { ok: true };
+      return reopenUpscale(get, set, item, { destinationProjectId: item.projectId, destinationFolderId: item.folderId ?? null });
     }
+    // A model new jobs may not use (switched off on the server) reopens on the picker's fallback,
+    // saying so, rather than leaving the composer on a model enqueue refuses.
+    const choice = item.kind === "image" || item.kind === "video"
+      ? composerChoice(item.model, item.kind, get().availableModelIds)
+      : { model: composerModel(item.model), notice: null };
+    if (!choice.model) return { ok: false, error: choice.notice };
     set({
       mode: item.kind,
       // A row made with a retired model reuses its replacement. Gemini Omni Flash's 16:9/9:16, 720p and
@@ -1809,7 +1896,11 @@ export const useStore = create((set, get) => ({
     const paths = item.referenceImages ?? [];
     set({ referenceImages: [...paths], referenceIds: paths.map(() => newReferenceId()),
       referenceKinds: paths.map(() => "image"), referenceLabels: paths.map(() => ""), referenceTags: paths.map(() => "") });
-    return { ok: true };
+    if (!choice.notice) return { ok: true };
+    // setModel clamps the job's settings into the fallback's ranges.
+    get().setModel(choice.model);
+    notify(choice.notice, { tone: "info" });
+    return { ok: true, notice: choice.notice };
   },
 
   loadAssets: async (projectId) => {
@@ -2542,11 +2633,23 @@ export const useStore = create((set, get) => ({
     try {
       const res = await apiFetch("/api/auth/me", { cache: "no-store" });
       const json = await res.json();
-      if (json.user) set({ currentUser: json.user });
-      else window.location.href = "/login";
+      if (json.user) {
+        set({ currentUser: json.user });
+        get().applyModelAvailability(json.availability?.models);
+      } else window.location.href = "/login";
     } catch {
       /* ignore */
     }
+  },
+
+  // A failed or malformed answer keeps what the pickers already show; enqueue still refuses.
+  applyModelAvailability: (value) => {
+    const ids = availabilityIds(value);
+    if (!ids) return;
+    cacheAvailability(ids);
+    const known = get().availableModelIds;
+    if (!known || known.join("\n") !== ids.join("\n")) set({ availableModelIds: ids });
+    reconcileAvailability(get, set);
   },
 
   // Failure leaves `limits` empty rather than throwing — call sites fall
@@ -2779,6 +2882,10 @@ const DRAFT_SETTINGS_KEY = "veevee-draft-settings-v1";
  *  invalid combination. */
 export function restoreComposerDraft() {
   try {
+    if (!useStore.getState().availableModelIds) {
+      const cached = cachedAvailability();
+      if (cached) useStore.setState({ availableModelIds: cached });
+    }
     const rawSettings = localStorage.getItem(DRAFT_SETTINGS_KEY);
     if (rawSettings) {
       const d = JSON.parse(rawSettings);
@@ -2791,12 +2898,21 @@ export function restoreComposerDraft() {
         d.mode === "image" || d.mode === "video" ? d.mode : undefined;
       if (mode) patch.mode = mode;
       const effMode = mode ?? useStore.getState().mode;
-      // A retired model (Gemini Omni Flash) restores as its replacement, visibly, in the picker.
+      // A retired model (Gemini Omni Flash) restores as its replacement, visibly, in the picker;
+      // one the pickers no longer offer (switched off) restores as the mode's fallback.
+      const ids = useStore.getState().availableModelIds;
       const restoredModel = composerModel(d.model);
-      if (MODELS.some((m) => m.name === restoredModel && m.kind === effMode)) {
+      const currentModel = useStore.getState().model;
+      let clampToModel = false;
+      if (isPickerModel(restoredModel, ids, effMode)) {
         patch.model = restoredModel;
+      } else if (!isPickerModel(currentModel, ids, effMode)) {
+        // The mode's defaults stand in for whatever the saved settings do not supply.
+        const { model: _default, ...defaults } = DEFAULTS[effMode];
+        Object.assign(patch, defaults, { model: fallbackModel(effMode, ids) ?? DEFAULTS[effMode].model });
+        clampToModel = true;
       }
-      const effModel = (patch.model ) ?? DEFAULTS[effMode].model;
+      const effModel = patch.model ?? currentModel;
       if (aspectRatiosForModel(effModel, effMode).includes(d.aspectRatio)) {
         patch.aspectRatio = d.aspectRatio;
       }
@@ -2843,7 +2959,10 @@ export function restoreComposerDraft() {
       if (typeof d.activeProjectId === "string") patch.activeProjectId = d.activeProjectId;
       if (typeof d.activeFolderId === "string") patch.activeFolderId = d.activeFolderId;
       useStore.setState(patch);
+      // A fallback model keeps only the restored settings it offers; setModel clamps the rest.
+      if (clampToModel) useStore.getState().setModel(patch.model);
     }
+    reconcileAvailability(useStore.getState, useStore.setState);
 
     // Legacy caches were unscoped and could contain binary/signed references.
     localStorage.removeItem(DRAFT_PROMPT_KEY);

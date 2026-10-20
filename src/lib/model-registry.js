@@ -396,6 +396,23 @@ export function offeredModels() {
   );
 }
 
+/**
+ * Whether a new job may use `name` right now. `availableIds` is the server's answer
+ * (`availability.models` on GET /api/auth/me, registry ids, derived from the same backend
+ * switches as the enqueue refusal); null while unknown, when every offered model counts and
+ * the enqueue refusal stays the authority.
+ */
+export function isModelAvailable(name, availableIds = null) {
+  const model = getModelDefinition(name);
+  if (!model?.offered || model.retiredFor) return false;
+  return !Array.isArray(availableIds) || availableIds.includes(model.id);
+}
+
+/** The picker entries for new jobs: offered models, less any the server reports switched off. */
+export function availableModels(availableIds = null) {
+  return offeredModels().filter((model) => isModelAvailable(model.id, availableIds));
+}
+
 /** The model a composer should use for `name`: a retired model's replacement, otherwise `name`. */
 export function composerModel(name) {
   const retiredFor = getModelDefinition(name)?.retiredFor;
