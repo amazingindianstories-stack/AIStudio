@@ -45,29 +45,66 @@ test("server 403s on library deletes and moves reach the caller as short clear e
   }
 });
 
-test("a partly failed bulk delete reports the failed item instead of resolving silently", async () => {
+async function bulkDelete(ids, failing) {
   const previous = useStore.getState();
   const originalFetch = globalThis.fetch;
-  const deleted = [];
+  const seen = { deleted: [], counts: 0, feed: 0, inFlight: 0, maxInFlight: 0 };
   globalThis.fetch = async (url, options) => {
     const address = new URL(String(url), "http://veevee.test");
     if (options?.method === "DELETE" && address.pathname === "/api/history") {
       const id = address.searchParams.get("id");
-      deleted.push(id);
-      return id === "running"
-        ? new Response(JSON.stringify({ error: "GENERATION_REQUIRES_RECONCILIATION" }), { status: 409 })
+      seen.deleted.push(id);
+      seen.inFlight++;
+      seen.maxInFlight = Math.max(seen.maxInFlight, seen.inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 1));
+      seen.inFlight--;
+      return failing[id]
+        ? new Response(JSON.stringify(failing[id].body), { status: failing[id].status })
         : new Response(JSON.stringify({ ok: true }));
     }
-    return new Response(JSON.stringify({ globalFolders: [], projects: [] }));
+    if (address.pathname === "/api/history/counts") seen.counts++;
+    else if (address.pathname === "/api/history") seen.feed++;
+    return new Response(JSON.stringify({ items: [], nextCursor: null }));
   };
   try {
-    useStore.setState({ currentUser: { id: "admin", role: "admin" }, items: [{ id: "done" }, { id: "running" }] });
-    await assert.rejects(useStore.getState().deleteGenerations(["done", "running"]), {
-      message: "This generation is still rendering. Wait for it to finish, then delete it.",
-    });
-    assert.deepEqual(deleted, ["done", "running"]);
+    useStore.setState({ currentUser: { id: "admin", role: "admin" }, items: ids.map((id) => ({ id })) });
+    try {
+      const result = await useStore.getState().deleteGenerations(ids);
+      return { ...seen, result };
+    } catch (error) {
+      return { ...seen, error: error.message };
+    }
   } finally {
     globalThis.fetch = originalFetch;
     useStore.setState(previous, true);
   }
+}
+
+test("bulk delete bounds concurrent deletes and refreshes counts once without reloading the feed", async () => {
+  const ids = Array.from({ length: 12 }, (_, index) => `item-${index}`);
+  const seen = await bulkDelete(ids, {});
+  assert.equal(seen.result, true);
+  assert.deepEqual([...seen.deleted].sort(), [...ids].sort());
+  assert.ok(seen.maxInFlight > 1 && seen.maxInFlight <= 4, `max in flight ${seen.maxInFlight}`);
+  assert.deepEqual({ counts: seen.counts, feed: seen.feed }, { counts: 1, feed: 0 });
+});
+
+test("a partly failed bulk delete finishes the batch, refreshes once and reports the first failure", async () => {
+  const ids = ["done", "running", "forbidden", "later"];
+  const seen = await bulkDelete(ids, {
+    running: { status: 409, body: { error: "GENERATION_REQUIRES_RECONCILIATION" } },
+    forbidden: { status: 403, body: { error: "Only admins can delete generations." } },
+  });
+  assert.equal(seen.error, "This generation is still rendering. Wait for it to finish, then delete it.");
+  assert.deepEqual([...seen.deleted].sort(), [...ids].sort());
+  assert.deepEqual({ counts: seen.counts, feed: seen.feed }, { counts: 1, feed: 1 });
+});
+
+test("a forbidden bulk delete reports a short permission message", async () => {
+  const seen = await bulkDelete(["a", "b"], {
+    a: { status: 403, body: { error: "Only admins can delete generations." } },
+    b: { status: 403, body: { error: "Only admins can delete generations." } },
+  });
+  assert.equal(seen.error, "You don't have permission to delete this.");
+  assert.deepEqual({ counts: seen.counts, feed: seen.feed }, { counts: 1, feed: 1 });
 });
