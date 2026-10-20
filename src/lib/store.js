@@ -2898,18 +2898,17 @@ export function restoreComposerDraft() {
         d.mode === "image" || d.mode === "video" ? d.mode : undefined;
       if (mode) patch.mode = mode;
       const effMode = mode ?? useStore.getState().mode;
-      // A retired model (Gemini Omni Flash) restores as its replacement, visibly, in the picker;
-      // one the pickers no longer offer (switched off) restores as the mode's fallback.
-      const ids = useStore.getState().availableModelIds;
+      // A retired model (Gemini Omni Flash) restores as its replacement, visibly, in the picker.
+      // Availability is not consulted: the cached list only shapes the pickers until the session
+      // answers, and only that answer (applyModelAvailability) moves a switched-off selection.
       const restoredModel = composerModel(d.model);
       const currentModel = useStore.getState().model;
       let clampToModel = false;
-      if (isPickerModel(restoredModel, ids, effMode)) {
+      if (isPickerModel(restoredModel, null, effMode)) {
         patch.model = restoredModel;
-      } else if (!isPickerModel(currentModel, ids, effMode)) {
+      } else if (!isPickerModel(currentModel, null, effMode)) {
         // The mode's defaults stand in for whatever the saved settings do not supply.
-        const { model: _default, ...defaults } = DEFAULTS[effMode];
-        Object.assign(patch, defaults, { model: fallbackModel(effMode, ids) ?? DEFAULTS[effMode].model });
+        Object.assign(patch, DEFAULTS[effMode]);
         clampToModel = true;
       }
       const effModel = patch.model ?? currentModel;
@@ -2962,7 +2961,6 @@ export function restoreComposerDraft() {
       // A fallback model keeps only the restored settings it offers; setModel clamps the rest.
       if (clampToModel) useStore.getState().setModel(patch.model);
     }
-    reconcileAvailability(useStore.getState, useStore.setState);
 
     // Legacy caches were unscoped and could contain binary/signed references.
     localStorage.removeItem(DRAFT_PROMPT_KEY);

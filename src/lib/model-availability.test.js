@@ -131,24 +131,42 @@ test("the session answer applies availability", () =>
     assert.equal(useStore.getState().model, "Nano Banana Pro");
   }));
 
-test("a saved composer on a switched-off model restores onto the fallback, using the last known answer", () =>
-  withStore({ mode: "video", model: "Seedance 2.0" }, (values) => {
+test("a saved Kling composer survives a stale cached list that says Kling is off once the session says it is on", () =>
+  withStore({ mode: "video", model: "Seedance 2.0" }, async (values) => {
     values.set("veevee-model-availability-v1", JSON.stringify(KLING_AND_MAGNIFIC_OFF));
-    values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "image", model: "Kling Image 3.0", aspectRatio: "16:9", resolution: "1K" }));
+    values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "image", model: "Kling Image 3.0", aspectRatio: "3:2", resolution: "1K",
+      batchCount: 3 }));
+    const saved = () => {
+      const state = useStore.getState();
+      return [state.mode, state.model, state.aspectRatio, state.resolution, state.batchCount];
+    };
     restoreComposerDraft();
-    const state = useStore.getState();
-    assert.deepEqual(state.availableModelIds, KLING_AND_MAGNIFIC_OFF);
-    assert.deepEqual([state.mode, state.model, state.aspectRatio, state.resolution], ["image", "Nano Banana Pro", "16:9", "1K"]);
+    assert.deepEqual(useStore.getState().availableModelIds, KLING_AND_MAGNIFIC_OFF, "the cached list shapes the pickers until the session answers");
+    assert.deepEqual(saved(), ["image", "Kling Image 3.0", "3:2", "1K", 3], "the cached list never moves the saved selection");
 
-    values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "image", model: "Seedream 5.0 Pro" }));
-    restoreComposerDraft();
-    assert.equal(useStore.getState().model, "Seedream 5.0 Pro", "an available saved model restores as before");
+    globalThis.fetch = async () => new Response(JSON.stringify({ user: { id: "u-1" }, availability: { models: ALL_ON } }), { status: 200 });
+    await useStore.getState().loadMe();
+    assert.deepEqual(useStore.getState().availableModelIds, ALL_ON);
+    assert.deepEqual(saved(), ["image", "Kling Image 3.0", "3:2", "1K", 3]);
+    assert.deepEqual(JSON.parse(values.get("veevee-model-availability-v1")), ALL_ON);
   }));
 
-test("a fallback restore takes the mode's defaults for settings the saved composer does not supply", () =>
+test("a saved composer on a model the session reports off moves onto the fallback when the session answers", () =>
+  withStore({ mode: "video", model: "Seedance 2.0" }, async (values) => {
+    values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "image", model: "Kling Image 3.0", aspectRatio: "16:9", resolution: "1K" }));
+    restoreComposerDraft();
+    assert.equal(useStore.getState().model, "Kling Image 3.0");
+
+    globalThis.fetch = async () => new Response(JSON.stringify({ user: { id: "u-1" }, availability: { models: KLING_AND_MAGNIFIC_OFF } }),
+      { status: 200 });
+    await useStore.getState().loadMe();
+    const state = useStore.getState();
+    assert.deepEqual([state.mode, state.model, state.aspectRatio, state.resolution], ["image", "Nano Banana Pro", "16:9", "1K"]);
+  }));
+
+test("a saved model the catalog no longer has restores as the mode's defaults", () =>
   withStore({ mode: "video", model: "Seedance 2.0", aspectRatio: "16:9", resolution: "1080p", duration: 5 }, (values) => {
-    values.set("veevee-model-availability-v1", JSON.stringify(KLING_AND_MAGNIFIC_OFF));
-    values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "image", model: "Kling Image 2.1", resolution: "1080p" }));
+    values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "image", model: "No Such Model", resolution: "1080p" }));
     restoreComposerDraft();
     const state = useStore.getState();
     assert.deepEqual([state.mode, state.model, state.aspectRatio, state.resolution], ["image", "Nano Banana Pro", "21:9", "2K"]);
