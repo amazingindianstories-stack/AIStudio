@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToString } from "react-dom/server";
-import { MentionTextarea, attachedMediaSuggestions } from "./MentionTextarea.jsx";
+import { MentionTextarea, attachedMediaSuggestions, MENTION_HIGHLIGHT_COLOR, MENTION_HIGHLIGHT_CLASS } from "./MentionTextarea.jsx";
 test("audio-only attachments offer numbered autocomplete matches", () => {
   assert.deepEqual(attachedMediaSuggestions("AuDiO", 0, 2).map((s) => s.tag), ["@audio1", "@audio2"]);
   assert.deepEqual(attachedMediaSuggestions("audio2", 1, 2).map((s) => s.tag), ["@audio2"]);
@@ -10,16 +10,18 @@ test("audio-only attachments offer numbered autocomplete matches", () => {
   assert.deepEqual(attachedMediaSuggestions("audio", 1, 0), []);
 });
 
-test("attached audio tags highlight as valid while missing references stay invalid", () => {
+test("attached audio tags highlight as valid with dusty light blue #589edb while missing references stay invalid", () => {
   const previousReact = globalThis.React;
   globalThis.React = React;
   try {
+    assert.equal(MENTION_HIGHLIGHT_COLOR, "#589edb");
+    assert.ok(MENTION_HIGHLIGHT_CLASS.includes("#589edb"));
     const html = renderToString(React.createElement(MentionTextarea, {
       value: "@audio1 @AUDIO2 @audio3 @audio0",
       onChange() {}, references: [], audioRefs: ["a.mp3", "b.wav"],
     }));
-    assert.match(html, /text-brand">@audio1<\/span>/);
-    assert.match(html, /text-brand">@AUDIO2<\/span>/);
+    assert.match(html, /bg-\[#589edb\]\/20 text-\[#589edb\]">@audio1<\/span>/);
+    assert.match(html, /bg-\[#589edb\]\/20 text-\[#589edb\]">@AUDIO2<\/span>/);
     assert.match(html, /text-red-300">@audio3<\/span>/);
     assert.match(html, /text-red-300">@audio0<\/span>/);
   } finally {
@@ -41,9 +43,9 @@ test("named material tags highlight as valid from assets while unknown tags stay
       references: ["data:image/png;base64,AA=="],
       assets,
     }));
-    assert.match(html, /text-brand">@sati<\/span>/);
-    assert.match(html, /text-brand">@scene1<\/span>/);
-    assert.match(html, /text-brand">@img1<\/span>/);
+    assert.match(html, /bg-\[#589edb\]\/20 text-\[#589edb\]">@sati<\/span>/);
+    assert.match(html, /bg-\[#589edb\]\/20 text-\[#589edb\]">@scene1<\/span>/);
+    assert.match(html, /bg-\[#589edb\]\/20 text-\[#589edb\]">@img1<\/span>/);
     assert.match(html, /text-red-300">@mystery<\/span>/);
   } finally {
     globalThis.React = previousReact;
@@ -79,7 +81,7 @@ test("reserved malformed image tags stay whole and amber while unknown named ass
     const html = renderToString(React.createElement(MentionTextarea, {
       value: "@img1 @img100 @img0 @img02 @img2x @imgg1 @img @missing_named", onChange() {}, references: ["/one.png", "/two.png"],
     }));
-    assert.match(html, /text-brand">@img1<\/span>/);
+    assert.match(html, /bg-\[#589edb\]\/20 text-\[#589edb\]">@img1<\/span>/);
     for (const token of ["@img100", "@img0", "@img02", "@img2x", "@imgg1", "@img"]) assert.ok(html.includes(`text-amber-200 ring-1 ring-amber-400/40">${token}</span>`), token);
     assert.match(html, /text-red-300">@missing_named<\/span>/);
     assert.match(html, /Literal image-reference text/);

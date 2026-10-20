@@ -26,11 +26,21 @@ test("reference controls preserve duplicate occurrence IDs and support move, key
   try {
     await act(async () => root.render(React.createElement(ReferenceStrip, { store: s, insertTag: (tag) => inserted.push(tag) })));
     assert.equal(document.querySelectorAll("[data-reference-id]").length, 3);
+    assert.equal(document.querySelectorAll("[data-reference-grip]").length, 0, "handlebar grip is removed");
     const button = (name) => document.querySelector(`button[aria-label='${name}']`);
+    const firstCard = document.querySelector('[data-reference-id="first"]');
+    assert.equal(firstCard.getAttribute("data-arrows-visible"), "false", "side arrows are collapsed when not hovered or focused");
+    assert.ok(button("Move reference 1 right").className.includes("bg-transparent"), "side arrows have no background");
+    assert.ok(button("Move reference 1 right").className.includes("w-0"), "side arrows take zero width before hover");
+    await act(async () => firstCard.dispatchEvent(new dom.window.MouseEvent("mouseover", { bubbles: true })));
+    assert.equal(firstCard.getAttribute("data-arrows-visible"), "true", "side arrows appear on hover");
+    assert.ok(button("Move reference 1 right").className.includes("w-5"), "side arrows expand outside thumbnail on hover");
+    await act(async () => firstCard.dispatchEvent(new dom.window.MouseEvent("mouseout", { bubbles: true })));
+    assert.equal(firstCard.getAttribute("data-arrows-visible"), "false");
     const scrollSurface = document.querySelector('[data-testid="reference-strip"]');
     let capturedOnStrip = false;
     scrollSurface.setPointerCapture = () => { capturedOnStrip = true; };
-    await act(async () => button("Drag reference 1 to reorder").dispatchEvent(new dom.window.MouseEvent("pointerdown", { button: 0, clientX: 100, bubbles: true })));
+    await act(async () => button("Preview reference 1").dispatchEvent(new dom.window.MouseEvent("pointerdown", { button: 0, clientX: 100, bubbles: true })));
     assert.equal(capturedOnStrip, true, "capture stays on stationary strip while cards relocate");
     await act(async () => scrollSurface.dispatchEvent(new dom.window.MouseEvent("pointerup", { bubbles: true })));
     await act(async () => button("Insert @sati").click());
@@ -40,7 +50,7 @@ test("reference controls preserve duplicate occurrence IDs and support move, key
     assert.deepEqual(ordered.at(-1), ["second", "first", "third"]);
     assert.match(document.querySelector("[role=status]").textContent, /Reference 2 moved to position 1/);
     assert.equal(button("Move reference 1 left").disabled, true);
-    await act(async () => button("Drag reference 2 to reorder").dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", altKey: true, bubbles: true })));
+    await act(async () => button("Preview reference 2").dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", altKey: true, bubbles: true })));
     assert.deepEqual(ordered.at(-1), ["first", "third", "second"]);
     await act(async () => button("Move reference 1 to position").click());
     const input = document.querySelector("input[type=number]");
@@ -68,14 +78,16 @@ test("reference controls preserve duplicate occurrence IDs and support move, key
   }
 });
 
-test("fifty staged references expose independent labelled insertion and grip controls", () => {
+test("fifty staged references expose independent labelled insertion and reorder controls without grip handlebars", () => {
   const prior = globalThis.React; globalThis.React = React;
   return import("react-dom/server").then(({ renderToString }) => {
     const ids = Array.from({ length: 50 }, (_, i) => `occurrence-${i}`);
     const html = renderToString(React.createElement(ReferenceStrip, { store: { referenceIds: ids, referenceImages: ids.map(() => "/same.png"), portraitAssets: [] }, insertTag() {} }));
     assert.equal((html.match(/data-reference-id=/g) || []).length, 50);
+    assert.doesNotMatch(html, /data-reference-grip/);
     assert.match(html, /Insert @img50/);
-    assert.match(html, /Drag reference 50 to reorder/);
+    assert.match(html, /Preview reference 50/);
+    assert.match(html, /Move reference 50 left/);
     globalThis.React = prior;
   });
 });

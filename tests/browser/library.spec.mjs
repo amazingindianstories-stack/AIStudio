@@ -360,6 +360,7 @@ async function openPortraitGallery(page) {
   await page.getByRole("menuitem", { name: "Portrait Gallery", exact: true }).click();
   const gallery = page.getByRole("dialog", { name: "Portrait Gallery", exact: true });
   await expect(gallery).toBeVisible();
+  await expect(gallery.getByRole("textbox", { name: "Search portraits", exact: true })).toBeVisible();
   return gallery;
 }
 

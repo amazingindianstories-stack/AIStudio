@@ -10,7 +10,8 @@ import {
   useMemo,
 
 } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { createPortal } from "react-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Plus,
   Image as ImageIcon,
@@ -37,7 +38,6 @@ import {
   Volume2,
   SkipForward,
   ArrowRight,
-  GripVertical,
   ArrowLeft,
   Undo2,
 } from "lucide-react";
@@ -51,6 +51,7 @@ import { extractFrame } from "@/lib/video-frame";
 import { VideoRefPicker } from "./VideoRefPicker";
 import { DepthComposer } from "./DepthComposer";
 import { UpscalerComposer } from "./UpscalerComposer";
+import { AssetLightbox } from "./AssetLightbox";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, } from "./MentionTextarea";
 import {
@@ -126,6 +127,11 @@ export function PromptComposer() {
   const lastFrameFileRef = useRef(null);
   const mentionRef = useRef(null);
   const toolbarMeasureRef = useRef(null);
+  const composerRef = useRef(null);
+  const hasFocusRef = useRef(false);
+  const hasPointerRef = useRef(false);
+  const filePickerOpenRef = useRef(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [pendingUploads, setPendingUploads] = useState(0);
   const uploading = pendingUploads > 0;
@@ -134,6 +140,91 @@ export function PromptComposer() {
   const [preferredWidth, setPreferredWidth] = useState(768);
   const [dragNotice, setDragNotice] = useState(null);
   const dragNoticeTimerRef = useRef(null);
+
+  const getOverlayFlags = () => {
+    const root = composerRef.current;
+    const menuOpen = Boolean(
+      root?.querySelector('[aria-haspopup="menu"][aria-expanded="true"]') ||
+        (typeof document !== "undefined" && document.querySelector('[role="menu"]'))
+    );
+    const dropdownOpen = Boolean(
+      root?.querySelector('[role="listbox"]') ||
+        pickingClips ||
+        s.assetLibraryOpen ||
+        s.portraitGalleryOpen
+    );
+    const previewOpen = Boolean(
+      typeof document !== "undefined" && document.querySelector('[role="dialog"][aria-modal="true"]')
+    );
+    const stripDragging = Boolean(root?.querySelector('[data-reference-strip-dragging="true"]'));
+    return {
+      menuOpen,
+      dropdownOpen,
+      filePickerOpen: filePickerOpenRef.current,
+      dragging: dragging || stripDragging,
+      previewOpen,
+    };
+  };
+
+  useEffect(() => {
+    if (collapsed && composerRef.current) {
+      composerRef.current.scrollTop = 0;
+    }
+  }, [collapsed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const handleWindowMouseMove = (e) => {
+      const root = composerRef.current;
+      if (!root || !hasPointerRef.current) return;
+      const rect = root.getBoundingClientRect?.();
+      if (!rect || (rect.width === 0 && rect.height === 0)) return;
+      const inside =
+        e.clientX >= rect.left &&
+        e.clientX <= rect.right &&
+        e.clientY >= rect.top &&
+        e.clientY <= rect.bottom;
+      if (!inside) {
+        hasPointerRef.current = false;
+        const stillFocused = Boolean(typeof document !== "undefined" && root.contains(document.activeElement));
+        hasFocusRef.current = stillFocused;
+        if (shouldCollapseComposer({ hasFocus: stillFocused, hasPointer: false, ...getOverlayFlags() })) {
+          setCollapsed(true);
+        }
+      }
+    };
+    window.addEventListener("mousemove", handleWindowMouseMove, { passive: true });
+    return () => window.removeEventListener("mousemove", handleWindowMouseMove);
+  });
+
+  const openFilePickerWithGuard = (inputRef) => {
+    filePickerOpenRef.current = true;
+    if (typeof window !== "undefined") {
+      window.addEventListener(
+        "focus",
+        () => {
+          setTimeout(() => {
+            filePickerOpenRef.current = false;
+          }, 300);
+        },
+        { once: true }
+      );
+    }
+    inputRef.current?.click();
+  };
+
+  const handleSubmitPrompt = async () => {
+    if (uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength) return;
+    const created = await s.generate();
+    if (Array.isArray(created) ? created.length > 0 : Boolean(created)) {
+      hasFocusRef.current = false;
+      hasPointerRef.current = false;
+      if (typeof document !== "undefined" && composerRef.current?.contains(document.activeElement)) {
+        document.activeElement?.blur?.();
+      }
+      setCollapsed(true);
+    }
+  };
 
   const showDragNotice = (type, message) => {
     if (dragNoticeTimerRef.current) clearTimeout(dragNoticeTimerRef.current);
@@ -441,17 +532,59 @@ export function PromptComposer() {
 
   return (
     <motion.div
-      layout="size"
+      ref={composerRef}
+      data-testid="prompt-composer"
+      data-composer-collapsed={collapsed ? "true" : "false"}
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 260, damping: 28 }}
       style={{ width: `min(100%, ${preferredWidth}px)` }}
+      onFocusCapture={(e) => {
+        hasFocusRef.current = true;
+        const tag = e.target?.tagName;
+        if (tag === "TEXTAREA" || tag === "INPUT") {
+          setCollapsed(false);
+        }
+      }}
+      onBlurCapture={(e) => {
+        const root = composerRef.current;
+        if (root && !root.contains(e.relatedTarget)) {
+          hasFocusRef.current = false;
+          setTimeout(() => {
+            const stillFocused = Boolean(root && typeof document !== "undefined" && root.contains(document.activeElement));
+            hasFocusRef.current = stillFocused;
+            if (shouldCollapseComposer({ hasFocus: stillFocused, hasPointer: hasPointerRef.current, ...getOverlayFlags() })) {
+              setCollapsed(true);
+            }
+          }, 0);
+        }
+      }}
+      onMouseEnter={() => {
+        hasPointerRef.current = true;
+      }}
+      onMouseLeave={() => {
+        hasPointerRef.current = false;
+        const root = composerRef.current;
+        const stillFocused = Boolean(root && typeof document !== "undefined" && root.contains(document.activeElement));
+        hasFocusRef.current = stillFocused;
+        if (shouldCollapseComposer({ hasFocus: stillFocused, hasPointer: false, ...getOverlayFlags() })) {
+          setCollapsed(true);
+        }
+      }}
+      onClick={(e) => {
+        if (!e.target?.closest?.("button, [role='menuitem'], [role='option']")) {
+          setCollapsed(false);
+        }
+      }}
       onPaste={onPaste}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className="composer-shell relative mx-auto max-w-full rounded-2xl border border-line bg-ink-800/90 p-2.5 shadow-panel backdrop-blur-xl"
+      className={cn(
+        "composer-shell scroll-thin relative mx-auto flex max-h-[50dvh] max-w-full flex-col overflow-y-auto overscroll-y-contain rounded-2xl border border-line bg-ink-800/90 shadow-panel backdrop-blur-xl transition-[padding] duration-150",
+        collapsed ? "px-2.5 py-1.5" : "p-2.5"
+      )}
     >
       {/* drop overlay */}
       {dragging && (() => {
@@ -568,86 +701,17 @@ export function PromptComposer() {
         </div>
       )}
 
-      {/* attached reference clips (video-to-video) */}
-      {s.referenceVideos.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2 px-1">
-          {s.referenceVideos.map((ref, i) => {
-            const noteName = s.videoNotes?.[i]?.name;
-            return (
-              <span
-                key={ref + i}
-                className="flex items-center gap-1.5 rounded-lg bg-ink-750 py-1 pl-2 pr-1 text-xs text-white/75 ring-1 ring-line transition hover:ring-brand/40"
-                title={`Reference clip ${i + 1}${noteName ? ` (${noteName})` : ""} — use @vid${i + 1} for motion or camera reference`}
-              >
-                <Clapperboard className="h-3.5 w-3.5 text-brand" />
-                <span className="font-semibold text-brand">@vid{i + 1}</span>
-                {noteName && noteName !== `Clip ${i + 1}` && (
-                  <span className="max-w-[120px] truncate text-[11px] text-white/50">{noteName}</span>
-                )}
-                <button
-                  type="button"
-                  onClick={() => s.removeReferenceVideo(i)}
-                  className="grid h-4 w-4 place-items-center rounded text-white/40 hover:bg-white/10 hover:text-white"
-                  aria-label={`Remove reference clip ${i + 1}`}
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </span>
-            );
-          })}
-        </div>
-      )}
-
-      {/* reference thumbnails — click to insert its @imgN tag into the prompt,
-          drag to reorder. @imgN is a live index into referenceImages (see
-          resolveReferences in mentions.ts), so a typed tag stays positional:
+      {/* Inline reference strip: images, divider, videos, divider, audio.
+          Click a reference to preview in the zoomable lightbox, or drag image
+          thumbnails to reorder. @imgN is a live index into referenceImages
+          (see resolveReferences in mentions.js), so a typed tag stays positional:
           after a reorder @img1 means whatever now occupies slot 1. */}
-      {s.referenceImages.length > 0 && <ReferenceStrip store={s} insertTag={(tag) => mentionRef.current?.insertTag(tag)} />}
-
-      {/* @audioN chips are persisted Seedance audio references. */}
-      {s.audioNotes.length > 0 && (
-        <div className="scroll-none mb-2 flex gap-2 overflow-x-auto px-1 pb-1">
-          {s.audioNotes.map((name, i) => (
-            <div
-              key={`${name}-${i}`}
-              title={[typeof name === "string" ? name : name.name, typeof name?.duration === "number" ? formatAudioSeconds(name.duration) : null].filter(Boolean).join(" · ")}
-              data-audio-rejected={audioProblem?.indexes.includes(i) || undefined}
-              className={`group relative flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 overflow-hidden rounded-lg bg-ink-750 px-1 ring-1 transition ${audioProblem?.indexes.includes(i) ? "ring-2 ring-red-400" : "ring-line hover:ring-brand/50"}`}
-            >
-              <button
-                onClick={() => mentionRef.current?.insertTag(`@audio${i + 1}`)}
-                className="flex flex-1 flex-col items-center justify-center gap-0.5 py-[18px]"
-              >
-                <AudioLines className="h-3.5 w-3.5 text-brand" />
-                <span className="line-clamp-1 w-full text-center text-[9px] leading-tight text-white/60">
-                  {typeof name === "string" ? name : name.name}
-                </span>
-              </button>
-              {typeof name?.duration === "number" && (
-                <span className={`pointer-events-none absolute left-1 top-1 rounded px-1 text-[9px] font-semibold leading-[14px] tabular-nums ${audioProblem?.indexes.includes(i) ? "bg-red-600 text-white" : "bg-black/55 text-white/80"}`}>
-                  {formatAudioSeconds(name.duration)}
-                </span>
-              )}
-              <span className="absolute inset-x-0 bottom-0 bg-black/55 px-1 py-0.5 text-center text-[10px] font-semibold leading-[14px] text-brand backdrop-blur-sm">
-                @audio{i + 1}
-              </span>
-              <button
-                type="button"
-                aria-label={`Remove audio note ${i + 1}`}
-                onPointerDown={(e) => e.stopPropagation()}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  s.removeAudioNote(i);
-                }}
-                className="absolute right-1 top-1 z-30 grid h-5 w-5 place-items-center rounded-full bg-ink-950/85 text-white/90 shadow-md backdrop-blur-sm transition hover:bg-red-600 hover:text-white opacity-90 sm:opacity-0 sm:group-hover:opacity-100 cursor-pointer"
-              >
-                <X className="h-3 w-3 pointer-events-none" />
-              </button>
-            </div>
-          ))}
-        </div>
+      {(s.referenceImages.length > 0 || s.referenceVideos.length > 0 || s.audioNotes.length > 0) && (
+        <ReferenceStrip
+          store={s}
+          insertTag={(tag) => mentionRef.current?.insertTag(tag)}
+          audioProblem={audioProblem}
+        />
       )}
 
       {/* Untagged mixed references risk being silently misread — e.g. a
@@ -796,13 +860,14 @@ export function PromptComposer() {
           trigger={(open) => (
             <span
               className={cn(
-                "grid h-[58px] w-[58px] shrink-0 place-items-center rounded-xl border border-dashed border-white/15 text-white/55 transition-colors hover:border-brand/40 hover:text-brand",
+                "grid shrink-0 place-items-center rounded-xl border border-dashed border-white/15 text-white/55 transition-all hover:border-brand/40 hover:text-brand",
+                collapsed ? "h-[38px] w-[38px]" : "h-[58px] w-[58px]",
                 open && "border-brand/50 text-brand"
               )}
             >
               <span className="flex flex-col items-center gap-0.5">
                 <Plus className="h-4 w-4" />
-                <span className="text-[10px]">material</span>
+                <span className={cn("text-[10px]", collapsed && "sr-only")}>material</span>
               </span>
             </span>
           )}
@@ -811,7 +876,7 @@ export function PromptComposer() {
             <>
               <MenuItem
                 onClick={() => {
-                  fileRef.current?.click();
+                  openFilePickerWithGuard(fileRef);
                   close();
                 }}
               >
@@ -821,7 +886,7 @@ export function PromptComposer() {
                 <>
                   <MenuItem
                     onClick={() => {
-                      firstFrameFileRef.current?.click();
+                      openFilePickerWithGuard(firstFrameFileRef);
                       close();
                     }}
                   >
@@ -829,7 +894,7 @@ export function PromptComposer() {
                   </MenuItem>
                   <MenuItem
                     onClick={() => {
-                      lastFrameFileRef.current?.click();
+                      openFilePickerWithGuard(lastFrameFileRef);
                       close();
                     }}
                   >
@@ -915,19 +980,16 @@ export function PromptComposer() {
         {referenceSubmissionWarning(s) && <p role="status" className="mb-1 text-xs text-amber-200">{referenceSubmissionWarning(s)}</p>}
         {s.draftStorageWarning && <p role="status" className="mb-1 text-xs text-amber-200">{s.draftStorageWarning}</p>}
         {normalizePromptMentions(s.prompt) !== s.prompt && <p role="status" className="mb-1 text-xs text-amber-200">Some reference tags are informal. They remain literal text; use @img1 for an exact reference.</p>}
-        <div className="mb-2 flex gap-3 text-xs text-white/60"><button type="button" onClick={() => s.clearComposerDraft()}>New / Clear</button><button type="button" disabled={!s.recentSubmission} onClick={() => s.restoreRecentSubmission()}>Recent submission</button></div>
+        <div className={cn("mb-2 flex gap-3 text-xs text-white/60", collapsed && "hidden")}><button type="button" onClick={() => s.clearComposerDraft()}>New / Clear</button><button type="button" disabled={!s.recentSubmission} onClick={() => s.restoreRecentSubmission()}>Recent submission</button></div>
         <MentionTextarea
           ref={mentionRef}
           value={s.prompt}
           onChange={s.setPrompt}
+          collapsed={collapsed}
           submitOnEnter={false}
           onSubmit={() => {
-            // Purely a UX no-op here — the real gate is server-side in
-            // generate/image and generate/video, which returns a readable
-            // error either way. This just skips a submit already known to
-            // fail rather than round-tripping to find that out.
             if (uploading || s.prompt.length > maxPromptLength) return;
-            s.generate();
+            void handleSubmitPrompt();
           }}
           assets={s.assets}
           references={s.referenceImages}
@@ -1388,7 +1450,7 @@ export function PromptComposer() {
 
         <motion.button
           whileTap={{ scale: 0.92 }}
-          onClick={() => s.generate()}
+          onClick={() => void handleSubmitPrompt()}
           disabled={uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength}
           className={cn(
             "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
@@ -1516,23 +1578,40 @@ function ReferenceThumbnail({ src, alt, className, portrait = false }) {
   return <img src={imageSrc} alt={alt} draggable={false} className={className} onError={() => { if (!direct.onError()) setFailed(true); }} />;
 }
 
-/** Pointer sorting is confined to the grip; the strip itself remains a native
- * scroll surface. Only a completed gesture changes the draft's reference order. */
-export function ReferenceStrip({ store: s, insertTag }) {
-  const reducedMotion = useReducedMotion();
+function resolveReferencePreviewUrl(src, portraitAssets = []) {
+  const display = referenceDisplayUrl(src, portraitAssets);
+  if (!display?.startsWith("/api/media/uploads/image-reference/")) return display;
+  const [path, fragment] = display.split("#");
+  const fresh = `${path}${path.includes("?") ? "&" : "?"}reference_request=${encodeURIComponent(REFERENCE_SESSION_TOKEN)}`;
+  return fragment ? `${fresh}#${fragment}` : fresh;
+}
+
+/** Pointer sorting is initiated directly on the reference thumbnail; the strip
+ * itself remains a native scroll surface. Only a completed gesture changes the draft's reference order. */
+export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
   const strip = useRef(null);
   const gesture = useRef(null);
   const frame = useRef(null);
+  const suppressNextClick = useRef(false);
   const [preview, setPreview] = useState(null);
   const [announcement, setAnnouncement] = useState("");
   const [positionId, setPositionId] = useState(null);
   const [position, setPosition] = useState(1);
   const [undoVisible, setUndoVisible] = useState(false);
-  const ids = s.referenceIds?.length === s.referenceImages.length ? s.referenceIds : s.referenceImages.map((_, i) => `legacy-reference-${i}`);
+  const [hoveredId, setHoveredId] = useState(null);
+  const [focusedId, setFocusedId] = useState(null);
+  const [lightboxState, setLightboxState] = useState(null);
+
+  const imageRefs = s.referenceImages || [];
+  const videoRefs = s.referenceVideos || [];
+  const audioRefs = s.audioNotes || [];
+  const ids = s.referenceIds?.length === imageRefs.length ? s.referenceIds : imageRefs.map((_, i) => `legacy-reference-${i}`);
   const visibleIds = preview?.ids || ids;
+  const totalCount = imageRefs.length + videoRefs.length + audioRefs.length;
+
   const focusCard = (id) => requestAnimationFrame(() => {
     const card = Array.from(strip.current?.querySelectorAll('[data-reference-id]') || []).find((el) => el.dataset.referenceId === id);
-    card?.querySelector('[data-reference-grip]')?.focus({ preventScroll: true });
+    card?.querySelector('[data-reference-preview]')?.focus({ preventScroll: true });
     card?.scrollIntoView({ block: "nearest", inline: "nearest" });
   });
   const commit = (ordered, id) => {
@@ -1580,13 +1659,30 @@ export function ReferenceStrip({ store: s, insertTag }) {
     frame.current = requestAnimationFrame(updateGesture);
   };
   useEffect(() => () => { cancelAnimationFrame(frame.current); gesture.current = null; }, []);
+
+  const openLightbox = (itemKey, triggerEl) => {
+    setLightboxState({ key: itemKey, triggerEl: triggerEl || document.activeElement });
+  };
+
   const start = (e, id) => {
+    suppressNextClick.current = false;
     if (e.button !== 0 || ids.length < 2) return;
     e.preventDefault();
     // Capture on the stationary scroll container. Moving a captured card in
     // the DOM can release capture before the pointer reaches the strip edge.
-    strip.current.setPointerCapture(e.pointerId);
-    gesture.current = { id, ids: [...ids], ordered: [...ids], startX: e.clientX, x: e.clientX, y: e.clientY, active: false };
+    strip.current?.setPointerCapture?.(e.pointerId);
+    gesture.current = {
+      id,
+      pointerId: e.pointerId,
+      ids: [...ids],
+      ordered: [...ids],
+      startX: e.clientX,
+      startY: e.clientY,
+      x: e.clientX,
+      y: e.clientY,
+      active: false,
+      triggerEl: e.currentTarget,
+    };
     frame.current = requestAnimationFrame(updateGesture);
   };
   const end = (cancelled = false) => {
@@ -1594,74 +1690,310 @@ export function ReferenceStrip({ store: s, insertTag }) {
     const current = gesture.current;
     gesture.current = null;
     setPreview(null);
-    if (current?.active && !cancelled) commit(current.ordered, current.id);
+    if (!current || cancelled) return;
+    if (current.active) {
+      suppressNextClick.current = true;
+      setTimeout(() => {
+        suppressNextClick.current = false;
+      }, 0);
+      commit(current.ordered, current.id);
+    } else if (current.triggerEl) {
+      suppressNextClick.current = true;
+      setTimeout(() => {
+        suppressNextClick.current = false;
+      }, 0);
+      openLightbox(`img:${current.id}`, current.triggerEl);
+    }
   };
+
+  if (totalCount === 0) return null;
+
+  const lightboxAssets = [
+    ...visibleIds.map((id) => {
+      const idx = ids.indexOf(id);
+      const tag = s.referenceTags?.[idx] || `@img${idx + 1}`;
+      const source = referenceSource(imageRefs[idx], s.referenceKinds?.[idx], s.portraits?.items);
+      const label = s.referenceLabels?.[idx] || source.name || (source.type === "portrait" ? "Portrait" : `Reference ${idx + 1}`);
+      return {
+        id: `img:${id}`,
+        name: label,
+        tag,
+        slug: tag.replace(/^@/, ""),
+        kind: source.type || "image",
+        mediaType: "image",
+        isComposerReference: true,
+        image: resolveReferencePreviewUrl(imageRefs[idx], s.portraits?.items),
+      };
+    }),
+    ...videoRefs.map((ref, idx) => {
+      const noteName = s.videoNotes?.[idx]?.name || `Reference clip ${idx + 1}`;
+      const tag = `@vid${idx + 1}`;
+      return {
+        id: `vid:${idx}`,
+        name: noteName,
+        tag,
+        slug: `vid${idx + 1}`,
+        kind: "video",
+        mediaType: "video",
+        isComposerReference: true,
+        image: typeof ref === "string" ? ref : ref?.ref || "",
+      };
+    }),
+    ...audioRefs.map((note, idx) => {
+      const audioName = typeof note === "string" ? note : note?.name || `Audio note ${idx + 1}`;
+      const tag = `@audio${idx + 1}`;
+      return {
+        id: `audio:${idx}`,
+        name: audioName,
+        tag,
+        slug: `audio${idx + 1}`,
+        kind: "audio",
+        mediaType: "audio",
+        isComposerReference: true,
+        image: typeof note === "object" ? note?.ref || "" : "",
+      };
+    }),
+  ];
+  const activeLightboxAsset = lightboxState ? lightboxAssets.find((a) => a.id === lightboxState.key) || lightboxAssets[0] : null;
   const activeIndex = preview ? ids.indexOf(preview.id) : -1;
-  return <div className="mb-2" aria-label="Attached image references">
+
+  return <div className="mb-1.5" aria-label="Attached references">
     <div className="mb-1 flex items-center justify-between text-[11px] text-white/55">
-      <span>{ids.length} {ids.length === 1 ? "reference" : "references"}</span>
+      <span>{totalCount} {totalCount === 1 ? "reference" : "references"}</span>
       {undoVisible && <button type="button" className="flex items-center gap-1 text-brand" onClick={() => { s.undoReferenceReorder(); setUndoVisible(false); setAnnouncement("Reference reorder undone"); }}><Undo2 className="h-3 w-3" />Undo reorder</button>}
     </div>
     <div ref={strip}
-      onPointerMove={(e) => { const current = gesture.current; if (!current) return; current.x = e.clientX; current.y = e.clientY; if (Math.abs(current.x - current.startX) > 5) current.active = true; }}
+      onPointerMove={(e) => {
+        const current = gesture.current;
+        if (!current) return;
+        current.x = e.clientX;
+        current.y = e.clientY;
+        if (!current.active && Math.abs(current.x - current.startX) > 5) {
+          current.active = true;
+          // Capture on the stationary scroll container once dragging begins.
+          strip.current?.setPointerCapture?.(current.pointerId);
+        }
+      }}
       onPointerUp={() => end()} onPointerCancel={() => end(true)}
-      data-testid="reference-strip" className="flex gap-2 overflow-x-auto overscroll-x-contain px-1 pb-2">
+      data-testid="reference-strip" data-reference-strip-dragging={preview ? "true" : "false"} className="flex items-center gap-1.5 overflow-x-auto overscroll-x-contain px-1 pb-1.5">
       {visibleIds.map((id, i) => {
         const sourceIndex = ids.indexOf(id);
         const tag = s.referenceTags?.[sourceIndex] || `@img${sourceIndex + 1}`;
-        const source = referenceSource(s.referenceImages[sourceIndex], s.referenceKinds?.[sourceIndex], s.portraits?.items);
+        const source = referenceSource(imageRefs[sourceIndex], s.referenceKinds?.[sourceIndex], s.portraits?.items);
         const label = s.referenceLabels?.[sourceIndex] || source.name || (source.type === "portrait" ? "Portrait" : `Reference ${sourceIndex + 1}`);
-        return <motion.div key={id} data-reference-id={id} data-reference-position={i + 1} layout={!gesture.current && !reducedMotion} transition={{ duration: reducedMotion ? 0 : 0.16 }}
+        const showArrows = ids.length > 1 && (hoveredId === id || focusedId === id);
+        const arrowVisibilityClass = showArrows
+          ? "w-5 opacity-100 pointer-events-auto"
+          : "w-0 opacity-0 pointer-events-none group-hover/ref:w-5 group-hover/ref:opacity-100 group-hover/ref:pointer-events-auto group-focus-within/ref:w-5 group-focus-within/ref:opacity-100 group-focus-within/ref:pointer-events-auto focus:w-5 focus:opacity-100 focus:pointer-events-auto";
+        return <div key={id} data-reference-id={id} data-reference-media="image" data-reference-position={i + 1} data-arrows-visible={showArrows ? "true" : "false"}
+          onMouseEnter={() => setHoveredId(id)}
+          onMouseLeave={() => setHoveredId((prev) => (prev === id ? null : prev))}
+          onFocusCapture={() => setFocusedId(id)}
+          onBlurCapture={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget)) {
+              setFocusedId((prev) => (prev === id ? null : prev));
+            }
+          }}
           onKeyDown={(e) => { if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); move(id, sourceIndex + (e.key === "ArrowLeft" ? -1 : 1)); } }}
-          className={cn("group relative w-24 shrink-0 rounded-lg border bg-ink-800 p-1 focus-within:ring-2 focus-within:ring-brand", preview?.id === id ? "border-brand border-l-4 ring-2 ring-brand/70 opacity-50" : "border-line")}>
-          <div className="relative">
-            <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag(tag)} className="block h-20 w-full overflow-hidden rounded focus-visible:outline-brand">
-              <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[sourceIndex], s.portraits?.items)} alt={label} portrait={source.type === "portrait"} className="h-full w-full object-cover" />
-              <span className="absolute bottom-0 left-0 right-0 truncate bg-black/65 text-[11px] font-semibold text-brand">{tag}</span>
+          className="group/ref relative flex shrink-0 items-center">
+          <button type="button" data-reference-arrow="left" aria-label={`Move reference ${sourceIndex + 1} left`} disabled={sourceIndex === 0}
+            onClick={(e) => { e.stopPropagation(); move(id, sourceIndex - 1); }}
+            className={cn(
+              "grid h-7 shrink-0 place-items-center overflow-hidden border-0 bg-transparent p-0 text-white/75 shadow-none transition-opacity duration-150 hover:bg-transparent hover:text-white disabled:opacity-25",
+              ids.length > 1 ? cn(arrowVisibilityClass, showArrows ? "mr-0.5" : "group-hover/ref:mr-0.5 group-focus-within/ref:mr-0.5 focus:mr-0.5") : "w-0 opacity-0 pointer-events-none"
+            )}>
+            <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
+          </button>
+          <div className={cn("relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-ink-800 focus-within:ring-2 focus-within:ring-[#589edb]", preview?.id === id ? "border-[#589edb] ring-2 ring-[#589edb]/70 opacity-50" : "border-line hover:border-white/25")}>
+            <button type="button" data-reference-preview aria-label={`Preview reference ${sourceIndex + 1}`} title={`${label} (${tag}) - Click to preview, drag or Alt + arrow keys to reorder`}
+              onPointerDown={(e) => start(e, id)}
+              onClick={(e) => {
+                if (suppressNextClick.current) {
+                  suppressNextClick.current = false;
+                  return;
+                }
+                openLightbox(`img:${id}`, e.currentTarget);
+              }}
+              className="relative block h-full w-full cursor-grab touch-none overflow-hidden rounded-[7px] focus-visible:outline-brand active:cursor-grabbing">
+              <ReferenceThumbnail src={referenceThumbnailUrl(imageRefs[sourceIndex], s.portraits?.items)} alt={label} portrait={source.type === "portrait"} className="h-full w-full object-cover" />
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/75 px-0.5 text-center font-mono text-[9px] font-semibold leading-[14px] text-[#589edb]">{tag}</span>
             </button>
+            <button type="button" aria-label={`Insert ${tag}`} onClick={(e) => { e.stopPropagation(); insertTag?.(tag); }} className="sr-only focus:not-sr-only focus:absolute focus:inset-x-0 focus:bottom-0 focus:z-20 focus:bg-ink-950 focus:text-[9px] focus:text-[#589edb]">Insert {tag}</button>
             {source.type === "portrait" && (
               <span data-reference-source="portrait" title={source.name ? `Portrait Gallery: ${source.name}` : "From the Portrait Gallery"}
-                className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-brand text-black shadow-sm">
-                <UserRound className="h-2.5 w-2.5" />
+                className="pointer-events-none absolute left-0.5 top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-brand text-black shadow-sm">
+                <UserRound className="h-2 w-2" />
               </span>
             )}
             {source.type === "material" && (
               <span data-reference-source="material" title={s.referenceLabels?.[sourceIndex] ? `Material: ${s.referenceLabels[sourceIndex]}` : "Material Library asset"}
-                className="absolute left-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-purple-600 text-white shadow-sm">
-                <Sparkles className="h-2.5 w-2.5" />
+                className="pointer-events-none absolute left-0.5 top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-purple-600 text-white shadow-sm">
+                <Sparkles className="h-2 w-2" />
               </span>
             )}
-            {s.unavailableReferences?.includes(s.referenceImages[sourceIndex]) && (
+            {s.unavailableReferences?.includes(imageRefs[sourceIndex]) && (
               <span data-reference-unavailable title="This portrait was removed or isn't ready for video. Remove it to generate."
-                className="pointer-events-none absolute inset-0 grid place-items-center rounded bg-red-950/75 text-[10px] font-semibold text-red-100 ring-2 ring-inset ring-red-400">
+                className="pointer-events-none absolute inset-0 grid place-items-center rounded bg-red-950/75 text-[9px] font-semibold text-red-100 ring-2 ring-inset ring-red-400">
                 Unavailable
               </span>
             )}
-            <button type="button" aria-label={`Remove reference ${sourceIndex + 1}`} onClick={() => s.removeReference(sourceIndex)} className="absolute right-0 top-0 grid h-6 w-6 place-items-center rounded bg-ink-950/90 text-white"><X className="h-3 w-3" /></button>
+            <button type="button" aria-label={`Remove reference ${sourceIndex + 1}`} onClick={(e) => { e.stopPropagation(); s.removeReference(sourceIndex); }} className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-ink-950/90 text-white/90 hover:bg-red-600 hover:text-white"><X className="h-2.5 w-2.5" /></button>
+            <button type="button" aria-label={`Move reference ${sourceIndex + 1} to position`} onClick={() => { setPositionId(id); setPosition(sourceIndex + 1); }} className="sr-only focus:not-sr-only focus:absolute focus:inset-x-0 focus:top-0 focus:z-20 focus:bg-ink-950 focus:text-[9px] focus:text-[#589edb]">Move to position…</button>
           </div>
-          <p title={label} className="truncate text-[10px] text-white/65">{label}</p>
-          <div className="flex items-center justify-center">
-            <button type="button" aria-label={`Move reference ${sourceIndex + 1} left`} disabled={sourceIndex === 0} onClick={() => move(id, sourceIndex - 1)} className="grid h-8 w-6 place-items-center disabled:opacity-20"><ArrowLeft className="h-3 w-3" /></button>
-            <button type="button" data-reference-grip aria-label={`Drag reference ${sourceIndex + 1} to reorder`} title="Drag to arrange; Alt + arrow keys also move" onPointerDown={(e) => start(e, id)}
-              className="grid h-11 w-11 cursor-grab touch-none place-items-center rounded hover:bg-white/10 active:cursor-grabbing"><GripVertical className="h-5 w-5" /></button>
-            <button type="button" aria-label={`Move reference ${sourceIndex + 1} right`} disabled={sourceIndex === ids.length - 1} onClick={() => move(id, sourceIndex + 1)} className="grid h-8 w-6 place-items-center disabled:opacity-20"><ArrowRight className="h-3 w-3" /></button>
+          <button type="button" data-reference-arrow="right" aria-label={`Move reference ${sourceIndex + 1} right`} disabled={sourceIndex === ids.length - 1}
+            onClick={(e) => { e.stopPropagation(); move(id, sourceIndex + 1); }}
+            className={cn(
+              "grid h-7 shrink-0 place-items-center overflow-hidden border-0 bg-transparent p-0 text-white/75 shadow-none transition-opacity duration-150 hover:bg-transparent hover:text-white disabled:opacity-25",
+              ids.length > 1 ? cn(arrowVisibilityClass, showArrows ? "ml-0.5" : "group-hover/ref:ml-0.5 group-focus-within/ref:ml-0.5 focus:ml-0.5") : "w-0 opacity-0 pointer-events-none"
+            )}>
+            <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+          </button>
+        </div>;
+      })}
+
+      {visibleIds.length > 0 && (videoRefs.length > 0 || audioRefs.length > 0) && (
+        <div role="separator" aria-orientation="vertical" data-testid="reference-divider" data-divider-between="image-video" className="mx-1 h-8 w-[1.5px] shrink-0 self-center rounded-full bg-white/25" />
+      )}
+
+      {videoRefs.map((ref, i) => {
+        const noteName = s.videoNotes?.[i]?.name;
+        const tag = `@vid${i + 1}`;
+        return (
+          <div
+            key={`${ref}-${i}`}
+            data-reference-media="video"
+            data-reference-video-index={i}
+            title={`Reference clip ${i + 1}${noteName ? ` (${noteName})` : ""} - use @vid${i + 1} for motion or camera reference`}
+            className="group relative flex h-12 shrink-0 items-center gap-1.5 rounded-lg border border-line bg-ink-800 pl-2 pr-1.5 text-xs text-white/80 transition hover:border-white/25"
+          >
+            <button
+              type="button"
+              data-reference-preview
+              aria-label={`Preview reference clip ${i + 1}`}
+              onClick={(e) => openLightbox(`vid:${i}`, e.currentTarget)}
+              className="flex h-full items-center gap-1.5 text-left focus-visible:outline-brand"
+            >
+              <Clapperboard className="h-3.5 w-3.5 shrink-0 text-[#589edb]" />
+              <span className="flex flex-col leading-tight">
+                <span className="font-mono text-[10px] font-semibold text-[#589edb]">{tag}</span>
+                {noteName && noteName !== `Clip ${i + 1}` && (
+                  <span className="max-w-[84px] truncate text-[10px] text-white/55">{noteName}</span>
+                )}
+              </span>
+            </button>
+            <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag?.(tag)} className="sr-only focus:not-sr-only focus:text-[10px] focus:text-[#589edb]">Insert {tag}</button>
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); s.removeReferenceVideo?.(i); }}
+              className="grid h-4 w-4 place-items-center rounded-full text-white/50 hover:bg-red-600 hover:text-white"
+              aria-label={`Remove reference clip ${i + 1}`}
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
           </div>
-          <button type="button" aria-label={`Move reference ${sourceIndex + 1} to position`} onClick={() => { setPositionId(id); setPosition(sourceIndex + 1); }} className="sr-only w-full rounded text-[10px] text-white/60 focus:not-sr-only focus:text-brand">Move to position…</button>
-        </motion.div>;
+        );
+      })}
+
+      {videoRefs.length > 0 && audioRefs.length > 0 && (
+        <div role="separator" aria-orientation="vertical" data-testid="reference-divider" data-divider-between="video-audio" className="mx-1 h-8 w-[1.5px] shrink-0 self-center rounded-full bg-white/25" />
+      )}
+
+      {audioRefs.map((note, i) => {
+        const audioName = typeof note === "string" ? note : note?.name || `Audio ${i + 1}`;
+        const tag = `@audio${i + 1}`;
+        const rejected = audioProblem?.indexes.includes(i);
+        return (
+          <div
+            key={`${audioName}-${i}`}
+            data-reference-media="audio"
+            data-reference-audio-index={i}
+            data-audio-rejected={rejected || undefined}
+            title={[audioName, typeof note?.duration === "number" ? formatAudioSeconds(note.duration) : null].filter(Boolean).join(" · ")}
+            className={cn(
+              "group relative flex h-12 shrink-0 items-center gap-1.5 rounded-lg border bg-ink-800 pl-2 pr-1.5 text-xs transition",
+              rejected ? "border-red-400 ring-1 ring-red-400" : "border-line hover:border-white/25"
+            )}
+          >
+            <button
+              type="button"
+              data-reference-preview
+              aria-label={`Preview audio note ${i + 1}`}
+              onClick={(e) => openLightbox(`audio:${i}`, e.currentTarget)}
+              className="flex h-full items-center gap-1.5 text-left focus-visible:outline-brand"
+            >
+              <AudioLines className="h-3.5 w-3.5 shrink-0 text-[#589edb]" />
+              <span className="flex flex-col leading-tight">
+                <span className="flex items-center gap-1">
+                  <span className="font-mono text-[10px] font-semibold text-[#589edb]">{tag}</span>
+                  {typeof note?.duration === "number" && (
+                    <span className={cn("rounded px-1 text-[9px] font-semibold leading-[13px] tabular-nums", rejected ? "bg-red-600 text-white" : "bg-black/55 text-white/80")}>
+                      {formatAudioSeconds(note.duration)}
+                    </span>
+                  )}
+                </span>
+                <span className="max-w-[76px] truncate text-[10px] text-white/55">{audioName}</span>
+              </span>
+            </button>
+            <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag?.(tag)} className="sr-only focus:not-sr-only focus:text-[10px] focus:text-[#589edb]">Insert {tag}</button>
+            <button
+              type="button"
+              aria-label={`Remove audio note ${i + 1}`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                s.removeAudioNote?.(i);
+              }}
+              className="grid h-4 w-4 place-items-center rounded-full text-white/50 hover:bg-red-600 hover:text-white"
+            >
+              <X className="h-2.5 w-2.5 pointer-events-none" />
+            </button>
+          </div>
+        );
       })}
     </div>
-    {preview && <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-24 rounded-lg border-2 border-brand bg-ink-800 p-1 shadow-xl" style={{ left: preview.x - 48, top: preview.y - 80 }}>
-      <ReferenceThumbnail src={referenceThumbnailUrl(s.referenceImages[activeIndex], s.portraits?.items)} alt="Reference" className="h-20 w-full rounded object-cover" />
-      <span className="text-xs text-brand">Position {preview.ids.indexOf(preview.id) + 1}</span>
+    {preview && <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-14 rounded-lg border-2 border-[#589edb] bg-ink-800 p-0.5 shadow-xl" style={{ left: preview.x - 28, top: preview.y - 56 }}>
+      <ReferenceThumbnail src={referenceThumbnailUrl(imageRefs[activeIndex], s.portraits?.items)} alt="Reference" className="h-12 w-full rounded object-cover" />
+      <span className="block text-center text-[10px] text-[#589edb]">#{preview.ids.indexOf(preview.id) + 1}</span>
     </div>}
     {positionId && <form className="flex items-center gap-2 rounded border border-line p-2" onSubmit={(e) => { e.preventDefault(); move(positionId, Number(position) - 1); setPositionId(null); }}>
       <label className="text-xs">Move to position <input autoFocus type="number" min="1" max={ids.length} required value={position} onChange={(e) => setPosition(e.target.value)} className="ml-1 w-16 rounded bg-ink-950 p-1" /></label>
       <button type="submit" className="text-xs text-brand">Move</button><button type="button" onClick={() => setPositionId(null)} className="text-xs">Cancel</button>
     </form>}
+    {activeLightboxAsset && (() => {
+      const lightboxNode = (
+        <AssetLightbox
+          asset={activeLightboxAsset}
+          assets={lightboxAssets}
+          returnFocusEl={lightboxState?.triggerEl}
+          dialogLabel="Reference Preview"
+          onClose={() => setLightboxState(null)}
+          onSelectAsset={(next) => setLightboxState((prev) => (prev ? { ...prev, key: next.id } : null))}
+          onInsertTag={(tag) => insertTag?.(tag)}
+        />
+      );
+      return typeof document !== "undefined" && document.body ? createPortal(lightboxNode, document.body) : lightboxNode;
+    })()}
     <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">{announcement}</span>
   </div>;
 }
 
+
+export function shouldCollapseComposer({
+  hasFocus = false,
+  hasPointer = false,
+  menuOpen = false,
+  dropdownOpen = false,
+  filePickerOpen = false,
+  dragging = false,
+  previewOpen = false,
+} = {}) {
+  if (menuOpen || dropdownOpen || filePickerOpen || dragging || previewOpen) {
+    return false;
+  }
+  return !hasFocus && !hasPointer;
+}
 
 export function stagedReferenceCount(state) {
   return (state.referenceImages?.length || 0) + (state.referenceVideos?.length || 0) + (state.audioNotes?.length || 0);

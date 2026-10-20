@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   X,
   ChevronLeft,
@@ -15,6 +14,10 @@ import {
   ExternalLink,
   ZoomIn,
   ZoomOut,
+  RotateCcw,
+  Clapperboard,
+  AudioLines,
+  Image as ImageIcon,
   Box,
 } from "lucide-react";
 import { inlineMediaUrl } from "@/lib/utils";
@@ -23,6 +26,28 @@ import { apiErrorMessage } from "@/lib/api-error";
 import { notify } from "@/lib/notify";
 import { KIND_ICON, KIND_LABEL } from "./AssetLibrary";
 
+export const MIN_LIGHTBOX_ZOOM = 0.5;
+export const MAX_LIGHTBOX_ZOOM = 5;
+export const DEFAULT_LIGHTBOX_ZOOM = 1;
+export const LIGHTBOX_ZOOM_STEP = 0.25;
+
+export function clampLightboxZoom(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return DEFAULT_LIGHTBOX_ZOOM;
+  return Math.min(MAX_LIGHTBOX_ZOOM, Math.max(MIN_LIGHTBOX_ZOOM, Math.round(num * 100) / 100));
+}
+
+export function stepLightboxZoom(current, direction) {
+  const delta = direction > 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP;
+  return clampLightboxZoom(current + delta);
+}
+
+export function computeWheelZoom(current, deltaY, isPinch = false) {
+  if (!Number.isFinite(deltaY) || deltaY === 0) return current;
+  const factor = isPinch ? -deltaY * 0.01 : deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP;
+  return clampLightboxZoom(current + factor);
+}
+
 export function AssetLightbox({
   embedded = false,
   asset,
@@ -30,14 +55,39 @@ export function AssetLightbox({
   onClose,
   onSelectAsset,
   onAttach,
+  onInsertTag,
   onEdit,
   onDelete,
+  returnFocusEl = null,
+  dialogLabel = "Material Sheet Full View",
 }) {
   const [copiedSlug, setCopiedSlug] = useState(false);
   const [attached, setAttached] = useState(false);
-  const [isZoomed, setIsZoomed] = useState(false);
+  const [zoom, setZoom] = useState(DEFAULT_LIGHTBOX_ZOOM);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panGestureRef = useRef(null);
+  const didPanRef = useRef(false);
   const containerRef = useRef(null);
   const dialogRef = useRef(null);
+
+  const isZoomed = zoom > DEFAULT_LIGHTBOX_ZOOM;
+
+  const applyZoom = useCallback((nextZoomOrUpdater) => {
+    setZoom((prev) => {
+      const raw = typeof nextZoomOrUpdater === "function" ? nextZoomOrUpdater(prev) : nextZoomOrUpdater;
+      const clamped = clampLightboxZoom(raw);
+      if (clamped <= DEFAULT_LIGHTBOX_ZOOM) {
+        setPan({ x: 0, y: 0 });
+      }
+      return clamped;
+    });
+  }, []);
+
+  const resetZoom = useCallback(() => {
+    setZoom(DEFAULT_LIGHTBOX_ZOOM);
+    setPan({ x: 0, y: 0 });
+  }, []);
 
   const currentIndex = assets.findIndex((a) => a.id === asset?.id);
   const hasPrev = currentIndex > 0;
@@ -45,23 +95,26 @@ export function AssetLightbox({
 
   const goToPrev = useCallback(() => {
     if (hasPrev && onSelectAsset) {
-      setIsZoomed(false);
+      resetZoom();
       onSelectAsset(assets[currentIndex - 1]);
     }
-  }, [hasPrev, onSelectAsset, assets, currentIndex]);
+  }, [hasPrev, onSelectAsset, assets, currentIndex, resetZoom]);
 
   const goToNext = useCallback(() => {
     if (hasNext && onSelectAsset) {
-      setIsZoomed(false);
+      resetZoom();
       onSelectAsset(assets[currentIndex + 1]);
     }
-  }, [hasNext, onSelectAsset, assets, currentIndex]);
+  }, [hasNext, onSelectAsset, assets, currentIndex, resetZoom]);
+
+  const handlersRef = useRef({ onClose, goToPrev, goToNext, applyZoom, resetZoom, returnFocusEl });
+  handlersRef.current = { onClose, goToPrev, goToNext, applyZoom, resetZoom, returnFocusEl };
 
   // The inspector owns its focus while open; portal confirmations own theirs.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return undefined;
-    const previousFocus = document.activeElement;
+    const previousFocus = handlersRef.current.returnFocusEl || document.activeElement;
     const childModalOpen = () => Array.from(document.querySelectorAll('[role="alertdialog"][aria-modal="true"]'))
       .some((element) => !element.hidden && element.getClientRects().length > 0);
     const controls = () => Array.from(dialog.querySelectorAll('button:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'))
@@ -70,9 +123,13 @@ export function AssetLightbox({
     const frame = requestAnimationFrame(focusFirst);
     const onKeyDown = (event) => {
       if (event.defaultPrevented || childModalOpen()) return;
-      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onClose(); }
-      else if (event.key === "ArrowLeft") { event.preventDefault(); goToPrev(); }
-      else if (event.key === "ArrowRight") { event.preventDefault(); goToNext(); }
+      const h = handlersRef.current;
+      if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); h.onClose?.(); }
+      else if (event.key === "+" || event.key === "=") { event.preventDefault(); h.applyZoom((z) => stepLightboxZoom(z, 1)); }
+      else if (event.key === "-" || event.key === "_") { event.preventDefault(); h.applyZoom((z) => stepLightboxZoom(z, -1)); }
+      else if (event.key === "0") { event.preventDefault(); h.resetZoom(); }
+      else if (event.key === "ArrowLeft") { event.preventDefault(); h.goToPrev(); }
+      else if (event.key === "ArrowRight") { event.preventDefault(); h.goToNext(); }
       else if (event.key === "Tab") {
         const focusable = controls(), first = focusable[0], last = focusable[focusable.length - 1];
         if (!first) { event.preventDefault(); dialog.focus(); }
@@ -88,26 +145,46 @@ export function AssetLightbox({
       cancelAnimationFrame(frame);
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("focusin", onFocusIn);
-      if (previousFocus?.isConnected) previousFocus.focus?.();
+      const returnEl = handlersRef.current.returnFocusEl;
+      const target = returnEl?.isConnected ? returnEl : previousFocus;
+      if (target?.isConnected) target.focus?.();
     };
-  }, [onClose, goToPrev, goToNext]);
+  }, []);
 
   // Reset zoom and feedback when active asset changes
   useEffect(() => {
-    setIsZoomed(false);
+    resetZoom();
     setAttached(false);
     setCopiedSlug(false);
-  }, [asset?.id]);
+  }, [asset?.id, resetZoom]);
+
+  // Prevent browser page-zoom when pinching on the stage
+  useEffect(() => {
+    const stage = containerRef.current;
+    if (!stage) return undefined;
+    const handleNativeWheel = (e) => {
+      e.preventDefault();
+      applyZoom((z) => computeWheelZoom(z, e.deltaY, e.ctrlKey || e.metaKey));
+    };
+    stage.addEventListener("wheel", handleNativeWheel, { passive: false });
+    return () => stage.removeEventListener("wheel", handleNativeWheel);
+  }, [asset?.id, applyZoom]);
 
   if (!asset) return null;
 
   const imageUrl = asset.images?.[0] || asset.image || "";
-  const Icon = KIND_ICON[asset.kind] || Box;
-  const kindLabel = KIND_LABEL[asset.kind] || asset.kind || "Material";
+  const mediaType = asset.mediaType || "image";
+  const Icon = mediaType === "video"
+    ? Clapperboard
+    : mediaType === "audio"
+    ? AudioLines
+    : KIND_ICON?.[asset.kind] || (asset.isComposerReference ? ImageIcon : Box);
+  const kindLabel = KIND_LABEL?.[asset.kind] || asset.kind || "Material";
+  const tagText = asset.tag || (asset.slug ? `@${asset.slug}` : "");
 
   const handleCopySlug = () => {
-    if (!asset.slug) return;
-    navigator.clipboard.writeText(`@${asset.slug}`).then(() => {
+    if (!tagText) return;
+    navigator.clipboard?.writeText(tagText).then(() => {
       setCopiedSlug(true);
       setTimeout(() => setCopiedSlug(false), 2000);
     });
@@ -151,13 +228,15 @@ export function AssetLightbox({
       tabIndex={-1}
       role="dialog"
       aria-modal="true"
-      aria-label="Material Sheet Full View"
+      aria-label={dialogLabel}
       className={embedded ? "absolute inset-y-0 right-0 z-20 flex w-full max-w-xl flex-col items-center justify-between overflow-hidden border-l border-line bg-ink-950 p-3" : "fixed inset-0 z-[120] flex flex-col items-center justify-between bg-black/95 p-3 sm:p-5 backdrop-blur-md"}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <p className="mb-1 shrink-0 self-start text-[11px] text-white/50">{asset.uploader?.name || "Unknown uploader"}</p>
+      {!asset.isComposerReference && (
+        <p className="mb-1 shrink-0 self-start text-[11px] text-white/50">{asset.uploader?.name || "Unknown uploader"}</p>
+      )}
       {/* Top Header Controls Bar */}
       <header className="relative z-10 flex w-full max-w-6xl shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-2xl backdrop-blur-lg">
         {/* Left: Metadata info & badges */}
@@ -176,69 +255,126 @@ export function AssetLightbox({
               </span>
             </div>
 
-            <div className="flex items-center gap-2 text-[11px] text-white/50">
-              <button
-                type="button"
-                onClick={handleCopySlug}
-                title={`Copy @${asset.slug}`}
-                className="flex min-w-0 max-w-full items-center gap-1 font-mono text-xs font-semibold text-white/80 transition hover:text-white"
-              >
-                <span className="truncate">{`@${asset.slug}`}</span>
-                {copiedSlug ? (
-                  <Check className="h-3 w-3 text-emerald-400" />
-                ) : (
-                  <Copy className="h-3 w-3 shrink-0 text-white/40" />
+            {tagText && (
+              <div className="flex items-center gap-2 text-[11px] text-white/50">
+                <button
+                  type="button"
+                  onClick={handleCopySlug}
+                  title={`Copy ${tagText}`}
+                  className="flex min-w-0 max-w-full items-center gap-1 font-mono text-xs font-semibold text-[#589edb] transition hover:text-white"
+                >
+                  <span className="truncate">{tagText}</span>
+                  {copiedSlug ? (
+                    <Check className="h-3 w-3 text-emerald-400" />
+                  ) : (
+                    <Copy className="h-3 w-3 shrink-0 text-white/40" />
+                  )}
+                </button>
+                {copiedSlug && (
+                  <span className="text-[10px] text-emerald-400 font-medium">Copied!</span>
                 )}
-              </button>
-              {copiedSlug && (
-                <span className="text-[10px] text-emerald-400 font-medium">Copied!</span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
 
         {/* Right: Action Buttons */}
         <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
-          {/* Attach / Use in Prompt */}
-          <button
-            type="button"
-            onClick={handleAttach}
-            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
-              attached
-                ? "bg-emerald-500 text-zinc-950 font-bold"
-                : "bg-white text-zinc-950 hover:bg-zinc-200"
-            }`}
-          >
-            {attached ? (
-              <>
-                <Check className="h-3.5 w-3.5" /> Attached to Prompt!
-              </>
-            ) : (
-              <>
-                <Paperclip className="h-3.5 w-3.5" /> Attach to Composer
-              </>
-            )}
-          </button>
+          {/* Insert @tag when opened from Composer */}
+          {onInsertTag && tagText && (
+            <button
+              type="button"
+              onClick={() => {
+                onInsertTag(tagText);
+                onClose();
+              }}
+              className="flex items-center gap-1.5 rounded-lg bg-[#589edb]/20 px-3 py-1.5 text-xs font-semibold text-[#589edb] ring-1 ring-[#589edb]/40 transition hover:bg-[#589edb]/30"
+            >
+              Insert {tagText}
+            </button>
+          )}
 
-          {/* Zoom Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setIsZoomed((v) => !v)}
-            title={isZoomed ? "Fit to screen" : "Zoom in 2x"}
-            className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
-          >
-            {isZoomed ? <ZoomOut className="h-4 w-4" /> : <ZoomIn className="h-4 w-4" />}
-          </button>
+          {/* Attach / Use in Prompt */}
+          {onAttach && (
+            <button
+              type="button"
+              onClick={handleAttach}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold shadow-sm transition ${
+                attached
+                  ? "bg-emerald-500 text-zinc-950 font-bold"
+                  : "bg-white text-zinc-950 hover:bg-zinc-200"
+              }`}
+            >
+              {attached ? (
+                <>
+                  <Check className="h-3.5 w-3.5" /> Attached to Prompt!
+                </>
+              ) : (
+                <>
+                  <Paperclip className="h-3.5 w-3.5" /> Attach to Composer
+                </>
+              )}
+            </button>
+          )}
+
+          {/* Dynamic Zoom Controls */}
+          <div className="flex items-center rounded-lg border border-white/15 bg-ink-800 p-0.5">
+            <button
+              type="button"
+              aria-label="Zoom out"
+              data-testid="lightbox-zoom-out"
+              disabled={zoom <= MIN_LIGHTBOX_ZOOM}
+              onClick={() => applyZoom((z) => stepLightboxZoom(z, -1))}
+              title="Zoom out (-)"
+              className="grid h-7 w-7 place-items-center rounded text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
+            >
+              <ZoomOut className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label="Reset zoom"
+              data-testid="lightbox-zoom-reset"
+              onClick={resetZoom}
+              title="Reset zoom (0)"
+              className="min-w-[46px] px-1.5 text-center font-mono text-[11px] font-medium text-white/85 transition hover:text-white"
+            >
+              {Math.round(zoom * 100)}%
+            </button>
+            <button
+              type="button"
+              aria-label="Zoom in"
+              data-testid="lightbox-zoom-in"
+              disabled={zoom >= MAX_LIGHTBOX_ZOOM}
+              onClick={() => applyZoom((z) => stepLightboxZoom(z, 1))}
+              title="Zoom in (+)"
+              className="grid h-7 w-7 place-items-center rounded text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-30"
+            >
+              <ZoomIn className="h-3.5 w-3.5" />
+            </button>
+            {(isZoomed || pan.x !== 0 || pan.y !== 0) && (
+              <button
+                type="button"
+                aria-label="Fit to screen"
+                onClick={resetZoom}
+                title="Fit to screen (0)"
+                className="grid h-7 w-7 place-items-center rounded text-white/70 transition hover:bg-white/10 hover:text-white"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
 
           {/* Download Button */}
-          <button
-            type="button"
-            onClick={handleDownload}
-            title="Download full material sheet"
-            className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
-          >
-            <Download className="h-4 w-4" />
-          </button>
+          {imageUrl && (
+            <button
+              type="button"
+              onClick={handleDownload}
+              title="Download full media"
+              className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
+            >
+              <Download className="h-4 w-4" />
+            </button>
+          )}
 
           {/* Open raw URL in new tab */}
           {imageUrl && (
@@ -291,7 +427,7 @@ export function AssetLightbox({
         </div>
       </header>
 
-      {/* Main Center Image Viewport */}
+      {/* Main Center Media Viewport */}
       <div className="relative flex flex-1 w-full max-w-6xl items-center justify-center py-2 sm:py-4 min-h-0 overflow-hidden">
         {/* Previous Button */}
         {hasPrev && (
@@ -305,30 +441,85 @@ export function AssetLightbox({
           </button>
         )}
 
-        {/* Central Turnaround Sheet with Zoom Support */}
+        {/* Central Stage with Dynamic Zoom & Pan Support */}
         <div
           ref={containerRef}
-          className={`relative flex h-full max-h-[78dvh] w-full items-center justify-center overflow-auto rounded-2xl border border-white/10 bg-ink-950 p-2 shadow-2xl ring-1 ring-white/10 scroll-thin ${
-            isZoomed ? "cursor-zoom-out" : "cursor-zoom-in"
+          data-testid="lightbox-stage"
+          data-zoom={zoom}
+          data-pan-x={Math.round(pan.x)}
+          data-pan-y={Math.round(pan.y)}
+          className={`relative flex h-full max-h-[78dvh] w-full select-none items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-ink-950 p-2 shadow-2xl ring-1 ring-white/10 touch-none ${
+            isZoomed ? (isPanning ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in"
           }`}
-          onClick={() => setIsZoomed((v) => !v)}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            if (isZoomed) resetZoom();
+            else applyZoom(2);
+          }}
+          onPointerDown={(e) => {
+            if (e.button !== 0 || zoom <= DEFAULT_LIGHTBOX_ZOOM) return;
+            e.preventDefault();
+            e.currentTarget.setPointerCapture?.(e.pointerId);
+            panGestureRef.current = {
+              startX: e.clientX,
+              startY: e.clientY,
+              baseX: pan.x,
+              baseY: pan.y,
+            };
+            didPanRef.current = false;
+            setIsPanning(true);
+          }}
+          onPointerMove={(e) => {
+            const g = panGestureRef.current;
+            if (!g) return;
+            const dx = e.clientX - g.startX;
+            const dy = e.clientY - g.startY;
+            if (Math.hypot(dx, dy) > 2) didPanRef.current = true;
+            setPan({ x: g.baseX + dx, y: g.baseY + dy });
+          }}
+          onPointerUp={() => {
+            panGestureRef.current = null;
+            setIsPanning(false);
+          }}
+          onPointerCancel={() => {
+            panGestureRef.current = null;
+            setIsPanning(false);
+          }}
         >
-          <AnimatePresence mode="wait">
-            <motion.img
-              key={asset.id + (isZoomed ? "-zoomed" : "-fit")}
-              src={imageUrl}
-              alt={asset.name || "Material Sheet"}
-              initial={{ opacity: 0, scale: isZoomed ? 1.5 : 0.97 }}
-              animate={{ opacity: 1, scale: isZoomed ? 2 : 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.22, ease: "easeOut" }}
-              className={`select-none transition-all duration-200 ${
-                isZoomed
-                  ? "max-w-none origin-center transform p-8"
-                  : embedded ? "max-h-full max-w-full object-contain" : "max-h-[76dvh] max-w-[88vw] object-contain"
-              }`}
-            />
-          </AnimatePresence>
+          <div
+            data-testid="lightbox-transform"
+            style={{
+              transform: `translate3d(${Math.round(pan.x)}px, ${Math.round(pan.y)}px, 0) scale(${zoom})`,
+              transformOrigin: "center center",
+              transition: isPanning ? "none" : "transform 120ms ease-out",
+            }}
+            className="flex max-h-full max-w-full items-center justify-center"
+          >
+            {mediaType === "video" ? (
+              <video
+                src={imageUrl}
+                controls
+                playsInline
+                className={embedded ? "max-h-full max-w-full object-contain" : "max-h-[74dvh] max-w-[86vw] object-contain"}
+              />
+            ) : mediaType === "audio" ? (
+              <div className="flex flex-col items-center gap-4 rounded-2xl border border-white/10 bg-ink-900 px-8 py-6 text-center">
+                <AudioLines className="h-10 w-10 text-[#589edb]" />
+                <p className="text-sm font-medium text-white">{asset.name}</p>
+                {imageUrl && <audio src={imageUrl} controls className="w-72 max-w-full" />}
+              </div>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={imageUrl}
+                alt={asset.name || "Material Sheet"}
+                draggable={false}
+                className={`select-none ${
+                  embedded ? "max-h-full max-w-full object-contain" : "max-h-[76dvh] max-w-[88vw] object-contain"
+                }`}
+              />
+            )}
+          </div>
         </div>
 
         {/* Next Button */}
@@ -352,7 +543,7 @@ export function AssetLightbox({
               {currentIndex + 1} of {assets.length}
             </span>
           )}
-          {!embedded && <span className="hidden sm:inline">← → Navigate · Esc Close · Click Zoom</span>}
+          {!embedded && <span className="hidden sm:inline">Scroll/Pinch/Double-click/+/-/0 Zoom · Drag to Pan · Esc Close</span>}
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center gap-2">

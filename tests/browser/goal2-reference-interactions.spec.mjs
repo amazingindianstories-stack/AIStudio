@@ -45,8 +45,9 @@ test('Goal2 actual pointer traverses 50 references with edge autoscroll and pres
   const ids = await stage(page, context, 50);
   await page.locator('textarea').first().fill('@img1 @img10 @img50 literal @img100 @named');
   const strip = page.getByTestId('reference-strip');
-  const handle = page.locator('[data-reference-grip]').first();
-  // Editing the prompt re-lays the cards out with a layout animation; hover waits until the grip
+  await expect(page.locator('[data-reference-grip]')).toHaveCount(0);
+  const handle = page.locator('[data-reference-preview]').first();
+  // Editing the prompt re-lays the cards out with a layout animation; hover waits until the thumbnail
   // has stopped moving, so the press lands on it and the measured geometry is the resting one.
   await handle.hover();
   const h = await handle.boundingBox();
@@ -71,9 +72,9 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   const ids = await stage(page, context, 10);
   const sources = await page.locator('[data-reference-id] img').evaluateAll(images => images.map(image => image.getAttribute('src')));
   await page.locator('textarea').first().fill('@img1 @img10 @img100 @named');
-  // As above: press the grip only once the layout animation has settled.
-  await page.locator('[data-reference-grip]').first().hover();
-  const grip = await page.locator('[data-reference-grip]').first().boundingBox();
+  // As above: press the thumbnail only once the layout animation has settled.
+  await page.locator('[data-reference-preview]').first().hover();
+  const grip = await page.locator('[data-reference-preview]').first().boundingBox();
   const stripBounds = await page.getByTestId('reference-strip').boundingBox();
   await page.mouse.down();
   await page.mouse.move(stripBounds.x + stripBounds.width - 1, grip.y + grip.height / 2, { steps: 15 });
@@ -84,9 +85,10 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   await page.getByRole('button', { name: 'Undo reorder', exact: true }).click();
   expect(await order(page)).toEqual(ids);
   await expect(page.locator('textarea').first()).toHaveValue('@img1 @img10 @img100 @named');
+  await page.locator('[data-reference-id]').first().hover();
   await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).click();
   expect((await order(page))[1]).toBe(ids[0]);
-  const moved = page.locator(`[data-reference-id="${ids[0]}"] [data-reference-grip]`);
+  const moved = page.locator(`[data-reference-id="${ids[0]}"] [data-reference-preview]`);
   await expect(moved).toBeFocused();
   await moved.press('Alt+ArrowRight');
   expect((await order(page))[2]).toBe(ids[0]);
@@ -131,6 +133,7 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   await card.locator('time').hover();
   await page.screenshot({ path: testInfo.outputPath('chat-folder-cue-timestamp.png') });
   await page.locator('textarea').first().fill('A later editable draft @img1');
+  await page.locator('[data-reference-id]').first().hover();
   await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).click();
   const committed = await sql`SELECT prompt, reference_images FROM generations WHERE id=${result.id}`;
   expect(committed[0].prompt).toBe(submitted.prompt);
@@ -411,6 +414,7 @@ test('Goal2 removing a reference renumbers later tags while reordering leaves th
   const ids = await stage(page, context, 3);
   const prompt = page.locator('textarea').first();
   await prompt.fill('@img1 then @img3');
+  await page.locator('[data-reference-id]').first().hover();
   await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).click();
   expect(await order(page)).toEqual([ids[1], ids[0], ids[2]]);
   await expect(prompt).toHaveValue('@img1 then @img3');
@@ -421,41 +425,42 @@ test('Goal2 removing a reference renumbers later tags while reordering leaves th
   await expect(prompt).toHaveValue('@img1 then @img2');
 });
 
-test('Goal2 actual touch swipe scrolls thumbnails and touch grip alone reorders', async ({ page, context, baseURL }, testInfo) => {
+test('Goal2 hover side arrows shift neighbours without overlap and thumbnail drag reorders', async ({ page, context, baseURL }, testInfo) => {
   await ready(page, context, baseURL);
-  const ids = await stage(page, context, 12);
+  const ids = await stage(page, context, 20);
   await page.locator('textarea').first().fill('@img1 then @img2');
-  // Let the prompt-edit layout animation settle before measuring the strip.
-  await page.locator('[data-reference-grip]').first().hover();
+  await page.mouse.move(10, 10);
+  const firstCard = page.locator('[data-reference-id]').first();
+  const secondCard = page.locator('[data-reference-id]').nth(1);
+  await expect(firstCard).toHaveAttribute('data-arrows-visible', 'false');
+  const secondBefore = await secondCard.boundingBox();
+  await firstCard.hover();
+  await expect(firstCard).toHaveAttribute('data-arrows-visible', 'true');
+  const rightArrow = page.getByRole('button', { name: 'Move reference 1 right', exact: true });
+  const arrowBox = await rightArrow.boundingBox();
+  const thumbBox = await firstCard.locator('[data-reference-preview]').boundingBox();
+  const secondAfter = await secondCard.boundingBox();
+  expect(arrowBox.width).toBeGreaterThan(10);
+  // Right arrow sits outside the right edge of the thumbnail and shifts the second card right with no overlap.
+  expect(arrowBox.x).toBeGreaterThanOrEqual(thumbBox.x + thumbBox.width - 2);
+  expect(secondAfter.x).toBeGreaterThan(secondBefore.x + 15);
+  expect(secondAfter.x).toBeGreaterThanOrEqual(arrowBox.x + arrowBox.width - 1);
   const strip = page.getByTestId('reference-strip');
-  const bounds = await strip.boundingBox();
-  const cdp = await context.newCDPSession(page);
-  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true });
-  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, radiusX: 2, radiusY: 2, force: 1 }] });
-  await touch('touchStart', bounds.x + bounds.width - 50, bounds.y + 40);
-  for (let i = 1; i <= 10; i++) { await touch('touchMove', bounds.x + bounds.width - 50 - i * 45, bounds.y + 40); await page.waitForTimeout(16); }
-  await touch('touchEnd');
-  await expect.poll(() => strip.evaluate(el => el.scrollLeft)).toBeGreaterThan(100);
-  // The swipe ends in a momentum fling; wait until it stops, or it keeps scrolling over the wheel below.
-  let previous = -1;
-  await expect.poll(async () => {
-    const current = await strip.evaluate(el => el.scrollLeft);
-    const settled = current === previous;
-    previous = current;
-    return settled;
-  }, { intervals: [150] }).toBe(true);
+  await strip.hover();
+  await page.mouse.wheel(400, 0);
+  await expect.poll(() => strip.evaluate(el => el.scrollLeft)).toBeGreaterThan(50);
   expect(await order(page)).toEqual(ids);
-  await strip.hover(); await page.mouse.wheel(-2000, 0);
+  await page.mouse.wheel(-1000, 0);
   await expect.poll(() => strip.evaluate(el => el.scrollLeft)).toBeLessThan(5);
-  const grip = await page.locator('[data-reference-grip]').first().boundingBox();
-  const x = grip.x + grip.width / 2, y = grip.y + grip.height / 2;
-  await touch('touchStart', x, y);
-  for (let i = 1; i <= 8; i++) { await touch('touchMove', x + i * 13, y); await page.waitForTimeout(16); }
-  await touch('touchEnd');
+  const previewThumb = await firstCard.locator('[data-reference-preview]').boundingBox();
+  const x = previewThumb.x + previewThumb.width / 2, y = previewThumb.y + previewThumb.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 8; i++) { await page.mouse.move(x + i * 9, y); await page.waitForTimeout(16); }
+  await page.mouse.up();
   await expect.poll(async () => (await order(page))[1]).toBe(ids[0]);
   await expect(page.locator('textarea').first()).toHaveValue('@img1 then @img2');
-  await page.screenshot({ path: testInfo.outputPath('touch-scroll-grip-reorder.png') });
-  await cdp.detach();
+  await page.screenshot({ path: testInfo.outputPath('hover-arrows-and-thumbnail-drag-reorder.png') });
 });
 
 test('Goal2 mixed image video audio namespaces survive an image finalization completing last', async ({ page, context, baseURL }, testInfo) => {
@@ -545,4 +550,171 @@ test('Goal2 portrait inspector confirmed bulk deletion keeps partial failure sel
     expect(attempts).toBe(2);
     expect(await live()).toHaveLength(0);
   } finally { await page.unroute('**/api/portraits/delete').catch(() => {}); await sql.end?.(); }
+});
+
+test('Goal2 composer inline reference strip dividers blue tags zoomable preview lightbox and collapse', async ({ page, context, baseURL }, testInfo) => {
+  await ready(page, context, baseURL);
+  const composer = page.getByTestId('prompt-composer');
+  await expect(composer).toHaveAttribute('data-composer-collapsed', 'true');
+
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Video', exact: true }).click();
+  await page.getByRole('button', { name: /^Model:/ }).click();
+  await page.getByRole('menuitem', { name: /^Seedance 2\.5(?:\s|$)/ }).click();
+
+  const image1 = await context.request.get('/api/generations/10000000-0000-4000-8000-000000000001/download');
+  const image2 = await context.request.get('/api/generations/10000000-0000-4000-8000-000000000002/download');
+  const movie = await context.request.get('/api/generations/20000000-0000-4000-8000-000000000001/download');
+  const audioBytes = 40000;
+  const wav = Buffer.alloc(44 + audioBytes);
+  wav.write('RIFF'); wav.writeUInt32LE(36 + audioBytes, 4); wav.write('WAVEfmt ', 8);
+  wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28); wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34); wav.write('data', 36); wav.writeUInt32LE(audioBytes, 40);
+
+  const input = page.locator('input[type=file][multiple][accept="image/*,video/*,audio/*"]');
+  await input.setInputFiles([
+    { name: 'ref-a.png', mimeType: 'image/png', buffer: await image1.body() },
+    { name: 'ref-b.png', mimeType: 'image/png', buffer: await image2.body() },
+    { name: 'clip-1.mov', mimeType: 'video/quicktime', buffer: await movie.body() },
+    { name: 'voice-1.wav', mimeType: 'audio/wav', buffer: wav },
+  ]);
+
+  await expect(page.locator('[data-reference-id]')).toHaveCount(2, { timeout: 60000 });
+  await expect(page.locator('[data-reference-media="video"]')).toHaveCount(1);
+  await expect(page.locator('[data-reference-media="audio"]')).toHaveCount(1);
+  await expect(page.locator('[data-reference-grip]')).toHaveCount(0);
+
+  // Verify single inline strip order: images, divider, videos, divider, audio
+  const strip = page.getByTestId('reference-strip');
+  const stripChildrenOrder = await strip.evaluate((el) =>
+    Array.from(el.children).map((child) => child.getAttribute('data-reference-media') || child.getAttribute('data-divider-between'))
+  );
+  expect(stripChildrenOrder).toEqual(['image', 'image', 'image-video', 'video', 'video-audio', 'audio']);
+
+  // Verify compact Higgsfield-style 48x48px image reference chips
+  const firstCard = page.locator('[data-reference-id]').first();
+  const secondCard = page.locator('[data-reference-id]').nth(1);
+  const card1Box = await firstCard.boundingBox();
+  const thumb1Box = await firstCard.locator('[data-reference-preview]').boundingBox();
+  expect(Math.round(card1Box.height)).toBe(48);
+  expect(Math.round(thumb1Box.width)).toBeGreaterThanOrEqual(46);
+  expect(Math.round(thumb1Box.width)).toBeLessThanOrEqual(48);
+
+  // Verify hover outside side arrows have no background and shift neighbouring thumbnails without overlap
+  await page.mouse.move(10, 10);
+  await expect(firstCard).toHaveAttribute('data-arrows-visible', 'false');
+  const secondBefore = await secondCard.boundingBox();
+  await firstCard.hover();
+  await expect(firstCard).toHaveAttribute('data-arrows-visible', 'true');
+  const rightArrow = page.getByRole('button', { name: 'Move reference 1 right', exact: true });
+  const arrowStyle = await rightArrow.evaluate((el) => {
+    const cs = window.getComputedStyle(el);
+    return { bg: cs.backgroundColor, width: el.getBoundingClientRect().width };
+  });
+  expect(arrowStyle.bg).toBe('rgba(0, 0, 0, 0)');
+  expect(arrowStyle.width).toBeGreaterThanOrEqual(18);
+  const rightArrowBox = await rightArrow.boundingBox();
+  const secondAfter = await secondCard.boundingBox();
+  expect(secondAfter.x).toBeGreaterThan(secondBefore.x);
+  expect(secondAfter.x).toBeGreaterThanOrEqual(rightArrowBox.x + rightArrowBox.width - 1);
+  await page.screenshot({ path: testInfo.outputPath('shot-01-hover-arrows.png') });
+
+  // Focus textarea, enter multi-line prompt with @img1, @vid1, @audio1
+  const textarea = composer.locator('textarea').first();
+  const longLines = Array.from({ length: 14 }, (_, idx) => `Scene direction line ${idx + 1}`).join('\n');
+  const promptText = `Blend @img1 subject with @img2 palette, @vid1 motion, and @audio1 rhythm.\n${longLines}`;
+  await textarea.focus();
+  await textarea.fill(promptText);
+  await textarea.evaluate((el) => {
+    el.scrollTop = 0;
+    el.dispatchEvent(new Event('scroll'));
+  });
+  await expect(composer).toHaveAttribute('data-composer-collapsed', 'false');
+
+  // Verify dusty light blue (#589edb -> rgb(88, 158, 219)) highlight colour on @tags
+  const tagColors = await textarea.evaluate((ta) =>
+    Array.from(ta.previousElementSibling?.querySelectorAll('span') || []).map((el) => ({
+      tag: el.textContent,
+      color: window.getComputedStyle(el).color,
+    }))
+  );
+  expect(tagColors.length).toBeGreaterThanOrEqual(4);
+  for (const item of tagColors) {
+    expect(item.color).toBe('rgb(88, 158, 219)');
+  }
+
+  // Verify expanded composer never exceeds 50% of viewport/panel height and scrolls internally
+  const viewport = page.viewportSize();
+  const expandedBox = await composer.boundingBox();
+  expect(expandedBox.height).toBeLessThanOrEqual(viewport.height * 0.5 + 2);
+  await page.screenshot({ path: testInfo.outputPath('shot-02-inline-strip-blue-tags-expanded.png') });
+
+  // Click reference 1 to open dynamic zoomable preview lightbox
+  const previewBtn1 = page.getByRole('button', { name: 'Preview reference 1', exact: true });
+  await previewBtn1.click();
+  const dialog = page.getByRole('dialog', { name: 'Reference Preview', exact: true });
+  await expect(dialog).toBeVisible();
+  await expect(composer).toHaveAttribute('data-composer-collapsed', 'false');
+
+  const zoomReadout = dialog.getByTestId('lightbox-zoom-reset');
+  const stage = dialog.getByTestId('lightbox-stage');
+  await expect(zoomReadout).toHaveText('100%');
+
+  // Button zoom in
+  await dialog.getByRole('button', { name: 'Zoom in', exact: true }).click();
+  await expect(zoomReadout).toHaveText('125%');
+
+  // Keyboard '+' zoom in
+  await page.keyboard.press('+');
+  await expect(zoomReadout).toHaveText('150%');
+
+  // Ctrl+wheel (trackpad pinch) zoom in
+  await stage.dispatchEvent('wheel', { deltaY: -100, ctrlKey: true });
+  await expect.poll(async () => Number.parseInt((await zoomReadout.textContent()) || '0', 10)).toBeGreaterThan(150);
+
+  // Pan by drag when zoomed
+  const stageBox = await stage.boundingBox();
+  await page.mouse.move(stageBox.x + stageBox.width / 2, stageBox.y + stageBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(stageBox.x + stageBox.width / 2 + 45, stageBox.y + stageBox.height / 2 + 30, { steps: 5 });
+  await page.mouse.up();
+  await expect.poll(async () => Number(await stage.getAttribute('data-pan-x'))).toBeGreaterThan(10);
+  await page.screenshot({ path: testInfo.outputPath('shot-03-open-lightbox-zoomed.png') });
+
+  // Keyboard '0' resets zoom and pan; double-click toggles 200%; '-' steps down
+  await page.keyboard.press('0');
+  await expect(zoomReadout).toHaveText('100%');
+  await expect(stage).toHaveAttribute('data-pan-x', '0');
+  await stage.dblclick();
+  await expect(zoomReadout).toHaveText('200%');
+  await page.keyboard.press('-');
+  await expect(zoomReadout).toHaveText('175%');
+
+  // Escape closes lightbox and returns focus to the reference thumbnail button
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(previewBtn1).toBeFocused();
+
+  // Move pointer and focus outside composer -> composer collapses while preserving prompt and references
+  await page.mouse.move(10, 10);
+  await page.evaluate(() => document.activeElement?.blur?.());
+  await expect(composer).toHaveAttribute('data-composer-collapsed', 'true');
+  const collapsedBox = await composer.boundingBox();
+  expect(collapsedBox.height).toBeLessThan(expandedBox.height);
+  await expect(textarea).toBeVisible();
+  await expect(textarea).toHaveValue(promptText);
+  await expect(composer.getByRole('button', { name: 'Generate', exact: true })).toBeVisible();
+  await expect(page.locator('[data-reference-id]')).toHaveCount(2);
+  await page.screenshot({ path: testInfo.outputPath('shot-04-composer-collapsed.png') });
+
+  // Re-focus expands composer, then sending prompt collapses composer
+  await textarea.focus();
+  await expect(composer).toHaveAttribute('data-composer-collapsed', 'false');
+  await page.mouse.move(10, 10);
+  const responsePromise = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/api/generate/video'));
+  await composer.getByRole('button', { name: 'Generate', exact: true }).evaluate((btn) => btn.click());
+  const response = await responsePromise;
+  expect(response.ok()).toBeTruthy();
+  await expect(composer).toHaveAttribute('data-composer-collapsed', 'true');
+  await expect(page.locator('[data-reference-id]')).toHaveCount(2);
 });
