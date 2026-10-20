@@ -19,7 +19,7 @@ function withStore(patch, run) {
   globalThis.localStorage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)),
     removeItem: (key) => values.delete(key) };
   useNotices.setState({ notices: [] });
-  useStore.setState({ items: [], threadItems: [], pendingItems: [], generating: false, availableModelIds: null, prompt: "",
+  useStore.setState({ items: [], threadItems: [], pendingItems: [], generating: false, availableModelIds: null, availabilityAnswered: false, prompt: "",
     referenceImages: [], ...patch });
   return Promise.resolve(run(values)).finally(() => {
     globalThis.fetch = fetchBefore;
@@ -160,6 +160,24 @@ test("a saved composer on a model the session reports off moves onto the fallbac
     globalThis.fetch = async () => new Response(JSON.stringify({ user: { id: "u-1" }, availability: { models: KLING_AND_MAGNIFIC_OFF } }),
       { status: 200 });
     await useStore.getState().loadMe();
+    const state = useStore.getState();
+    assert.deepEqual([state.mode, state.model, state.aspectRatio, state.resolution], ["image", "Nano Banana Pro", "16:9", "1K"]);
+  }));
+
+test("a remount after the session answered moves a saved switched-off model onto the fallback; the cached hint alone does not", () =>
+  withStore({ mode: "video", model: "Seedance 2.0" }, async (values) => {
+    values.set("veevee-model-availability-v1", JSON.stringify(KLING_AND_MAGNIFIC_OFF));
+    values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "image", model: "Kling Image 3.0", aspectRatio: "16:9", resolution: "1K" }));
+    restoreComposerDraft();
+    assert.equal(useStore.getState().model, "Kling Image 3.0", "the cached hint alone keeps the saved model");
+
+    globalThis.fetch = async () => new Response(JSON.stringify({ user: { id: "u-1" }, availability: { models: KLING_AND_MAGNIFIC_OFF } }),
+      { status: 200 });
+    await useStore.getState().loadMe();
+    assert.equal(useStore.getState().model, "Nano Banana Pro");
+
+    values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "image", model: "Kling Image 3.0", aspectRatio: "16:9", resolution: "1K" }));
+    restoreComposerDraft();
     const state = useStore.getState();
     assert.deepEqual([state.mode, state.model, state.aspectRatio, state.resolution], ["image", "Nano Banana Pro", "16:9", "1K"]);
   }));

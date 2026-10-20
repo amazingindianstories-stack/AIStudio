@@ -563,6 +563,8 @@ export const useStore = create((set, get) => ({
   // Registry ids of the models new jobs may use (GET /api/auth/me `availability`); null until
   // known, when every offered model shows. See isModelAvailable.
   availableModelIds: null,
+  // Whether availableModelIds is the session's answer rather than this browser's cached hint.
+  availabilityAnswered: false,
   usersById: {},
   limits: {},
 
@@ -2648,7 +2650,9 @@ export const useStore = create((set, get) => ({
     if (!ids) return;
     cacheAvailability(ids);
     const known = get().availableModelIds;
-    if (!known || known.join("\n") !== ids.join("\n")) set({ availableModelIds: ids });
+    if (!known || known.join("\n") !== ids.join("\n") || !get().availabilityAnswered) {
+      set({ availableModelIds: ids, availabilityAnswered: true });
+    }
     reconcileAvailability(get, set);
   },
 
@@ -2961,6 +2965,7 @@ export function restoreComposerDraft() {
       // A fallback model keeps only the restored settings it offers; setModel clamps the rest.
       if (clampToModel) useStore.getState().setModel(patch.model);
     }
+    if (useStore.getState().availabilityAnswered) reconcileAvailability(useStore.getState, useStore.setState);
 
     // Legacy caches were unscoped and could contain binary/signed references.
     localStorage.removeItem(DRAFT_PROMPT_KEY);
