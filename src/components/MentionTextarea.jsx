@@ -321,7 +321,9 @@ export const MentionTextarea = forwardRef(
           aria-hidden
           className={cn(
             "pointer-events-none absolute inset-0 overflow-hidden text-white/90",
-            collapsed ? "max-h-[38px]" : "max-h-[240px]",
+            // Collapsed, the overlay stops at the end of the first line so the next line cannot peek
+            // through the bottom padding.
+            collapsed ? "max-h-[calc(0.5rem+1lh)]" : "max-h-[240px]",
             TYPO,
             className
           )}

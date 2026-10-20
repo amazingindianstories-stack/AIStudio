@@ -448,8 +448,12 @@ test('Goal2 hover side arrows shift neighbours without overlap and thumbnail dra
   await page.mouse.move(10, 10);
   await expect.poll(arrowWidth).toBe(0);
   expect((await secondCard.boundingBox()).x).toBeCloseTo(secondBefore.x, 0);
-  // Keyboard focus on the card reveals the same arrows and makes the same room; blurring hides them.
-  await firstCard.locator('[data-reference-preview]').focus();
+  // Focus on the thumbnail alone keeps the arrows hidden; tabbing onto an arrow reveals it and makes
+  // the same room; blurring hides it.
+  await page.getByRole('button', { name: 'Move reference 1 to position', exact: true }).focus();
+  await expect.poll(arrowWidth).toBe(0);
+  await page.keyboard.press('Tab');
+  await expect(rightArrow).toBeFocused();
   await expect.poll(arrowWidth).toBeGreaterThan(10);
   expect((await secondCard.boundingBox()).x).toBeGreaterThan(secondBefore.x + 15);
   await page.evaluate(() => document.activeElement?.blur());
@@ -770,6 +774,18 @@ test('Goal2 composer inline reference strip dividers blue tags zoomable preview 
   await expect(dialog).toHaveCount(0);
   await expect(previewBtn1).toBeFocused();
 
+  // The restored focus leaves the strip still, so the first click on a later chip opens its preview.
+  await expect.poll(() => rightArrow.evaluate((el) => el.getBoundingClientRect().width)).toBe(0);
+  const clipBox = await page.getByRole('button', { name: 'Preview reference clip 1', exact: true }).boundingBox();
+  await page.mouse.move(clipBox.x + clipBox.width / 2, clipBox.y + clipBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(90);
+  await page.mouse.up();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.locator('video')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
   // Move pointer and focus outside composer -> composer collapses while preserving prompt and references
   await page.mouse.move(10, 10);
   await page.evaluate(() => document.activeElement?.blur?.());
@@ -778,6 +794,13 @@ test('Goal2 composer inline reference strip dividers blue tags zoomable preview 
   expect(collapsedBox.height).toBeLessThan(expandedBox.height);
   await expect(textarea).toBeVisible();
   await expect(textarea).toHaveValue(promptText);
+  // Only the first prompt line paints; the second cannot peek through the bottom padding.
+  const overlayClip = await textarea.evaluate((ta) => {
+    const overlay = ta.previousElementSibling;
+    const cs = window.getComputedStyle(overlay);
+    return { height: overlay.getBoundingClientRect().height, firstLineBottom: parseFloat(cs.paddingTop) + parseFloat(cs.lineHeight) };
+  });
+  expect(overlayClip.height).toBeLessThanOrEqual(overlayClip.firstLineBottom + 0.5);
   await expect(composer.getByRole('button', { name: 'Generate', exact: true })).toBeVisible();
   await expect(page.locator('[data-reference-id]')).toHaveCount(2);
   await page.screenshot({ path: testInfo.outputPath('shot-04-composer-collapsed.png') });

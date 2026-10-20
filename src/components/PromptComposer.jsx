@@ -1469,9 +1469,11 @@ function resolveReferencePreviewUrl(src, portraitAssets = []) {
 }
 
 const TOUCH_LONG_PRESS_MS = 350;
-// Side arrows take no space until their card is hovered or holds focus; then they widen outside
-// the thumbnail and push the neighbouring cards aside.
-const REFERENCE_ARROW_REVEAL = "w-0 opacity-0 pointer-events-none group-hover/ref:w-5 group-hover/ref:opacity-100 group-hover/ref:pointer-events-auto group-focus-within/ref:w-5 group-focus-within/ref:opacity-100 group-focus-within/ref:pointer-events-auto";
+// Side arrows take no space until their card is hovered or the arrow itself has keyboard focus; then
+// they widen outside the thumbnail and push the neighbouring cards aside. Focus restored to a
+// thumbnail (closing its preview) must not reveal them, or the next click elsewhere in the strip
+// would collapse them between mousedown and mouseup and land on a shifted chip.
+const REFERENCE_ARROW_REVEAL = "w-0 opacity-0 pointer-events-none group-hover/ref:w-5 group-hover/ref:opacity-100 group-hover/ref:pointer-events-auto focus-visible:w-5 focus-visible:opacity-100 focus-visible:pointer-events-auto";
 const TOUCH_PRESS_SLOP = 8;
 
 /** Pointer sorting starts on the reference thumbnail: a mouse or pen drag reorders at once, while a
@@ -1696,7 +1698,7 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
             onClick={(e) => { e.stopPropagation(); move(id, sourceIndex - 1); }}
             className={cn(
               "grid h-7 shrink-0 place-items-center overflow-hidden border-0 bg-transparent p-0 text-white/75 shadow-none transition-opacity duration-150 hover:bg-transparent hover:text-white disabled:opacity-25",
-              ids.length > 1 ? cn(REFERENCE_ARROW_REVEAL, "group-hover/ref:mr-0.5 group-focus-within/ref:mr-0.5") : "w-0 opacity-0 pointer-events-none"
+              ids.length > 1 ? cn(REFERENCE_ARROW_REVEAL, "group-hover/ref:mr-0.5 focus-visible:mr-0.5") : "w-0 opacity-0 pointer-events-none"
             )}>
             <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
           </button>
@@ -1741,7 +1743,7 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
             onClick={(e) => { e.stopPropagation(); move(id, sourceIndex + 1); }}
             className={cn(
               "grid h-7 shrink-0 place-items-center overflow-hidden border-0 bg-transparent p-0 text-white/75 shadow-none transition-opacity duration-150 hover:bg-transparent hover:text-white disabled:opacity-25",
-              ids.length > 1 ? cn(REFERENCE_ARROW_REVEAL, "group-hover/ref:ml-0.5 group-focus-within/ref:ml-0.5") : "w-0 opacity-0 pointer-events-none"
+              ids.length > 1 ? cn(REFERENCE_ARROW_REVEAL, "group-hover/ref:ml-0.5 focus-visible:ml-0.5") : "w-0 opacity-0 pointer-events-none"
             )}>
             <ArrowRight className="h-3.5 w-3.5 shrink-0" />
           </button>
