@@ -13,7 +13,7 @@ from apps.generation.watermark import WHITESPACE
 from apps.library.services.idempotency import now_ms
 from apps.library.views import body_or_empty
 from apps.media.images import save_asset_image, delete_asset_image, split_data_url
-from .byteplus import get_client, BytePlusAssetError, validate_portrait_image
+from apps.integrations.byteplus import get_client, BytePlusAssetError, validate_portrait_image
 from . import portrait_db as db
 from .portrait_sync import sync_portraits, inventory_portraits, sign_stored_ref
 

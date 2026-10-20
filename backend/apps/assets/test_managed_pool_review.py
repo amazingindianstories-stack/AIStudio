@@ -168,7 +168,7 @@ class RetiredPortraitReferenceTests(GalleryBase):
         return self.client.post('/api/generate/video', payload, content_type='application/json')
 
     def test_an_old_portrait_marker_on_an_image_is_pooled_by_its_bytes_not_checked_at_byteplus(self):
-        from .byteplus import BytePlusAssetError
+        from apps.integrations.byteplus import BytePlusAssetError
 
         class GoneClient:
             def get_asset(self, identifier, **kwargs):

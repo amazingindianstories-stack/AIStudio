@@ -121,7 +121,7 @@ class PoolAssetTransport(HttpTransport):
 
 
 def default_client():
-    from .byteplus import BytePlusClient, config_from_env
+    from apps.integrations.byteplus import BytePlusClient, config_from_env
     config = config_from_env()
     config['is_mock'] = False
     return BytePlusClient(config, transport=PoolAssetTransport(allowed_hosts={ASSET_HOST}, timeout=30))
@@ -488,7 +488,7 @@ def forget_group(group_id):
 
 def remote_delete(asset, client):
     """Delete remotely with a verified outcome. Returns True when the slot is free."""
-    from .byteplus import BytePlusAssetError
+    from apps.integrations.byteplus import BytePlusAssetError
     if not asset.byteplus_asset_id:
         _finish(asset, status='DELETED', deleted_at=now_ms())
         return True
@@ -519,7 +519,7 @@ def _learn_capacity():
 
 
 def _register(asset, data, storage, client, user_id, requeue=False):
-    from .byteplus import BytePlusAssetError
+    from apps.integrations.byteplus import BytePlusAssetError
     key = asset.source_key
     try:
         derived = bounded_copy(data)
@@ -601,7 +601,7 @@ def _register(asset, data, storage, client, user_id, requeue=False):
 
 
 def _poll(asset, client):
-    from .byteplus import BytePlusAssetError
+    from apps.integrations.byteplus import BytePlusAssetError
     try:
         remote = client.get_asset(asset.byteplus_asset_id)
     except BytePlusAssetError as error:
@@ -648,7 +648,7 @@ def _poll(asset, client):
 
 def _verify(asset, client):
     """An ACTIVE row must still exist at BytePlus (it can be removed outside Veevee). Returns ready/None(gone)/wait."""
-    from .byteplus import BytePlusAssetError
+    from apps.integrations.byteplus import BytePlusAssetError
     try:
         remote = client.get_asset(asset.byteplus_asset_id)
     except BytePlusAssetError as error:
@@ -807,7 +807,7 @@ def _process_upload_once(*, client, storage=None, now=None):
 
 def _reconcile(asset, client):
     """Resolve an UNCERTAIN row against BytePlus by our deterministic asset name."""
-    from .byteplus import BytePlusAssetError
+    from apps.integrations.byteplus import BytePlusAssetError
     try:
         group = ManagedPortraitPool.objects.filter(pk=1).values_list('byteplus_group_id', flat=True).first()
         name = NAME_PREFIX + asset.content_sha256[:40]

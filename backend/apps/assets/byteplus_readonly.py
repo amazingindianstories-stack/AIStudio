@@ -25,7 +25,7 @@ class ReadOnlyGetAssetTransport(HttpTransport):
 
 
 def get_asset_client():
-    from .byteplus import BytePlusClient, config_from_env
+    from apps.integrations.byteplus import BytePlusClient, config_from_env
     config = config_from_env()
     config['is_mock'] = False
     return BytePlusClient(config=config, transport=ReadOnlyGetAssetTransport(allowed_hosts={GETASSET_HOST}, timeout=2))
