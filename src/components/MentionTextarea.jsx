@@ -4,11 +4,13 @@ import {
   useCallback,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useRef,
   useState,
   forwardRef,
 
 } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { syncMentionTagCorrection } from "@/lib/mentions";
 import { cn, referenceDisplayUrl } from "@/lib/utils";
@@ -145,6 +147,24 @@ export const MentionTextarea = forwardRef(
     // without this ArrowDown/ArrowUp could move activeIdx past the visible
     // window with no visual sign anything happened.
     const menuRef = useRef(null);
+    const fieldRef = useRef(null);
+    const [menuAnchor, setMenuAnchor] = useState(null);
+    const showMenu = menuOpen && available.length > 0;
+    // The menu floats above the field in a body portal, so a scrolling composer shell cannot clip it.
+    useLayoutEffect(() => {
+      if (!showMenu) return undefined;
+      const place = () => {
+        const rect = fieldRef.current?.getBoundingClientRect();
+        if (rect) setMenuAnchor({ right: window.innerWidth - rect.right, bottom: window.innerHeight - rect.top + 8 });
+      };
+      place();
+      window.addEventListener("resize", place);
+      window.addEventListener("scroll", place, true);
+      return () => {
+        window.removeEventListener("resize", place);
+        window.removeEventListener("scroll", place, true);
+      };
+    }, [showMenu]);
     const blurTimerRef = useRef(null);
     useEffect(() => () => {
       if (blurTimerRef.current) clearTimeout(blurTimerRef.current);
@@ -294,7 +314,7 @@ export const MentionTextarea = forwardRef(
     };
 
     return (
-      <div className="relative min-w-0 flex-1">
+      <div ref={fieldRef} className="relative min-w-0 flex-1">
         {/* highlight overlay (paint-only; background/color don't shift layout) */}
         <div
           ref={highlightRef}
@@ -362,8 +382,8 @@ export const MentionTextarea = forwardRef(
         )}
 
         {/* @ autocomplete */}
-        <AnimatePresence>
-          {menuOpen && available.length > 0 && (
+        {typeof document !== "undefined" && createPortal(<AnimatePresence>
+          {showMenu && (
             <motion.div
               ref={menuRef}
               role="listbox"
@@ -371,7 +391,8 @@ export const MentionTextarea = forwardRef(
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 6, scale: 0.97 }}
               transition={{ type: "spring", stiffness: 480, damping: 32 }}
-              className="scroll-thin absolute bottom-[calc(100%+8px)] right-0 z-50 max-h-64 w-[min(16rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl"
+              style={{ right: menuAnchor?.right ?? 8, bottom: menuAnchor?.bottom ?? 8, visibility: menuAnchor ? "visible" : "hidden" }}
+              className="scroll-thin fixed z-[100] max-h-64 w-[min(16rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl"
             >
               <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
                 Reference asset
@@ -403,12 +424,12 @@ export const MentionTextarea = forwardRef(
                       }}
                     />
                   ) : (
-                    <span className="grid h-8 w-8 place-items-center rounded-md bg-ink-700 text-[#589edb] ring-1 ring-line">
+                    <span className="grid h-8 w-8 place-items-center rounded-md bg-ink-700 text-mention ring-1 ring-line">
                       @
                     </span>
                   )}
                   <span className="flex min-w-0 flex-col">
-                    <span className="font-medium text-[#589edb]">{sug.label}</span>
+                    <span className="font-medium text-mention">{sug.label}</span>
                     {sug.sub && (
                       <span className="truncate text-[11px] text-white/40">
                         {sug.sub}
@@ -419,7 +440,7 @@ export const MentionTextarea = forwardRef(
               ))}
             </motion.div>
           )}
-        </AnimatePresence>
+        </AnimatePresence>, document.body)}
       </div>
     );
   }
@@ -496,9 +517,6 @@ function classifyMentionToken(raw) {
 const HIGHLIGHT_TOKEN_REGEX =
   /@(?:image|pic|img|video|vid|audio)[\s_-]*\d+(?![a-z0-9_-])|@([a-z][a-z0-9_-]*)/gi;
 
-export const MENTION_HIGHLIGHT_COLOR = "#589edb";
-export const MENTION_HIGHLIGHT_CLASS = "bg-[#589edb]/20 text-[#589edb]";
-
 /** Split text into plain runs and @tag tokens; valid tags get a dusty light blue (#589edb) highlight,
  *  unknown ones go red, recognized non-canonical tags get an amber hint. */
 function renderHighlighted(
@@ -545,7 +563,7 @@ function renderHighlighted(
           imageWarning ? "bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/40" : isValid
             ? isInformal
               ? "bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/40"
-              : MENTION_HIGHLIGHT_CLASS
+              : "bg-mention/20 text-mention"
             : "bg-red-500/20 text-red-300"
         )}
       >

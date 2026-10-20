@@ -52,6 +52,7 @@ import { VideoRefPicker } from "./VideoRefPicker";
 import { DepthComposer } from "./DepthComposer";
 import { UpscalerComposer } from "./UpscalerComposer";
 import { AssetLightbox } from "./AssetLightbox";
+import { useComposerCollapse } from "./useComposerCollapse";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, } from "./MentionTextarea";
 import {
@@ -127,11 +128,6 @@ export function PromptComposer() {
   const lastFrameFileRef = useRef(null);
   const mentionRef = useRef(null);
   const toolbarMeasureRef = useRef(null);
-  const composerRef = useRef(null);
-  const hasFocusRef = useRef(false);
-  const hasPointerRef = useRef(false);
-  const filePickerOpenRef = useRef(false);
-  const [collapsed, setCollapsed] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [pendingUploads, setPendingUploads] = useState(0);
   const uploading = pendingUploads > 0;
@@ -141,89 +137,12 @@ export function PromptComposer() {
   const [dragNotice, setDragNotice] = useState(null);
   const dragNoticeTimerRef = useRef(null);
 
-  const getOverlayFlags = () => {
-    const root = composerRef.current;
-    const menuOpen = Boolean(
-      root?.querySelector('[aria-haspopup="menu"][aria-expanded="true"]') ||
-        (typeof document !== "undefined" && document.querySelector('[role="menu"]'))
-    );
-    const dropdownOpen = Boolean(
-      root?.querySelector('[role="listbox"]') ||
-        pickingClips ||
-        s.assetLibraryOpen ||
-        s.portraitGalleryOpen
-    );
-    const previewOpen = Boolean(
-      typeof document !== "undefined" && document.querySelector('[role="dialog"][aria-modal="true"]')
-    );
-    const stripDragging = Boolean(root?.querySelector('[data-reference-strip-dragging="true"]'));
-    return {
-      menuOpen,
-      dropdownOpen,
-      filePickerOpen: filePickerOpenRef.current,
-      dragging: dragging || stripDragging,
-      previewOpen,
-    };
-  };
-
-  useEffect(() => {
-    if (collapsed && composerRef.current) {
-      composerRef.current.scrollTop = 0;
-    }
-  }, [collapsed]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-    const handleWindowMouseMove = (e) => {
-      const root = composerRef.current;
-      if (!root || !hasPointerRef.current) return;
-      const rect = root.getBoundingClientRect?.();
-      if (!rect || (rect.width === 0 && rect.height === 0)) return;
-      const inside =
-        e.clientX >= rect.left &&
-        e.clientX <= rect.right &&
-        e.clientY >= rect.top &&
-        e.clientY <= rect.bottom;
-      if (!inside) {
-        hasPointerRef.current = false;
-        const stillFocused = Boolean(typeof document !== "undefined" && root.contains(document.activeElement));
-        hasFocusRef.current = stillFocused;
-        if (shouldCollapseComposer({ hasFocus: stillFocused, hasPointer: false, ...getOverlayFlags() })) {
-          setCollapsed(true);
-        }
-      }
-    };
-    window.addEventListener("mousemove", handleWindowMouseMove, { passive: true });
-    return () => window.removeEventListener("mousemove", handleWindowMouseMove);
-  });
-
-  const openFilePickerWithGuard = (inputRef) => {
-    filePickerOpenRef.current = true;
-    if (typeof window !== "undefined") {
-      window.addEventListener(
-        "focus",
-        () => {
-          setTimeout(() => {
-            filePickerOpenRef.current = false;
-          }, 300);
-        },
-        { once: true }
-      );
-    }
-    inputRef.current?.click();
-  };
+  const { collapsed, shellProps: collapseProps, openFilePicker, collapseAfterSend } = useComposerCollapse({ overlayOpen: pickingClips, dragging });
 
   const handleSubmitPrompt = async () => {
     if (uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength) return;
     const created = await s.generate();
-    if (Array.isArray(created) ? created.length > 0 : Boolean(created)) {
-      hasFocusRef.current = false;
-      hasPointerRef.current = false;
-      if (typeof document !== "undefined" && composerRef.current?.contains(document.activeElement)) {
-        document.activeElement?.blur?.();
-      }
-      setCollapsed(true);
-    }
+    if (Array.isArray(created) ? created.length > 0 : Boolean(created)) collapseAfterSend();
   };
 
   const showDragNotice = (type, message) => {
@@ -532,57 +451,19 @@ export function PromptComposer() {
 
   return (
     <motion.div
-      ref={composerRef}
+      {...collapseProps}
       data-testid="prompt-composer"
-      data-composer-collapsed={collapsed ? "true" : "false"}
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 260, damping: 28 }}
       style={{ width: `min(100%, ${preferredWidth}px)` }}
-      onFocusCapture={(e) => {
-        hasFocusRef.current = true;
-        const tag = e.target?.tagName;
-        if (tag === "TEXTAREA" || tag === "INPUT") {
-          setCollapsed(false);
-        }
-      }}
-      onBlurCapture={(e) => {
-        const root = composerRef.current;
-        if (root && !root.contains(e.relatedTarget)) {
-          hasFocusRef.current = false;
-          setTimeout(() => {
-            const stillFocused = Boolean(root && typeof document !== "undefined" && root.contains(document.activeElement));
-            hasFocusRef.current = stillFocused;
-            if (shouldCollapseComposer({ hasFocus: stillFocused, hasPointer: hasPointerRef.current, ...getOverlayFlags() })) {
-              setCollapsed(true);
-            }
-          }, 0);
-        }
-      }}
-      onMouseEnter={() => {
-        hasPointerRef.current = true;
-      }}
-      onMouseLeave={() => {
-        hasPointerRef.current = false;
-        const root = composerRef.current;
-        const stillFocused = Boolean(root && typeof document !== "undefined" && root.contains(document.activeElement));
-        hasFocusRef.current = stillFocused;
-        if (shouldCollapseComposer({ hasFocus: stillFocused, hasPointer: false, ...getOverlayFlags() })) {
-          setCollapsed(true);
-        }
-      }}
-      onClick={(e) => {
-        if (!e.target?.closest?.("button, [role='menuitem'], [role='option']")) {
-          setCollapsed(false);
-        }
-      }}
       onPaste={onPaste}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       className={cn(
-        "composer-shell scroll-thin relative mx-auto flex max-h-[50dvh] max-w-full flex-col overflow-y-auto overscroll-y-contain rounded-2xl border border-line bg-ink-800/90 shadow-panel backdrop-blur-xl transition-[padding] duration-150",
+        "composer-shell scroll-thin relative mx-auto flex min-h-0 max-w-full flex-col overflow-y-auto overscroll-y-contain rounded-2xl border border-line bg-ink-800/90 shadow-panel backdrop-blur-xl transition-[padding] duration-150",
         collapsed ? "px-2.5 py-1.5" : "p-2.5"
       )}
     >
@@ -876,7 +757,7 @@ export function PromptComposer() {
             <>
               <MenuItem
                 onClick={() => {
-                  openFilePickerWithGuard(fileRef);
+                  openFilePicker(fileRef);
                   close();
                 }}
               >
@@ -886,7 +767,7 @@ export function PromptComposer() {
                 <>
                   <MenuItem
                     onClick={() => {
-                      openFilePickerWithGuard(firstFrameFileRef);
+                      openFilePicker(firstFrameFileRef);
                       close();
                     }}
                   >
@@ -894,7 +775,7 @@ export function PromptComposer() {
                   </MenuItem>
                   <MenuItem
                     onClick={() => {
-                      openFilePickerWithGuard(lastFrameFileRef);
+                      openFilePicker(lastFrameFileRef);
                       close();
                     }}
                   >
@@ -1586,8 +1467,12 @@ function resolveReferencePreviewUrl(src, portraitAssets = []) {
   return fragment ? `${fresh}#${fragment}` : fresh;
 }
 
-/** Pointer sorting is initiated directly on the reference thumbnail; the strip
- * itself remains a native scroll surface. Only a completed gesture changes the draft's reference order. */
+const TOUCH_LONG_PRESS_MS = 350;
+const TOUCH_PRESS_SLOP = 8;
+
+/** Pointer sorting starts on the reference thumbnail: a mouse or pen drag reorders at once, while a
+ * touch must long-press first, so a touch swipe keeps the strip a native scroll surface. Only a
+ * completed gesture changes the draft's reference order. */
 export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
   const strip = useRef(null);
   const gesture = useRef(null);
@@ -1658,7 +1543,15 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
     }
     frame.current = requestAnimationFrame(updateGesture);
   };
-  useEffect(() => () => { cancelAnimationFrame(frame.current); gesture.current = null; }, []);
+  useEffect(() => () => { cancelAnimationFrame(frame.current); clearTimeout(gesture.current?.pressTimer); gesture.current = null; }, []);
+  const hasReferences = totalCount > 0;
+  useEffect(() => {
+    const container = strip.current;
+    if (!container) return undefined;
+    const holdTouchDrag = (e) => { if (gesture.current?.active) e.preventDefault(); };
+    container.addEventListener("touchmove", holdTouchDrag, { passive: false });
+    return () => container.removeEventListener("touchmove", holdTouchDrag);
+  }, [hasReferences]);
 
   const openLightbox = (itemKey, triggerEl) => {
     setLightboxState({ key: itemKey, triggerEl: triggerEl || document.activeElement });
@@ -1667,11 +1560,14 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
   const start = (e, id) => {
     suppressNextClick.current = false;
     if (e.button !== 0 || ids.length < 2) return;
-    e.preventDefault();
-    // Capture on the stationary scroll container. Moving a captured card in
-    // the DOM can release capture before the pointer reaches the strip edge.
-    strip.current?.setPointerCapture?.(e.pointerId);
-    gesture.current = {
+    const touch = e.pointerType === "touch";
+    if (!touch) {
+      e.preventDefault();
+      // Capture on the stationary scroll container. Moving a captured card in
+      // the DOM can release capture before the pointer reaches the strip edge.
+      strip.current?.setPointerCapture?.(e.pointerId);
+    }
+    const current = {
       id,
       pointerId: e.pointerId,
       ids: [...ids],
@@ -1680,30 +1576,34 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
       startY: e.clientY,
       x: e.clientX,
       y: e.clientY,
+      touch,
       active: false,
+      abandoned: false,
       triggerEl: e.currentTarget,
     };
+    if (touch) {
+      current.pressTimer = setTimeout(() => {
+        if (gesture.current !== current || current.abandoned) return;
+        current.active = true;
+        strip.current?.setPointerCapture?.(current.pointerId);
+      }, TOUCH_LONG_PRESS_MS);
+    }
+    gesture.current = current;
     frame.current = requestAnimationFrame(updateGesture);
   };
   const end = (cancelled = false) => {
     cancelAnimationFrame(frame.current);
     const current = gesture.current;
     gesture.current = null;
+    clearTimeout(current?.pressTimer);
     setPreview(null);
     if (!current || cancelled) return;
-    if (current.active) {
-      suppressNextClick.current = true;
-      setTimeout(() => {
-        suppressNextClick.current = false;
-      }, 0);
-      commit(current.ordered, current.id);
-    } else if (current.triggerEl) {
-      suppressNextClick.current = true;
-      setTimeout(() => {
-        suppressNextClick.current = false;
-      }, 0);
-      openLightbox(`img:${current.id}`, current.triggerEl);
-    }
+    suppressNextClick.current = true;
+    setTimeout(() => {
+      suppressNextClick.current = false;
+    }, 0);
+    if (current.active) commit(current.ordered, current.id);
+    else if (!current.abandoned) openLightbox(`img:${current.id}`, current.triggerEl);
   };
 
   if (totalCount === 0) return null;
@@ -1765,10 +1665,16 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
     <div ref={strip}
       onPointerMove={(e) => {
         const current = gesture.current;
-        if (!current) return;
+        if (!current || current.abandoned) return;
         current.x = e.clientX;
         current.y = e.clientY;
-        if (!current.active && Math.abs(current.x - current.startX) > 5) {
+        if (current.active) return;
+        if (current.touch) {
+          if (Math.hypot(current.x - current.startX, current.y - current.startY) > TOUCH_PRESS_SLOP) {
+            clearTimeout(current.pressTimer);
+            current.abandoned = true;
+          }
+        } else if (Math.abs(current.x - current.startX) > 5) {
           current.active = true;
           // Capture on the stationary scroll container once dragging begins.
           strip.current?.setPointerCapture?.(current.pointerId);
@@ -1804,9 +1710,10 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
             )}>
             <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
           </button>
-          <div className={cn("relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-ink-800 focus-within:ring-2 focus-within:ring-[#589edb]", preview?.id === id ? "border-[#589edb] ring-2 ring-[#589edb]/70 opacity-50" : "border-line hover:border-white/25")}>
+          <div className={cn("relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-ink-800 focus-within:ring-2 focus-within:ring-mention", preview?.id === id ? "border-mention ring-2 ring-mention/70 opacity-50" : "border-line hover:border-white/25")}>
             <button type="button" data-reference-preview aria-label={`Preview reference ${sourceIndex + 1}`} title={`${label} (${tag}) - Click to preview, drag or Alt + arrow keys to reorder`}
               onPointerDown={(e) => start(e, id)}
+              onContextMenu={(e) => { if (gesture.current?.touch) e.preventDefault(); }}
               onClick={(e) => {
                 if (suppressNextClick.current) {
                   suppressNextClick.current = false;
@@ -1814,11 +1721,11 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
                 }
                 openLightbox(`img:${id}`, e.currentTarget);
               }}
-              className="relative block h-full w-full cursor-grab touch-none overflow-hidden rounded-[7px] focus-visible:outline-brand active:cursor-grabbing">
+              className={cn("relative block h-full w-full cursor-grab select-none overflow-hidden rounded-[7px] [-webkit-touch-callout:none] focus-visible:outline-brand active:cursor-grabbing", preview?.id === id ? "touch-none" : "touch-pan-x")}>
               <ReferenceThumbnail src={referenceThumbnailUrl(imageRefs[sourceIndex], s.portraits?.items)} alt={label} portrait={source.type === "portrait"} className="h-full w-full object-cover" />
-              <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/75 px-0.5 text-center font-mono text-[9px] font-semibold leading-[14px] text-[#589edb]">{tag}</span>
+              <span className="pointer-events-none absolute inset-x-0 bottom-0 truncate bg-black/75 px-0.5 text-center font-mono text-[9px] font-semibold leading-[14px] text-mention">{tag}</span>
             </button>
-            <button type="button" aria-label={`Insert ${tag}`} onClick={(e) => { e.stopPropagation(); insertTag?.(tag); }} className="sr-only focus:not-sr-only focus:absolute focus:inset-x-0 focus:bottom-0 focus:z-20 focus:bg-ink-950 focus:text-[9px] focus:text-[#589edb]">Insert {tag}</button>
+            <button type="button" aria-label={`Insert ${tag}`} onClick={(e) => { e.stopPropagation(); insertTag?.(tag); }} className="sr-only focus:not-sr-only focus:absolute focus:inset-x-0 focus:bottom-0 focus:z-20 focus:bg-ink-950 focus:text-[9px] focus:text-mention">Insert {tag}</button>
             {source.type === "portrait" && (
               <span data-reference-source="portrait" title={source.name ? `Portrait Gallery: ${source.name}` : "From the Portrait Gallery"}
                 className="pointer-events-none absolute left-0.5 top-0.5 grid h-3.5 w-3.5 place-items-center rounded-full bg-brand text-black shadow-sm">
@@ -1838,7 +1745,7 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
               </span>
             )}
             <button type="button" aria-label={`Remove reference ${sourceIndex + 1}`} onClick={(e) => { e.stopPropagation(); s.removeReference(sourceIndex); }} className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-ink-950/90 text-white/90 hover:bg-red-600 hover:text-white"><X className="h-2.5 w-2.5" /></button>
-            <button type="button" aria-label={`Move reference ${sourceIndex + 1} to position`} onClick={() => { setPositionId(id); setPosition(sourceIndex + 1); }} className="sr-only focus:not-sr-only focus:absolute focus:inset-x-0 focus:top-0 focus:z-20 focus:bg-ink-950 focus:text-[9px] focus:text-[#589edb]">Move to position…</button>
+            <button type="button" aria-label={`Move reference ${sourceIndex + 1} to position`} onClick={() => { setPositionId(id); setPosition(sourceIndex + 1); }} className="sr-only focus:not-sr-only focus:absolute focus:inset-x-0 focus:top-0 focus:z-20 focus:bg-ink-950 focus:text-[9px] focus:text-mention">Move to position…</button>
           </div>
           <button type="button" data-reference-arrow="right" aria-label={`Move reference ${sourceIndex + 1} right`} disabled={sourceIndex === ids.length - 1}
             onClick={(e) => { e.stopPropagation(); move(id, sourceIndex + 1); }}
@@ -1873,15 +1780,15 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
               onClick={(e) => openLightbox(`vid:${i}`, e.currentTarget)}
               className="flex h-full items-center gap-1.5 text-left focus-visible:outline-brand"
             >
-              <Clapperboard className="h-3.5 w-3.5 shrink-0 text-[#589edb]" />
+              <Clapperboard className="h-3.5 w-3.5 shrink-0 text-mention" />
               <span className="flex flex-col leading-tight">
-                <span className="font-mono text-[10px] font-semibold text-[#589edb]">{tag}</span>
+                <span className="font-mono text-[10px] font-semibold text-mention">{tag}</span>
                 {noteName && noteName !== `Clip ${i + 1}` && (
                   <span className="max-w-[84px] truncate text-[10px] text-white/55">{noteName}</span>
                 )}
               </span>
             </button>
-            <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag?.(tag)} className="sr-only focus:not-sr-only focus:text-[10px] focus:text-[#589edb]">Insert {tag}</button>
+            <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag?.(tag)} className="sr-only focus:not-sr-only focus:text-[10px] focus:text-mention">Insert {tag}</button>
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); s.removeReferenceVideo?.(i); }}
@@ -1921,10 +1828,10 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
               onClick={(e) => openLightbox(`audio:${i}`, e.currentTarget)}
               className="flex h-full items-center gap-1.5 text-left focus-visible:outline-brand"
             >
-              <AudioLines className="h-3.5 w-3.5 shrink-0 text-[#589edb]" />
+              <AudioLines className="h-3.5 w-3.5 shrink-0 text-mention" />
               <span className="flex flex-col leading-tight">
                 <span className="flex items-center gap-1">
-                  <span className="font-mono text-[10px] font-semibold text-[#589edb]">{tag}</span>
+                  <span className="font-mono text-[10px] font-semibold text-mention">{tag}</span>
                   {typeof note?.duration === "number" && (
                     <span className={cn("rounded px-1 text-[9px] font-semibold leading-[13px] tabular-nums", rejected ? "bg-red-600 text-white" : "bg-black/55 text-white/80")}>
                       {formatAudioSeconds(note.duration)}
@@ -1934,7 +1841,7 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
                 <span className="max-w-[76px] truncate text-[10px] text-white/55">{audioName}</span>
               </span>
             </button>
-            <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag?.(tag)} className="sr-only focus:not-sr-only focus:text-[10px] focus:text-[#589edb]">Insert {tag}</button>
+            <button type="button" aria-label={`Insert ${tag}`} onClick={() => insertTag?.(tag)} className="sr-only focus:not-sr-only focus:text-[10px] focus:text-mention">Insert {tag}</button>
             <button
               type="button"
               aria-label={`Remove audio note ${i + 1}`}
@@ -1953,9 +1860,9 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
         );
       })}
     </div>
-    {preview && <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-14 rounded-lg border-2 border-[#589edb] bg-ink-800 p-0.5 shadow-xl" style={{ left: preview.x - 28, top: preview.y - 56 }}>
+    {preview && <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-14 rounded-lg border-2 border-mention bg-ink-800 p-0.5 shadow-xl" style={{ left: preview.x - 28, top: preview.y - 56 }}>
       <ReferenceThumbnail src={referenceThumbnailUrl(imageRefs[activeIndex], s.portraits?.items)} alt="Reference" className="h-12 w-full rounded object-cover" />
-      <span className="block text-center text-[10px] text-[#589edb]">#{preview.ids.indexOf(preview.id) + 1}</span>
+      <span className="block text-center text-[10px] text-mention">#{preview.ids.indexOf(preview.id) + 1}</span>
     </div>}
     {positionId && <form className="flex items-center gap-2 rounded border border-line p-2" onSubmit={(e) => { e.preventDefault(); move(positionId, Number(position) - 1); setPositionId(null); }}>
       <label className="text-xs">Move to position <input autoFocus type="number" min="1" max={ids.length} required value={position} onChange={(e) => setPosition(e.target.value)} className="ml-1 w-16 rounded bg-ink-950 p-1" /></label>
@@ -1979,21 +1886,6 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
   </div>;
 }
 
-
-export function shouldCollapseComposer({
-  hasFocus = false,
-  hasPointer = false,
-  menuOpen = false,
-  dropdownOpen = false,
-  filePickerOpen = false,
-  dragging = false,
-  previewOpen = false,
-} = {}) {
-  if (menuOpen || dropdownOpen || filePickerOpen || dragging || previewOpen) {
-    return false;
-  }
-  return !hasFocus && !hasPointer;
-}
 
 export function stagedReferenceCount(state) {
   return (state.referenceImages?.length || 0) + (state.referenceVideos?.length || 0) + (state.audioNotes?.length || 0);

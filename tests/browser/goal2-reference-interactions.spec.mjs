@@ -463,6 +463,70 @@ test('Goal2 hover side arrows shift neighbours without overlap and thumbnail dra
   await page.screenshot({ path: testInfo.outputPath('hover-arrows-and-thumbnail-drag-reorder.png') });
 });
 
+test('Goal2 actual touch swipe scrolls thumbnails, long press drags to reorder and tap previews', async ({ page, context, baseURL }, testInfo) => {
+  await ready(page, context, baseURL);
+  const ids = await stage(page, context, 30);
+  await page.locator('textarea').first().fill('@img1 then @img2');
+  // Close the @mention suggestions, which float over the strip, so the swipe lands on thumbnails.
+  await page.locator('textarea').first().press('Escape');
+  await expect(page.getByRole('listbox')).toHaveCount(0);
+  // Let the prompt-edit layout settle before measuring the strip, then move the mouse away.
+  await page.locator('[data-reference-preview]').first().hover();
+  await page.mouse.move(10, 10);
+  const strip = page.getByTestId('reference-strip');
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Emulation.setTouchEmulationEnabled', { enabled: true });
+  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, radiusX: 2, radiusY: 2, force: 1 }] });
+  // The swipe starts on a thumbnail, not on a gap between cards.
+  const swipeStart = await strip.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    const thumb = Array.from(el.querySelectorAll('[data-reference-preview]')).map((t) => t.getBoundingClientRect()).filter((r) => r.right <= box.right).at(-1);
+    return { x: thumb.left + thumb.width / 2, y: thumb.top + thumb.height / 2 };
+  });
+  expect(await page.evaluate(({ x, y }) => Boolean(document.elementFromPoint(x, y)?.closest('[data-reference-preview]')), swipeStart)).toBe(true);
+  await touch('touchStart', swipeStart.x, swipeStart.y);
+  for (let i = 1; i <= 10; i++) { await touch('touchMove', swipeStart.x - i * 45, swipeStart.y); await page.waitForTimeout(16); }
+  await touch('touchEnd');
+  await expect.poll(() => strip.evaluate(el => el.scrollLeft)).toBeGreaterThan(100);
+  // The swipe ends in a momentum fling; wait until it stops, or it keeps scrolling over the wheel below.
+  let previous = -1;
+  await expect.poll(async () => {
+    const current = await strip.evaluate(el => el.scrollLeft);
+    const settled = current === previous;
+    previous = current;
+    return settled;
+  }, { intervals: [150] }).toBe(true);
+  expect(await order(page)).toEqual(ids);
+  await expect(page.getByRole('dialog', { name: 'Reference Preview', exact: true })).toHaveCount(0);
+  await strip.hover(); await page.mouse.wheel(-4000, 0);
+  await expect.poll(() => strip.evaluate(el => el.scrollLeft)).toBeLessThan(5);
+  await page.mouse.move(10, 10);
+
+  // A long press on the first thumbnail starts the drag; moving past the second card reorders.
+  const first = await page.locator('[data-reference-preview]').first().boundingBox();
+  const second = await page.locator('[data-reference-preview]').nth(1).boundingBox();
+  const x = first.x + first.width / 2, y = first.y + first.height / 2;
+  const target = second.x + second.width / 2 + 12;
+  await touch('touchStart', x, y);
+  await expect(strip).toHaveAttribute('data-reference-strip-dragging', 'true');
+  for (let i = 1; i <= 8; i++) { await touch('touchMove', x + (target - x) * i / 8, y); await page.waitForTimeout(16); }
+  await touch('touchEnd');
+  await expect.poll(async () => (await order(page))[1]).toBe(ids[0]);
+  expect((await order(page))[0]).toBe(ids[1]);
+  expect(await strip.evaluate(el => el.scrollLeft)).toBeLessThan(5);
+  await expect(page.locator('textarea').first()).toHaveValue('@img1 then @img2');
+  await expect(page.getByRole('dialog', { name: 'Reference Preview', exact: true })).toHaveCount(0);
+  await page.screenshot({ path: testInfo.outputPath('touch-scroll-long-press-reorder.png') });
+
+  // A tap previews the reference.
+  const tapped = await page.locator('[data-reference-preview]').first().boundingBox();
+  await touch('touchStart', tapped.x + tapped.width / 2, tapped.y + tapped.height / 2);
+  await touch('touchEnd');
+  await expect(page.getByRole('dialog', { name: 'Reference Preview', exact: true })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await cdp.detach();
+});
+
 test('Goal2 mixed image video audio namespaces survive an image finalization completing last', async ({ page, context, baseURL }, testInfo) => {
   await ready(page, context, baseURL);
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Video', exact: true }).click();
@@ -643,10 +707,13 @@ test('Goal2 composer inline reference strip dividers blue tags zoomable preview 
     expect(item.color).toBe('rgb(88, 158, 219)');
   }
 
-  // Verify expanded composer never exceeds 50% of viewport/panel height and scrolls internally
-  const viewport = page.viewportSize();
+  // The expanded composer reaches its cap: at most half the panel behind it, wholly inside that
+  // panel, and scrolling internally for the rest.
+  const panelBox = await page.locator('main').boundingBox();
   const expandedBox = await composer.boundingBox();
-  expect(expandedBox.height).toBeLessThanOrEqual(viewport.height * 0.5 + 2);
+  expect(await composer.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+  expect(expandedBox.height).toBeLessThanOrEqual(panelBox.height * 0.5 + 1);
+  expect(expandedBox.y + expandedBox.height).toBeLessThanOrEqual(panelBox.y + panelBox.height + 0.5);
   await page.screenshot({ path: testInfo.outputPath('shot-02-inline-strip-blue-tags-expanded.png') });
 
   // Click reference 1 to open dynamic zoomable preview lightbox
@@ -712,7 +779,7 @@ test('Goal2 composer inline reference strip dividers blue tags zoomable preview 
   await expect(composer).toHaveAttribute('data-composer-collapsed', 'false');
   await page.mouse.move(10, 10);
   const responsePromise = page.waitForResponse((res) => res.request().method() === 'POST' && res.url().endsWith('/api/generate/video'));
-  await composer.getByRole('button', { name: 'Generate', exact: true }).evaluate((btn) => btn.click());
+  await composer.getByRole('button', { name: 'Generate', exact: true }).click();
   const response = await responsePromise;
   expect(response.ok()).toBeTruthy();
   await expect(composer).toHaveAttribute('data-composer-collapsed', 'true');

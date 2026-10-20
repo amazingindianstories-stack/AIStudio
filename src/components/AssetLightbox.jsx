@@ -14,13 +14,13 @@ import {
   ExternalLink,
   ZoomIn,
   ZoomOut,
-  RotateCcw,
   Clapperboard,
   AudioLines,
   Image as ImageIcon,
   Box,
 } from "lucide-react";
 import { inlineMediaUrl } from "@/lib/utils";
+import { extensionForContentType } from "@/lib/client-reference-upload";
 import { fetchRetryBusy } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { notify } from "@/lib/notify";
@@ -31,10 +31,15 @@ export const MAX_LIGHTBOX_ZOOM = 5;
 export const DEFAULT_LIGHTBOX_ZOOM = 1;
 export const LIGHTBOX_ZOOM_STEP = 0.25;
 
+const WHEEL_LINE_PX = 16;
+const WHEEL_PAGE_PX = 800;
+const WHEEL_ZOOM_PER_PX = 0.002;
+const PINCH_ZOOM_PER_PX = 0.01;
+
 export function clampLightboxZoom(value) {
   const num = Number(value);
   if (!Number.isFinite(num)) return DEFAULT_LIGHTBOX_ZOOM;
-  return Math.min(MAX_LIGHTBOX_ZOOM, Math.max(MIN_LIGHTBOX_ZOOM, Math.round(num * 100) / 100));
+  return Math.min(MAX_LIGHTBOX_ZOOM, Math.max(MIN_LIGHTBOX_ZOOM, num));
 }
 
 export function stepLightboxZoom(current, direction) {
@@ -42,10 +47,12 @@ export function stepLightboxZoom(current, direction) {
   return clampLightboxZoom(current + delta);
 }
 
-export function computeWheelZoom(current, deltaY, isPinch = false) {
+/** Zoom proportionally to the scrolled distance, so a trackpad's many small deltas and a
+ * wheel's few large notches both cover the same range for the same physical gesture. */
+export function computeWheelZoom(current, deltaY, isPinch = false, deltaMode = 0) {
   if (!Number.isFinite(deltaY) || deltaY === 0) return current;
-  const factor = isPinch ? -deltaY * 0.01 : deltaY < 0 ? LIGHTBOX_ZOOM_STEP : -LIGHTBOX_ZOOM_STEP;
-  return clampLightboxZoom(current + factor);
+  const px = deltaY * (deltaMode === 1 ? WHEEL_LINE_PX : deltaMode === 2 ? WHEEL_PAGE_PX : 1);
+  return clampLightboxZoom(current * Math.exp(-px * (isPinch ? PINCH_ZOOM_PER_PX : WHEEL_ZOOM_PER_PX)));
 }
 
 export function AssetLightbox({
@@ -164,7 +171,7 @@ export function AssetLightbox({
     if (!stage) return undefined;
     const handleNativeWheel = (e) => {
       e.preventDefault();
-      applyZoom((z) => computeWheelZoom(z, e.deltaY, e.ctrlKey || e.metaKey));
+      applyZoom((z) => computeWheelZoom(z, e.deltaY, e.ctrlKey || e.metaKey, e.deltaMode));
     };
     stage.addEventListener("wheel", handleNativeWheel, { passive: false });
     return () => stage.removeEventListener("wheel", handleNativeWheel);
@@ -212,7 +219,8 @@ export function AssetLightbox({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${(asset.slug || asset.name || "material-sheet").replace(/\s+/g, "-")}.png`;
+      const extension = extensionForContentType(blob.type) || (mediaType === "image" ? "png" : "");
+      a.download = `${(asset.slug || asset.name || "material-sheet").replace(/\s+/g, "-")}${extension ? `.${extension}` : ""}`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -261,7 +269,7 @@ export function AssetLightbox({
                   type="button"
                   onClick={handleCopySlug}
                   title={`Copy ${tagText}`}
-                  className="flex min-w-0 max-w-full items-center gap-1 font-mono text-xs font-semibold text-[#589edb] transition hover:text-white"
+                  className="flex min-w-0 max-w-full items-center gap-1 font-mono text-xs font-semibold text-mention transition hover:text-white"
                 >
                   <span className="truncate">{tagText}</span>
                   {copiedSlug ? (
@@ -288,7 +296,7 @@ export function AssetLightbox({
                 onInsertTag(tagText);
                 onClose();
               }}
-              className="flex items-center gap-1.5 rounded-lg bg-[#589edb]/20 px-3 py-1.5 text-xs font-semibold text-[#589edb] ring-1 ring-[#589edb]/40 transition hover:bg-[#589edb]/30"
+              className="flex items-center gap-1.5 rounded-lg bg-mention/20 px-3 py-1.5 text-xs font-semibold text-mention ring-1 ring-mention/40 transition hover:bg-mention/30"
             >
               Insert {tagText}
             </button>
@@ -351,17 +359,6 @@ export function AssetLightbox({
             >
               <ZoomIn className="h-3.5 w-3.5" />
             </button>
-            {(isZoomed || pan.x !== 0 || pan.y !== 0) && (
-              <button
-                type="button"
-                aria-label="Fit to screen"
-                onClick={resetZoom}
-                title="Fit to screen (0)"
-                className="grid h-7 w-7 place-items-center rounded text-white/70 transition hover:bg-white/10 hover:text-white"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
-            )}
           </div>
 
           {/* Download Button */}
@@ -504,7 +501,7 @@ export function AssetLightbox({
               />
             ) : mediaType === "audio" ? (
               <div className="flex flex-col items-center gap-4 rounded-2xl border border-white/10 bg-ink-900 px-8 py-6 text-center">
-                <AudioLines className="h-10 w-10 text-[#589edb]" />
+                <AudioLines className="h-10 w-10 text-mention" />
                 <p className="text-sm font-medium text-white">{asset.name}</p>
                 {imageUrl && <audio src={imageUrl} controls className="w-72 max-w-full" />}
               </div>

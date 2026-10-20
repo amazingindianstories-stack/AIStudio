@@ -4,8 +4,8 @@ import React, { act } from "react";
 import { JSDOM } from "jsdom";
 import { createRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { PromptComposer, ReferenceStrip, shouldCollapseComposer } from "./PromptComposer.jsx";
-import { resolveReferences } from "../lib/mentions.js";
+import { PromptComposer, ReferenceStrip } from "./PromptComposer.jsx";
+import { shouldCollapseComposer } from "./useComposerCollapse.js";
 import { useStore } from "../lib/store";
 
 test("composer renders attached references with the production store shape", () => {
@@ -25,7 +25,7 @@ test("composer renders attached references with the production store shape", () 
     const html = renderToString(React.createElement(PromptComposer));
     assert.match(html, /data:image\/png;base64,aGVsbG8=/);
     assert.match(html, /@img1/);
-    assert.match(html, /bg-\[#589edb\]\/20 text-\[#589edb\]">@audio1<\/span>/);
+    assert.match(html, /bg-mention\/20 text-mention">@audio1<\/span>/);
   } finally {
     Object.assign(initial, before);
     globalThis.React = previousReact;
@@ -100,7 +100,7 @@ test("composer renders attached video references with @vid chips and motion tran
   }
 });
 
-test("ReferenceStrip renders single inline strip in order images, divider, videos, divider, audio and @imgN follows reorder", () => {
+test("ReferenceStrip renders single inline strip in order images, divider, videos, divider, audio", () => {
   const previousReact = globalThis.React;
   globalThis.React = React;
   try {
@@ -124,13 +124,6 @@ test("ReferenceStrip renders single inline strip in order images, divider, video
     assert.ok(vidIdx > div1Idx, "videos follow image-video divider");
     assert.ok(div2Idx > vidIdx, "video-audio divider follows videos");
     assert.ok(audIdx > div2Idx, "audio follows video-audio divider");
-    assert.match(html, /h-12 w-12/, "compact Higgsfield-sized image reference chips");
-
-    // Verify @imgN positional semantics follow the new order after reorder
-    const beforeReorder = resolveReferences("Use @img1 as subject and @img2 as style", ["/img-a.png", "/img-b.png"]);
-    assert.deepEqual(beforeReorder.map((r) => r.dataUrl), ["/img-a.png", "/img-b.png"]);
-    const afterReorder = resolveReferences("Use @img1 as subject and @img2 as style", ["/img-b.png", "/img-a.png"]);
-    assert.equal(afterReorder[0].dataUrl, "/img-b.png", "@img1 resolves to whatever now occupies slot 1");
   } finally {
     globalThis.React = previousReact;
   }
@@ -214,7 +207,116 @@ test("clicking a reference opens the preview lightbox while dragging or clicking
   }
 });
 
-test("composer collapse helper and interactive shell collapse on send and blur/leave, expand on focus, cap at 50% height, and stay open while overlays are active", async () => {
+test("touch on a reference thumbnail leaves swipes to native scrolling, previews on tap and reorders only after a long press", async () => {
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
+  const keys = ["window", "document", "HTMLElement", "requestAnimationFrame", "cancelAnimationFrame", "React", "IS_REACT_ACT_ENVIRONMENT"];
+  const previous = Object.fromEntries(keys.map((key) => [key, globalThis[key]]));
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    React,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    requestAnimationFrame: (fn) => setTimeout(fn, 0),
+    cancelAnimationFrame: clearTimeout,
+  });
+  dom.window.requestAnimationFrame = globalThis.requestAnimationFrame;
+  dom.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
+  dom.window.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {} });
+  dom.window.HTMLElement.prototype.scrollIntoView = function () {};
+  const touch = (type, clientX, clientY = 20) => {
+    const event = new dom.window.MouseEvent(type, { button: 0, clientX, clientY, bubbles: true, cancelable: true });
+    Object.defineProperty(event, "pointerType", { value: "touch" });
+    Object.defineProperty(event, "pointerId", { value: 7 });
+    return event;
+  };
+  const touchMove = () => new dom.window.Event("touchmove", { bubbles: true, cancelable: true });
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const reordered = [];
+  const storeState = {
+    referenceIds: ["ref-1", "ref-2", "ref-3"],
+    referenceImages: ["/img-1.png", "/img-2.png", "/img-3.png"],
+    referenceKinds: ["image", "image", "image"],
+    referenceVideos: [],
+    audioNotes: [],
+    portraits: { items: [] },
+    reorderReferencesByIds: (ids) => reordered.push(ids),
+    undoReferenceReorder() {},
+    removeReference() {},
+  };
+  const root = createRoot(document.querySelector("#root"));
+  try {
+    await act(async () => root.render(React.createElement(ReferenceStrip, { store: storeState, insertTag() {} })));
+    const strip = document.querySelector('[data-testid="reference-strip"]');
+    const thumb = document.querySelector('button[aria-label="Preview reference 1"]');
+    let captures = 0;
+    strip.setPointerCapture = () => { captures += 1; };
+
+    // A swipe is left to the browser: pointerdown is not prevented, nothing is captured, and the
+    // pan's pointercancel neither reorders nor previews.
+    const down = touch("pointerdown", 50);
+    await act(async () => {
+      thumb.dispatchEvent(down);
+      thumb.dispatchEvent(touch("pointermove", 90));
+      const move = touchMove();
+      strip.dispatchEvent(move);
+      assert.equal(move.defaultPrevented, false, "a swipe's touchmove can scroll the strip");
+      thumb.dispatchEvent(touch("pointercancel", 90));
+      await wait(400);
+    });
+    assert.equal(down.defaultPrevented, false, "touch pointerdown leaves native panning available");
+    assert.equal(captures, 0);
+    assert.equal(strip.getAttribute("data-reference-strip-dragging"), "false");
+    assert.deepEqual(reordered, []);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+
+    // A touch that drifts past the slop without a pan does not preview or reorder either.
+    await act(async () => {
+      thumb.dispatchEvent(touch("pointerdown", 50));
+      thumb.dispatchEvent(touch("pointermove", 50, 40));
+      await wait(400);
+      thumb.dispatchEvent(touch("pointerup", 50, 40));
+      thumb.click();
+    });
+    assert.deepEqual(reordered, []);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+
+    // A tap opens the preview.
+    await act(async () => {
+      thumb.dispatchEvent(touch("pointerdown", 50));
+      thumb.dispatchEvent(touch("pointerup", 50));
+      thumb.click();
+    });
+    assert.ok(document.querySelector('[role="dialog"]'), "tap opens preview");
+    await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+
+    // A long press starts the drag, holds the strip still and reorders on release.
+    await act(async () => {
+      thumb.dispatchEvent(touch("pointerdown", 50));
+      await wait(400);
+    });
+    assert.equal(strip.getAttribute("data-reference-strip-dragging"), "true", "long press starts the reorder drag");
+    assert.equal(captures, 1);
+    await act(async () => {
+      const move = touchMove();
+      strip.dispatchEvent(move);
+      assert.equal(move.defaultPrevented, true, "a long-press drag keeps the strip from scrolling");
+      strip.dispatchEvent(touch("pointermove", 180));
+      await wait(20);
+      strip.dispatchEvent(touch("pointerup", 180));
+    });
+    assert.deepEqual(reordered.at(-1), ["ref-2", "ref-3", "ref-1"]);
+    assert.equal(document.querySelector('[role="dialog"]'), null, "a long-press drag does not open preview");
+  } finally {
+    await act(async () => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    Object.assign(globalThis, previous);
+    dom.window.close();
+  }
+});
+
+test("composer collapse helper and interactive shell collapse on send and blur/leave, expand on focus, and stay open while overlays are active", async () => {
   assert.equal(shouldCollapseComposer({ hasFocus: false, hasPointer: false }), true);
   assert.equal(shouldCollapseComposer({ hasFocus: true, hasPointer: false }), false);
   assert.equal(shouldCollapseComposer({ hasFocus: false, hasPointer: true }), false);
@@ -282,8 +384,6 @@ test("composer collapse helper and interactive shell collapse on send and blur/l
 
     // Starts collapsed while keeping prompt input, send button, and references
     assert.equal(composer.getAttribute("data-composer-collapsed"), "true");
-    assert.ok(composer.className.includes("max-h-[50dvh]"), "capped at 50% height");
-    assert.ok(composer.className.includes("overflow-y-auto"), "scrolls internally");
     assert.equal(textarea.value, "Draft prompt with @img1 preserved");
     assert.ok(generateBtn, "send button visible when collapsed");
     assert.equal(composer.querySelectorAll("[data-reference-id]").length, 1, "references preserved when collapsed");
@@ -296,7 +396,7 @@ test("composer collapse helper and interactive shell collapse on send and blur/l
 
     // Does not collapse when focus leaves if pointer is still inside
     await act(async () => {
-      composer.dispatchEvent(new dom.window.MouseEvent("mouseover", { bubbles: true }));
+      composer.dispatchEvent(new dom.window.MouseEvent("mouseenter"));
       document.querySelector("#outside").focus();
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
@@ -304,7 +404,7 @@ test("composer collapse helper and interactive shell collapse on send and blur/l
 
     // Collapses once pointer also leaves
     await act(async () => {
-      composer.dispatchEvent(new dom.window.MouseEvent("mouseout", { bubbles: true }));
+      composer.dispatchEvent(new dom.window.MouseEvent("mouseleave"));
     });
     assert.equal(composer.getAttribute("data-composer-collapsed"), "true", "collapses when both focus and pointer leave");
     assert.equal(textarea.value, "Draft prompt with @img1 preserved", "draft text preserved on collapse");

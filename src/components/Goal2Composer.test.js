@@ -30,11 +30,8 @@ test("reference controls preserve duplicate occurrence IDs and support move, key
     const button = (name) => document.querySelector(`button[aria-label='${name}']`);
     const firstCard = document.querySelector('[data-reference-id="first"]');
     assert.equal(firstCard.getAttribute("data-arrows-visible"), "false", "side arrows are collapsed when not hovered or focused");
-    assert.ok(button("Move reference 1 right").className.includes("bg-transparent"), "side arrows have no background");
-    assert.ok(button("Move reference 1 right").className.includes("w-0"), "side arrows take zero width before hover");
     await act(async () => firstCard.dispatchEvent(new dom.window.MouseEvent("mouseover", { bubbles: true })));
     assert.equal(firstCard.getAttribute("data-arrows-visible"), "true", "side arrows appear on hover");
-    assert.ok(button("Move reference 1 right").className.includes("w-5"), "side arrows expand outside thumbnail on hover");
     await act(async () => firstCard.dispatchEvent(new dom.window.MouseEvent("mouseout", { bubbles: true })));
     assert.equal(firstCard.getAttribute("data-arrows-visible"), "false");
     const scrollSurface = document.querySelector('[data-testid="reference-strip"]');

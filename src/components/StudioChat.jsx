@@ -24,7 +24,8 @@ import { measureAudioDuration } from "@/lib/audio-duration";
 import { extractFrame } from "@/lib/video-frame";
 
 import { SettingsToolbar } from "./ComposerControls";
-import { ReferenceStrip, stagedReferenceCount, referenceSubmissionWarning, shouldCollapseComposer } from "./PromptComposer";
+import { ReferenceStrip, stagedReferenceCount, referenceSubmissionWarning } from "./PromptComposer";
+import { useComposerCollapse } from "./useComposerCollapse";
 import { getAssetDragData, isAssetDragEvent } from "@/lib/asset-drag-contract";
 import { MentionTextarea, } from "./MentionTextarea";
 import { GenerationFolderCue } from "./MediaCard";
@@ -89,32 +90,8 @@ export function StudioChat({ conversationId }) {
   const scrollRef = useRef(null);
   const mentionRef = useRef(null);
   const fileRef = useRef(null);
-  const composerRef = useRef(null);
-  const hasFocusRef = useRef(false);
-  const hasPointerRef = useRef(false);
-  const filePickerOpenRef = useRef(false);
-  const [collapsed, setCollapsed] = useState(true);
   const requestIdRef = useRef(0);
-
-  const getOverlayFlags = () => {
-    const root = composerRef.current;
-    const menuOpen = Boolean(
-      root?.querySelector('[aria-haspopup="menu"][aria-expanded="true"]') ||
-        (typeof document !== "undefined" && document.querySelector('[role="menu"]'))
-    );
-    const dropdownOpen = Boolean(root?.querySelector('[role="listbox"]'));
-    const previewOpen = Boolean(
-      typeof document !== "undefined" && document.querySelector('[role="dialog"][aria-modal="true"]')
-    );
-    const stripDragging = Boolean(root?.querySelector('[data-reference-strip-dragging="true"]'));
-    return {
-      menuOpen,
-      dropdownOpen,
-      filePickerOpen: filePickerOpenRef.current,
-      dragging: dragging || stripDragging,
-      previewOpen,
-    };
-  };
+  const { collapsed, shellProps: collapseProps, openFilePicker, collapseAfterSend } = useComposerCollapse({ dragging });
 
   useEffect(() => {
     // Clear immediately, not just on the new fetch resolving — otherwise
@@ -200,12 +177,7 @@ export function StudioChat({ conversationId }) {
         const prompt = (assistantMessage.toolTrace.result )?.prompt;
         if (prompt) await fireGeneration(prompt, assistantMessage.id);
       }
-      hasFocusRef.current = false;
-      hasPointerRef.current = false;
-      if (typeof document !== "undefined" && composerRef.current?.contains(document.activeElement)) {
-        document.activeElement?.blur?.();
-      }
-      setCollapsed(true);
+      collapseAfterSend();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
@@ -358,50 +330,12 @@ export function StudioChat({ conversationId }) {
           PromptComposer used — refs above the input, settings below it,
           matching that layout instead of the flat bordered strip this had
           become. */}
-      <div className="px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
+      <div className="flex max-h-[50%] min-h-0 shrink-0 flex-col px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
         <div
-          ref={composerRef}
+          {...collapseProps}
           data-testid="studio-chat-composer"
-          data-composer-collapsed={collapsed ? "true" : "false"}
-          onFocusCapture={(e) => {
-            hasFocusRef.current = true;
-            const tag = e.target?.tagName;
-            if (tag === "TEXTAREA" || tag === "INPUT") {
-              setCollapsed(false);
-            }
-          }}
-          onBlurCapture={(e) => {
-            const root = composerRef.current;
-            if (root && !root.contains(e.relatedTarget)) {
-              hasFocusRef.current = false;
-              setTimeout(() => {
-                const stillFocused = Boolean(root && typeof document !== "undefined" && root.contains(document.activeElement));
-                hasFocusRef.current = stillFocused;
-                if (shouldCollapseComposer({ hasFocus: stillFocused, hasPointer: hasPointerRef.current, ...getOverlayFlags() })) {
-                  setCollapsed(true);
-                }
-              }, 0);
-            }
-          }}
-          onMouseEnter={() => {
-            hasPointerRef.current = true;
-          }}
-          onMouseLeave={() => {
-            hasPointerRef.current = false;
-            const root = composerRef.current;
-            const stillFocused = Boolean(root && typeof document !== "undefined" && root.contains(document.activeElement));
-            hasFocusRef.current = stillFocused;
-            if (shouldCollapseComposer({ hasFocus: stillFocused, hasPointer: false, ...getOverlayFlags() })) {
-              setCollapsed(true);
-            }
-          }}
-          onClick={(e) => {
-            if (!e.target?.closest?.("button, [role='menuitem'], [role='option']")) {
-              setCollapsed(false);
-            }
-          }}
           className={cn(
-            "composer-shell scroll-thin relative mx-auto flex max-h-[50dvh] w-full max-w-3xl flex-col gap-2 overflow-y-auto overscroll-y-contain rounded-2xl border border-line bg-ink-800/90 shadow-panel backdrop-blur-xl transition-[padding] duration-150",
+            "composer-shell scroll-thin relative mx-auto flex min-h-0 w-full max-w-3xl flex-col gap-2 overflow-y-auto overscroll-y-contain rounded-2xl border border-line bg-ink-800/90 shadow-panel backdrop-blur-xl transition-[padding] duration-150",
             collapsed ? "px-2.5 py-1.5" : "p-2.5"
           )}
         >
@@ -445,11 +379,7 @@ export function StudioChat({ conversationId }) {
               {(close) => (
                 <MenuItem
                   onClick={() => {
-                    filePickerOpenRef.current = true;
-                    if (typeof window !== "undefined") {
-                      window.addEventListener("focus", () => { setTimeout(() => { filePickerOpenRef.current = false; }, 300); }, { once: true });
-                    }
-                    fileRef.current?.click();
+                    openFilePicker(fileRef);
                     close();
                   }}
                 >
