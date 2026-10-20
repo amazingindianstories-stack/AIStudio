@@ -1406,6 +1406,11 @@ export const useStore = create((set, get) => ({
               : apiErrorMessage(body, res.status)
         );
       }
+      set((s) => ({
+        selectedIds: s.selectedIds.filter((selected) => selected !== id),
+        focusedAssetId: s.focusedAssetId === id ? null : s.focusedAssetId,
+        selectionAnchorId: s.selectionAnchorId === id ? null : s.selectionAnchorId,
+      }));
       return { ok: true };
     } catch (e) {
       // The optimistic removal above has to come back — this used to be a

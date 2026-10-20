@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { useStore } from "./store";
+import { clearFeedCache, putFeedCache } from "./feed-cache.js";
+import { scopeKey } from "./feed-scope.js";
 
 const FORBIDDEN = {
   "DELETE /api/history": { error: "Only admins can delete generations." },
@@ -45,7 +47,7 @@ test("server 403s on library deletes and moves reach the caller as short clear e
   }
 });
 
-async function bulkDelete(ids, failing) {
+async function bulkDelete(ids, failing, selectedIds = ids) {
   const previous = useStore.getState();
   const originalFetch = globalThis.fetch;
   const seen = { deleted: [], counts: 0, feed: 0, inFlight: 0, maxInFlight: 0 };
@@ -67,23 +69,31 @@ async function bulkDelete(ids, failing) {
     return new Response(JSON.stringify({ items: [], nextCursor: null }));
   };
   try {
-    useStore.setState({ currentUser: { id: "admin", role: "admin" }, items: ids.map((id) => ({ id })) });
+    const items = ids.map((id) => ({ id }));
+    const key = scopeKey({ tab: "history", projectId: null, folderId: null, kind: "all", q: "" });
+    putFeedCache(key, { items, nextCursor: null, at: 0 });
+    useStore.setState({ currentUser: { id: "admin", role: "admin" }, rightTab: "history", activeProjectId: null,
+      activeFolderId: null, filterKind: "all", search: "", items, feedKey: key, selectedIds });
+    const pending = useStore.getState().deleteGenerations(ids);
+    useStore.setState((s) => ({ selectedIds: [...s.selectedIds, "picked-during-delete"] }));
     try {
-      const result = await useStore.getState().deleteGenerations(ids);
-      return { ...seen, result };
+      const result = await pending;
+      return { ...seen, result, selectedIds: useStore.getState().selectedIds };
     } catch (error) {
-      return { ...seen, error: error.message };
+      return { ...seen, error: error.message, selectedIds: useStore.getState().selectedIds };
     }
   } finally {
     globalThis.fetch = originalFetch;
+    clearFeedCache();
     useStore.setState(previous, true);
   }
 }
 
 test("bulk delete bounds concurrent deletes and refreshes counts once without reloading the feed", async () => {
   const ids = Array.from({ length: 12 }, (_, index) => `item-${index}`);
-  const seen = await bulkDelete(ids, {});
+  const seen = await bulkDelete(ids, {}, [...ids, "kept"]);
   assert.equal(seen.result, true);
+  assert.deepEqual(seen.selectedIds, ["kept", "picked-during-delete"]);
   assert.deepEqual([...seen.deleted].sort(), [...ids].sort());
   assert.ok(seen.maxInFlight > 1 && seen.maxInFlight <= 4, `max in flight ${seen.maxInFlight}`);
   assert.deepEqual({ counts: seen.counts, feed: seen.feed }, { counts: 1, feed: 0 });
@@ -96,6 +106,7 @@ test("a partly failed bulk delete finishes the batch, refreshes once and reports
     forbidden: { status: 403, body: { error: "Only admins can delete generations." } },
   });
   assert.equal(seen.error, "This generation is still rendering. Wait for it to finish, then delete it.");
+  assert.deepEqual(seen.selectedIds, ["running", "forbidden", "picked-during-delete"]);
   assert.deepEqual([...seen.deleted].sort(), [...ids].sort());
   assert.deepEqual({ counts: seen.counts, feed: seen.feed }, { counts: 1, feed: 1 });
 });
