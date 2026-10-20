@@ -2,29 +2,43 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { useStore } from "./store";
 
-test("non-admin library deletes and moves reject before optimistic changes or mutation HTTP", async () => {
+const FORBIDDEN = {
+  "DELETE /api/history": { error: "Only admins can delete generations." },
+  "DELETE /api/folders": { error: "Only admins can delete folders.", code: "FORBIDDEN" },
+  "POST /api/history/move": { error: "Only admins can move generations." },
+};
+
+test("server 403s on library deletes and moves reach the caller as short clear errors", async () => {
   const previous = useStore.getState();
   const originalFetch = globalThis.fetch;
-  let calls = 0;
-  globalThis.fetch = async (_url, options) => {
-    if (options?.method && options.method !== "GET") calls++;
+  const mutations = [];
+  globalThis.fetch = async (url, options) => {
+    const method = options?.method || "GET";
+    const path = new URL(String(url), "http://veevee.test").pathname;
+    const body = FORBIDDEN[`${method} ${path}`];
+    if (body) {
+      mutations.push(`${method} ${path}`);
+      return new Response(JSON.stringify(body), { status: 403 });
+    }
     return new Response(JSON.stringify({ globalFolders: [], projects: [] }));
   };
   try {
-    for (const currentUser of [null, { id: "owner", role: "user" }]) {
-      const items = [{ id: "owned", userId: "owner" }];
-      useStore.setState({ currentUser, items, activeId: "owned", selectedIds: ["owned"] });
-      for (const operation of [
-        () => useStore.getState().removeItem("owned"),
-        () => useStore.getState().deleteGenerations(["owned", "other"]),
-        () => useStore.getState().deleteFolder(null, "folder"),
-        () => useStore.getState().moveGenerationsToDestination(["owned"], { type: "global_unsorted" }),
-      ]) await assert.rejects(operation, /Only admins can/);
-      assert.equal(useStore.getState().items, items);
-      assert.equal(useStore.getState().activeId, "owned");
-      assert.deepEqual(useStore.getState().selectedIds, ["owned"]);
-    }
-    assert.equal(calls, 0);
+    useStore.setState({ currentUser: { id: "owner", role: "user" }, items: [{ id: "owned", userId: "owner" }] });
+    const store = useStore.getState();
+    assert.deepEqual(await store.removeItem("owned"), { ok: false, error: "You don't have permission to delete this." });
+    await assert.rejects(store.deleteGenerations(["owned", "other"]), { message: "You don't have permission to delete this." });
+    await assert.rejects(store.deleteFolder(null, "folder"), { message: "You don't have permission to do that." });
+    await assert.rejects(
+      store.moveGenerationsToDestination(["owned"], { type: "global_unsorted" }),
+      { message: "Only admins can move generations." },
+    );
+    assert.deepEqual(mutations, [
+      "DELETE /api/history",
+      "DELETE /api/history",
+      "DELETE /api/history",
+      "DELETE /api/folders",
+      "POST /api/history/move",
+    ]);
   } finally {
     globalThis.fetch = originalFetch;
     useStore.setState(previous, true);

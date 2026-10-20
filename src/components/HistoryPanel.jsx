@@ -695,7 +695,8 @@ export function HistoryPanel() {
                       <MenuItem
                         onClick={() => {
                           close();
-                          moveGenerationsToDestination(selectedIds, { type: "global_root" });
+                          moveGenerationsToDestination(selectedIds, { type: "global_root" })
+                            .catch((err) => notify(err.message || "Failed to move items."));
                         }}
                       >
                         <span>Remove from Project</span>

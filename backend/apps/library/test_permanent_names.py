@@ -93,7 +93,7 @@ class PermanentNamesTests(TransactionTestCase):
         # A non-admin cannot bypass the guard with an invalid or cached operation.
         User.objects.filter(pk=UID).update(role='user')
         self.assertEqual(self.client.post('/api/history/move', {}, content_type='application/json').status_code, 403)
-        self.assertEqual(self.client.delete('/api/folders').status_code, 403)
+        self.assertEqual(self.client.delete('/api/folders?id=' + str(uuid4())).status_code, 403)
 
     def test_first_filing_freezes_full_ancestry_and_future_zip_leaf(self):
         from types import SimpleNamespace
