@@ -25,6 +25,7 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
   const ref = useRef(null);
   const hasPointerRef = useRef(false);
   const filePickerOpenRef = useRef(false);
+  const sendFocusRef = useRef(null);
   const [collapsed, setCollapsed] = useState(true);
   const libraryOpen = useStore((s) => Boolean(s.assetLibraryOpen || s.portraitGalleryOpen));
 
@@ -32,10 +33,20 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
     if (collapsed && ref.current) ref.current.scrollTop = 0;
   }, [collapsed]);
 
+  const collapseIfIdleRef = useRef(null);
+  const [pointerListeners] = useState(() => ({
+    enter: () => { hasPointerRef.current = true; },
+    leave: () => {
+      hasPointerRef.current = false;
+      collapseIfIdleRef.current();
+    },
+    recheck: () => collapseIfIdleRef.current(),
+  }));
+
   const collapseIfIdle = () => {
     const root = ref.current;
     if (!root) return;
-    const idle = shouldCollapseComposer({
+    const state = {
       hasFocus: root.contains(document.activeElement),
       hasPointer: hasPointerRef.current,
       menuOpen: Boolean(root.querySelector('[aria-haspopup="menu"][aria-expanded="true"]') || document.querySelector('[role="menu"]')),
@@ -43,18 +54,11 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
       filePickerOpen: filePickerOpenRef.current,
       dragging: dragging || Boolean(root.querySelector('[data-reference-strip-dragging="true"]')),
       previewOpen: Boolean(document.querySelector('[role="dialog"][aria-modal="true"]')),
-    });
-    if (idle) setCollapsed(true);
+    };
+    if (shouldCollapseComposer(state)) setCollapsed(true);
+    else if (!state.hasFocus && !state.hasPointer) document.addEventListener("mousemove", pointerListeners.recheck, { once: true });
   };
-  const collapseIfIdleRef = useRef(collapseIfIdle);
   collapseIfIdleRef.current = collapseIfIdle;
-  const [pointerListeners] = useState(() => ({
-    enter: () => { hasPointerRef.current = true; },
-    leave: () => {
-      hasPointerRef.current = false;
-      collapseIfIdleRef.current();
-    },
-  }));
 
   // Native boundary events follow the DOM, so the pointer counts as outside while it is over a
   // portaled menu or preview and stays outside once that portal unmounts beneath it. React's
@@ -92,11 +96,17 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
   };
 
   const collapseOnSend = () => {
-    hasPointerRef.current = false;
-    if (ref.current?.contains(document.activeElement)) document.activeElement.blur?.();
+    const focused = ref.current?.contains(document.activeElement) ? document.activeElement : null;
+    sendFocusRef.current = focused;
+    focused?.blur?.();
     setCollapsed(true);
   };
-  const expand = () => setCollapsed(false);
+  const reopenAfterFailedSend = () => {
+    const focused = sendFocusRef.current;
+    sendFocusRef.current = null;
+    setCollapsed(false);
+    if (focused?.isConnected && (!document.activeElement || document.activeElement === document.body)) focused.focus();
+  };
 
-  return { collapsed, shellProps, openFilePicker, collapseOnSend, expand };
+  return { collapsed, shellProps, openFilePicker, collapseOnSend, reopenAfterFailedSend };
 }

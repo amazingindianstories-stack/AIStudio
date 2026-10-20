@@ -493,6 +493,7 @@ test("composer collapses as soon as a prompt is sent, keeps a resumed edit open,
       await new Promise((resolve) => setTimeout(resolve, 10));
     });
     assert.equal(composer().getAttribute("data-composer-collapsed"), "false", "a failed send reopens the composer");
+    assert.equal(document.activeElement, textarea, "a failed send gives the prompt its focus back");
   } finally {
     await act(async () => root.unmount());
     useStore.setState(before, true);
@@ -519,6 +520,36 @@ test("composer pointer tracking follows the shell across a mode switch remount",
     assert.equal(shell.getAttribute("data-composer-collapsed"), "false");
     await act(async () => shell.dispatchEvent(new dom.window.MouseEvent("mouseleave")));
     assert.equal(shell.getAttribute("data-composer-collapsed"), "true", "leaving the remounted shell collapses it");
+  } finally {
+    await act(async () => root.unmount());
+    useStore.setState(before, true);
+    restore();
+  }
+});
+
+test("composer collapses once the pointer moves on after an overlay that blocked the collapse closes", async () => {
+  const { dom, restore } = installComposerDom();
+  const before = { ...useStore.getInitialState() };
+  const root = createRoot(document.querySelector("#root"));
+  try {
+    useStore.setState({ mode: "image", prompt: "Kept prompt", assetLibraryOpen: false });
+    await act(async () => root.render(React.createElement(PromptComposer)));
+    const shell = document.querySelector('[data-testid="prompt-composer"]');
+    await act(async () => shell.dispatchEvent(new dom.window.MouseEvent("mouseenter")));
+    await act(async () => shell.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+    assert.equal(shell.getAttribute("data-composer-collapsed"), "false");
+
+    // The library overlay opens over the page; leaving the shell for it must not collapse.
+    await act(async () => useStore.setState({ assetLibraryOpen: true }));
+    await act(async () => shell.dispatchEvent(new dom.window.MouseEvent("mouseleave")));
+    await act(async () => document.dispatchEvent(new dom.window.MouseEvent("mousemove", { bubbles: true })));
+    assert.equal(shell.getAttribute("data-composer-collapsed"), "false", "an open overlay keeps the composer expanded");
+
+    // It closes with the pointer elsewhere; the next movement collapses the composer.
+    await act(async () => useStore.setState({ assetLibraryOpen: false }));
+    assert.equal(shell.getAttribute("data-composer-collapsed"), "false");
+    await act(async () => document.dispatchEvent(new dom.window.MouseEvent("mousemove", { bubbles: true })));
+    assert.equal(shell.getAttribute("data-composer-collapsed"), "true", "collapses once the overlay is gone and the user is outside");
   } finally {
     await act(async () => root.unmount());
     useStore.setState(before, true);

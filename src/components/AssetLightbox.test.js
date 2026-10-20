@@ -288,6 +288,17 @@ test("AssetLightbox leaves video and audio previews to their native controls ins
       await act(async () => document.querySelector(mediaType).dispatchEvent(down));
       assert.equal(down.defaultPrevented, false, `${mediaType} controls receive their own pointer input`);
     }
+
+    const selected = [];
+    const clip = { id: "vid", name: "vid", tag: "@vid1", kind: "video", mediaType: "video", isComposerReference: true, image: "/vid.bin" };
+    const voice = { id: "aud", name: "aud", tag: "@audio1", kind: "audio", mediaType: "audio", isComposerReference: true, image: "/aud.bin" };
+    await act(async () => root.render(React.createElement(AssetLightbox, { asset: clip, assets: [clip, voice], onClose() {}, onSelectAsset: (next) => selected.push(next.id) })));
+    const seek = new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true });
+    await act(async () => document.querySelector("video").dispatchEvent(seek));
+    assert.equal(seek.defaultPrevented, false, "arrow keys on the video seek natively");
+    assert.deepEqual(selected, [], "arrow keys on the video do not change the reference");
+    await act(async () => document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true })));
+    assert.deepEqual(selected, ["aud"], "arrow keys elsewhere still move to the next reference");
   } finally {
     await act(async () => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 10));

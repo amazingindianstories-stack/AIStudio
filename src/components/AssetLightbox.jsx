@@ -133,12 +133,13 @@ export function AssetLightbox({
     const onKeyDown = (event) => {
       if (event.defaultPrevented || childModalOpen()) return;
       const h = handlersRef.current;
+      const inMediaControls = Boolean(event.target?.closest?.("video, audio"));
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); h.onClose?.(); }
       else if (h.zoomable && (event.key === "+" || event.key === "=")) { event.preventDefault(); h.applyZoom((z) => stepLightboxZoom(z, 1)); }
       else if (h.zoomable && (event.key === "-" || event.key === "_")) { event.preventDefault(); h.applyZoom((z) => stepLightboxZoom(z, -1)); }
       else if (h.zoomable && event.key === "0") { event.preventDefault(); h.resetZoom(); }
-      else if (event.key === "ArrowLeft") { event.preventDefault(); h.goToPrev(); }
-      else if (event.key === "ArrowRight") { event.preventDefault(); h.goToNext(); }
+      else if (event.key === "ArrowLeft" && !inMediaControls) { event.preventDefault(); h.goToPrev(); }
+      else if (event.key === "ArrowRight" && !inMediaControls) { event.preventDefault(); h.goToNext(); }
       else if (event.key === "Tab") {
         const focusable = controls(), first = focusable[0], last = focusable[focusable.length - 1];
         if (!first) { event.preventDefault(); dialog.focus(); }

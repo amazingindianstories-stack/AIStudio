@@ -91,7 +91,7 @@ export function StudioChat({ conversationId }) {
   const mentionRef = useRef(null);
   const fileRef = useRef(null);
   const requestIdRef = useRef(0);
-  const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, expand } = useComposerCollapse({ dragging });
+  const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ dragging });
 
   useEffect(() => {
     // Clear immediately, not just on the new fetch resolving — otherwise
@@ -179,7 +179,7 @@ export function StudioChat({ conversationId }) {
         if (prompt) await fireGeneration(prompt, assistantMessage.id);
       }
     } catch (err) {
-      expand();
+      reopenAfterFailedSend();
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setSending(false);

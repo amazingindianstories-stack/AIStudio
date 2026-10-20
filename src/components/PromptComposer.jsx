@@ -137,13 +137,13 @@ export function PromptComposer() {
   const [dragNotice, setDragNotice] = useState(null);
   const dragNoticeTimerRef = useRef(null);
 
-  const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, expand } = useComposerCollapse({ overlayOpen: pickingClips, dragging });
+  const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ overlayOpen: pickingClips, dragging });
 
   const handleSubmitPrompt = async () => {
     if (uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength) return;
     collapseOnSend();
     const created = await s.generate();
-    if (!(Array.isArray(created) ? created.length > 0 : Boolean(created))) expand();
+    if (!(Array.isArray(created) ? created.length > 0 : Boolean(created))) reopenAfterFailedSend();
   };
 
   const showDragNotice = (type, message) => {
