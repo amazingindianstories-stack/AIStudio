@@ -397,7 +397,7 @@ class StreamingSaveTests(SimpleTestCase):
     def fetcher_class(self, payload, seen):
         import contextlib
         import tempfile as tf
-        from apps.media.remote import SafeMediaFetcher
+        from apps.integrations.remote import SafeMediaFetcher
 
         class Spooling(SafeMediaFetcher):
             @contextlib.contextmanager

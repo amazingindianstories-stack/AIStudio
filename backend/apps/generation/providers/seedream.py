@@ -117,7 +117,7 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
     if signal:
         signal.check()
     if fetcher is None:
-        from apps.media.remote import get_media_fetcher
+        from apps.integrations.remote import get_media_fetcher
         fetcher = get_media_fetcher()
     try:
         content = fetcher(url)

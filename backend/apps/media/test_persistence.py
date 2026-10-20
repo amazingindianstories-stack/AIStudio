@@ -9,7 +9,7 @@ import time
 import http.client
 from unittest.mock import Mock, patch
 from django.test import SimpleTestCase, override_settings
-from .remote import validated_target, SafeMediaFetcher, UnsafeMediaURL, PinnedHTTPSConnection
+from apps.integrations.remote import validated_target, SafeMediaFetcher, UnsafeMediaURL, PinnedHTTPSConnection
 from .storage import StorageService, MemoryAdapter, FileSystemAdapter
 from .persistence import save_buffer_with_metadata, save_from_url_with_metadata, nearest_supported_aspect_ratio
 
@@ -62,8 +62,8 @@ class ProviderPersistenceTests(SimpleTestCase):
                     thread=threading.Thread(target=peer)
                     thread.start()
                     try:
-                        with patch('apps.media.remote.socket.create_connection',return_value=left), patch(
-                                'apps.media.remote.ssl.create_default_context',return_value=client), patch(
+                        with patch('apps.integrations.remote.socket.create_connection',return_value=left), patch(
+                                'apps.integrations.remote.ssl.create_default_context',return_value=client), patch(
                                 'ssl.SSLSocket.dup',side_effect=AssertionError('TLS socket must not be duplicated')) as duplicate:
                             fetch=SafeMediaFetcher([host],resolver=resolver,total_timeout=1)
                             if host=='fixture.invalid':
@@ -98,7 +98,7 @@ class ProviderPersistenceTests(SimpleTestCase):
                 if self.response is not None:self.response.close()
                 reader.close()
         try:
-            with patch('apps.media.remote.SocketDeadline',side_effect=guard):
+            with patch('apps.integrations.remote.SocketDeadline',side_effect=guard):
                 fetch = SafeMediaFetcher(['media.example'],resolver=resolver,connection=Connection,total_timeout=.1)
                 with fetch.open_file('https://media.example/a.mov') as (stream,mime):
                     self.assertTrue(guards)
@@ -118,7 +118,7 @@ class ProviderPersistenceTests(SimpleTestCase):
             return result
         began = time.monotonic()
         try:
-            with patch('apps.media.remote.socket.create_connection',return_value=reader), patch('apps.media.remote.SocketDeadline',side_effect=guard):
+            with patch('apps.integrations.remote.socket.create_connection',return_value=reader), patch('apps.integrations.remote.SocketDeadline',side_effect=guard):
                 with self.assertRaises(TimeoutError):
                     SafeMediaFetcher(['media.example'],resolver=resolver,total_timeout=.1)(
                         'https://media.example/a.mov')

@@ -10,7 +10,7 @@ from urllib.parse import quote
 from pathlib import Path
 from django.conf import settings
 from .storage import get_storage
-from .remote import get_media_fetcher, SafeMediaFetcher
+from apps.integrations.remote import get_media_fetcher, SafeMediaFetcher
 
 DEFAULT_RATIOS = {'image':['1:1','3:4','4:3','9:16','16:9','21:9'],
                   'video':['16:9','9:16','1:1','4:3','3:4','21:9']}

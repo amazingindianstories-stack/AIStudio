@@ -19,7 +19,7 @@ from apps.generation.models import Generation
 from apps.generation.services import coordinator, executor, poller
 from apps.generation.services.deadline import Cancellation
 from apps.media.persistence import save_buffer_with_metadata
-from apps.media.remote import SafeMediaFetcher, UnsafeMediaURL
+from apps.integrations.remote import SafeMediaFetcher, UnsafeMediaURL
 from apps.media.storage import StorageService, MemoryAdapter
 from apps.media.keys import media_key_from_ref
 from apps.common import test_api_coverage as _coverage

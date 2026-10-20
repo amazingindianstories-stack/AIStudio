@@ -201,7 +201,7 @@ class LegacyConfigTests(SimpleTestCase):
 
     def test_kling_result_hosts_pass_the_provider_media_fetcher(self):
         import socket
-        from apps.media.remote import UnsafeMediaURL, validated_target
+        from apps.integrations.remote import UnsafeMediaURL, validated_target
         public = lambda host, port, type=None: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('1.1.1.1', 443))]
         hosts = self.legacy.translate('generation', {**self.worker_env('generation'), 'VEEVEE_KLING': '1'})['VEEVEE_PROVIDER_MEDIA_HOSTS'].split(',')
         # Kling's documented result URL shape; signed query strings are kept.

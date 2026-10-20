@@ -15,7 +15,7 @@ from apps.generation.prompting.shot_spec import parse_ref_roles
 from apps.generation.prompting.video_directive import build_video_directive
 from apps.generation.prompting.legacy_templates import T as LEGACY
 from apps.media.storage import get_storage
-from apps.media.remote import validated_target,PinnedHTTPSConnection
+from apps.integrations.remote import validated_target,PinnedHTTPSConnection
 from apps.generation import provider_errors
 from .transport import HttpTransport,HttpResult,ProviderError
 from .seedance import legacy_directive

@@ -34,7 +34,7 @@ transport.HttpTransport.request = lambda self, method, url, **kwargs: fake.reque
 
 import django  # noqa: E402
 django.setup()  # installs the paid guard around the fake transport
-for target in ('apps.media.remote.get_media_fetcher', 'apps.media.persistence.get_media_fetcher',
+for target in ('apps.integrations.remote.get_media_fetcher', 'apps.media.persistence.get_media_fetcher',
                'apps.generation.services.poller.get_media_fetcher', 'apps.generation.services.image_execution.get_media_fetcher'):
     patch(target, lambda: fake.fetch).start()
 print('{"event": "rehearsal_worker_ready", "component": "%s"}' % component, flush=True)

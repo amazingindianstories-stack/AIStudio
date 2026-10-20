@@ -23,6 +23,7 @@ sys.meta_path.insert(0, RejectModels())
 importlib.import_module('apps.integrations')
 importlib.import_module('apps.integrations.dns')
 importlib.import_module('apps.integrations.byteplus')
+importlib.import_module('apps.integrations.remote')
 assert not any('models' in name.split('.') for name in sys.modules)
 '''],
             cwd=Path(__file__).resolve().parents[2],

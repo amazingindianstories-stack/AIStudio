@@ -14,7 +14,7 @@ from apps.generation.prompting.assembler import assemble_prompt
 from apps.generation.prompting import image_prep, face_judge
 from apps.generation.providers import gemini, kling, seedream, higgsfield
 from apps.media.persistence import measure_generated_media
-from apps.media.remote import get_media_fetcher
+from apps.integrations.remote import get_media_fetcher
 from apps.media.storage import get_storage
 from .pricing import read_pricing, compute_cost, kling_units_to_cents
 from .seedream_references import prepare_seedream_references

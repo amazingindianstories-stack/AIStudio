@@ -3,7 +3,7 @@ import time
 from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
 from apps.integrations.dns import BoundedMediaResolver, MediaDNSCapacityError
-from .remote import SafeMediaFetcher, UnsafeMediaURL
+from apps.integrations.remote import SafeMediaFetcher, UnsafeMediaURL
 
 
 class MediaDNSTests(SimpleTestCase):

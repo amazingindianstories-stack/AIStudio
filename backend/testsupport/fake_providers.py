@@ -435,7 +435,7 @@ class FakeProviders:
         def request(transport_self, method, url, **kwargs):
             return fake.request(transport_self, method, url, **kwargs)
         self._stack.enter_context(patch('apps.generation.providers.transport.HttpTransport.request', request))
-        for target in ('apps.media.remote.get_media_fetcher', 'apps.media.persistence.get_media_fetcher',
+        for target in ('apps.integrations.remote.get_media_fetcher', 'apps.media.persistence.get_media_fetcher',
                        'apps.generation.services.poller.get_media_fetcher', 'apps.generation.services.image_execution.get_media_fetcher'):
             self._stack.enter_context(patch(target, lambda: fake.fetch))
         return self

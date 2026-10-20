@@ -268,9 +268,9 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         stack.enter_context(override_settings(VEEVEE_MEDIA_STORAGE=self.storage))
         self.effects=[self.storage]
         for target in ('apps.generation.providers.transport.HttpTransport.request',
-                       'apps.media.remote.SafeMediaFetcher.__call__',
-                       'apps.media.remote.SafeMediaFetcher.open_file',
-                       'apps.media.remote.PinnedHTTPSConnection.request',
+                       'apps.integrations.remote.SafeMediaFetcher.__call__',
+                       'apps.integrations.remote.SafeMediaFetcher.open_file',
+                       'apps.integrations.remote.PinnedHTTPSConnection.request',
                        'requests.sessions.Session.request'):
             self.effects.append(stack.enter_context(patch(target,side_effect=AssertionError('Negative HTTP request reached remote I/O'))))
         stack.enter_context(patch.dict(os.environ,{'SET_TOKEN_SECRET':'boundary-setup'}))
