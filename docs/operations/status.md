@@ -219,6 +219,46 @@ more than one layer blocking it:
 - **A5** Blue shutdown (`railway down`, no deletion), pause Vercel `image-video-project`, remove unused Vercel secrets.
 
 ## Next safe action
+2026-10-20 ~08:50 UTC: **released `main` `0eb5a6e`** (#93 Kling Image 3.0 / 2.1 behind `VEEVEE_KLING`; #94 exact
+provider errors in artists' messages plus the admin Errors tab at `/api/admin/errors`). Release gate and rehearsal
+passed on the commit. Railway api `1d302de7`, generation `41e981ea`, export `3516a6ec`, scheduler `df1fc5d1`; Vercel
+`dpl_4cxqGjvoNGLyaThDMEeCTC8KUCcH` (built with `--skip-domain`, verified with `vercel curl`, promoted 08:49:55).
+Deploy order was generation, api, export, scheduler, so the api never admitted a Kling job an old worker would refuse.
+Variables (names only): `VEEVEE_KLING=1` on api and generation, `KLING_API` on generation only; `KLING_API_HOST` unset.
+No migrations. Rollback targets: api `201c65aa`, generation `cf500cfb`, export `65974829`, scheduler `a4e6b1e1`,
+Vercel `dpl_7fhSdebmD9TA8VjCoERgPmdb3Bqi` (the `8b3e02a` set; that code ignores the Kling variables).
+- **Failed first generation attempt (08:19-08:22 UTC):** deployment `96d3ad42` crashed at startup with
+  `ModuleNotFoundError: No module named 'config'` and was rolled back to `cf500cfb` (as `55b5687e`, same image). The
+  staging directory sat inside another Git checkout whose `.gitignore` has an unanchored `config/` rule; `railway up`
+  applied it and dropped `backend/config/` from the upload. Restaged outside any Git checkout (no ancestor ignore
+  files, `backend/config/settings` present) and redeployed. No job was queued; the worker was absent about 2 minutes.
+  **Stage `railway up` directories outside every Git checkout.**
+- Verified: api readiness, `/api/health` 200 through `www.veevee.ai`, signed-out `/api/admin/errors` 401, no 5xx after
+  the api switch; a queued Seedance job finished before the worker switch and the next Seedream job succeeded across
+  it; scheduler leases renewing. Both production domains are in the Green browser origins (all HTTPS, no wildcard);
+  the owner's signed-in tab sent CSRF-protected `POST /api/generate/image` requests through the new frontend (200).
+  The Errors data lists the three 2026-10-19 Seedance `InputAudioSensitiveContentDetected` failures (HTTP 400, blamed
+  input and request id kept), whose messages now name the provider code. The old api deployment reads CRASHED only
+  because the entrypoint exits 1 after a graceful SIGTERM shutdown.
+- Memory (current / peak / limit): before the deploy api 2.33 / 2.46 / 4 GB (1.65 GB the evening before: still
+  climbing about 0.7 GB a day), generation 0.73 / 1.01 / 2 GB, export 0.08 / 0.21 / 0.5, scheduler 0.10 / 0.11 / 0.5;
+  at 09:05 api 0.24, generation 0.13, export 0.06, scheduler 0.08 GB. Keep watching the api.
+- **Kling canaries blocked by the Kling account:** the owner's Kling Image 3.0 and 2.1 jobs (2K, 21:9) each got one
+  create POST answered HTTP 429, code 1102 "Account balance not enough" (prepaid resource pack depleted or expired;
+  the same answer hit two jobs on 2026-09-05; last Kling successes 2026-08-17 / 08-19). The Bearer key was accepted
+  (auth errors are 1000-1004), the ledger ended in `SUBMITTING`, no task was created, no retry, nothing billed (spend
+  totals count only succeeded rows). The result host is still unconfirmed. Artists see the busy copy for 1102
+  (`failure_copy.py`), which is misleading for an unfunded account.
+- **Kling switched off ~09:03 UTC (owner):** `VEEVEE_KLING=0` on api and generation (`KLING_API` kept; it is inert
+  while the flag is off), same images redeployed: api `e4de5376`, generation `dc65f58a`. Both Kling models are refused
+  at enqueue ("Kling Image 3.0 is not enabled. Choose another image model."). Rollback targets for this step: api
+  `1d302de7`, generation `41e981ea`.
+
+**Re-enable Kling:** top up or renew the Kling resource pack; set `VEEVEE_KLING=1` on api and generation and redeploy
+(generation first, then api); run one Kling Image 3.0 2K and one Kling Image 2.1 1K job from a signed-in session;
+confirm one create POST each, ledger `SUBMITTING`, and a result host of `h1.inkwai.com` or `cdn.klingai.com`. Any other
+host needs an allowlist code change and deploy.
+
 2026-10-19: **Kling Image 3.0 / 2.1 merged to `main`, not released (flag off).** Production had no Kling key and
 the paid guard refused every Kling job ("Only configured Gemini or Seedream image providers authorized"). Kling is
 now admitted only with `VEEVEE_KLING=1` on API and generation, pinned to the one create endpoint on the Kling host
