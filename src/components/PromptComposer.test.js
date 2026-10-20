@@ -501,6 +501,38 @@ test("composer collapses as soon as a prompt is sent, keeps a resumed edit open,
   }
 });
 
+test("composer collapses when focus leaves right after typing an @tag while its autocomplete is still closing", async () => {
+  const { dom, restore } = installComposerDom();
+  const before = { ...useStore.getInitialState() };
+  const root = createRoot(document.querySelector("#root"));
+  try {
+    const prompt = "A quiet harbour at dawn with @img1";
+    useStore.setState({ mode: "image", prompt, referenceImages: ["/harbour.png"], referenceIds: ["ref-harbour"], referenceKinds: ["image"] });
+    await act(async () => root.render(React.createElement(PromptComposer)));
+    const shell = document.querySelector('[data-testid="prompt-composer"]');
+    const textarea = shell.querySelector("textarea");
+    await act(async () => {
+      textarea.focus();
+      textarea.setSelectionRange(prompt.length, prompt.length);
+      textarea.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    });
+    assert.equal(shell.getAttribute("data-composer-collapsed"), "false");
+    assert.ok(document.querySelector('[role="listbox"]'), "the tag autocomplete is open");
+
+    // Keyboard leave: focus moves out while the listbox is still in its blur-close delay, and the pointer never moves.
+    await act(async () => {
+      document.querySelector("#outside").focus();
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    assert.ok(document.querySelector('[role="listbox"]'), "the autocomplete is still closing");
+    assert.equal(shell.getAttribute("data-composer-collapsed"), "true", "leaving the composer collapses it");
+  } finally {
+    await act(async () => root.unmount());
+    useStore.setState(before, true);
+    restore();
+  }
+});
+
 test("composer pointer tracking follows the shell across a mode switch remount", async () => {
   const { dom, restore } = installComposerDom();
   const before = { ...useStore.getInitialState() };

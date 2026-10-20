@@ -805,6 +805,18 @@ test('Goal2 composer inline reference strip dividers blue tags zoomable preview 
   await expect(page.locator('[data-reference-id]')).toHaveCount(2);
   await page.screenshot({ path: testInfo.outputPath('shot-04-composer-collapsed.png') });
 
+  // Leaving by keyboard right after typing a tag, while its autocomplete is still open or closing,
+  // collapses the composer with the pointer held still outside.
+  await textarea.focus();
+  await textarea.evaluate((el) => el.setSelectionRange(el.value.length, el.value.length));
+  await page.keyboard.type(' @img2');
+  await expect(page.getByRole('listbox')).toBeVisible();
+  for (let step = 0; step < 20 && await composer.evaluate((el) => el.contains(document.activeElement)); step += 1) {
+    await page.keyboard.press('Shift+Tab');
+  }
+  await expect(composer).toHaveAttribute('data-composer-collapsed', 'true');
+  await textarea.fill(promptText);
+
   // Re-focus expands composer, then sending prompt collapses composer
   await textarea.focus();
   await expect(composer).toHaveAttribute('data-composer-collapsed', 'false');

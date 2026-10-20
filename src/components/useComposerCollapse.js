@@ -20,7 +20,7 @@ export function shouldCollapseComposer({
 
 /** A composer shell starts collapsed, expands when its text field gains focus or the shell is
  * clicked, and collapses again once neither focus nor pointer is inside it and nothing it opened
- * (menu, listbox, picker, preview, library, drag) is still active. */
+ * (menu, picker, preview, library, drag) is still active. */
 export function useComposerCollapse({ overlayOpen = false, dragging = false } = {}) {
   const ref = useRef(null);
   const hasPointerRef = useRef(false);
@@ -50,7 +50,8 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
       hasFocus: root.contains(document.activeElement),
       hasPointer: hasPointerRef.current,
       menuOpen: Boolean(root.querySelector('[aria-haspopup="menu"][aria-expanded="true"]') || document.querySelector('[role="menu"]')),
-      dropdownOpen: Boolean(document.querySelector('[role="listbox"]') || overlayOpen || libraryOpen),
+      // The @tag listbox only lives while the prompt has focus and closes itself on blur, so it never blocks.
+      dropdownOpen: Boolean(overlayOpen || libraryOpen),
       filePickerOpen: filePickerOpenRef.current,
       dragging: dragging || Boolean(root.querySelector('[data-reference-strip-dragging="true"]')),
       previewOpen: Boolean(document.querySelector('[role="dialog"][aria-modal="true"]')),
