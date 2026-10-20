@@ -94,6 +94,8 @@ def body_or_empty(request):
 
 
 def folder_mutation(request, user):
+    if request.method == 'DELETE' and user.role != 'admin':
+        return Response({'error': 'Only admins can delete folders.'}, status=403)
     from .services import folder_engine as service
     from .services.idempotency import MISSING, OrganizationError
     body = body_or_empty(request) if request.method != 'DELETE' else {

@@ -9,6 +9,7 @@ from apps.library.models import Folder
 
 class Generation(models.Model):
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    permanent_name = models.TextField(null=True)
     kind = models.TextField()
     status = models.TextField()
     prompt = models.TextField()

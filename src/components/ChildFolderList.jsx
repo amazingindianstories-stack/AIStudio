@@ -20,6 +20,7 @@ import {
   getAssetDragData,
   setFolderDragData,
   getFolderDragData,
+  isFolderDragEvent,
   clearFolderDragData,
   isFolderDescendant,
 } from "@/lib/asset-drag-contract";
@@ -37,6 +38,7 @@ export function ChildFolderList({
   onOpenMoveModal,
   onOpenNewFolderModal: _onOpenNewFolderModal,
 }) {
+  const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const operations = useStore((s) => s.operations);
   const actorId = useStore((s) => s.currentUser?.id);
   const preferenceKey = `${FOLDERS_EXPANDED_KEY}:${actorId || "anonymous"}`;
@@ -128,6 +130,7 @@ export function ChildFolderList({
   }
 
   const isDropTargetValid = (targetFolderId, e) => {
+    if (!isAdmin && !isFolderDragEvent(e) && !getFolderDragData(e)) return false;
     const draggedFolderId = getFolderDragData(e);
     if (draggedFolderId) {
       if (draggedFolderId === targetFolderId) return false;
@@ -174,6 +177,7 @@ export function ChildFolderList({
     const draggedFolderId = getFolderDragData(e);
 
     if (assetPayload.ids.length > 0) {
+      if (!isAdmin) return;
       moveGenerationsToDestination(assetPayload.ids, {
         type: "folder",
         folderId: targetFolderId,
@@ -357,9 +361,9 @@ export function ChildFolderList({
                           </MenuItem>
                         )}
 
-                        <div className="my-1 h-px bg-line" />
+                        {isAdmin && <div className="my-1 h-px bg-line" />}
 
-                        <MenuItem
+                        {isAdmin && (<MenuItem
                           onClick={async () => {
                             close();
                             if (
@@ -374,7 +378,7 @@ export function ChildFolderList({
                         >
                           <Trash2 className="h-3.5 w-3.5 text-red-400" />
                           <span>Delete</span>
-                        </MenuItem>
+                        </MenuItem>)}
                       </div>
                     )}
                   </Dropdown>

@@ -307,3 +307,46 @@ test.describe('card context on touch', () => {
     }
   });
 });
+
+for (const role of ['user', 'admin']) {
+  test2(`library permissions: ${role} generation menus, viewer and bulk actions`, async ({ page, library }) => {
+    // The normal fixture uses the shared seeded admin; isolate this role test
+    // by assigning a separate session identity, without changing that admin.
+    const id = randomUUID();
+    const db = library.db;
+    await db`INSERT INTO users (id,email,password_hash,password_salt,name,role,created_at)
+      VALUES (${id},${`${id}@example.test`},'fixture','fixture','Permission fixture',${role},${Date.now()})`;
+    const payload = Buffer.from(JSON.stringify({ uid: id, ver: 0, exp: Date.now() + 3600000 })).toString('base64url');
+    const signature = createHmac('sha256', process.env.AUTH_SECRET).update(payload).digest('base64url');
+    await page.context().addCookies([{ name: 'veevee_session', value: `${payload}.${signature}`, url: process.env.E2E_BASE_URL }]);
+    try {
+      await page.reload();
+      await expect(page.getByRole('button', { name: 'P Permission fixture', exact: true })).toBeVisible();
+      const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+      await library.panel.getByRole('button', { name: 'Global library', exact: true }).click();
+      await library.panel.getByRole('textbox', { name: 'Search prompts' }).fill(library.tag);
+      const card = page.locator(`[data-asset-card-id="${library.image}"]`);
+      await expect(card).toBeVisible();
+      for (const button of ['left', 'right']) {
+        if (button === 'left') await card.getByRole('button', { name: 'More actions' }).click();
+        else await card.click({ button });
+        await expect(menu(page).getByRole('menuitem', { name: 'Delete', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
+        await page.keyboard.press('Escape');
+        await expect(menu(page)).toHaveCount(0);
+      }
+      await card.getByRole('checkbox', { name: 'Select' }).click();
+      const toolbar = page.getByTestId('selection-toolbar');
+      expect(await toolbar.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+      await expect(page.getByRole('button', { name: 'Move', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
+      await expect(library.panel.getByRole('button', { name: 'More actions', exact: true }).filter({ hasText: 'More' })).toHaveCount(role === 'admin' ? 1 : 0);
+      await card.click({ button: 'right' });
+      await menu(page).getByRole('menuitem', { name: 'Open details' }).click();
+      await expect(page.getByRole('button', { name: 'Close viewer' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
+    } finally {
+      await db`DELETE FROM activity_logs WHERE user_id=${id}`;
+      await db`DELETE FROM users WHERE id=${id}`;
+    }
+  });
+}

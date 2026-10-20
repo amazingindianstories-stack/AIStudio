@@ -30,21 +30,35 @@ def assignment_json(row):
 def assign_generation_naming(generation_id, folder_id=None, project_id=None, now=None):
     # The generation lock makes explicit assignment and retries single-winner.
     from apps.generation.models import Generation
-    Generation.objects.select_for_update().get(pk=generation_id)
+    generation = Generation.objects.select_for_update().get(pk=generation_id)
     existing = GenerationNaming.objects.filter(generation_id=generation_id).first()
     if existing:
+        if folder_id and not generation.permanent_name:
+            freeze_names([generation])
         return assignment_json(existing)
     now = now_ms() if now is None else now
     namespace = namespace_for(folder_id, project_id)
     row = GenerationNaming.objects.create(generation_id=generation_id, namespace=namespace,
         sequence=allocate_next_sequence(namespace, now=now), assigned_at=now)
+    if folder_id:
+        freeze_names([generation])
     return assignment_json(row)
+
+
+def freeze_names(generations):
+    from apps.generation.models import Generation
+    from apps.library.filenames import batch_resolve_generation_filenames
+    generations = [row for row in generations if not row.permanent_name]
+    names = batch_resolve_generation_filenames([row.id for row in generations])
+    for row in generations:
+        row.permanent_name = names[str(row.id)]['filename'].rsplit('.', 1)[0]
+    Generation.objects.bulk_update(generations, ['permanent_name'], batch_size=1000)
 
 
 def reassign_naming_for_move(rows, target_namespace, now):
     rows = sorted(rows, key=lambda r: str(r.id))
     existing = {str(r.generation_id): r for r in GenerationNaming.objects.filter(generation_id__in=[r.id for r in rows])}
-    changed = [r for r in rows if str(r.id) not in existing or existing[str(r.id)].namespace != target_namespace]
+    changed = [r for r in rows if not r.permanent_name and (str(r.id) not in existing or existing[str(r.id)].namespace != target_namespace)]
     assignments = []
     if changed:
         start = allocate_next_sequence(target_namespace, len(changed), now)
@@ -52,4 +66,7 @@ def reassign_naming_for_move(rows, target_namespace, now):
             naming, _ = GenerationNaming.objects.update_or_create(generation_id=row.id,
                 defaults={'namespace': target_namespace, 'sequence': start + offset, 'assigned_at': now})
             assignments.append(assignment_json(naming))
+    if target_namespace.startswith('folder:'):
+        from apps.generation.models import Generation
+        freeze_names(Generation.objects.filter(pk__in=[r.id for r in rows], permanent_name__isnull=True))
     return {'reallocatedCount': len(changed), 'preservedCount': len(rows) - len(changed), 'assignments': assignments}

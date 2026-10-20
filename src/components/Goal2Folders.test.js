@@ -113,3 +113,26 @@ test("inline editor permits one pending commit and explicitly retries failure", 
     await act(async () => reject(new Error("Offline")));
   });
 });
+
+test("non-admin folder drags remain enabled when dragover hides payload data, while generation drops are disabled", async () => {
+  await withDom(async ({ dom, render }) => {
+    const folders = [{ id: 'target', name: 'Target', children: [] }];
+    localStorage.setItem('veevee_folders_expanded:actor', 'true');
+    useStore.setState({ currentUser: { id: 'actor', role: 'user' }, activeFolderId: null, activeProjectId: null,
+      libraryTree: { globalFolders: folders, projects: [] }, counts: {}, operations: {} });
+    for (const component of [React.createElement(FolderTree, { folders, onSelectFolder() {} }), React.createElement(ChildFolderList)]) {
+      await render(component);
+      const target = document.querySelector('[role="treeitem"]') || document.querySelector('[data-testid="child-folder-list"] [role="button"]');
+      assert.ok(target);
+      for (const [type, expected] of [['application/x-veevee-folder', 'move'], ['application/x-veevee-assets', 'none']]) {
+        // Browsers expose types during dragover but keep getData protected until drop.
+        const dataTransfer = { types: [type], getData: () => '', dropEffect: 'none' };
+        const event = new dom.window.Event('dragover', { bubbles: true, cancelable: true });
+        Object.defineProperty(event, 'dataTransfer', { value: dataTransfer });
+        await act(async () => target.dispatchEvent(event));
+        assert.equal(dataTransfer.dropEffect, expected);
+      }
+      await render(null);
+    }
+  });
+});

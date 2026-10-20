@@ -91,12 +91,12 @@ def batch_resolve_generation_filenames(generation_ids):
         return {}
     # Fetch only naming inputs and keep absent legacy naming records visible.
     with connection.cursor() as cursor:
-        cursor.execute('''SELECT g.id,g.kind,g.url,g.project_id,g.folder_id,n.namespace,n.sequence
+        cursor.execute('''SELECT g.id,g.kind,g.url,g.project_id,g.folder_id,n.namespace,n.sequence,g.permanent_name
             FROM generations g LEFT JOIN generation_naming n ON n.generation_id=g.id
             WHERE g.id = ANY(%s::uuid[])''', [identifiers])
         generations = cursor.fetchall()
     folders = {}
-    pending = {row[4] for row in generations if row[4]}
+    pending = {row[4] for row in generations if row[4] and not row[7]}
     while pending:
         rows = list(Folder.objects.filter(id__in=pending).values('id','parent_id','name'))
         pending = set()
@@ -106,7 +106,7 @@ def batch_resolve_generation_filenames(generation_ids):
                 if row['parent_id'] and row['parent_id'] not in folders:
                     pending.add(row['parent_id'])
     result = {}
-    for identifier, kind, url, project_id, folder_id, namespace, sequence in generations:
+    for identifier, kind, url, project_id, folder_id, namespace, sequence, permanent_name in generations:
         namespace = namespace or (f'folder:{folder_id}' if folder_id else
                                   f'project_unsorted:{project_id}' if project_id else 'global_unsorted')
         sequence = sequence or 1
@@ -118,7 +118,7 @@ def batch_resolve_generation_filenames(generation_ids):
             current = folders.get(current['parent_id'])
         identifier = str(identifier)
         result[identifier] = {'generationId':identifier,
-            'filename':resolve_generation_filename(ancestry, namespace, sequence, kind, url),
+            'filename':(permanent_name + '.' + resolve_extension(kind, url)) if permanent_name else resolve_generation_filename(ancestry, namespace, sequence, kind, url),
             'namespace':namespace, 'sequence':sequence,
             'extension':resolve_extension(kind, url)}
     return result

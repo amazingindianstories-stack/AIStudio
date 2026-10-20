@@ -23,4 +23,4 @@ class PortraitGalleryRouteTests(SimpleTestCase):
 
     def test_launchers_accept_the_migration_counts_before_and_after_each_portrait_migration(self):
         from deploy import legacy_config
-        self.assertEqual(legacy_config.MIGRATION_ROWS, (60, 61, 62))
+        self.assertEqual(legacy_config.MIGRATION_ROWS, (60, 61, 62, 63))

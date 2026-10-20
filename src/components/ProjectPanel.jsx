@@ -37,6 +37,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
   const activeFolderId = useStore((s) => s.activeFolderId);
   const libraryTree = useStore((s) => s.libraryTree);
   const items = useStore((s) => s.items);
+  const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const loading = useStore((s) => s.loading);
   const counts = useStore((s) => s.counts);
   const search = useStore((s) => s.search);
@@ -82,6 +83,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
 
   const isRootDropValid = (dest, e) => {
     const isFolder = isFolderDragEvent(e) || Boolean(getFolderDragData(e));
+    if (!isFolder && !isAdmin) return false;
     if (isFolder) {
       if (dest.type === "global_unsorted" || dest.type === "project_unsorted") {
         return false;
@@ -125,7 +127,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
     setDragOverValid(true);
 
     if (!isRootDropValid(dest, e)) {
-      notify("Folders cannot be moved into Unsorted.");
+      if (getFolderDragData(e)) notify("Folders cannot be moved into Unsorted.");
       return;
     }
 

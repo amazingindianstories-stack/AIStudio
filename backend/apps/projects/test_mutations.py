@@ -37,6 +37,9 @@ class ProjectMutationTests(TransactionTestCase):
         self.assertEqual((response.status_code, response.json()['code']), (400, 'PROJECT_NOT_EMPTY'))
         renamed = self.post({'op': 'renameFolder', 'projectId': str(project.id), 'folderId': folder['id'], 'name': 'New'}).json()
         self.assertEqual(renamed['projects'][0]['folders'][0]['name'], 'New')
+        self.assertEqual(self.post({'op': 'deleteFolder', 'projectId': str(project.id), 'folderId': folder['id']}).status_code, 403)
+        from apps.authentication.models import User
+        User.objects.filter(pk='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').update(role='admin')
         self.assertEqual(self.post({'op': 'deleteFolder', 'projectId': str(project.id), 'folderId': folder['id']}).json()['projects'][0]['folders'], [])
         Generation.objects.create(kind='image', status='done', prompt='', model='fixture', aspect_ratio='1:1', project=project, created_at=1, updated_at=1)
         response = self.post({'op': 'deleteProject', 'projectId': str(project.id)})

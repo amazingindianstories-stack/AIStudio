@@ -1371,7 +1371,14 @@ export const useStore = create((set, get) => ({
     }
   },
 
+  deleteGenerations: async (ids) => {
+    if (get().currentUser?.role !== "admin") throw new Error("Only admins can delete generations.");
+    const results = await Promise.all(ids.map((id) => get().removeItem(id)));
+    return results.every((result) => result?.ok);
+  },
+
   removeItem: async (id) => {
+    if (get().currentUser?.role !== "admin") throw new Error("Only admins can delete generations.");
     // Captured before the optimistic drop below, so a failed delete has
     // something to restore — dropEverywhere removes the row from every pool
     // it might be in, not just `items`.
@@ -2360,6 +2367,7 @@ export const useStore = create((set, get) => ({
   },
 
   deleteFolder: async (arg1, arg2, customIdempotencyKey) => {
+    if (get().currentUser?.role !== "admin") throw new Error("Only admins can delete folders.");
     let folderId, projectId, idempotencyKey;
     if (typeof arg1 === "object" && arg1 !== null) {
       ({ folderId, projectId, idempotencyKey } = arg1);
@@ -2432,6 +2440,7 @@ export const useStore = create((set, get) => ({
   },
 
   moveGenerationsToDestination: async (ids, destination, expectedVersions = undefined, customIdempotencyKey = undefined) => {
+    if (get().currentUser?.role !== "admin") throw new Error("Only admins can move generations.");
     if (!Array.isArray(ids) || ids.length === 0 || !destination) return false;
     const expVers = expectedVersions ? { ...expectedVersions } : {};
     if (!expectedVersions) {

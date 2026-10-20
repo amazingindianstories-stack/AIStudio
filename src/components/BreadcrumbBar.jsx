@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { askConfirm } from "@/lib/ask-text";
 
 export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
+  const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeFolderId = useStore((s) => s.activeFolderId);
   const libraryTree = useStore((s) => s.libraryTree);
@@ -256,8 +257,8 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
                     <span>Move folder</span>
                   </MenuItem>
                 )}
-                <div className="my-1 h-px bg-line" />
-                <MenuItem
+                {isAdmin && <div className="my-1 h-px bg-line" />}
+                {isAdmin && (<MenuItem
                   onClick={() => {
                     close();
                     handleDelete();
@@ -266,7 +267,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
                 >
                   <Trash2 className="h-3.5 w-3.5 text-red-400" />
                   <span>Delete folder</span>
-                </MenuItem>
+                </MenuItem>)}
               </div>
             )}
           </Dropdown>

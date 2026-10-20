@@ -1,5 +1,7 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EXPORT_POLL_MAX_MS, exportPollDelay } from "@/lib/poll-schedule";
 import {
@@ -47,6 +49,7 @@ const ZOOM_MAX = 260;
 const ACTIVE_EXPORT_KEY = "veevee-active-media-export-v1";
 
 export function HistoryPanel() {
+  const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const actorId = useStore((s) => s.currentUser?.id);
   const items = useStore((s) => s.items);
   const loading = useStore((s) => s.loading);
@@ -538,9 +541,9 @@ export function HistoryPanel() {
         </div>
         <div data-testid="sticky-unsorted-rail" className="shrink-0 border-t border-line bg-ink-850 p-2">
           <button type="button" aria-label={`${project?.name || "Global"} Unsorted`} onClick={() => { setRightTab("project"); setBriefView(false); setActiveFolder(UNSORTED); }}
-            onDragOver={(e) => { e.preventDefault(); const valid = !isFolderDragEvent(e); e.dataTransfer.dropEffect = valid ? "move" : "none"; setUnsortedDrop(valid); }}
+            onDragOver={(e) => { e.preventDefault(); const valid = isAdmin && !isFolderDragEvent(e); e.dataTransfer.dropEffect = valid ? "move" : "none"; setUnsortedDrop(valid); }}
             onDragLeave={() => setUnsortedDrop(false)}
-            onDrop={(e) => { e.preventDefault(); setUnsortedDrop(false); if (isFolderDragEvent(e)) return; const { ids } = getAssetDragData(e, useStore.getState()); if (!ids.length) return; setFolderDropError(""); void moveGenerationsToDestination(ids, activeProjectId ? { type: "project_unsorted", projectId: activeProjectId } : { type: "global_unsorted" }).catch((err) => setFolderDropError(err.message)); }}
+            onDrop={(e) => { e.preventDefault(); setUnsortedDrop(false); if (!isAdmin || isFolderDragEvent(e)) return; const { ids } = getAssetDragData(e, useStore.getState()); if (!ids.length) return; setFolderDropError(""); void moveGenerationsToDestination(ids, activeProjectId ? { type: "project_unsorted", projectId: activeProjectId } : { type: "global_unsorted" }).catch((err) => setFolderDropError(err.message)); }}
             className={cn("flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-white/70", activeFolderId === UNSORTED && rightTab === "project" && "bg-brand/15 text-white", unsortedDrop && "ring-1 ring-brand bg-brand/20")}>
             <Inbox className="h-4 w-4" /><span className="flex-1 text-left">Unsorted</span><span>{activeProjectId ? counts.project?.unsorted ?? 0 : counts.globalLibrary?.unsorted ?? 0}</span>
           </button>
@@ -607,15 +610,15 @@ export function HistoryPanel() {
           </div>
         </div>
 
-        {/* ── ROW 2: ASSET COMMAND BAR WITH IN-PLACE CONTEXTUAL SELECTION (~44px high) ── */}
+        {/* Asset command bar: selection actions wrap within narrow library panels. */}
         {selectedIds.length > 0 ? (
-          /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same h-11) */
+          /* Keep every action reachable at narrow panel widths. */
           <div
             data-testid="selection-toolbar"
-            className="flex h-11 shrink-0 items-center justify-between border-b border-line bg-ink-800/90 px-4 text-xs select-none"
+            className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line bg-ink-800/90 px-3 py-2 text-xs select-none"
           >
             {/* Left: Select all & count */}
-            <div className="flex items-center gap-3">
+            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
               <button
                 type="button"
                 onClick={() => (allSelected ? clearSelection() : selectAll(itemIds))}
@@ -642,7 +645,7 @@ export function HistoryPanel() {
             </div>
 
             {/* Right: Contextual actions */}
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
               <button
                 type="button"
                 onClick={downloadSelectedZip}
@@ -658,7 +661,7 @@ export function HistoryPanel() {
                 <span>Download ZIP</span>
               </button>
 
-              <button
+              {isAdmin && (<button
                 type="button"
                 onClick={() => setMoveModalOpen(true)}
                 className="flex items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1 font-semibold text-brand transition hover:bg-brand/30"
@@ -666,10 +669,10 @@ export function HistoryPanel() {
               >
                 <Move className="h-3.5 w-3.5" />
                 <span>Move</span>
-              </button>
+              </button>)}
 
               {/* More Actions Dropdown */}
-              <Dropdown
+              {isAdmin && (<Dropdown
                 align="right"
                 label="More actions"
                 trigger={(open) => (
@@ -704,7 +707,8 @@ export function HistoryPanel() {
                         if (
                           await askConfirm({ title: `Delete ${selectedIds.length} ${selectedIds.length === 1 ? "item" : "items"}?`, description: "This can't be undone.", confirmLabel: "Delete", destructive: true })
                         ) {
-                          deleteGenerations(selectedIds);
+                          try { await deleteGenerations(selectedIds); }
+                          catch (err) { notify(err.message || "Failed to delete items."); }
                         }
                       }}
                       className="text-red-400 hover:text-red-300"
@@ -714,7 +718,7 @@ export function HistoryPanel() {
                     </MenuItem>
                   </div>
                 )}
-              </Dropdown>
+              </Dropdown>)}
 
               {/* Clear Selection */}
               <button

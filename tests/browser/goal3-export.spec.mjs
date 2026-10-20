@@ -55,7 +55,7 @@ test('Goal3 ZIP actual Chromium download preserves exact nested scopes, CRC and 
         SELECT ${id},kind,status,${prefix},model,aspect_ratio,url,${project.id},${leaf.id},user_id,${Date.now()},${Date.now()}
         FROM generations WHERE id='20000000-0000-4000-8000-000000000001'`;
       await db`UPDATE generation_naming SET namespace=${`folder:${leaf.id}`},sequence=7 WHERE generation_id=${id}`;
-      expected[`Projects/${project.name}/Scene 01/Shot 02/Shot_02_0007.mov`] = process.env.E2E_MOV_SHA256;
+      expected[`Projects/${project.name}/Scene 01/Shot 02/Scene_01_Shot_02_0007.mov`] = process.env.E2E_MOV_SHA256;
     }
     const globalId = '10000000-0000-4000-8000-000000000000';
     const globalNaming = (await db`SELECT sequence FROM generation_naming WHERE generation_id=${globalId}`)[0];

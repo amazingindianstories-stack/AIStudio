@@ -16,7 +16,10 @@ def persist_audio_intent(fields):
     ledger inside the same transaction (the worker role sees only registered
     rows), so callers must go through this module attribute.
     """
-    return Generation.objects.create(**fields)
+    from apps.library.services.naming import assign_generation_naming
+    row = Generation.objects.create(**fields)
+    assign_generation_naming(row.id, row.folder_id, row.project_id, row.created_at)
+    return row
 
 
 def transcribe_claimed(claimed, provider, encoded, mime, model, *, signal):

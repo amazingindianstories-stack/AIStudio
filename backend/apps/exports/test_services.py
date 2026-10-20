@@ -88,7 +88,7 @@ class ExportServicesTests(TransactionTestCase):
         job = self.queued([first, second])
         paths = list(MediaExportItem.objects.filter(export=job).values_list('filename', flat=True))
         self.assertEqual(len(set(path.casefold() for path in paths)), 2)
-        self.assertTrue(all(path.startswith('Global/Unsorted/unsorted_0001_') for path in paths))
+        self.assertTrue(all(path.startswith('Global/Unsorted/') and path.endswith('/unsorted_0001.png') for path in paths))
 
     def test_concurrent_append_is_ordered_once_and_finalize_single_winner(self):
         generations = [self.generation() for _ in range(8)]

@@ -63,7 +63,7 @@ const test = base.extend({
     if (await page.locator('button[aria-controls="desktop-history-panel"]').getAttribute("aria-expanded") !== "true") await page.locator('button[aria-controls="desktop-history-panel"]').click();
     await panel.getByRole("button", { name: "Global library", exact: true }).click();
     await expect(panel.getByRole("button", { name: "+ New folder" })).toBeVisible();
-    try { await provideFixture({ db, prefix, project, otherProject, globalRoot, projectRoot, globalChild, projectChild, createFolder, navigate, panel }); }
+    try { await provideFixture({ db, userId, prefix, project, otherProject, globalRoot, projectRoot, globalChild, projectChild, createFolder, navigate, panel }); }
     finally {
       // Delete only this fixture's records, including folders created through real UI buttons.
       // Under the pool lock, so the scheduler cannot pin an upload between the two deletes.
@@ -528,3 +528,28 @@ test("switching a project context to Global library creates and selects a global
   await expect(nav).not.toContainText(library.project.name);
 });
 
+
+for (const role of ['user', 'admin']) {
+  test(`library permissions: ${role} folder menus preserve rename and move, restrict delete`, async ({ page, library }) => {
+    await library.db`UPDATE users SET role=${role} WHERE id=${library.userId}`;
+    await page.reload();
+    await expect(page.getByRole('button', { name: new RegExp(library.prefix) }).first()).toBeVisible();
+    const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+    await library.navigate('global');
+    const panel = library.panel;
+    for (const entry of ['card', 'tree', 'breadcrumb']) {
+      if (entry === 'breadcrumb') {
+        await openTreeFolder(panel, library.globalRoot.name);
+        await panel.getByRole('button', { name: 'Current folder actions' }).click();
+      } else {
+        await panel.getByRole('button', { name: `${entry === 'tree' ? 'Tree' : 'Card'} folder actions: ${library.globalRoot.name}`, exact: true }).click();
+      }
+      await expect(page.getByRole('menuitem', { name: /Rename/ })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: /Move/ })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: /^Delete/ })).toHaveCount(role === 'admin' ? 1 : 0);
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('menuitem')).toHaveCount(0);
+    }
+  });
+}

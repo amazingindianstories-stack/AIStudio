@@ -253,6 +253,14 @@ class EnqueueContractTests(TransactionTestCase):
     def test_repeated_finalize_reuses_an_in_flight_final(self):
         self.cookie()
         source=self.row(user_id=session_fixtures.UID)
+        from apps.library.services.folder_engine import create_folder
+        from apps.library.services.naming import assign_generation_naming
+        folder = create_folder(name='Scene')
+        Generation.objects.filter(pk=source.id).update(folder_id=folder['id'])
+        source.refresh_from_db()
+        assign_generation_naming(source.id, source.folder_id)
+        source.refresh_from_db()
+        source_name = source.permanent_name
         first=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
         self.assertEqual(first.status_code,200,first.content)
         with patch('apps.generation.enqueue_views.enqueue.build_final') as build:
@@ -260,6 +268,11 @@ class EnqueueContractTests(TransactionTestCase):
             build.assert_not_called()
         self.assertEqual(second.status_code,200)
         self.assertEqual(second.json()['id'],first.json()['id'])
+        frozen = Generation.objects.get(pk=first.json()['id']).permanent_name
+        self.assertTrue(frozen)
+        self.assertNotEqual(frozen, source_name)
+        self.assertEqual(Generation.objects.get(pk=second.json()['id']).permanent_name, frozen)
+        self.assertEqual(Generation.objects.get(pk=source.id).permanent_name, source_name)
         self.assertEqual(Generation.objects.filter(source_generation_id=source.id).count(),1)
         # Once the final has finished (stored or failed), finalizing again is a deliberate new render.
         for finished in ('succeeded','failed'):
