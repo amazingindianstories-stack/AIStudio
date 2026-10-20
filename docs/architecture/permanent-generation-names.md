@@ -12,7 +12,7 @@ Individual downloads and new ZIP media leaves use the canonical name. New ZIP di
 
 Before release, run `backend/manage.py audit_generation_names` against an approved database copy using the isolated test environment. The read-only JSON report provides the number of backfill rows, nested-folder rows whose new ZIP media leaf changes to match the existing individual download name, existing frozen export disagreements, and the groups of existing generations that share a name with their counts. Production counts require a separately authorized copy and are not inferred from synthetic fixtures.
 
-The upgrade test rehearses the previous migration state with nested folders, missing naming records, existing counters and frozen export manifests. Fresh-database tests apply the complete graph. Schema rollback removes the field and restores the old location-coupled naming function, so it does not retain permanent-name behavior; a release rollback should keep this additive migration and roll back compatible code only.
+The upgrade test rehearses the previous migration state with nested folders, missing naming records, existing counters and frozen export manifests. Fresh-database tests apply the complete graph. Schema rollback removes the fields, the unique index and the protection trigger and restores the old location-coupled naming function, so it does not retain permanent-name behavior; a release rollback should keep these additive migrations and roll back compatible code only.
 
 ## Authorization
 
