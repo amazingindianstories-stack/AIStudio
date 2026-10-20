@@ -56,13 +56,14 @@ def names_in_use(names):
 
 def freeze_names(generations, now=None):
     from apps.generation.models import Generation
-    from apps.library.filenames import (MAX_EXTENSION_BYTES, batch_resolve_generation_filenames, bound_filename,
-                                        format_serial, resolve_extension)
+    from apps.library.filenames import (MAX_EXTENSION_BYTES, bound_filename, format_serial, name_prefix,
+                                        naming_rows, resolve_extension)
     generations = sorted((row for row in generations if not row.permanent_name), key=lambda row: str(row.id))
-    resolved = batch_resolve_generation_filenames([row.id for row in generations])
+    prefixes = {identifier: name_prefix(ancestry, namespace)
+                for identifier, _, _, namespace, _, _, ancestry in naming_rows([row.id for row in generations])}
     groups = {}
     for row in generations:
-        prefix = resolved[str(row.id)]['prefix']
+        prefix = prefixes[str(row.id)]
         groups.setdefault(prefix.lower(), []).append((row, prefix))
     for key in sorted(groups):
         pending = groups[key]

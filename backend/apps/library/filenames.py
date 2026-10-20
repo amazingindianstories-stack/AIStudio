@@ -89,12 +89,13 @@ def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequ
                           resolve_extension(kind, url, media_key, content_type), reserved_extension_bytes)
 
 
-def batch_resolve_generation_filenames(generation_ids):
+def naming_rows(generation_ids):
+    """Naming inputs per generation: (id, kind, url, namespace, sequence, permanent_name, ancestry)."""
     from django.db import connection
     from .models import Folder
     identifiers = list(dict.fromkeys(str(value) for value in generation_ids if value))
     if not identifiers:
-        return {}
+        return []
     # Fetch only naming inputs and keep absent legacy naming records visible.
     with connection.cursor() as cursor:
         cursor.execute('''SELECT g.id,g.kind,g.url,g.project_id,g.folder_id,n.namespace,n.sequence,g.permanent_name
@@ -111,7 +112,7 @@ def batch_resolve_generation_filenames(generation_ids):
                 folders[row['id']] = row
                 if row['parent_id'] and row['parent_id'] not in folders:
                     pending.add(row['parent_id'])
-    result = {}
+    result = []
     for identifier, kind, url, project_id, folder_id, namespace, sequence, permanent_name in generations:
         namespace = namespace or (f'folder:{folder_id}' if folder_id else
                                   f'project_unsorted:{project_id}' if project_id else 'global_unsorted')
@@ -122,11 +123,16 @@ def batch_resolve_generation_filenames(generation_ids):
             visited.add(current['id'])
             ancestry.insert(0, current)
             current = folders.get(current['parent_id'])
-        identifier = str(identifier)
+        result.append((str(identifier), kind, url, namespace, sequence, permanent_name, ancestry))
+    return result
+
+
+def batch_resolve_generation_filenames(generation_ids):
+    result = {}
+    for identifier, kind, url, namespace, sequence, permanent_name, ancestry in naming_rows(generation_ids):
         result[identifier] = {'generationId':identifier,
             'filename':(permanent_name + '.' + resolve_extension(kind, url)) if permanent_name else resolve_generation_filename(
                 ancestry, namespace, sequence, kind, url, reserved_extension_bytes=0 if url else MAX_EXTENSION_BYTES),
             'namespace':namespace, 'sequence':sequence,
-            'prefix':None if permanent_name else name_prefix(ancestry, namespace),
             'extension':resolve_extension(kind, url)}
     return result
