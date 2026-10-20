@@ -432,19 +432,28 @@ test('Goal2 hover side arrows shift neighbours without overlap and thumbnail dra
   await page.mouse.move(10, 10);
   const firstCard = page.locator('[data-reference-id]').first();
   const secondCard = page.locator('[data-reference-id]').nth(1);
-  await expect(firstCard).toHaveAttribute('data-arrows-visible', 'false');
+  const rightArrow = page.getByRole('button', { name: 'Move reference 1 right', exact: true });
+  const arrowWidth = () => rightArrow.evaluate((el) => el.getBoundingClientRect().width);
+  await expect.poll(arrowWidth).toBe(0);
   const secondBefore = await secondCard.boundingBox();
   await firstCard.hover();
-  await expect(firstCard).toHaveAttribute('data-arrows-visible', 'true');
-  const rightArrow = page.getByRole('button', { name: 'Move reference 1 right', exact: true });
+  await expect.poll(arrowWidth).toBeGreaterThan(10);
   const arrowBox = await rightArrow.boundingBox();
   const thumbBox = await firstCard.locator('[data-reference-preview]').boundingBox();
   const secondAfter = await secondCard.boundingBox();
-  expect(arrowBox.width).toBeGreaterThan(10);
   // Right arrow sits outside the right edge of the thumbnail and shifts the second card right with no overlap.
   expect(arrowBox.x).toBeGreaterThanOrEqual(thumbBox.x + thumbBox.width - 2);
   expect(secondAfter.x).toBeGreaterThan(secondBefore.x + 15);
   expect(secondAfter.x).toBeGreaterThanOrEqual(arrowBox.x + arrowBox.width - 1);
+  await page.mouse.move(10, 10);
+  await expect.poll(arrowWidth).toBe(0);
+  expect((await secondCard.boundingBox()).x).toBeCloseTo(secondBefore.x, 0);
+  // Keyboard focus on the card reveals the same arrows and makes the same room; blurring hides them.
+  await firstCard.locator('[data-reference-preview]').focus();
+  await expect.poll(arrowWidth).toBeGreaterThan(10);
+  expect((await secondCard.boundingBox()).x).toBeGreaterThan(secondBefore.x + 15);
+  await page.evaluate(() => document.activeElement?.blur());
+  await expect.poll(arrowWidth).toBe(0);
   const strip = page.getByTestId('reference-strip');
   await strip.hover();
   await page.mouse.wheel(400, 0);
@@ -666,11 +675,10 @@ test('Goal2 composer inline reference strip dividers blue tags zoomable preview 
 
   // Verify hover outside side arrows have no background and shift neighbouring thumbnails without overlap
   await page.mouse.move(10, 10);
-  await expect(firstCard).toHaveAttribute('data-arrows-visible', 'false');
+  const rightArrow = page.getByRole('button', { name: 'Move reference 1 right', exact: true });
+  await expect.poll(() => rightArrow.evaluate((el) => el.getBoundingClientRect().width)).toBe(0);
   const secondBefore = await secondCard.boundingBox();
   await firstCard.hover();
-  await expect(firstCard).toHaveAttribute('data-arrows-visible', 'true');
-  const rightArrow = page.getByRole('button', { name: 'Move reference 1 right', exact: true });
   const arrowStyle = await rightArrow.evaluate((el) => {
     const cs = window.getComputedStyle(el);
     return { bg: cs.backgroundColor, width: el.getBoundingClientRect().width };

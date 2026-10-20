@@ -253,3 +253,45 @@ test("AssetLightbox downloads composer references under their native container e
     dom.window.close();
   }
 });
+
+test("AssetLightbox leaves video and audio previews to their native controls instead of zooming them", async () => {
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
+  const keys = ["window", "document", "HTMLElement", "requestAnimationFrame", "cancelAnimationFrame", "React", "IS_REACT_ACT_ENVIRONMENT"];
+  const previous = Object.fromEntries(keys.map((key) => [key, globalThis[key]]));
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    React,
+    IS_REACT_ACT_ENVIRONMENT: true,
+    requestAnimationFrame: (fn) => setTimeout(fn, 0),
+    cancelAnimationFrame: clearTimeout,
+  });
+  const root = createRoot(document.querySelector("#root"));
+  try {
+    for (const mediaType of ["video", "audio"]) {
+      const asset = { id: mediaType, name: mediaType, tag: `@${mediaType}1`, kind: mediaType, mediaType, isComposerReference: true, image: `/${mediaType}.bin` };
+      await act(async () => root.render(React.createElement(AssetLightbox, { asset, assets: [asset], onClose() {} })));
+      const stage = document.querySelector('[data-testid="lightbox-stage"]');
+      assert.equal(document.querySelector('[data-testid="lightbox-zoom-in"]'), null, `${mediaType} shows no zoom controls`);
+      const wheel = new dom.window.WheelEvent("wheel", { deltaY: -120, bubbles: true, cancelable: true });
+      const plus = new dom.window.KeyboardEvent("keydown", { key: "+", bubbles: true, cancelable: true });
+      await act(async () => {
+        stage.dispatchEvent(wheel);
+        document.dispatchEvent(plus);
+        stage.dispatchEvent(new dom.window.MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+      });
+      assert.equal(wheel.defaultPrevented, false, `${mediaType} wheel is not captured for zoom`);
+      assert.equal(plus.defaultPrevented, false, `${mediaType} + key is not captured for zoom`);
+      assert.equal(stage.getAttribute("data-zoom"), "1");
+      const down = new dom.window.MouseEvent("pointerdown", { button: 0, clientX: 10, clientY: 10, bubbles: true, cancelable: true });
+      await act(async () => document.querySelector(mediaType).dispatchEvent(down));
+      assert.equal(down.defaultPrevented, false, `${mediaType} controls receive their own pointer input`);
+    }
+  } finally {
+    await act(async () => root.unmount());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    Object.assign(globalThis, previous);
+    dom.window.close();
+  }
+});

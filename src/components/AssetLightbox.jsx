@@ -79,6 +79,8 @@ export function AssetLightbox({
   const dialogRef = useRef(null);
 
   const isZoomed = zoom > DEFAULT_LIGHTBOX_ZOOM;
+  const mediaType = asset?.mediaType || "image";
+  const zoomable = mediaType === "image";
 
   const applyZoom = useCallback((nextZoomOrUpdater) => {
     setZoom((prev) => {
@@ -114,8 +116,8 @@ export function AssetLightbox({
     }
   }, [hasNext, onSelectAsset, assets, currentIndex, resetZoom]);
 
-  const handlersRef = useRef({ onClose, goToPrev, goToNext, applyZoom, resetZoom, returnFocusEl });
-  handlersRef.current = { onClose, goToPrev, goToNext, applyZoom, resetZoom, returnFocusEl };
+  const handlersRef = useRef({ onClose, goToPrev, goToNext, applyZoom, resetZoom, returnFocusEl, zoomable });
+  handlersRef.current = { onClose, goToPrev, goToNext, applyZoom, resetZoom, returnFocusEl, zoomable };
 
   // The inspector owns its focus while open; portal confirmations own theirs.
   useEffect(() => {
@@ -132,9 +134,9 @@ export function AssetLightbox({
       if (event.defaultPrevented || childModalOpen()) return;
       const h = handlersRef.current;
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); h.onClose?.(); }
-      else if (event.key === "+" || event.key === "=") { event.preventDefault(); h.applyZoom((z) => stepLightboxZoom(z, 1)); }
-      else if (event.key === "-" || event.key === "_") { event.preventDefault(); h.applyZoom((z) => stepLightboxZoom(z, -1)); }
-      else if (event.key === "0") { event.preventDefault(); h.resetZoom(); }
+      else if (h.zoomable && (event.key === "+" || event.key === "=")) { event.preventDefault(); h.applyZoom((z) => stepLightboxZoom(z, 1)); }
+      else if (h.zoomable && (event.key === "-" || event.key === "_")) { event.preventDefault(); h.applyZoom((z) => stepLightboxZoom(z, -1)); }
+      else if (h.zoomable && event.key === "0") { event.preventDefault(); h.resetZoom(); }
       else if (event.key === "ArrowLeft") { event.preventDefault(); h.goToPrev(); }
       else if (event.key === "ArrowRight") { event.preventDefault(); h.goToNext(); }
       else if (event.key === "Tab") {
@@ -168,19 +170,18 @@ export function AssetLightbox({
   // Prevent browser page-zoom when pinching on the stage
   useEffect(() => {
     const stage = containerRef.current;
-    if (!stage) return undefined;
+    if (!stage || !zoomable) return undefined;
     const handleNativeWheel = (e) => {
       e.preventDefault();
       applyZoom((z) => computeWheelZoom(z, e.deltaY, e.ctrlKey || e.metaKey, e.deltaMode));
     };
     stage.addEventListener("wheel", handleNativeWheel, { passive: false });
     return () => stage.removeEventListener("wheel", handleNativeWheel);
-  }, [asset?.id, applyZoom]);
+  }, [asset?.id, applyZoom, zoomable]);
 
   if (!asset) return null;
 
   const imageUrl = asset.images?.[0] || asset.image || "";
-  const mediaType = asset.mediaType || "image";
   const Icon = mediaType === "video"
     ? Clapperboard
     : mediaType === "audio"
@@ -326,7 +327,7 @@ export function AssetLightbox({
           )}
 
           {/* Dynamic Zoom Controls */}
-          <div className="flex items-center rounded-lg border border-white/15 bg-ink-800 p-0.5">
+          {zoomable && <div className="flex items-center rounded-lg border border-white/15 bg-ink-800 p-0.5">
             <button
               type="button"
               aria-label="Zoom out"
@@ -359,7 +360,7 @@ export function AssetLightbox({
             >
               <ZoomIn className="h-3.5 w-3.5" />
             </button>
-          </div>
+          </div>}
 
           {/* Download Button */}
           {imageUrl && (
@@ -445,10 +446,11 @@ export function AssetLightbox({
           data-zoom={zoom}
           data-pan-x={Math.round(pan.x)}
           data-pan-y={Math.round(pan.y)}
-          className={`relative flex h-full max-h-[78dvh] w-full select-none items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-ink-950 p-2 shadow-2xl ring-1 ring-white/10 touch-none ${
-            isZoomed ? (isPanning ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in"
+          className={`relative flex h-full max-h-[78dvh] w-full select-none items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-ink-950 p-2 shadow-2xl ring-1 ring-white/10 ${
+            !zoomable ? "" : isZoomed ? (isPanning ? "touch-none cursor-grabbing" : "touch-none cursor-grab") : "touch-none cursor-zoom-in"
           }`}
           onDoubleClick={(e) => {
+            if (!zoomable) return;
             e.preventDefault();
             if (isZoomed) resetZoom();
             else applyZoom(2);
@@ -540,7 +542,7 @@ export function AssetLightbox({
               {currentIndex + 1} of {assets.length}
             </span>
           )}
-          {!embedded && <span className="hidden sm:inline">Scroll/Pinch/Double-click/+/-/0 Zoom · Drag to Pan · Esc Close</span>}
+          {!embedded && <span className="hidden sm:inline">{zoomable ? "Scroll/Pinch/Double-click/+/-/0 Zoom · Drag to Pan · Esc Close" : "Esc Close"}</span>}
         </div>
 
         <div className="flex min-w-0 flex-wrap items-center gap-2">

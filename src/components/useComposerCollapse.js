@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 
 export function shouldCollapseComposer({
@@ -48,28 +48,28 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
   };
   const collapseIfIdleRef = useRef(collapseIfIdle);
   collapseIfIdleRef.current = collapseIfIdle;
+  const [pointerListeners] = useState(() => ({
+    enter: () => { hasPointerRef.current = true; },
+    leave: () => {
+      hasPointerRef.current = false;
+      collapseIfIdleRef.current();
+    },
+  }));
 
   // Native boundary events follow the DOM, so the pointer counts as outside while it is over a
   // portaled menu or preview and stays outside once that portal unmounts beneath it. React's
   // synthetic mouseleave follows the component tree and misses both.
-  useEffect(() => {
-    const root = ref.current;
-    if (!root) return undefined;
-    const enter = () => { hasPointerRef.current = true; };
-    const leave = () => {
-      hasPointerRef.current = false;
-      collapseIfIdleRef.current();
-    };
-    root.addEventListener("mouseenter", enter);
-    root.addEventListener("mouseleave", leave);
-    return () => {
-      root.removeEventListener("mouseenter", enter);
-      root.removeEventListener("mouseleave", leave);
-    };
-  }, []);
+  const shellRef = useCallback((node) => {
+    ref.current?.removeEventListener("mouseenter", pointerListeners.enter);
+    ref.current?.removeEventListener("mouseleave", pointerListeners.leave);
+    ref.current = node;
+    hasPointerRef.current = false;
+    node?.addEventListener("mouseenter", pointerListeners.enter);
+    node?.addEventListener("mouseleave", pointerListeners.leave);
+  }, [pointerListeners]);
 
   const shellProps = {
-    ref,
+    ref: shellRef,
     "data-composer-collapsed": collapsed ? "true" : "false",
     onFocusCapture: (e) => {
       const tag = e.target?.tagName;
@@ -91,11 +91,12 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
     inputRef.current?.click();
   };
 
-  const collapseAfterSend = () => {
+  const collapseOnSend = () => {
     hasPointerRef.current = false;
     if (ref.current?.contains(document.activeElement)) document.activeElement.blur?.();
     setCollapsed(true);
   };
+  const expand = () => setCollapsed(false);
 
-  return { collapsed, shellProps, openFilePicker, collapseAfterSend };
+  return { collapsed, shellProps, openFilePicker, collapseOnSend, expand };
 }

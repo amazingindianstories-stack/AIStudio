@@ -137,12 +137,13 @@ export function PromptComposer() {
   const [dragNotice, setDragNotice] = useState(null);
   const dragNoticeTimerRef = useRef(null);
 
-  const { collapsed, shellProps: collapseProps, openFilePicker, collapseAfterSend } = useComposerCollapse({ overlayOpen: pickingClips, dragging });
+  const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, expand } = useComposerCollapse({ overlayOpen: pickingClips, dragging });
 
   const handleSubmitPrompt = async () => {
     if (uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength) return;
+    collapseOnSend();
     const created = await s.generate();
-    if (Array.isArray(created) ? created.length > 0 : Boolean(created)) collapseAfterSend();
+    if (!(Array.isArray(created) ? created.length > 0 : Boolean(created))) expand();
   };
 
   const showDragNotice = (type, message) => {
@@ -563,7 +564,7 @@ export function PromptComposer() {
           </motion.div>
         )}
       </AnimatePresence>
-      {pickingClips && <VideoRefPicker onClose={() => setPickingClips(false)} />}
+      {pickingClips && createPortal(<VideoRefPicker onClose={() => setPickingClips(false)} />, document.body)}
 
       <div role="status" aria-live="polite" aria-atomic="true">
         {uploading && (
@@ -1468,6 +1469,9 @@ function resolveReferencePreviewUrl(src, portraitAssets = []) {
 }
 
 const TOUCH_LONG_PRESS_MS = 350;
+// Side arrows take no space until their card is hovered or holds focus; then they widen outside
+// the thumbnail and push the neighbouring cards aside.
+const REFERENCE_ARROW_REVEAL = "w-0 opacity-0 pointer-events-none group-hover/ref:w-5 group-hover/ref:opacity-100 group-hover/ref:pointer-events-auto group-focus-within/ref:w-5 group-focus-within/ref:opacity-100 group-focus-within/ref:pointer-events-auto";
 const TOUCH_PRESS_SLOP = 8;
 
 /** Pointer sorting starts on the reference thumbnail: a mouse or pen drag reorders at once, while a
@@ -1483,8 +1487,6 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
   const [positionId, setPositionId] = useState(null);
   const [position, setPosition] = useState(1);
   const [undoVisible, setUndoVisible] = useState(false);
-  const [hoveredId, setHoveredId] = useState(null);
-  const [focusedId, setFocusedId] = useState(null);
   const [lightboxState, setLightboxState] = useState(null);
 
   const imageRefs = s.referenceImages || [];
@@ -1597,13 +1599,13 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
     gesture.current = null;
     clearTimeout(current?.pressTimer);
     setPreview(null);
-    if (!current || cancelled) return;
+    if (!current || cancelled || (current.touch && !current.active)) return;
     suppressNextClick.current = true;
     setTimeout(() => {
       suppressNextClick.current = false;
     }, 0);
     if (current.active) commit(current.ordered, current.id);
-    else if (!current.abandoned) openLightbox(`img:${current.id}`, current.triggerEl);
+    else openLightbox(`img:${current.id}`, current.triggerEl);
   };
 
   if (totalCount === 0) return null;
@@ -1687,26 +1689,14 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
         const tag = s.referenceTags?.[sourceIndex] || `@img${sourceIndex + 1}`;
         const source = referenceSource(imageRefs[sourceIndex], s.referenceKinds?.[sourceIndex], s.portraits?.items);
         const label = s.referenceLabels?.[sourceIndex] || source.name || (source.type === "portrait" ? "Portrait" : `Reference ${sourceIndex + 1}`);
-        const showArrows = ids.length > 1 && (hoveredId === id || focusedId === id);
-        const arrowVisibilityClass = showArrows
-          ? "w-5 opacity-100 pointer-events-auto"
-          : "w-0 opacity-0 pointer-events-none group-hover/ref:w-5 group-hover/ref:opacity-100 group-hover/ref:pointer-events-auto group-focus-within/ref:w-5 group-focus-within/ref:opacity-100 group-focus-within/ref:pointer-events-auto focus:w-5 focus:opacity-100 focus:pointer-events-auto";
-        return <div key={id} data-reference-id={id} data-reference-media="image" data-reference-position={i + 1} data-arrows-visible={showArrows ? "true" : "false"}
-          onMouseEnter={() => setHoveredId(id)}
-          onMouseLeave={() => setHoveredId((prev) => (prev === id ? null : prev))}
-          onFocusCapture={() => setFocusedId(id)}
-          onBlurCapture={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget)) {
-              setFocusedId((prev) => (prev === id ? null : prev));
-            }
-          }}
+        return <div key={id} data-reference-id={id} data-reference-media="image" data-reference-position={i + 1}
           onKeyDown={(e) => { if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); move(id, sourceIndex + (e.key === "ArrowLeft" ? -1 : 1)); } }}
           className="group/ref relative flex shrink-0 items-center">
           <button type="button" data-reference-arrow="left" aria-label={`Move reference ${sourceIndex + 1} left`} disabled={sourceIndex === 0}
             onClick={(e) => { e.stopPropagation(); move(id, sourceIndex - 1); }}
             className={cn(
               "grid h-7 shrink-0 place-items-center overflow-hidden border-0 bg-transparent p-0 text-white/75 shadow-none transition-opacity duration-150 hover:bg-transparent hover:text-white disabled:opacity-25",
-              ids.length > 1 ? cn(arrowVisibilityClass, showArrows ? "mr-0.5" : "group-hover/ref:mr-0.5 group-focus-within/ref:mr-0.5 focus:mr-0.5") : "w-0 opacity-0 pointer-events-none"
+              ids.length > 1 ? cn(REFERENCE_ARROW_REVEAL, "group-hover/ref:mr-0.5 group-focus-within/ref:mr-0.5") : "w-0 opacity-0 pointer-events-none"
             )}>
             <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
           </button>
@@ -1751,7 +1741,7 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
             onClick={(e) => { e.stopPropagation(); move(id, sourceIndex + 1); }}
             className={cn(
               "grid h-7 shrink-0 place-items-center overflow-hidden border-0 bg-transparent p-0 text-white/75 shadow-none transition-opacity duration-150 hover:bg-transparent hover:text-white disabled:opacity-25",
-              ids.length > 1 ? cn(arrowVisibilityClass, showArrows ? "ml-0.5" : "group-hover/ref:ml-0.5 group-focus-within/ref:ml-0.5 focus:ml-0.5") : "w-0 opacity-0 pointer-events-none"
+              ids.length > 1 ? cn(REFERENCE_ARROW_REVEAL, "group-hover/ref:ml-0.5 group-focus-within/ref:ml-0.5") : "w-0 opacity-0 pointer-events-none"
             )}>
             <ArrowRight className="h-3.5 w-3.5 shrink-0" />
           </button>
@@ -1860,10 +1850,10 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
         );
       })}
     </div>
-    {preview && <div aria-hidden="true" className="pointer-events-none fixed z-[100] w-14 rounded-lg border-2 border-mention bg-ink-800 p-0.5 shadow-xl" style={{ left: preview.x - 28, top: preview.y - 56 }}>
+    {preview && createPortal(<div aria-hidden="true" className="pointer-events-none fixed z-[100] w-14 rounded-lg border-2 border-mention bg-ink-800 p-0.5 shadow-xl" style={{ left: preview.x - 28, top: preview.y - 56 }}>
       <ReferenceThumbnail src={referenceThumbnailUrl(imageRefs[activeIndex], s.portraits?.items)} alt="Reference" className="h-12 w-full rounded object-cover" />
       <span className="block text-center text-[10px] text-mention">#{preview.ids.indexOf(preview.id) + 1}</span>
-    </div>}
+    </div>, document.body)}
     {positionId && <form className="flex items-center gap-2 rounded border border-line p-2" onSubmit={(e) => { e.preventDefault(); move(positionId, Number(position) - 1); setPositionId(null); }}>
       <label className="text-xs">Move to position <input autoFocus type="number" min="1" max={ids.length} required value={position} onChange={(e) => setPosition(e.target.value)} className="ml-1 w-16 rounded bg-ink-950 p-1" /></label>
       <button type="submit" className="text-xs text-brand">Move</button><button type="button" onClick={() => setPositionId(null)} className="text-xs">Cancel</button>
