@@ -267,7 +267,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         self.storage=Mock(side_effect=AssertionError('Negative HTTP request reached storage'))
         stack.enter_context(override_settings(VEEVEE_MEDIA_STORAGE=self.storage))
         self.effects=[self.storage]
-        for target in ('apps.generation.providers.transport.HttpTransport.request',
+        for target in ('apps.integrations.transport.HttpTransport.request',
                        'apps.integrations.remote.SafeMediaFetcher.__call__',
                        'apps.integrations.remote.SafeMediaFetcher.open_file',
                        'apps.integrations.remote.PinnedHTTPSConnection.request',

@@ -19,7 +19,7 @@ from testsupport.fake_providers import (FakeProviders, PROVIDER_ERRORS, REQUEST_
 from . import failure_copy, provider_errors
 from .models import Generation
 from .providers import gemini, kling, magnific, omni, seedance, seedream
-from .providers.transport import HttpResult, ProviderError
+from apps.integrations.transport import HttpResult, ProviderError
 from .serialization import generation_item
 from .services import executor, poller
 from .services.deadline import Cancellation

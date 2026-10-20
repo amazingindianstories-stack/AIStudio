@@ -4,7 +4,7 @@ import re
 from apps.generation.model_registry import provider_model_id
 from apps.generation.references import asset_slugs, mention_indices, TAG, FLAGS, TOKEN_END, image_typo, reference_warnings
 from apps.generation import provider_errors
-from .transport import HttpTransport, ProviderError, required_key
+from apps.integrations.transport import HttpTransport, ProviderError, required_key
 
 AMBIGUOUS_MESSAGE = 'Seedream connection ended without a confirmed result. The request may have been charged; it was not resubmitted.'
 NO_RESULT_MESSAGE = 'Seedream returned no valid single-image result. The request was not resubmitted.'

@@ -17,7 +17,7 @@ from urllib.parse import quote, urlsplit
 from apps.common.javascript import string
 from apps.generation import provider_errors
 from apps.generation.model_registry import capability, model_definition, provider_model_id, retirement_message
-from .transport import HttpTransport, ProviderError, required_key
+from apps.integrations.transport import HttpTransport, ProviderError, required_key
 
 
 def build_input(assembled, model_name):

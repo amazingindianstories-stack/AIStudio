@@ -2,7 +2,7 @@
 import json
 import os
 from urllib.parse import quote
-from apps.generation.providers.transport import HttpTransport, ProviderError
+from apps.integrations.transport import HttpTransport, ProviderError
 
 API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
 DEFAULT_MODEL = 'gemini-flash-latest'

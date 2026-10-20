@@ -3,8 +3,8 @@ import socket
 import threading
 import time
 from django.test import SimpleTestCase
-from .providers.request_deadline import SocketDeadline, deadline_adapter
-from .providers.transport import ProviderError, HttpTransport
+from apps.integrations.request_deadline import SocketDeadline, deadline_adapter
+from apps.integrations.transport import ProviderError, HttpTransport
 from unittest.mock import patch
 
 
@@ -69,7 +69,7 @@ class SocketDeadlineTests(SimpleTestCase):
         thread.start()
         try:
             start=time.monotonic()
-            with patch('apps.generation.providers.request_deadline.connect_socket',return_value=left) as connect:
+            with patch('apps.integrations.request_deadline.connect_socket',return_value=left) as connect:
                 with self.assertRaises(ProviderError) as failure:
                     HttpTransport(allowed_hosts=['fixture.invalid'],timeout=.15).request(
                         'POST','https://fixture.invalid/paid',body={'prompt':'never transmitted'})
@@ -84,7 +84,7 @@ class SocketDeadlineTests(SimpleTestCase):
             left.close();right.close();thread.join(1)
 
     def test_timed_out_dns_retains_capacity_until_actual_completion(self):
-        from .providers.request_deadline import BoundedResolver
+        from apps.integrations.request_deadline import BoundedResolver
         release=threading.Event()
         started=threading.Event()
         calls=[]
@@ -119,15 +119,15 @@ class SocketDeadlineTests(SimpleTestCase):
             self.assertEqual(resolver.resolve('fixture.invalid',443,guard),[('resolved',)])
 
     def test_actual_transport_dns_timeout_opens_no_connection(self):
-        from .providers.request_deadline import BoundedResolver
+        from apps.integrations.request_deadline import BoundedResolver
         release=threading.Event()
         def lookup(*args,**kwargs):
             release.wait(2)
             return [(socket.AF_INET,socket.SOCK_STREAM,0,'',('127.0.0.1',443))]
         resolver=BoundedResolver(slots=1,lookup=lookup)
         try:
-            with patch('apps.generation.providers.request_deadline.RESOLVER',resolver), patch(
-                    'apps.generation.providers.request_deadline.socket.socket') as create:
+            with patch('apps.integrations.request_deadline.RESOLVER',resolver), patch(
+                    'apps.integrations.request_deadline.socket.socket') as create:
                 start=time.monotonic()
                 with self.assertRaises(ProviderError) as failure:
                     HttpTransport(allowed_hosts=['fixture.invalid'],timeout=.08).request(
@@ -198,7 +198,7 @@ class SocketDeadlineTests(SimpleTestCase):
                         pass
                 thread=threading.Thread(target=peer);thread.start()
                 try:
-                    with patch('apps.generation.providers.request_deadline.connect_socket',return_value=left) as connect, patch(
+                    with patch('apps.integrations.request_deadline.connect_socket',return_value=left) as connect, patch(
                             'requests.adapters.DEFAULT_CA_BUNDLE_PATH',str(cert_file)):
                         transport=HttpTransport(allowed_hosts=[host],timeout=.3 if phase in ('slow-header','slow-upload') else 1)
                         start=time.monotonic()

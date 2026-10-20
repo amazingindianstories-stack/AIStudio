@@ -134,7 +134,7 @@ def install():
  from apps.integrations import byteplus
  def read_client():
   config=byteplus.config_from_env();config['is_mock']=False
-  from apps.generation.providers import transport
+  from apps.integrations import transport
   return ListOnlyClient(byteplus.BytePlusClient(config=config,transport=list_transport(transport)))
  old_local_result=portrait_sync.local_result
  def unverified_local_result(*args,**kwargs):return project_readiness(old_local_result(*args,**kwargs))

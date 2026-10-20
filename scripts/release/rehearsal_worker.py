@@ -27,7 +27,7 @@ os.environ.clear()
 os.environ.update(env)
 
 from testsupport.fake_providers import FakeProviders  # noqa: E402
-from apps.generation.providers import transport  # noqa: E402
+from apps.integrations import transport  # noqa: E402
 
 fake = FakeProviders()
 transport.HttpTransport.request = lambda self, method, url, **kwargs: fake.request(self, method, url, **kwargs)

@@ -30,7 +30,7 @@ def transcribe_claimed(claimed, provider, encoded, mime, model, *, signal):
 
 def never_sent(error):
     """A refusal raised before any provider request left this process."""
-    from apps.generation.providers.transport import ProviderError
+    from apps.integrations.transport import ProviderError
     return isinstance(error,ProviderError) and error.may_have_submitted is False
 
 

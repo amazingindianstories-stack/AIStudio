@@ -10,7 +10,7 @@ from django.test import SimpleTestCase
 from PIL import Image
 
 from .providers import gemini, kling, magnific, omni
-from .providers.transport import HttpResult, ProviderError
+from apps.integrations.transport import HttpResult, ProviderError
 
 
 class ScriptedTransport:

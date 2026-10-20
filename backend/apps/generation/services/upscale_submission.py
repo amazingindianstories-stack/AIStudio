@@ -25,7 +25,7 @@ def rejection_records(item, error):
 def definitive_rejection(error):
     """Only the provider's own 4xx refusal of the create call proves no task exists.
     Anything after it answered (receipt checks, persistence) stays uncertain."""
-    from apps.generation.providers.transport import ProviderError
+    from apps.integrations.transport import ProviderError
     status = getattr(error, 'status', None)
     return isinstance(error, ProviderError) and type(status) is int and 400 <= status < 500 and status != 408
 

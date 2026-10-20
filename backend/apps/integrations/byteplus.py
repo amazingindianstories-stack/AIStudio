@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import quote, urlsplit
 from django.conf import settings
-from apps.generation.providers.transport import HttpTransport
+from apps.integrations.transport import HttpTransport
 
 FORMATS = ('jpeg', 'jpg', 'png', 'webp', 'bmp', 'tiff', 'gif', 'heic', 'heif')
 MAX_FILE_BYTES = 30 * 1024 * 1024

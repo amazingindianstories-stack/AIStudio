@@ -10,7 +10,7 @@ from apps.generation.prompting.video_directive import build_video_directive
 from apps.generation.prompting.assembler import assemble_prompt
 from apps.generation.prompting.image_prep import prep_reference,analyze_identity_reference,detect_reference_role
 from apps.generation.prompting.face_judge import judge_candidate,select_best_candidate
-from apps.generation.providers.transport import HttpResult
+from apps.integrations.transport import HttpResult
 
 
 def digest(value):

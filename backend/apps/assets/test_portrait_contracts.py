@@ -10,7 +10,7 @@ from django.db import connection, connections
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.admin_dashboard.tests import SettingsTests
 from apps.authentication.models import User
-from apps.generation.providers.transport import HttpResult
+from apps.integrations.transport import HttpResult
 from apps.media.storage import MemoryAdapter, StorageService
 from apps.integrations.byteplus import BytePlusClient, BytePlusAssetError, sign_request, validate_portrait_image
 from . import portrait_db as db

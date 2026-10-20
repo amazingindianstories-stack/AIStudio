@@ -17,7 +17,7 @@ from apps.generation.prompting.legacy_templates import T as LEGACY
 from apps.media.storage import get_storage
 from apps.integrations.remote import validated_target,PinnedHTTPSConnection
 from apps.generation import provider_errors
-from .transport import HttpTransport,HttpResult,ProviderError
+from apps.integrations.transport import HttpTransport,HttpResult,ProviderError
 from .seedance import legacy_directive
 from apps.generation.services.deadline import Cancellation
 

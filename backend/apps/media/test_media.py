@@ -29,12 +29,12 @@ urlpatterns = [path('api/media/<path:path>',views.media),path('api/media-grant',
 class PrimitiveTests(SimpleTestCase):
     def test_audio_configured_transport_forwards_worker_signal(self):
         import os
-        from apps.generation.providers.transport import HttpResult
+        from apps.integrations.transport import HttpResult
         from apps.generation.services.deadline import Cancellation
         client=Mock()
         client.request.return_value=HttpResult(200,b'{"candidates":[{"content":{"parts":[{"text":"fixture transcript"}]}}]}',{})
         signal=Cancellation()
-        with patch.dict(os.environ,{'GOOGLE_API_KEY':'disposable-fixture'}),patch('apps.generation.providers.transport.HttpTransport',return_value=client):
+        with patch.dict(os.environ,{'GOOGLE_API_KEY':'disposable-fixture'}),patch('apps.integrations.transport.HttpTransport',return_value=client):
             provider=audio.configured_transcriber()
             self.assertEqual(provider.transcribe('encoded','audio/wav','fixture',signal=signal),'fixture transcript')
         self.assertIs(client.request.call_args.kwargs['signal'],signal)

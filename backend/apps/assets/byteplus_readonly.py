@@ -2,7 +2,7 @@
 import json
 import re
 from urllib.parse import parse_qs, urlsplit
-from apps.generation.providers.transport import HttpTransport
+from apps.integrations.transport import HttpTransport
 
 GETASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
 ASSET_ID = re.compile(r'[A-Za-z0-9_-]{1,256}')

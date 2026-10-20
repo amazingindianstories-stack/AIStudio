@@ -67,7 +67,7 @@ def task_ended(result, fallback, provider, task_id):
     """An accepted task the provider ended without a usable image. A definitive end (failed, or done with no image)
     fails the job; only our own wait running out (Higgsfield's await timeout) leaves it to be polled again."""
     from apps.generation import provider_errors
-    from apps.generation.providers.transport import ProviderError
+    from apps.integrations.transport import ProviderError
     message = result.get('error') or fallback
     record = result.get('providerError') or provider_errors.capture(provider, phase='task', message=message, task_id=task_id)
     error = ProviderError(message, code='task_failed', provider_response=record)

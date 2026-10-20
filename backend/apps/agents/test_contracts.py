@@ -10,7 +10,7 @@ from django.db import connections
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.admin_dashboard.tests import SettingsTests
 from apps.authentication.models import User
-from apps.generation.providers.transport import HttpResult
+from apps.integrations.transport import HttpResult
 from apps.media.storage import MemoryAdapter, StorageService
 from .images import images_to_parts, parse_message_body
 from .llm import GeminiAgentClient

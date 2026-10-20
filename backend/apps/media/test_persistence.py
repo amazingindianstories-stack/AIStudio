@@ -82,7 +82,7 @@ class ProviderPersistenceTests(SimpleTestCase):
         writer.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 8\r\nContent-Type: video/quicktime\r\n\r\n'+payload)
         writer.close()
         guards = []
-        from apps.generation.providers.request_deadline import SocketDeadline
+        from apps.integrations.request_deadline import SocketDeadline
         def guard(deadline):
             result = SocketDeadline(deadline)
             guards.append(result)
@@ -111,7 +111,7 @@ class ProviderPersistenceTests(SimpleTestCase):
     def test_real_tls_handshake_stall_is_interrupted_and_timer_finishes(self):
         reader,writer = socket.socketpair()
         timers = []
-        from apps.generation.providers.request_deadline import SocketDeadline
+        from apps.integrations.request_deadline import SocketDeadline
         def guard(deadline):
             result = SocketDeadline(deadline)
             timers.append(result.timer)

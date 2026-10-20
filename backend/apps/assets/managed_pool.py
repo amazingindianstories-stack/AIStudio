@@ -23,7 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 from django.db import connection, transaction
 from django.db.models import F, Q
 
-from apps.generation.providers.transport import HttpTransport
+from apps.integrations.transport import HttpTransport
 
 from .models import ManagedPortraitAsset, ManagedPortraitPin, ManagedPortraitPool, ManagedPortraitWait, ReferenceFaceScan
 

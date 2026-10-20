@@ -13,7 +13,7 @@ from apps.library.models import GenerationNaming
 from .models import Generation
 from .services import admission, coordinator, executor, video_execution
 from .services.deadline import Cancellation
-from .providers.transport import ProviderError
+from apps.integrations.transport import ProviderError
 from .callbacks import extract_task_id, token_matches
 
 
@@ -474,7 +474,7 @@ class ExecutionPersistenceTests(TransactionTestCase):
 class SubmissionUncertaintyTests(TransactionTestCase):
     def test_classification_is_conservative_for_definite_rejections(self):
         from .services.executor import submission_uncertain
-        from .providers.transport import ProviderError
+        from apps.integrations.transport import ProviderError
         self.assertTrue(submission_uncertain(TimeoutError('read timed out')))
         self.assertTrue(submission_uncertain(ProviderError('gateway', status=502)))
         self.assertTrue(submission_uncertain(ProviderError('timeout', status=408)))

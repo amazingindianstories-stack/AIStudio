@@ -68,7 +68,7 @@ class PayloadTests(SimpleTestCase):
             magnific.video_master_url(urls[:1], 'prores_422_hq')
 
     def test_completed_without_urls_is_retryable_not_terminal(self):
-        from .providers.transport import HttpResult, ProviderError
+        from apps.integrations.transport import HttpResult, ProviderError
         import json
         class Transport:
             def request(self, *args, **kwargs):

@@ -24,6 +24,9 @@ importlib.import_module('apps.integrations')
 importlib.import_module('apps.integrations.dns')
 importlib.import_module('apps.integrations.byteplus')
 importlib.import_module('apps.integrations.remote')
+importlib.import_module('apps.integrations.transport')
+importlib.import_module('apps.integrations.request_deadline')
+importlib.import_module('apps.integrations.errors')
 assert not any('models' in name.split('.') for name in sys.modules)
 '''],
             cwd=Path(__file__).resolve().parents[2],

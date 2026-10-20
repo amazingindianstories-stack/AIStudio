@@ -257,7 +257,7 @@ def install(route,client_factory):
 
 def native_client():
  from apps.integrations.byteplus import BytePlusClient,config_from_env
- from apps.generation.providers import transport
+ from apps.integrations import transport
  HttpTransport=transport.HttpTransport
  from urllib.parse import urlsplit,parse_qs
  class CreateOnlyTransport(HttpTransport):

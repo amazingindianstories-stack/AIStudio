@@ -89,7 +89,7 @@ class WorkerSimulationTests(TransactionTestCase):
         self.assertEqual(len(posts), 1, 'exactly one paid submission')
 
     def test_unexpected_hosts_fail_closed(self):
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
         with FakeProviders():
             with self.assertRaises(AssertionError):
                 HttpTransport(allowed_hosts=['api.example.invalid']).request('GET', 'https://api.example.invalid/x')
