@@ -13,13 +13,13 @@ from apps.assets import portraits as route, portrait_sync
 from apps.assets import portrait_db
 install_portrait_lifecycle()
 install_portrait_lifecycle()  # idempotent
-from apps.production_runtime.portraits import tombstones
+from apps.assets import portrait_lifecycle
 result = {
     'installed': bool(getattr(route, '_veevee_portrait_lifecycle_installed', False)),
-    'tombstones': bool(getattr(route, '_preview_tombstones_installed', False)),
+    'enabled': portrait_lifecycle.enabled(),
     'delete_view_patched': route.portraits.cls.delete.__name__ == 'delete',
     'group_hard_delete_blocked': False,
-    'visible': tombstones.visible_assets([{'status': 'Active'}, {'status': 'PreviewDeleted'}]),
+    'visible': portrait_lifecycle.visible_assets([{'status': 'Active'}, {'status': 'PreviewDeleted'}]),
 }
 try:
     portrait_db.delete_portrait_group('x')
@@ -38,7 +38,7 @@ class PortraitLifecycleInstallTests(SimpleTestCase):
         self.assertIsNotNone(line, done.stderr[-2000:])
         result = json.loads(line[6:])
         self.assertTrue(result['installed'])
-        self.assertTrue(result['tombstones'])
+        self.assertTrue(result['enabled'])
         self.assertTrue(result['group_hard_delete_blocked'])
         self.assertEqual(result['visible'], [{'status': 'Active'}])
 

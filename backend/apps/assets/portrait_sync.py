@@ -9,7 +9,13 @@ from apps.library.services.idempotency import now_ms
 from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
 from . import portrait_db as db
-from .byteplus import get_client, Deadline
+from . import portrait_lifecycle
+from .byteplus import get_client as shared_client, Deadline
+
+
+def get_client():
+    # The portrait lifecycle may only list the BytePlus catalogue.
+    return portrait_lifecycle.read_client() if portrait_lifecycle.enabled() else shared_client()
 
 
 def list_all_pages(list_page, *, max_pages=1000, signal=None, **input):
@@ -72,7 +78,8 @@ def sign_stored_ref(ref, *, actor_id=None):
 
 
 def local_result(project_id=None):
-    return {'groups': db.list_portrait_groups(project_id), 'assets': db.list_all_portrait_assets(project_id), 'syncedWithByteplus': False}
+    result = {'groups': db.list_portrait_groups(project_id), 'assets': db.list_all_portrait_assets(project_id), 'syncedWithByteplus': False}
+    return portrait_lifecycle.project_readiness(result) if portrait_lifecycle.enabled() else result
 
 
 def inventory_portraits(client=None):
@@ -101,6 +108,13 @@ def remote_time(value):
 
 
 def sync_portraits(project_id=None, client=None):
+    if not portrait_lifecycle.enabled():
+        return _sync_portraits(project_id, client)
+    # Tombstones stay in the database but never reach a listing.
+    return portrait_lifecycle.visible_result(_sync_portraits(project_id, client))
+
+
+def _sync_portraits(project_id=None, client=None):
     if settings.LOCAL_DATA_MODE == 'read_only_viewer':
         return local_result(project_id)
     client = client or get_client()
@@ -123,6 +137,12 @@ def sync_portraits(project_id=None, client=None):
 
 
 def reconcile(project_id, client):
+    if portrait_lifecycle.enabled():
+        return pull_only_reconcile(project_id, portrait_lifecycle.ListOnlyClient(client))
+    return _reconcile(project_id, client)
+
+
+def _reconcile(project_id, client):
     signal = Deadline()
     inputs = {'group_type': 'AIGC', 'project_name': 'default', 'signal': signal}
     group_inventory = list_all_pages(client.list_asset_groups, **inputs)
@@ -205,3 +225,54 @@ def reconcile(project_id, client):
     if push_errors:
         result.update(syncError='Some portraits could not be registered; local records preserved.', registrationErrors=push_errors)
     return result
+
+
+def pull_only_reconcile(project_id, client):
+    """Reconcile under the portrait lifecycle: two complete inventories, no remote writes.
+
+    Imports missing remote identities only; existing rows are immutable evidence,
+    and fresh URLs and remote verification are projected onto the response.
+    """
+    signal = Deadline()
+    inputs = {'group_type': 'AIGC', 'project_name': 'default', 'signal': signal}
+    group_inventory = list_all_pages(client.list_asset_groups, **inputs)
+    asset_inventory = list_all_pages(client.list_assets, **inputs)
+    remote_groups, remote_assets = group_inventory['items'], asset_inventory['items']
+    groups_by_bp, push_errors = {}, []
+    if any(not asset.get('GroupId') or asset['GroupId'] not in {group['Id'] for group in remote_groups} for asset in remote_assets):
+        raise ValueError('Incomplete remote portrait group inventory')
+    for remote in remote_groups:
+        local = db.get_portrait_group_by_byteplus_id(remote['Id'])
+        created, updated = remote_time(remote.get('CreateTime')), remote_time(remote.get('UpdateTime'))
+        if not local:
+            local = db.upsert_portrait_group({
+                'id': str(uuid.uuid4()), 'byteplusGroupId': remote['Id'], 'name': remote.get('Name') or 'Untitled Group',
+                'description': remote.get('Description') or '', 'groupType': remote.get('GroupType') or 'AIGC',
+                'projectName': remote.get('ProjectName') or 'default', 'createdAt': created, 'updatedAt': updated})
+        groups_by_bp[remote['Id']] = local
+    for remote in remote_assets:
+        local_group = groups_by_bp.get(remote.get('GroupId')) or db.get_portrait_group_by_byteplus_id(remote.get('GroupId'))
+        if not local_group:
+            local_group = db.upsert_portrait_group({'id': str(uuid.uuid4()), 'byteplusGroupId': remote.get('GroupId'),
+                'name': remote.get('Name') or 'Portrait Group', 'description': '', 'groupType': 'AIGC', 'projectName': 'default'})
+            groups_by_bp[remote.get('GroupId')] = local_group
+        local_asset = db.get_portrait_asset_by_byteplus_id(remote['Id'])
+        created, updated = remote_time(remote.get('CreateTime')), remote_time(remote.get('UpdateTime'))
+        if not local_asset:
+            db.upsert_portrait_asset({'id': str(uuid.uuid4()), 'groupId': local_group['id'], 'byteplusAssetId': remote['Id'],
+                'name': remote.get('Name') or local_group['name'] or 'Portrait', 'assetType': remote.get('AssetType') or 'Image',
+                'role': 'reference', 'imageUrl': remote.get('URL'), 'status': remote.get('Status') or 'Active', 'createdAt': created, 'updatedAt': updated})
+    fresh_urls = {asset['Id']: asset['URL'] for asset in remote_assets if asset.get('URL')}
+    final_groups, final_assets = db.list_portrait_groups(project_id), db.list_all_portrait_assets(project_id)
+    for asset in final_assets:
+        fresh = fresh_urls.get(asset.get('byteplusAssetId'))
+        if fresh:
+            asset['imageUrl'] = portrait_display_ref(asset['imageUrl'], fresh)
+    by_id = {asset['id']: asset for asset in final_assets}
+    for group in final_groups:
+        group['assets'] = [by_id.get(asset['id'], asset) for asset in group['assets']]
+    result = {'groups': final_groups, 'assets': final_assets, 'syncedWithByteplus': not push_errors,
+        'inventory': {'groupPages': group_inventory['pages'], 'assetPages': asset_inventory['pages'], 'remoteGroups': len(remote_groups), 'remoteAssets': len(remote_assets)}}
+    if push_errors:
+        result.update(syncError='Some portraits could not be registered; local records preserved.', registrationErrors=push_errors)
+    return portrait_lifecycle.project_readiness(result, remote_assets, now_ms(), remote_groups=remote_groups)

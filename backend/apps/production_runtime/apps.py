@@ -21,13 +21,11 @@ class ProductionRuntimeConfig(AppConfig):
 
 
 def install_portrait_lifecycle():
-    """Same order as the production launcher: each step builds on the previous one."""
+    """List-only sync and tombstones live in apps.assets; registration wraps them, then remote delete."""
     from apps.assets import portraits as route
-    from .portraits import presence, registration, remote_delete, tombstones
+    from .portraits import registration, remote_delete
     if getattr(route, '_veevee_portrait_lifecycle_installed', False):
         return
-    presence.install()
-    tombstones.install()
     registration.install(route, registration.native_client)
     remote_delete.install(route)
     route._veevee_portrait_lifecycle_installed = True
