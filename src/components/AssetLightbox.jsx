@@ -74,7 +74,6 @@ export function AssetLightbox({
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const panGestureRef = useRef(null);
-  const didPanRef = useRef(false);
   const containerRef = useRef(null);
   const dialogRef = useRef(null);
 
@@ -466,7 +465,6 @@ export function AssetLightbox({
               baseX: pan.x,
               baseY: pan.y,
             };
-            didPanRef.current = false;
             setIsPanning(true);
           }}
           onPointerMove={(e) => {
@@ -474,7 +472,6 @@ export function AssetLightbox({
             if (!g) return;
             const dx = e.clientX - g.startX;
             const dy = e.clientY - g.startY;
-            if (Math.hypot(dx, dy) > 2) didPanRef.current = true;
             setPan({ x: g.baseX + dx, y: g.baseY + dy });
           }}
           onPointerUp={() => {
