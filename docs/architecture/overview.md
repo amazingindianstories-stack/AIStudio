@@ -63,7 +63,10 @@ or a portrait asset's `receipt.lastError`. `generation/failure_copy.py` shows th
 that exact detail, and the admin Errors tab reads the same records (older rows are parsed from their raw body).
 
 `backend/testsupport` holds fake providers and the frozen historical Node outputs used as test
-oracles. `backend/deploy` holds the entrypoint, the gateway and the legacy configuration reader.
+oracles. `backend/parity` pins current production behavior through seams the backend restructure
+keeps unchanged (HTTP, gateway, entrypoint, command names, settings flags); its package docstring
+lists the rules. `backend/deploy` holds the entrypoint, the gateway and the legacy configuration
+reader.
 
 ## Repository layout
 
