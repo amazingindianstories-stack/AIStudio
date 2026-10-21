@@ -11,6 +11,11 @@ const MIME_BY_EXTENSION = Object.freeze({
   mp4: "video/mp4", mov: "video/quicktime", m4v: "video/x-m4v",
 });
 
+export function extensionForContentType(type) {
+  const normalized = String(type || "").split(";")[0].trim().toLowerCase();
+  return Object.keys(MIME_BY_EXTENSION).find((extension) => MIME_BY_EXTENSION[extension] === normalized) || "";
+}
+
 export function uploadContentType(file) {
   const supplied = String(file?.type || "").trim().toLowerCase();
   if (["image/jpg", "image/pjpeg"].includes(supplied)) return "image/jpeg";

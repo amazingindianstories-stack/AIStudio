@@ -26,6 +26,7 @@ const config = {
         },
         "brand-light": "#f3f4f6",
         accent: "#f3f4f6",
+        mention: "#589edb",
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
