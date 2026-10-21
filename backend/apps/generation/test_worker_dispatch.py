@@ -20,6 +20,45 @@ class RollingDispatcherTests(TransactionTestCase):
             prompt='fixture', aspect_ratio='1:1', user_id=uuid4(), created_at=now_ms(),
             updated_at=now_ms(), **extra)
 
+    def video(self, **extra):
+        values = {'kind': 'video', 'status': 'queued', 'model': 'Seedance 2.5', 'prompt': 'fixture',
+                  'aspect_ratio': '16:9', 'user_id': uuid4(), 'created_at': now_ms(), 'updated_at': now_ms()}
+        values.update(extra)
+        return Generation.objects.create(**values)
+
+    def test_late_seedance_draft_takes_the_first_freed_slot_ahead_of_an_image_backlog(self):
+        images = [self.job() for _ in range(6)]
+        release = {row.id: Event() for row in images}
+        stop, busy, video_started = Event(), Event(), Event()
+        started, late = [], {}
+        lock = Lock()
+        def process(identifier, *, owner, **kwargs):
+            self.assertIsNotNone(coordinator.claim_generation(identifier, owner))
+            with lock:
+                started.append(identifier)
+                if len(started) == 2:
+                    busy.set()
+            if identifier == late.get('id'):
+                video_started.set()
+            else:
+                self.assertTrue(release[identifier].wait(5))
+            Generation.objects.filter(pk=identifier).update(status='succeeded')
+            coordinator.release_generation(identifier, owner)
+            return {'kind': 'succeeded'}
+        with patch.object(worker, 'process_generation', side_effect=process), ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(worker.run_worker, concurrency=2, interval=.02, stop=stop)
+            try:
+                self.assertTrue(busy.wait(2))
+                late['id'] = self.video(draft_mode=True).id
+                release[started[0]].set()
+                self.assertTrue(video_started.wait(2), 'the late video waited behind the image backlog')
+                self.assertEqual(started[2], late['id'])
+            finally:
+                stop.set()
+                for event in release.values():
+                    event.set()
+                future.result(timeout=5)
+
     def test_newly_due_job_uses_freed_slot_before_other_job_finishes(self):
         slow, quick = self.job(), self.job()
         slow_started, quick_started, release_quick, release_slow, late_started = (Event() for _ in range(5))
@@ -162,13 +201,25 @@ class RollingDispatcherTests(TransactionTestCase):
         self.assertIsNone(admitted.provider_status)
         self.assertIsNone(admitted.progress_message)
 
-    def test_worker_reason_preserves_other_waits_and_does_not_label_blocked_rows(self):
+    def test_worker_reason_replaces_only_a_stale_slot_wait_and_does_not_label_blocked_rows(self):
         from apps.admin_dashboard.models import AppSetting
-        for status in (admission.SLOT_WAITING, 'PORTRAIT_WAITING'):
-            row = self.job(provider_status=status, progress_message='Existing reason')
-            admission.show_worker_slot_wait(row.id)
-            row.refresh_from_db()
-            self.assertEqual((row.provider_status, row.progress_message), (status, 'Existing reason'))
+        stale = self.video(provider_status=admission.SLOT_WAITING, progress_message='Waiting for a free Seedance 2.5 slot')
+        admission.show_worker_slot_wait(stale.id)
+        stale.refresh_from_db()
+        self.assertEqual((stale.provider_status, stale.progress_message),
+                         (admission.WORKER_SLOT_WAITING, 'Waiting for a free worker slot'))
+        portrait = self.job(provider_status='PORTRAIT_WAITING', progress_message='Existing reason')
+        admission.show_worker_slot_wait(portrait.id)
+        portrait.refresh_from_db()
+        self.assertEqual((portrait.provider_status, portrait.progress_message), ('PORTRAIT_WAITING', 'Existing reason'))
+        Generation.objects.filter(pk=stale.id).delete()
+        for _ in range(admission.lane_capacity()):
+            self.video(status='running')
+        held = self.video(provider_status=admission.SLOT_WAITING, progress_message='Waiting for a free Seedance 2.5 slot')
+        admission.show_worker_slot_wait(held.id)
+        held.refresh_from_db()
+        self.assertEqual((held.provider_status, held.progress_message),
+                         (admission.SLOT_WAITING, 'Waiting for a free Seedance 2.5 slot'))
         AppSetting.objects.create(key='maxConcurrentJobs', value='1', updated_at=now_ms())
         row = self.job()
         Generation.objects.create(kind='image', status='running', model='seedream-5-pro', prompt='fixture',

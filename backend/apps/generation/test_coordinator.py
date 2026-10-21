@@ -89,7 +89,7 @@ class CoordinatorTests(TransactionTestCase):
         self.job(next_poll_at=1000002)
         self.job(worker_lease_until=1000002)
         self.assertEqual([row.id for row in coordinator.select_due_generations(now=1000001)],
-                         [image.id, video.id, magnific.id])
+                         [video.id, magnific.id, image.id])
         claim = coordinator.claim_generation(image.id, 'owner', now=1000001)
         self.assertIsNotNone(coordinator.schedule_generation(claim, now=1000001, owner='owner'))
         self.assertIsNone(coordinator.schedule_generation(claim, now=1000002, owner='wrong'))

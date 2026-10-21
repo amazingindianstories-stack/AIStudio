@@ -76,14 +76,15 @@ def select_due_generations(*, now=None, limit=MAX_COORDINATOR_BATCH, exclude_ids
     due = Generation.objects.filter(eligible()).exclude(pk__in=exclude_ids).filter(
         Q(next_poll_at__isnull=True) | Q(next_poll_at__lte=now)).filter(
         Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)
-    )
+    ).annotate(dispatch_rank=Case(When(Q(kind='video') | Q(model__startswith='Magnific '), then=Value(0)),
+                                  default=Value(1), output_field=IntegerField()))
     from .audio_submission import audio_limits
     global_limit, user_limit = audio_limits()
     reserved = dict(Generation.objects.filter(kind='audio', provider_status__in=(
         'SUBMISSION_PENDING', 'SUBMISSION_UNCERTAIN')).values('user_id').annotate(
             total=Count('id')).values_list('user_id', 'total'))
     free = max(0, global_limit - sum(reserved.values()))
-    selected = list(due.exclude(kind='audio').order_by('created_at', 'id')[:limit])
+    selected = list(due.exclude(kind='audio').order_by('dispatch_rank', 'created_at', 'id')[:limit])
     if free:
         # Apportion each account before LIMIT: one backlog must not hide other
         # accounts or non-audio work. Claim-time locking remains authoritative.
@@ -95,7 +96,7 @@ def select_due_generations(*, now=None, limit=MAX_COORDINATOR_BATCH, exclude_ids
                                default=Value(user_limit), output_field=IntegerField()),
         ).filter(account_rank__lte=F('account_slots')).order_by('created_at', 'id')
         selected.extend(audio[:min(free, limit)])
-    return sorted(selected, key=lambda row: (row.created_at, str(row.id)))[:limit]
+    return sorted(selected, key=lambda row: (row.dispatch_rank, row.created_at, str(row.id)))[:limit]
 
 
 def expected_version(item, *, owner=None):

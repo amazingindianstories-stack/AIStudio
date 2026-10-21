@@ -166,7 +166,7 @@ def admit_job(identifier, *, now=None, owner=None, held=None):
 
 
 def show_worker_slot_wait(identifier):
-    """Annotate only admissible, unclaimed rows without overriding other waits."""
+    """Annotate only admissible, unclaimed rows; replace a stale provider-slot wait but no other wait."""
     position = queue_position(identifier)
     if not position or position['status'] != 'queued':
         return
@@ -178,7 +178,7 @@ def show_worker_slot_wait(identifier):
     now = now_ms()
     changed = Generation.objects.filter(pk=identifier, status='queued').filter(
         Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)).filter(
-        Q(provider_status__isnull=True) | Q(provider_status='')).update(
+        Q(provider_status__isnull=True) | Q(provider_status='') | Q(provider_status=SLOT_WAITING)).update(
             provider_status=WORKER_SLOT_WAITING, progress_message=WORKER_SLOT_MESSAGE, updated_at=now)
     if changed:
         from apps.generation.realtime import publish_best_effort
