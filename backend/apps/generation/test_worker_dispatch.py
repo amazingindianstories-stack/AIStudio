@@ -28,7 +28,7 @@ class RollingDispatcherTests(TransactionTestCase):
         return Generation.objects.create(**values)
 
     def test_late_seedance_draft_takes_the_first_freed_slot_ahead_of_an_image_backlog(self):
-        images = [self.job() for _ in range(6)]
+        images = [self.job() for _ in range(coordinator.MAX_COORDINATOR_BATCH + 5)]
         release = {row.id: Event() for row in images}
         stop, busy, video_started = Event(), Event(), Event()
         started, late = [], {}
@@ -271,10 +271,13 @@ class RollingDispatcherTests(TransactionTestCase):
                 patch.object(worker, 'show_worker_slot_wait', side_effect=label), \
                 patch.object(worker, 'select_due_generations', wraps=coordinator.select_due_generations) as scans, \
                 ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(worker.run_worker, concurrency=1, interval=.05, stop=stop)
+            future = pool.submit(worker.run_worker, concurrency=1, interval=.2, stop=stop)
             try:
                 self.assertTrue(started.wait(2))
-                time.sleep(.15)
+                deadline = time.monotonic() + 3
+                while scans.call_count < 2:
+                    self.assertLess(time.monotonic(), deadline, 'the worker did not scan again')
+                    time.sleep(.01)
             finally:
                 stop.set()
                 release.set()
@@ -282,3 +285,16 @@ class RollingDispatcherTests(TransactionTestCase):
         self.assertGreaterEqual(scans.call_count, 2)
         self.assertEqual(checked, Counter({row.id: 1 for row in rows if row.id not in running}))
         self.assertEqual(len(running), 1)
+
+    def test_failed_scan_without_active_jobs_sleeps_until_the_next_scan(self):
+        stop = Event()
+        with patch.object(worker, 'select_due_generations', side_effect=RuntimeError('database unavailable')), \
+                patch.object(worker, 'recover'), patch.object(worker, 'wait', wraps=worker.wait) as waits, \
+                ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(worker.run_worker, concurrency=1, interval=.3, stop=stop)
+            try:
+                time.sleep(.25)
+            finally:
+                stop.set()
+                future.result(timeout=5)
+        self.assertEqual(waits.call_count, 0)

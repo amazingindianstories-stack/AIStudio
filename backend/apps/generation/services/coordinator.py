@@ -9,7 +9,7 @@ from django.db.models.functions import RowNumber
 
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
-from .admission import WORKER_SLOT_WAITING
+from .admission import SLOT_WAITING, WORKER_SLOT_WAITING
 
 DEFAULT_POLL_DELAY_MS = 5000
 MAX_COORDINATOR_BATCH = 25
@@ -71,13 +71,26 @@ def release_generation(identifier, owner):
         return Generation.objects.get(pk=identifier)
 
 
+SHORT_SLOT = Q(kind='video') | Q(model__startswith='Magnific ')
+
+
+def due_generations(*, now, exclude_ids=()):
+    return Generation.objects.filter(eligible()).exclude(pk__in=exclude_ids).filter(
+        Q(next_poll_at__isnull=True) | Q(next_poll_at__lte=now)).filter(
+        Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now))
+
+
+def select_unlabelled_short_slot(*, now=None, limit=MAX_COORDINATOR_BATCH, exclude_ids=()):
+    """Queued video/upscale rows not yet confirmed admissible, oldest first, wherever they sit behind images."""
+    now = now_ms() if now is None else now
+    return list(due_generations(now=now, exclude_ids=exclude_ids).filter(SHORT_SLOT, status='queued').filter(
+        Q(provider_status__isnull=True) | Q(provider_status__in=('', SLOT_WAITING))).order_by('created_at', 'id')[:limit])
+
+
 def select_due_generations(*, now=None, limit=MAX_COORDINATOR_BATCH, exclude_ids=()):
     now = now_ms() if now is None else now
     limit = max(1, min(MAX_COORDINATOR_BATCH, int(limit or MAX_COORDINATOR_BATCH)))
-    due = Generation.objects.filter(eligible()).exclude(pk__in=exclude_ids).filter(
-        Q(next_poll_at__isnull=True) | Q(next_poll_at__lte=now)).filter(
-        Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)
-    ).annotate(dispatch_rank=Case(When((Q(kind='video') | Q(model__startswith='Magnific ')) & (
+    due = due_generations(now=now, exclude_ids=exclude_ids).annotate(dispatch_rank=Case(When(SHORT_SLOT & (
         Q(status='running') | Q(provider_status=WORKER_SLOT_WAITING)), then=Value(0)),
         default=Value(1), output_field=IntegerField()))
     from .audio_submission import audio_limits

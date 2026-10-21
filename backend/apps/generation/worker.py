@@ -8,7 +8,7 @@ from uuid import uuid4
 from django.db import connections
 from apps.common.resilience import recover
 from .services.admission import reap_stale_running_images, show_worker_slot_wait
-from .services.coordinator import select_due_generations
+from .services.coordinator import select_due_generations, select_unlabelled_short_slot
 from .services.executor import process_generation
 from .services.deadline import Cancellation
 
@@ -102,7 +102,10 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                     cooldown = {key: until for key, until in cooldown.items() if until > now}
                     labelled = {key: until for key, until in labelled.items() if until > now}
                     if not completed and now < next_scan:
-                        wait(active, timeout=min(.1, next_scan - now), return_when=FIRST_COMPLETED)
+                        if active:
+                            wait(active, timeout=min(.1, next_scan - now), return_when=FIRST_COMPLETED)
+                        else:
+                            stop.wait(next_scan - now)
                         continue
                     next_scan = now + interval
                     reap_stale_running_images()
@@ -115,10 +118,11 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                         future = pool.submit(handle_generation, item, process_generation, stop)
                         active[future] = item.id
                     if len(active) == slots and not stop.is_set():
-                        for item in due[free:]:
-                            if item.id not in labelled:
-                                show_worker_slot_wait(item)
-                                labelled[item.id] = now + 5 * interval
+                        waiting = [item for item in due[free:] if item.id not in labelled]
+                        seen = set(active.values()) | set(cooldown) | set(labelled) | {item.id for item in due}
+                        for item in waiting + select_unlabelled_short_slot(exclude_ids=seen):
+                            show_worker_slot_wait(item)
+                            labelled[item.id] = now + 5 * interval
                     failures = 0
                 except Exception as error:
                     failures += 1
