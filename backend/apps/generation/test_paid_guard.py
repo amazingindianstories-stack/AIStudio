@@ -154,7 +154,7 @@ class OneClaimPerPostTests(TransactionTestCase):
     @contextlib.contextmanager
     def guarded(self, ledger, sent, execute=None):
         from apps.generation.services import executor
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
 
         def fake_send(self, method, url, **kwargs):
             sent.append((method, url, kwargs.get('body')))
@@ -176,12 +176,14 @@ class OneClaimPerPostTests(TransactionTestCase):
             paid_guard.STATE.active = None
 
     def test_post_outside_a_claimed_execution_is_refused(self):
-        from apps.generation.providers.transport import HttpTransport, ProviderError
-        with self.guarded({}, []):
+        from apps.integrations.transport import HttpTransport, ProviderError
+        sent = []
+        with self.guarded({}, sent):
             with self.assertRaises(ProviderError) as caught:
                 HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com']).request('POST', SEEDANCE_ENDPOINT, body={})
             self.assertEqual(caught.exception.code, 'preview_paid_scope')
             self.assertFalse(caught.exception.may_have_submitted)
+        self.assertEqual(sent, [])
 
     def test_each_execution_claims_once_and_a_second_post_is_refused(self):
         row = SimpleNamespace(**contract(kind='video', model='Seedance 2.5'))
@@ -201,7 +203,7 @@ class OneClaimPerPostTests(TransactionTestCase):
         self.assertEqual(sent, [])
 
     def test_payload_outside_the_quote_is_refused(self):
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
         row = SimpleNamespace(**contract(kind='video', model='Seedance 2.5'))
         ledger, sent = {row.id: 'ATTEMPTING'}, []
         with self.guarded(ledger, sent):
@@ -215,7 +217,7 @@ class OneClaimPerPostTests(TransactionTestCase):
     @override_settings(VEEVEE_GEMINI_OMNI=True)
     def test_gemini_omni_flash_1_1_claim_allows_only_its_own_endpoint_and_payload(self):
         from apps.generation.providers import omni
-        from apps.generation.providers.transport import HttpTransport, ProviderError
+        from apps.integrations.transport import HttpTransport, ProviderError
         row = contract(kind='video', model='Gemini Omni Flash 1.1', resolution='360p', duration=6, aspect_ratio='9:16')
         body = omni.build_payload([{'type': 'text', 'text': 'literal'}], '9:16', 6, {}, model='Gemini Omni Flash 1.1', resolution='360p')
         endpoint = 'https://generativelanguage.googleapis.com/v1beta/interactions'
@@ -240,7 +242,7 @@ class OneClaimPerPostTests(TransactionTestCase):
 
     def test_nano_banana_2_1_claim_allows_only_its_own_endpoint(self):
         from apps.generation.providers import gemini
-        from apps.generation.providers.transport import HttpTransport, ProviderError
+        from apps.integrations.transport import HttpTransport, ProviderError
         row = contract(kind='image', model='Nano Banana 2.1', resolution='2K')
         body = gemini.build_payload({'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '1:1',
                                      'imageSize': '2K', 'modelDisplay': 'Nano Banana 2.1'})
@@ -266,7 +268,7 @@ class MagnificOneClaimTests(TransactionTestCase):
 
     def run_submit(self, ledger, sent, posts, row):
         from apps.generation.services import upscale_submission
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
 
         def fake_upscale(item, **kwargs):
             for url, body in posts:
@@ -291,7 +293,7 @@ class MagnificOneClaimTests(TransactionTestCase):
         self.assertEqual(ledger[row.id], 'SUBMITTING')
 
     def test_wrong_endpoint_payload_or_missing_reservation_never_reaches_magnific(self):
-        from apps.generation.providers.transport import ProviderError
+        from apps.integrations.transport import ProviderError
         row = SimpleNamespace(**contract(kind='video', model='Magnific Video Creative', submission_input={'version': 1}))
         for posts, ledger, error in (
                 ([(MAGNIFIC + '/v1/ai/video-upscaler/turbo', {'output_format': 'h264'})], {row.id: 'RESERVED'}, ProviderError),
@@ -361,7 +363,7 @@ class KlingOneClaimTests(TransactionTestCase):
         return SimpleNamespace(**contract(kind='image', model='Kling Image 3.0', resolution='2K', aspect_ratio='16:9', **fields))
 
     def execute_posting(self, *posts):
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
 
         def execute(item, **kwargs):
             for url, body in posts:
@@ -387,7 +389,7 @@ class KlingOneClaimTests(TransactionTestCase):
         self.assertEqual(ledger[row.id], 'SUBMITTING')
 
     def test_a_post_without_a_claim_is_refused(self):
-        from apps.generation.providers.transport import HttpTransport, ProviderError
+        from apps.integrations.transport import HttpTransport, ProviderError
         sent = []
         with self.guarded({}, sent):
             with self.assertRaises(ProviderError) as caught:
@@ -400,7 +402,7 @@ class KlingOneClaimTests(TransactionTestCase):
         self.assertEqual(sent, [])
 
     def test_any_other_model_count_ratio_size_or_endpoint_is_refused_unsent(self):
-        from apps.generation.providers.transport import ProviderError
+        from apps.integrations.transport import ProviderError
         without_n = {key: value for key, value in kling_body().items() if key != 'n'}
         cases = [(KLING_CREATE, kling_body(model_name='kling-v2-1'), ValueError), (KLING_CREATE, kling_body(model_name='kling-v3-omni'), ValueError),
                  (KLING_CREATE, kling_body(n=2), ValueError), (KLING_CREATE, without_n, ValueError),
@@ -417,7 +419,7 @@ class KlingOneClaimTests(TransactionTestCase):
             self.assertEqual(ledger[row.id], 'ATTEMPTING')
 
     def test_an_accepted_task_resumes_polling_without_a_claim_and_cannot_post(self):
-        from apps.generation.providers.transport import HttpTransport, ProviderError
+        from apps.integrations.transport import HttpTransport, ProviderError
         row, sent = self.row(task_id='kling-task-1'), []
         ledger = {row.id: 'SUBMITTING'}
         poll = 'https://api-singapore.klingai.com/v1/images/generations/kling-task-1'
@@ -485,7 +487,7 @@ class KlingWorkerTests(TransactionTestCase):
 
 class UnbilledReadonlyExemptionTests(OneClaimPerPostTests):
     def test_flagged_read_only_transport_bypasses_the_paid_claim(self):
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
         sent = []
         with self.guarded({}, sent):
             class ReadOnly(HttpTransport):
@@ -512,7 +514,7 @@ class PaidGuardSettingTests(TransactionTestCase):
                 self.assertIsNone(settings_error(VEEVEE_PAID_GUARD=json.dumps(config)))
 
     def test_with_the_guard_off_nothing_is_claimed_and_every_request_is_sent(self):
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
         from apps.generation.services import executor, upscale_submission
         sent, ran = [], []
         row = SimpleNamespace(**contract(kind='video', model='Seedance 2.5'))

@@ -7,7 +7,7 @@ from unittest.mock import patch, Mock
 import requests
 import urllib3
 from django.test import SimpleTestCase
-from .providers.transport import HttpTransport, ProviderError
+from apps.integrations.transport import HttpTransport, ProviderError
 
 
 class ProviderResponseDeadlineTests(SimpleTestCase):
@@ -54,7 +54,7 @@ class ProviderResponseDeadlineTests(SimpleTestCase):
 
     def test_success_and_size_limit_cancel_watchdog(self):
         response, thread, _ = self.response(b'{"ok":true}', 0)
-        with patch('apps.generation.providers.transport.threading.Timer', wraps=threading.Timer) as timer:
+        with patch('apps.integrations.transport.threading.Timer', wraps=threading.Timer) as timer:
             result = HttpTransport(allowed_hosts=[])._read_body(response,time.monotonic()+1)
         self.assertEqual(result,b'{"ok":true}')
         self.assertEqual(timer.call_count,1)
@@ -82,7 +82,7 @@ class ProviderResponseDeadlineTests(SimpleTestCase):
     def test_missing_live_socket_fails_closed_before_body_and_timer(self):
         response=Mock()
         response.raw=Mock(closed=False,_fp=None)
-        with patch('apps.generation.providers.transport.threading.Timer') as timer:
+        with patch('apps.integrations.transport.threading.Timer') as timer:
             with self.assertRaises(ProviderError) as failure:
                 HttpTransport(allowed_hosts=[])._read_body(response,time.monotonic()+1)
         self.assertEqual(failure.exception.code,'response_deadline_unavailable')

@@ -6,7 +6,7 @@ import re
 from urllib.parse import urlsplit
 from PIL import Image
 from apps.generation.providers.kling import MODELS, api_host
-from apps.generation.providers.transport import HttpTransport
+from apps.integrations.transport import HttpTransport
 from apps.generation.services.deadline import Cancellation
 
 

@@ -6,6 +6,8 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+from .errors import ProviderError
+
 
 @dataclass
 class HttpResult:
@@ -25,13 +27,6 @@ class HttpResult:
         return json.loads(self.body)
 
 
-class ProviderError(RuntimeError):
-    def __init__(self, message, *, code='provider_error', status=None, provider_response=None, may_have_submitted=True):
-        super().__init__(message)
-        self.code, self.status, self.provider_response = code, status, provider_response
-        self.may_have_submitted = may_have_submitted
-
-
 class HttpTransport:
     def __init__(self, *, allowed_hosts, timeout=60, max_response_bytes=32 * 1024 * 1024):
         self.allowed_hosts = frozenset(allowed_hosts)
@@ -39,7 +34,7 @@ class HttpTransport:
         self.max_response_bytes = max_response_bytes
 
     def request(self, method, url, *, headers=None, body=None, raw_body=None, signal=None):
-        from apps.generation.services import paid_guard
+        from apps.generation.services import paid_guard  # known upward dependency; remove in refactor step 6
         if paid_guard.enabled():
             paid_guard.check_request(self, method, url, body)
         return self._send(method, url, headers=headers, body=body, raw_body=raw_body, signal=signal)

@@ -5,11 +5,11 @@ import uuid
 from unittest.mock import patch
 from django.test import TestCase, override_settings
 from apps.admin_dashboard import tests as dashboard_tests
-from apps.generation.providers.transport import HttpResult, HttpTransport
+from apps.integrations.transport import HttpResult, HttpTransport
 from apps.media.storage import MemoryAdapter, StorageService
 from . import portrait_db as db
 from . import portrait_lifecycle, portrait_sync
-from .byteplus import BytePlusClient
+from apps.integrations.byteplus import BytePlusClient
 from .models import PortraitAsset, PortraitGroup
 from .portraits import cleanup_deleted_portraits, remove_portrait_asset
 from .test_portrait_contracts import CONFIG, OfflineRemote, picture
@@ -195,7 +195,7 @@ class PullOnlySyncTests(TestCase):
 class ListOnlyClientTests(TestCase):
     @LIFECYCLE
     def test_the_sync_client_can_only_list_the_default_catalogue(self):
-        with patch('apps.assets.byteplus.config_from_env', return_value=dict(CONFIG, is_mock=True)):
+        with patch('apps.integrations.byteplus.config_from_env', return_value=dict(CONFIG, is_mock=True)):
             client = portrait_sync.get_client()
         self.assertIsInstance(client, portrait_lifecycle.ListOnlyClient)
         self.assertFalse(client.is_mock)

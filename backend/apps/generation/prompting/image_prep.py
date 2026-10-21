@@ -6,7 +6,7 @@ import os
 import time
 from urllib.parse import quote
 from .vision_templates import T
-from apps.generation.providers.transport import HttpTransport
+from apps.integrations.transport import HttpTransport
 
 API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
 

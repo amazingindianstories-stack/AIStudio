@@ -52,9 +52,10 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `generation` | Enqueue, history and live updates, providers, prompting, worker execution |
 | `exports` | ZIP manifests and the export worker |
 | `workers` | Depth protocol, depth enqueue, cron routes, scheduler |
-| `media` | Storage, uploads, signed grants, remote fetch, downloads, audio transcription |
+| `media` | Storage, uploads, signed grants, downloads, audio transcription |
 | `admin_dashboard` | Admin views, pricing, settings, limits, status checks, provider error log (`/api/admin/errors`) |
 | `common` | Middleware, leases, responses, health, activity log |
+| `integrations` | Model-free outbound HTTP: provider transport and request deadlines, BytePlus client, bounded remote media fetch, DNS resolver |
 
 Provider failures are recorded once, in `generation/provider_errors.py`: every adapter keeps the provider's code,
 message, blamed field, request id and task id (redacted, raw body capped at 4 KB) in `generations.provider_responses`

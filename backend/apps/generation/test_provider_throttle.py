@@ -14,7 +14,7 @@ from testsupport.fake_providers import GOOGLE_STATUS, google_error
 from . import failure_copy
 from .models import Generation
 from .providers import seedream
-from .providers.transport import HttpResult, ProviderError
+from apps.integrations.transport import HttpResult, ProviderError
 from .serialization import generation_item
 from .services import admission, executor, paid_guard, poller, video_execution
 from .services.audio_submission import AUDIO_READY, audio_capacity_available, process_audio
@@ -62,7 +62,7 @@ class LedgerCursor:
 @contextlib.contextmanager
 def paid_guarded(ledger, sent, responses):
     """The production paid guard over a transport that answers with `responses`; a second POST per job is refused."""
-    from apps.generation.providers.transport import HttpTransport
+    from apps.integrations.transport import HttpTransport
 
     def provider(self, method, url, **kwargs):
         sent.append((method, url))
@@ -311,7 +311,7 @@ class AudioThrottleTests(TransactionTestCase):
         return provider
 
     def test_a_429_fails_the_row_and_frees_the_users_audio_slot(self):
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
         row, store = self.prepared()
         provider = self.transcriber(429)
         with patch.object(HttpTransport, 'request', lambda self, *args, **kwargs: throttle(429)):
@@ -326,7 +326,7 @@ class AudioThrottleTests(TransactionTestCase):
         self.assertTrue(audio_capacity_available(row.user_id), 'a throttle must not lock the user out of transcription')
 
     def test_other_definite_4xx_fail_with_the_rejected_copy_and_5xx_stays_uncertain(self):
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
         for status, uncertain in ((400, False), (408, True), (500, True)):
             with self.subTest(status=status):
                 row, store = self.prepared()

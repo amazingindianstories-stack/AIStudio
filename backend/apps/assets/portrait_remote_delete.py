@@ -167,8 +167,8 @@ class ExactDeleteClient:
 
 
 def native_delete_client():
-    from apps.assets.byteplus import BytePlusClient, config_from_env
-    from apps.generation.providers import transport
+    from apps.integrations.byteplus import BytePlusClient, config_from_env
+    from apps.integrations import transport
     from urllib.parse import urlsplit, parse_qs
 
     class DeleteGetTransport(transport.HttpTransport):

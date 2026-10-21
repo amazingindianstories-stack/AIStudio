@@ -1,5 +1,4 @@
 """Media boundary errors shared by storage and remote readers."""
+from apps.integrations.errors import MediaTooLargeError
 
-
-class MediaTooLargeError(ValueError):
-    pass
+__all__ = ['MediaTooLargeError']

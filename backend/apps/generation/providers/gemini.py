@@ -5,7 +5,7 @@ import re
 from apps.generation.model_registry import model_definition
 from apps.generation import provider_errors
 from apps.generation.services.deadline import Cancellation
-from .transport import HttpTransport, ProviderError, required_key
+from apps.integrations.transport import HttpTransport, ProviderError, required_key
 
 API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
 # Callers without a registry model (the hidden Higgsfield video auto-frame) keep Nano Banana Pro.

@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 from .model_registry import MODEL_REGISTRY, provider_model_id
 from .providers.seedream import seedream_payload, resolve_seedream_references, generate_image
-from .providers.transport import HttpResult, HttpTransport, ProviderError
+from apps.integrations.transport import HttpResult, HttpTransport, ProviderError
 from .services.deadline import settle_queue_execution, Cancellation, QueueExecutionDeadlineError
 
 

@@ -9,8 +9,9 @@ and the worker must claim each attempt and each provider POST exactly once.
 Configured by ``settings.VEEVEE_PAID_GUARD`` and off when it is unset. The
 guarded public names (``enqueue.persist``, ``executor.execute_admitted``,
 ``upscale_submission.submit_claimed_upscale``, ``audio_submission``'s
-``persist_audio_intent`` and ``transcribe_claimed``, and ``HttpTransport.request``)
-call into this module; no credentials or database access happen on import.
+``persist_audio_intent`` and ``transcribe_claimed``, and
+``apps.integrations.transport.HttpTransport.request``) call into this module;
+no credentials or database access happen on import.
 """
 import json,hashlib,threading,re,math,copy,base64
 LIMITED_SCOPE='GOAL4_EXISTING_GREEN_PREVIEW_NEW_IMAGE_AND_SEEDANCE_PAID_ONLY'
@@ -197,7 +198,7 @@ def submit_upscale(run,item,**kwargs):
 def transcribe(run,claimed,*args,**kwargs):
  # Audio bypasses execute_admitted. Its claim follows the committed SUBMISSION_PENDING fence (never replayed), so a
  # refused claim here provably sent nothing and process_audio ends the row instead of holding it uncertain.
- from apps.generation.providers.transport import ProviderError
+ from apps.integrations.transport import ProviderError
  try:
   require(not getattr(STATE,'active',None),'Nested paid execution denied')
   contract=execution_contract(claimed);quote=quote_for(contract,configured())
@@ -209,8 +210,9 @@ def transcribe(run,claimed,*args,**kwargs):
  finally:STATE.active=None
 def check_request(transport,method,url,body):
  """HttpTransport.request: anything but GET/HEAD must be the active claim's one quoted POST, claimed ATTEMPTING->SUBMITTING."""
+ if not enabled():return
  from django.db import connection
- from apps.generation.providers.transport import ProviderError
+ from apps.integrations.transport import ProviderError
  # BytePlus asset-library transports (GetAsset, list, create/delete asset) are
  # not generation and each enforces its own exact endpoint/payload allowlist.
  if getattr(transport,'paid_guard_exempt',False) is True:return

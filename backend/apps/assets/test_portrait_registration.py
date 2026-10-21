@@ -14,7 +14,7 @@ from apps.media.models import UploadSession
 from apps.media.storage import MemoryAdapter, StorageService
 from . import portrait_db as db
 from . import portrait_registration, portrait_sync
-from .byteplus import BytePlusClient
+from apps.integrations.byteplus import BytePlusClient
 from .models import PortraitAsset
 from .portrait_remote_delete import DeleteHold, delete_once
 from .portraits import group_assets, portraits, upload

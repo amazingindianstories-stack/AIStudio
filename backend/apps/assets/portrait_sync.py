@@ -10,7 +10,7 @@ from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
 from . import portrait_db as db
 from . import portrait_lifecycle, portrait_registration
-from .byteplus import get_client as shared_client, Deadline
+from apps.integrations.byteplus import get_client as shared_client, Deadline
 
 
 def get_client():

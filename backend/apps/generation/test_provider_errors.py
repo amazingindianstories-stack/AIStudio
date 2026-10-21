@@ -19,7 +19,7 @@ from testsupport.fake_providers import (FakeProviders, PROVIDER_ERRORS, REQUEST_
 from . import failure_copy, provider_errors
 from .models import Generation
 from .providers import gemini, kling, magnific, omni, seedance, seedream
-from .providers.transport import HttpResult, ProviderError
+from apps.integrations.transport import HttpResult, ProviderError
 from .serialization import generation_item
 from .services import executor, poller
 from .services.deadline import Cancellation
@@ -157,7 +157,7 @@ class CaptureTests(SimpleTestCase):
                          {'phase': 'task', 'message': 'Source image could not be decoded', 'taskId': 'mag-1'})
 
     def test_byteplus_asset_api_keeps_the_original_code_and_request_id(self, _):
-        from apps.assets.byteplus import BytePlusAssetError, BytePlusClient
+        from apps.integrations.byteplus import BytePlusAssetError, BytePlusClient
         client = BytePlusClient({'ak': 'ak', 'sk': 'sk', 'region': 'ap-southeast-1', 'host': 'ark.ap-southeast-1.byteplusapi.com',
                                  'base_url': 'https://ark.ap-southeast-1.byteplusapi.com', 'is_mock': False},
                                 transport=Transport(answer(400, asset_error('CreateAsset', 'InputImageSensitiveContentDetected.PrivacyInformation', 'real person'))))
@@ -378,7 +378,7 @@ class PortraitAssetTests(TransactionTestCase):
     def test_a_refused_portrait_keeps_the_exact_byteplus_answer_in_its_receipt_and_the_job(self):
         from apps.assets import managed_pool
         from apps.assets.models import ManagedPortraitAsset
-        from apps.assets.byteplus import BytePlusClient
+        from apps.integrations.byteplus import BytePlusClient
         fake = FakeProviders()
         storage = StorageService(MemoryAdapter())
         key = 'references/face.png'

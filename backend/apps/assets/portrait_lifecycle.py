@@ -139,7 +139,7 @@ def project_readiness(result, remote_assets=None, verified_at=None, remote_group
 
 
 def list_transport():
-    from apps.generation.providers import transport
+    from apps.integrations import transport
 
     class PortraitListTransport(transport.HttpTransport):
         paid_guard_exempt = True  # asset-library listing only; exact allowlist below
@@ -160,7 +160,7 @@ def list_transport():
 
 def read_client():
     """A live BytePlus client that can only list the default AIGC catalogue."""
-    from apps.assets import byteplus
+    from apps.integrations import byteplus
     config = byteplus.config_from_env()
     config['is_mock'] = False
     return ListOnlyClient(byteplus.BytePlusClient(config=config, transport=list_transport()))

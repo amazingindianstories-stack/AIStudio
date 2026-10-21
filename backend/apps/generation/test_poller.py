@@ -222,7 +222,7 @@ class PollerTests(TransactionTestCase):
 
     def test_magnific_image_download_stops_at_its_cap_while_streaming(self):
         import contextlib
-        from apps.media.remote import SafeMediaFetcher
+        from apps.integrations.remote import SafeMediaFetcher
         seen = []
         class Recording(SafeMediaFetcher):
             @contextlib.contextmanager

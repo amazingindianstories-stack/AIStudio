@@ -14,7 +14,7 @@ from apps.generation.watermark import WHITESPACE
 from apps.library.services.idempotency import now_ms
 from apps.library.views import body_or_empty
 from apps.media.images import save_asset_image, delete_asset_image, split_data_url
-from .byteplus import get_client, BytePlusAssetError, validate_portrait_image
+from apps.integrations.byteplus import get_client, BytePlusAssetError, validate_portrait_image
 from . import portrait_db as db
 from . import portrait_lifecycle, portrait_registration, portrait_remote_delete
 from .portrait_sync import sync_portraits, inventory_portraits, sign_stored_ref
@@ -303,7 +303,7 @@ def registered_upload(request):
         response.data['registrationError'] = 'Use a verified native upload to register this local image.'
         return response
     from apps.media.storage import get_storage
-    from apps.assets.byteplus import validate_portrait_image, MAX_FILE_BYTES
+    from apps.integrations.byteplus import validate_portrait_image, MAX_FILE_BYTES
     try:
         asset = portrait_registration.register_once(asset, actor.id, store=store,
                                                     read_native=lambda ref: get_storage().read_reference_bytes(ref, max_bytes=MAX_FILE_BYTES)['bytes'],

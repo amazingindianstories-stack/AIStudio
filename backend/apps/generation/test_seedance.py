@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
 from apps.generation.prompting.golden_fixtures import SEEDANCE_GOLDENS
 from apps.generation.providers.seedance import video_task_payload,final_video_task_payload,create_video_task,create_final_video_task,get_video_task,normalize_video_task_payload,SeedanceError,friendly_error,tags_to_image_refs
-from apps.generation.providers.transport import HttpResult
+from apps.integrations.transport import HttpResult
 
 
 class SeedanceTests(SimpleTestCase):

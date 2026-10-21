@@ -4,7 +4,7 @@ from django.test import SimpleTestCase, TransactionTestCase
 from apps.authentication.models import User
 from apps.generation.models import Generation
 from apps.library.models import NamingCounter, GenerationNaming
-from apps.generation.providers.transport import HttpResult
+from apps.integrations.transport import HttpResult
 from . import kling_validation, runtime_audit
 
 
@@ -62,7 +62,7 @@ class ActualDiagnosticTests(TransactionTestCase):
         user=User.objects.create(email='audit@example.invalid',name='Audit',role='admin',password_hash='synthetic',password_salt='synthetic',created_at=1)
         unrelated=Generation.objects.create(kind='video',status='running',prompt='Keep',model='Seedance 2.5',aspect_ratio='16:9',task_id='untouched',created_at=1,updated_at=1)
         before=(Generation.objects.count(),GenerationNaming.objects.count(),NamingCounter.objects.count())
-        with patch('apps.generation.providers.transport.HttpTransport.request',side_effect=AssertionError('No provider calls in qualification')):
+        with patch('apps.integrations.transport.HttpTransport.request',side_effect=AssertionError('No provider calls in qualification')):
             result=runtime_audit.run_runtime_audit(user.id,checks={'MIG-04':lambda:'isolated PostgreSQL'},kling_env={})
         for check in result['checks']:
             self.assertEqual(check['status'],'unknown' if check['id'] in ('ARCH-04','VER-08','VER-10') else 'ok',check)
