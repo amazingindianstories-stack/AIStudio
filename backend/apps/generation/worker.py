@@ -2,13 +2,14 @@
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import ctypes
 import logging
+import math
 import time
 from threading import Event
 from uuid import uuid4
 from django.db import connections
 from apps.common.resilience import recover
 from .services.admission import reap_stale_running_images, show_worker_slot_wait
-from .services.coordinator import select_due_generations, select_unlabelled_short_slot
+from .services.coordinator import MAX_COORDINATOR_BATCH, select_due_generations, select_unlabelled_short_slot
 from .services.executor import process_generation
 from .services.deadline import Cancellation
 
@@ -78,9 +79,10 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
 
     Selection does not claim rows. The executor's database lease remains the
     authority across processes; local exclusions also cover the submit/claim gap.
-    A short per-row cooldown preserves the poll/retry interval after a no-op.
-    Only a completion that made progress triggers an immediate rescan; after a
-    no-op the freed slot waits for the next interval scan.
+    A per-row cooldown preserves the poll interval after progress. After a
+    no-op it lasts long enough for the selection window to reach every due row
+    before a held row is retried, and the freed slot waits for the next
+    interval scan; only progress triggers an immediate rescan.
     While every slot is busy, each waiting row's queued reason is rechecked at
     most once per five intervals.
     """
@@ -92,6 +94,7 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
     try:
         with ThreadPoolExecutor(max_workers=max(1, min(8, int(concurrency)))) as pool:
             slots = max(1, min(8, int(concurrency)))
+            held_cooldown = interval * math.ceil(MAX_COORDINATOR_BATCH / slots)
             while not stop.is_set():
                 try:
                     now = time.monotonic()
@@ -99,8 +102,9 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                     for future in list(active):
                         if future.done():
                             identifier = active.pop(future)
-                            progressed |= future.result() not in NO_PROGRESS
-                            cooldown[identifier] = now + interval
+                            advanced = future.result() not in NO_PROGRESS
+                            progressed |= advanced
+                            cooldown[identifier] = now + (interval if advanced else held_cooldown)
                     cooldown = {key: until for key, until in cooldown.items() if until > now}
                     labelled = {key: until for key, until in labelled.items() if until > now}
                     if not progressed and now < next_scan:
@@ -113,7 +117,7 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                     reap_stale_running_images()
                     excluded = set(active.values()) | set(cooldown)
                     free = slots - len(active)
-                    due = select_due_generations(limit=25, exclude_ids=excluded)
+                    due = select_due_generations(limit=MAX_COORDINATOR_BATCH, exclude_ids=excluded)
                     for item in due[:free]:
                         if stop.is_set():
                             break

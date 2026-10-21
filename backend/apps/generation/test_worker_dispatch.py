@@ -319,3 +319,23 @@ class RollingDispatcherTests(TransactionTestCase):
         self.assertGreaterEqual(sum(calls.values()), 1)
         self.assertLessEqual(sum(calls.values()), 3)
         self.assertTrue(set(calls) <= {row.id for row in rows})
+
+    def test_admissible_image_behind_many_held_rows_dispatches_within_a_few_intervals(self):
+        rows = [self.job() for _ in range(8)]
+        for index, row in enumerate(rows):
+            Generation.objects.filter(pk=row.id).update(created_at=rows[0].created_at + index)
+        held = {row.id for row in rows[:-1]}
+        stop, image_started = Event(), Event()
+        def process(identifier, *, owner, **kwargs):
+            if identifier in held:
+                return {'kind': 'not_admitted'}
+            image_started.set()
+            return {'kind': 'succeeded'}
+        with patch.object(worker, 'process_generation', side_effect=process), \
+                patch.object(worker, 'show_worker_slot_wait'), ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(worker.run_worker, concurrency=2, interval=.1, stop=stop)
+            try:
+                self.assertTrue(image_started.wait(1), 'held rows kept the admissible image out of every slot')
+            finally:
+                stop.set()
+                future.result(timeout=5)
