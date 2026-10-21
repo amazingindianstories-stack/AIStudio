@@ -22,7 +22,7 @@ from deploy import legacy_config
 
 UPSTREAM_PORT = 18080
 WORKER_COMMANDS = {
-    'generation': ['generation_worker', '--concurrency', '1', '--interval', '2'],
+    'generation': ['generation_worker', '--interval', '2'],
     'export': ['media_export_worker', '--interval', '2'],
     'scheduler': ['run_scheduler'],
 }
@@ -96,13 +96,27 @@ def run_api(env):
     return max((child.returncode or 0) for child in children) or 1
 
 
+def generation_worker_slots(env):
+    """Default applies without a Railway variable; reject malformed overrides."""
+    try:
+        slots = int(env.get('VEEVEE_GENERATION_WORKER_SLOTS', '4'))
+    except ValueError:
+        raise SystemExit('VEEVEE_GENERATION_WORKER_SLOTS must be an integer from 1 to 8') from None
+    if not 1 <= slots <= 8:
+        raise SystemExit('VEEVEE_GENERATION_WORKER_SLOTS must be an integer from 1 to 8')
+    return slots
+
+
 def run_worker(component, env):
     os.environ.clear()
     os.environ.update(env)
     import django
     django.setup()
     from django.core.management import execute_from_command_line
-    execute_from_command_line(['manage.py', *WORKER_COMMANDS[component]])
+    command = list(WORKER_COMMANDS[component])
+    if component == 'generation':
+        command.extend(['--concurrency', str(generation_worker_slots(env))])
+    execute_from_command_line(['manage.py', *command])
     return 0
 
 

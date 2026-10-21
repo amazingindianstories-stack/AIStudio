@@ -11,7 +11,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--once', action='store_true')
         parser.add_argument('--interval', type=float, default=2)
-        parser.add_argument('--concurrency', type=int, default=2)
+        parser.add_argument('--concurrency', type=int, default=4)
 
     def handle(self, *args, **options):
         from apps.generation.services import portrait_prepare

@@ -16,6 +16,8 @@ PER_USER_DEFAULT = PER_USER_MAX = 8                # maxConcurrentJobs: running 
 # queues the rest on its side; keeping the excess in our queue keeps the order fair and visible.
 LANE_SETTING, LANE_DEFAULT, LANE_MAX = 'seedanceConcurrency', 3, 50
 SLOT_WAITING = 'SLOT_WAITING'
+WORKER_SLOT_WAITING = 'WORKER_SLOT_WAITING'
+WORKER_SLOT_MESSAGE = 'Waiting for a free worker slot'
 SPEND_WINDOW_MS = 600000
 HELD_MESSAGE = 'Waiting for the API rate-limit window to clear — this will start automatically.'
 
@@ -107,7 +109,6 @@ def reap_stale_running_images(*, now=None):
 
 def queue_position(identifier, *, now=None):
     now = now_ms() if now is None else now
-    reap_stale_running_images(now=now)
     item = Generation.objects.filter(pk=identifier).first()
     if item is None:
         return None
@@ -157,7 +158,28 @@ def admit_job(identifier, *, now=None, owner=None, held=None):
             return None
         if bills_gemini(fresh) and not affordable(fresh, current, multiplier):
             return None
-        cleared = {'provider_status': None, 'progress_message': None} if fresh.provider_status == SLOT_WAITING else {}
+        cleared = {'provider_status': None, 'progress_message': None} if fresh.provider_status in (SLOT_WAITING, WORKER_SLOT_WAITING) else {}
         if not Generation.objects.filter(pk=identifier, status='queued').update(status='running', updated_at=now, **cleared):
             return None
         return Generation.objects.get(pk=identifier)
+
+
+def show_worker_slot_wait(item):
+    """Label admissible, unclaimed queued rows and unlabel held ones; replace a stale provider-slot wait but no other wait."""
+    if item.status != 'queued' or item.provider_status not in (None, '', SLOT_WAITING, WORKER_SLOT_WAITING):
+        return
+    position = queue_position(item.id)
+    if not position or position['status'] != 'queued':
+        return
+    now = now_ms()
+    unclaimed = Generation.objects.filter(pk=item.id, status='queued').filter(
+        Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now))
+    if position['position'] != 0:
+        changed = unclaimed.filter(provider_status=WORKER_SLOT_WAITING).update(
+            provider_status=None, progress_message=None, updated_at=now)
+    else:
+        changed = unclaimed.filter(Q(provider_status__isnull=True) | Q(provider_status='') | Q(provider_status=SLOT_WAITING)).update(
+            provider_status=WORKER_SLOT_WAITING, progress_message=WORKER_SLOT_MESSAGE, updated_at=now)
+    if changed:
+        from apps.generation.realtime import publish_best_effort
+        publish_best_effort(Generation.objects.get(pk=item.id))

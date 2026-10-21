@@ -273,6 +273,11 @@ def process_generation(identifier, *, owner=None, signal=None, image_execute=Non
     signal = signal or Cancellation()
     try:
         was_queued = item.status == 'queued'
+        if was_queued and item.provider_status == admission.WORKER_SLOT_WAITING:
+            coordinator.expected_version(item, owner=owner).update(
+                provider_status=None, progress_message=None, updated_at=max(now_ms(), item.updated_at + 1))
+            item = Generation.objects.get(pk=identifier)
+            publish_best_effort(item)
         if was_queued and portrait_prepare.applies(item):
             deferred = _prepare_portraits(item, owner)
             if deferred is not None:

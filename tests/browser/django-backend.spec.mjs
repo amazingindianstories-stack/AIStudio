@@ -362,3 +362,36 @@ test('queued upscale persists inputs and finishes offline after the submitting b
     expect(completed.url).toMatch(/^\/api\/media\/references\//);
   } finally { await reader.close(); }
 });
+
+test('queued image and video cards explain a worker slot wait after reload', async ({ page, context, baseURL }, testInfo) => {
+  await authenticate(context, baseURL);
+  const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
+  const ids = [randomUUID(), randomUUID()];
+  const now = Date.now();
+  try {
+    for (const [index, kind] of ['image', 'video'].entries()) {
+      await db`INSERT INTO generations (id,kind,status,model,prompt,aspect_ratio,user_id,created_at,updated_at,
+        provider_status,progress_message,next_poll_at)
+        VALUES (${ids[index]},${kind},'queued',${kind === 'image' ? 'seedream-5-pro' : 'Seedance 2.5'},
+        'Worker slot waiting fixture','1:1',${USER_ID},${now + index},${now + index},
+        'WORKER_SLOT_WAITING','Waiting for a free worker slot',${now + 3600000})`;
+    }
+    await ready(page);
+    const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+    const panel = page.locator('#desktop-history-panel');
+    await panel.getByRole('button', { name: 'Global library', exact: true }).click();
+    await page.reload();
+    await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+    await panel.getByRole('button', { name: 'Global library', exact: true }).click();
+    for (const id of ids) {
+      const card = page.getByTestId(`media-card-${id}`);
+      await expect(card.getByText('Queued', { exact: true })).toBeVisible();
+      await expect(card.getByText('Waiting for a free worker slot', { exact: true })).toBeVisible();
+    }
+    await testInfo.attach('worker-slot-wait-cards', { body: await page.screenshot(), contentType: 'image/png' });
+  } finally {
+    await db`DELETE FROM generations WHERE id IN ${db(ids)}`;
+  }
+});

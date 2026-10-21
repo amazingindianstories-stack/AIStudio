@@ -6,7 +6,7 @@ from uuid import uuid4
 from django.db import connections
 from django.test import TransactionTestCase
 
-from apps.admin_dashboard.models import AppSetting, UserLimit
+from apps.admin_dashboard.models import UserLimit
 from apps.admin_dashboard.tests import SettingsTests, UID
 from apps.common import leases
 from .models import Generation
@@ -89,12 +89,24 @@ class CoordinatorTests(TransactionTestCase):
         self.job(next_poll_at=1000002)
         self.job(worker_lease_until=1000002)
         self.assertEqual([row.id for row in coordinator.select_due_generations(now=1000001)],
-                         [image.id, video.id, magnific.id])
+                         [video.id, magnific.id, image.id])
         claim = coordinator.claim_generation(image.id, 'owner', now=1000001)
         self.assertIsNotNone(coordinator.schedule_generation(claim, now=1000001, owner='owner'))
         self.assertIsNone(coordinator.schedule_generation(claim, now=1000002, owner='wrong'))
         Generation.objects.filter(pk=image.id).update(status='succeeded', updated_at=1000003)
         self.assertIsNone(coordinator.schedule_generation(claim, now=1000004))
+
+    def test_only_admissible_short_slot_work_goes_ahead_of_images(self):
+        image = self.job(created_at=1000000)
+        lane_held = self.job(kind='video', model='Seedance 2.5', created_at=1000001,
+                             provider_status=admission.SLOT_WAITING)
+        unchecked = self.job(kind='video', model='Seedance 2.5', created_at=1000002)
+        ready = self.job(kind='video', model='Seedance 2.5', created_at=1000003,
+                         provider_status=admission.WORKER_SLOT_WAITING)
+        upscale = self.job(model='Magnific Creative', created_at=1000004, provider_status=admission.WORKER_SLOT_WAITING)
+        poll = self.job(kind='video', status='running', model='Seedance 2.5', created_at=1000005)
+        self.assertEqual([row.id for row in coordinator.select_due_generations(now=1000010)],
+                         [ready.id, upscale.id, poll.id, image.id, lane_held.id, unchecked.id])
 
     def test_callback_candidate_and_poll_terminal_race(self):
         item = self.job(kind='video', status='running', task_id='primary', candidate_task_ids=['candidate'])
