@@ -225,7 +225,7 @@ def install(route,client_factory):
   asset=response.data['asset']
   if not body.get('referenceId'):response.data['registrationError']='Use a verified native upload to register this local image.';return response
   from apps.media.storage import get_storage
-  from apps.assets.byteplus import validate_portrait_image,MAX_FILE_BYTES
+  from apps.integrations.byteplus import validate_portrait_image,MAX_FILE_BYTES
   try:
    asset=register_once(asset,actor.id,store=store,read_native=lambda ref:get_storage().read_reference_bytes(ref,max_bytes=MAX_FILE_BYTES)['bytes'],sign_native=route.sign_stored_ref,client=client_factory(),validate=validate_portrait_image)
    asset={**asset,'remoteVerification':('active' if asset.get('status')=='Active' and asset.get('byteplusAssetId') else 'processing' if asset.get('byteplusAssetId') and asset.get('status')=='Processing' else 'failed' if asset.get('status')=='RegistrationFailed' else 'unverified' if asset.get('status') in ('RegistrationUnknown','RegistrationPending','RegistrationGroupPending','RegistrationGroupUnknown') else 'local_only')}
@@ -256,8 +256,8 @@ def install(route,client_factory):
  return {'status':'INSTALLED_NATIVE_UPLOAD_CREATE_ONCE','remote_group_creation':'explicit-new-upload-only-create-once','schema_changes':False}
 
 def native_client():
- from apps.assets.byteplus import BytePlusClient,config_from_env
- from apps.generation.providers import transport
+ from apps.integrations.byteplus import BytePlusClient,config_from_env
+ from apps.integrations import transport
  HttpTransport=transport.HttpTransport
  from urllib.parse import urlsplit,parse_qs
  class CreateOnlyTransport(HttpTransport):

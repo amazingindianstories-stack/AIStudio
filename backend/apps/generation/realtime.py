@@ -2,7 +2,7 @@
 import base64
 import os
 from urllib.parse import quote
-from .providers.transport import HttpTransport, ProviderError
+from apps.integrations.transport import HttpTransport, ProviderError
 
 
 def generation_event(item, version=0):

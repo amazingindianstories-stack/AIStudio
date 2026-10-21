@@ -58,7 +58,7 @@ def _patch_media(module):
     module.SafeMediaFetcher.open_file = open_file
 
 
-PATCHES = {'apps.generation.providers.transport': _patch_transport, 'apps.media.remote': _patch_media}
+PATCHES = {'apps.integrations.transport': _patch_transport, 'apps.integrations.remote': _patch_media}
 
 
 class _Hook(importlib.abc.MetaPathFinder):

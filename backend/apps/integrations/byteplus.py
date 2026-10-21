@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import quote, urlsplit
 from django.conf import settings
-from apps.generation.providers.transport import HttpTransport
+from apps.integrations.transport import HttpTransport
 
 FORMATS = ('jpeg', 'jpg', 'png', 'webp', 'bmp', 'tiff', 'gif', 'heic', 'heif')
 MAX_FILE_BYTES = 30 * 1024 * 1024
@@ -122,7 +122,7 @@ class BytePlusClient:
         signed = sign_request(body=raw, ak=self.config['ak'], sk=self.config['sk'], region=self.config['region'],
             headers={'content-type': 'application/json', 'host': self.config['host']}, query=query, date=self.date)
         url = self.config['base_url'].rstrip('/') + '/?Action=' + quote(action) + '&Version=2024-01-01'
-        from apps.generation import provider_errors
+        from apps.generation import provider_errors  # known upward dependency; remove in refactor steps 4/6
         try:
             result = self.transport.request('POST', url, headers=signed['headers'], raw_body=raw.encode(), signal=signal)
         except Exception as exc:

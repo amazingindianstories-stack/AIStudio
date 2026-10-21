@@ -14,7 +14,7 @@ from apps.generation.prompting.assembler import assemble_prompt
 from apps.generation.prompting import image_prep, face_judge
 from apps.generation.providers import gemini, kling, seedream, higgsfield
 from apps.media.persistence import measure_generated_media
-from apps.media.remote import get_media_fetcher
+from apps.integrations.remote import get_media_fetcher
 from apps.media.storage import get_storage
 from .pricing import read_pricing, compute_cost, kling_units_to_cents
 from .seedream_references import prepare_seedream_references
@@ -67,7 +67,7 @@ def task_ended(result, fallback, provider, task_id):
     """An accepted task the provider ended without a usable image. A definitive end (failed, or done with no image)
     fails the job; only our own wait running out (Higgsfield's await timeout) leaves it to be polled again."""
     from apps.generation import provider_errors
-    from apps.generation.providers.transport import ProviderError
+    from apps.integrations.transport import ProviderError
     message = result.get('error') or fallback
     record = result.get('providerError') or provider_errors.capture(provider, phase='task', message=message, task_id=task_id)
     error = ProviderError(message, code='task_failed', provider_response=record)

@@ -147,7 +147,7 @@ def partial_submission_check():
                 receipt=Generation.objects.get(pk=row.id)
                 assert receipt.task_id=='audit-task-0' and receipt.cost_cents==100, 'accepted task was not persisted before subsequent submissions'
             if index==1:
-                from apps.generation.providers.transport import ProviderError
+                from apps.integrations.transport import ProviderError
                 raise ProviderError('controlled candidate rejection', may_have_submitted=False)
             return f'audit-task-{index}'
         deps.seedance_submit=submit

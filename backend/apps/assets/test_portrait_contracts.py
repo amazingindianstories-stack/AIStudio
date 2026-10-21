@@ -10,9 +10,9 @@ from django.db import connection, connections
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.admin_dashboard.tests import SettingsTests
 from apps.authentication.models import User
-from apps.generation.providers.transport import HttpResult
+from apps.integrations.transport import HttpResult
 from apps.media.storage import MemoryAdapter, StorageService
-from .byteplus import BytePlusClient, BytePlusAssetError, sign_request, validate_portrait_image
+from apps.integrations.byteplus import BytePlusClient, BytePlusAssetError, sign_request, validate_portrait_image
 from . import portrait_db as db
 from .portrait_sync import sync_portraits, inventory_portraits, list_all_pages, unlinked_global_candidate, portrait_display_ref
 from .models import PortraitGroup, PortraitAsset
@@ -72,7 +72,7 @@ class BytePlusContracts(SimpleTestCase):
             self.assertEqual((error.exception.code, error.exception.status), (code, response.status))
 
     def test_missing_credentials_never_calls_transport_or_silently_mocks(self):
-        with patch('apps.assets.byteplus.HttpTransport') as transport:
+        with patch('apps.integrations.byteplus.HttpTransport') as transport:
             client = BytePlusClient({**CONFIG, 'ak': None, 'sk': None})
             with self.assertRaises(BytePlusAssetError) as error:
                 client.create_asset_group('P')

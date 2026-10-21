@@ -9,7 +9,7 @@ from apps.library.services.idempotency import now_ms
 from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
 from . import portrait_db as db
-from .byteplus import get_client, Deadline
+from apps.integrations.byteplus import get_client, Deadline
 
 
 def list_all_pages(list_page, *, max_pages=1000, signal=None, **input):

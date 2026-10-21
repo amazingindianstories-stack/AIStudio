@@ -48,7 +48,7 @@ class GeminiTranscriber:
 def transcription_error(response):
     """The provider's refusal of a transcription, with its exact record (code, message, request id)."""
     from apps.generation import provider_errors
-    from apps.generation.providers.transport import ProviderError
+    from apps.integrations.transport import ProviderError
     return ProviderError(f'Gemini transcription failed ({response.status}).', status=response.status,
                          provider_response=provider_errors.capture('gemini', phase='transcribe', status=response.status,
                                                                    body=response.text, headers=response.headers))
@@ -62,7 +62,7 @@ def get_transcriber():
         key = getattr(settings,'GOOGLE_API_KEY',None) or os.environ.get('GOOGLE_API_KEY')
         if not key:
             raise ValueError('GOOGLE_API_KEY is not configured.')
-        from apps.generation.providers.transport import HttpTransport
+        from apps.integrations.transport import HttpTransport
         client = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'],timeout=120)
         def transport(url,payload,headers,*,signal=None):
             response = client.request('POST',url,headers=headers,body=payload,signal=signal)
@@ -75,7 +75,7 @@ def get_transcriber():
 
 def configured_transcriber():
     import os
-    from apps.generation.providers.transport import HttpTransport, required_key
+    from apps.integrations.transport import HttpTransport, required_key
     key = required_key(os.environ, 'GOOGLE_API_KEY', 'GOOGLE_API_KEY is not configured.')
     client = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
     def request(url, payload, headers, *, signal=None):

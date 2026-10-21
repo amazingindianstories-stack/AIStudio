@@ -63,7 +63,7 @@ class BoundedInputTests(SimpleTestCase):
             decode.assert_not_called()
 
     def test_remote_per_read_cap_rejects_headers_and_chunks_without_lowering_default(self):
-        from .remote import SafeMediaFetcher
+        from apps.integrations.remote import SafeMediaFetcher
         response=Mock(status=200)
         connection=Mock()
         connection.getresponse.return_value=response

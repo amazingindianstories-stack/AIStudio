@@ -20,7 +20,7 @@ from apps.agents.llm import AgentTransport, GeminiAgentClient, agent_payload_all
 from apps.agents.orchestrator import run_turn, tools_for_kind
 from apps.agents.prompts import DESIGN_PROMPT, system_prompt
 from apps.generation.models import Generation
-from apps.generation.providers.transport import HttpResult, HttpTransport, ProviderError
+from apps.integrations.transport import HttpResult, HttpTransport, ProviderError
 from apps.generation.services import audio_submission
 from apps.generation.services.audio_submission import AUDIO_READY, audio_capacity_available, process_audio
 from apps.generation.services.deadline import Cancellation

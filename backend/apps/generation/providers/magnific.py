@@ -5,7 +5,7 @@ import re
 from urllib.parse import quote, urlsplit
 from apps.common.javascript import number, string, truthy, UNDEFINED
 from apps.generation import provider_errors
-from .transport import HttpTransport, ProviderError, required_key
+from apps.integrations.transport import HttpTransport, ProviderError, required_key
 
 BASE_URL = 'https://api.magnific.com'
 MODELS = ['Magnific Creative', 'Magnific Precision V2', 'Magnific Precision V1']

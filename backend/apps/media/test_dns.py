@@ -2,8 +2,8 @@ import threading
 import time
 from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
-from .dns import BoundedMediaResolver, MediaDNSCapacityError
-from .remote import SafeMediaFetcher, UnsafeMediaURL
+from apps.integrations.dns import BoundedMediaResolver, MediaDNSCapacityError
+from apps.integrations.remote import SafeMediaFetcher, UnsafeMediaURL
 
 
 class MediaDNSTests(SimpleTestCase):
@@ -52,7 +52,7 @@ class MediaDNSTests(SimpleTestCase):
 
     def test_thread_start_failure_restores_capacity(self):
         dns = BoundedMediaResolver(slots=1)
-        for target in ('apps.media.dns.threading.Thread','apps.media.dns.threading.Thread.start'):
+        for target in ('apps.integrations.dns.threading.Thread','apps.integrations.dns.threading.Thread.start'):
             with self.subTest(target=target), patch(target,side_effect=RuntimeError('fixture start failure')):
                 with self.assertRaises(RuntimeError):dns.resolve(Mock(),timeout=.1)
             self.assertTrue(dns.capacity.acquire(blocking=False))

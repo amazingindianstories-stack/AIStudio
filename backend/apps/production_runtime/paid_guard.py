@@ -143,7 +143,7 @@ def install_paid_guard(config):
  """Call after django.setup, before API routes/worker imports. Never patch source files."""
  from django.db import connection,transaction
  from apps.generation.services import enqueue,executor
- from apps.generation.providers.transport import HttpTransport,ProviderError
+ from apps.integrations.transport import HttpTransport,ProviderError
  require(config['approved_scope'] in (LIMITED_SCOPE,UNLIMITED_SCOPE))
  unlimited=config['approved_scope']==UNLIMITED_SCOPE
  require(config.get('unlimited_new_jobs') is True if unlimited else config['maximum_total_cents']==CAP)

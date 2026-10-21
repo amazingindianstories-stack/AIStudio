@@ -18,7 +18,7 @@ from apps.generation.providers import magnific, omni
 from apps.generation.realtime import publish_best_effort
 from apps.media import persistence
 from apps.media.errors import MediaTooLargeError
-from apps.media.remote import get_media_fetcher
+from apps.integrations.remote import get_media_fetcher
 from apps.media.storage import get_storage
 from . import coordinator
 from .deadline import Cancellation
@@ -106,7 +106,7 @@ class Dependencies:
         # Same allowlisted fetcher, streamed to a spool file; ProRes masters
         # get a larger cap within the worker's per-job budget.
         import copy
-        from apps.media.remote import SafeMediaFetcher
+        from apps.integrations.remote import SafeMediaFetcher
         fetcher = get_media_fetcher()
         if isinstance(fetcher, SafeMediaFetcher):
             # Same hosts, resolver and pinning; only the size cap and time budget differ.
@@ -120,7 +120,7 @@ class Dependencies:
     def fetch_magnific_image(self, url):
         # Stop at the cap while streaming instead of reading the fetcher's
         # general 512 MB allowance into memory first.
-        from apps.media.remote import SafeMediaFetcher
+        from apps.integrations.remote import SafeMediaFetcher
         fetcher = get_media_fetcher()
         if isinstance(fetcher, SafeMediaFetcher):
             with fetcher.open_file(url, max_bytes=MAGNIFIC_IMAGE_MAX_BYTES) as (stream, mime):

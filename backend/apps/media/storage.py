@@ -691,7 +691,7 @@ class StorageService:
                 media.stream.close()
         # Arbitrary untrusted URLs never trigger an implicit network fetch/SSRF.
         if self.reference_fetcher and ref.startswith(('https://', 'http://')):
-            from .remote import SafeMediaFetcher
+            from apps.integrations.remote import SafeMediaFetcher
             if isinstance(self.reference_fetcher, SafeMediaFetcher):
                 with self.reference_fetcher.open_file(ref,max_bytes=max_bytes) as (stream,mime):
                     data = stream.read()
@@ -705,7 +705,7 @@ class StorageService:
 def configured_storage():
     """Lazy factory; importing views does not initialize credentials or clients."""
     config = getattr(settings, 'VEEVEE_MEDIA_CONFIG', {})
-    from .remote import get_media_fetcher
+    from apps.integrations.remote import get_media_fetcher
     reference_fetcher = get_media_fetcher()
     backend = config.get('backend')
     if backend == 'filesystem':

@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase,TransactionTestCase
 from apps.generation.prompting.golden_fixtures import HIGGSFIELD_GOLDENS
 from apps.generation.providers.higgsfield import HiggsfieldClient,DatabaseLease,video_payload,image_payload,is_fresh,parse_json_rpc_messages,job_id_from,TOKEN_OBJECT_KEY,REFRESH_LEASE_KEY,ROTATION_STATE_KEY,token_identity
-from apps.generation.providers.transport import HttpResult,ProviderError
+from apps.integrations.transport import HttpResult,ProviderError
 from apps.media.storage import StorageService,MemoryAdapter
 
 

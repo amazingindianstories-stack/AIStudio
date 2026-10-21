@@ -13,7 +13,7 @@ from apps.generation.model_registry import MODEL_REGISTRY
 from apps.generation.services.deadline import Cancellation
 from apps.generation.watermark import WHITESPACE
 from apps.generation import provider_errors
-from .transport import HttpTransport, ProviderError, required_key
+from apps.integrations.transport import HttpTransport, ProviderError, required_key
 
 DEFAULT_HOST = 'https://api-singapore.klingai.com'
 # KLING_API_HOST may only name a Kling API host: the key is sent there as a bearer token.

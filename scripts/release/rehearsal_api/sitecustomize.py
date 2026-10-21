@@ -13,7 +13,7 @@ import sys
 import threading
 from urllib.parse import urlsplit
 
-TARGET = 'apps.generation.providers.transport'
+TARGET = 'apps.integrations.transport'
 GEMINI_HOST = 'generativelanguage.googleapis.com'
 
 

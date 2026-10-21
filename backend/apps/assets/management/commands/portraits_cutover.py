@@ -19,7 +19,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Count
 
 from apps.assets import managed_pool
-from apps.assets.byteplus import BytePlusAssetError, BytePlusClient, config_from_env
+from apps.integrations.byteplus import BytePlusAssetError, BytePlusClient, config_from_env
 from apps.assets.models import ManagedPortraitPool, PortraitAsset, PortraitGroup
 
 GONE = ('NotFound', 'NotFound.asset_id', 'NotFound.group_id')

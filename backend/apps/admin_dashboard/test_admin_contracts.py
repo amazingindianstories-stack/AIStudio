@@ -270,7 +270,7 @@ class AdminPureParityTests(SimpleTestCase):
                          [('gemini','Gemini / Nano Banana Pro'),('gemini-nano-banana-2-1','Gemini / Nano Banana 2.1')])
 
     def test_gemini_status_probe_is_a_provider_transport_get(self):
-        from apps.generation.providers.transport import HttpResult, HttpTransport
+        from apps.integrations.transport import HttpResult, HttpTransport
         seen=[]
         def request(transport,method,url,**kwargs):
             seen.append((method,url,kwargs.get('headers'),transport.allowed_hosts))

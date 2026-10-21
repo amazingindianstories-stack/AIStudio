@@ -36,7 +36,7 @@ def http_status(url, headers=None, timeout=5):
 
 def provider_status(url, headers=None, timeout=5):
     """A provider metadata GET through the provider transport (no redirects, no proxy credentials, body bounded)."""
-    from apps.generation.providers.transport import HttpTransport
+    from apps.integrations.transport import HttpTransport
     return HttpTransport(allowed_hosts={'generativelanguage.googleapis.com'}, timeout=timeout,
                          max_response_bytes=1024 * 1024).request('GET', url, headers=headers or {}).status
 

@@ -2,7 +2,7 @@
 import json
 import re
 from urllib.parse import parse_qs, urlsplit
-from apps.generation.providers.transport import HttpTransport
+from apps.integrations.transport import HttpTransport
 
 GETASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
 ASSET_ID = re.compile(r'[A-Za-z0-9_-]{1,256}')
@@ -25,7 +25,7 @@ class ReadOnlyGetAssetTransport(HttpTransport):
 
 
 def get_asset_client():
-    from .byteplus import BytePlusClient, config_from_env
+    from apps.integrations.byteplus import BytePlusClient, config_from_env
     config = config_from_env()
     config['is_mock'] = False
     return BytePlusClient(config=config, transport=ReadOnlyGetAssetTransport(allowed_hosts={GETASSET_HOST}, timeout=2))

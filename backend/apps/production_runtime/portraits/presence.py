@@ -131,10 +131,10 @@ def install():
  original=compile_pull_only(source.decode(),portrait_sync.__dict__)
  def guarded(project_id,client):
   return original(project_id,ListOnlyClient(client))
- from apps.assets import byteplus
+ from apps.integrations import byteplus
  def read_client():
   config=byteplus.config_from_env();config['is_mock']=False
-  from apps.generation.providers import transport
+  from apps.integrations import transport
   return ListOnlyClient(byteplus.BytePlusClient(config=config,transport=list_transport(transport)))
  old_local_result=portrait_sync.local_result
  def unverified_local_result(*args,**kwargs):return project_readiness(old_local_result(*args,**kwargs))

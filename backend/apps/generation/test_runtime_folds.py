@@ -197,7 +197,7 @@ class RealVideoDependencyWiringTests(__import__('django.test', fromlist=['Transa
         from unittest.mock import patch
         from apps.assets.models import Asset
         from apps.projects.models import Project
-        from .providers.transport import HttpTransport, ProviderError
+        from apps.integrations.transport import HttpTransport, ProviderError
         from .services.deadline import Cancellation
         from .services.video_execution import submit_video
         project = Project.objects.create(id=uuid.uuid4(), name='P', created_at=1, updated_at=1)

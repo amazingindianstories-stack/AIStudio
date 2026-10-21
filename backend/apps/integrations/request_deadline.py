@@ -7,7 +7,7 @@ import socket
 import queue
 import threading
 import time
-from .transport import ProviderError
+from .errors import ProviderError
 
 
 class BoundedResolver:
