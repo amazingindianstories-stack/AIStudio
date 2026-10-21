@@ -62,6 +62,11 @@ message, blamed field, request id and task id (redacted, raw body capped at 4 KB
 or a portrait asset's `receipt.lastError`. `generation/failure_copy.py` shows the user a plain sentence followed by
 that exact detail, and the admin Errors tab reads the same records (older rows are parsed from their raw body).
 
+Model switches (`VEEVEE_KLING`, `VEEVEE_GEMINI_OMNI`, `VEEVEE_MAGNIFIC_UPSCALE`) live in `generation/availability.py`:
+the paid guard refuses new jobs on a switched-off provider, and signed-in `GET /api/auth/me` returns
+`availability.models` (registry ids of offered, unretired, switched-on models). The frontend pickers filter the
+registry with it (`isModelAvailable`/`pickerModels`), so flipping a switch and redeploying shows or hides a model.
+
 `backend/testsupport` holds fake providers and the frozen historical Node outputs used as test
 oracles. `backend/parity` pins current production behavior through seams the backend restructure
 keeps unchanged (HTTP, gateway, entrypoint, command names, settings flags); its package docstring

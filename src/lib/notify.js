@@ -19,6 +19,7 @@ export function notify(message, { tone = "error" } = {}) {
   if (existing) return existing.id;
   const id = nextId++;
   useNotices.setState((state) => ({ notices: [...state.notices.slice(-3), { id, text, tone }] }));
-  if (typeof setTimeout === "function") setTimeout(() => dismissNotice(id), LIFETIME_MS);
+  // Hiding a toast never needs to keep a process alive (Node returns a Timeout; browsers a number).
+  if (typeof setTimeout === "function") setTimeout(() => dismissNotice(id), LIFETIME_MS)?.unref?.();
   return id;
 }

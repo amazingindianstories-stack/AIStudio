@@ -18,8 +18,8 @@ test("attached audio tags highlight as valid while missing references stay inval
       value: "@audio1 @AUDIO2 @audio3 @audio0",
       onChange() {}, references: [], audioRefs: ["a.mp3", "b.wav"],
     }));
-    assert.match(html, /text-brand">@audio1<\/span>/);
-    assert.match(html, /text-brand">@AUDIO2<\/span>/);
+    assert.match(html, /bg-mention\/20 text-mention">@audio1<\/span>/);
+    assert.match(html, /bg-mention\/20 text-mention">@AUDIO2<\/span>/);
     assert.match(html, /text-red-300">@audio3<\/span>/);
     assert.match(html, /text-red-300">@audio0<\/span>/);
   } finally {
@@ -41,9 +41,9 @@ test("named material tags highlight as valid from assets while unknown tags stay
       references: ["data:image/png;base64,AA=="],
       assets,
     }));
-    assert.match(html, /text-brand">@sati<\/span>/);
-    assert.match(html, /text-brand">@scene1<\/span>/);
-    assert.match(html, /text-brand">@img1<\/span>/);
+    assert.match(html, /bg-mention\/20 text-mention">@sati<\/span>/);
+    assert.match(html, /bg-mention\/20 text-mention">@scene1<\/span>/);
+    assert.match(html, /bg-mention\/20 text-mention">@img1<\/span>/);
     assert.match(html, /text-red-300">@mystery<\/span>/);
   } finally {
     globalThis.React = previousReact;
@@ -79,7 +79,7 @@ test("reserved malformed image tags stay whole and amber while unknown named ass
     const html = renderToString(React.createElement(MentionTextarea, {
       value: "@img1 @img100 @img0 @img02 @img2x @imgg1 @img @missing_named", onChange() {}, references: ["/one.png", "/two.png"],
     }));
-    assert.match(html, /text-brand">@img1<\/span>/);
+    assert.match(html, /bg-mention\/20 text-mention">@img1<\/span>/);
     for (const token of ["@img100", "@img0", "@img02", "@img2x", "@imgg1", "@img"]) assert.ok(html.includes(`text-amber-200 ring-1 ring-amber-400/40">${token}</span>`), token);
     assert.match(html, /text-red-300">@missing_named<\/span>/);
     assert.match(html, /Literal image-reference text/);
