@@ -325,7 +325,10 @@ for (const role of ['user', 'admin']) {
       const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
       if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
       await library.panel.getByRole('button', { name: 'Global library', exact: true }).click();
+      // A search reply landing later changes the feed scope and clears the selection.
+      const searched = page.waitForResponse(response => response.url().includes(`q=${library.tag}`) && response.url().includes('limit='));
       await library.panel.getByRole('textbox', { name: 'Search prompts' }).fill(library.tag);
+      await searched;
       const card = page.locator(`[data-asset-card-id="${library.image}"]`);
       await expect(card).toBeVisible();
       for (const button of ['left', 'right']) {
@@ -335,11 +338,22 @@ for (const role of ['user', 'admin']) {
         await page.keyboard.press('Escape');
         await expect(menu(page)).toHaveCount(0);
       }
+      // Ticking a card swaps the search row for the selection toolbar in place:
+      // one 44px row at every library width, so the grid never moves.
+      const fits = (element) => [element.offsetHeight, element.scrollWidth <= element.clientWidth];
+      const before = await card.boundingBox();
       await card.getByRole('checkbox', { name: 'Select' }).click();
       const toolbar = page.getByTestId('selection-toolbar');
-      expect(await toolbar.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
-      await expect(page.getByRole('button', { name: 'Move', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
-      await expect(library.panel.getByRole('button', { name: 'More actions', exact: true }).filter({ hasText: 'More' })).toHaveCount(role === 'admin' ? 1 : 0);
+      await expect(toolbar).toBeVisible();
+      expect(await toolbar.evaluate(fits)).toEqual([44, true]);
+      expect((await card.boundingBox()).y).toBe(before.y);
+      await expect(toolbar.getByRole('button', { name: 'Move', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
+      await expect(toolbar.getByRole('button', { name: 'More actions', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
+      // The narrowest desktop library; reduced motion skips the panel's width transition.
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.setViewportSize({ width: 1024, height: 1000 });
+      expect(await toolbar.evaluate(fits)).toEqual([44, true]);
+      await page.setViewportSize({ width: 1440, height: 1000 });
       await card.click({ button: 'right' });
       await menu(page).getByRole('menuitem', { name: 'Open details' }).click();
       await expect(page.getByRole('button', { name: 'Close viewer' })).toBeVisible();

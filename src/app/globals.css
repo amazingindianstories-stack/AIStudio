@@ -241,6 +241,23 @@ body {
 .history-panel { container-type: inline-size; container-name: history; }
 .history-navigation { width: clamp(10.5rem, 30cqw, 15rem); max-width: 40%; }
 
+/* The selection toolbar swaps in for the 44px search row, so ticking a card
+   never moves the grid. It stays one row at every library width: labels give
+   way to icons (each action keeps its accessible name) instead of wrapping. */
+.selection-toolbar { container-type: inline-size; }
+.selection-action { padding-inline: .625rem; }
+@container (max-width: 28rem) {
+  .selection-move-label { display: none; }
+}
+@container (max-width: 22rem) {
+  .selection-zip-label { display: none; }
+  .selection-action { padding-inline: .3125rem; }
+}
+@container (max-width: 16rem) {
+  .selection-count-label { display: none; }
+  .selection-actions { gap: .375rem; }
+}
+
 /* Keep model names readable: when the controls do not fit beside a 10rem
    model chip (long Seedance 2.5 settings), they take a second row instead of
    squeezing the model to its icon. */

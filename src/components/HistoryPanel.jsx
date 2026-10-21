@@ -24,6 +24,7 @@ import {
   Trash2,
   AlertCircle,
   Inbox,
+  MoreHorizontal,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
@@ -610,47 +611,46 @@ export function HistoryPanel() {
           </div>
         </div>
 
-        {/* Asset command bar: selection actions wrap within narrow library panels. */}
+        {/* ── ROW 2: ASSET COMMAND BAR WITH IN-PLACE CONTEXTUAL SELECTION (~44px high) ── */}
         {selectedIds.length > 0 ? (
-          /* Keep every action reachable at narrow panel widths. */
+          /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same h-11).
+             Narrow panels drop labels instead of wrapping (see globals.css). */
           <div
             data-testid="selection-toolbar"
-            className="flex min-h-11 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line bg-ink-800/90 px-3 py-2 text-xs select-none"
+            className="selection-toolbar flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line bg-ink-800/90 px-4 text-xs select-none"
           >
             {/* Left: Select all & count */}
-            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+            <div className="flex min-w-0 items-center gap-2.5">
               <button
                 type="button"
+                role="checkbox"
+                aria-checked={allSelected}
+                aria-label="Select all"
+                title={allSelected ? "Deselect all" : "Select all"}
                 onClick={() => (allSelected ? clearSelection() : selectAll(itemIds))}
-                className="flex items-center gap-1.5 font-medium text-white/75 transition hover:text-white"
+                className={cn(
+                  "grid h-4 w-4 shrink-0 place-items-center rounded border transition",
+                  allSelected
+                    ? "border-brand bg-brand text-ink-900"
+                    : "border-white/40 text-transparent hover:border-white"
+                )}
               >
-                <span
-                  className={cn(
-                    "grid h-3.5 w-3.5 place-items-center rounded border transition",
-                    allSelected
-                      ? "border-brand bg-brand text-ink-900"
-                      : "border-white/40 text-transparent"
-                  )}
-                >
-                  <Check className="h-2.5 w-2.5" strokeWidth={3} />
-                </span>
-                <span>{allSelected ? "Deselect all" : "Select all"}</span>
+                <Check className="h-3 w-3" strokeWidth={3} />
               </button>
 
-              <span className="text-white/30">|</span>
-
-              <span className="font-semibold text-white">
-                ✓ {selectedIds.length} selected
+              <span className="truncate font-semibold text-white">
+                {selectedIds.length}<span className="selection-count-label"> selected</span>
               </span>
             </div>
 
             {/* Right: Contextual actions */}
-            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+            <div className="selection-actions flex shrink-0 items-center gap-2">
               <button
                 type="button"
                 onClick={downloadSelectedZip}
                 disabled={!selectedExportableIds.length || isDownloadingZip}
-                className="flex items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1 font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
+                className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Download ZIP"
                 title="Download selected items as ZIP"
               >
                 {isDownloadingZip ? (
@@ -658,17 +658,18 @@ export function HistoryPanel() {
                 ) : (
                   <Download className="h-3.5 w-3.5" />
                 )}
-                <span>Download ZIP</span>
+                <span className="selection-zip-label">Download ZIP</span>
               </button>
 
               {isAdmin && (<button
                 type="button"
                 onClick={() => setMoveModalOpen(true)}
-                className="flex items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1 font-semibold text-brand transition hover:bg-brand/30"
+                className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30"
+                aria-label="Move"
                 title="Move selected items"
               >
                 <Move className="h-3.5 w-3.5" />
-                <span>Move</span>
+                <span className="selection-move-label">Move</span>
               </button>)}
 
               {/* More Actions Dropdown */}
@@ -677,15 +678,13 @@ export function HistoryPanel() {
                 label="More actions"
                 trigger={(open) => (
                   <span
+                    title="More actions"
                     className={cn(
-                      "flex items-center gap-1 rounded-full border border-line bg-ink-700/80 px-2.5 py-1 text-white/75 transition hover:text-white",
+                      "grid h-6 w-6 place-items-center rounded-full border border-line bg-ink-700/80 text-white/75 transition hover:text-white",
                       open && "border-brand/40 text-white"
                     )}
                   >
-                    <span>More</span>
-                    <ChevronDown
-                      className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
-                    />
+                    <MoreHorizontal className="h-3.5 w-3.5" />
                   </span>
                 )}
               >
