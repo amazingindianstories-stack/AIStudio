@@ -124,6 +124,10 @@ class OfflineAudioTranscriber:
 VEEVEE_AUDIO_TRANSCRIBER = OfflineAudioTranscriber
 # Production runs automatic portraits; the gallery and its scheduler janitor need the flag.
 VEEVEE_MANAGED_PORTRAITS = True
+# The model switches as production set them on 2026-10-20; the pickers show only switched-on models.
+VEEVEE_GEMINI_OMNI = True
+VEEVEE_MAGNIFIC_UPSCALE = True
+VEEVEE_KLING = False
 ''')
     if args.install_browser:
         subprocess.run(['node', 'node_modules/playwright-core/cli.js', 'install', 'chromium'], check=True, cwd=ROOT)

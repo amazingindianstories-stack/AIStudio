@@ -14,6 +14,7 @@ import {
   MAGNIFIC_VIDEO_OUTPUT_FORMATS,
   MAGNIFIC_VIDEO_RESOLUTIONS,
 } from "@/lib/magnific-ui";
+import { isModelAvailable } from "@/lib/model-registry";
 import { cn } from "@/lib/utils";
 import { formatCost } from "@/lib/format-cost";
 import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
@@ -98,6 +99,7 @@ export function VideoUpscalerComposer() {
   const setParam = s.setVideoUpscalerParam;
   const generating = s.generating;
   const model = params.model || MAGNIFIC_VIDEO_DEFAULTS.model;
+  const models = MODELS.filter((m) => isModelAvailable(m.id, s.availableModelIds));
   const topaz = model === "Magnific Video Topaz";
   const precision = model === "Magnific Video Precision";
 
@@ -252,7 +254,7 @@ export function VideoUpscalerComposer() {
             </button>
           </div>
           <div className="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
-            {MODELS.map((m) => {
+            {models.map((m) => {
               const active = model === m.id;
               return (
                 <button
