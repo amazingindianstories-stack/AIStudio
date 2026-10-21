@@ -6,8 +6,6 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from apps.generation.services import paid_guard
-
 
 @dataclass
 class HttpResult:
@@ -41,6 +39,7 @@ class HttpTransport:
         self.max_response_bytes = max_response_bytes
 
     def request(self, method, url, *, headers=None, body=None, raw_body=None, signal=None):
+        from apps.generation.services import paid_guard
         if paid_guard.enabled():
             paid_guard.check_request(self, method, url, body)
         return self._send(method, url, headers=headers, body=body, raw_body=raw_body, signal=signal)

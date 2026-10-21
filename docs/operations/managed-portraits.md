@@ -89,8 +89,8 @@ Nothing is deployed. Every production step below needs explicit owner approval.
    refer to their image URLs). Safe to re-run; it never touches the pool group, ignores groups whose Status is
    Deleted, and never deletes an asset whose group is missing or not listed (it reports those by id).
 5. Set `VEEVEE_MANAGED_PORTRAITS=1` on API, generation worker and scheduler; redeploy API → generation
-   (idle) → scheduler. With the flag on, `production_runtime` does not install the old portrait lifecycle
-   patches and `enqueue` skips the old portrait reference check.
+   (idle) → scheduler. With the flag on, the old portrait lifecycle (`apps/assets/portrait_lifecycle.enabled()`)
+   stays off and `enqueue` skips the old portrait reference check.
 6. Deploy the frontend (Portrait Gallery v2) with the Vercel CLI.
 6a. Concurrency: 8 running jobs per user (`admission.PER_USER_MAX`; production `settings.maxConcurrentJobs` = 8
    since 2026-10-17) and 8 running videos overall (`MAX_CONCURRENT['video']`). BytePlus runs at most 3 tasks per

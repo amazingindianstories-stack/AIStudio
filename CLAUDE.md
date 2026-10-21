@@ -26,10 +26,12 @@ private archives using frozen manifest filenames. `run_scheduler` reconciles dep
 cleans login attempts and expired exports, and runs the portrait janitor, with database slot
 leases and startup catch-up. External GPU depth workers use the fenced depth HTTP protocol.
 
-`apps/production_runtime` installs the Green production policies (paid guard, export admission,
-lease/naming namespaces, portrait lifecycle) by patching other modules at startup. Renaming or
-reshaping a patched function can break API startup; check that app before refactoring the
-modules it touches.
+Each Green production policy lives in its owning app, behind the same flags, read at call time:
+lease namespaces in `apps/common/leases.py`, naming namespaces in `apps/library/services/naming.py`,
+read-only pricing in `apps/admin_dashboard/queries.py`, export admission in `apps/exports/admission.py`,
+the paid guard in `apps/generation/services/paid_guard.py`, and the portrait lifecycle in
+`apps/assets/portrait_lifecycle.py` (with `portrait_registration.py` and `portrait_remote_delete.py`).
+Nothing patches another module at startup.
 
 ## Commands
 

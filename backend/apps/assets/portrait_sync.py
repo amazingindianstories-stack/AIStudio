@@ -9,7 +9,7 @@ from apps.library.services.idempotency import now_ms
 from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
 from . import portrait_db as db
-from . import portrait_lifecycle
+from . import portrait_lifecycle, portrait_registration
 from .byteplus import get_client as shared_client, Deadline
 
 
@@ -137,9 +137,15 @@ def _sync_portraits(project_id=None, client=None):
 
 
 def reconcile(project_id, client):
-    if portrait_lifecycle.enabled():
-        return pull_only_reconcile(project_id, portrait_lifecycle.ListOnlyClient(client))
-    return _reconcile(project_id, client)
+    if not portrait_lifecycle.enabled():
+        return _reconcile(project_id, client)
+    result = pull_only_reconcile(project_id, portrait_lifecycle.ListOnlyClient(client))
+    # A complete inventory may advance only our own durable acknowledged Processing rows.
+    store = portrait_registration.DjangoStore()
+    for asset in result.get('assets', []):
+        if asset.get('remoteVerification') in ('active', 'failed'):
+            store.confirm_own(asset)
+    return result
 
 
 def _reconcile(project_id, client):

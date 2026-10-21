@@ -7,7 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 DEBUG = False
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if host.strip()]
-INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media', 'apps.production_runtime.apps.ProductionRuntimeConfig']
+INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media']
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'apps.common.middleware.RequestLogMiddleware', 'apps.common.middleware.LocalDataModeMiddleware', 'apps.common.origin.BrowserOriginMiddleware', 'apps.common.middleware.SessionRenewalMiddleware']
 
 LOCAL_DATA_MODE = os.environ.get('LOCAL_DATA_MODE', 'fixtures')
@@ -111,8 +111,9 @@ if _paid_guard_raw:
     except (KeyError, ValueError) as error:
         raise ImproperlyConfigured(f'VEEVEE_PAID_GUARD rejected: {error}') from None
 
-# Which production process this is; selects the runtime behaviour installed by
-# apps.production_runtime (api, generation, export or scheduler).
+# Which production process this is (api, generation, export or scheduler). The owning apps read it at
+# call time to apply their component-specific policies (lease and naming namespaces, read-only pricing,
+# export admission, the portrait lifecycle).
 VEEVEE_RUNTIME_COMPONENT = os.environ.get('VEEVEE_RUNTIME_COMPONENT') or None
 if VEEVEE_RUNTIME_COMPONENT not in (None, 'api', 'generation', 'export', 'scheduler'):
     raise ImproperlyConfigured('VEEVEE_RUNTIME_COMPONENT must be api, generation, export or scheduler')
