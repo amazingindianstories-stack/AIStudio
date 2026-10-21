@@ -476,6 +476,70 @@ test('Goal2 hover side arrows shift neighbours without overlap and thumbnail dra
   await page.screenshot({ path: testInfo.outputPath('hover-arrows-and-thumbnail-drag-reorder.png') });
 });
 
+test('Goal2 repeated side arrow clicks in place never open the preview of the moved reference', async ({ page, context, baseURL }, testInfo) => {
+  await ready(page, context, baseURL);
+  const ids = await stage(page, context, 3);
+  const dialog = page.getByRole('dialog', { name: 'Reference Preview', exact: true });
+  const cardOf = (id) => page.locator(`[data-reference-id="${id}"]`);
+  const underPointer = (x, y) => page.evaluate(({ x, y }) => {
+    const hit = document.elementFromPoint(x, y);
+    return { card: hit?.closest('[data-reference-id]')?.dataset.referenceId || null, preview: Boolean(hit?.closest('[data-reference-preview]')) };
+  }, { x, y });
+  // Work in the expanded composer, so a click that focuses the strip does not expand it and move the
+  // thumbnails out from under a pointer held in place.
+  const prompt = page.locator('textarea').first();
+  await prompt.fill('@img1 then @img2');
+  await prompt.press('Escape');
+  await expect(page.getByTestId('prompt-composer')).toHaveAttribute('data-composer-collapsed', 'false');
+  await page.mouse.move(10, 10);
+
+  // Moving right: after the move the moved card's thumbnail slides under the pointer.
+  await cardOf(ids[0]).hover();
+  const right = await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).boundingBox();
+  const rx = right.x + right.width / 2, ry = right.y + right.height / 2;
+  await page.mouse.click(rx, ry);
+  expect(await order(page)).toEqual([ids[1], ids[0], ids[2]]);
+  expect(await underPointer(rx, ry)).toEqual({ card: ids[0], preview: true });
+  await page.mouse.click(rx, ry);
+  await page.waitForTimeout(150);
+  await expect(dialog).toHaveCount(0);
+  expect(await order(page)).toEqual([ids[1], ids[0], ids[2]]);
+  await page.screenshot({ path: testInfo.outputPath('repeat-right-arrow-click-no-preview.png') });
+
+  // A deliberate later click on the same thumbnail, without leaving it, still previews.
+  await page.waitForTimeout(600);
+  await page.mouse.click(rx, ry);
+  await expect(dialog).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('deliberate-later-click-previews.png') });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+
+  // Moving left: the second click lands on the moved card's thumbnail in its new first slot.
+  await page.mouse.move(10, 10);
+  await cardOf(ids[0]).hover();
+  const left = await page.getByRole('button', { name: 'Move reference 2 left', exact: true }).boundingBox();
+  const lx = left.x + left.width / 2, ly = left.y + left.height / 2;
+  await page.mouse.click(lx, ly);
+  expect(await order(page)).toEqual(ids);
+  expect(await underPointer(lx, ly)).toEqual({ card: ids[0], preview: true });
+  await page.mouse.click(lx, ly);
+  await page.waitForTimeout(150);
+  await expect(dialog).toHaveCount(0);
+  expect(await order(page)).toEqual(ids);
+
+  // Leaving the card ends the repeat window: coming straight back and clicking previews at once.
+  await page.mouse.move(10, 10);
+  await cardOf(ids[0]).hover();
+  const again = await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).boundingBox();
+  await page.mouse.click(again.x + again.width / 2, again.y + again.height / 2);
+  expect(await order(page)).toEqual([ids[1], ids[0], ids[2]]);
+  await page.mouse.move(10, 10);
+  const moved = await cardOf(ids[0]).locator('[data-reference-preview]').boundingBox();
+  await page.mouse.click(moved.x + moved.width / 2, moved.y + moved.height / 2);
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press('Escape');
+});
+
 test('Goal2 actual touch swipe scrolls thumbnails, long press drags to reorder and tap previews', async ({ page, context, baseURL }, testInfo) => {
   await ready(page, context, baseURL);
   const ids = await stage(page, context, 30);

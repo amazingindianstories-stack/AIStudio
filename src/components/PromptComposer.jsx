@@ -1701,7 +1701,9 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
         const label = s.referenceLabels?.[sourceIndex] || source.name || (source.type === "portrait" ? "Portrait" : `Reference ${sourceIndex + 1}`);
         return <div key={id} data-reference-id={id} data-reference-media="image" data-reference-position={i + 1}
           onKeyDown={(e) => { if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); move(id, sourceIndex + (e.key === "ArrowLeft" ? -1 : 1)); } }}
-          onMouseLeave={() => { if (lastArrowMove.current?.id === id) lastArrowMove.current = null; }}
+          // Pressing the thumbnail captures the pointer on the strip, which fires mouseleave here;
+          // only a real exit ends the repeat-arrow-click window.
+          onMouseLeave={() => { if (lastArrowMove.current?.id === id && gesture.current?.id !== id) lastArrowMove.current = null; }}
           className="group/ref relative flex shrink-0 items-center">
           <button type="button" data-reference-arrow="left" aria-label={`Move reference ${sourceIndex + 1} left`} disabled={sourceIndex === 0}
             onClick={(e) => moveByArrow(e, id, sourceIndex - 1)}
