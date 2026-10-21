@@ -1,5 +1,6 @@
 import {
   DEPTH_MODEL_NAME,
+  availableModels,
   capability,
   getModelDefinition,
   isProviderModel,
@@ -334,3 +335,32 @@ export const DEFAULTS = {
     resolution: DEPTH_ENCODERS[1], // "vitb" — see DEPTH_ENCODERS
   },
 };
+
+/**
+ * The picker list for `mode` ("image", "video", "upscale" or "depth"): the offered models new
+ * jobs may use right now. Every picker reads this one list, so a model the server reports
+ * switched off (see isModelAvailable) leaves all of them at once. `media` ("image" or "video")
+ * narrows the upscalers to the ones for that media.
+ */
+export function pickerModels(availableIds, mode, media) {
+  return availableModels(availableIds).filter((model) => model.kind === mode
+    && (mode !== "upscale" || !media || capability(model.name, "upscaleMedia", "image") === media));
+}
+
+/** A mode is offered while it has a model to use: Upscale leaves the menus when every upscaler is switched off. */
+export function modeAvailable(mode, availableIds) {
+  return pickerModels(availableIds, mode).length > 0;
+}
+
+/** Whether `model` is a choice the `mode` (and upscale `media`) picker currently offers. */
+export function isPickerModel(model, availableIds, mode, media) {
+  const name = getModelDefinition(model)?.name;
+  return Boolean(name) && pickerModels(availableIds, mode, media).some((entry) => entry.name === name);
+}
+
+/** What a composer uses instead of an unavailable model: the mode default, else the first one offered; null when none is. */
+export function fallbackModel(mode, availableIds, media) {
+  const preferred = DEFAULTS[mode]?.model;
+  if (isPickerModel(preferred, availableIds, mode, media)) return preferred;
+  return pickerModels(availableIds, mode, media)[0]?.name ?? null;
+}

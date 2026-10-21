@@ -1,6 +1,7 @@
 from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
+from apps.generation.availability import availability
 from .session import lookup
 
 @api_view(['GET', 'PATCH'])
@@ -16,9 +17,11 @@ def current_user(request):
         response.set_cookie('veevee_session', '', max_age=0, httponly=True,
                             samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')
         return response
+    # The composer's pickers offer only what a new job may use right now; enqueue still refuses the rest.
     response = Response({'user': {'id': str(user.id), 'email': user.email,
                                  'name': user.name, 'role': user.role,
-                                 'color': user.color, 'avatarUrl': user.avatar_url}})
+                                 'color': user.color, 'avatarUrl': user.avatar_url},
+                         'availability': availability()})
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,
                             httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')

@@ -57,8 +57,9 @@ import { Dropdown, MenuItem } from "./Dropdown";
 import { MentionTextarea, } from "./MentionTextarea";
 import {
 
-  MODELS,
   MODES,
+  modeAvailable,
+  pickerModels,
   aspectRatiosForModel,
   durationsForModel,
   durationRangeForModel,
@@ -243,7 +244,7 @@ export function PromptComposer() {
     };
   }, []);
 
-  const modeModels = MODELS.filter((m) => m.kind === s.mode);
+  const modeModels = pickerModels(s.availableModelIds, s.mode);
   const activeMode = MODES.find((m) => m.id === s.mode);
 
   // Staging capacity is independent of active-provider submission limits.
@@ -912,7 +913,7 @@ export function PromptComposer() {
           )}
         >
           {(close) =>
-            MODES.map((m) => {
+            MODES.filter((m) => modeAvailable(m.id, s.availableModelIds)).map((m) => {
               const I = MODE_ICONS[m.icon];
               return (
                 <MenuItem

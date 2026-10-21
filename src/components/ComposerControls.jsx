@@ -15,7 +15,6 @@ import { useStore } from "@/lib/store";
 import { UNSORTED } from "@/lib/feed-scope";
 import { Dropdown, MenuItem } from "./Dropdown";
 import {
-  MODELS,
   aspectRatiosForModel,
   durationsForModel,
   durationRangeForModel,
@@ -26,6 +25,7 @@ import {
   supportsFirstLastFrame,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
+  pickerModels,
 } from "@/lib/config";
 import { cn } from "@/lib/utils";
 import { askText } from "@/lib/ask-text";
@@ -65,7 +65,7 @@ export function SettingsToolbar() {
   const resolutionOptions = draftApplies && s.draftMode
     ? ["480p"]
     : resolutionsForModel(s.model, s.mode, s.referenceImages.length > 0);
-  const modeModels = MODELS.filter((m) => m.kind === s.mode);
+  const modeModels = pickerModels(s.availableModelIds, s.mode);
 
   return (
       <div className="composer-toolbar flex min-w-0 flex-wrap items-center gap-1.5 py-px">
