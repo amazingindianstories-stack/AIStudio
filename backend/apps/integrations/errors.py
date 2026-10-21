@@ -5,3 +5,7 @@ class ProviderError(RuntimeError):
         super().__init__(message)
         self.code, self.status, self.provider_response = code, status, provider_response
         self.may_have_submitted = may_have_submitted
+
+
+class MediaTooLargeError(ValueError):
+    pass

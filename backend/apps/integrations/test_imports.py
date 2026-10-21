@@ -28,6 +28,8 @@ importlib.import_module('apps.integrations.transport')
 importlib.import_module('apps.integrations.request_deadline')
 importlib.import_module('apps.integrations.errors')
 assert not any('models' in name.split('.') for name in sys.modules)
+upward = sorted(name for name in sys.modules if name.startswith('apps.') and not name.startswith('apps.integrations'))
+assert not upward, upward
 '''],
             cwd=Path(__file__).resolve().parents[2],
             capture_output=True,
@@ -35,3 +37,9 @@ assert not any('models' in name.split('.') for name in sys.modules)
             timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_media_error_is_the_integration_error(self):
+        from apps.integrations.errors import MediaTooLargeError
+        from apps.media import errors
+
+        self.assertIs(errors.MediaTooLargeError, MediaTooLargeError)

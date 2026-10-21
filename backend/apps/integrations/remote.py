@@ -3,7 +3,7 @@
 The connection uses the checked IP while TLS verifies the original hostname.
 Redirects are revalidated and never forward credentials/cookies.
 """
-from apps.media.errors import MediaTooLargeError
+from apps.integrations.errors import MediaTooLargeError
 from apps.integrations.dns import MEDIA_RESOLVER
 from apps.integrations.request_deadline import SocketDeadline
 import http.client
