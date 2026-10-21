@@ -95,6 +95,7 @@ export function MediaCard({
 }
 
 ) {
+  const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const reducedMotion = useReducedMotion();
   const setActiveId = useStore((s) => s.setActiveId);
   // A selectable card sits in the library grid and steps through that grid;
@@ -387,7 +388,7 @@ export function MediaCard({
       },
     ],
     [
-      {
+      isAdmin && {
         key: "delete",
         label: "Delete",
         icon: Trash2,

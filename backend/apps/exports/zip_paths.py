@@ -3,7 +3,7 @@ import hashlib
 import re
 import unicodedata
 from collections import defaultdict
-from apps.library.filenames import RESERVED, bound_filename, format_serial, slugify_token
+from apps.library.filenames import RESERVED
 
 MAX_COMPONENT_BYTES = 255
 MAX_PATH_BYTES = 4096
@@ -132,10 +132,7 @@ def resolve_archive_paths(items):
             ancestry.insert(0, components[('folder', fid)])
             fid = row['parent_id']
         parts.extend(ancestry or ['Unsorted'])
-        prefix = slugify_token(folders[g.folder_id]['name']) if g.folder_id else 'unsorted'
-        if prefix.split('.')[0].upper() in RESERVED:
-            prefix = '_' + prefix
-        leaf = bound_filename(prefix, format_serial(naming[gid]['sequence']), naming[gid]['extension'])
+        leaf = naming[gid]['filename']
         paths[gid] = '/'.join(parts + [leaf])
     collisions = defaultdict(list)
     for gid, path in paths.items():
@@ -143,17 +140,14 @@ def resolve_archive_paths(items):
     occupied = {folded(path) for path in paths.values()}
     for aliases in collisions.values():
         if len(aliases) > 1:
+            # Keep the permanent media leaf even when historical namespaces
+            # produced identical names. Archive directories may disambiguate.
             for gid in sorted(aliases):
                 parent, leaf = paths[gid].rsplit('/', 1)
-                stem, ext = leaf.rsplit('.', 1)
-                tag = hashlib.sha256(gid.encode()).hexdigest()[:12]
                 counter = 0
                 while True:
-                    tail = '_' + tag + ('_' + str(counter) if counter else '') + '.' + ext
-                    prefix = stem
-                    while len((prefix + tail).encode()) > MAX_COMPONENT_BYTES:
-                        prefix = prefix[:-1]
-                    candidate = parent + '/' + prefix + tail
+                    directory = gid + ('_' + str(counter) if counter else '')
+                    candidate = parent + '/' + directory + '/' + leaf
                     if folded(candidate) not in occupied:
                         break
                     counter += 1

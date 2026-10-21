@@ -434,6 +434,17 @@ class EndpointTests(TransactionTestCase):
         provider.assert_not_called()
         row=Generation.objects.get(pk=response.json()['id'])
         self.assertEqual((row.status,row.provider_status),('queued','AUDIO_READY'))
+        from apps.library.models import GenerationNaming
+        from apps.library.services import folder_engine
+        with patch.object(audio,'wait_for_audio',side_effect=wait),patch.object(audio,'get_transcriber'):
+            second=self.client.post('/api/audio/transcribe',{'audioRef':'data:audio/wav;base64,YWJj'},content_type='application/json').json()['id']
+        names=GenerationNaming.objects.filter(generation_id__in=[row.id,second])
+        self.assertEqual(sorted((n.namespace,n.sequence) for n in names),[('global_unsorted',1),('global_unsorted',2)])
+        self.assertIsNone(row.permanent_name)
+        folder=folder_engine.create_folder(name='Interviews')
+        folder_engine.move_generations(ids=[str(row.id)],destination={'type':'folder','folderId':folder['id']})
+        row.refresh_from_db()
+        self.assertEqual(row.permanent_name,'Interviews_0001')
 
     def test_audio_api_reports_a_definite_provider_refusal_instead_of_pending(self):
         from .audio_wait import wait_for_audio

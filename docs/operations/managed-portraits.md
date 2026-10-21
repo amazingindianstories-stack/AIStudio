@@ -71,8 +71,8 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 
 ## Rollout order
 1. Deploy the new image to every service with the flag **off** (behaviour identical to today; the old
-   portrait routes keep working). Check the launcher preflight accepts 60, 61 or 62 migration rows
-   (`MIGRATION_ROWS = (60, 61, 62)`).
+   portrait routes keep working). Check the launcher preflight accepts 60, 61 and 62 migration rows
+   (`MIGRATION_ROWS` in `backend/deploy/legacy_config.py`).
 2. **Migration** (owner DSN, one-off): `python manage.py migrate --noinput` → `django_migrations`
    goes 60 → 62 (`assets.0005_managed_portraits`, `assets.0006_portrait_gallery`; 0006 only adds
    columns). From here the **old launchers cannot start** (they assert 60 rows). Rolling a service back

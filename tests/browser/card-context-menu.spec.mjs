@@ -307,3 +307,60 @@ test.describe('card context on touch', () => {
     }
   });
 });
+
+for (const role of ['user', 'admin']) {
+  test2(`library permissions: ${role} generation menus, viewer and bulk actions`, async ({ page, library }) => {
+    // The normal fixture uses the shared seeded admin; isolate this role test
+    // by assigning a separate session identity, without changing that admin.
+    const id = randomUUID();
+    const db = library.db;
+    await db`INSERT INTO users (id,email,password_hash,password_salt,name,role,created_at)
+      VALUES (${id},${`${id}@example.test`},'fixture','fixture','Permission fixture',${role},${Date.now()})`;
+    const payload = Buffer.from(JSON.stringify({ uid: id, ver: 0, exp: Date.now() + 3600000 })).toString('base64url');
+    const signature = createHmac('sha256', process.env.AUTH_SECRET).update(payload).digest('base64url');
+    await page.context().addCookies([{ name: 'veevee_session', value: `${payload}.${signature}`, url: process.env.E2E_BASE_URL }]);
+    try {
+      await page.reload();
+      await expect(page.getByRole('button', { name: 'P Permission fixture', exact: true })).toBeVisible();
+      const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+      await library.panel.getByRole('button', { name: 'Global library', exact: true }).click();
+      // A search reply landing later changes the feed scope and clears the selection.
+      const searched = page.waitForResponse(response => response.url().includes(`q=${library.tag}`) && response.url().includes('limit='));
+      await library.panel.getByRole('textbox', { name: 'Search prompts' }).fill(library.tag);
+      await searched;
+      const card = page.locator(`[data-asset-card-id="${library.image}"]`);
+      await expect(card).toBeVisible();
+      for (const button of ['left', 'right']) {
+        if (button === 'left') await card.getByRole('button', { name: 'More actions' }).click();
+        else await card.click({ button });
+        await expect(menu(page).getByRole('menuitem', { name: 'Delete', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
+        await page.keyboard.press('Escape');
+        await expect(menu(page)).toHaveCount(0);
+      }
+      // Ticking a card swaps the search row for the selection toolbar in place:
+      // one 44px row at every library width, so the grid never moves.
+      const fits = (element) => [element.offsetHeight, element.scrollWidth <= element.clientWidth];
+      const before = await card.boundingBox();
+      await card.getByRole('checkbox', { name: 'Select' }).click();
+      const toolbar = page.getByTestId('selection-toolbar');
+      await expect(toolbar).toBeVisible();
+      expect(await toolbar.evaluate(fits)).toEqual([44, true]);
+      expect((await card.boundingBox()).y).toBe(before.y);
+      await expect(toolbar.getByRole('button', { name: 'Move', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
+      await expect(toolbar.getByRole('button', { name: 'More actions', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
+      // The narrowest desktop library; reduced motion skips the panel's width transition.
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.setViewportSize({ width: 1024, height: 1000 });
+      expect(await toolbar.evaluate(fits)).toEqual([44, true]);
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      await card.click({ button: 'right' });
+      await menu(page).getByRole('menuitem', { name: 'Open details' }).click();
+      await expect(page.getByRole('button', { name: 'Close viewer' })).toBeVisible();
+      await expect(page.getByRole('button', { name: 'Delete', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
+    } finally {
+      await db`DELETE FROM activity_logs WHERE user_id=${id}`;
+      await db`DELETE FROM users WHERE id=${id}`;
+    }
+  });
+}

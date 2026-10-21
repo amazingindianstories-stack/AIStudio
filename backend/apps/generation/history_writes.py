@@ -9,7 +9,7 @@ from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.authentication.session import lookup
-from apps.common.responses import can_manage, log_activity, renew_session
+from apps.common.responses import log_activity, renew_session
 from apps.library.models import Folder
 from apps.library.services.folder_engine import move_generations
 from apps.library.services.idempotency import MISSING, OrganizationError, now_ms
@@ -57,9 +57,13 @@ def history_mutation(request, user):
             body = body_or_empty(request)
             if not body.get('id'):
                 return Response({'error': 'Missing id.'}, status=400)
+            if type(body.get('isFavorite')) is not bool and type(body.get('flagged')) is not bool and user.role != 'admin':
+                return Response({'error': 'Only admins can move generations.'}, status=403)
             with transaction.atomic():
                 result = patch_metadata(body)
             return Response(result) if result else Response({'error': 'Not found.'}, status=404)
+        if user.role != 'admin':
+            return Response({'error': 'Only admins can delete generations.'}, status=403)
         identifier = request.query_params.getlist('id')
         identifier = identifier[0] if identifier else None
         if not identifier:
@@ -68,8 +72,6 @@ def history_mutation(request, user):
             item = Generation.objects.select_for_update().filter(pk=identifier).first()
             if not item:
                 return Response({'error': 'Not found.'}, status=404)
-            if not can_manage(user, item.user_id):
-                return Response({'error': 'FORBIDDEN'}, status=403)
             # History deletion is not a provider cancellation/reconciliation
             # protocol. Keep active or ambiguous paid-work evidence durable.
             if item.status in ('queued','running','pending') or item.provider_status in (
@@ -93,6 +95,8 @@ def history_move(request):
     user = lookup(request)
     if user is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
+    if user.role != 'admin':
+        return Response({'error': 'Only admins can move generations.'}, status=403)
     body = body_or_empty(request)
     ids, destination = body.get('ids'), body.get('destination')
     if not isinstance(ids, list) or not ids:

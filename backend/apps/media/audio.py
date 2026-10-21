@@ -139,7 +139,7 @@ def transcribe(request):
 
 def _persist_audio_result(expected, transcript, completed):
     """Fence execution identity; retry local writes without repeating paid I/O."""
-    metadata={'project_id','folder_id','location_version','is_favorite','favorited_at',
+    metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
         'flagged','flagged_at','flag_reason','updated_at'}
     result_fields={'status','prompt','provider_status','completed_at'}
     def identity_matches(row, *, recovered=False):
@@ -176,7 +176,7 @@ def _persist_audio_result(expected, transcript, completed):
 
 def _mark_audio_uncertain(expected):
     """Retain ambiguity without modifying a changed execution or newer metadata."""
-    metadata={'project_id','folder_id','location_version','is_favorite','favorited_at',
+    metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
         'flagged','flagged_at','flag_reason','updated_at'}
     with transaction.atomic():
         row=Generation.objects.select_for_update().filter(pk=expected.id).first()
@@ -189,7 +189,7 @@ def _mark_audio_uncertain(expected):
 
 def _mark_audio_failed(expected, message, responses=None):
     """A definite provider refusal: the row ends failed and its audio capacity is released."""
-    metadata={'project_id','folder_id','location_version','is_favorite','favorited_at',
+    metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
         'flagged','flagged_at','flag_reason','updated_at'}
     with transaction.atomic():
         row=Generation.objects.select_for_update().filter(pk=expected.id).first()

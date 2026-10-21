@@ -1,5 +1,7 @@
 "use client";
 
+import { notify } from "@/lib/notify";
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { EXPORT_POLL_MAX_MS, exportPollDelay } from "@/lib/poll-schedule";
 import {
@@ -22,6 +24,7 @@ import {
   Trash2,
   AlertCircle,
   Inbox,
+  MoreHorizontal,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
@@ -47,6 +50,7 @@ const ZOOM_MAX = 260;
 const ACTIVE_EXPORT_KEY = "veevee-active-media-export-v1";
 
 export function HistoryPanel() {
+  const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const actorId = useStore((s) => s.currentUser?.id);
   const items = useStore((s) => s.items);
   const loading = useStore((s) => s.loading);
@@ -538,9 +542,9 @@ export function HistoryPanel() {
         </div>
         <div data-testid="sticky-unsorted-rail" className="shrink-0 border-t border-line bg-ink-850 p-2">
           <button type="button" aria-label={`${project?.name || "Global"} Unsorted`} onClick={() => { setRightTab("project"); setBriefView(false); setActiveFolder(UNSORTED); }}
-            onDragOver={(e) => { e.preventDefault(); const valid = !isFolderDragEvent(e); e.dataTransfer.dropEffect = valid ? "move" : "none"; setUnsortedDrop(valid); }}
+            onDragOver={(e) => { e.preventDefault(); const valid = isAdmin && !isFolderDragEvent(e); e.dataTransfer.dropEffect = valid ? "move" : "none"; setUnsortedDrop(valid); }}
             onDragLeave={() => setUnsortedDrop(false)}
-            onDrop={(e) => { e.preventDefault(); setUnsortedDrop(false); if (isFolderDragEvent(e)) return; const { ids } = getAssetDragData(e, useStore.getState()); if (!ids.length) return; setFolderDropError(""); void moveGenerationsToDestination(ids, activeProjectId ? { type: "project_unsorted", projectId: activeProjectId } : { type: "global_unsorted" }).catch((err) => setFolderDropError(err.message)); }}
+            onDrop={(e) => { e.preventDefault(); setUnsortedDrop(false); if (!isAdmin || isFolderDragEvent(e)) return; const { ids } = getAssetDragData(e, useStore.getState()); if (!ids.length) return; setFolderDropError(""); void moveGenerationsToDestination(ids, activeProjectId ? { type: "project_unsorted", projectId: activeProjectId } : { type: "global_unsorted" }).catch((err) => setFolderDropError(err.message)); }}
             className={cn("flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-white/70", activeFolderId === UNSORTED && rightTab === "project" && "bg-brand/15 text-white", unsortedDrop && "ring-1 ring-brand bg-brand/20")}>
             <Inbox className="h-4 w-4" /><span className="flex-1 text-left">Unsorted</span><span>{activeProjectId ? counts.project?.unsorted ?? 0 : counts.globalLibrary?.unsorted ?? 0}</span>
           </button>
@@ -609,45 +613,44 @@ export function HistoryPanel() {
 
         {/* ── ROW 2: ASSET COMMAND BAR WITH IN-PLACE CONTEXTUAL SELECTION (~44px high) ── */}
         {selectedIds.length > 0 ? (
-          /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same h-11) */
+          /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same h-11).
+             Narrow panels drop labels instead of wrapping (see globals.css). */
           <div
             data-testid="selection-toolbar"
-            className="flex h-11 shrink-0 items-center justify-between border-b border-line bg-ink-800/90 px-4 text-xs select-none"
+            className="selection-toolbar flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line bg-ink-800/90 px-4 text-xs select-none"
           >
             {/* Left: Select all & count */}
-            <div className="flex items-center gap-3">
+            <div className="flex min-w-0 items-center gap-2.5">
               <button
                 type="button"
+                role="checkbox"
+                aria-checked={allSelected}
+                aria-label="Select all"
+                title={allSelected ? "Deselect all" : "Select all"}
                 onClick={() => (allSelected ? clearSelection() : selectAll(itemIds))}
-                className="flex items-center gap-1.5 font-medium text-white/75 transition hover:text-white"
+                className={cn(
+                  "grid h-4 w-4 shrink-0 place-items-center rounded border transition",
+                  allSelected
+                    ? "border-brand bg-brand text-ink-900"
+                    : "border-white/40 text-transparent hover:border-white"
+                )}
               >
-                <span
-                  className={cn(
-                    "grid h-3.5 w-3.5 place-items-center rounded border transition",
-                    allSelected
-                      ? "border-brand bg-brand text-ink-900"
-                      : "border-white/40 text-transparent"
-                  )}
-                >
-                  <Check className="h-2.5 w-2.5" strokeWidth={3} />
-                </span>
-                <span>{allSelected ? "Deselect all" : "Select all"}</span>
+                <Check className="h-3 w-3" strokeWidth={3} />
               </button>
 
-              <span className="text-white/30">|</span>
-
-              <span className="font-semibold text-white">
-                ✓ {selectedIds.length} selected
+              <span className="truncate font-semibold text-white">
+                {selectedIds.length}<span className="selection-count-label"> selected</span>
               </span>
             </div>
 
             {/* Right: Contextual actions */}
-            <div className="flex items-center gap-2">
+            <div className="selection-actions flex shrink-0 items-center gap-2">
               <button
                 type="button"
                 onClick={downloadSelectedZip}
                 disabled={!selectedExportableIds.length || isDownloadingZip}
-                className="flex items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1 font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
+                className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Download ZIP"
                 title="Download selected items as ZIP"
               >
                 {isDownloadingZip ? (
@@ -655,34 +658,33 @@ export function HistoryPanel() {
                 ) : (
                   <Download className="h-3.5 w-3.5" />
                 )}
-                <span>Download ZIP</span>
+                <span className="selection-zip-label">Download ZIP</span>
               </button>
 
-              <button
+              {isAdmin && (<button
                 type="button"
                 onClick={() => setMoveModalOpen(true)}
-                className="flex items-center gap-1.5 rounded-full bg-brand/20 px-3 py-1 font-semibold text-brand transition hover:bg-brand/30"
+                className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30"
+                aria-label="Move"
                 title="Move selected items"
               >
                 <Move className="h-3.5 w-3.5" />
-                <span>Move</span>
-              </button>
+                <span className="selection-move-label">Move</span>
+              </button>)}
 
               {/* More Actions Dropdown */}
-              <Dropdown
+              {isAdmin && (<Dropdown
                 align="right"
                 label="More actions"
                 trigger={(open) => (
                   <span
+                    title="More actions"
                     className={cn(
-                      "flex items-center gap-1 rounded-full border border-line bg-ink-700/80 px-2.5 py-1 text-white/75 transition hover:text-white",
+                      "grid h-6 w-6 place-items-center rounded-full border border-line bg-ink-700/80 text-white/75 transition hover:text-white",
                       open && "border-brand/40 text-white"
                     )}
                   >
-                    <span>More</span>
-                    <ChevronDown
-                      className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
-                    />
+                    <MoreHorizontal className="h-3.5 w-3.5" />
                   </span>
                 )}
               >
@@ -692,7 +694,8 @@ export function HistoryPanel() {
                       <MenuItem
                         onClick={() => {
                           close();
-                          moveGenerationsToDestination(selectedIds, { type: "global_root" });
+                          moveGenerationsToDestination(selectedIds, { type: "global_root" })
+                            .catch((err) => notify(err.message || "Failed to move items."));
                         }}
                       >
                         <span>Remove from Project</span>
@@ -704,7 +707,8 @@ export function HistoryPanel() {
                         if (
                           await askConfirm({ title: `Delete ${selectedIds.length} ${selectedIds.length === 1 ? "item" : "items"}?`, description: "This can't be undone.", confirmLabel: "Delete", destructive: true })
                         ) {
-                          deleteGenerations(selectedIds);
+                          try { await deleteGenerations(selectedIds); }
+                          catch (err) { notify(err.message || "Failed to delete items."); }
                         }
                       }}
                       className="text-red-400 hover:text-red-300"
@@ -714,7 +718,7 @@ export function HistoryPanel() {
                     </MenuItem>
                   </div>
                 )}
-              </Dropdown>
+              </Dropdown>)}
 
               {/* Clear Selection */}
               <button

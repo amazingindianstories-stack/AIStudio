@@ -297,6 +297,33 @@ class AudioClaimTests(TransactionTestCase):
                                  {'kind':'unclaimed'})
                 provider.transcribe.assert_called_once()
 
+    def test_first_filing_during_transcription_keeps_the_paid_outcome_without_repeat(self):
+        from unittest.mock import Mock
+        from apps.generation.services.deadline import Cancellation
+        from apps.generation.services.audio_submission import process_audio
+        from apps.library.services import folder_engine
+        for fails in (False,True):
+            with self.subTest(fails=fails):
+                row,store=self.prepared_job()
+                folder=folder_engine.create_folder(name=f'Interview {fails}')
+                provider=Mock()
+                def transcribe(*args,**kwargs):
+                    folder_engine.move_generations(ids=[str(row.id)],destination={'type':'folder','folderId':folder['id']})
+                    if fails:raise RuntimeError('offline ambiguous failure')
+                    return 'filed transcript'
+                provider.transcribe.side_effect=transcribe
+                if fails:
+                    with self.assertRaisesRegex(RuntimeError,'offline ambiguous'):
+                        process_audio(row.id,'audio:test',signal=Cancellation(),provider=provider,storage=store)
+                else:
+                    self.assertEqual(process_audio(row.id,'audio:test',signal=Cancellation(),provider=provider,storage=store)['kind'],'completed')
+                row.refresh_from_db()
+                self.assertEqual((str(row.folder_id),row.permanent_name),(folder['id'],f'Interview_{fails}_0001'))
+                self.assertEqual(row.provider_status,'SUBMISSION_UNCERTAIN' if fails else 'COMPLETED')
+                self.assertEqual(process_audio(row.id,'audio:retry',signal=Cancellation(),provider=provider,storage=store),
+                                 {'kind':'unclaimed'})
+                provider.transcribe.assert_called_once()
+
     def test_validated_identity_change_cannot_claim_but_metadata_is_preserved(self):
         for changes in ({'user_id':uuid4()},{'submission_input':{'version':2,'operation':'audio-transcription','changed':True}},
                         {'model':'different'}):

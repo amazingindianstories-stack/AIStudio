@@ -175,9 +175,11 @@ class ExecutionPersistenceTests(TransactionTestCase):
         from .history_writes import patch_metadata
         from apps.common.leases import now_ms
         from apps.library.services.naming import namespace_for
+        from apps.library.services import folder_engine
         project=Project.objects.create(name='Completed image destination',created_at=1,updated_at=1)
+        folder=folder_engine.create_folder(name='Scene')
         for metadata in ({'isFavorite':True},{'flagged':True,'flagReason':'fixture'},
-                {'projectId':str(project.id)}):
+                {'projectId':str(project.id)},{'folderId':folder['id']}):
             with self.subTest(metadata=metadata):
                 item=self.job();calls=[];timestamp=now_ms()+1000
                 def image(job,**kwargs):
@@ -194,6 +196,7 @@ class ExecutionPersistenceTests(TransactionTestCase):
                 if 'isFavorite' in metadata:self.assertTrue(item.is_favorite)
                 if 'flagged' in metadata:self.assertEqual((item.flagged,item.flag_reason),(True,'fixture'))
                 if 'projectId' in metadata:self.assertEqual(item.project_id,project.id)
+                if 'folderId' in metadata:self.assertEqual((str(item.folder_id),item.permanent_name),(folder['id'],'Scene_0001'))
                 naming=GenerationNaming.objects.get(generation_id=item.id)
                 self.assertEqual(naming.namespace,namespace_for(item.folder_id,item.project_id))
                 self.assertEqual(executor.process_generation(item.id,image_execute=image,heartbeat=False,env={})['kind'],'unclaimed')

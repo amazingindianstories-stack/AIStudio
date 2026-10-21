@@ -22,6 +22,7 @@ import {
   getAssetDragData,
   setFolderDragData,
   getFolderDragData,
+  isFolderDragEvent,
   clearFolderDragData,
   isFolderDescendant,
 } from "@/lib/asset-drag-contract";
@@ -40,6 +41,7 @@ export function FolderTree({
   onOpenMoveModal,
   onOpenNewFolderModal,
 }) {
+  const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const [expanded, setExpanded] = useState({});
   const [dragOverId, setDragOverId] = useState(null);
   const [dragOverValid, setDragOverValid] = useState(true);
@@ -74,6 +76,7 @@ export function FolderTree({
   };
 
   const isDropTargetValid = (targetFolderId, e) => {
+    if (!isAdmin && !isFolderDragEvent(e) && !getFolderDragData(e)) return false;
     const draggedFolderId = getFolderDragData(e);
     if (draggedFolderId) {
       if (draggedFolderId === targetFolderId) return false;
@@ -120,6 +123,7 @@ export function FolderTree({
     const draggedFolderId = getFolderDragData(e);
 
     if (assetPayload.ids.length > 0) {
+      if (!isAdmin) return;
       moveGenerationsToDestination(assetPayload.ids, {
         type: "folder",
         folderId: targetFolderId,
@@ -357,8 +361,8 @@ export function FolderTree({
                       <span>Move...</span>
                     </MenuItem>
                   )}
-                  <div className="my-1 h-px bg-line" />
-                  <MenuItem
+                  {isAdmin && <div className="my-1 h-px bg-line" />}
+                  {isAdmin && (<MenuItem
                     onClick={async () => {
                       close();
                       if (
@@ -373,7 +377,7 @@ export function FolderTree({
                   >
                     <Trash2 className="h-3.5 w-3.5 text-red-400" />
                     <span>Delete</span>
-                  </MenuItem>
+                  </MenuItem>)}
                 </div>
               )}
             </Dropdown>

@@ -15,7 +15,10 @@ from .services.idempotency import OrganizationError, fingerprint
 
 class OrganizationTests(TransactionTestCase):
     cookie = SettingsTests.cookie
-    setUp = SettingsTests.setUp
+    def setUp(self):
+        SettingsTests.setUp(self)
+        from apps.authentication.models import User
+        User.objects.filter(pk='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').update(role='admin')
 
     def post(self, body, path='/api/folders', **extra):
         return self.client.post(path, body, content_type='application/json', **extra)
@@ -94,11 +97,11 @@ class OrganizationTests(TransactionTestCase):
             self.error('DUPLICATE_FOLDER_NAME', lambda: service.create_folder(name=name))
 
     def test_replay_actor_operation_payload_and_expiry(self):
-        first = service.create_folder(name='Original', idempotency_key='key', actor_id='actor1')
-        self.assertEqual(service.create_folder(name='Original', idempotency_key=' key ', actor_id='actor1'), first)
+        first = service.create_folder(name='Original', idempotency_key='key', actor_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+        self.assertEqual(service.create_folder(name='Original', idempotency_key=' key ', actor_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'), first)
         self.error('IDEMPOTENCY_ACTOR_MISMATCH', lambda: service.create_folder(name='Original', idempotency_key='key', actor_id='actor2'))
-        self.error('IDEMPOTENCY_PAYLOAD_MISMATCH', lambda: service.create_folder(name='Other', idempotency_key='key', actor_id='actor1'))
-        self.error('IDEMPOTENCY_OPERATION_MISMATCH', lambda: service.delete_folder(folder_id=first['id'], idempotency_key='key', actor_id='actor1'))
+        self.error('IDEMPOTENCY_PAYLOAD_MISMATCH', lambda: service.create_folder(name='Other', idempotency_key='key', actor_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'))
+        self.error('IDEMPOTENCY_OPERATION_MISMATCH', lambda: service.delete_folder(folder_id=first['id'], idempotency_key='key', actor_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'))
         OrganizationIdempotencyKey.objects.filter(pk='key').update(expires_at=1)
         second = service.create_folder(name='Other', idempotency_key='key', actor_id=None)
         self.assertNotEqual(first['id'], second['id'])
@@ -142,11 +145,11 @@ class OrganizationTests(TransactionTestCase):
         child = service.create_folder(name='Child', parent_id=root['id'])
         self.error('CANNOT_MOVE_INTO_SELF', lambda: service.move_folder(folder_id=root['id'], destination={'type': 'folder', 'folderId': root['id']}))
         self.error('CYCLE_DETECTED', lambda: service.move_folder(folder_id=root['id'], destination={'type': 'folder', 'folderId': child['id']}))
-        self.error('FOLDER_NOT_EMPTY', lambda: service.delete_folder(folder_id=root['id']))
+        self.error('FOLDER_NOT_EMPTY', lambda: service.delete_folder(folder_id=root['id'], actor_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'))
         with patch.dict('os.environ', {'MAX_NESTING_DEPTH': '2'}):
             self.error('EXCEEDS_MAX_DEPTH', lambda: service.create_folder(name='Too deep', parent_id=child['id']))
         self.generation(folder_id=child['id'])
-        self.error('FOLDER_NOT_EMPTY', lambda: service.delete_folder(folder_id=child['id']))
+        self.error('FOLDER_NOT_EMPTY', lambda: service.delete_folder(folder_id=child['id'], actor_id='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'))
 
     def test_concurrent_opposite_moves_cannot_make_cycle(self):
         one, two = service.create_folder(name='One'), service.create_folder(name='Two')
@@ -206,3 +209,19 @@ class OrganizationTests(TransactionTestCase):
         else:
             self.assertIn('PROJECT_NOT_FOUND', results)
             self.assertFalse(Folder.objects.filter(project_id=project.id).exists())
+
+    def test_concurrent_creation_freezes_unique_monotonic_names_and_never_reuses_deleted_sequence(self):
+        from apps.generation.services.enqueue import persist
+        from .filenames import batch_resolve_generation_filenames
+        target = service.create_folder(name='Production')
+        def create():
+            return persist({'kind': 'video', 'status': 'queued', 'prompt': 'fixture', 'model': 'fixture',
+                'aspectRatio': '1:1', 'createdAt': 1, 'updatedAt': 1, 'folderId': target['id']})
+        rows = self.race([create for _ in range(4)])
+        self.assertEqual(sorted(GenerationNaming.objects.filter(generation_id__in=[r.id for r in rows]).values_list('sequence', flat=True)), [1, 2, 3, 4])
+        names = batch_resolve_generation_filenames([r.id for r in rows])
+        self.assertEqual(len({n['filename'] for n in names.values()}), 4)
+        self.assertTrue(all(Generation.objects.get(pk=r.id).permanent_name for r in rows))
+        Generation.objects.filter(pk__in=[r.id for r in rows]).delete()
+        next_row = create()
+        self.assertEqual(GenerationNaming.objects.get(generation_id=next_row.id).sequence, 5)

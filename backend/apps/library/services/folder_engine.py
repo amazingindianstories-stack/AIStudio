@@ -226,6 +226,9 @@ def set_folder_color(*, folder_id, color=None, actor_id=None, idempotency_key=No
 
 
 def delete_folder(*, folder_id, project_id=MISSING, actor_id=None, idempotency_key=None):
+    from apps.authentication.models import User
+    if not actor_id or not User.objects.filter(pk=actor_id, role='admin', is_active=True).exists():
+        raise OrganizationError('FORBIDDEN', 'Only admins can delete folders.', 403)
     def mutate():
         folder = locked_folder(folder_id)
         check_project(folder, project_id)

@@ -187,6 +187,7 @@ function ReferenceCollage({ images }) {
 }
 
 export function DetailModal() {
+  const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const reducedMotion = useReducedMotion();
   const activeId = useStore((s) => s.activeId);
   const activeSource = useStore((s) => s.activeSource);
@@ -726,6 +727,7 @@ export function DetailModal() {
                       <Download className="h-4 w-4" /> Download
                     </a>
                   )}
+                  {isAdmin && (
                   <button
                     disabled={item.status === "queued" || item.status === "running"}
                     title={item.status === "queued" || item.status === "running" ? "Still rendering — delete after it finishes" : "Delete"}
@@ -741,6 +743,7 @@ export function DetailModal() {
                   >
                     <Trash2 className="h-4 w-4" />
                   </button>
+                  )}
                 </div>
               </div>
             </aside>

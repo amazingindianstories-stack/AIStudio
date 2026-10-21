@@ -13,7 +13,9 @@ from .models import Generation
 @override_settings(ROOT_URLCONF='apps.generation.history_urls')
 class HistoryWriteTests(TransactionTestCase):
     cookie = SettingsTests.cookie
-    setUp = SettingsTests.setUp
+    def setUp(self):
+        SettingsTests.setUp(self)
+        User.objects.filter(pk='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').update(role='admin')
 
     def generation(self, **values):
         return Generation.objects.create(**{'kind':'image','status':'done','model':'fixture','prompt':'test',
@@ -74,7 +76,7 @@ class HistoryWriteTests(TransactionTestCase):
         global_item = self.patch({'id': str(row.id), 'folderId': None, 'projectId': None}).json()
         self.assertNotIn('projectId', global_item)
         self.assertEqual(global_item['locationVersion'], 4)
-        self.assertEqual(GenerationNaming.objects.get(generation=row).namespace, 'global_unsorted')
+        self.assertEqual(GenerationNaming.objects.get(generation=row).namespace, 'folder:' + folder['id'])
 
     def test_delete_owner_admin_orphan_and_storage_retention(self):
         self.cookie()
@@ -87,6 +89,9 @@ class HistoryWriteTests(TransactionTestCase):
         with patch('apps.media.storage.get_storage') as storage:
             self.assertEqual(self.client.delete('/api/history?id=' + str(other.id)).status_code, 403)
             self.assertEqual(self.client.delete('/api/history?id=' + str(orphan.id)).status_code, 403)
+            self.assertEqual(self.client.delete('/api/history?id=' + str(own.id)).status_code, 403)
+            actor.role = 'admin'
+            actor.save(update_fields=['role'])
             self.assertEqual(self.client.delete('/api/history?id=' + str(own.id)).json(), {'ok': True})
             storage.assert_not_called()
         self.assertFalse(GenerationNaming.objects.filter(generation_id=own.id).exists())
@@ -112,8 +117,9 @@ class HistoryWriteTests(TransactionTestCase):
                     events=ActivityLog.objects.count()
                     with patch('apps.media.storage.get_storage') as storage:
                         response=self.client.delete('/api/history?id='+str(row.id))
-                    self.assertEqual(response.status_code,409)
-                    self.assertEqual(response.json()['error'],'GENERATION_REQUIRES_RECONCILIATION')
+                    self.assertEqual(response.status_code, 409 if role == 'admin' else 403)
+                    if role == 'admin':
+                        self.assertEqual(response.json()['error'],'GENERATION_REQUIRES_RECONCILIATION')
                     self.assertEqual(Generation.objects.filter(pk=row.id).values().get(),before)
                     self.assertEqual(list(GenerationNaming.objects.filter(generation_id=row.id).values()),names)
                     self.assertEqual(ActivityLog.objects.count(),events)

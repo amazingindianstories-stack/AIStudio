@@ -13,6 +13,7 @@ MIME_EXTENSIONS = {'image/jpeg':'jpg', 'image/jpg':'jpg', 'image/png':'png',
 
 
 MAX_TOKEN_CHARS = 120
+MAX_EXTENSION_BYTES = max(len(extension) for extension in EXTENSIONS)
 
 
 def slugify_token(raw, fallback='folder'):
@@ -56,9 +57,9 @@ def format_serial(sequence):
     return str(max(1, math.floor(number))).zfill(4)
 
 
-def bound_filename(prefix, serial, extension):
+def bound_filename(prefix, serial, extension, reserved_extension_bytes=0):
     suffix = f'_{serial}.{extension}'
-    available = 255 - len(suffix.encode('utf-8'))
+    available = 255 - len(suffix.encode('utf-8')) - max(0, reserved_extension_bytes - len(extension))
     if len(prefix.encode('utf-8')) <= available:
         return prefix + suffix
     digest = '_' + hashlib.sha256(prefix.encode('utf-8')).hexdigest()[:16]
@@ -68,8 +69,7 @@ def bound_filename(prefix, serial, extension):
     return prefix.rstrip('_') + digest + suffix
 
 
-def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequence=1,
-                                kind='image', url='', media_key='', content_type=''):
+def name_prefix(ancestry=None, namespace='global_unsorted'):
     tokens = ['unsorted']
     if namespace.startswith('folder:'):
         tokens = []
@@ -80,23 +80,30 @@ def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequ
     prefix = '_'.join(tokens)
     if prefix.split('.')[0].upper() in RESERVED:
         prefix = '_' + prefix
-    return bound_filename(prefix, format_serial(sequence), resolve_extension(kind, url, media_key, content_type))
+    return prefix
 
 
-def batch_resolve_generation_filenames(generation_ids):
+def resolve_generation_filename(ancestry=None, namespace='global_unsorted', sequence=1,
+                                kind='image', url='', media_key='', content_type='', reserved_extension_bytes=0):
+    return bound_filename(name_prefix(ancestry, namespace), format_serial(sequence),
+                          resolve_extension(kind, url, media_key, content_type), reserved_extension_bytes)
+
+
+def naming_rows(generation_ids):
+    """Naming inputs per generation: (id, kind, url, namespace, sequence, permanent_name, ancestry)."""
     from django.db import connection
     from .models import Folder
     identifiers = list(dict.fromkeys(str(value) for value in generation_ids if value))
     if not identifiers:
-        return {}
+        return []
     # Fetch only naming inputs and keep absent legacy naming records visible.
     with connection.cursor() as cursor:
-        cursor.execute('''SELECT g.id,g.kind,g.url,g.project_id,g.folder_id,n.namespace,n.sequence
+        cursor.execute('''SELECT g.id,g.kind,g.url,g.project_id,g.folder_id,n.namespace,n.sequence,g.permanent_name
             FROM generations g LEFT JOIN generation_naming n ON n.generation_id=g.id
             WHERE g.id = ANY(%s::uuid[])''', [identifiers])
         generations = cursor.fetchall()
     folders = {}
-    pending = {row[4] for row in generations if row[4]}
+    pending = {row[4] for row in generations if row[4] and not row[7]}
     while pending:
         rows = list(Folder.objects.filter(id__in=pending).values('id','parent_id','name'))
         pending = set()
@@ -105,8 +112,8 @@ def batch_resolve_generation_filenames(generation_ids):
                 folders[row['id']] = row
                 if row['parent_id'] and row['parent_id'] not in folders:
                     pending.add(row['parent_id'])
-    result = {}
-    for identifier, kind, url, project_id, folder_id, namespace, sequence in generations:
+    result = []
+    for identifier, kind, url, project_id, folder_id, namespace, sequence, permanent_name in generations:
         namespace = namespace or (f'folder:{folder_id}' if folder_id else
                                   f'project_unsorted:{project_id}' if project_id else 'global_unsorted')
         sequence = sequence or 1
@@ -116,9 +123,16 @@ def batch_resolve_generation_filenames(generation_ids):
             visited.add(current['id'])
             ancestry.insert(0, current)
             current = folders.get(current['parent_id'])
-        identifier = str(identifier)
+        result.append((str(identifier), kind, url, namespace, sequence, permanent_name, ancestry))
+    return result
+
+
+def batch_resolve_generation_filenames(generation_ids):
+    result = {}
+    for identifier, kind, url, namespace, sequence, permanent_name, ancestry in naming_rows(generation_ids):
         result[identifier] = {'generationId':identifier,
-            'filename':resolve_generation_filename(ancestry, namespace, sequence, kind, url),
+            'filename':(permanent_name + '.' + resolve_extension(kind, url)) if permanent_name else resolve_generation_filename(
+                ancestry, namespace, sequence, kind, url, reserved_extension_bytes=0 if url else MAX_EXTENSION_BYTES),
             'namespace':namespace, 'sequence':sequence,
             'extension':resolve_extension(kind, url)}
     return result

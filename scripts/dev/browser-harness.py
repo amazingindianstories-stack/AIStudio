@@ -159,7 +159,8 @@ VEEVEE_KLING = False
         launch([sys.executable, 'backend/manage.py', 'media_export_worker', '--interval', '.2'], 'export-worker', env)
         launch([sys.executable, 'backend/manage.py', 'run_scheduler'], 'scheduler', env)
         command = ['node', 'node_modules/@playwright/test/cli.js', 'test']
-        command.extend(['--trace', args.trace])
+        command.extend(['--trace', args.trace, '--output', str(artifact / 'test-results')])
+        env['PLAYWRIGHT_HTML_OUTPUT_DIR'] = str(artifact / 'playwright-report')
         if args.grep:
             command.extend(['--grep', args.grep])
         if args.list:

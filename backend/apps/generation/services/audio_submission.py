@@ -68,7 +68,7 @@ def claim_audio(identifier, owner, *, now=None, ttl_ms=60000, expected=None):
         if row is None or (row.next_poll_at is not None and row.next_poll_at > now):
             return None
         if expected is not None:
-            metadata={'project_id','folder_id','location_version','is_favorite','favorited_at',
+            metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
                 'flagged','flagged_at','flag_reason','updated_at'}
             if any(getattr(row,field.attname)!=getattr(expected,field.attname)
                    for field in Generation._meta.concrete_fields if field.attname not in metadata):
@@ -100,7 +100,7 @@ def settle_preparation_failure(expected, *, terminal):
         row = Generation.objects.select_for_update().filter(queued_audio(),pk=expected.id).first()
         if row is None or (row.worker_lease_until is not None and row.worker_lease_until > now):
             return {'kind':'unclaimed'}
-        metadata={'project_id','folder_id','location_version','is_favorite','favorited_at',
+        metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
                   'flagged','flagged_at','flag_reason','updated_at'}
         if any(getattr(row,field.attname)!=getattr(expected,field.attname)
                for field in Generation._meta.concrete_fields if field.attname not in metadata):

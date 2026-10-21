@@ -400,6 +400,7 @@ function submissionId() {
 
 /** Upload each distinct inline image once, at most UPLOAD_CONCURRENCY at a time. */
 const UPLOAD_CONCURRENCY = 3;
+const BULK_DELETE_CONCURRENCY = 4;
 
 export async function uploadInlineReferences(entries, uploadOne, concurrency = UPLOAD_CONCURRENCY) {
   const byValue = new Map();
@@ -1462,7 +1463,18 @@ export const useStore = create((set, get) => ({
     }
   },
 
-  removeItem: async (id) => {
+  deleteGenerations: async (ids) => {
+    const results = [];
+    await runPool(ids, BULK_DELETE_CONCURRENCY, async (id, index) => {
+      results[index] = await get().removeItem(id, { refresh: false });
+    });
+    const failed = results.find((result) => !result.ok);
+    await Promise.all([get().loadCounts(), failed && get().loadFeed({ force: true })]);
+    if (failed) throw new Error(failed.error);
+    return true;
+  },
+
+  removeItem: async (id, { refresh = true } = {}) => {
     // Captured before the optimistic drop below, so a failed delete has
     // something to restore — dropEverywhere removes the row from every pool
     // it might be in, not just `items`.
@@ -1470,7 +1482,7 @@ export const useStore = create((set, get) => ({
 
     dropEverywhere(set, id);
     set((s) => ({ activeId: s.activeId === id ? null : s.activeId }));
-    void get().loadCounts();
+    if (refresh) void get().loadCounts();
     try {
       const res = await apiFetch(`/api/history?id=${encodeURIComponent(id)}`, {
         method: "DELETE",
@@ -1485,6 +1497,11 @@ export const useStore = create((set, get) => ({
               : apiErrorMessage(body, res.status)
         );
       }
+      set((s) => ({
+        selectedIds: s.selectedIds.filter((selected) => selected !== id),
+        focusedAssetId: s.focusedAssetId === id ? null : s.focusedAssetId,
+        selectionAnchorId: s.selectionAnchorId === id ? null : s.selectionAnchorId,
+      }));
       return { ok: true };
     } catch (e) {
       // The optimistic removal above has to come back — this used to be a
@@ -1496,8 +1513,10 @@ export const useStore = create((set, get) => ({
       // approximation of where the row was — loadFeed corrects the exact
       // position/scope membership right after.
       if (item) restoreItemInPlace(set, item);
-      void get().loadFeed({ force: true });
-      void get().loadCounts();
+      if (refresh) {
+        void get().loadFeed({ force: true });
+        void get().loadCounts();
+      }
       return { ok: false, error: e.message || "Failed to delete." };
     }
   },

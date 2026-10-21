@@ -53,7 +53,7 @@ class ZIPHierarchyTests(TransactionTestCase):
         global_folder = self.folder('Folder_X')
         _, paths = self.paths([self.generation(a), self.generation(b), self.generation(a, shot), self.generation(folder=global_folder), self.generation()])
         self.assertEqual(paths, ['Projects/A/Unsorted/unsorted_0001.mov', 'Projects/B/Unsorted/unsorted_0001.mov',
-            'Projects/A/Scene_01/Shot_02/Shot_02_0001.mov', 'Global/Folder_X/Folder_X_0001.mov', 'Global/Unsorted/unsorted_0001.mov'])
+            'Projects/A/Scene_01/Shot_02/Scene_01_Shot_02_0001.mov', 'Global/Folder_X/Folder_X_0001.mov', 'Global/Unsorted/unsorted_0001.mov'])
 
     def test_project_folder_casefold_sanitize_and_virtual_unsorted_collision(self):
         a, b = self.project('Café'), self.project('CAFE\u0301')
@@ -95,3 +95,16 @@ class ZIPHierarchyTests(TransactionTestCase):
         item = MediaExportItem.objects.get(export=job)
         self.assertEqual(item.filename, paths[0])
         self.assertEqual(item.source_key, 'native.mov')
+
+    def test_duplicate_permanent_leaves_disambiguate_directories_even_when_folder_uses_generation_id(self):
+        root = self.folder('Root')
+        first, second = self.generation(folder=root), self.generation(folder=root)
+        child = self.folder(str(first.id), parent=root)
+        third = self.generation(folder=child)
+        for copy, row in enumerate((first, second, third)):
+            Generation.objects.filter(pk=row.id).update(permanent_name='Frozen_0001', legacy_name_duplicate=copy)
+        _, paths = self.paths([first, second, third])
+        self.assertEqual(len(set(paths)), 3)
+        self.assertEqual(paths[0], f'Global/Root/{first.id}_1/Frozen_0001.mov')
+        self.assertTrue(all(path.rsplit('/', 1)[-1] == 'Frozen_0001.mov' for path in paths))
+        self.assertEqual(self.paths([first, second, third])[1], paths)

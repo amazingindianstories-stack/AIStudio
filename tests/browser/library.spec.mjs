@@ -63,7 +63,7 @@ const test = base.extend({
     if (await page.locator('button[aria-controls="desktop-history-panel"]').getAttribute("aria-expanded") !== "true") await page.locator('button[aria-controls="desktop-history-panel"]').click();
     await panel.getByRole("button", { name: "Global library", exact: true }).click();
     await expect(panel.getByRole("button", { name: "+ New folder" })).toBeVisible();
-    try { await provideFixture({ db, prefix, project, otherProject, globalRoot, projectRoot, globalChild, projectChild, createFolder, navigate, panel }); }
+    try { await provideFixture({ db, userId, prefix, project, otherProject, globalRoot, projectRoot, globalChild, projectChild, createFolder, navigate, panel }); }
     finally {
       // Delete only this fixture's records, including folders created through real UI buttons.
       // Under the pool lock, so the scheduler cannot pin an upload between the two deletes.
@@ -291,6 +291,58 @@ for (const width of [1024, 1440]) {
     await nav.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
     expect(await nav.evaluate((el) => Math.abs(el.scrollWidth - el.clientWidth - el.scrollLeft))).toBeLessThan(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  });
+}
+
+for (const width of [1440, 1920]) {
+  test(`long project and folder names in nested breadcrumbs keep every crumb readable at ${width}px`, async ({ page, library }) => {
+    const projectName = `${library.prefix} Feature Film - The Extended Directors Cut Season 4`;
+    await library.db`UPDATE projects SET name = ${projectName} WHERE id = ${library.project.id}`;
+    const reel = await library.createFolder("Reel 4 Night Exterior Rooftop Chase", library.project.id);
+    // Short enough to fit its own cap, so only flex shrinking can cut the take number.
+    const scene = { ...await library.createFolder("Scene 12 Take 3", library.project.id, reel.id), name: "Scene 12 Take 3" };
+    await library.db`UPDATE folders SET name = ${scene.name} WHERE id = ${scene.id}`;
+    await page.setViewportSize({ width, height: 1000 });
+    await page.reload();
+    const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+    await expect(toggle).toBeVisible();
+    if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+    await library.panel.getByRole("button", { name: "Switch workspace" }).click();
+    await page.getByRole("menuitem", { name: projectName, exact: true }).click();
+    const nav = library.panel.getByRole("navigation", { name: "Breadcrumb" });
+    await expect(nav).toContainText(projectName);
+    const crumbs = () => nav.evaluate((el) => {
+      const bounds = el.getBoundingClientRect();
+      return {
+        overflow: el.scrollWidth - el.clientWidth,
+        crumbs: [...el.querySelectorAll("button, div > div")].filter((crumb) => crumb.querySelector(":scope > span")).map((crumb) => {
+          const text = crumb.querySelector(":scope > span"); const box = text.getBoundingClientRect();
+          const item = crumb.closest("nav > *");
+          return { name: text.textContent, title: crumb.title, shown: text.clientWidth, full: text.scrollWidth, cap: parseFloat(getComputedStyle(text).maxWidth),
+            ellipsis: getComputedStyle(text).textOverflow === "ellipsis", inside: box.left >= bounds.left - 0.5 && box.right <= bounds.right + 0.5,
+            box: item.getBoundingClientRect().width, min: parseFloat(getComputedStyle(item).minWidth) || 0 };
+        }),
+      };
+    });
+    for (const trail of [[reel], [reel, scene]]) {
+      if (trail.length === 2) await library.panel.getByRole("button", { name: `Expand ${reel.name}`, exact: true }).click();
+      await openTreeFolder(library.panel, trail.at(-1).name);
+      await expect(nav).toContainText(trail.at(-1).name);
+      const geometry = await crumbs();
+      expect(geometry.overflow, JSON.stringify(geometry)).toBeLessThanOrEqual(1);
+      expect(geometry.crumbs.map((crumb) => crumb.name)).toEqual([projectName, ...trail.map((folder) => folder.name)]);
+      for (const crumb of geometry.crumbs) {
+        // Each name is on screen: whole, or at least a few characters ending in an ellipsis with the full name in the tooltip.
+        expect(crumb.inside, JSON.stringify(crumb)).toBe(true);
+        expect(crumb.shown, JSON.stringify(crumb)).toBeGreaterThanOrEqual(Math.min(crumb.full, 24));
+        if (crumb.full > crumb.shown) { expect(crumb.ellipsis).toBe(true); expect(crumb.title).toBe(crumb.name); }
+      }
+      // The current folder (e.g. the take number) is squeezed below its own cap only once every ancestor has shrunk to its minimum.
+      const current = geometry.crumbs.at(-1);
+      if (current.full > current.shown && current.shown < current.cap - 1) {
+        for (const crumb of geometry.crumbs.slice(0, -1)) expect(crumb.box, JSON.stringify(geometry)).toBeLessThanOrEqual(crumb.min + 1);
+      }
+    }
   });
 }
 
@@ -529,3 +581,28 @@ test("switching a project context to Global library creates and selects a global
   await expect(nav).not.toContainText(library.project.name);
 });
 
+
+for (const role of ['user', 'admin']) {
+  test(`library permissions: ${role} folder menus preserve rename and move, restrict delete`, async ({ page, library }) => {
+    await library.db`UPDATE users SET role=${role} WHERE id=${library.userId}`;
+    await page.reload();
+    await expect(page.getByRole('button', { name: new RegExp(library.prefix) }).first()).toBeVisible();
+    const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+    if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+    await library.navigate('global');
+    const panel = library.panel;
+    for (const entry of ['card', 'tree', 'breadcrumb']) {
+      if (entry === 'breadcrumb') {
+        await openTreeFolder(panel, library.globalRoot.name);
+        await panel.getByRole('button', { name: 'Current folder actions' }).click();
+      } else {
+        await panel.getByRole('button', { name: `${entry === 'tree' ? 'Tree' : 'Card'} folder actions: ${library.globalRoot.name}`, exact: true }).click();
+      }
+      await expect(page.getByRole('menuitem', { name: /Rename/ })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: /Move/ })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: /^Delete/ })).toHaveCount(role === 'admin' ? 1 : 0);
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('menuitem')).toHaveCount(0);
+    }
+  });
+}

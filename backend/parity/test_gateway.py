@@ -4,6 +4,7 @@ routes.json was characterized at 0eb5a6e696afe4e17b05b1422fe82a67f6430b62
 using test-db.sh, empty JSON bodies, explicit mock providers and same-origin
 session clients. Each allow array indexes the paid/export/Magnific bit mask
 (4/2/1). Expectations are committed evidence, never recomputed by tests.
+Generation delete and move were updated to the admin-only 403 for users.
 """
 import json
 from pathlib import Path

@@ -17,7 +17,7 @@ async function harness(item, run, state = {}) {
   const original = useStore.getState();
   const calls = [];
   globalThis.fetch = async (url, init) => { calls.push([url, init?.method || 'GET']); return { ok: true, status: 200, json: async () => ({}) }; };
-  useStore.setState({ items: [item], selectedIds: [], usersById: {}, libraryTree: { globalFolders: [], projects: [] }, prompt: '', referenceImages: [], ...state });
+  useStore.setState({ currentUser: { id: "admin", role: "admin" }, items: [item], selectedIds: [], usersById: {}, libraryTree: { globalFolders: [], projects: [] }, prompt: '', referenceImages: [], ...state });
   const root = createRoot(document.querySelector('#root'));
   try {
     await act(async () => root.render(React.createElement(MediaCard, { item, selectable: true })));
@@ -126,4 +126,18 @@ test('the "..." button opens the same menu and toggles it closed; Escape closes 
     await act(async () => window.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     assert.equal(document.querySelector('[role="menu"]'), null);
   });
+});
+
+
+test('non-admin owners and other users have no delete action in generation menus', async () => {
+  for (const id of ['owner', 'other']) {
+    for (const status of ['failed', 'running', 'succeeded']) {
+      await harness({ ...failed, userId: 'owner', status, url: status === 'succeeded' ? '/api/media/master.mov' : null }, async ({ card }) => {
+        await openMenu(card);
+        assert.equal(menuItem('delete'), null);
+        assert.ok(menuItem('select'));
+        assert.ok(menuItem('folder'));
+      }, { currentUser: { id, role: 'user' } });
+    }
+  }
 });
