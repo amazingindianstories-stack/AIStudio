@@ -182,12 +182,24 @@ test("a remount after the session answered moves a saved switched-off model onto
     assert.deepEqual([state.mode, state.model, state.aspectRatio, state.resolution], ["image", "Nano Banana Pro", "16:9", "1K"]);
   }));
 
-test("a saved model the catalog no longer has restores as the mode's defaults", () =>
-  withStore({ mode: "video", model: "Seedance 2.0", aspectRatio: "16:9", resolution: "1080p", duration: 5 }, (values) => {
-    values.set("veevee-draft-settings-v1", JSON.stringify({ mode: "image", model: "No Such Model", resolution: "1080p" }));
+test("reopening a Magnific row in the upscaler and remounting the composer keeps the video composer's clips, frames and task mode", () =>
+  withStore({ availableModelIds: ALL_ON, availabilityAnswered: true, mode: "video", model: "Seedance 2.5", aspectRatio: "16:9",
+    resolution: "1080p", duration: 10, referenceVideos: ["/api/media/references/clip.mp4"], firstFrame: "/api/media/references/first.png",
+    lastFrame: "/api/media/references/last.png", videoTaskMode: "edit" }, async (values) => {
+    useStore.setState({ items: [{ id: "m-2", kind: "image", status: "succeeded", model: "Magnific Creative", prompt: "Magnific Creative (2x)",
+      resolution: "2x", referenceImages: ["/api/media/references/m-2.png"], upscaleParams: { model: "Magnific Creative" } }] });
+    assert.deepEqual(useStore.getState().editInComposer("m-2"), { ok: true });
+    const reopened = useStore.getState();
+    assert.deepEqual([reopened.mode, reopened.model], ["upscale", "Seedance 2.5"]);
+    values.set("veevee-draft-settings-v1", JSON.stringify({ view: "studio", mode: reopened.mode, model: reopened.model,
+      aspectRatio: reopened.aspectRatio, resolution: reopened.resolution, duration: reopened.duration, audioDefault: true }));
+
     restoreComposerDraft();
     const state = useStore.getState();
-    assert.deepEqual([state.mode, state.model, state.aspectRatio, state.resolution], ["image", "Nano Banana Pro", "21:9", "2K"]);
+    assert.deepEqual([state.mode, state.model, state.referenceVideos, state.firstFrame, state.lastFrame, state.videoTaskMode],
+      ["upscale", "Seedance 2.5", ["/api/media/references/clip.mp4"], "/api/media/references/first.png", "/api/media/references/last.png", "edit"]);
+    useStore.getState().setMode("video");
+    assert.deepEqual(useStore.getState().referenceVideos, ["/api/media/references/clip.mp4"]);
   }));
 
 test("Clone & try on a switched-off model opens the composer on the fallback with a short notice", () =>
@@ -202,6 +214,17 @@ test("Clone & try on a switched-off model opens the composer on the fallback wit
       ["image", "Nano Banana Pro", "a lantern", ["/api/media/references/k-1.png"], "1:1", "2K"],
       "the job's settings are clamped into the fallback's ranges (Nano Banana Pro has no 3:2)");
     assert.deepEqual(useNotices.getState().notices.map(({ text, tone }) => ({ text, tone })), [{ text: notice, tone: "info" }]);
+  }));
+
+test("a fallback clone keeps the job's own aspect ratio, resolution and duration wherever the fallback offers them", () =>
+  withStore({ availableModelIds: ["seedance", "seedance-25", "nano-banana-pro"], mode: "image", model: "Nano Banana Pro" }, async () => {
+    useStore.setState({ items: [{ id: "o-1", kind: "video", status: "succeeded", prompt: "a tide", model: "Gemini Omni Flash 1.1",
+      aspectRatio: "16:9", resolution: "720p", duration: 6 }] });
+    const notice = "Gemini Omni Flash 1.1 isn't available right now. Using Seedance 2.0 instead.";
+    assert.deepEqual(await useStore.getState().cloneToComposer("o-1"), { ok: true, notice });
+    const state = useStore.getState();
+    assert.deepEqual([state.mode, state.model, state.aspectRatio, state.resolution, state.duration],
+      ["video", "Seedance 2.0", "16:9", "720p", 6]);
   }));
 
 test("Clone & try on an available model is unchanged and says nothing", () =>

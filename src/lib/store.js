@@ -254,6 +254,22 @@ function reopenUpscale(get, set, item, extra = {}) {
   return { ok: true, notice: choice.notice };
 }
 
+/** Moves a reopened job onto the fallback `model`, keeping the job's own aspect ratio, resolution
+ *  and duration wherever the fallback offers them; setModel clamps only the rest. */
+function applyFallbackModel(get, set, model) {
+  const job = get();
+  get().setModel(model);
+  const s = get();
+  const durationRange = durationRangeForModel(model);
+  set({
+    aspectRatio: aspectRatiosForModel(model, s.mode).includes(job.aspectRatio) ? job.aspectRatio : s.aspectRatio,
+    resolution: !s.draftMode && resolutionsForModel(model, s.mode, s.referenceImages.length > 0).includes(job.resolution)
+      ? job.resolution : s.resolution,
+    duration: (durationRange ? Number.isInteger(job.duration) && job.duration >= durationRange.min && job.duration <= durationRange.max
+      : durationsForModel(model).includes(job.duration)) ? job.duration : s.duration,
+  });
+}
+
 /** Moves every composer choice the pickers no longer offer onto one they do. Applying the same
  *  answer again changes nothing, so arrivals and restores never loop. */
 function reconcileAvailability(get, set) {
@@ -1723,7 +1739,7 @@ export const useStore = create((set, get) => ({
         referenceKinds: [],
       });
       if (choice.notice) {
-        get().setModel(choice.model);
+        applyFallbackModel(get, set, choice.model);
         notify(choice.notice, { tone: "info" });
       }
       return { ok: true };
@@ -1899,8 +1915,7 @@ export const useStore = create((set, get) => ({
     set({ referenceImages: [...paths], referenceIds: paths.map(() => newReferenceId()),
       referenceKinds: paths.map(() => "image"), referenceLabels: paths.map(() => ""), referenceTags: paths.map(() => "") });
     if (!choice.notice) return { ok: true };
-    // setModel clamps the job's settings into the fallback's ranges.
-    get().setModel(choice.model);
+    applyFallbackModel(get, set, choice.model);
     notify(choice.notice, { tone: "info" });
     return { ok: true, notice: choice.notice };
   },
@@ -2906,16 +2921,10 @@ export function restoreComposerDraft() {
       // Availability is not consulted: the cached list only shapes the pickers until the session
       // answers, and only that answer (applyModelAvailability) moves a switched-off selection.
       const restoredModel = composerModel(d.model);
-      const currentModel = useStore.getState().model;
-      let clampToModel = false;
       if (isPickerModel(restoredModel, null, effMode)) {
         patch.model = restoredModel;
-      } else if (!isPickerModel(currentModel, null, effMode)) {
-        // The mode's defaults stand in for whatever the saved settings do not supply.
-        Object.assign(patch, DEFAULTS[effMode]);
-        clampToModel = true;
       }
-      const effModel = patch.model ?? currentModel;
+      const effModel = patch.model ?? DEFAULTS[effMode].model;
       if (aspectRatiosForModel(effModel, effMode).includes(d.aspectRatio)) {
         patch.aspectRatio = d.aspectRatio;
       }
@@ -2962,8 +2971,6 @@ export function restoreComposerDraft() {
       if (typeof d.activeProjectId === "string") patch.activeProjectId = d.activeProjectId;
       if (typeof d.activeFolderId === "string") patch.activeFolderId = d.activeFolderId;
       useStore.setState(patch);
-      // A fallback model keeps only the restored settings it offers; setModel clamps the rest.
-      if (clampToModel) useStore.getState().setModel(patch.model);
     }
     if (useStore.getState().availabilityAnswered) reconcileAvailability(useStore.getState, useStore.setState);
 
