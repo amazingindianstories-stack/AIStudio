@@ -1,5 +1,6 @@
 """Exercise the service loop against committed rows and independent DB connections."""
 from collections import Counter
+import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Event, Lock
 from uuid import uuid4
@@ -50,6 +51,10 @@ class RollingDispatcherTests(TransactionTestCase):
             try:
                 self.assertTrue(busy.wait(2))
                 late['id'] = self.video(draft_mode=True).id
+                deadline = time.monotonic() + 2
+                while Generation.objects.get(pk=late['id']).provider_status != admission.WORKER_SLOT_WAITING:
+                    self.assertLess(time.monotonic(), deadline, 'the late video was never labelled')
+                    time.sleep(.01)
                 release[started[0]].set()
                 self.assertTrue(video_started.wait(2), 'the late video waited behind the image backlog')
                 self.assertEqual(started[2], late['id'])
@@ -191,7 +196,7 @@ class RollingDispatcherTests(TransactionTestCase):
     def test_worker_reason_round_trips_to_card_and_clears_on_admission(self):
         from apps.generation.serialization import generation_item
         row = self.job()
-        admission.show_worker_slot_wait(row.id)
+        admission.show_worker_slot_wait(row)
         row.refresh_from_db()
         card = generation_item(row)
         self.assertEqual(card['providerStatus'], admission.WORKER_SLOT_WAITING)
@@ -204,19 +209,19 @@ class RollingDispatcherTests(TransactionTestCase):
     def test_worker_reason_replaces_only_a_stale_slot_wait_and_does_not_label_blocked_rows(self):
         from apps.admin_dashboard.models import AppSetting
         stale = self.video(provider_status=admission.SLOT_WAITING, progress_message='Waiting for a free Seedance 2.5 slot')
-        admission.show_worker_slot_wait(stale.id)
+        admission.show_worker_slot_wait(stale)
         stale.refresh_from_db()
         self.assertEqual((stale.provider_status, stale.progress_message),
                          (admission.WORKER_SLOT_WAITING, 'Waiting for a free worker slot'))
         portrait = self.job(provider_status='PORTRAIT_WAITING', progress_message='Existing reason')
-        admission.show_worker_slot_wait(portrait.id)
+        admission.show_worker_slot_wait(portrait)
         portrait.refresh_from_db()
         self.assertEqual((portrait.provider_status, portrait.progress_message), ('PORTRAIT_WAITING', 'Existing reason'))
         Generation.objects.filter(pk=stale.id).delete()
         for _ in range(admission.lane_capacity()):
             self.video(status='running')
         held = self.video(provider_status=admission.SLOT_WAITING, progress_message='Waiting for a free Seedance 2.5 slot')
-        admission.show_worker_slot_wait(held.id)
+        admission.show_worker_slot_wait(held)
         held.refresh_from_db()
         self.assertEqual((held.provider_status, held.progress_message),
                          (admission.SLOT_WAITING, 'Waiting for a free Seedance 2.5 slot'))
@@ -224,6 +229,56 @@ class RollingDispatcherTests(TransactionTestCase):
         row = self.job()
         Generation.objects.create(kind='image', status='running', model='seedream-5-pro', prompt='fixture',
             aspect_ratio='1:1', user_id=row.user_id, created_at=now_ms(), updated_at=now_ms())
-        admission.show_worker_slot_wait(row.id)
+        admission.show_worker_slot_wait(row)
         row.refresh_from_db()
         self.assertIsNone(row.provider_status)
+
+    def test_held_label_is_cleared_and_published_and_settled_rows_cost_no_snapshot(self):
+        from apps.admin_dashboard.models import AppSetting
+        row = self.job()
+        admission.show_worker_slot_wait(row)
+        row.refresh_from_db()
+        self.assertEqual(row.provider_status, admission.WORKER_SLOT_WAITING)
+        AppSetting.objects.create(key='maxConcurrentJobs', value='1', updated_at=now_ms())
+        Generation.objects.create(kind='image', status='running', model='seedream-5-pro', prompt='fixture',
+            aspect_ratio='1:1', user_id=row.user_id, created_at=now_ms(), updated_at=now_ms())
+        with patch('apps.generation.realtime.publish_best_effort') as publish:
+            admission.show_worker_slot_wait(row)
+        row.refresh_from_db()
+        self.assertEqual((row.provider_status, row.progress_message), (None, None))
+        self.assertEqual([call.args[0].id for call in publish.call_args_list], [row.id])
+        poll = self.video(status='running')
+        portrait = self.job(provider_status='PORTRAIT_WAITING', progress_message='Existing reason')
+        with patch.object(admission, 'queue_position', wraps=admission.queue_position) as position:
+            admission.show_worker_slot_wait(poll)
+            admission.show_worker_slot_wait(portrait)
+        position.assert_not_called()
+
+    def test_busy_worker_rechecks_each_waiting_row_once_per_window(self):
+        rows = [self.job() for _ in range(3)]
+        stop, release, started = Event(), Event(), Event()
+        checked, running = Counter(), []
+        def process(identifier, *, owner, **kwargs):
+            self.assertIsNotNone(coordinator.claim_generation(identifier, owner))
+            running.append(identifier)
+            started.set()
+            self.assertTrue(release.wait(5))
+            coordinator.release_generation(identifier, owner)
+            return {'kind': 'pending'}
+        def label(item):
+            checked[item.id] += 1
+        with patch.object(worker, 'process_generation', side_effect=process), \
+                patch.object(worker, 'show_worker_slot_wait', side_effect=label), \
+                patch.object(worker, 'select_due_generations', wraps=coordinator.select_due_generations) as scans, \
+                ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(worker.run_worker, concurrency=1, interval=.05, stop=stop)
+            try:
+                self.assertTrue(started.wait(2))
+                time.sleep(.15)
+            finally:
+                stop.set()
+                release.set()
+                future.result(timeout=5)
+        self.assertGreaterEqual(scans.call_count, 2)
+        self.assertEqual(checked, Counter({row.id: 1 for row in rows if row.id not in running}))
+        self.assertEqual(len(running), 1)

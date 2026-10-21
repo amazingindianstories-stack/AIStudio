@@ -18,8 +18,9 @@ Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs 
 
 The generation entrypoint now defaults to four execution slots through
 `VEEVEE_GENERATION_WORKER_SLOTS` (optional integer override, 1-8). Its persistent pool
-refills each freed slot without waiting for an entire batch, giving due video and upscale
-submits and polls the slot ahead of image jobs (oldest first within each group). Admission limits, provider
+refills each freed slot without waiting for an entire batch, giving running video and upscale
+polls, and queued ones already confirmed admissible, the slot ahead of image jobs (oldest first
+within each group); videos held by a provider lane or user cap keep their place in line. Admission limits, provider
 lanes and the 120-second deployment drain remain unchanged. Admissible queued image
 and video cards show "Waiting for a free worker slot" while all execution slots are busy.
 Production continues to use its deployed commit until a separately approved release.

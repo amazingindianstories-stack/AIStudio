@@ -109,7 +109,6 @@ def reap_stale_running_images(*, now=None):
 
 def queue_position(identifier, *, now=None):
     now = now_ms() if now is None else now
-    reap_stale_running_images(now=now)
     item = Generation.objects.filter(pk=identifier).first()
     if item is None:
         return None
@@ -165,21 +164,22 @@ def admit_job(identifier, *, now=None, owner=None, held=None):
         return Generation.objects.get(pk=identifier)
 
 
-def show_worker_slot_wait(identifier):
-    """Annotate only admissible, unclaimed rows; replace a stale provider-slot wait but no other wait."""
-    position = queue_position(identifier)
+def show_worker_slot_wait(item):
+    """Label admissible, unclaimed queued rows and unlabel held ones; replace a stale provider-slot wait but no other wait."""
+    if item.status != 'queued' or item.provider_status not in (None, '', SLOT_WAITING, WORKER_SLOT_WAITING):
+        return
+    position = queue_position(item.id)
     if not position or position['status'] != 'queued':
         return
-    if position['position'] != 0:
-        Generation.objects.filter(pk=identifier, status='queued', provider_status=WORKER_SLOT_WAITING).filter(
-            Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now_ms())).update(
-                provider_status=None, progress_message=None, updated_at=now_ms())
-        return
     now = now_ms()
-    changed = Generation.objects.filter(pk=identifier, status='queued').filter(
-        Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)).filter(
-        Q(provider_status__isnull=True) | Q(provider_status='') | Q(provider_status=SLOT_WAITING)).update(
+    unclaimed = Generation.objects.filter(pk=item.id, status='queued').filter(
+        Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now))
+    if position['position'] != 0:
+        changed = unclaimed.filter(provider_status=WORKER_SLOT_WAITING).update(
+            provider_status=None, progress_message=None, updated_at=now)
+    else:
+        changed = unclaimed.filter(Q(provider_status__isnull=True) | Q(provider_status='') | Q(provider_status=SLOT_WAITING)).update(
             provider_status=WORKER_SLOT_WAITING, progress_message=WORKER_SLOT_MESSAGE, updated_at=now)
     if changed:
         from apps.generation.realtime import publish_best_effort
-        publish_best_effort(Generation.objects.get(pk=identifier))
+        publish_best_effort(Generation.objects.get(pk=item.id))

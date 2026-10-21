@@ -9,6 +9,7 @@ from django.db.models.functions import RowNumber
 
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
+from .admission import WORKER_SLOT_WAITING
 
 DEFAULT_POLL_DELAY_MS = 5000
 MAX_COORDINATOR_BATCH = 25
@@ -76,8 +77,9 @@ def select_due_generations(*, now=None, limit=MAX_COORDINATOR_BATCH, exclude_ids
     due = Generation.objects.filter(eligible()).exclude(pk__in=exclude_ids).filter(
         Q(next_poll_at__isnull=True) | Q(next_poll_at__lte=now)).filter(
         Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)
-    ).annotate(dispatch_rank=Case(When(Q(kind='video') | Q(model__startswith='Magnific '), then=Value(0)),
-                                  default=Value(1), output_field=IntegerField()))
+    ).annotate(dispatch_rank=Case(When((Q(kind='video') | Q(model__startswith='Magnific ')) & (
+        Q(status='running') | Q(provider_status=WORKER_SLOT_WAITING)), then=Value(0)),
+        default=Value(1), output_field=IntegerField()))
     from .audio_submission import audio_limits
     global_limit, user_limit = audio_limits()
     reserved = dict(Generation.objects.filter(kind='audio', provider_status__in=(

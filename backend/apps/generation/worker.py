@@ -78,11 +78,13 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
     Selection does not claim rows. The executor's database lease remains the
     authority across processes; local exclusions also cover the submit/claim gap.
     A short per-row cooldown preserves the poll/retry interval after a no-op.
+    While every slot is busy, each waiting row's queued reason is rechecked at
+    most once per five intervals.
     """
     stop = stop or Event()
     interval = max(.1, interval)
     failures = 0
-    active, cooldown = {}, {}
+    active, cooldown, labelled = {}, {}, {}
     next_scan = 0
     try:
         with ThreadPoolExecutor(max_workers=max(1, min(8, int(concurrency)))) as pool:
@@ -98,6 +100,7 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                             future.result()
                             cooldown[identifier] = now + interval
                     cooldown = {key: until for key, until in cooldown.items() if until > now}
+                    labelled = {key: until for key, until in labelled.items() if until > now}
                     if not completed and now < next_scan:
                         wait(active, timeout=min(.1, next_scan - now), return_when=FIRST_COMPLETED)
                         continue
@@ -113,7 +116,9 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                         active[future] = item.id
                     if len(active) == slots and not stop.is_set():
                         for item in due[free:]:
-                            show_worker_slot_wait(item.id)
+                            if item.id not in labelled:
+                                show_worker_slot_wait(item)
+                                labelled[item.id] = now + 5 * interval
                     failures = 0
                 except Exception as error:
                     failures += 1
