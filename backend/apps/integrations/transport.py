@@ -34,6 +34,12 @@ class HttpTransport:
         self.max_response_bytes = max_response_bytes
 
     def request(self, method, url, *, headers=None, body=None, raw_body=None, signal=None):
+        from apps.generation.services import paid_guard  # known upward dependency; remove in refactor step 6
+        if paid_guard.enabled():
+            paid_guard.check_request(self, method, url, body)
+        return self._send(method, url, headers=headers, body=body, raw_body=raw_body, signal=signal)
+
+    def _send(self, method, url, *, headers=None, body=None, raw_body=None, signal=None):
         import requests
         parsed = urlsplit(url)
         if parsed.scheme != 'https' or parsed.hostname not in self.allowed_hosts or parsed.username or parsed.password:

@@ -7,7 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 DEBUG = False
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if host.strip()]
-INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media', 'apps.production_runtime.apps.ProductionRuntimeConfig']
+INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media']
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'apps.common.middleware.RequestLogMiddleware', 'apps.common.middleware.LocalDataModeMiddleware', 'apps.common.origin.BrowserOriginMiddleware', 'apps.common.middleware.SessionRenewalMiddleware']
 
 LOCAL_DATA_MODE = os.environ.get('LOCAL_DATA_MODE', 'fixtures')
@@ -92,8 +92,9 @@ for value in VEEVEE_BROWSER_ORIGINS:
         raise ImproperlyConfigured('Browser origins must be exact bare origins without credentials')
 
 
-# Paid-generation guard (see apps/production_runtime/paid_guard.py). JSON data,
+# Paid-generation guard (see apps/generation/services/paid_guard.py). JSON data,
 # never code, e.g. {"approved_scope": "<UNLIMITED scope>", "unlimited_new_jobs": true}.
+# An unknown scope, or a missing unlimited flag or cap, stops every component at startup.
 import json as _json
 _paid_guard_raw = os.environ.get('VEEVEE_PAID_GUARD', '')
 VEEVEE_PAID_GUARD = None
@@ -104,9 +105,15 @@ if _paid_guard_raw:
         raise ImproperlyConfigured('VEEVEE_PAID_GUARD must be JSON') from None
     if not isinstance(VEEVEE_PAID_GUARD, dict) or not VEEVEE_PAID_GUARD.get('approved_scope'):
         raise ImproperlyConfigured('VEEVEE_PAID_GUARD requires an approved_scope')
+    from apps.generation.services.paid_guard import validate as _validate_paid_guard
+    try:
+        _validate_paid_guard(VEEVEE_PAID_GUARD)
+    except (KeyError, ValueError) as error:
+        raise ImproperlyConfigured(f'VEEVEE_PAID_GUARD rejected: {error}') from None
 
-# Which production process this is; selects the runtime behaviour installed by
-# apps.production_runtime (api, generation, export or scheduler).
+# Which production process this is (api, generation, export or scheduler). The owning apps read it at
+# call time to apply their component-specific policies (lease and naming namespaces, read-only pricing,
+# export admission, the portrait lifecycle).
 VEEVEE_RUNTIME_COMPONENT = os.environ.get('VEEVEE_RUNTIME_COMPONENT') or None
 if VEEVEE_RUNTIME_COMPONENT not in (None, 'api', 'generation', 'export', 'scheduler'):
     raise ImproperlyConfigured('VEEVEE_RUNTIME_COMPONENT must be api, generation, export or scheduler')
@@ -118,9 +125,15 @@ VEEVEE_GEMINI_OMNI = os.environ.get('VEEVEE_GEMINI_OMNI') == '1'
 # Paid Kling Image 3.0 / 2.1 through the paid guard (off unless '1'; the API and generation worker both need it).
 VEEVEE_KLING = os.environ.get('VEEVEE_KLING') == '1'
 # Worker lease and filename-sequence namespaces (live Green state; see
-# apps/production_runtime/namespacing.py). Empty means no namespace.
+# apps/common/leases.py and apps/library/services/naming.py). Empty means no
+# namespace; the API process never uses them.
 VEEVEE_LEASE_PREFIX = os.environ.get('VEEVEE_LEASE_PREFIX', '')
 VEEVEE_NAMING_PREFIX = os.environ.get('VEEVEE_NAMING_PREFIX', '')
+if VEEVEE_RUNTIME_COMPONENT in ('generation', 'export', 'scheduler'):
+    if VEEVEE_LEASE_PREFIX and not (VEEVEE_LEASE_PREFIX.startswith('lease:') and VEEVEE_LEASE_PREFIX.endswith(':')):
+        raise ImproperlyConfigured('Lease prefix must start with "lease:" and end with ":"')
+    if VEEVEE_NAMING_PREFIX and (not VEEVEE_NAMING_PREFIX.endswith(':') or len(VEEVEE_NAMING_PREFIX) < 4):
+        raise ImproperlyConfigured('Naming prefix must end with ":"')
 # BytePlus portrait lifecycle (list-only sync, tombstones, create-once
 # registration, remote-first delete); API process only.
 VEEVEE_PORTRAIT_LIFECYCLE = os.environ.get('VEEVEE_PORTRAIT_LIFECYCLE') == '1'

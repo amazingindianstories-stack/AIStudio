@@ -8,6 +8,7 @@ from apps.library.services.idempotency import now_ms
 from apps.media.keys import media_key_from_ref, is_export_key
 from apps.media.grants import authorize_owned_upload_read as authorize_upload_read
 from .models import MediaExport, MediaExportItem
+from . import admission
 
 CHUNK_LIMIT = 500
 TTL_MS = 7 * 24 * 60 * 60_000
@@ -19,6 +20,15 @@ class ExportError(ValueError):
 
 
 def create_export(user_id, now=None):
+    if not admission.api_enabled():
+        return _create_export(user_id, now)
+    with transaction.atomic():
+        result = _create_export(user_id, now)
+        admission.record(result['id'], user_id, now_ms() if now is None else now)
+        return result
+
+
+def _create_export(user_id, now=None):
     now = now_ms() if now is None else now
     job = MediaExport.objects.create(user_id=user_id, status='draft', created_at=now, updated_at=now)
     return {'id': str(job.id), 'status': 'draft'}
@@ -29,8 +39,15 @@ def owned_export(export_id, user_id, lock=False):
     return query.filter(pk=export_id, user_id=user_id).first()
 
 
-@transaction.atomic
 def append_items(export_id, user_id, raw_ids, now=None):
+    # Admission is checked before the transaction opens, so an unadmitted export never takes the row lock.
+    if admission.api_enabled() and not admission.admitted(export_id, user_id):
+        raise ExportError('EXPORT_NOT_FOUND')
+    return _append_items(export_id, user_id, raw_ids, now)
+
+
+@transaction.atomic
+def _append_items(export_id, user_id, raw_ids, now=None):
     ids = list(dict.fromkeys(value for value in raw_ids if isinstance(value, str) and value))
     if not ids or len(ids) > CHUNK_LIMIT:
         raise ExportError('INVALID_EXPORT_ITEMS')
@@ -68,8 +85,14 @@ def append_items(export_id, user_id, raw_ids, now=None):
     return {'accepted': len(accepted), 'totalItems': total, 'rejected': rejected}
 
 
-@transaction.atomic
 def finalize_export(export_id, user_id, now=None):
+    if admission.api_enabled() and not admission.admitted(export_id, user_id):
+        raise ExportError('EXPORT_NOT_FOUND')
+    return _finalize_export(export_id, user_id, now)
+
+
+@transaction.atomic
+def _finalize_export(export_id, user_id, now=None):
     job = owned_export(export_id, user_id, lock=True)
     if not job or job.status not in ('draft', 'failed') or job.total_items <= 0:
         raise ExportError('EXPORT_NOT_FINALIZABLE')

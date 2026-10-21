@@ -26,6 +26,7 @@ from apps.media.audio_duration import audio_seconds
 from apps.media.audio_inputs import MAX_AUDIO_BYTES
 from apps.media.images import save_reference_images
 from apps.media.storage import get_storage
+from . import paid_guard
 from .pricing import compute_cost, read_pricing
 from .seedream_references import prepare_seedream_references, require_native_image_runtime
 
@@ -401,8 +402,14 @@ def prepare_video(item, body, identifier):
     return result
 
 
-@transaction.atomic
 def persist(item):
+    if not paid_guard.enabled():
+        return _persist(item)
+    return paid_guard.persist(_persist, item)
+
+
+@transaction.atomic
+def _persist(item):
     fields = {camel(field.attname):field.attname for field in Generation._meta.concrete_fields}
     values = {fields[key]:value for key,value in item.items() if key in fields}
     row = Generation.objects.create(**values)

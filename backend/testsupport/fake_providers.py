@@ -1,9 +1,10 @@
 """Fake provider network for end-to-end worker tests and local runs.
 
-Only the lowest network layer is replaced: ``HttpTransport.request`` (every
-provider adapter, including the BytePlus asset client) and the provider media
-fetcher. Everything above it — the real executor, adapters, payload builders,
-persistence, naming and ledger wrappers — runs exactly as in production. Any
+Only the lowest network layer is replaced: ``HttpTransport._send`` (every
+provider adapter, including the BytePlus asset client, below the paid guard's
+check in ``HttpTransport.request``) and the provider media fetcher. Everything
+above it - the paid guard, the real executor, adapters, payload builders,
+persistence, naming and ledger wrappers - runs exactly as in production. Any
 request to an unexpected host fails, so nothing can reach a real paid API.
 
 ``FakeProviders.handle`` is plain Python (no Django) so the same behaviour backs
@@ -434,7 +435,7 @@ class FakeProviders:
 
         def request(transport_self, method, url, **kwargs):
             return fake.request(transport_self, method, url, **kwargs)
-        self._stack.enter_context(patch('apps.integrations.transport.HttpTransport.request', request))
+        self._stack.enter_context(patch('apps.integrations.transport.HttpTransport._send', request))
         for target in ('apps.integrations.remote.get_media_fetcher', 'apps.media.persistence.get_media_fetcher',
                        'apps.generation.services.poller.get_media_fetcher', 'apps.generation.services.image_execution.get_media_fetcher'):
             self._stack.enter_context(patch(target, lambda: fake.fetch))

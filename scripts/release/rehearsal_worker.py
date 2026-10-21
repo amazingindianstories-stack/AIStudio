@@ -4,9 +4,10 @@
     python /scripts/release/rehearsal_worker.py {generation|export|scheduler}
 
 Identical to ``python -m deploy.entrypoint <component>`` except that the provider
-transport and media fetcher are replaced by testsupport.fake_providers *before*
-Django starts, so the production paid guard wraps the fake and its ledger
-transitions run for real. Never use this in a deployed service.
+transport's network call (``HttpTransport._send``) and the media fetcher are
+replaced by testsupport.fake_providers *before* Django starts, so the production
+paid guard's check in ``HttpTransport.request`` runs in front of the fake and its
+ledger transitions run for real. Never use this in a deployed service.
 """
 import os
 import sys
@@ -30,10 +31,10 @@ from testsupport.fake_providers import FakeProviders  # noqa: E402
 from apps.integrations import transport  # noqa: E402
 
 fake = FakeProviders()
-transport.HttpTransport.request = lambda self, method, url, **kwargs: fake.request(self, method, url, **kwargs)
+transport.HttpTransport._send = lambda self, method, url, **kwargs: fake.request(self, method, url, **kwargs)
 
 import django  # noqa: E402
-django.setup()  # installs the paid guard around the fake transport
+django.setup()
 for target in ('apps.integrations.remote.get_media_fetcher', 'apps.media.persistence.get_media_fetcher',
                'apps.generation.services.poller.get_media_fetcher', 'apps.generation.services.image_execution.get_media_fetcher'):
     patch(target, lambda: fake.fetch).start()

@@ -1,5 +1,6 @@
 """Eight portrait HTTP method contracts, backed by durable local identities."""
 import base64
+import json
 import uuid
 from django.db import transaction
 from django.conf import settings
@@ -15,6 +16,7 @@ from apps.library.views import body_or_empty
 from apps.media.images import save_asset_image, delete_asset_image, split_data_url
 from apps.integrations.byteplus import get_client, BytePlusAssetError, validate_portrait_image
 from . import portrait_db as db
+from . import portrait_lifecycle, portrait_registration, portrait_remote_delete
 from .portrait_sync import sync_portraits, inventory_portraits, sign_stored_ref
 
 
@@ -39,7 +41,10 @@ def cleanup_deleted_portraits(client, assets, group=None):
     Physical object cleanup requires a complete durable-reference inventory and
     concurrency fence; a portrait row alone cannot prove an original is orphaned.
     Remote identities are removed only after the catalog transaction returned.
+    Under the portrait lifecycle nothing is removed: deleted portraits are tombstones.
     """
+    if portrait_lifecycle.enabled():
+        return None
     try:
         for asset in assets:
             identity = asset.get('byteplusAssetId')
@@ -53,6 +58,8 @@ def cleanup_deleted_portraits(client, assets, group=None):
 
 
 def remove_portrait_asset(asset):
+    if portrait_lifecycle.enabled():
+        return db.archive_portrait_asset(asset)
     with transaction.atomic():
         PortraitGroup.objects.select_for_update().filter(pk=asset['groupId']).first()
         group = db.get_portrait_group(asset['groupId'])
@@ -68,10 +75,38 @@ def first(request, key):
     return values[0] if values else None
 
 
+def remote_delete(request, path_group=None):
+    """The portrait lifecycle's DELETE for both routes: BytePlus first, then a local tombstone."""
+    actor = lookup(request)
+    if actor is None:
+        return Response({'error': 'UNAUTHENTICATED'}, status=401)
+    asset_id = first(request, 'assetId')
+    if not asset_id:
+        return Response({'error': 'assetId is required; character-group deletion remains unavailable.'}, status=400)
+    store = portrait_remote_delete.DjangoDeleteStore()
+    asset = store.get(asset_id)
+    if not asset:
+        return Response({'ok': False, 'error': 'Portrait no longer exists; refresh Gallery before retrying.'}, status=404)
+    requested_group = path_group or first(request, 'groupId')
+    if not requested_group:
+        return Response({'ok': False, 'error': 'Character identity is required.'}, status=400)
+    try:
+        result = portrait_remote_delete.delete_once(asset, actor.id, project_id=first(request, 'projectId'), group_id=requested_group, store=store,
+                                                    client=portrait_remote_delete.native_delete_client())
+        log_activity(actor.id, 'delete_portrait_asset', {'id': asset['id'], 'groupId': asset['groupId'], 'remoteDeletion': result['remoteDeletion']})
+        return renew_session(request, Response(result))
+    except portrait_remote_delete.DeleteHold as exc:
+        return Response({'ok': False, 'error': str(exc)}, status=409)
+    except Exception:
+        return Response({'ok': False, 'error': 'BytePlus deletion could not be verified. Portrait retained; no automatic retry.'}, status=502)
+
+
 @api_view(['GET', 'POST', 'PATCH', 'DELETE'])
 @authentication_classes([])
 @permission_classes([])
 def portraits(request):
+    if request.method == 'DELETE' and portrait_lifecycle.enabled():
+        return remote_delete(request)
     user = lookup(request)
     if user is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
@@ -87,7 +122,8 @@ def portraits(request):
             name, description = text(body.get('name')), text(body.get('description'))
             if not name:
                 return Response({'error': 'Character name is required.'}, status=400)
-            result = get_client().create_asset_group(name, description, group_type='AIGC')
+            # Under the portrait lifecycle a new character stays local until an upload registers it.
+            result = {} if portrait_lifecycle.enabled() else get_client().create_asset_group(name, description, group_type='AIGC')
             group = db.upsert_portrait_group({'id': str(uuid.uuid4()), 'byteplusGroupId': result.get('Id'),
                 'name': name, 'description': description, 'groupType': 'AIGC', 'projectName': 'default',
                 'projectId': body.get('projectId') or None})
@@ -153,13 +189,16 @@ def decode_validate(data_url):
 @authentication_classes([])
 @permission_classes([])
 def group_assets(request, id):
+    if request.method == 'DELETE' and portrait_lifecycle.enabled():
+        return remote_delete(request, id)
     user = lookup(request)
     if user is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
     if not id:
         return Response({'error': 'Missing group id.'}, status=400)
     try:
-        client = None if settings.LOCAL_DATA_MODE == 'read_only_viewer' else get_client()
+        local_only = request.method == 'POST' and portrait_lifecycle.enabled()
+        client = None if local_only or settings.LOCAL_DATA_MODE == 'read_only_viewer' else get_client()
         if request.method == 'DELETE':
             asset_id = first(request, 'assetId')
             if not asset_id:
@@ -196,17 +235,23 @@ def group_assets(request, id):
                 return Response({'error': 'Verified referenceId or valid image data URL is required.'}, status=400)
             image_info = decode_validate(data_url)
             saved = save_asset_image(data_url)
-        signed = sign_stored_ref(saved, actor_id=user.id) or saved
-        if not group.get('byteplusGroupId'):
-            try:
-                result = client.create_asset_group(group['name'] or 'Default Character', group.get('description') or 'Virtual Portrait Group')
-                if result.get('Id'):
-                    group = db.upsert_portrait_group({**group, 'byteplusGroupId': result['Id'], 'updatedAt': now_ms()})
-            except Exception:
-                pass
-        remote = client.create_asset(group.get('byteplusGroupId'), signed, name=name, asset_type='Image')
-        asset = db.upsert_portrait_asset({'id': str(uuid.uuid4()), 'groupId': id, 'byteplusAssetId': remote.get('Id'),
-            'createdById': str(user.id), 'name': name, 'assetType': 'Image', 'role': role, 'imageUrl': saved, 'status': remote.get('Status') or 'Processing'})
+        if local_only:
+            remote = {'Status': 'LocalOnly'}
+        else:
+            signed = sign_stored_ref(saved, actor_id=user.id) or saved
+            if not group.get('byteplusGroupId'):
+                try:
+                    result = client.create_asset_group(group['name'] or 'Default Character', group.get('description') or 'Virtual Portrait Group')
+                    if result.get('Id'):
+                        group = db.upsert_portrait_group({**group, 'byteplusGroupId': result['Id'], 'updatedAt': now_ms()})
+                except Exception:
+                    pass
+            remote = client.create_asset(group.get('byteplusGroupId'), signed, name=name, asset_type='Image')
+        record = {'id': str(uuid.uuid4()), 'groupId': id, 'byteplusAssetId': remote.get('Id'),
+            'createdById': str(user.id), 'name': name, 'assetType': 'Image', 'role': role, 'imageUrl': saved, 'status': remote.get('Status') or 'Processing'}
+        if local_only:
+            record['statusMessage'] = 'remote_registration_not_authorized'
+        asset = db.upsert_portrait_asset(record)
         if not group.get('primaryAssetId'):
             db.upsert_portrait_group({**group, 'primaryAssetId': saved, 'updatedAt': now_ms()})
         log_activity(user.id, 'upload_portrait_asset', {'assetId': asset['id'], 'groupId': id, 'byteplusAssetId': remote.get('Id'),
@@ -222,6 +267,67 @@ def group_assets(request, id):
 @authentication_classes([])
 @permission_classes([])
 def upload(request):
+    if portrait_lifecycle.enabled():
+        return registered_upload(request)
+    return _upload(request)
+
+
+def registered_upload(request):
+    """The portrait lifecycle's upload: saved locally, then a verified native upload registers once."""
+    actor = lookup(request)
+    if actor is None:
+        return _upload(request)
+    body = body_or_empty(request)
+    store = portrait_registration.DjangoStore()
+    if body.get('groupId'):
+        group = store.group(body['groupId'])
+        if not group or (group.get('projectId') and str(group['projectId']) != str(body.get('projectId'))):
+            return Response({'error': 'Portrait group is outside the requested project scope.'}, status=403)
+    # Native resumable READY identity is reused after an uncertain HTTP response.
+    if body.get('referenceId'):
+        ready = resolve_ready_upload(actor.id, body['referenceId'], purposes={'portrait'})
+        ref = '/api/media/' + ready.key
+        query = store.Asset.objects.filter(created_by_id=actor.id, image_url=ref).exclude(status='PreviewDeleted')
+        if body.get('groupId'):
+            query = query.filter(group_id=body['groupId'])
+        prior = list(query[:2])
+        if len(prior) == 1:
+            return renew_session(request, Response({'ok': True, 'asset': store.db.asset_json(prior[0]), 'registrationReused': True}))
+        if len(prior) > 1:
+            return Response({'error': 'Ambiguous existing portrait identity; reconcile without registration retry.'}, status=409)
+    response = _upload(request)
+    if response.status_code >= 400 or not isinstance(response.data, dict) or not response.data.get('asset'):
+        return response
+    asset = response.data['asset']
+    if not body.get('referenceId'):
+        response.data['registrationError'] = 'Use a verified native upload to register this local image.'
+        return response
+    from apps.media.storage import get_storage
+    from apps.integrations.byteplus import validate_portrait_image, MAX_FILE_BYTES
+    try:
+        asset = portrait_registration.register_once(asset, actor.id, store=store,
+                                                    read_native=lambda ref: get_storage().read_reference_bytes(ref, max_bytes=MAX_FILE_BYTES)['bytes'],
+                                                    sign_native=sign_stored_ref, client=portrait_registration.native_client(), validate=validate_portrait_image)
+        asset = {**asset, 'remoteVerification': portrait_registration.remote_verification(asset)}
+        response.data['asset'] = asset
+        if asset['status'] in ('RegistrationFailed', 'RegistrationUnknown', 'RegistrationGroupUnknown', 'LocalOnly'):
+            message = asset.get('statusMessage') or 'Registration unavailable'
+            try:
+                message = json.loads(message).get('error_code') or message
+            except (TypeError, ValueError):
+                pass
+            response.data['registrationError'] = message
+    except Exception as exc:
+        code = portrait_registration.safe_registration_error(exc)
+        # Only an unclaimed LocalOnly row is changed; pending/unknown provenance stays.
+        current = store.local_error(asset['id'], code)
+        response.data['asset'] = {**current, 'remoteVerification': 'local_only' if current.get('status') == 'LocalOnly' else 'unverified'}
+        response.data['registrationErrorCode'] = code
+        response.data['registrationError'] = portrait_registration.registration_error_message(code)
+    return response
+
+
+def _upload(request):
     user = lookup(request)
     if user is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
@@ -239,23 +345,27 @@ def upload(request):
         else:
             decode_validate(data_url)
             saved = save_asset_image(data_url)
-        client = get_client()
-        bp_id, initial_status = None, 'Active'
-        try:
-            if not group.get('byteplusGroupId'):
-                remote = client.create_asset_group(group['name'] or 'General Portraits', group.get('description') or 'Virtual Portrait Group')
-                if remote.get('Id'):
-                    group = db.upsert_portrait_group({**group, 'byteplusGroupId': remote['Id'], 'updatedAt': now_ms()})
-            if group.get('byteplusGroupId'):
-                remote = client.create_asset(group['byteplusGroupId'], sign_stored_ref(saved, actor_id=user.id) or saved, name=name, asset_type='Image')
-                bp_id, initial_status = remote.get('Id'), remote.get('Status') or initial_status
-        except (UploadError, ValueError):
-            raise
-        except Exception:
-            if not client.is_mock:
+        if portrait_lifecycle.enabled():
+            # Saved locally only; native registration decides about BytePlus afterwards.
+            bp_id, initial_status, message = None, 'LocalOnly', 'remote_registration_not_authorized'
+        else:
+            client = get_client()
+            bp_id, initial_status, message = None, 'Active', None
+            try:
+                if not group.get('byteplusGroupId'):
+                    remote = client.create_asset_group(group['name'] or 'General Portraits', group.get('description') or 'Virtual Portrait Group')
+                    if remote.get('Id'):
+                        group = db.upsert_portrait_group({**group, 'byteplusGroupId': remote['Id'], 'updatedAt': now_ms()})
+                if group.get('byteplusGroupId'):
+                    remote = client.create_asset(group['byteplusGroupId'], sign_stored_ref(saved, actor_id=user.id) or saved, name=name, asset_type='Image')
+                    bp_id, initial_status = remote.get('Id'), remote.get('Status') or initial_status
+            except (UploadError, ValueError):
                 raise
+            except Exception:
+                if not client.is_mock:
+                    raise
         asset = db.upsert_portrait_asset({'id': str(uuid.uuid4()), 'groupId': group['id'], 'byteplusAssetId': bp_id,
-            'createdById': str(user.id), 'name': name, 'assetType': 'Image', 'role': role, 'imageUrl': saved, 'status': initial_status, 'statusMessage': None})
+            'createdById': str(user.id), 'name': name, 'assetType': 'Image', 'role': role, 'imageUrl': saved, 'status': initial_status, 'statusMessage': message})
         log_activity(user.id, 'upload_portrait_asset', {'id': asset['id'], 'name': name, 'imageUrl': saved})
         return renew_session(request, Response({'ok': True, 'asset': asset}))
     except UploadError as exc:

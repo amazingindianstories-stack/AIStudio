@@ -345,16 +345,11 @@ class GalleryApiTests(GalleryBase):
             payload = {'prompt': 'a hall', 'model': 'Seedance 2.5', 'resolution': '480p', 'draftMode': True, 'duration': 5, 'referenceImages': [reference]}
             self.assertEqual(self.client.post('/api/generate/video', payload, content_type='application/json').status_code, 400)
 
-    def test_old_portrait_lifecycle_patches_stay_off_in_managed_mode(self):
-        from django.apps import apps as registry
-        config = registry.get_app_config('production_runtime')
-        for managed, installed in ((True, 0), (False, 1)):
-            with override_settings(VEEVEE_RUNTIME_COMPONENT='api', VEEVEE_PORTRAIT_LIFECYCLE=True, VEEVEE_MANAGED_PORTRAITS=managed,
-                                   VEEVEE_PAID_GUARD=None, VEEVEE_EXPORT_ADMISSION=False), \
-                    patch('apps.production_runtime.namespacing.install_readonly_pricing'), \
-                    patch('apps.production_runtime.apps.install_portrait_lifecycle') as install:
-                config.ready()
-            self.assertEqual(install.call_count, installed, managed)
+    def test_old_portrait_lifecycle_stays_off_in_managed_mode(self):
+        from . import portrait_lifecycle
+        for managed, enabled in ((True, False), (False, True)):
+            with override_settings(VEEVEE_RUNTIME_COMPONENT='api', VEEVEE_PORTRAIT_LIFECYCLE=True, VEEVEE_MANAGED_PORTRAITS=managed):
+                self.assertIs(portrait_lifecycle.enabled(), enabled, managed)
 
 
 class FirstComeFirstServedTests(GalleryBase):

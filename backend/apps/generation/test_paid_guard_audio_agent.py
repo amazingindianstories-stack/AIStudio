@@ -27,7 +27,7 @@ from apps.generation.services.deadline import Cancellation
 from apps.media.audio import TRANSCRIPTION_PROMPT, GeminiTranscriber
 from apps.media.audio_inputs import MAX_AUDIO_BYTES, capture_audio_input
 from apps.media.storage import MemoryAdapter, StorageService
-from . import paid_guard
+from .services import paid_guard
 
 UNLIMITED = {'approved_scope': paid_guard.UNLIMITED_SCOPE, 'unlimited_new_jobs': True}
 LIMITED = {'approved_scope': paid_guard.LIMITED_SCOPE, 'maximum_total_cents': paid_guard.CAP,
@@ -163,26 +163,16 @@ class LedgerCursor:
 @contextlib.contextmanager
 def guard(ledger, sent, responses=None):
     """The production paid guard over a provider that records each request and answers from `responses`."""
-    from apps.generation.services import enqueue, executor, upscale_submission
-    originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
-                 audio_submission.persist_audio_intent, audio_submission.transcribe_claimed)
-    flag = getattr(enqueue, '_goal4_paid_guard_installed', False)
-
     def provider(self, method, url, **kwargs):
         sent.append((method, url, kwargs.get('body')))
         return responses.pop(0) if responses else gemini_reply()
 
-    HttpTransport.request = provider
-    enqueue._goal4_paid_guard_installed = False
     real_cursor = connection.cursor
     try:
-        with patch.object(connection, 'cursor', lambda *args, **kwargs: LedgerCursor(real_cursor(*args, **kwargs), ledger)):
-            paid_guard.install_paid_guard(UNLIMITED)
+        with override_settings(VEEVEE_PAID_GUARD=UNLIMITED), patch.object(HttpTransport, '_send', provider), \
+                patch.object(connection, 'cursor', lambda *args, **kwargs: LedgerCursor(real_cursor(*args, **kwargs), ledger)):
             yield
     finally:
-        (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
-         audio_submission.persist_audio_intent, audio_submission.transcribe_claimed) = originals
-        enqueue._goal4_paid_guard_installed = flag
         paid_guard.STATE.active = None
         paid_guard.STATE.api_error = None
 

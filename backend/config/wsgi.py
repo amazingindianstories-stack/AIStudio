@@ -8,5 +8,5 @@ application = slow_request_application(terminated_body_application(get_wsgi_appl
 from django.conf import settings  # noqa: E402  (settings are ready after get_wsgi_application)
 if getattr(settings, 'VEEVEE_PAID_GUARD', None):
     # A rejected paid reservation becomes a 409 instead of a partial response.
-    from apps.production_runtime.paid_guard import wrap_wsgi
+    from apps.generation.services.paid_guard import wrap_wsgi
     application = wrap_wsgi(application)

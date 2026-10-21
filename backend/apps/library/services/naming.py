@@ -1,4 +1,5 @@
 """Stable names and monotonic namespace counters, in the caller's transaction."""
+from django.conf import settings
 from django.db import connection, transaction
 from apps.library.models import GenerationNaming
 from .idempotency import now_ms
@@ -10,7 +11,22 @@ def namespace_for(folder_id=None, project_id=None):
     return f'folder:{folder_id}' if folder_id else (f'project_unsorted:{project_id}' if project_id else 'global_unsorted')
 
 
+def private_namespace(namespace, now=None):
+    """Green workers allocate in a private namespace (VEEVEE_NAMING_PREFIX, validated in settings), seeded once
+    from the canonical counter so their filenames continue its sequence without advancing it."""
+    private = settings.VEEVEE_NAMING_PREFIX + namespace
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT next_sequence FROM naming_counters WHERE namespace=%s', [namespace])
+        row = cursor.fetchone()
+        seed = max(1, int(row[0])) if row else 1
+        cursor.execute('INSERT INTO naming_counters(namespace,next_sequence,updated_at) VALUES(%s,%s,%s) '
+                       'ON CONFLICT(namespace) DO NOTHING', [private, seed, now_ms() if now is None else now])
+    return private
+
+
 def allocate_next_sequence(namespace, count=1, now=None):
+    if settings.VEEVEE_RUNTIME_COMPONENT in ('generation', 'export', 'scheduler') and settings.VEEVEE_NAMING_PREFIX:
+        namespace = private_namespace(namespace, now)
     count = max(1, int(count or 1))
     with connection.cursor() as cursor:
         cursor.execute('''INSERT INTO naming_counters(namespace,next_sequence,updated_at)

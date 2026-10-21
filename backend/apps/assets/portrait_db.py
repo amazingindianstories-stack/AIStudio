@@ -7,6 +7,7 @@ from django.db import transaction
 from django.db.models import Q
 from apps.library.services.idempotency import acquire_scope_locks, now_ms
 from .models import PortraitGroup, PortraitAsset
+from . import portrait_lifecycle
 from apps.authentication.models import User
 
 
@@ -56,7 +57,8 @@ def list_portrait_groups(project_id=None):
     grouped = {}
     for row in PortraitAsset.objects.filter(group_id__in=[g.id for g in groups]).order_by('created_at', 'id'):
         grouped.setdefault(row.group_id, []).append(asset_json(row))
-    return [with_assets(group, grouped.get(group.id, [])) for group in groups]
+    result = [with_assets(group, grouped.get(group.id, [])) for group in groups]
+    return portrait_lifecycle.visible_groups(result) if portrait_lifecycle.enabled() else result
 
 
 def get_portrait_group(identifier):
@@ -91,14 +93,16 @@ def upsert_portrait_group(group):
 
 
 def list_portrait_assets(group_id):
-    return [asset_json(row) for row in PortraitAsset.objects.filter(group_id=group_id).order_by('created_at', 'id')]
+    assets = [asset_json(row) for row in PortraitAsset.objects.filter(group_id=group_id).order_by('created_at', 'id')]
+    return portrait_lifecycle.visible_assets(assets) if portrait_lifecycle.enabled() else assets
 
 
 def list_all_portrait_assets(project_id=None):
     assets = PortraitAsset.objects.all()
     if project_id:
         assets = assets.filter(Q(group__project_id=project_id) | Q(group__project_id=None))
-    return [asset_json(row) for row in assets.order_by('-created_at', 'id')]
+    assets = [asset_json(row) for row in assets.order_by('-created_at', 'id')]
+    return portrait_lifecycle.visible_assets(assets) if portrait_lifecycle.enabled() else assets
 
 
 def get_portrait_asset(identifier):
@@ -142,6 +146,20 @@ def get_portrait_asset_by_image_url(image_url):
 
 
 def upsert_portrait_asset(asset):
+    if not portrait_lifecycle.enabled():
+        return _upsert_portrait_asset(asset)
+    with transaction.atomic():
+        # A tombstone is never brought back, whether matched by local or BytePlus identity.
+        PortraitGroup.objects.select_for_update().filter(pk=asset['groupId']).first()
+        existing = PortraitAsset.objects.select_for_update().filter(pk=asset['id']).first()
+        if existing is None and asset.get('byteplusAssetId'):
+            existing = PortraitAsset.objects.select_for_update().filter(byteplus_asset_id=asset['byteplusAssetId']).first()
+        if existing and existing.status == portrait_lifecycle.TOMBSTONE:
+            return asset_json(existing)
+        return _upsert_portrait_asset(asset)
+
+
+def _upsert_portrait_asset(asset):
     now = now_ms()
     defaults = {
         'group_id': asset['groupId'], 'byteplus_asset_id': asset.get('byteplusAssetId'), 'name': asset.get('name'),
@@ -156,6 +174,16 @@ def upsert_portrait_asset(asset):
 
 
 def update_portrait_asset_status(identifier, status, message=None):
+    if not portrait_lifecycle.enabled():
+        return _update_portrait_asset_status(identifier, status, message)
+    with transaction.atomic():
+        row = PortraitAsset.objects.select_for_update().filter(byteplus_asset_id=identifier).first()
+        if row and row.status == portrait_lifecycle.TOMBSTONE:
+            return asset_json(row)
+        return _update_portrait_asset_status(identifier, status, message)
+
+
+def _update_portrait_asset_status(identifier, status, message=None):
     PortraitAsset.objects.filter(byteplus_asset_id=identifier).update(status=status, status_message=message, updated_at=now_ms())
     return get_portrait_asset_by_byteplus_id(identifier)
 
@@ -167,12 +195,27 @@ def update_portrait_asset_name(identifier, name):
 
 def delete_portrait_asset(identifier):
     asset = get_portrait_asset(identifier) or get_portrait_asset_by_byteplus_id(identifier)
-    if asset:
+    if asset and portrait_lifecycle.enabled():
+        archive_portrait_asset(asset)
+    elif asset:
         PortraitAsset.objects.filter(pk=asset['id']).delete()
     return asset
 
 
+def archive_portrait_asset(asset):
+    """Tombstone a portrait under the lifecycle; its remote identity and original media stay intact."""
+    with transaction.atomic():
+        # Same lock order as removal (group, then asset), so group markers cannot be raced away.
+        PortraitGroup.objects.select_for_update().get(pk=asset['groupId'])
+        row = PortraitAsset.objects.select_for_update().get(pk=asset['id'], group_id=asset['groupId'])
+        if row.status != portrait_lifecycle.TOMBSTONE:
+            PortraitAsset.objects.filter(pk=row.id).update(status=portrait_lifecycle.TOMBSTONE, updated_at=now_ms())
+
+
 def delete_portrait_group(identifier):
+    if portrait_lifecycle.enabled():
+        # Under the lifecycle no caller may hard-delete a group or the tombstones in it.
+        raise ValueError('Preview portrait group hard delete HOLD')
     group = get_portrait_group(identifier)
     if group:
         PortraitGroup.objects.filter(pk=identifier).delete()

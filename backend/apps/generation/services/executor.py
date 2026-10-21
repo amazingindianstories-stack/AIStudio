@@ -14,7 +14,7 @@ from apps.generation.model_registry import capability
 from apps.generation.models import Generation
 from apps.generation.realtime import publish_best_effort
 from apps.library.services.naming import assign_generation_naming
-from . import admission, coordinator, poller
+from . import admission, coordinator, paid_guard, poller
 from .deadline import Cancellation
 from .video_execution import submit_video
 from . import portrait_prepare
@@ -118,7 +118,13 @@ def _fenced_completion_update(item,owner,updates):
         return Generation.objects.get(pk=current.id)
 
 
-def execute_admitted(item, *, owner, signal=None, image_execute=None, video_submit=None, env=None):
+def execute_admitted(item, **kwargs):
+    if not paid_guard.enabled():
+        return _execute_admitted(item, **kwargs)
+    return paid_guard.execute(_execute_admitted, item, **kwargs)
+
+
+def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_submit=None, env=None):
     """Run on a worker thread with its own DB connection, never a detached task.
 
     All provider I/O receives the same bounded cancellation object. Persistence

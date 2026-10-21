@@ -2,9 +2,10 @@
 
 Loaded automatically by Python when /opt/veevee-local is on PYTHONPATH (local
 compose only — never in the production image). Active only when
-VEEVEE_LOCAL_PROVIDERS=fake. The transport is patched as soon as its module is
-imported, i.e. before Django installs the paid guard, so the guard wraps the
-fake exactly as it wraps the real network in production.
+VEEVEE_LOCAL_PROVIDERS=fake. Only ``HttpTransport._send`` (the network call)
+is replaced, as soon as its module is imported, so the paid guard's check in
+``HttpTransport.request`` runs in front of the fake exactly as it runs in front
+of the real network in production.
 """
 import importlib.abc
 import importlib.util
@@ -39,7 +40,7 @@ def _patch_transport(module):
                                        may_have_submitted=False)
         return module.HttpResult(status=answer['status'], body=json.dumps(answer['payload']).encode(),
                                  headers={'content-type': 'application/json'})
-    module.HttpTransport.request = request
+    module.HttpTransport._send = request
 
 
 def _patch_media(module):

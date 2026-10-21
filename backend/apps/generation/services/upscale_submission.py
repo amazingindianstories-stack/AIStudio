@@ -3,6 +3,7 @@ from django.db import OperationalError, InterfaceError
 from apps.generation.providers import magnific
 from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
+from . import paid_guard
 from .upscale_validation import validate_upscale_request, inspect_image, validate_output_area, MAX_BYTES
 from .upscale_validation import validate_video_upscale_request, video_source_key
 
@@ -124,7 +125,13 @@ def _submit_video(item, value, *, signal, mark_pending, save_receipt, mark_uncer
     return task
 
 
-def submit_claimed_upscale(item, *, owner, signal, storage=None, submit=None):
+def submit_claimed_upscale(item, **kwargs):
+    if not paid_guard.enabled():
+        return _submit_claimed_upscale(item, **kwargs)
+    return paid_guard.submit_upscale(_submit_claimed_upscale, item, **kwargs)
+
+
+def _submit_claimed_upscale(item, *, owner, signal, storage=None, submit=None):
     """Persist submission certainty under the existing job/version lease fence."""
     from apps.generation.models import Generation
     from apps.common.leases import now_ms
