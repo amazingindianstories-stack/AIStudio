@@ -70,10 +70,10 @@ def release_generation(identifier, owner):
         return Generation.objects.get(pk=identifier)
 
 
-def select_due_generations(*, now=None, limit=MAX_COORDINATOR_BATCH):
+def select_due_generations(*, now=None, limit=MAX_COORDINATOR_BATCH, exclude_ids=()):
     now = now_ms() if now is None else now
     limit = max(1, min(MAX_COORDINATOR_BATCH, int(limit or MAX_COORDINATOR_BATCH)))
-    due = Generation.objects.filter(eligible()).filter(
+    due = Generation.objects.filter(eligible()).exclude(pk__in=exclude_ids).filter(
         Q(next_poll_at__isnull=True) | Q(next_poll_at__lte=now)).filter(
         Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)
     )

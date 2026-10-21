@@ -14,6 +14,15 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Generation worker queue fix (code only, not deployed)
+
+The generation entrypoint now defaults to four execution slots through
+`VEEVEE_GENERATION_WORKER_SLOTS` (optional integer override, 1-8). Its persistent pool
+refills each freed slot without waiting for an entire batch. Admission limits, provider
+lanes and the 120-second deployment drain remain unchanged. Admissible queued image
+and video cards show "Waiting for a free worker slot" while all execution slots are busy.
+Production continues to use its deployed commit until a separately approved release.
+
 ## Phase summary
 | Phase | State | Notes |
 |---|---|---|
@@ -168,7 +177,7 @@ the four Magnific video upscalers (Creative, Turbo, Precision, Topaz) and every 
 - Found live and fixed (`4c5f0b0`): image results come from `ai-statics.magnific.com`, video results
   from `cdn-magnific.freepik.com`; only the latter was allowlisted, so the first image job polled
   until the worker was redeployed, then completed.
-- Hardened (`a3b5d12`) for large media on the 2 GB, two-slot generation worker: image results stop at
+- Hardened (`a3b5d12`) for large media on the 2 GB generation worker (the deployed entrypoint selected one slot): image results stop at
   80 MB while streaming and are validated by a sequential libvips decode (was: read up to 512 MB,
   then a full Pillow decode of up to 160 MP); an oversized, unreadable or undownloadable result fails
   after three attempts instead of polling forever; video masters stream to disk with a 4 GB cap and

@@ -76,9 +76,9 @@ class ComponentDeploymentParityTests(SimpleTestCase):
                         'DATABASE_URL': 'fixture', 'VEEVEE_RUNTIME_COMPONENT': component}))
                     api.assert_not_called()
 
-    def test_worker_commands_and_arguments_are_unchanged(self):
+    def test_worker_commands_and_arguments(self):
         self.assertEqual(entrypoint.WORKER_COMMANDS, {
-            'generation': ['generation_worker', '--concurrency', '1', '--interval', '2'],
+            'generation': ['generation_worker', '--interval', '2'],
             'export': ['media_export_worker', '--interval', '2'], 'scheduler': ['run_scheduler']})
         for args in ([], ['entrypoint'], ['entrypoint', 'unknown']):
             with self.assertRaisesRegex(SystemExit, 'usage: python -m deploy.entrypoint'):
@@ -160,3 +160,22 @@ class ComponentDeploymentParityTests(SimpleTestCase):
         self.assertEqual(json.loads(children[1].stdin.captured), {'secret': 's' * 64, 'port': 18081,
             'paid_initial_routes': True, 'new_exports': True, 'magnific_upscale': True})
         self.assertEqual(children[1].returncode, 0)
+
+    def test_generation_command_default_override_and_bounds(self):
+        for override, expected in ((None, '4'), ('1', '1'), ('6', '6'), ('8', '8')):
+            env = {} if override is None else {'VEEVEE_GENERATION_WORKER_SLOTS': override}
+            with self.subTest(override=override), patch.dict(os.environ, {}, clear=True), \
+                    patch('django.setup'), patch('django.core.management.execute_from_command_line') as execute:
+                entrypoint.run_worker('generation', env)
+                execute.assert_called_once_with(['manage.py', 'generation_worker', '--interval', '2',
+                                                 '--concurrency', expected])
+        for override in ('', 'no', '0', '-1', '9', '4.5'):
+            with self.subTest(override=override), self.assertRaisesRegex(SystemExit, 'integer from 1 to 8'):
+                entrypoint.generation_worker_slots({'VEEVEE_GENERATION_WORKER_SLOTS': override})
+
+    def test_legacy_generation_translation_preserves_worker_slots_override(self):
+        ca, env = self.fixture('generation')
+        env['VEEVEE_GENERATION_WORKER_SLOTS'] = '6'
+        with patch.object(legacy_config, 'CA_SHA256', hashlib.sha256(ca).hexdigest()):
+            translated = legacy_config.translate('generation', env)
+        self.assertEqual(entrypoint.generation_worker_slots(translated), 6)
