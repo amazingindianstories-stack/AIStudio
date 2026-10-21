@@ -118,9 +118,15 @@ VEEVEE_GEMINI_OMNI = os.environ.get('VEEVEE_GEMINI_OMNI') == '1'
 # Paid Kling Image 3.0 / 2.1 through the paid guard (off unless '1'; the API and generation worker both need it).
 VEEVEE_KLING = os.environ.get('VEEVEE_KLING') == '1'
 # Worker lease and filename-sequence namespaces (live Green state; see
-# apps/production_runtime/namespacing.py). Empty means no namespace.
+# apps/common/leases.py and apps/library/services/naming.py). Empty means no
+# namespace; the API process never uses them.
 VEEVEE_LEASE_PREFIX = os.environ.get('VEEVEE_LEASE_PREFIX', '')
 VEEVEE_NAMING_PREFIX = os.environ.get('VEEVEE_NAMING_PREFIX', '')
+if VEEVEE_RUNTIME_COMPONENT in ('generation', 'export', 'scheduler'):
+    if VEEVEE_LEASE_PREFIX and not (VEEVEE_LEASE_PREFIX.startswith('lease:') and VEEVEE_LEASE_PREFIX.endswith(':')):
+        raise ImproperlyConfigured('Lease prefix must start with "lease:" and end with ":"')
+    if VEEVEE_NAMING_PREFIX and (not VEEVEE_NAMING_PREFIX.endswith(':') or len(VEEVEE_NAMING_PREFIX) < 4):
+        raise ImproperlyConfigured('Naming prefix must end with ":"')
 # BytePlus portrait lifecycle (list-only sync, tombstones, create-once
 # registration, remote-first delete); API process only.
 VEEVEE_PORTRAIT_LIFECYCLE = os.environ.get('VEEVEE_PORTRAIT_LIFECYCLE') == '1'

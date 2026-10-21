@@ -351,7 +351,6 @@ class GalleryApiTests(GalleryBase):
         for managed, installed in ((True, 0), (False, 1)):
             with override_settings(VEEVEE_RUNTIME_COMPONENT='api', VEEVEE_PORTRAIT_LIFECYCLE=True, VEEVEE_MANAGED_PORTRAITS=managed,
                                    VEEVEE_PAID_GUARD=None, VEEVEE_EXPORT_ADMISSION=False), \
-                    patch('apps.production_runtime.namespacing.install_readonly_pricing'), \
                     patch('apps.production_runtime.apps.install_portrait_lifecycle') as install:
                 config.ready()
             self.assertEqual(install.call_count, installed, managed)
