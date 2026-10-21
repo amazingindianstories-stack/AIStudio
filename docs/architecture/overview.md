@@ -68,7 +68,10 @@ the paid guard refuses new jobs on a switched-off provider, and signed-in `GET /
 registry with it (`isModelAvailable`/`pickerModels`), so flipping a switch and redeploying shows or hides a model.
 
 `backend/testsupport` holds fake providers and the frozen historical Node outputs used as test
-oracles. `backend/deploy` holds the entrypoint, the gateway and the legacy configuration reader.
+oracles. `backend/parity` pins current production behavior through seams the backend restructure
+keeps unchanged (HTTP, gateway, entrypoint, command names, settings flags); its package docstring
+lists the rules. `backend/deploy` holds the entrypoint, the gateway and the legacy configuration
+reader.
 
 ## Repository layout
 

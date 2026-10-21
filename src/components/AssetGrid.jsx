@@ -237,7 +237,10 @@ export function AssetGrid({
     if (!target) return;
     const observer = new IntersectionObserver(
       async (entries) => {
-        if (!entries[0].isIntersecting) return;
+        // One callback can batch several entries for the sentinel (a layout
+        // change and a scroll before delivery); only the newest is current,
+        // and the observer will not fire again while that state holds.
+        if (!entries.at(-1).isIntersecting) return;
         if (!hasMoreHistory || isLoadingMore || loading) return;
         setIsLoadingMore(true);
         try {
