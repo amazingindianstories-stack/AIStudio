@@ -130,7 +130,7 @@ class PermanentNamesTests(TransactionTestCase):
 
     def test_folder_delete_and_single_and_bulk_move_role_matrix_is_atomic(self):
         from uuid import uuid4
-        from apps.library.models import Folder, GenerationNaming, OrganizationIdempotencyKey
+        from apps.library.models import Folder, GenerationNaming
         self.cookie()
         target = folders.create_folder(name='Target')
         for role in ('user', 'admin'):
