@@ -107,20 +107,20 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   };
 
   return (
-    <div className="flex min-w-0 items-center border-b border-line bg-ink-850 px-4 py-2 text-xs">
+    <div className="flex min-w-0 items-center text-xs">
       {/* Breadcrumb list */}
       <nav ref={navRef} aria-label="Breadcrumb"
         onFocusCapture={(e) => e.target.scrollIntoView({ block: "nearest", inline: "nearest" })}
-        className="flex flex-1 min-w-0 items-center gap-1.5 overflow-x-auto scroll-thin py-0.5">
-        {/* Root crumb. The project and ancestor names shrink to an ellipsis
-            (full name in the tooltip) before the trail scrolls; the current
-            folder keeps its name. */}
+        className="flex flex-1 min-w-0 items-center gap-1 overflow-x-auto scroll-thin py-0.5">
+        {/* Root crumb. Names shrink to an ellipsis (full name in the tooltip),
+            the project and ancestors first, but each keeps its icon and a few
+            characters; only a trail too deep for that scrolls. */}
         {currentProject ? (
           <button
             type="button"
             onClick={() => setActiveFolder(null)}
             title={currentProject.name}
-            className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-white/60 transition hover:bg-white/10 hover:text-white"
+            className="flex min-w-[3.25rem] shrink-[100] items-center gap-1 rounded-md px-1 py-1 text-white/60 transition hover:bg-white/10 hover:text-white"
           >
             <Layers className="h-3.5 w-3.5 shrink-0 text-brand/80" />
             <span className="font-medium truncate max-w-[140px]">{currentProject.name}</span>
@@ -151,7 +151,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
         {ancestry.map((crumb, idx) => {
           const isLast = idx === ancestry.length - 1;
           return (
-            <div key={crumb.id} className={cn("flex items-center gap-1.5", isLast ? "shrink-0" : "min-w-0")}>
+            <div key={crumb.id} className={cn("flex items-center gap-1", !isLast ? "min-w-[4.25rem] shrink-[100]" : isRenaming ? "shrink-0" : "min-w-[4.25rem]")}>
               <ChevronRight className="h-3 w-3 shrink-0 text-white/30" />
               {isLast ? (
                 isRenaming ? (
@@ -162,8 +162,8 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
                     onClose={() => setIsRenaming(false)}
                   />
                 ) : (
-                  <div className="flex items-center gap-1 rounded-md bg-white/5 px-2 py-1 font-semibold text-white">
-                    <FolderClosed className={cn("h-3.5 w-3.5", getFolderColorClass(crumb.color))} />
+                  <div title={crumb.name} className="flex min-w-0 items-center gap-1 rounded-md bg-white/5 px-2 py-1 font-semibold text-white">
+                    <FolderClosed className={cn("h-3.5 w-3.5 shrink-0", getFolderColorClass(crumb.color))} />
                     <span className="truncate max-w-[160px]">{crumb.name}</span>
                   </div>
                 )
@@ -172,7 +172,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
                   type="button"
                   onClick={() => setActiveFolder(crumb.id)}
                   title={crumb.name}
-                  className="flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-white/60 transition hover:bg-white/10 hover:text-white"
+                  className="flex min-w-0 items-center gap-1 rounded-md px-1 py-1 text-white/60 transition hover:bg-white/10 hover:text-white"
                 >
                   <FolderClosed className={cn("h-3.5 w-3.5 shrink-0", getFolderColorClass(crumb.color))} />
                   <span className="truncate max-w-[140px]">{crumb.name}</span>

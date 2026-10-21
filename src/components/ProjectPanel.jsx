@@ -428,15 +428,17 @@ export function ProjectPanel({ cardWidth = 160 }) {
           ) : (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {/* Dynamic Navigable Breadcrumb Bar */}
-              <BreadcrumbBar
-                onOpenMoveModal={openMoveModalForFolder}
-                onOpenNewFolderModal={() =>
-                  openFolderEditor({
-                    projectId: activeProjectId,
-                    parentId: activeFolderId === UNSORTED ? null : activeFolderId,
-                  })
-                }
-              />
+              <div className="border-b border-line bg-ink-850 px-4 py-2">
+                <BreadcrumbBar
+                  onOpenMoveModal={openMoveModalForFolder}
+                  onOpenNewFolderModal={() =>
+                    openFolderEditor({
+                      projectId: activeProjectId,
+                      parentId: activeFolderId === UNSORTED ? null : activeFolderId,
+                    })
+                  }
+                />
+              </div>
 
               {/* Immediate Child Folders (Finder-style Coexistence, hidden when in Unsorted) */}
               {activeFolderId !== UNSORTED && (
