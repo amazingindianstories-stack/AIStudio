@@ -100,7 +100,7 @@ function PortraitGalleryDialog() {
     const target = sentinel.current;
     if (!target || !next || typeof IntersectionObserver === "undefined") return undefined;
     const observer = new IntersectionObserver((entries) => {
-      if (entries[0].isIntersecting) void loadPortraits({ more: true });
+      if (entries.at(-1).isIntersecting) void loadPortraits({ more: true });
     }, { root: scrollRef.current, rootMargin: "600px 0px" });
     observer.observe(target);
     return () => observer.disconnect();
