@@ -10,13 +10,19 @@ const p = (id, createdAt, extra = {}) => ({ id, name: `Face ${id}`, imageUrl: `/
 
 async function mount(state, run) {
   const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
-  const keys = ["window", "document", "HTMLElement", "Element", "Node", "File", "requestAnimationFrame", "cancelAnimationFrame", "ResizeObserver", "React", "IS_REACT_ACT_ENVIRONMENT"];
+  const keys = ["window", "document", "HTMLElement", "Element", "Node", "File", "requestAnimationFrame", "cancelAnimationFrame", "ResizeObserver", "IntersectionObserver", "React", "IS_REACT_ACT_ENVIRONMENT"];
   const before = Object.fromEntries(keys.map((key) => [key, globalThis[key]]));
   const previous = useStore.getState();
+  const observers = [];
   Object.assign(globalThis, {
     window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Element: dom.window.Element, Node: dom.window.Node, File: dom.window.File,
     requestAnimationFrame: (fn) => setTimeout(fn, 0), cancelAnimationFrame: clearTimeout,
     ResizeObserver: class { observe() {} disconnect() {} }, React, IS_REACT_ACT_ENVIRONMENT: true,
+    IntersectionObserver: class {
+      constructor(callback) { this.callback = callback; this.live = true; observers.push(this); }
+      observe(target) { this.target = target; }
+      disconnect() { this.live = false; }
+    },
   });
   dom.window.Element.prototype.scrollIntoView = () => {};
   const calls = { delete: [], attach: [], load: [] };
@@ -31,7 +37,7 @@ async function mount(state, run) {
   const root = createRoot(document.querySelector("#root"));
   try {
     await act(async () => root.render(React.createElement(PortraitGallery)));
-    await run({ calls, dom, click: async (el, init = {}) => act(async () => { el.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true, ...init })); }) });
+    await run({ calls, dom, observers, click: async (el, init = {}) => act(async () => { el.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true, ...init })); }) });
   } finally {
     await act(async () => root.unmount());
     useStore.setState(previous, true);
@@ -181,5 +187,18 @@ test("opening the gallery loads portraits and the menu key opens a card menu wit
     await act(async () => { card("a").dispatchEvent(new dom.window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ContextMenu" })); });
     const items = Array.from(document.querySelectorAll("[data-card-context-menu] [role=menuitem]")).map((e) => e.textContent.trim());
     assert.deepEqual(items, ["Add to prompt", "View full size", "Rename", "Download", "Delete"]);
+  });
+});
+
+test("a batched sentinel callback loads more portraits on its newest entry", async () => {
+  const items = [p("b", 2), p("a", 1)];
+  await mount({ portraits: { ...gallery(items).portraits, next: "cursor-2" } }, async ({ calls, observers }) => {
+    const sentinel = observers.filter((observer) => observer.live).at(-1);
+    assert.ok(sentinel?.target);
+    await act(async () => sentinel.callback([
+      { target: sentinel.target, isIntersecting: false },
+      { target: sentinel.target, isIntersecting: true },
+    ]));
+    assert.deepEqual(calls.load.filter((options) => options?.more), [{ more: true }]);
   });
 });

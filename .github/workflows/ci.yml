@@ -65,7 +65,7 @@ jobs:
       - name: Undefined-name scan
         working-directory: backend
         run: |
-          if python -m pyflakes apps config deploy testsupport 2>&1 | grep -v "/migrations/" | grep "undefined name "; then exit 1; fi
+          if python -m pyflakes apps config deploy parity testsupport 2>&1 | grep -v "/migrations/" | grep "undefined name "; then exit 1; fi
       - name: Django suite
         working-directory: backend
         run: python manage.py test --noinput --parallel 1

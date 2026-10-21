@@ -4,6 +4,7 @@
 backend/**
 !backend/**/*.py
 !backend/testsupport/goldens/*.json
+!backend/parity/*.json
 !backend/apps/assets/data/*.onnx
 !backend/testsupport/data/*.jpg
 !backend/requirements.txt
