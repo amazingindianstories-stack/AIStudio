@@ -298,3 +298,24 @@ class RollingDispatcherTests(TransactionTestCase):
                 stop.set()
                 future.result(timeout=5)
         self.assertEqual(waits.call_count, 0)
+
+    def test_held_rows_are_retried_once_per_interval_not_as_fast_as_slots_free(self):
+        rows = [self.job() for _ in range(30)]
+        stop = Event()
+        calls = Counter()
+        lock = Lock()
+        def process(identifier, *, owner, **kwargs):
+            with lock:
+                calls[identifier] += 1
+            return {'kind': 'not_admitted'}
+        with patch.object(worker, 'process_generation', side_effect=process), \
+                patch.object(worker, 'show_worker_slot_wait'), ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(worker.run_worker, concurrency=1, interval=.5, stop=stop)
+            try:
+                time.sleep(.7)
+            finally:
+                stop.set()
+                future.result(timeout=5)
+        self.assertGreaterEqual(sum(calls.values()), 1)
+        self.assertLessEqual(sum(calls.values()), 3)
+        self.assertTrue(set(calls) <= {row.id for row in rows})

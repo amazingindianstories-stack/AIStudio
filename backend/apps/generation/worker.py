@@ -13,6 +13,7 @@ from .services.executor import process_generation
 from .services.deadline import Cancellation
 
 logger = logging.getLogger('veevee.generation')
+NO_PROGRESS = frozenset(('not_admitted', 'unclaimed', 'worker_error', 'stopped'))
 
 
 def release_freed_memory():
@@ -78,6 +79,8 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
     Selection does not claim rows. The executor's database lease remains the
     authority across processes; local exclusions also cover the submit/claim gap.
     A short per-row cooldown preserves the poll/retry interval after a no-op.
+    Only a completion that made progress triggers an immediate rescan; after a
+    no-op the freed slot waits for the next interval scan.
     While every slot is busy, each waiting row's queued reason is rechecked at
     most once per five intervals.
     """
@@ -92,16 +95,15 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
             while not stop.is_set():
                 try:
                     now = time.monotonic()
-                    completed = False
+                    progressed = False
                     for future in list(active):
                         if future.done():
-                            completed = True
                             identifier = active.pop(future)
-                            future.result()
+                            progressed |= future.result() not in NO_PROGRESS
                             cooldown[identifier] = now + interval
                     cooldown = {key: until for key, until in cooldown.items() if until > now}
                     labelled = {key: until for key, until in labelled.items() if until > now}
-                    if not completed and now < next_scan:
+                    if not progressed and now < next_scan:
                         if active:
                             wait(active, timeout=min(.1, next_scan - now), return_when=FIRST_COMPLETED)
                         else:
