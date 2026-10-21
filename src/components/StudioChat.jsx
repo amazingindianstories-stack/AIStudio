@@ -8,7 +8,7 @@ import {
   useState,
 
 } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   AlertCircle,
   ImagePlus,
@@ -25,6 +25,7 @@ import { extractFrame } from "@/lib/video-frame";
 
 import { SettingsToolbar } from "./ComposerControls";
 import { ReferenceStrip, stagedReferenceCount, referenceSubmissionWarning } from "./PromptComposer";
+import { useComposerCollapse } from "./useComposerCollapse";
 import { getAssetDragData, isAssetDragEvent } from "@/lib/asset-drag-contract";
 import { MentionTextarea, } from "./MentionTextarea";
 import { GenerationFolderCue } from "./MediaCard";
@@ -55,7 +56,6 @@ const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
  * is open.
  */
 export function StudioChat({ conversationId }) {
-  const reducedMotion = useReducedMotion();
   const s = useStore();
   const mode = useStore((s) => s.mode);
   const model = useStore((s) => s.model);
@@ -91,6 +91,7 @@ export function StudioChat({ conversationId }) {
   const mentionRef = useRef(null);
   const fileRef = useRef(null);
   const requestIdRef = useRef(0);
+  const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ dragging });
 
   useEffect(() => {
     // Clear immediately, not just on the new fetch resolving — otherwise
@@ -161,6 +162,7 @@ export function StudioChat({ conversationId }) {
     setMessages((cur) => [...cur, optimistic]);
     setError(null);
     setSending(true);
+    collapseOnSend();
     try {
       const res = await fetch(`/api/agent-conversations/${conversationId}/messages`, {
         method: "POST",
@@ -177,6 +179,7 @@ export function StudioChat({ conversationId }) {
         if (prompt) await fireGeneration(prompt, assistantMessage.id);
       }
     } catch (err) {
+      reopenAfterFailedSend();
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setSending(false);
@@ -328,13 +331,14 @@ export function StudioChat({ conversationId }) {
           PromptComposer used — refs above the input, settings below it,
           matching that layout instead of the flat bordered strip this had
           become. */}
-      <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
-        <motion.div
-          layout="size"
-          initial={reducedMotion ? false : { opacity: 0, y: 24 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: reducedMotion ? 0 : 0.18 }}
-          className="composer-shell relative mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border border-line bg-ink-800/90 p-2.5 shadow-panel backdrop-blur-xl"
+      <div className="flex max-h-[50%] min-h-0 shrink-0 flex-col px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
+        <div
+          {...collapseProps}
+          data-testid="studio-chat-composer"
+          className={cn(
+            "composer-shell scroll-thin relative mx-auto flex min-h-0 w-full max-w-3xl flex-col gap-2 overflow-y-auto overscroll-y-contain rounded-2xl border border-line bg-ink-800/90 shadow-panel backdrop-blur-xl transition-[padding] duration-150",
+            collapsed ? "px-2.5 py-1.5" : "p-2.5"
+          )}
         >
           {extractingFrames > 0 && (
             <div className="flex items-center gap-2 rounded-lg bg-ink-750 px-3 py-2 text-xs text-white/70">
@@ -350,14 +354,10 @@ export function StudioChat({ conversationId }) {
           )}
 
           <ReferenceStrip store={s} insertTag={(tag) => mentionRef.current?.insertTag(tag)} />
-          <div className="flex flex-wrap gap-2">
-            {s.referenceVideos.map((ref, i) => <span key={`video-${i}`} className="text-xs text-brand"><button type="button" onClick={() => mentionRef.current?.insertTag(`@vid${i + 1}`)}>@vid{i + 1}</button><button type="button" aria-label={`Remove reference clip ${i + 1}`} onClick={() => s.removeReferenceVideo(i)}> ×</button></span>)}
-            {s.audioNotes.map((note, i) => <span key={`audio-${i}`} className="text-xs text-brand"><button type="button" onClick={() => mentionRef.current?.insertTag(`@audio${i + 1}`)}>@audio{i + 1}</button><button type="button" aria-label={`Remove audio reference ${i + 1}`} onClick={() => s.removeAudioNote(i)}> ×</button></span>)}
-          </div>
           {referenceSubmissionWarning(s) && <p role="status" className="text-xs text-amber-200">{referenceSubmissionWarning(s)}</p>}
           {s.draftStorageWarning && <p role="status" className="text-xs text-amber-200">{s.draftStorageWarning}</p>}
           {normalizePromptMentions(input) !== input && <p role="status" className="text-xs text-amber-200">Some reference tags are informal. They remain literal text; use @img1 for an exact reference.</p>}
-          <div className="flex gap-3 text-xs text-white/60"><button type="button" onClick={() => s.clearComposerDraft()}>New / Clear</button><button type="button" disabled={!s.recentSubmission} onClick={() => s.restoreRecentSubmission()}>Recent submission</button></div>
+          <div className={cn("flex gap-3 text-xs text-white/60", collapsed && "hidden")}><button type="button" onClick={() => s.clearComposerDraft()}>New / Clear</button><button type="button" disabled={!s.recentSubmission} onClick={() => s.restoreRecentSubmission()}>Recent submission</button></div>
 
           <div className="flex items-start gap-2">
             <Dropdown
@@ -365,13 +365,14 @@ export function StudioChat({ conversationId }) {
               trigger={(open) => (
                 <span
                   className={cn(
-                    "grid h-[58px] w-[58px] shrink-0 place-items-center rounded-xl border border-dashed border-white/15 text-white/55 transition-colors hover:border-brand/40 hover:text-brand",
+                    "grid shrink-0 place-items-center rounded-xl border border-dashed border-white/15 text-white/55 transition-all hover:border-brand/40 hover:text-brand",
+                    collapsed ? "h-[38px] w-[38px]" : "h-[58px] w-[58px]",
                     open && "border-brand/50 text-brand"
                   )}
                 >
                   <span className="flex flex-col items-center gap-0.5">
                     <ImagePlus className="h-4 w-4" />
-                    <span className="text-[10px]">reference</span>
+                    <span className={cn("text-[10px]", collapsed && "sr-only")}>reference</span>
                   </span>
                 </span>
               )}
@@ -379,7 +380,7 @@ export function StudioChat({ conversationId }) {
               {(close) => (
                 <MenuItem
                   onClick={() => {
-                    fileRef.current?.click();
+                    openFilePicker(fileRef);
                     close();
                   }}
                 >
@@ -393,6 +394,7 @@ export function StudioChat({ conversationId }) {
               ref={mentionRef}
               value={input}
               onChange={setInput}
+              collapsed={collapsed}
               onSubmit={send}
               references={referenceImages}
               videoRefs={s.referenceVideos}
@@ -425,7 +427,7 @@ export function StudioChat({ conversationId }) {
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             </motion.button>
           </div>
-        </motion.div>
+        </div>
       </div>
     </div>
   );

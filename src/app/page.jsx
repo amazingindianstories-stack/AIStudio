@@ -138,14 +138,14 @@ export default function Page() {
             <>
               {/* left: conversation + composer (Studio), or the orchestrator
                   chat (Agents) — same right-side history panel either way */}
-              <main className="flex min-w-0 flex-1 flex-col">
+              <main className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                 {view === "agents" ? (
                   <StudioView />
                 ) : (
                   <>
                     <ConversationPanel />
-                    <div className="shrink-0 px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
-                      <div className="mx-auto w-full">
+                    <div data-testid="composer-panel-slot" className="flex max-h-[50%] min-h-0 shrink-0 flex-col px-3 pb-3 pt-1 sm:px-8 sm:pb-5">
+                      <div className="mx-auto flex min-h-0 w-full flex-col">
                         <PromptComposer />
                       </div>
                     </div>
