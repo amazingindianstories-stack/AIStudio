@@ -26,7 +26,7 @@ step "Build backend image"
 docker build -q -f "$WORK/backend/Dockerfile" -t "$IMAGE" "$WORK" >/dev/null
 
 step "Undefined-name scan (pyflakes)"
-docker run --rm "$IMAGE" sh -c 'pip install -q pyflakes==3.2.0 >/dev/null 2>&1; python -m pyflakes apps config deploy testsupport 2>&1 | grep -v "/migrations/" | grep "undefined name " && exit 1 || exit 0'
+docker run --rm "$IMAGE" sh -c 'pip install -q pyflakes==3.2.0 >/dev/null 2>&1; python -m pyflakes apps config deploy parity testsupport 2>&1 | grep -v "/migrations/" | grep "undefined name " && exit 1 || exit 0'
 
 step "Backend suite inside the image (throwaway PostgreSQL 18)"
 docker network create "$NET" >/dev/null

@@ -34,59 +34,62 @@ def main():
         from django.db import connection
         # SQL fixture records reservations but never claims provider acceptance.
         # SQL functions are the production guard's stable external DB seam.
-        with connection.cursor() as cursor:
-            cursor.execute('CREATE SCHEMA IF NOT EXISTS goal4_preview_paid_budget')
-            cursor.execute('CREATE TABLE IF NOT EXISTS goal4_preview_paid_budget.parity_reservations (id text PRIMARY KEY, cents integer, state text, fingerprint text)')
-            cursor.execute('''CREATE OR REPLACE FUNCTION goal4_preview_paid_budget.reserve(uuid,uuid,integer,text,text)
-                RETURNS void LANGUAGE SQL AS $$ INSERT INTO goal4_preview_paid_budget.parity_reservations VALUES ($1::text,$3,'RESERVED',$5) $$''')
-            cursor.execute("""CREATE OR REPLACE FUNCTION goal4_preview_paid_budget.transition(uuid,text,text,text)
-                RETURNS void LANGUAGE plpgsql AS $$ BEGIN
-                UPDATE goal4_preview_paid_budget.parity_reservations SET state=$4
-                WHERE id=$1::text AND fingerprint=$2 AND state=$3;
-                IF NOT FOUND THEN RAISE EXCEPTION 'invalid fixture ledger transition'; END IF;
-                END $$""")
-        if payload.get('reserve_failure'):
+        try:
             with connection.cursor() as cursor:
-                cursor.execute('DROP FUNCTION goal4_preview_paid_budget.reserve(uuid,uuid,integer,text,text)')
-        responses = []
-        def requests():
-            from django.db import connections
-            try:
-                for case in payload['cases']:
-                    request = RequestFactory().generic('POST', case['path'], json.dumps(case['body']),
-                        content_type='application/json', HTTP_SEC_FETCH_SITE='same-origin',
-                        HTTP_COOKIE='veevee_session=' + token)
-                    captured = {}
-                    def start(status, headers, exc_info=None):
-                        captured['status'] = int(status.split()[0])
-                    response = application(request.environ, start)
-                    try:
-                        raw = b''.join(response)
-                    finally:
-                        if hasattr(response, 'close'):
-                            response.close()
-                    responses.append({'status': captured['status'], 'body': json.loads(raw)})
-            finally:
-                connections.close_all()
-        if payload.get('run_audio_worker'):
-            import threading
-            import time
-            thread = threading.Thread(target=requests, daemon=True)
-            thread.start()
-            for _ in range(200):
-                if apps.get_model('generation', 'Generation').objects.filter(kind='audio', status='queued').exists():
-                    call_command('generation_worker', '--once', stdout=io.StringIO())
-                    break
-                time.sleep(.01)
-            thread.join(timeout=5)
-            if thread.is_alive():
-                raise AssertionError('fake audio worker did not complete the HTTP request')
-        else:
-            requests()
-        with connection.cursor() as cursor:
-            cursor.execute('SELECT count(*) FROM goal4_preview_paid_budget.parity_reservations')
-            result = {'responses': responses, 'reservations': cursor.fetchone()[0]}
-            cursor.execute('DROP SCHEMA goal4_preview_paid_budget CASCADE')
+                cursor.execute('CREATE SCHEMA IF NOT EXISTS goal4_preview_paid_budget')
+                cursor.execute('CREATE TABLE IF NOT EXISTS goal4_preview_paid_budget.parity_reservations (id text PRIMARY KEY, cents integer, state text, fingerprint text)')
+                cursor.execute('''CREATE OR REPLACE FUNCTION goal4_preview_paid_budget.reserve(uuid,uuid,integer,text,text)
+                    RETURNS void LANGUAGE SQL AS $$ INSERT INTO goal4_preview_paid_budget.parity_reservations VALUES ($1::text,$3,'RESERVED',$5) $$''')
+                cursor.execute("""CREATE OR REPLACE FUNCTION goal4_preview_paid_budget.transition(uuid,text,text,text)
+                    RETURNS void LANGUAGE plpgsql AS $$ BEGIN
+                    UPDATE goal4_preview_paid_budget.parity_reservations SET state=$4
+                    WHERE id=$1::text AND fingerprint=$2 AND state=$3;
+                    IF NOT FOUND THEN RAISE EXCEPTION 'invalid fixture ledger transition'; END IF;
+                    END $$""")
+            if payload.get('reserve_failure'):
+                with connection.cursor() as cursor:
+                    cursor.execute('DROP FUNCTION goal4_preview_paid_budget.reserve(uuid,uuid,integer,text,text)')
+            responses = []
+            def requests():
+                from django.db import connections
+                try:
+                    for case in payload['cases']:
+                        request = RequestFactory().generic('POST', case['path'], json.dumps(case['body']),
+                            content_type='application/json', HTTP_SEC_FETCH_SITE='same-origin',
+                            HTTP_COOKIE='veevee_session=' + token)
+                        captured = {}
+                        def start(status, headers, exc_info=None):
+                            captured['status'] = int(status.split()[0])
+                        response = application(request.environ, start)
+                        try:
+                            raw = b''.join(response)
+                        finally:
+                            if hasattr(response, 'close'):
+                                response.close()
+                        responses.append({'status': captured['status'], 'body': json.loads(raw)})
+                finally:
+                    connections.close_all()
+            if payload.get('run_audio_worker'):
+                import threading
+                import time
+                thread = threading.Thread(target=requests, daemon=True)
+                thread.start()
+                for _ in range(200):
+                    if apps.get_model('generation', 'Generation').objects.filter(kind='audio', status='queued').exists():
+                        call_command('generation_worker', '--once', stdout=io.StringIO())
+                        break
+                    time.sleep(.01)
+                thread.join(timeout=5)
+                if thread.is_alive():
+                    raise AssertionError('fake audio worker did not complete the HTTP request')
+            else:
+                requests()
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT count(*) FROM goal4_preview_paid_budget.parity_reservations')
+                result = {'responses': responses, 'reservations': cursor.fetchone()[0]}
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute('DROP SCHEMA IF EXISTS goal4_preview_paid_budget CASCADE')
     elif action == 'export_admission':
         job = client.post('/api/history/exports', {}, content_type='application/json')
         identifier = job.json()['id']
@@ -129,16 +132,18 @@ def main():
             'remote_status': NETWORK.assets['asset-fixture']['Status'], 'calls': NETWORK.calls}
     elif action == 'export_worker':
         from django.db import connection
-        with connection.cursor() as cursor:
-            cursor.execute('CREATE SCHEMA goal4_preview_worker_holds')
-            cursor.execute("""CREATE VIEW goal4_preview_worker_holds.new_export_registrations AS
-                SELECT key,actor_id,result,fingerprint FROM organization_idempotency_keys
-                WHERE operation='GOAL4_PREVIEW_NEW_EXPORT_ONLY' AND status='completed' AND expires_at=0""")
-        out = io.StringIO()
-        call_command('media_export_worker', '--once', stdout=out)
-        result = {'output': out.getvalue()}
-        with connection.cursor() as cursor:
-            cursor.execute('DROP SCHEMA goal4_preview_worker_holds CASCADE')
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute('CREATE SCHEMA goal4_preview_worker_holds')
+                cursor.execute("""CREATE VIEW goal4_preview_worker_holds.new_export_registrations AS
+                    SELECT key,actor_id,result,fingerprint FROM organization_idempotency_keys
+                    WHERE operation='GOAL4_PREVIEW_NEW_EXPORT_ONLY' AND status='completed' AND expires_at=0""")
+            out = io.StringIO()
+            call_command('media_export_worker', '--once', stdout=out)
+            result = {'output': out.getvalue()}
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute('DROP SCHEMA IF EXISTS goal4_preview_worker_holds CASCADE')
     elif action == 'worker_loop':
         import signal
         import threading
