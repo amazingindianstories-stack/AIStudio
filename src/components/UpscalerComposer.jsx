@@ -24,6 +24,7 @@ import {
   MAGNIFIC_PRECISION_FLAVORS,
   MAGNIFIC_SCALE_FACTORS,
 } from "@/lib/magnific-ui";
+import { isModelAvailable } from "@/lib/model-registry";
 import { cn } from "@/lib/utils";
 import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 import { getAssetDragData, validateUpscalerDrop } from "@/lib/asset-drag-contract";
@@ -77,6 +78,7 @@ export function UpscalerComposer() {
 
   const resultItem = lastResult ? findItem(s, lastResult.item.id) || lastResult.item : null;
   const activeModelId = params.model || "Magnific Creative";
+  const models = MODELS.filter((m) => isModelAvailable(m.id, s.availableModelIds));
   // After every hook above, so hook order is identical across the switch.
   if (s.upscalerMedia === "video") return <VideoUpscalerComposer />;
 
@@ -248,7 +250,7 @@ export function UpscalerComposer() {
             </button>
           </div>
           <div className="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
-            {MODELS.map((m) => {
+            {models.map((m) => {
               const active = activeModelId === m.id;
               return (
                 <button

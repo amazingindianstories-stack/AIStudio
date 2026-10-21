@@ -67,10 +67,10 @@ def quote_for(contract,config):
 def omni_quote(contract):
  """Gemini Omni Flash 1.1 (VEEVEE_GEMINI_OMNI, unlimited scope only): the one Interactions create endpoint, with the
  model code and this job's own ratio, size and length pinned in the payload. Retired Omni models are refused."""
- from django.conf import settings
+ from apps.generation.availability import switched_on
  from apps.generation.model_registry import capability,provider_model_id
  from apps.generation.providers import omni
- require(getattr(settings,'VEEVEE_GEMINI_OMNI',False) is True,'Gemini Omni Flash 1.1 is not enabled')
+ require(switched_on('omni'),'Gemini Omni Flash 1.1 is not enabled')
  model=omni.submission_model(contract['model'])
  require(not contract['draft_task_id'],'New Omni generation only')
  for field,key in (('resolution','resolutions'),('duration','durations'),('aspect_ratio','aspectRatios')):
@@ -82,9 +82,9 @@ def omni_quote(contract):
 def kling_quote(contract,definition):
  """Kling Image 3.0 / 2.1 (VEEVEE_KLING, unlimited scope only): the one create endpoint on the configured Kling host,
  with this job's registry model code, a single image and its own ratio and size pinned in the payload."""
- from django.conf import settings
+ from apps.generation.availability import switched_on
  from apps.generation.providers import kling
- require(getattr(settings,'VEEVEE_KLING',False) is True,definition['name']+' is not enabled. Choose another image model.')
+ require(switched_on('kling'),definition['name']+' is not enabled. Choose another image model.')
  require(contract['kind']=='image' and not contract['draft_task_id'],'New Kling image generation only')
  resolution=contract.get('resolution') or '1K';aspect=contract.get('aspect_ratio') or '1:1'
  capabilities=definition.get('capabilities') or {}
@@ -121,9 +121,9 @@ def audio_payload_matches(body,contract):
   and len(decoded)==value['byteLength'] and hashlib.sha256(decoded).hexdigest()==value['sha256'])
 def magnific_quote(contract):
  """Magnific upscales (VEEVEE_MAGNIFIC_UPSCALE): one exact create endpoint per model."""
- from django.conf import settings
+ from apps.generation.availability import switched_on
  from apps.generation.providers import magnific
- require(getattr(settings,'VEEVEE_MAGNIFIC_UPSCALE',False) is True,'Magnific upscaling is not enabled')
+ require(switched_on('magnific'),'Magnific upscaling is not enabled')
  require(not contract['draft_task_id'] and isinstance(contract.get('submission_input'),dict),'New Magnific upscale only')
  if contract['kind']=='image':
   require(contract['model'] in magnific.MODELS,'Unknown Magnific image model')

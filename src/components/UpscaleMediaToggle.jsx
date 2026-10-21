@@ -2,15 +2,19 @@
 
 import { Film, Image as ImageIcon } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { pickerModels } from "@/lib/config";
 import { cn } from "@/lib/utils";
 
 /** Image | Video switch shared by the image and video upscaler composers. */
 export function UpscaleMediaToggle() {
   const media = useStore((s) => s.upscalerMedia);
   const setMedia = useStore((s) => s.setUpscalerMedia);
+  const availableModelIds = useStore((s) => s.availableModelIds);
+  const options = [{ id: "image", label: "Image", icon: ImageIcon }, { id: "video", label: "Video", icon: Film }]
+    .filter(({ id }) => pickerModels(availableModelIds, "upscale", id).length > 0);
   return (
     <div role="radiogroup" aria-label="Upscale media" className="flex items-center gap-1 rounded-xl bg-ink-900/80 p-1 ring-1 ring-line">
-      {[{ id: "image", label: "Image", icon: ImageIcon }, { id: "video", label: "Video", icon: Film }].map(({ id, label, icon: Icon }) => (
+      {options.map(({ id, label, icon: Icon }) => (
         <button
           key={id}
           type="button"
