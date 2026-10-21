@@ -26,14 +26,16 @@ class LoopResilienceTests(SimpleTestCase):
             if len(calls) == 1:
                 raise error
             stop.set()
-            return {}
+            return []
         with patch.object(module, name, body), patch.object(resilience, 'connections') as connections:
             run(stop=stop, **kwargs)
         self.assertEqual(len(calls), 2, 'the loop went on after the failed iteration')
         return connections
 
     def test_generation_worker_survives_a_database_error_and_reconnects(self):
-        connections = self.survives(generation_worker, 'run_once', generation_worker.run_worker, interval=.1)
+        with patch.object(generation_worker, 'reap_stale_running_images'):
+            connections = self.survives(generation_worker, 'select_due_generations',
+                                       generation_worker.run_worker, interval=.1)
         connections.close_all.assert_called_once()
 
     def test_generation_worker_survives_an_error_in_the_reap_step(self):

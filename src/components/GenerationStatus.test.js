@@ -11,3 +11,11 @@ test("waitingNote explains a queued video that waits for a portrait or a provide
   assert.equal(waitingNote({ ...slot, pollWarning: "Still checking" }), null, "a poll warning takes the caption");
   assert.equal(waitingNote(null), null);
 });
+
+test("waitingNote shows the worker slot reason for images and videos", () => {
+  for (const kind of ["image", "video"]) {
+    const item = { kind, providerStatus: "WORKER_SLOT_WAITING", progressMessage: "Waiting for a free worker slot" };
+    assert.equal(waitingNote(item), item.progressMessage);
+    assert.equal(waitingNote({ ...item, pollWarning: "Still checking" }), null);
+  }
+});

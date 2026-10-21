@@ -2,12 +2,14 @@
 
 import { cn } from "@/lib/utils";
 
-/** Statuses whose progressMessage says why a queued video has not started yet. */
+/** Statuses whose progressMessage says why a queued generation has not started yet. */
 const WAITING_STATUSES = new Set(["PORTRAIT_WAITING", "SLOT_WAITING"]);
 
-/** The reason a pending video is waiting (portrait preparation or a provider slot), else null. */
+/** The reason a pending generation is waiting, else null. */
 export function waitingNote(item) {
-  if (item?.kind !== "video" || item.pollWarning || !WAITING_STATUSES.has(item.providerStatus)) return null;
+  if (!item || item.pollWarning) return null;
+  if (item.providerStatus === "WORKER_SLOT_WAITING") return item.progressMessage || null;
+  if (item.kind !== "video" || !WAITING_STATUSES.has(item.providerStatus)) return null;
   return item.progressMessage || null;
 }
 
