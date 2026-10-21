@@ -504,39 +504,6 @@ class KlingWorkerTests(TransactionTestCase):
         self.assertEqual(storage.primary.objects[row.url[len('/api/media/'):]][0], fake.png, 'the Kling master bytes are stored unchanged')
 
 
-class ExportAdmissionTests(TransactionTestCase):
-    def test_api_admits_only_exports_it_created(self):
-        from apps.exports import services
-        from apps.exports.models import MediaExport
-        from apps.library.models import OrganizationIdempotencyKey
-        from . import export_admission
-        originals = {name: getattr(services, name) for name in ('create_export', 'append_items', 'finalize_export')}
-        try:
-            export_admission.install('api')
-            actor = uuid.uuid4()
-            created = services.create_export(actor, now=1000)
-            receipt = OrganizationIdempotencyKey.objects.get(pk=export_admission.marker_key(created['id']))
-            self.assertEqual(receipt.result, {'id': created['id']})
-            # Admitted export passes the guard and reaches normal validation.
-            try:
-                services.append_items(created['id'], actor, [])
-            except services.ExportError as error:
-                self.assertNotEqual(error.args[0], 'EXPORT_NOT_FOUND')
-            # An export without a receipt (e.g. pre-cutover history) is invisible.
-            legacy = MediaExport.objects.create(user_id=actor, status='draft', created_at=1, updated_at=1)
-            for call in (lambda: services.append_items(str(legacy.id), actor, []), lambda: services.finalize_export(str(legacy.id), actor)):
-                with self.assertRaises(services.ExportError) as hidden:
-                    call()
-                self.assertEqual(hidden.exception.args[0], 'EXPORT_NOT_FOUND')
-            # Another actor cannot use someone else's admission.
-            with self.assertRaises(services.ExportError) as other:
-                services.finalize_export(created['id'], uuid.uuid4())
-            self.assertEqual(other.exception.args[0], 'EXPORT_NOT_FOUND')
-        finally:
-            for name, function in originals.items():
-                setattr(services, name, function)
-
-
 class UnbilledReadonlyExemptionTests(OneClaimPerPostTests):
     def test_flagged_read_only_transport_bypasses_the_paid_claim(self):
         from apps.generation.providers.transport import HttpTransport

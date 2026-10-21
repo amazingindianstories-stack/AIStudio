@@ -1,6 +1,31 @@
 from django.contrib.postgres.functions import RandomUUID
 from apps.common.indexes import PostgreSQLIndex
 from django.db import models
+from . import admission
+
+
+class AdmittedExportManager(models.Manager):
+    """With export admission on, the export worker's ``MediaExport.objects`` only sees admitted exports.
+
+    Only the default manager instance filters; ``_base_manager`` (used by saves, deletes,
+    refreshes and forward relations) stays unfiltered.
+    """
+    def get_queryset(self):
+        if self is not self.model.objects or not admission.worker_enabled():
+            return super().get_queryset()
+        eligible = admission.registered_exports()
+        return super().get_queryset().filter(eligible)
+
+
+class AdmittedExportItemManager(models.Manager):
+    """``MediaExportItem.objects`` follows ``MediaExport.objects``.
+
+    The reverse manager ``export.mediaexportitem_set`` and ``_base_manager`` stay unfiltered.
+    """
+    def get_queryset(self):
+        if self is not self.model.objects or not admission.worker_enabled():
+            return super().get_queryset()
+        return super().get_queryset().filter(export_id__in=MediaExport.objects.values('id'))
 
 
 class MediaExport(models.Model):
@@ -22,6 +47,8 @@ class MediaExport(models.Model):
     updated_at = models.BigIntegerField()
     expires_at = models.BigIntegerField(null=True)
 
+    objects = AdmittedExportManager()
+
     class Meta:
         managed = True
         db_table = 'media_exports'
@@ -37,6 +64,8 @@ class MediaExportItem(models.Model):
     position = models.IntegerField()
     source_key = models.TextField()
     filename = models.TextField()
+
+    objects = AdmittedExportItemManager()
 
     class Meta:
         managed = True

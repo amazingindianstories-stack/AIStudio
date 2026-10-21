@@ -14,9 +14,6 @@ class ProductionRuntimeConfig(AppConfig):
 
     def ready(self):
         component = getattr(settings, 'VEEVEE_RUNTIME_COMPONENT', None)
-        if getattr(settings, 'VEEVEE_EXPORT_ADMISSION', False) and component in ('api', 'export'):
-            from . import export_admission
-            export_admission.install('api' if component == 'api' else 'worker')
         # The automatic pool replaces the old portrait routes (which answer 410), so their lifecycle patches stay off.
         if (getattr(settings, 'VEEVEE_PORTRAIT_LIFECYCLE', False) and component == 'api'
                 and not getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False)):
