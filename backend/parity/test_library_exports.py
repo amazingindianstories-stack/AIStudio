@@ -48,7 +48,7 @@ class LibraryExportParityTests(ParityCase):
         self.assertEqual(b''.join(response.streaming_content), data)
         response.close()
 
-    def test_names_follow_parent_rename_and_folder_and_generation_moves(self):
+    def test_unfiled_names_follow_folders_until_first_move_freezes_them(self):
         outer = self.folder('Outer')
         inner = self.folder('Inner Shot', outer)
         other = self.folder('Other')
@@ -64,9 +64,12 @@ class LibraryExportParityTests(ParityCase):
             response = self.post('/api/history/move', {'ids': [str(row.id)], 'destination': {'type': 'folder', 'folderId': other}})
             self.assertEqual(response.status_code, 200, response.content)
             self.download(row, 'Other_0001.png', data)
+        response = self.client.patch('/api/folders', {'id': other, 'name': 'Elsewhere'}, content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.download(row, 'Other_0001.png', data)
         response = self.post('/api/history/move', {'ids': [str(row.id)], 'destination': {'type': 'global_root'}})
         self.assertEqual(response.status_code, 200, response.content)
-        self.download(row, 'unsorted_0001.png', data)
+        self.download(row, 'Other_0001.png', data)
 
     def test_nested_zip_frozen_names_and_original_native_master_bytes(self):
         project_response = self.post('/api/projects', {'op': 'createProject', 'name': 'Project'})
@@ -83,9 +86,9 @@ class LibraryExportParityTests(ParityCase):
         response = self.post(prefix + '/items', {'ids': [str(row.id) for row, _ in fixtures]})
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(self.post(prefix + '/finalize').status_code, 200)
-        expected = ['Projects/Project/Parent/Child/Child_0001.mov',
-                    'Projects/Project/Parent/Child/Child_0002.png',
-                    'Global/Global Parent/Global Child/Global_Child_0001.png',
+        expected = ['Projects/Project/Parent/Child/Parent_Child_0001.mov',
+                    'Projects/Project/Parent/Child/Parent_Child_0002.png',
+                    'Global/Global Parent/Global Child/Global_Parent_Global_Child_0001.png',
                     'Global/Unsorted/unsorted_0001.png']
         items = apps.get_model('exports', 'MediaExportItem')
         self.assertEqual(list(items.objects.filter(export_id=identifier).order_by('position').values_list('filename', flat=True)), expected)
