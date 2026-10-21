@@ -31,7 +31,7 @@ the preconditions below are its record.
 2. `scripts/release/rehearse_local.sh <commit>` - the commit's image on an internal
    (no-internet) Docker network against a restored Green copy with production roles/RLS: API with
    the real entrypoint (paid guard, export admission, portrait lifecycle, gateway), workers via
-   `rehearsal_worker.py` (fake provider network installed before the paid guard; the API's own
+   `rehearsal_worker.py` (fake provider network behind the paid guard's check; the API's own
    Gemini host, used by the admin agent, is faked by `scripts/release/rehearsal_api/`). The probe
    drives Nano Banana, Seedream, Seedance draft → final, Magnific, an audio transcription, an admin
    agent message, admin user/limit changes and a ZIP export through the gateway.
