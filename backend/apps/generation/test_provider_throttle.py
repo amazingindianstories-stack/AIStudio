@@ -10,14 +10,13 @@ from django.test import SimpleTestCase, TransactionTestCase, override_settings
 
 from apps.media.audio_inputs import capture_audio_input
 from apps.media.storage import MemoryAdapter, StorageService
-from apps.production_runtime import paid_guard
 from testsupport.fake_providers import GOOGLE_STATUS, google_error
 from . import failure_copy
 from .models import Generation
 from .providers import seedream
 from .providers.transport import HttpResult, ProviderError
 from .serialization import generation_item
-from .services import admission, executor, poller, video_execution
+from .services import admission, executor, paid_guard, poller, video_execution
 from .services.audio_submission import AUDIO_READY, audio_capacity_available, process_audio
 from .services.deadline import Cancellation
 from .services.image_execution import Dependencies as ImageDependencies, execute_image
@@ -61,29 +60,20 @@ class LedgerCursor:
 
 
 @contextlib.contextmanager
-def guard_installed(ledger, sent, responses):
+def paid_guarded(ledger, sent, responses):
     """The production paid guard over a transport that answers with `responses`; a second POST per job is refused."""
     from apps.generation.providers.transport import HttpTransport
-    from apps.generation.services import enqueue, upscale_submission, audio_submission
-    originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
-                 audio_submission.persist_audio_intent, audio_submission.transcribe_claimed)
-    flag = getattr(enqueue, '_goal4_paid_guard_installed', False)
 
     def provider(self, method, url, **kwargs):
         sent.append((method, url))
         return responses.pop(0)
 
-    HttpTransport.request = provider
-    enqueue._goal4_paid_guard_installed = False
     real_cursor = connection.cursor
     try:
-        with patch.object(connection, 'cursor', lambda *args, **kwargs: LedgerCursor(real_cursor(*args, **kwargs), ledger)):
-            paid_guard.install_paid_guard(UNLIMITED)
+        with override_settings(VEEVEE_PAID_GUARD=UNLIMITED), patch.object(HttpTransport, '_send', provider), \
+                patch.object(connection, 'cursor', lambda *args, **kwargs: LedgerCursor(real_cursor(*args, **kwargs), ledger)):
             yield
     finally:
-        (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
-         audio_submission.persist_audio_intent, audio_submission.transcribe_claimed) = originals
-        enqueue._goal4_paid_guard_installed = flag
         paid_guard.STATE.active = None
 
 
@@ -100,7 +90,7 @@ class GeminiThrottleTests(TransactionTestCase):
         deps.assets, deps.pricing, deps.storage = [], [], lambda: StorageService(MemoryAdapter())
         deps.assemble = Mock(return_value={'instruction': 'fixture', 'groups': []})
         image = lambda job, **kwargs: execute_image(job, dependencies=deps, **kwargs)
-        with guard_installed(ledger, sent, [throttle(status), throttle(status)]):
+        with paid_guarded(ledger, sent, [throttle(status), throttle(status)]):
             outcome = executor.process_generation(row.id, owner='worker', image_execute=image, heartbeat=False,
                                                   env={'GOOGLE_API_KEY': 'fixture'})
         row.refresh_from_db()

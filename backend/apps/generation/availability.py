@@ -1,7 +1,7 @@
 """Which models a new job may use right now.
 
 One answer for the composer's pickers (``availability`` on GET /api/auth/me) and the paid guard's enqueue refusals
-(apps/production_runtime/paid_guard.py calls ``switched_on``), so a picker never offers a model that enqueue refuses.
+(apps/generation/services/paid_guard.py calls ``switched_on``), so a picker never offers a model that enqueue refuses.
 It reports availability only: never credentials, hosts, prices or other configuration.
 """
 from django.conf import settings

@@ -5,7 +5,7 @@ import uuid
 from types import SimpleNamespace
 from unittest.mock import patch
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
-from . import paid_guard
+from .services import paid_guard
 
 UNLIMITED = {'approved_scope': paid_guard.UNLIMITED_SCOPE, 'unlimited_new_jobs': True}
 SEEDANCE_ENDPOINT = 'https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks'
@@ -152,14 +152,11 @@ class FakeCursor:
 
 class OneClaimPerPostTests(TransactionTestCase):
     @contextlib.contextmanager
-    def installed(self, ledger, sent, execute=None):
-        from apps.generation.services import enqueue, executor, upscale_submission, audio_submission
+    def guarded(self, ledger, sent, execute=None):
+        from apps.generation.services import executor
         from apps.generation.providers.transport import HttpTransport
-        originals = (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
-                     audio_submission.persist_audio_intent, audio_submission.transcribe_claimed)
-        installed_flag = getattr(enqueue, '_goal4_paid_guard_installed', False)
 
-        def fake_request(self, method, url, **kwargs):
+        def fake_send(self, method, url, **kwargs):
             sent.append((method, url, kwargs.get('body')))
             return SimpleNamespace(ok=True, status=200)
 
@@ -169,23 +166,18 @@ class OneClaimPerPostTests(TransactionTestCase):
             transport.request('POST', SEEDANCE_ENDPOINT, body=body)
             transport.request('POST', SEEDANCE_ENDPOINT, body=body)  # a retry loop must be refused
 
-        HttpTransport.request = fake_request
-        executor.execute_admitted = execute or fake_execute
-        enqueue._goal4_paid_guard_installed = False
         try:
-            with patch('django.db.connection.cursor', lambda: FakeCursor(ledger)), \
+            with override_settings(VEEVEE_PAID_GUARD=UNLIMITED), patch.object(HttpTransport, '_send', fake_send), \
+                 patch.object(executor, '_execute_admitted', execute or fake_execute), \
+                 patch('django.db.connection.cursor', lambda: FakeCursor(ledger)), \
                  patch('django.db.connection.get_autocommit', lambda: True):
-                paid_guard.install_paid_guard(UNLIMITED)
                 yield executor
         finally:
-            (enqueue.persist, executor.execute_admitted, HttpTransport.request, upscale_submission.submit_claimed_upscale,
-             audio_submission.persist_audio_intent, audio_submission.transcribe_claimed) = originals
-            enqueue._goal4_paid_guard_installed = installed_flag
             paid_guard.STATE.active = None
 
     def test_post_outside_a_claimed_execution_is_refused(self):
         from apps.generation.providers.transport import HttpTransport, ProviderError
-        with self.installed({}, []):
+        with self.guarded({}, []):
             with self.assertRaises(ProviderError) as caught:
                 HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com']).request('POST', SEEDANCE_ENDPOINT, body={})
             self.assertEqual(caught.exception.code, 'preview_paid_scope')
@@ -194,7 +186,7 @@ class OneClaimPerPostTests(TransactionTestCase):
     def test_each_execution_claims_once_and_a_second_post_is_refused(self):
         row = SimpleNamespace(**contract(kind='video', model='Seedance 2.5'))
         ledger, sent = {row.id: 'RESERVED'}, []
-        with self.installed(ledger, sent) as executor:
+        with self.guarded(ledger, sent) as executor:
             with self.assertRaises(RuntimeError):
                 executor.execute_admitted(row)
         self.assertEqual(len(sent), 1)
@@ -203,7 +195,7 @@ class OneClaimPerPostTests(TransactionTestCase):
     def test_execution_without_reservation_never_reaches_the_provider(self):
         row = SimpleNamespace(**contract(kind='video', model='Seedance 2.5'))
         sent = []
-        with self.installed({}, sent) as executor:
+        with self.guarded({}, sent) as executor:
             with self.assertRaises(RuntimeError):
                 executor.execute_admitted(row)
         self.assertEqual(sent, [])
@@ -212,7 +204,7 @@ class OneClaimPerPostTests(TransactionTestCase):
         from apps.generation.providers.transport import HttpTransport
         row = SimpleNamespace(**contract(kind='video', model='Seedance 2.5'))
         ledger, sent = {row.id: 'ATTEMPTING'}, []
-        with self.installed(ledger, sent):
+        with self.guarded(ledger, sent):
             quote = paid_guard.quote_for(contract(kind='video', model='Seedance 2.5'), UNLIMITED)
             paid_guard.STATE.active = {'id': row.id, 'contract': contract(kind='video', model='Seedance 2.5'), 'quote': quote}
             with self.assertRaises(ValueError):
@@ -235,7 +227,7 @@ class OneClaimPerPostTests(TransactionTestCase):
                  (endpoint, {**body, 'background': False}, False)]
         for url, payload, allowed in cases:
             ledger, sent = {row['id']: 'ATTEMPTING'}, []
-            with self.subTest(url=url, payload=payload), self.installed(ledger, sent):
+            with self.subTest(url=url, payload=payload), self.guarded(ledger, sent):
                 paid_guard.STATE.active = {'id': row['id'], 'contract': row, 'quote': paid_guard.quote_for(row, UNLIMITED)}
                 transport = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
                 if allowed:
@@ -254,7 +246,7 @@ class OneClaimPerPostTests(TransactionTestCase):
                                      'imageSize': '2K', 'modelDisplay': 'Nano Banana 2.1'})
         for url, allowed in ((gemini.endpoint('Nano Banana Pro'), False), (gemini.endpoint('Nano Banana 2.1'), True)):
             ledger, sent = {row['id']: 'ATTEMPTING'}, []
-            with self.subTest(url=url), self.installed(ledger, sent):
+            with self.subTest(url=url), self.guarded(ledger, sent):
                 paid_guard.STATE.active = {'id': row['id'], 'contract': row, 'quote': paid_guard.quote_for(row, UNLIMITED)}
                 transport = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
                 if allowed:
@@ -270,7 +262,7 @@ class OneClaimPerPostTests(TransactionTestCase):
 @override_settings(VEEVEE_MAGNIFIC_UPSCALE=True)
 class MagnificOneClaimTests(TransactionTestCase):
     """The worker's upscale submit claims RESERVED->ATTEMPTING->SUBMITTING exactly once."""
-    installed = OneClaimPerPostTests.installed
+    guarded = OneClaimPerPostTests.guarded
 
     def run_submit(self, ledger, sent, posts, row):
         from apps.generation.services import upscale_submission
@@ -279,13 +271,8 @@ class MagnificOneClaimTests(TransactionTestCase):
         def fake_upscale(item, **kwargs):
             for url, body in posts:
                 HttpTransport(allowed_hosts=['api.magnific.com']).request('POST', url, body=body)
-        original = upscale_submission.submit_claimed_upscale
-        upscale_submission.submit_claimed_upscale = fake_upscale
-        try:
-            with self.installed(ledger, sent):
-                upscale_submission.submit_claimed_upscale(row, owner='o', signal=None)
-        finally:
-            upscale_submission.submit_claimed_upscale = original
+        with patch.object(upscale_submission, '_submit_claimed_upscale', fake_upscale), self.guarded(ledger, sent):
+            upscale_submission.submit_claimed_upscale(row, owner='o', signal=None)
 
     def test_video_submit_claims_once_and_a_second_post_is_refused(self):
         row = SimpleNamespace(**contract(kind='video', model='Magnific Video Creative', submission_input={'version': 1}))
@@ -368,7 +355,7 @@ class KlingAdmissionTests(SimpleTestCase):
 @override_settings(VEEVEE_KLING=True)
 class KlingOneClaimTests(TransactionTestCase):
     """A Kling image claims RESERVED->ATTEMPTING->SUBMITTING once, for exactly its own payload."""
-    installed = OneClaimPerPostTests.installed
+    guarded = OneClaimPerPostTests.guarded
 
     def row(self, **fields):
         return SimpleNamespace(**contract(kind='image', model='Kling Image 3.0', resolution='2K', aspect_ratio='16:9', **fields))
@@ -384,7 +371,7 @@ class KlingOneClaimTests(TransactionTestCase):
     def test_the_exact_payload_is_claimed_once_and_sent(self):
         row, sent = self.row(), []
         ledger = {row.id: 'RESERVED'}
-        with self.installed(ledger, sent, self.execute_posting((KLING_CREATE, kling_body()))) as executor:
+        with self.guarded(ledger, sent, self.execute_posting((KLING_CREATE, kling_body()))) as executor:
             executor.execute_admitted(row)
         self.assertEqual(sent, [('POST', KLING_CREATE, {'model_name': 'kling-v3', 'prompt': 'literal', 'n': 1, 'aspect_ratio': '16:9',
                                                         'resolution': '2k'})])
@@ -393,7 +380,7 @@ class KlingOneClaimTests(TransactionTestCase):
     def test_a_second_post_is_refused(self):
         row, sent = self.row(), []
         ledger = {row.id: 'RESERVED'}
-        with self.installed(ledger, sent, self.execute_posting((KLING_CREATE, kling_body()), (KLING_CREATE, kling_body()))) as executor:
+        with self.guarded(ledger, sent, self.execute_posting((KLING_CREATE, kling_body()), (KLING_CREATE, kling_body()))) as executor:
             with self.assertRaisesRegex(RuntimeError, 'No paid submission retry'):
                 executor.execute_admitted(row)
         self.assertEqual(len(sent), 1)
@@ -402,12 +389,12 @@ class KlingOneClaimTests(TransactionTestCase):
     def test_a_post_without_a_claim_is_refused(self):
         from apps.generation.providers.transport import HttpTransport, ProviderError
         sent = []
-        with self.installed({}, sent):
+        with self.guarded({}, sent):
             with self.assertRaises(ProviderError) as caught:
                 HttpTransport(allowed_hosts=['api-singapore.klingai.com']).request('POST', KLING_CREATE, body=kling_body())
         self.assertEqual((caught.exception.code, caught.exception.may_have_submitted), ('preview_paid_scope', False))
         self.assertEqual(sent, [])
-        with self.installed({}, sent, self.execute_posting((KLING_CREATE, kling_body()))) as executor:
+        with self.guarded({}, sent, self.execute_posting((KLING_CREATE, kling_body()))) as executor:
             with self.assertRaisesRegex(RuntimeError, 'No paid submission retry'):
                 executor.execute_admitted(self.row())     # never reserved by the API
         self.assertEqual(sent, [])
@@ -423,7 +410,7 @@ class KlingOneClaimTests(TransactionTestCase):
         for url, body, error in cases:
             row, sent = self.row(), []
             ledger = {row.id: 'RESERVED'}
-            with self.subTest(url=url, body=body), self.installed(ledger, sent, self.execute_posting((url, body))) as executor:
+            with self.subTest(url=url, body=body), self.guarded(ledger, sent, self.execute_posting((url, body))) as executor:
                 with self.assertRaises(error):
                     executor.execute_admitted(row)
             self.assertEqual(sent, [])
@@ -439,14 +426,14 @@ class KlingOneClaimTests(TransactionTestCase):
             transport = HttpTransport(allowed_hosts=['api-singapore.klingai.com'])
             transport.request('GET', poll)
             transport.request('POST', KLING_CREATE, body=kling_body())
-        with self.installed(ledger, sent, resume) as executor:
+        with self.guarded(ledger, sent, resume) as executor:
             with self.assertRaises(ProviderError) as caught:
                 executor.execute_admitted(row)
         self.assertEqual(caught.exception.code, 'preview_paid_scope')
         self.assertEqual(sent, [('GET', poll, None)])
         self.assertEqual(ledger[row.id], 'SUBMITTING')
         sent.clear()
-        with override_settings(VEEVEE_KLING=False), self.installed(ledger, sent, resume) as executor:
+        with override_settings(VEEVEE_KLING=False), self.guarded(ledger, sent, resume) as executor:
             with self.assertRaisesRegex(ValueError, 'not enabled'):
                 executor.execute_admitted(row)
         self.assertEqual(sent, [])
@@ -459,21 +446,13 @@ class KlingWorkerTests(TransactionTestCase):
     @contextlib.contextmanager
     def guarded(self, ledger):
         from django.db import connection
-        from apps.generation.services import enqueue, executor, upscale_submission, audio_submission
         from apps.generation.test_provider_throttle import LedgerCursor
-        originals = (enqueue.persist, executor.execute_admitted, upscale_submission.submit_claimed_upscale,
-                     audio_submission.persist_audio_intent, audio_submission.transcribe_claimed)
-        flag = getattr(enqueue, '_goal4_paid_guard_installed', False)
         real_cursor = connection.cursor
-        enqueue._goal4_paid_guard_installed = False
         try:
-            with patch.object(connection, 'cursor', lambda *args, **kwargs: LedgerCursor(real_cursor(*args, **kwargs), ledger)):
-                paid_guard.install_paid_guard(UNLIMITED)    # wraps the transport FakeProviders installed; undone with it
+            with override_settings(VEEVEE_PAID_GUARD=UNLIMITED), \
+                    patch.object(connection, 'cursor', lambda *args, **kwargs: LedgerCursor(real_cursor(*args, **kwargs), ledger)):
                 yield
         finally:
-            (enqueue.persist, executor.execute_admitted, upscale_submission.submit_claimed_upscale,
-             audio_submission.persist_audio_intent, audio_submission.transcribe_claimed) = originals
-            enqueue._goal4_paid_guard_installed = flag
             paid_guard.STATE.active = None
 
     def test_one_paid_post_then_polls_and_a_failed_download_resumes_without_resubmitting(self):
@@ -508,8 +487,42 @@ class UnbilledReadonlyExemptionTests(OneClaimPerPostTests):
     def test_flagged_read_only_transport_bypasses_the_paid_claim(self):
         from apps.generation.providers.transport import HttpTransport
         sent = []
-        with self.installed({}, sent):
+        with self.guarded({}, sent):
             class ReadOnly(HttpTransport):
                 paid_guard_exempt = True
             ReadOnly(allowed_hosts=['x']).request('POST', 'https://ark.ap-southeast-1.byteplusapi.com/?Action=GetAsset', body={})
         self.assertEqual(len(sent), 1)
+
+
+class PaidGuardSettingTests(TransactionTestCase):
+    def test_startup_refuses_an_unknown_scope_or_a_scope_without_its_flag_or_cap_in_every_component(self):
+        import json
+        from apps.common.test_leases import settings_error
+        limited = {'approved_scope': paid_guard.LIMITED_SCOPE, 'maximum_total_cents': paid_guard.CAP}
+        refused = [{'approved_scope': 'OTHER_SCOPE', 'unlimited_new_jobs': True}, {'approved_scope': paid_guard.UNLIMITED_SCOPE},
+                   {**UNLIMITED, 'unlimited_new_jobs': 'true'}, {**limited, 'maximum_total_cents': paid_guard.CAP + 1},
+                   {'approved_scope': paid_guard.LIMITED_SCOPE}]
+        for component in ('', 'api', 'generation', 'export', 'scheduler'):
+            for config in refused:
+                with self.subTest(component=component, config=config):
+                    self.assertIn('VEEVEE_PAID_GUARD rejected', settings_error(VEEVEE_RUNTIME_COMPONENT=component,
+                                                                               VEEVEE_PAID_GUARD=json.dumps(config)) or '')
+        for config in (UNLIMITED, limited):
+            with self.subTest(config=config):
+                self.assertIsNone(settings_error(VEEVEE_PAID_GUARD=json.dumps(config)))
+
+    def test_with_the_guard_off_nothing_is_claimed_and_every_request_is_sent(self):
+        from apps.generation.providers.transport import HttpTransport
+        from apps.generation.services import executor, upscale_submission
+        sent, ran = [], []
+        row = SimpleNamespace(**contract(kind='video', model='Seedance 2.5'))
+        with override_settings(VEEVEE_PAID_GUARD=None), \
+                patch.object(HttpTransport, '_send', lambda self, method, url, **kwargs: sent.append((method, url)) or 'sent'), \
+                patch.object(executor, '_execute_admitted', lambda item, **kwargs: ran.append(('execute', kwargs)) or 'done'), \
+                patch.object(upscale_submission, '_submit_claimed_upscale', lambda item, **kwargs: ran.append(('upscale', kwargs)) or 'task'), \
+                patch('django.db.connection.cursor', side_effect=AssertionError('no ledger call without the guard')):
+            self.assertEqual(HttpTransport(allowed_hosts=['x']).request('POST', SEEDANCE_ENDPOINT, body={}), 'sent')
+            self.assertEqual(executor.execute_admitted(row, owner='o'), 'done')
+            self.assertEqual(upscale_submission.submit_claimed_upscale(row, owner='o', signal=None), 'task')
+        self.assertEqual(sent, [('POST', SEEDANCE_ENDPOINT)])
+        self.assertEqual(ran, [('execute', {'owner': 'o'}), ('upscale', {'owner': 'o', 'signal': None})])

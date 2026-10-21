@@ -3,8 +3,9 @@
 scripts/release/rehearse_local.sh puts this directory on the rehearsal API container's PYTHONPATH, so Python loads
 it in gunicorn before Django starts. Only generativelanguage.googleapis.com is answered by
 testsupport.fake_providers; every other host keeps the real transport (unreachable on the internal rehearsal
-network). The transport is patched as its module is imported, before Django installs the paid guard, so the guard
-wraps the fake exactly as it wraps the network in production. Inert unless VEEVEE_REHEARSAL=1.
+network). Only ``HttpTransport._send`` (the network call) is replaced, as its module is imported, so the paid guard's
+check in ``HttpTransport.request`` runs in front of the fake exactly as it runs in front of the network in production.
+Inert unless VEEVEE_REHEARSAL=1.
 """
 import importlib.abc
 import importlib.util
@@ -18,7 +19,7 @@ GEMINI_HOST = 'generativelanguage.googleapis.com'
 
 
 def _patch(module):
-    original, lock, state = module.HttpTransport.request, threading.Lock(), {}
+    original, lock, state = module.HttpTransport._send, threading.Lock(), {}
 
     def request(self, method, url, **kwargs):
         if urlsplit(url).hostname != GEMINI_HOST:
@@ -28,7 +29,7 @@ def _patch(module):
                 from testsupport.fake_providers import FakeProviders
                 state['fake'] = FakeProviders()
         return state['fake'].request(self, method, url, **kwargs)
-    module.HttpTransport.request = request
+    module.HttpTransport._send = request
 
 
 class _Hook(importlib.abc.MetaPathFinder):

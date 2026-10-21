@@ -4,8 +4,8 @@ import os
 from unittest.mock import patch
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.admin_dashboard.tests import SettingsTests
-from apps.production_runtime import paid_guard
-from apps.production_runtime.tests import UNLIMITED, contract
+from apps.generation.services import paid_guard
+from .test_paid_guard import UNLIMITED, contract
 from deploy import legacy_config
 from .availability import SWITCHES, availability, available
 from .model_registry import MODEL_REGISTRY

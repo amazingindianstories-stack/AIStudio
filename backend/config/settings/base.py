@@ -92,8 +92,9 @@ for value in VEEVEE_BROWSER_ORIGINS:
         raise ImproperlyConfigured('Browser origins must be exact bare origins without credentials')
 
 
-# Paid-generation guard (see apps/production_runtime/paid_guard.py). JSON data,
+# Paid-generation guard (see apps/generation/services/paid_guard.py). JSON data,
 # never code, e.g. {"approved_scope": "<UNLIMITED scope>", "unlimited_new_jobs": true}.
+# An unknown scope, or a missing unlimited flag or cap, stops every component at startup.
 import json as _json
 _paid_guard_raw = os.environ.get('VEEVEE_PAID_GUARD', '')
 VEEVEE_PAID_GUARD = None
@@ -104,6 +105,11 @@ if _paid_guard_raw:
         raise ImproperlyConfigured('VEEVEE_PAID_GUARD must be JSON') from None
     if not isinstance(VEEVEE_PAID_GUARD, dict) or not VEEVEE_PAID_GUARD.get('approved_scope'):
         raise ImproperlyConfigured('VEEVEE_PAID_GUARD requires an approved_scope')
+    from apps.generation.services.paid_guard import validate as _validate_paid_guard
+    try:
+        _validate_paid_guard(VEEVEE_PAID_GUARD)
+    except (KeyError, ValueError) as error:
+        raise ImproperlyConfigured(f'VEEVEE_PAID_GUARD rejected: {error}') from None
 
 # Which production process this is; selects the runtime behaviour installed by
 # apps.production_runtime (api, generation, export or scheduler).

@@ -6,8 +6,11 @@ row-level security that lets the worker role see only registered rows) is
 already applied in production, so the API must register every new paid job
 and the worker must claim each attempt and each provider POST exactly once.
 
-Configured by ``settings.VEEVEE_PAID_GUARD``; no credentials, database access
-or patching happens on import.
+Configured by ``settings.VEEVEE_PAID_GUARD`` and off when it is unset. The
+guarded public names (``enqueue.persist``, ``executor.execute_admitted``,
+``upscale_submission.submit_claimed_upscale``, ``audio_submission``'s
+``persist_audio_intent`` and ``transcribe_claimed``, and ``HttpTransport.request``)
+call into this module; no credentials or database access happen on import.
 """
 import json,hashlib,threading,re,math,copy,base64
 LIMITED_SCOPE='GOAL4_EXISTING_GREEN_PREVIEW_NEW_IMAGE_AND_SEEDANCE_PAID_ONLY'
@@ -139,96 +142,98 @@ def operator_quotes(pricing_evidence_sha256):
  video={**base,'maximum_cents':300,'reservation_formula':'seedance_current_token_estimate_times_two_floor_300','allowed_input_values':{'kind':['video'],'resolution':['480p','720p','1080p']},'allowed_paid_endpoints':['https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks'],'provider_payload_allowed_values':{'model':['dreamina-seedance-2-5-260628'],'output_format':['mov']},'provider_payload_numeric_maxima':{'duration':15}}
  return {'nano-banana-pro':image,'Nano Banana Pro':image,'nano-banana-2-1':image_21,'Nano Banana 2.1':image_21,'seedance-25':video,'Seedance 2.5':video}
 
-def install_paid_guard(config):
- """Call after django.setup, before API routes/worker imports. Never patch source files."""
- from django.db import connection,transaction
- from apps.generation.services import enqueue,executor
- from apps.generation.providers.transport import HttpTransport,ProviderError
+def configured():
+ """settings.VEEVEE_PAID_GUARD (constant per process), or None when the guard is off."""
+ from django.conf import settings
+ return getattr(settings,'VEEVEE_PAID_GUARD',None)
+def enabled():return bool(configured())
+def validate(config):
+ """Startup check, run by config.settings.base whenever VEEVEE_PAID_GUARD is set."""
  require(config['approved_scope'] in (LIMITED_SCOPE,UNLIMITED_SCOPE))
  unlimited=config['approved_scope']==UNLIMITED_SCOPE
  require(config.get('unlimited_new_jobs') is True if unlimited else config['maximum_total_cents']==CAP)
- require(not getattr(enqueue,'_goal4_paid_guard_installed',False),'Duplicate paid guard install')
- from apps.generation.services import upscale_submission,audio_submission
- persist_original=enqueue.persist;execute_original=executor.execute_admitted;request_original=HttpTransport.request
- upscale_original=upscale_submission.submit_claimed_upscale
- audio_persist_original=audio_submission.persist_audio_intent;audio_transcribe_original=audio_submission.transcribe_claimed
- def register(row):
-  row.refresh_from_db();contract=execution_contract(row)
-  try:quote=quote_for(contract,config)
-  except ValueError as error:STATE.api_error=str(error);raise
-  try:
-   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.reserve(%s,%s,%s,%s,%s)',[row.id,row.user_id,quote['maximum_cents'],fingerprint(quote),fingerprint(contract)])
-  except Exception:STATE.api_error='Paid Preview budget unavailable or exhausted; no provider submission occurred.';raise
-  return row
- def persist(item):
-  with transaction.atomic():return register(persist_original(item))
- def persist_audio(fields):
-  # The audio view creates its intent directly; register it in the same transaction as enqueue.persist does.
-  with transaction.atomic():return register(audio_persist_original(fields))
- def execute(item,**kwargs):
-  contract=execution_contract(item);quote=quote_for(contract,config)
-  if getattr(item,'task_id',None):
-   # A row holding an accepted task (a Kling image whose poll or download was interrupted) only resumes polling:
-   # its one claim was spent on that task, so it runs with no claim and every POST is refused.
-   require(not getattr(STATE,'active',None),'Nested paid execution denied')
-   return execute_original(item,**kwargs)
-  require(connection.get_autocommit(),'Paid one-shot transition must commit before provider I/O')
-  with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[item.id,fingerprint(contract),'RESERVED','ATTEMPTING'])
+def register(row):
+ from django.db import connection
+ row.refresh_from_db();contract=execution_contract(row)
+ try:quote=quote_for(contract,configured())
+ except ValueError as error:STATE.api_error=str(error);raise
+ try:
+  with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.reserve(%s,%s,%s,%s,%s)',[row.id,row.user_id,quote['maximum_cents'],fingerprint(quote),fingerprint(contract)])
+ except Exception:STATE.api_error='Paid Preview budget unavailable or exhausted; no provider submission occurred.';raise
+ return row
+def persist(create,item):
+ """enqueue.persist: the new row is registered in the paid ledger in the transaction that creates it."""
+ from django.db import transaction
+ with transaction.atomic():return register(create(item))
+def persist_audio(create,fields):
+ # The audio view creates its intent directly; register it in the same transaction as enqueue.persist does.
+ from django.db import transaction
+ with transaction.atomic():return register(create(fields))
+def claim_attempt(item,contract):
+ from django.db import connection
+ require(connection.get_autocommit(),'Paid one-shot transition must commit before provider I/O')
+ with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[item.id,fingerprint(contract),'RESERVED','ATTEMPTING'])
+def execute(run,item,**kwargs):
+ """executor.execute_admitted: one RESERVED->ATTEMPTING claim, then provider POSTs only inside it."""
+ contract=execution_contract(item);quote=quote_for(contract,configured())
+ if getattr(item,'task_id',None):
+  # A row holding an accepted task (a Kling image whose poll or download was interrupted) only resumes polling:
+  # its one claim was spent on that task, so it runs with no claim and every POST is refused.
   require(not getattr(STATE,'active',None),'Nested paid execution denied')
-  STATE.active={'id':item.id,'contract':contract,'quote':quote}
-  try:return execute_original(item,**kwargs)
-  finally:STATE.active=None
- def submit_upscale(item,**kwargs):
-  # Magnific bypasses execute_admitted; claim the same one-shot attempt first.
-  contract=execution_contract(item);quote=quote_for(contract,config)
-  require(connection.get_autocommit(),'Paid one-shot transition must commit before provider I/O')
-  with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[item.id,fingerprint(contract),'RESERVED','ATTEMPTING'])
+  return run(item,**kwargs)
+ claim_attempt(item,contract)
+ require(not getattr(STATE,'active',None),'Nested paid execution denied')
+ STATE.active={'id':item.id,'contract':contract,'quote':quote}
+ try:return run(item,**kwargs)
+ finally:STATE.active=None
+def submit_upscale(run,item,**kwargs):
+ # Magnific bypasses execute_admitted; claim the same one-shot attempt first.
+ contract=execution_contract(item);quote=quote_for(contract,configured())
+ claim_attempt(item,contract)
+ require(not getattr(STATE,'active',None),'Nested paid execution denied')
+ STATE.active={'id':item.id,'contract':contract,'quote':quote}
+ try:return run(item,**kwargs)
+ finally:STATE.active=None
+def transcribe(run,claimed,*args,**kwargs):
+ # Audio bypasses execute_admitted. Its claim follows the committed SUBMISSION_PENDING fence (never replayed), so a
+ # refused claim here provably sent nothing and process_audio ends the row instead of holding it uncertain.
+ from apps.generation.providers.transport import ProviderError
+ try:
   require(not getattr(STATE,'active',None),'Nested paid execution denied')
-  STATE.active={'id':item.id,'contract':contract,'quote':quote}
-  try:return upscale_original(item,**kwargs)
-  finally:STATE.active=None
- def transcribe_audio(claimed,*args,**kwargs):
-  # Audio bypasses execute_admitted. Its claim follows the committed SUBMISSION_PENDING fence (never replayed), so a
-  # refused claim here provably sent nothing and process_audio ends the row instead of holding it uncertain.
-  try:
-   require(not getattr(STATE,'active',None),'Nested paid execution denied')
-   contract=execution_contract(claimed);quote=quote_for(contract,config)
-   require(connection.get_autocommit(),'Paid one-shot transition must commit before provider I/O')
-   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[claimed.id,fingerprint(contract),'RESERVED','ATTEMPTING'])
-  except Exception as error:
-   raise ProviderError('Paid Preview claim refused for this transcription; nothing was sent.',code='preview_paid_scope',may_have_submitted=False) from error
-  STATE.active={'id':claimed.id,'contract':contract,'quote':quote}
-  try:return audio_transcribe_original(claimed,*args,**kwargs)
-  finally:STATE.active=None
- def request(self,method,url,**kwargs):
-  # BytePlus asset-library transports (GetAsset, list, create/delete asset) are
-  # not generation and each enforces its own exact endpoint/payload allowlist.
-  if getattr(self,'paid_guard_exempt',False) is True:return request_original(self,method,url,**kwargs)
-  if method.upper() not in ('GET','HEAD'):
-   active=getattr(STATE,'active',None)
-   if not active or method.upper()!='POST' or url not in active['quote']['allowed_paid_endpoints']:
-    raise ProviderError('Paid Preview endpoint is outside the reserved scope.',code='preview_paid_scope',may_have_submitted=False)
-   body=kwargs.get('body');require(isinstance(body,dict),'Quoted JSON payload required')
-   if active['contract']['kind']=='audio' and not audio_payload_matches(body,active['contract']):
-    raise ProviderError('Transcription payload is outside the reserved scope.',code='preview_paid_scope',may_have_submitted=False)
-   if active['contract']['kind']=='image' and not unlimited:
-    require(not body.get('tools'),'Paid grounding/tool calls not authorized')
-    generation=body.setdefault('generationConfig',{});generation.setdefault('maxOutputTokens',32768);generation.setdefault('candidateCount',1)
-   for key,values in active['quote'].get('provider_payload_allowed_values',{}).items():
-    value=body
-    for part in key.split('.'):value=value.get(part) if isinstance(value,dict) else None
-    require(value in values,'Provider payload outside quote')
-   for path,maximum in active['quote'].get('provider_payload_numeric_maxima',{}).items():
-    value=body
-    for part in path.split('.'):value=value.get(part) if isinstance(value,dict) else None
-    require(type(value) in (int,float) and 0<=value<=maximum,'Missing or excessive priced token/output bound')
-   require(connection.get_autocommit(),'Paid submit claim must be durable')
-   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[active['id'],fingerprint(active['contract']),'ATTEMPTING','SUBMITTING'])
-  return request_original(self,method,url,**kwargs)
- enqueue.persist=persist;executor.execute_admitted=execute;HttpTransport.request=request;enqueue._goal4_paid_guard_installed=True
- upscale_submission.submit_claimed_upscale=submit_upscale
- audio_submission.persist_audio_intent=persist_audio;audio_submission.transcribe_claimed=transcribe_audio
- return {'status':'INSTALLED_FAIL_CLOSED_SHARED_NEW_JOB_ONE_SHOT_GUARD','maximum_total_cents':None if unlimited else CAP,'reservations_released_automatically':False,'provider_billing_cap_measured':False}
+  contract=execution_contract(claimed);quote=quote_for(contract,configured())
+  claim_attempt(claimed,contract)
+ except Exception as error:
+  raise ProviderError('Paid Preview claim refused for this transcription; nothing was sent.',code='preview_paid_scope',may_have_submitted=False) from error
+ STATE.active={'id':claimed.id,'contract':contract,'quote':quote}
+ try:return run(claimed,*args,**kwargs)
+ finally:STATE.active=None
+def check_request(transport,method,url,body):
+ """HttpTransport.request: anything but GET/HEAD must be the active claim's one quoted POST, claimed ATTEMPTING->SUBMITTING."""
+ from django.db import connection
+ from apps.generation.providers.transport import ProviderError
+ # BytePlus asset-library transports (GetAsset, list, create/delete asset) are
+ # not generation and each enforces its own exact endpoint/payload allowlist.
+ if getattr(transport,'paid_guard_exempt',False) is True:return
+ if method.upper() not in ('GET','HEAD'):
+  active=getattr(STATE,'active',None)
+  if not active or method.upper()!='POST' or url not in active['quote']['allowed_paid_endpoints']:
+   raise ProviderError('Paid Preview endpoint is outside the reserved scope.',code='preview_paid_scope',may_have_submitted=False)
+  require(isinstance(body,dict),'Quoted JSON payload required')
+  if active['contract']['kind']=='audio' and not audio_payload_matches(body,active['contract']):
+   raise ProviderError('Transcription payload is outside the reserved scope.',code='preview_paid_scope',may_have_submitted=False)
+  if active['contract']['kind']=='image' and configured()['approved_scope']!=UNLIMITED_SCOPE:
+   require(not body.get('tools'),'Paid grounding/tool calls not authorized')
+   generation=body.setdefault('generationConfig',{});generation.setdefault('maxOutputTokens',32768);generation.setdefault('candidateCount',1)
+  for key,values in active['quote'].get('provider_payload_allowed_values',{}).items():
+   value=body
+   for part in key.split('.'):value=value.get(part) if isinstance(value,dict) else None
+   require(value in values,'Provider payload outside quote')
+  for path,maximum in active['quote'].get('provider_payload_numeric_maxima',{}).items():
+   value=body
+   for part in path.split('.'):value=value.get(part) if isinstance(value,dict) else None
+   require(type(value) in (int,float) and 0<=value<=maximum,'Missing or excessive priced token/output bound')
+  require(connection.get_autocommit(),'Paid submit claim must be durable')
+  with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[active['id'],fingerprint(active['contract']),'ATTEMPTING','SUBMITTING'])
 def wrap_wsgi(application):
  def guarded(environ,start_response):
   STATE.api_error=None;captured={}

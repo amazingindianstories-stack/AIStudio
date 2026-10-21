@@ -18,12 +18,6 @@ class ProductionRuntimeConfig(AppConfig):
         if (getattr(settings, 'VEEVEE_PORTRAIT_LIFECYCLE', False) and component == 'api'
                 and not getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False)):
             install_portrait_lifecycle()
-        paid = getattr(settings, 'VEEVEE_PAID_GUARD', None)
-        if paid:
-            from . import paid_guard
-            from apps.generation.services import enqueue
-            if not getattr(enqueue, '_goal4_paid_guard_installed', False):
-                paid_guard.install_paid_guard(paid)
 
 
 def install_portrait_lifecycle():

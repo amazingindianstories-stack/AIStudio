@@ -5,6 +5,7 @@ from django.db import transaction
 from django.db.models import Q
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
+from . import paid_guard
 
 AUDIO_READY = 'AUDIO_READY'
 
@@ -12,18 +13,29 @@ AUDIO_READY = 'AUDIO_READY'
 def persist_audio_intent(fields):
     """Commit a new queued transcription intent.
 
-    The production paid guard wraps this to register the row in the paid
-    ledger inside the same transaction (the worker role sees only registered
-    rows), so callers must go through this module attribute.
+    With the paid guard on, the row is registered in the paid ledger inside
+    the same transaction (the worker role sees only registered rows).
     """
+    if not paid_guard.enabled():
+        return _persist_audio_intent(fields)
+    return paid_guard.persist_audio(_persist_audio_intent, fields)
+
+
+def _persist_audio_intent(fields):
     return Generation.objects.create(**fields)
 
 
 def transcribe_claimed(claimed, provider, encoded, mime, model, *, signal):
     """The intent's single provider call, made only after its claim committed.
 
-    The production paid guard wraps this with its one-shot ledger claim.
+    With the paid guard on, the call runs inside its one-shot ledger claim.
     """
+    if not paid_guard.enabled():
+        return _transcribe_claimed(claimed, provider, encoded, mime, model, signal=signal)
+    return paid_guard.transcribe(_transcribe_claimed, claimed, provider, encoded, mime, model, signal=signal)
+
+
+def _transcribe_claimed(claimed, provider, encoded, mime, model, *, signal):
     signal.check()
     return provider.transcribe(encoded,mime,model,signal=signal)
 
