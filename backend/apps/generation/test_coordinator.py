@@ -6,7 +6,7 @@ from uuid import uuid4
 from django.db import connections
 from django.test import TransactionTestCase
 
-from apps.admin_dashboard.models import AppSetting, UserLimit
+from apps.admin_dashboard.models import UserLimit
 from apps.admin_dashboard.tests import SettingsTests, UID
 from apps.common import leases
 from .models import Generation
