@@ -740,6 +740,9 @@ export function PromptComposer() {
         {/* upload */}
         <Dropdown
           side="top"
+          onOpen={() => {
+            if (s.portraits.enabled === null && !s.portraits.loading) void s.loadPortraits();
+          }}
           trigger={(open) => (
             <span
               className={cn(
