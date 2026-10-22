@@ -154,3 +154,17 @@ test("the Errors tab sits with the other admin tabs and never uses an em dash", 
     assert.doesNotMatch(readFileSync(file, "utf8"), /\u2014/, file);
   }
 });
+
+test('wrapped error rows retain support copying and details with long unbroken values', async () => {
+  const row = { ...seedance, code: 'ProviderCode'.repeat(20), requestId: 'request'.repeat(40) };
+  await mount(() => ({ ...firstPage, rows: [row], total: 1, nextCursor: null }), async ({ click, copied }) => {
+    const errorRow = document.querySelector('tbody > tr');
+    assert.ok(errorRow.textContent.includes(row.code));
+    assert.ok(errorRow.textContent.includes(row.requestId));
+    await click(errorRow.querySelector('[aria-label="Copy support details"]'));
+    assert.deepEqual(copied, [supportBlock(row)]);
+    await click(errorRow.querySelector('[aria-label="Show error details"]'));
+    assert.equal(document.querySelector('pre').textContent, row.rawBody);
+    assert.equal(errorRow.querySelector('[aria-expanded]').getAttribute('aria-expanded'), 'true');
+  });
+});

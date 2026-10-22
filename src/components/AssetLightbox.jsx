@@ -249,7 +249,7 @@ export function AssetLightbox({
       {/* Top Header Controls Bar */}
       <header className="relative z-10 flex w-full max-w-6xl shrink-0 flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-ink-900/90 px-4 py-2.5 shadow-2xl backdrop-blur-lg">
         {/* Left: Metadata info & badges */}
-        <div className={embedded ? "flex w-full min-w-0 items-center gap-3" : "flex min-w-0 flex-1 items-center gap-3"}>
+        <div className={embedded ? "flex w-full min-w-0 items-center gap-3" : "flex w-full min-w-0 items-center gap-3 sm:w-auto sm:flex-1"}>
           <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-white/10 text-white">
             <Icon className="h-4 w-4" />
           </div>
@@ -288,7 +288,7 @@ export function AssetLightbox({
         </div>
 
         {/* Right: Action Buttons */}
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+        <div className="flex w-full min-w-0 flex-wrap items-center gap-1.5 sm:w-auto sm:gap-2">
           {/* Insert @tag when opened from Composer */}
           {onInsertTag && tagText && (
             <button
@@ -297,7 +297,7 @@ export function AssetLightbox({
                 onInsertTag(tagText);
                 onClose();
               }}
-              className="flex items-center gap-1.5 rounded-lg bg-mention/20 px-3 py-1.5 text-xs font-semibold text-mention ring-1 ring-mention/40 transition hover:bg-mention/30"
+              className="flex max-w-full items-center gap-1.5 truncate rounded-lg bg-mention/20 px-3 py-1.5 text-xs font-semibold text-mention ring-1 ring-mention/40 transition hover:bg-mention/30"
             >
               Insert {tagText}
             </button>

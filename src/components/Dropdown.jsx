@@ -21,6 +21,7 @@ export function Dropdown({
   align = "left",
   side = "bottom",
   className,
+  triggerClassName,
   panelClassName,
   label,
   onOpen,
@@ -71,12 +72,22 @@ export function Dropdown({
     return () => cancelAnimationFrame(frame);
   }, [open, position]);
 
+  const closeOnEscape = useCallback((e) => {
+    if (e.key !== "Escape") return false;
+    e.preventDefault();
+    e.stopPropagation();
+    e.nativeEvent.stopImmediatePropagation();
+    closeAndRestore();
+    return true;
+  }, [closeAndRestore]);
+
   // Arrow-key roving focus among menuitem children once the panel is open.
   // Scoped to [role="menuitem"] specifically (not every focusable element in
   // the panel) so this never hijacks arrow keys inside a non-menu panel —
   // e.g. the composer settings panel's duration slider, which relies on
   // ArrowLeft/Right to adjust its own value.
   const onPanelKeyDown = useCallback((e) => {
+    if (closeOnEscape(e)) return;
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Home" && e.key !== "End") {
       return;
     }
@@ -98,7 +109,7 @@ export function Dropdown({
     const next =
       current === -1 ? (dir === 1 ? 0 : items.length - 1) : (current + dir + items.length) % items.length;
     items[next].focus();
-  }, []);
+  }, [closeOnEscape]);
 
   useEffect(() => {
     if (!open) return;
@@ -176,7 +187,10 @@ export function Dropdown({
           setOpen(!open);
         }}
         onKeyDown={(e) => {
-          if (open) return;
+          if (open) {
+            closeOnEscape(e);
+            return;
+          }
           if (e.key === "ArrowDown") {
             e.preventDefault();
             openAndFocus(false);
@@ -185,7 +199,7 @@ export function Dropdown({
             openAndFocus(true);
           }
         }}
-        className="block max-w-full"
+        className={cn("block max-w-full", triggerClassName)}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}

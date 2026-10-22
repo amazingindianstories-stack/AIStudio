@@ -237,11 +237,35 @@ body {
   }
 }
 
+/* Header section labels show only once every label fits beside the logo and
+   account controls; until then each section, Audio included, is an icon with
+   its accessible name. Labelled, the sections measure 623px on macOS and
+   636px on Linux, whose text renders wider; the locked Agents chip adds its
+   lock (16px). Each threshold covers the wider Linux measure. */
+.topbar-sections { container: sections / inline-size; }
+.topbar-label { display: none; }
+@container sections (min-width: 39.875rem) {
+  .topbar-sections:not([data-agents-locked]) .topbar-label { display: inline; }
+}
+@container sections (min-width: 41.25rem) {
+  .topbar-label { display: inline; }
+}
+
 /* Size library navigation against the panel, not the whole browser. */
 .history-panel { container-type: inline-size; container-name: history; }
 .history-navigation { width: clamp(10.5rem, 30cqw, 15rem); max-width: 40%; }
+/* The phone and tablet drawer (at most 28rem wide) shows folders or assets,
+   not both, and gives search its own row. The desktop panel keeps the sidebar. */
+.history-panel[data-drawer="true"] .history-layout { flex-direction: column; }
+.history-panel[data-drawer="true"] .history-navigation { display: none; width: 100%; max-width: none; flex: 1; border-right: 0; }
+.history-panel[data-navigation-open="true"] .history-navigation { display: flex; }
+.history-panel[data-navigation-open="true"] .history-main { display: none; }
+.history-panel[data-drawer="true"] :is(.history-search-row, .selection-toolbar) { height: 4.75rem; }
+.history-panel[data-drawer="true"] .history-search-row { flex-wrap: wrap; align-content: center; row-gap: .5rem; }
+.history-panel[data-drawer="true"] .history-search { flex-basis: 100%; max-width: none; }
+.history-panel[data-drawer="true"] .history-view-controls { width: 100%; }
 
-/* The selection toolbar swaps in for the 44px search row, so ticking a card
+/* The selection toolbar swaps in for the search row at its height, so ticking a card
    never moves the grid. It stays one row at every library width: labels give
    way to icons (each action keeps its accessible name) instead of wrapping. */
 .selection-toolbar { container-type: inline-size; }

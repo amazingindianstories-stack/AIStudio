@@ -4,7 +4,8 @@ import { useMaintenance } from "@/lib/maintenance-client";
 
 import { notify } from "@/lib/notify";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { EXPORT_POLL_MAX_MS, exportPollDelay } from "@/lib/poll-schedule";
 import {
   Search,
@@ -51,7 +52,7 @@ const ZOOM_MIN = 120;
 const ZOOM_MAX = 260;
 const ACTIVE_EXPORT_KEY = "veevee-active-media-export-v1";
 
-export function HistoryPanel() {
+export function HistoryPanel({ drawer = false }) {
   const maintenance = useMaintenance((s) => s.enabled);
   const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const actorId = useStore((s) => s.currentUser?.id);
@@ -81,6 +82,9 @@ export function HistoryPanel() {
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const navigationToggle = useRef(null);
+  const navigationId = useId();
   const [unsortedDrop, setUnsortedDrop] = useState(false);
   const [folderDropError, setFolderDropError] = useState("");
   const [briefView, setBriefView] = useState(false);
@@ -319,10 +323,25 @@ export function HistoryPanel() {
     } finally { exportBusy.current = false; }
   };
 
+  const showAssets = () => {
+    if (!navigationOpen) return;
+    setNavigationOpen(false);
+    navigationToggle.current?.focus();
+  };
+
   const handlePanelKeyDown = (e) => {
     if (moveModalOpen) return;
 
     if (e.key === "Escape") {
+      if (navigationOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        // The app root is the document, so the phone drawer's own document
+        // Escape listener shares this node; only an immediate stop reaches it.
+        e.nativeEvent.stopImmediatePropagation();
+        showAssets();
+        return;
+      }
       if (selectedIds.length > 0) {
         e.preventDefault();
         clearSelection();
@@ -330,17 +349,19 @@ export function HistoryPanel() {
       }
     }
 
-    if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+    // Portaled menus bubble here through React; leaving Folders view from one
+    // would hide its trigger and orphan the open menu over the asset grid.
+    const fromOpenMenu =
+      !e.currentTarget.contains(e.target) || e.target.closest('[aria-haspopup="menu"][aria-expanded="true"]');
+    if (
+      !fromOpenMenu &&
+      (((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) ||
+        (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA"))
+    ) {
       const searchInput = document.querySelector('input[aria-label="Search prompts"]');
       if (searchInput) {
         e.preventDefault();
-        searchInput.focus();
-        searchInput.select?.();
-      }
-    } else if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
-      const searchInput = document.querySelector('input[aria-label="Search prompts"]');
-      if (searchInput) {
-        e.preventDefault();
+        if (navigationOpen) flushSync(() => setNavigationOpen(false));
         searchInput.focus();
         searchInput.select?.();
       }
@@ -366,585 +387,606 @@ export function HistoryPanel() {
   return (
     <div
       onKeyDown={handlePanelKeyDown}
-      className="history-panel flex h-full w-full overflow-hidden bg-ink-850"
+      data-drawer={drawer}
+      data-navigation-open={navigationOpen}
+      className="history-panel h-full w-full overflow-hidden bg-ink-850"
     >
-      {/* ══════════════════════════════════════════════════════════════════════
-          LEFT: PERSISTENT NAVIGATION SIDEBAR (w-60 shrink-0)
-          ══════════════════════════════════════════════════════════════════════ */}
-      <aside className="history-navigation flex min-h-0 shrink-0 flex-col border-r border-line bg-ink-850 select-none">
-        {/* Workspace Switcher (~40-44px high) */}
-        <Dropdown
-          align="left"
-          label="Switch workspace"
-          className="w-full shrink-0"
-          trigger={(open) => (
-            <span
-              className={cn(
-                "flex h-11 w-full items-center justify-between border-b border-line px-3.5 text-left transition hover:bg-white/5 outline-none",
-                open && "bg-white/5"
-              )}
-            >
-              <div className="flex min-w-0 items-center gap-2">
-                <Layers className="h-4 w-4 shrink-0 text-brand" />
-                <span className="scope-project-name truncate text-xs font-semibold uppercase tracking-wider text-white">
-                  {activeProjectId === null
-                    ? "Global Library"
-                    : project
-                    ? project.name
-                    : "Global Library"}
-                </span>
-              </div>
-              <ChevronDown
-                className={cn(
-                  "h-3.5 w-3.5 shrink-0 text-white/50 transition-transform",
-                  open && "rotate-180"
-                )}
-              />
-            </span>
-          )}
-        >
-          {(close) => <ProjectMenu close={close} />}
-        </Dropdown>
-
-        {/* Scrollable Navigation Hierarchy */}
-        <div className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-2 space-y-4">
-          {/* ── SECTION 1: LIBRARY ── */}
-          <div className="space-y-0.5">
-            <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">
-              Library
-            </span>
-            <SidebarItem
-              label="All generations"
-              title="All assets"
-              count={counts.allAssets}
-              icon={<LayoutGrid className="h-3.5 w-3.5" />}
-              active={rightTab === "history" && !briefView}
-              onClick={() => {
-                setRightTab("history");
-                setBriefView(false);
-              }}
-            />
-            <SidebarItem
-              label="Favourites"
-              count={counts.favorites}
-              icon={<Star className="h-3.5 w-3.5 text-amber-400" />}
-              active={rightTab === "favorites" && !briefView}
-              onClick={() => {
-                setRightTab("favorites");
-                setBriefView(false);
-              }}
-            />
-            <SidebarItem
-              label="Global library"
-              count={counts.globalLibrary?.total}
-              icon={<Layers className="h-3.5 w-3.5 text-white/50" />}
-              active={
-                rightTab === "project" &&
-                activeProjectId === null &&
-                activeFolderId === null &&
-                !briefView
-              }
-              onClick={() => {
-                setActiveProject(null);
-                setActiveFolder(null);
-                setRightTab("project");
-                setBriefView(false);
-              }}
-            />
+      <div className="history-layout flex h-full w-full">
+        {/* ══════════════════════════════════════════════════════════════════════
+            LEFT: NAVIGATION SIDEBAR (the drawer swaps it with the assets via Folders)
+            ══════════════════════════════════════════════════════════════════════ */}
+        {drawer && (
+          <div className="flex shrink-0 items-center border-b border-line px-3 py-2">
+            <button ref={navigationToggle} type="button" aria-expanded={navigationOpen} aria-controls={navigationId}
+              onClick={() => setNavigationOpen((open) => !open)}
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-white/80 hover:bg-white/10">
+              <Layers className="h-4 w-4" />{navigationOpen ? "Back to assets" : "Folders"}
+            </button>
           </div>
+        )}
+        <aside id={navigationId} aria-label="Library folders" className="history-navigation flex min-h-0 shrink-0 flex-col border-r border-line bg-ink-850 select-none">
+          {/* Workspace Switcher (~40-44px high) */}
+          <Dropdown
+            align="left"
+            label="Switch workspace"
+            className="w-full shrink-0"
+            triggerClassName="w-full"
+            trigger={(open) => (
+              <span
+                className={cn(
+                  "flex h-11 w-full items-center justify-between border-b border-line px-3.5 text-left transition hover:bg-white/5 outline-none",
+                  open && "bg-white/5"
+                )}
+              >
+                <div className="flex min-w-0 items-center gap-2">
+                  <Layers className="h-4 w-4 shrink-0 text-brand" />
+                  <span className="scope-project-name truncate text-xs font-semibold uppercase tracking-wider text-white">
+                    {activeProjectId === null
+                      ? "Global Library"
+                      : project
+                      ? project.name
+                      : "Global Library"}
+                  </span>
+                </div>
+                <ChevronDown
+                  className={cn(
+                    "h-3.5 w-3.5 shrink-0 text-white/50 transition-transform",
+                    open && "rotate-180"
+                  )}
+                />
+              </span>
+            )}
+          >
+            {(close) => <ProjectMenu close={close} />}
+          </Dropdown>
 
-          {/* ── SECTION 2: CURRENT PROJECT ── */}
-          {project && (
-            <div className="space-y-0.5 border-t border-line/60 pt-3">
+          {/* Scrollable Navigation Hierarchy */}
+          <div className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-2 space-y-4">
+            {/* ── SECTION 1: LIBRARY ── */}
+            <div className="space-y-0.5">
               <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                Current Project
+                Library
               </span>
               <SidebarItem
-                label="Project assets"
-                count={counts.project?.total}
-                icon={<Layers className="h-3.5 w-3.5 text-brand" />}
+                label="All generations"
+                title="All assets"
+                count={counts.allAssets}
+                icon={<LayoutGrid className="h-3.5 w-3.5" />}
+                active={rightTab === "history" && !briefView}
+                onClick={() => {
+                  setRightTab("history");
+                  setBriefView(false);
+                  showAssets();
+                }}
+              />
+              <SidebarItem
+                label="Favourites"
+                count={counts.favorites}
+                icon={<Star className="h-3.5 w-3.5 text-amber-400" />}
+                active={rightTab === "favorites" && !briefView}
+                onClick={() => {
+                  setRightTab("favorites");
+                  setBriefView(false);
+                  showAssets();
+                }}
+              />
+              <SidebarItem
+                label="Global library"
+                count={counts.globalLibrary?.total}
+                icon={<Layers className="h-3.5 w-3.5 text-white/50" />}
                 active={
                   rightTab === "project" &&
-                  activeProjectId === project.id &&
+                  activeProjectId === null &&
                   activeFolderId === null &&
                   !briefView
                 }
                 onClick={() => {
-                  setActiveProject(project.id);
+                  setActiveProject(null);
                   setActiveFolder(null);
                   setRightTab("project");
                   setBriefView(false);
-                }}
-              />
-              <SidebarItem
-                label="Project brief"
-                icon={<FileText className="h-3.5 w-3.5 text-white/50" />}
-                active={briefView}
-                onClick={() => {
-                  setActiveProject(project.id);
-                  setBriefView(true);
+                  showAssets();
                 }}
               />
             </div>
-          )}
 
-          {/* ── SECTION 3: FOLDERS ── */}
-          <div className="space-y-0.5 border-t border-line/60 pt-3">
-            <div className="flex items-center justify-between px-2 pb-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
-                Folders
-              </span>
-            </div>
-
-            {/* Inline folder editor at root */}
-            {addingScope && addingScope.parentId === null && (
-              <div className="px-1 py-1">
-                <InlineFolderNameEditor
-                  label="Folder name"
-                  onCommit={async (name) => {
-                    await createFolder({ name, ...addingScope });
-                    setAddingScope(null);
+            {/* ── SECTION 2: CURRENT PROJECT ── */}
+            {project && (
+              <div className="space-y-0.5 border-t border-line/60 pt-3">
+                <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                  Current Project
+                </span>
+                <SidebarItem
+                  label="Project assets"
+                  count={counts.project?.total}
+                  icon={<Layers className="h-3.5 w-3.5 text-brand" />}
+                  active={
+                    rightTab === "project" &&
+                    activeProjectId === project.id &&
+                    activeFolderId === null &&
+                    !briefView
+                  }
+                  onClick={() => {
+                    setActiveProject(project.id);
+                    setActiveFolder(null);
+                    setRightTab("project");
+                    setBriefView(false);
+                    showAssets();
                   }}
-                  onClose={() => setAddingScope(null)}
+                />
+                <SidebarItem
+                  label="Project brief"
+                  icon={<FileText className="h-3.5 w-3.5 text-white/50" />}
+                  active={briefView}
+                  onClick={() => {
+                    setActiveProject(project.id);
+                    setBriefView(true);
+                    showAssets();
+                  }}
                 />
               </div>
             )}
 
-            {/* Hierarchical folder tree of active workspace */}
-            <FolderTree
-              folders={activeWorkspaceFolders}
-              activeFolderId={rightTab === "project" ? activeFolderId : null}
-              countsByFolder={activeCountsByFolder}
+            {/* ── SECTION 3: FOLDERS ── */}
+            <div className="space-y-0.5 border-t border-line/60 pt-3">
+              <div className="flex items-center justify-between px-2 pb-1">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                  Folders
+                </span>
+              </div>
+
+              {/* Inline folder editor at root */}
+              {addingScope && addingScope.parentId === null && (
+                <div className="px-1 py-1">
+                  <InlineFolderNameEditor
+                    label="Folder name"
+                    onCommit={async (name) => {
+                      await createFolder({ name, ...addingScope });
+                      setAddingScope(null);
+                    }}
+                    onClose={() => setAddingScope(null)}
+                  />
+                </div>
+              )}
+
+              {/* Hierarchical folder tree of active workspace */}
+              <FolderTree
+                folders={activeWorkspaceFolders}
+                activeFolderId={rightTab === "project" ? activeFolderId : null}
+                countsByFolder={activeCountsByFolder}
+                projectId={activeProjectId}
+                onSelectFolder={(fId) => {
+                  setRightTab("project");
+                  setBriefView(false);
+                  setActiveFolder(fId);
+                  showAssets();
+                }}
+                onOpenMoveModal={(folder) => {
+                  setMovingFolder(folder);
+                  setMoveModalOpen(true);
+                }}
+                onOpenNewFolderModal={(scope) => setAddingScope(scope)}
+              />
+
+              {/* Inline folder editor for subfolders */}
+              {addingScope && addingScope.parentId !== null && (
+                <div className="px-1 py-1">
+                  <InlineFolderNameEditor
+                    label="Subfolder name"
+                    onCommit={async (name) => {
+                      await createFolder({ name, ...addingScope });
+                      setAddingScope(null);
+                    }}
+                    onClose={() => setAddingScope(null)}
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+          <div data-testid="sticky-unsorted-rail" className="shrink-0 border-t border-line bg-ink-850 p-2">
+            <button type="button" aria-label={`${project?.name || "Global"} Unsorted`} onClick={() => { setRightTab("project"); setBriefView(false); setActiveFolder(UNSORTED); showAssets(); }}
+              onDragOver={(e) => { e.preventDefault(); const valid = isAdmin && !maintenance && !isFolderDragEvent(e); e.dataTransfer.dropEffect = valid ? "move" : "none"; setUnsortedDrop(valid); }}
+              onDragLeave={() => setUnsortedDrop(false)}
+              onDrop={(e) => { e.preventDefault(); setUnsortedDrop(false); if (maintenance || !isAdmin || isFolderDragEvent(e)) return; const { ids } = getAssetDragData(e, useStore.getState()); if (!ids.length) return; setFolderDropError(""); void moveGenerationsToDestination(ids, activeProjectId ? { type: "project_unsorted", projectId: activeProjectId } : { type: "global_unsorted" }).catch((err) => setFolderDropError(err.message)); }}
+              className={cn("flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-white/70", activeFolderId === UNSORTED && rightTab === "project" && "bg-brand/15 text-white", unsortedDrop && "ring-1 ring-brand bg-brand/20")}>
+              <Inbox className="h-4 w-4" /><span className="flex-1 text-left">Unsorted</span><span>{activeProjectId ? counts.project?.unsorted ?? 0 : counts.globalLibrary?.unsorted ?? 0}</span>
+            </button>
+            {folderDropError && <p role="alert" className="text-xs text-red-400">{folderDropError}</p>}
+          </div>
+          <FolderOperationRail />
+        </aside>
+
+        {/* ══════════════════════════════════════════════════════════════════════
+            RIGHT: CURRENT LOCATION + COMMAND BAR + FOLDERS + ASSET CANVAS
+            ══════════════════════════════════════════════════════════════════════ */}
+        <main className="history-main flex min-h-0 min-w-0 flex-1 flex-col bg-ink-900">
+          {/* ── ROW 1: LOCATION / BREADCRUMB ROW (~44px high) ── */}
+          <div className="flex h-11 shrink-0 items-center justify-between border-b border-line bg-ink-850 px-4 text-xs select-none">
+            {/* Left: Location breadcrumb statement */}
+            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+              {rightTab === "history" ? (
+                <div className="flex min-w-0 items-center gap-2 font-semibold text-white">
+                  <LayoutGrid className="h-4 w-4 text-white/50" />
+                  <span className="truncate">All Generations</span>
+                </div>
+              ) : rightTab === "favorites" ? (
+                <div className="flex min-w-0 items-center gap-2 font-semibold text-white">
+                  <Star className="h-4 w-4 text-amber-400" />
+                  <span>Favourites</span>
+                </div>
+              ) : briefView && project ? (
+                <div className="flex items-center gap-1.5 font-medium">
+                  <span className="text-white/60">{project.name}</span>
+                  <span className="text-white/30">/</span>
+                  <span className="font-semibold text-white">Project brief</span>
+                </div>
+              ) : (
+                <div className="flex min-w-0 flex-1 items-center">
+                  <BreadcrumbBar
+                    onOpenMoveModal={(folder) => {
+                      setMovingFolder(folder);
+                      setMoveModalOpen(true);
+                    }}
+                    onOpenNewFolderModal={null}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Right: Authoritative Primary + New folder button */}
+            <div className="flex shrink-0 items-center pl-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setBriefView(false);
+                  setRightTab("project");
+                  setNavigationOpen(drawer);
+                  setAddingScope({
+                    projectId: activeProjectId,
+                    parentId: activeFolderId === UNSORTED ? null : activeFolderId,
+                  });
+                }}
+                className="flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-white/15"
+                disabled={maintenance}
+                title="Create new folder"
+              >
+                <FolderPlus className="h-3.5 w-3.5" />
+                <span>+ New folder</span>
+              </button>
+            </div>
+          </div>
+
+          {/* ── ROW 2: ASSET COMMAND BAR WITH IN-PLACE CONTEXTUAL SELECTION (44px; taller in the drawer, see globals.css) ── */}
+          {selectedIds.length > 0 ? (
+            /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same height as the search row).
+               Narrow panels drop labels instead of wrapping (see globals.css). */
+            <div
+              data-testid="selection-toolbar"
+              className="selection-toolbar flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line bg-ink-800/90 px-4 text-xs select-none"
+            >
+              {/* Left: Select all & count */}
+              <div className="flex min-w-0 items-center gap-2.5">
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={allSelected}
+                  aria-label="Select all"
+                  title={allSelected ? "Deselect all" : "Select all"}
+                  onClick={() => (allSelected ? clearSelection() : selectAll(itemIds))}
+                  className={cn(
+                    "grid h-4 w-4 shrink-0 place-items-center rounded border transition",
+                    allSelected
+                      ? "border-brand bg-brand text-ink-900"
+                      : "border-white/40 text-transparent hover:border-white"
+                  )}
+                >
+                  <Check className="h-3 w-3" strokeWidth={3} />
+                </button>
+
+                <span className="truncate font-semibold text-white">
+                  {selectedIds.length}<span className="selection-count-label"> selected</span>
+                </span>
+              </div>
+
+              {/* Right: Contextual actions */}
+              <div className="selection-actions flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={downloadSelectedZip}
+                  disabled={maintenance || !selectedExportableIds.length || isDownloadingZip}
+                  className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
+                  aria-label="Download ZIP"
+                  title="Download selected items as ZIP"
+                >
+                  {isDownloadingZip ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Download className="h-3.5 w-3.5" />
+                  )}
+                  <span className="selection-zip-label">Download ZIP</span>
+                </button>
+
+                {isAdmin && (<button
+                  type="button"
+                  disabled={maintenance}
+                  onClick={() => setMoveModalOpen(true)}
+                  className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30"
+                  aria-label="Move"
+                  title="Move selected items"
+                >
+                  <Move className="h-3.5 w-3.5" />
+                  <span className="selection-move-label">Move</span>
+                </button>)}
+
+                {/* More Actions Dropdown */}
+                {isAdmin && (<Dropdown
+                  align="right"
+                  maintenanceWrite
+                  label="More actions"
+                  trigger={(open) => (
+                    <span
+                      title="More actions"
+                      className={cn(
+                        "grid h-6 w-6 place-items-center rounded-full border border-line bg-ink-700/80 text-white/75 transition hover:text-white",
+                        open && "border-brand/40 text-white"
+                      )}
+                    >
+                      <MoreHorizontal className="h-3.5 w-3.5" />
+                    </span>
+                  )}
+                >
+                  {(close) => (
+                    <div className="py-1 min-w-[150px]">
+                      {project && (
+                        <MenuItem
+                          onClick={() => {
+                            close();
+                            moveGenerationsToDestination(selectedIds, { type: "global_root" })
+                              .catch((err) => notify(err.message || "Failed to move items."));
+                          }}
+                        >
+                          <span>Remove from Project</span>
+                        </MenuItem>
+                      )}
+                      <MenuItem
+                        onClick={async () => {
+                          close();
+                          if (
+                            await askConfirm({ title: `Delete ${selectedIds.length} ${selectedIds.length === 1 ? "item" : "items"}?`, description: "This can't be undone.", confirmLabel: "Delete", destructive: true })
+                          ) {
+                            try { await deleteGenerations(selectedIds); }
+                            catch (err) { notify(err.message || "Failed to delete items."); }
+                          }
+                        }}
+                        className="text-red-400 hover:text-red-300"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-red-400" />
+                        <span>Delete</span>
+                      </MenuItem>
+                    </div>
+                  )}
+                </Dropdown>)}
+
+                {/* Clear Selection */}
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="grid h-7 w-7 place-items-center rounded-md text-white/50 transition hover:bg-white/10 hover:text-white"
+                  title="Clear selection (Esc)"
+                  aria-label="Clear selection"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* The drawer gives search its own row (globals.css); the sidebar layout keeps the compact command bar. */
+            <div className="history-search-row flex h-11 shrink-0 items-center justify-between gap-3 border-b border-line bg-ink-850 px-4 select-none">
+              {/* Search Input (max-w ~380px) */}
+              <div className="history-search relative min-w-0 w-full max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" />
+                <input
+                  value={searchDraft}
+                  onChange={(e) => {
+                    setSearchDraft(e.target.value);
+                    setSearch(e.target.value);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      if (searchDraft) {
+                        e.preventDefault();
+                        setSearchDraft("");
+                        setSearch("");
+                      }
+                    }
+                  }}
+                  placeholder="Search assets…"
+                  aria-label="Search prompts"
+                  className="w-full rounded-full border border-line bg-ink-700/80 py-1 pl-8 pr-8 text-xs text-white/90 outline-none transition placeholder:text-white/35 focus:border-brand/40 focus:bg-ink-650"
+                />
+                {searchDraft && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchDraft("");
+                      setSearch("");
+                    }}
+                    className="absolute right-2 top-1/2 grid h-4 w-4 -translate-y-1/2 place-items-center rounded-full text-white/40 transition hover:bg-white/10 hover:text-white"
+                    aria-label="Clear search"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+                {refreshing && (
+                  <Loader2 className="pointer-events-none absolute right-7 top-1/2 h-3 w-3 -translate-y-1/2 animate-spin text-white/30" />
+                )}
+              </div>
+
+              {/* Type Filter & View Controls */}
+              <div className="history-view-controls flex shrink-0 items-center justify-end gap-2">
+                {/* Type Filter Dropdown */}
+                <Dropdown
+                  align="right"
+                  label="Filter by type"
+                  trigger={(open) => (
+                    <span
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
+                        open && "border-brand/40 text-white"
+                      )}
+                    >
+                      <span>{kindLabel}</span>
+                      <ChevronDown
+                        className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
+                      />
+                    </span>
+                  )}
+                >
+                  {(close) =>
+                    ["all", "image", "video"].map((k) => (
+                      <MenuItem
+                        key={k}
+                        active={filterKind === k}
+                        onClick={() => {
+                          setFilterKind(k);
+                          close();
+                        }}
+                      >
+                        <span className="flex-1 capitalize">
+                          {k === "all" ? "All types" : k + "s"}
+                        </span>
+                        {filterKind === k && <Check className="h-3.5 w-3.5 text-brand" />}
+                      </MenuItem>
+                    ))
+                  }
+                </Dropdown>
+
+                {/* View Dropdown (Thumbnail Size Slider) */}
+                <Dropdown
+                  align="right"
+                  label="View settings"
+                  trigger={(open) => (
+                    <span
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
+                        open && "border-brand/40 text-white"
+                      )}
+                    >
+                      <SlidersHorizontal className="h-3 w-3" />
+                      <span>View</span>
+                      <ChevronDown
+                        className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
+                      />
+                    </span>
+                  )}
+                >
+                  {() => (
+                    <div className="p-2.5 space-y-2 w-48">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block">
+                        Thumbnail Size
+                      </span>
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setZoom(assetCardWidth - 20)}
+                          disabled={assetCardWidth <= ZOOM_MIN}
+                          className="grid h-6 w-6 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20"
+                          title="Smaller"
+                        >
+                          <ZoomOut className="h-3 w-3" />
+                        </button>
+                        <input
+                          type="range"
+                          min={ZOOM_MIN}
+                          max={ZOOM_MAX}
+                          step={10}
+                          value={assetCardWidth}
+                          onChange={(e) => setZoom(Number(e.target.value))}
+                          className="h-1.5 flex-1 cursor-pointer accent-brand"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setZoom(assetCardWidth + 20)}
+                          disabled={assetCardWidth >= ZOOM_MAX}
+                          className="grid h-6 w-6 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20"
+                          title="Larger"
+                        >
+                          <ZoomIn className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </Dropdown>
+              </div>
+            </div>
+          )}
+
+          {/* ── ROW 3: OPTIONAL COMPACT FOLDER SECTION (COLLAPSED BY DEFAULT) ── */}
+          {!briefView && rightTab === "project" && activeFolderId !== UNSORTED && (
+            <ChildFolderList
+              parentId={activeFolderId}
               projectId={activeProjectId}
-              onSelectFolder={(fId) => {
-                setRightTab("project");
-                setBriefView(false);
-                setActiveFolder(fId);
-              }}
               onOpenMoveModal={(folder) => {
                 setMovingFolder(folder);
                 setMoveModalOpen(true);
               }}
-              onOpenNewFolderModal={(scope) => setAddingScope(scope)}
-            />
-
-            {/* Inline folder editor for subfolders */}
-            {addingScope && addingScope.parentId !== null && (
-              <div className="px-1 py-1">
-                <InlineFolderNameEditor
-                  label="Subfolder name"
-                  onCommit={async (name) => {
-                    await createFolder({ name, ...addingScope });
-                    setAddingScope(null);
-                  }}
-                  onClose={() => setAddingScope(null)}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-        <div data-testid="sticky-unsorted-rail" className="shrink-0 border-t border-line bg-ink-850 p-2">
-          <button type="button" aria-label={`${project?.name || "Global"} Unsorted`} onClick={() => { setRightTab("project"); setBriefView(false); setActiveFolder(UNSORTED); }}
-            onDragOver={(e) => { e.preventDefault(); const valid = isAdmin && !maintenance && !isFolderDragEvent(e); e.dataTransfer.dropEffect = valid ? "move" : "none"; setUnsortedDrop(valid); }}
-            onDragLeave={() => setUnsortedDrop(false)}
-            onDrop={(e) => { e.preventDefault(); setUnsortedDrop(false); if (maintenance || !isAdmin || isFolderDragEvent(e)) return; const { ids } = getAssetDragData(e, useStore.getState()); if (!ids.length) return; setFolderDropError(""); void moveGenerationsToDestination(ids, activeProjectId ? { type: "project_unsorted", projectId: activeProjectId } : { type: "global_unsorted" }).catch((err) => setFolderDropError(err.message)); }}
-            className={cn("flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-white/70", activeFolderId === UNSORTED && rightTab === "project" && "bg-brand/15 text-white", unsortedDrop && "ring-1 ring-brand bg-brand/20")}>
-            <Inbox className="h-4 w-4" /><span className="flex-1 text-left">Unsorted</span><span>{activeProjectId ? counts.project?.unsorted ?? 0 : counts.globalLibrary?.unsorted ?? 0}</span>
-          </button>
-          {folderDropError && <p role="alert" className="text-xs text-red-400">{folderDropError}</p>}
-        </div>
-        <FolderOperationRail />
-      </aside>
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          RIGHT: CURRENT LOCATION + COMMAND BAR + FOLDERS + ASSET CANVAS
-          ══════════════════════════════════════════════════════════════════════ */}
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col bg-ink-900">
-        {/* ── ROW 1: LOCATION / BREADCRUMB ROW (~44px high) ── */}
-        <div className="flex h-11 shrink-0 items-center justify-between border-b border-line bg-ink-850 px-4 text-xs select-none">
-          {/* Left: Location breadcrumb statement */}
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-            {rightTab === "history" ? (
-              <div className="flex items-center gap-2 font-semibold text-white">
-                <LayoutGrid className="h-4 w-4 text-white/50" />
-                <span>All Generations</span>
-              </div>
-            ) : rightTab === "favorites" ? (
-              <div className="flex items-center gap-2 font-semibold text-white">
-                <Star className="h-4 w-4 text-amber-400" />
-                <span>Favourites</span>
-              </div>
-            ) : briefView && project ? (
-              <div className="flex items-center gap-1.5 font-medium">
-                <span className="text-white/60">{project.name}</span>
-                <span className="text-white/30">/</span>
-                <span className="font-semibold text-white">Project brief</span>
-              </div>
-            ) : (
-              <div className="flex min-w-0 flex-1 items-center">
-                <BreadcrumbBar
-                  onOpenMoveModal={(folder) => {
-                    setMovingFolder(folder);
-                    setMoveModalOpen(true);
-                  }}
-                  onOpenNewFolderModal={null}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Right: Authoritative Primary + New folder button */}
-          <div className="flex shrink-0 items-center pl-3">
-            <button
-              type="button"
-              onClick={() => {
-                setBriefView(false);
-                setRightTab("project");
+              onOpenNewFolderModal={() =>
                 setAddingScope({
                   projectId: activeProjectId,
-                  parentId: activeFolderId === UNSORTED ? null : activeFolderId,
-                });
-              }}
-              className="flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-white/15"
-              disabled={maintenance}
-              title="Create new folder"
-            >
-              <FolderPlus className="h-3.5 w-3.5" />
-              <span>+ New folder</span>
-            </button>
-          </div>
-        </div>
-
-        {/* ── ROW 2: ASSET COMMAND BAR WITH IN-PLACE CONTEXTUAL SELECTION (~44px high) ── */}
-        {selectedIds.length > 0 ? (
-          /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same h-11).
-             Narrow panels drop labels instead of wrapping (see globals.css). */
-          <div
-            data-testid="selection-toolbar"
-            className="selection-toolbar flex h-11 shrink-0 items-center justify-between gap-2 border-b border-line bg-ink-800/90 px-4 text-xs select-none"
-          >
-            {/* Left: Select all & count */}
-            <div className="flex min-w-0 items-center gap-2.5">
-              <button
-                type="button"
-                role="checkbox"
-                aria-checked={allSelected}
-                aria-label="Select all"
-                title={allSelected ? "Deselect all" : "Select all"}
-                onClick={() => (allSelected ? clearSelection() : selectAll(itemIds))}
-                className={cn(
-                  "grid h-4 w-4 shrink-0 place-items-center rounded border transition",
-                  allSelected
-                    ? "border-brand bg-brand text-ink-900"
-                    : "border-white/40 text-transparent hover:border-white"
-                )}
-              >
-                <Check className="h-3 w-3" strokeWidth={3} />
-              </button>
-
-              <span className="truncate font-semibold text-white">
-                {selectedIds.length}<span className="selection-count-label"> selected</span>
-              </span>
-            </div>
-
-            {/* Right: Contextual actions */}
-            <div className="selection-actions flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                onClick={downloadSelectedZip}
-                disabled={maintenance || !selectedExportableIds.length || isDownloadingZip}
-                className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
-                aria-label="Download ZIP"
-                title="Download selected items as ZIP"
-              >
-                {isDownloadingZip ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Download className="h-3.5 w-3.5" />
-                )}
-                <span className="selection-zip-label">Download ZIP</span>
-              </button>
-
-              {isAdmin && (<button
-                type="button"
-                disabled={maintenance}
-                onClick={() => setMoveModalOpen(true)}
-                className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30"
-                aria-label="Move"
-                title="Move selected items"
-              >
-                <Move className="h-3.5 w-3.5" />
-                <span className="selection-move-label">Move</span>
-              </button>)}
-
-              {/* More Actions Dropdown */}
-              {isAdmin && (<Dropdown
-                align="right"
-                maintenanceWrite
-                label="More actions"
-                trigger={(open) => (
-                  <span
-                    title="More actions"
-                    className={cn(
-                      "grid h-6 w-6 place-items-center rounded-full border border-line bg-ink-700/80 text-white/75 transition hover:text-white",
-                      open && "border-brand/40 text-white"
-                    )}
-                  >
-                    <MoreHorizontal className="h-3.5 w-3.5" />
-                  </span>
-                )}
-              >
-                {(close) => (
-                  <div className="py-1 min-w-[150px]">
-                    {project && (
-                      <MenuItem
-                        onClick={() => {
-                          close();
-                          moveGenerationsToDestination(selectedIds, { type: "global_root" })
-                            .catch((err) => notify(err.message || "Failed to move items."));
-                        }}
-                      >
-                        <span>Remove from Project</span>
-                      </MenuItem>
-                    )}
-                    <MenuItem
-                      onClick={async () => {
-                        close();
-                        if (
-                          await askConfirm({ title: `Delete ${selectedIds.length} ${selectedIds.length === 1 ? "item" : "items"}?`, description: "This can't be undone.", confirmLabel: "Delete", destructive: true })
-                        ) {
-                          try { await deleteGenerations(selectedIds); }
-                          catch (err) { notify(err.message || "Failed to delete items."); }
-                        }
-                      }}
-                      className="text-red-400 hover:text-red-300"
-                    >
-                      <Trash2 className="h-3.5 w-3.5 text-red-400" />
-                      <span>Delete</span>
-                    </MenuItem>
-                  </div>
-                )}
-              </Dropdown>)}
-
-              {/* Clear Selection */}
-              <button
-                type="button"
-                onClick={clearSelection}
-                className="grid h-7 w-7 place-items-center rounded-md text-white/50 transition hover:bg-white/10 hover:text-white"
-                title="Clear selection (Esc)"
-                aria-label="Clear selection"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* Normal State: Search + Filters + View (EXACT same h-11) */
-          <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-line bg-ink-850 px-4 select-none">
-            {/* Search Input (max-w ~380px) */}
-            <div className="relative w-full max-w-sm sm:max-w-md">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" />
-              <input
-                value={searchDraft}
-                onChange={(e) => {
-                  setSearchDraft(e.target.value);
-                  setSearch(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    if (searchDraft) {
-                      e.preventDefault();
-                      setSearchDraft("");
-                      setSearch("");
-                    }
-                  }
-                }}
-                placeholder="Search assets…"
-                aria-label="Search prompts"
-                className="w-full rounded-full border border-line bg-ink-700/80 py-1 pl-8 pr-8 text-xs text-white/90 outline-none transition placeholder:text-white/35 focus:border-brand/40 focus:bg-ink-650"
-              />
-              {searchDraft && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchDraft("");
-                    setSearch("");
-                  }}
-                  className="absolute right-2 top-1/2 grid h-4 w-4 -translate-y-1/2 place-items-center rounded-full text-white/40 transition hover:bg-white/10 hover:text-white"
-                  aria-label="Clear search"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-              {refreshing && (
-                <Loader2 className="pointer-events-none absolute right-7 top-1/2 h-3 w-3 -translate-y-1/2 animate-spin text-white/30" />
-              )}
-            </div>
-
-            {/* Type Filter & View Controls */}
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Type Filter Dropdown */}
-              <Dropdown
-                align="right"
-                label="Filter by type"
-                trigger={(open) => (
-                  <span
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
-                      open && "border-brand/40 text-white"
-                    )}
-                  >
-                    <span>{kindLabel}</span>
-                    <ChevronDown
-                      className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
-                    />
-                  </span>
-                )}
-              >
-                {(close) =>
-                  ["all", "image", "video"].map((k) => (
-                    <MenuItem
-                      key={k}
-                      active={filterKind === k}
-                      onClick={() => {
-                        setFilterKind(k);
-                        close();
-                      }}
-                    >
-                      <span className="flex-1 capitalize">
-                        {k === "all" ? "All types" : k + "s"}
-                      </span>
-                      {filterKind === k && <Check className="h-3.5 w-3.5 text-brand" />}
-                    </MenuItem>
-                  ))
-                }
-              </Dropdown>
-
-              {/* View Dropdown (Thumbnail Size Slider) */}
-              <Dropdown
-                align="right"
-                label="View settings"
-                trigger={(open) => (
-                  <span
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
-                      open && "border-brand/40 text-white"
-                    )}
-                  >
-                    <SlidersHorizontal className="h-3 w-3" />
-                    <span>View</span>
-                    <ChevronDown
-                      className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
-                    />
-                  </span>
-                )}
-              >
-                {() => (
-                  <div className="p-2.5 space-y-2 w-48">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block">
-                      Thumbnail Size
-                    </span>
-                    <div className="flex items-center justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setZoom(assetCardWidth - 20)}
-                        disabled={assetCardWidth <= ZOOM_MIN}
-                        className="grid h-6 w-6 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20"
-                        title="Smaller"
-                      >
-                        <ZoomOut className="h-3 w-3" />
-                      </button>
-                      <input
-                        type="range"
-                        min={ZOOM_MIN}
-                        max={ZOOM_MAX}
-                        step={10}
-                        value={assetCardWidth}
-                        onChange={(e) => setZoom(Number(e.target.value))}
-                        className="h-1.5 flex-1 cursor-pointer accent-brand"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setZoom(assetCardWidth + 20)}
-                        disabled={assetCardWidth >= ZOOM_MAX}
-                        className="grid h-6 w-6 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white disabled:opacity-20"
-                        title="Larger"
-                      >
-                        <ZoomIn className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </Dropdown>
-            </div>
-          </div>
-        )}
-
-        {/* ── ROW 3: OPTIONAL COMPACT FOLDER SECTION (COLLAPSED BY DEFAULT) ── */}
-        {!briefView && rightTab === "project" && activeFolderId !== UNSORTED && (
-          <ChildFolderList
-            parentId={activeFolderId}
-            projectId={activeProjectId}
-            onOpenMoveModal={(folder) => {
-              setMovingFolder(folder);
-              setMoveModalOpen(true);
-            }}
-            onOpenNewFolderModal={() =>
-              setAddingScope({
-                projectId: activeProjectId,
-                parentId: activeFolderId,
-              })
-            }
-          />
-        )}
-
-        {/* ── ROW 4: MAIN CANVAS (BRIEF OR ASSET GRID DOMINATING SCREEN) ── */}
-        <div className="flex min-h-0 flex-1 flex-col">
-          {briefView && project ? (
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <BriefEditor projectId={project.id} brief={project.brief ?? ""} />
-            </div>
-          ) : (
-            <AssetGrid
-              items={items}
-              loading={loading}
-              cardWidth={assetCardWidth}
-              empty={
-                rightTab === "favorites" ? (
-                  <EmptyState
-                    icon={<Star className="h-6 w-6 text-amber-300/70" />}
-                    title={
-                      search.trim() || filterKind !== "all"
-                        ? "No matching favourites"
-                        : "No favourites yet"
-                    }
-                    body={
-                      search.trim() || filterKind !== "all"
-                        ? "No starred item matches the current search and type filter."
-                        : "Star your best generations and they collect here, newest first."
-                    }
-                  />
-                ) : (
-                  <EmptyState
-                    icon={<HistoryIcon className="h-6 w-6" />}
-                    title={
-                      search.trim() || filterKind !== "all"
-                        ? "No matches"
-                        : "Nothing generated yet"
-                    }
-                    body={
-                      search.trim() || filterKind !== "all"
-                        ? "No generation matches the current search and type filter."
-                        : "Every image and video generated appears here."
-                    }
-                  />
-                )
+                  parentId: activeFolderId,
+                })
               }
-              renderItem={(item) => <MediaCard key={item.id} item={item} selectable />}
             />
           )}
-        </div>
-      </main>
+
+          {/* ── ROW 4: MAIN CANVAS (BRIEF OR ASSET GRID DOMINATING SCREEN) ── */}
+          <div className="flex min-h-0 flex-1 flex-col">
+            {briefView && project ? (
+              <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                <BriefEditor projectId={project.id} brief={project.brief ?? ""} />
+              </div>
+            ) : (
+              <AssetGrid
+                items={items}
+                loading={loading}
+                cardWidth={assetCardWidth}
+                empty={
+                  rightTab === "favorites" ? (
+                    <EmptyState
+                      icon={<Star className="h-6 w-6 text-amber-300/70" />}
+                      title={
+                        search.trim() || filterKind !== "all"
+                          ? "No matching favourites"
+                          : "No favourites yet"
+                      }
+                      body={
+                        search.trim() || filterKind !== "all"
+                          ? "No starred item matches the current search and type filter."
+                          : "Star your best generations and they collect here, newest first."
+                      }
+                    />
+                  ) : (
+                    <EmptyState
+                      icon={<HistoryIcon className="h-6 w-6" />}
+                      title={
+                        search.trim() || filterKind !== "all"
+                          ? "No matches"
+                          : "Nothing generated yet"
+                      }
+                      body={
+                        search.trim() || filterKind !== "all"
+                          ? "No generation matches the current search and type filter."
+                          : "Every image and video generated appears here."
+                      }
+                    />
+                  )
+                }
+                renderItem={(item) => <MediaCard key={item.id} item={item} selectable />}
+              />
+            )}
+          </div>
+        </main>
+      </div>
 
       {/* ══════════════════════════════════════════════════════════════════════
           FLOATING ANCHORED ZIP PROGRESS TOAST (BOTTOM-RIGHT, NEVER PUSHES GRID)

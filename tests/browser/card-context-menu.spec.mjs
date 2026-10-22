@@ -280,6 +280,7 @@ test.describe('card context on touch', () => {
       await page.goto('/');
       await page.locator('button[aria-controls="mobile-history-panel"]').click();
       const panel = page.locator('#mobile-history-panel');
+      await panel.getByRole('button', { name: 'Folders', exact: true }).click();
       await panel.getByRole('button', { name: 'Global library', exact: true }).click();
       const searched = page.waitForResponse(response => response.url().includes(`q=${tag}`) && response.url().includes('limit='));
       await panel.getByRole('textbox', { name: 'Search prompts' }).fill(tag);
@@ -290,7 +291,7 @@ test.describe('card context on touch', () => {
       await expect(card.getByRole('button', { name: 'More actions' })).toHaveCSS('opacity', '1');
       const box = await card.boundingBox();
       const cdp = await context.newCDPSession(page);
-      const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+      const point = { x: box.x + 24, y: box.y + box.height / 2 };
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point] });
       await page.waitForTimeout(800);
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });

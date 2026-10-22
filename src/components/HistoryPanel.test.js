@@ -18,7 +18,7 @@ async function harness(run) {
   useStore.setState({ currentUser: { id: 'one' }, items: [], selectedIds: [], projects: [], activeProjectId: null,
     activeFolderId: null, libraryTree: { globalFolders: [], projects: [] }, operations: {}, rightTab: 'history', loading: false });
   const root = createRoot(document.querySelector('#root'));
-  try { await run({ render: () => act(async () => root.render(React.createElement(HistoryPanel))) }); }
+  try { await run({ render: (props) => act(async () => root.render(React.createElement(HistoryPanel, props))) }); }
   finally { await act(async () => root.unmount()); useStore.setState(original, true); Object.assign(globalThis, prior); dom.window.close(); }
 }
 const reply = (status, body) => ({ status, ok: status < 300, json: async () => body });
@@ -62,5 +62,26 @@ test('ZIP rapid activation creates and finalizes once;409 reason is visible and 
     assert.equal(calls.filter(url => url.endsWith('/finalize')).length, 1);
     assert.match(document.querySelector('[role="status"]').textContent, /Selected source unavailable/);
     assert.ok([...document.querySelectorAll('button')].some(button => button.textContent === 'Retry'));
+  });
+});
+
+test('folder navigation toggle exposes its state and Escape returns focus without closing the library', async () => {
+  await harness(async ({ render }) => {
+    await render();
+    assert.equal([...document.querySelectorAll('button')].some(button => button.textContent === 'Folders'), false, 'the sidebar layout has no folder toggle');
+    await render({ drawer: true });
+    const toggle = [...document.querySelectorAll('button[aria-controls]')].find(button => button.textContent === 'Folders');
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+    assert.ok(document.getElementById(toggle.getAttribute('aria-controls')));
+    await act(async () => toggle.click());
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(toggle.textContent, 'Back to assets');
+    toggle.focus();
+    let escaped = false;
+    document.addEventListener('keydown', () => { escaped = true; });
+    await act(async () => toggle.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(document.activeElement, toggle);
+    assert.equal(escaped, false, 'Escape closes folders before it can close the outer drawer');
   });
 });
