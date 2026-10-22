@@ -714,7 +714,9 @@ export function MediaCard({
           >
             <MoreHorizontal className="media-card-icon" />
           </button>
-          {done && (
+          {/* During maintenance only a favourite keeps its (disabled) star; the
+              hover-only "add" star would be revealed by the paused-control dimming. */}
+          {done && (item.isFavorite || !maintenance) && (
             <button
               type="button"
               disabled={maintenance}

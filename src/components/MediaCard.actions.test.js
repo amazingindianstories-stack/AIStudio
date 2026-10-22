@@ -135,6 +135,23 @@ test('the card face holds only the avatar, the draft label, the checkbox, the ".
   }, users);
 });
 
+test('during maintenance an unfavourited card has no favourite star while a favourite keeps its disabled star', async () => {
+  const base = { ...failed, status: 'succeeded', error: null, moderationBlocked: false, url: '/api/media/generations/v.mov', createdAt: Date.now() };
+  useMaintenance.setState({ enabled: true });
+  try {
+    await harness({ ...base, id: 'plain-1' }, async ({ card }) => {
+      assert.equal(card.querySelector('[data-favorite-star]'), null);
+    });
+    await harness({ ...base, id: 'fav-2', isFavorite: true }, async ({ calls, card }) => {
+      const star = card.querySelector('[data-favorite-star]');
+      assert.equal(star.disabled, true);
+      assert.equal(star.getAttribute('aria-pressed'), 'true');
+      await act(async () => star.click());
+      assert.equal(calls.length, 0);
+    });
+  } finally { useMaintenance.setState({ enabled: false }); }
+});
+
 test('the "..." button opens the same menu and toggles it closed; Escape closes it', async () => {
   await harness({ ...failed, id: 'm1', status: 'succeeded', error: null, moderationBlocked: false, url: '/x.png', kind: 'image' }, async ({ card }) => {
     const more = card.querySelector('[aria-label="More actions"]');
