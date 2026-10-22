@@ -349,6 +349,8 @@ export function HistoryPanel({ drawer = false }) {
       }
     }
 
+    // Portaled menus bubble here through React; leaving Folders view from one
+    // would hide its trigger and orphan the open menu over the asset grid.
     const fromOpenMenu =
       !e.currentTarget.contains(e.target) || e.target.closest('[aria-haspopup="menu"][aria-expanded="true"]');
     if (
