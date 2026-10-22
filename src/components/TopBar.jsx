@@ -111,7 +111,7 @@ export function TopBar() {
 
         <span className="hidden h-6 w-px shrink-0 bg-line sm:block" aria-hidden />
 
-        <nav aria-label="Sections" className="topbar-sections flex min-w-0 flex-1 items-center sm:gap-1">
+        <nav aria-label="Sections" data-agents-locked={!isAdmin || undefined} className="topbar-sections flex min-w-0 flex-1 items-center sm:gap-1">
           {DESTINATIONS.filter((d) => d.id === "board" || modeAvailable(d.id, availableModelIds)).map((d) => {
             const active = d.id === activeDestination;
             return (

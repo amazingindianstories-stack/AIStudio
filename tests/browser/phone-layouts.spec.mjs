@@ -157,3 +157,28 @@ for (const width of [390, 768, 1024, 1280]) {
     }
   });
 }
+for (const role of ['admin', 'user']) {
+  test(`Phone layouts header labels never overflow as a ${role}`, async ({ page, context, baseURL }) => {
+    if (role === 'user') await page.route('**/api/auth/me', async route => {
+      const response = await route.fetch();
+      const body = await response.json();
+      await route.fulfill({ response, json: { ...body, user: { ...body.user, role, name: 'Desktop fixture with a long display name' } } });
+    });
+    await login(page, context, baseURL, 1280);
+    const nav = page.getByRole('navigation', { name: 'Sections' });
+    await expect(nav.getByText('Agents', { exact: true })).toBeVisible();
+    if (role === 'user') await expect(nav.locator('[aria-disabled="true"]')).toBeVisible();
+    for (let width = 960; width <= 1200; width += 3) {
+      await page.setViewportSize({ width, height: 800 });
+      const layout = await nav.evaluate(el => {
+        const controls = el.nextElementSibling.getBoundingClientRect().left;
+        const labels = [...el.querySelectorAll('.topbar-label')].map(label => label.getBoundingClientRect().width > 0);
+        return {
+          fits: el.scrollWidth <= el.clientWidth && [...el.children].every(item => item.getBoundingClientRect().right <= controls - 8),
+          labels: new Set(labels).size === 1 ? labels[0] : 'mixed',
+        };
+      });
+      expect(layout, `${width}px`).toEqual({ fits: true, labels: width === 1200 || (role === 'admin' && width >= 1024) ? true : expect.any(Boolean) });
+    }
+  });
+}

@@ -239,10 +239,14 @@ body {
 
 /* Header section labels show only once every label fits beside the logo and
    account controls; until then each section, Audio included, is an icon with
-   its accessible name. */
+   its accessible name. Labelled, the sections measure ~623px; the locked
+   Agents chip adds its lock (~16px). Each threshold keeps ~9px to spare. */
 .topbar-sections { container: sections / inline-size; }
 .topbar-label { display: none; }
-@container sections (min-width: 39rem) {
+@container sections (min-width: 39.5rem) {
+  .topbar-sections:not([data-agents-locked]) .topbar-label { display: inline; }
+}
+@container sections (min-width: 40.5rem) {
   .topbar-label { display: inline; }
 }
 
