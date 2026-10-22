@@ -240,10 +240,18 @@ body {
 /* Size library navigation against the panel, not the whole browser. */
 .history-panel { container-type: inline-size; container-name: history; }
 .history-navigation { width: clamp(10.5rem, 30cqw, 15rem); max-width: 40%; }
-@media (max-width: 639px) {
+.history-navigation-toggle { display: none; }
+/* A narrow panel (every phone and tablet drawer) shows folders or assets, not
+   both, and gives search its own row. */
+@container history (max-width: 32rem) {
+  .history-layout { flex-direction: column; }
+  .history-navigation-toggle { display: flex; }
   .history-navigation { display: none; width: 100%; max-width: none; flex: 1; border-right: 0; }
-  .history-panel[data-navigation-open="true"] > .history-navigation { display: flex; }
-  .history-panel[data-navigation-open="true"] > main { display: none; }
+  .history-panel[data-navigation-open="true"] .history-navigation { display: flex; }
+  .history-panel[data-navigation-open="true"] .history-main { display: none; }
+  .history-search-row { height: auto; flex-wrap: wrap; gap: .5rem; padding-block: .5rem; }
+  .history-search { flex-basis: 100%; max-width: none; }
+  .history-view-controls { width: 100%; }
 }
 
 /* The selection toolbar swaps in for the 44px search row, so ticking a card

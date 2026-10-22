@@ -68,12 +68,12 @@ test('ZIP rapid activation creates and finalizes once;409 reason is visible and 
 test('folder navigation toggle exposes its state and Escape returns focus without closing the library', async () => {
   await harness(async ({ render }) => {
     await render();
-    const toggle = document.querySelector('button[aria-label="Show folders"]');
+    const toggle = [...document.querySelectorAll('button[aria-controls]')].find(button => button.textContent === 'Folders');
     assert.equal(toggle.getAttribute('aria-expanded'), 'false');
     assert.ok(document.getElementById(toggle.getAttribute('aria-controls')));
     await act(async () => toggle.click());
     assert.equal(toggle.getAttribute('aria-expanded'), 'true');
-    assert.equal(toggle.getAttribute('aria-label'), 'Hide folders');
+    assert.equal(toggle.textContent, 'Back to assets');
     toggle.focus();
     let escaped = false;
     document.addEventListener('keydown', () => { escaped = true; });

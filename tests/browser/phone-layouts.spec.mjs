@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
 import { createHmac } from 'node:crypto';
 
-async function login(page, context, baseURL, width) {
+async function login(page, context, baseURL, width, height = width === 390 ? 844 : 1000) {
   const payload = Buffer.from(JSON.stringify({ uid: 'e33e1832-9e29-427f-af61-796b842a4b37', ver: 0, exp: Date.now() + 3600000 })).toString('base64url');
   const sig = createHmac('sha256', process.env.AUTH_SECRET).update(payload).digest('base64url');
   await context.addCookies([{ name: 'veevee_session', value: `${payload}.${sig}`, url: baseURL }]);
-  await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+  await page.setViewportSize({ width, height });
   await page.goto('/');
-  await expect(page.getByRole('button', { name: width === 390 ? 'D' : /Desktop fixture/, exact: width === 390 })).toBeVisible();
+  await expect(page.getByRole('button', { name: width < 1024 ? 'D' : /Desktop fixture/, exact: width < 1024 })).toBeVisible();
 }
 async function contained(locator) {
   await expect(locator).toBeVisible();
@@ -43,44 +43,6 @@ for (const width of [390, 1440]) {
       await contained(button); await separate(title, button);
     }
   });
-  test(`Phone layouts library ${width}`, async ({ page, context, baseURL }, info) => {
-    await login(page, context, baseURL, width);
-    if (width === 390) await page.getByRole('button', { name: 'Open assets panel', exact: true }).click();
-    else {
-      const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
-      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
-    }
-    const panel = page.locator('.history-panel:visible');
-    const navToggle = panel.getByRole('button', { name: 'Show folders', exact: true });
-    if (width === 390 && await navToggle.count()) await navToggle.click();
-    await panel.getByRole('button', { name: 'All assets', exact: true }).click();
-    if (width === 390 && await panel.getByRole('button', { name: 'Hide folders', exact: true }).count()) await panel.getByRole('button', { name: 'Hide folders', exact: true }).click();
-    const search = panel.getByRole('textbox', { name: 'Search prompts' });
-    await search.fill('Desktop fixture');
-    await page.screenshot({ path: info.outputPath('library.png') });
-    expect((await search.boundingBox()).width).toBeGreaterThan(width === 390 ? 180 : 100);
-    await contained(panel.locator('main'));
-    const view = panel.getByRole('button', { name: 'View settings' });
-    await contained(view); await separate(search, view);
-    await contained(panel.getByRole('button', { name: 'Filter by type' }));
-    await noPageOverflow(page);
-    await view.click();
-    await expect(page.getByText('Thumbnail Size', { exact: true })).toBeVisible();
-    await view.click();
-    await expect(page.getByText('Thumbnail Size', { exact: true })).toBeHidden();
-    if (width === 390) {
-      await navToggle.click();
-      await expect(panel.getByRole('button', { name: 'All assets', exact: true })).toBeVisible();
-      await contained(panel.locator('aside'));
-      const switcher = panel.getByRole('button', { name: 'Switch workspace' });
-      expect(Math.abs((await switcher.boundingBox()).width - (await panel.locator('aside').boundingBox()).width)).toBeLessThan(2);
-      await page.screenshot({ path: info.outputPath('library-folders.png') });
-      await panel.getByRole('button', { name: 'Hide folders', exact: true }).press('Escape');
-      await expect(panel.getByRole('button', { name: 'Show folders', exact: true })).toBeFocused();
-      await expect(page.getByRole('button', { name: 'Close assets panel' })).toBeVisible();
-      await expect(search).toBeVisible();
-    }
-  });
   test(`Phone layouts admin errors ${width}`, async ({ page, context, baseURL }, info) => {
     await login(page, context, baseURL, width);
     await page.route('**/api/admin/errors?*', route => route.fulfill({ json: { rows: [{ id: 'phone-error', userEmail: 'artist@example.test', model: 'Seedance 2.5', provider: 'seedance', createdAt: 1792600000000, code: 'InputAudioSensitiveContentDetected', message: 'The provider rejected the supplied audio. Please choose another reference.', requestId: 'request-012345678901234567890123456789', records: [] }], total: 1, nextCursor: null, models: ['Seedance 2.5'], providers: ['seedance'] } }));
@@ -97,5 +59,71 @@ for (const width of [390, 1440]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     await page.getByRole('button', { name: 'Show error details' }).filter({ visible: true }).click();
     await expect(page.getByText('No raw provider response was stored for this error.').filter({ visible: true })).toBeVisible();
+    await page.screenshot({ path: info.outputPath('admin-errors-detail.png') });
+    const [card, detail] = await Promise.all([0, 1].map(i => page.locator('tbody > tr:visible').nth(i).boundingBox()));
+    expect(Math.abs(card.y + card.height - detail.y)).toBeLessThan(1);
+    expect(Math.abs(card.x - detail.x) + Math.abs(card.width - detail.width)).toBeLessThan(1);
+    await noPageOverflow(page);
+  });
+}
+for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1440, 1000]]) {
+  test(`Phone layouts library ${width}x${height}`, async ({ page, context, baseURL }, info) => {
+    await login(page, context, baseURL, width, height);
+    const drawer = width < 1024;
+    if (drawer) await page.getByRole('button', { name: 'Open assets panel', exact: true }).click();
+    else {
+      const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+    }
+    const panel = page.locator('.history-panel:visible');
+    const navToggle = panel.getByRole('button', { name: 'Folders', exact: true });
+    const allAssets = panel.getByRole('button', { name: 'All assets', exact: true });
+    if (drawer) {
+      await expect(allAssets).toBeHidden();
+      await navToggle.click();
+      await allAssets.click();
+      await expect(allAssets).toBeHidden();
+      await expect(navToggle).toBeFocused();
+    } else {
+      await expect(navToggle).toBeHidden();
+      await allAssets.click();
+      await expect(allAssets).toBeVisible();
+    }
+    const search = panel.getByRole('textbox', { name: 'Search prompts' });
+    await search.fill('Desktop fixture');
+    await page.screenshot({ path: info.outputPath('library.png') });
+    expect((await search.boundingBox()).width).toBeGreaterThan(drawer ? 180 : 100);
+    await contained(panel.locator('main'));
+    const view = panel.getByRole('button', { name: 'View settings' });
+    await contained(view); await separate(search, view);
+    await contained(panel.getByRole('button', { name: 'Filter by type' }));
+    await noPageOverflow(page);
+    await view.click();
+    await expect(page.getByText('Thumbnail Size', { exact: true })).toBeVisible();
+    await view.click();
+    await expect(page.getByText('Thumbnail Size', { exact: true })).toBeHidden();
+    if (drawer) {
+      await navToggle.click();
+      await expect(allAssets).toBeVisible();
+      await expect(search).toBeHidden();
+      await contained(panel.locator('aside'));
+      const switcher = panel.getByRole('button', { name: 'Switch workspace' });
+      expect(Math.abs((await switcher.boundingBox()).width - (await panel.locator('aside').boundingBox()).width)).toBeLessThan(2);
+      await page.screenshot({ path: info.outputPath('library-folders.png') });
+      const menu = page.getByRole('menu');
+      for (const target of [switcher, menu.getByRole('textbox', { name: 'Search projects' })]) {
+        await switcher.click();
+        await target.focus();
+        await page.keyboard.press('Escape');
+        await expect(menu).toBeHidden();
+        await expect(switcher).toBeFocused();
+        await expect(allAssets).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Close assets panel' })).toBeVisible();
+      }
+      await panel.getByRole('button', { name: 'Back to assets', exact: true }).press('Escape');
+      await expect(navToggle).toBeFocused();
+      await expect(page.getByRole('button', { name: 'Close assets panel' })).toBeVisible();
+      await expect(search).toBeVisible();
+    }
   });
 }

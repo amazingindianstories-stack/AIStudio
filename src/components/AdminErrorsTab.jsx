@@ -310,14 +310,14 @@ export function AdminErrorsTab({ data, usersById }) {
               <th className="px-3 py-2" aria-label="Support" />
             </tr>
           </thead>
-          <tbody className="grid gap-3 sm:table-row-group">
+          <tbody className="grid sm:table-row-group">
             {rows.map((row) => {
               const expanded = open.has(row.id);
               const time = errorTime(row);
               return (
                 <Fragment key={row.id}>
                   <tr
-                    className={cn("grid min-w-0 grid-cols-[minmax(0,1fr)_auto] cursor-pointer rounded-lg border border-line align-top transition hover:bg-white/[0.02] sm:table-row sm:rounded-none sm:border-0 sm:border-t", expanded && "bg-white/[0.02]")}
+                    className={cn("mt-3 grid min-w-0 grid-cols-[minmax(0,1fr)_auto] cursor-pointer rounded-lg border border-line align-top transition first:mt-0 hover:bg-white/[0.02] sm:mt-0 sm:table-row sm:rounded-none sm:border-0 sm:border-t", expanded && "rounded-b-none border-b-0 bg-white/[0.02]")}
                     onClick={() => toggle(row.id)}
                   >
                     <td className="col-span-2 px-3 py-2 text-xs text-white/55 sm:whitespace-nowrap" title={`${formatUtc(time)}\n${formatIst(time)}`}>
@@ -365,9 +365,9 @@ export function AdminErrorsTab({ data, usersById }) {
                     </td>
                   </tr>
                   {expanded && (
-                    <tr className="block bg-white/[0.02] sm:table-row">
+                    <tr className="block rounded-b-lg border border-t-0 border-line bg-white/[0.02] sm:table-row sm:rounded-none sm:border-0">
                       <td colSpan={6} className="block p-0 sm:table-cell">
-                        <div className="sticky left-0" style={visibleWidth ? { width: visibleWidth } : undefined}>
+                        <div className="sticky left-0 max-w-full" style={visibleWidth ? { width: visibleWidth } : undefined}>
                           <ErrorDetail row={row} />
                         </div>
                       </td>

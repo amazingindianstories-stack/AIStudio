@@ -104,7 +104,7 @@ export function TopBar() {
       <header className="relative z-40 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-ink-900 px-2 sm:gap-4 sm:px-5">
         <div className="flex shrink-0 items-center gap-2.5">
           <img src="/logo.png" alt="Veevee.ai" className="h-8 w-8 rounded-lg shadow-sm" />
-          <span className="hidden text-[17px] font-semibold tracking-tight text-white sm:inline">
+          <span className="hidden text-[17px] font-semibold tracking-tight text-white md:inline">
             Veevee.ai
           </span>
         </div>
@@ -121,7 +121,7 @@ export function TopBar() {
                 aria-label={d.label}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors sm:px-3",
+                  "relative flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-sm font-medium transition-colors sm:px-3",
                   active ? "text-white" : "text-white/50 hover:bg-white/5 hover:text-white/90"
                 )}
               >
@@ -154,7 +154,7 @@ export function TopBar() {
                     />
                   )}
                 </span>
-                <span className="relative z-10 hidden sm:inline">{d.label}</span>
+                <span className="relative z-10 hidden min-[1100px]:inline">{d.label}</span>
               </button>
             );
           })}
@@ -176,7 +176,7 @@ export function TopBar() {
               aria-label="Agents"
               aria-current={activeDestination === "agents" ? "page" : undefined}
               className={cn(
-                "relative flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors sm:px-3",
+                "relative flex items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-sm font-medium transition-colors sm:px-3",
                 activeDestination === "agents"
                   ? "text-white"
                   : "text-white/50 hover:bg-white/5 hover:text-white/90"
@@ -190,7 +190,7 @@ export function TopBar() {
                 />
               )}
               <Sparkles className="relative z-10 h-4 w-4 text-brand" strokeWidth={1.9} />
-              <span className="relative z-10 hidden sm:inline">Agents</span>
+              <span className="relative z-10 hidden min-[1100px]:inline">Agents</span>
             </button>
           ) : (
             <span
@@ -199,7 +199,7 @@ export function TopBar() {
               className="flex cursor-not-allowed items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white/25"
             >
               <Sparkles className="h-4 w-4" strokeWidth={1.9} />
-              <span className="hidden sm:inline">Agents</span>
+              <span className="hidden min-[1100px]:inline">Agents</span>
               <Lock className="h-3 w-3" strokeWidth={2} />
             </span>
           )}
@@ -239,11 +239,11 @@ export function TopBar() {
                     />
                   )}
                 </span>
-                <span className="hidden max-w-[140px] truncate sm:inline">
+                <span className="hidden max-w-[140px] truncate lg:inline">
                   {user.name || user.email}
                 </span>
                 <ChevronDown
-                  className={cn("hidden h-3.5 w-3.5 transition-transform sm:block", open && "rotate-180")}
+                  className={cn("hidden h-3.5 w-3.5 transition-transform lg:block", open && "rotate-180")}
                 />
               </span>
             )}
