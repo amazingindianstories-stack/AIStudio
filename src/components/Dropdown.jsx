@@ -21,6 +21,7 @@ export function Dropdown({
   className,
   panelClassName,
   label,
+  onOpen,
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState(null);
@@ -42,8 +43,9 @@ export function Dropdown({
   // panel but has no way to reach an item inside it.
   const openAndFocus = useCallback((fromEnd) => {
     keyboardFocusRef.current = { fromEnd };
+    onOpen?.();
     setOpen(true);
-  }, []);
+  }, [onOpen]);
 
   // The positioned portal must be visible before focusing; focusing a hidden
   // menu on the opening animation frame silently fails in real browsers.
@@ -160,7 +162,10 @@ export function Dropdown({
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open) onOpen?.();
+          setOpen(!open);
+        }}
         onKeyDown={(e) => {
           if (open) return;
           if (e.key === "ArrowDown") {

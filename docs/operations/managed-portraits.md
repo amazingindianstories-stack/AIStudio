@@ -104,7 +104,8 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 
 ## Rollback
 - **Flag only** (fast, keeps the schema): set `VEEVEE_MANAGED_PORTRAITS=0` (or remove it) on the
-  three services and redeploy. Face references go inline again as before. The old portraits **cannot
+  three services and redeploy. Face references go inline again as before, and the composer's attachment
+  menu hides Portrait Gallery (it follows `enabled` from `GET /api/portraits`). The old portraits **cannot
   come back**: the cutover deleted them at BytePlus (their rows stay as `Retired`).
 - **To an old launcher** (needs the 60-row history):
   1. Flag off on every service (above); wait until no queued/running generation holds a pin (the command

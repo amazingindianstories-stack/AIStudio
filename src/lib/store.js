@@ -2672,6 +2672,9 @@ export const useStore = create((set, get) => ({
       if (json.user) {
         set({ currentUser: json.user });
         get().applyModelAvailability(json.availability?.models);
+        // The list response owns managed-portrait availability. Resolve it before
+        // anyone opens the attachment menu, including when the gallery is off.
+        await get().loadPortraits();
       } else window.location.href = "/login";
     } catch {
       /* ignore */

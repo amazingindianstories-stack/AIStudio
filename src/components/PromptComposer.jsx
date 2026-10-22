@@ -740,6 +740,9 @@ export function PromptComposer() {
         {/* upload */}
         <Dropdown
           side="top"
+          onOpen={() => {
+            if (s.portraits.enabled === null && !s.portraits.loading) void s.loadPortraits();
+          }}
           trigger={(open) => (
             <span
               className={cn(
@@ -817,14 +820,16 @@ export function PromptComposer() {
               >
                 <BookOpen className="h-4 w-4 text-brand" /> Material library
               </MenuItem>
-              <MenuItem
-                onClick={() => {
-                  s.setPortraitGalleryOpen(true);
-                  close({ restoreFocus: false });
-                }}
-              >
-                <Images className="h-4 w-4 text-brand" /> Portrait Gallery
-              </MenuItem>
+              {s.portraits.enabled === true && (
+                <MenuItem
+                  onClick={() => {
+                    s.setPortraitGalleryOpen(true);
+                    close({ restoreFocus: false });
+                  }}
+                >
+                  <Images className="h-4 w-4 text-brand" /> Portrait Gallery
+                </MenuItem>
+              )}
             </>
           )}
         </Dropdown>
