@@ -349,9 +349,12 @@ export function HistoryPanel({ drawer = false }) {
       }
     }
 
+    const fromOpenMenu =
+      !e.currentTarget.contains(e.target) || e.target.closest('[aria-haspopup="menu"][aria-expanded="true"]');
     if (
-      ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) ||
-      (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA")
+      !fromOpenMenu &&
+      (((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) ||
+        (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA"))
     ) {
       const searchInput = document.querySelector('input[aria-label="Search prompts"]');
       if (searchInput) {

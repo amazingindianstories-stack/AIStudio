@@ -150,6 +150,17 @@ for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1440, 1000]
         await expect(search).toBeFocused();
         await expect(allAssets).toBeHidden();
       }
+      await navToggle.click();
+      for (const [target, shortcut] of [[switcher, '/'], [menu.getByRole('textbox', { name: 'Search projects' }), 'ControlOrMeta+f']]) {
+        await switcher.click();
+        await target.focus();
+        await page.keyboard.press(shortcut);
+        await expect(menu).toBeVisible();
+        await expect(switcher).toBeVisible();
+        await expect(search).toBeHidden();
+        await page.keyboard.press('Escape');
+        await expect(menu).toBeHidden();
+      }
     }
   });
 }
