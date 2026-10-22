@@ -89,9 +89,18 @@ export const MentionTextarea = forwardRef(
     const highlightRef = useRef(null);
     const previousValue = useRef(value);
     const savedSelection = useRef({ start: value.length, end: value.length });
+    // The last value this field sent through onChange. Only an outside rewrite (a reference
+    // removal renumbering @imgN) needs the caret carried across; for the field's own edits the
+    // browser or the edit itself already placed it, and savedSelection is one keystroke stale
+    // there, so typing the digit of "@img1" would otherwise put the caret back before it.
+    const ownValue = useRef(value);
+    const emit = (next) => {
+      ownValue.current = next;
+      onChange(next);
+    };
     useEffect(() => {
       const before = previousValue.current;
-      if (before !== value && before.replace(/@img[1-9]\d*\b/gi, "@img") === value.replace(/@img[1-9]\d*\b/gi, "@img")) {
+      if (before !== value && value !== ownValue.current && before.replace(/@img[1-9]\d*\b/gi, "@img") === value.replace(/@img[1-9]\d*\b/gi, "@img")) {
         const start = mapMentionSelection(before, value, savedSelection.current.start);
         const end = mapMentionSelection(before, value, savedSelection.current.end);
         taRef.current?.setSelectionRange(start, end);
@@ -205,7 +214,7 @@ export const MentionTextarea = forwardRef(
         const before = value.slice(0, caret).replace(/\s*$/, "");
         const after = value.slice(caret);
         const next = `${before}${before ? " " : ""}${tag} ${after.replace(/^\s*/, "")}`;
-        onChange(next);
+        emit(next);
         requestAnimationFrame(() => {
           ta?.focus();
           const pos = (before ? before.length + 1 : 0) + tag.length + 1;
@@ -246,13 +255,13 @@ export const MentionTextarea = forwardRef(
         caret
       );
       if (changed) {
-        onChange(synced);
+        emit(synced);
         detectMention(synced, nextCaret);
         requestAnimationFrame(() => {
           taRef.current?.setSelectionRange(nextCaret, nextCaret);
         });
       } else {
-        onChange(v);
+        emit(v);
         detectMention(v, caret);
       }
     };
@@ -270,7 +279,7 @@ export const MentionTextarea = forwardRef(
         next,
         at + tag.length + 1
       );
-      onChange(syncedText);
+      emit(syncedText);
       setMenuOpen(false);
       requestAnimationFrame(() => {
         const pos = syncedCaret;

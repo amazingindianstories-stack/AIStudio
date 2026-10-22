@@ -85,3 +85,67 @@ test("reserved malformed image tags stay whole and amber while unknown named ass
     assert.match(html, /Literal image-reference text/);
   } finally { globalThis.React = previousReact; }
 });
+
+async function withMentionTextarea(initial, run) {
+  const { JSDOM } = await import("jsdom");
+  const { act } = await import("react");
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost", pretendToBeVisual: true });
+  const keys = ["window", "document", "HTMLElement", "requestAnimationFrame", "cancelAnimationFrame", "React", "IS_REACT_ACT_ENVIRONMENT"];
+  const previous = Object.fromEntries(keys.map((key) => [key, globalThis[key]]));
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, React, IS_REACT_ACT_ENVIRONMENT: true, requestAnimationFrame: (fn) => setTimeout(fn, 0), cancelAnimationFrame: clearTimeout });
+  dom.window.HTMLElement.prototype.scrollIntoView = function () {};
+  // react-dom/client decides at import whether native `input` events exist, so it loads after the DOM.
+  const { createRoot } = await import("react-dom/client");
+  let setPrompt;
+  function Harness() {
+    const [value, setValue] = React.useState(initial);
+    setPrompt = setValue;
+    return React.createElement(MentionTextarea, { value, onChange: setValue, onSubmit() {}, references: ["/a.png", "/b.png"] });
+  }
+  const root = createRoot(document.querySelector("#root"));
+  try {
+    await act(async () => root.render(React.createElement(Harness)));
+    const ta = document.querySelector("textarea");
+    ta.focus();
+    const flush = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 5)); });
+    // Keystrokes at the end of the text as the browser delivers them: the value setter leaves the
+    // caret after the new character without a `select` event (jsdom's setSelectionRange would fire
+    // one), `input` fires, and the selection change React reports through onSelect comes later.
+    const type = async (text) => {
+      for (const ch of text) {
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, "value").set.call(ta, ta.value + ch);
+          ta.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+        });
+        await flush();
+        await act(async () => { document.dispatchEvent(new dom.window.Event("selectionchange")); });
+      }
+    };
+    const select = async (position) => {
+      ta.setSelectionRange(position, position);
+      await act(async () => { document.dispatchEvent(new dom.window.Event("selectionchange")); });
+    };
+    await run({ ta, type, select, flush, setPrompt: (next) => act(async () => setPrompt(next)) });
+  } finally {
+    await act(async () => root.unmount());
+    Object.assign(globalThis, previous);
+  }
+}
+
+test("typing a numbered tag by hand keeps the caret after the digit", async () => {
+  await withMentionTextarea("", async ({ ta, type }) => {
+    await type("@img1");
+    assert.equal(ta.value, "@img1");
+    assert.equal(ta.selectionStart, 5, "the next keystroke must land after the digit, not before it");
+  });
+});
+
+test("an outside renumber keeps the caret on the same literal text", async () => {
+  await withMentionTextarea("@img10 and more", async ({ ta, setPrompt, select, flush }) => {
+    await select(10);
+    await setPrompt("@img9 and more");
+    await flush();
+    assert.equal(ta.value, "@img9 and more");
+    assert.equal(ta.selectionStart, 9, "the caret stays after \"and\" instead of jumping to the end");
+  });
+});
