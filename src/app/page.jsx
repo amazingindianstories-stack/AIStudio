@@ -93,7 +93,7 @@ export default function Page() {
         mobileDrawerRef.current?.querySelectorAll(
           'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
         ) ?? []
-      );
+      ).filter((element) => !element.closest("[hidden], [inert]") && element.getClientRects().length > 0);
       if (focusable.length === 0) return;
       const first = focusable[0];
       const last = focusable[focusable.length - 1];

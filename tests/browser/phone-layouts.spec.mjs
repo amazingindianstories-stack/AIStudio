@@ -120,6 +120,13 @@ for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1440, 1000]
       const switcher = panel.getByRole('button', { name: 'Switch workspace' });
       expect(Math.abs((await switcher.boundingBox()).width - (await panel.locator('aside').boundingBox()).width)).toBeLessThan(2);
       await page.screenshot({ path: info.outputPath('library-folders.png') });
+      const close = page.getByRole('button', { name: 'Close assets panel' });
+      const unsorted = panel.getByRole('button', { name: / Unsorted$/ });
+      await unsorted.focus();
+      await page.keyboard.press('Tab');
+      await expect(close).toBeFocused();
+      await page.keyboard.press('Shift+Tab');
+      await expect(unsorted).toBeFocused();
       const menu = page.getByRole('menu');
       for (const target of [switcher, menu.getByRole('textbox', { name: 'Search projects' })]) {
         await switcher.click();
