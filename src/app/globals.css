@@ -240,6 +240,11 @@ body {
 /* Size library navigation against the panel, not the whole browser. */
 .history-panel { container-type: inline-size; container-name: history; }
 .history-navigation { width: clamp(10.5rem, 30cqw, 15rem); max-width: 40%; }
+@media (max-width: 639px) {
+  .history-navigation { display: none; width: 100%; max-width: none; flex: 1; border-right: 0; }
+  .history-panel[data-navigation-open="true"] > .history-navigation { display: flex; }
+  .history-panel[data-navigation-open="true"] > main { display: none; }
+}
 
 /* The selection toolbar swaps in for the 44px search row, so ticking a card
    never moves the grid. It stays one row at every library width: labels give

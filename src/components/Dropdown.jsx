@@ -21,6 +21,7 @@ export function Dropdown({
   align = "left",
   side = "bottom",
   className,
+  triggerClassName,
   panelClassName,
   label,
   onOpen,
@@ -185,7 +186,7 @@ export function Dropdown({
             openAndFocus(true);
           }
         }}
-        className="block max-w-full"
+        className={cn("block max-w-full", triggerClassName)}
         aria-label={label}
         aria-haspopup="menu"
         aria-expanded={open}

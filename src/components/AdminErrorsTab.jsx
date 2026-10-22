@@ -299,8 +299,8 @@ export function AdminErrorsTab({ data, usersById }) {
       </p>
 
       <div ref={scroller} className="scroll-thin relative overflow-x-auto rounded-xl border border-line">
-        <table className="w-full min-w-[900px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+        <table className="block w-full text-sm sm:table sm:min-w-[900px]">
+          <thead className="hidden bg-ink-800 text-left sm:table-header-group text-xs uppercase tracking-wide text-white/40">
             <tr>
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">User</th>
@@ -310,17 +310,17 @@ export function AdminErrorsTab({ data, usersById }) {
               <th className="px-3 py-2" aria-label="Support" />
             </tr>
           </thead>
-          <tbody>
+          <tbody className="grid gap-3 sm:table-row-group">
             {rows.map((row) => {
               const expanded = open.has(row.id);
               const time = errorTime(row);
               return (
                 <Fragment key={row.id}>
                   <tr
-                    className={cn("cursor-pointer border-t border-line align-top transition hover:bg-white/[0.02]", expanded && "bg-white/[0.02]")}
+                    className={cn("grid min-w-0 grid-cols-[minmax(0,1fr)_auto] cursor-pointer rounded-lg border border-line align-top transition hover:bg-white/[0.02] sm:table-row sm:rounded-none sm:border-0 sm:border-t", expanded && "bg-white/[0.02]")}
                     onClick={() => toggle(row.id)}
                   >
-                    <td className="whitespace-nowrap px-3 py-2 text-xs text-white/55" title={`${formatUtc(time)}\n${formatIst(time)}`}>
+                    <td className="col-span-2 px-3 py-2 text-xs text-white/55 sm:whitespace-nowrap" title={`${formatUtc(time)}\n${formatIst(time)}`}>
                       <button
                         type="button"
                         onClick={(event) => {
@@ -335,17 +335,17 @@ export function AdminErrorsTab({ data, usersById }) {
                         {new Date(time).toLocaleString()}
                       </button>
                     </td>
-                    <td className="max-w-[150px] truncate px-3 py-2 text-xs" title={row.userEmail || ""}>
+                    <td className="col-span-2 break-words px-3 py-2 text-xs sm:max-w-[150px] sm:truncate" title={row.userEmail || ""}>
                       {userName(row)}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-xs">
+                    <td className="col-span-2 break-words px-3 py-2 text-xs sm:whitespace-nowrap">
                       <p>{row.model}</p>
                       <p className="mt-0.5 text-[11px] text-white/40">{providerShort(row.provider)}</p>
                     </td>
-                    <td className="w-full max-w-0 px-3 py-2 text-xs">
-                      <p className="flex min-w-0 items-baseline gap-1.5">
+                    <td className="col-span-2 min-w-0 w-full px-3 py-2 text-xs sm:max-w-0">
+                      <p className="flex min-w-0 flex-wrap items-baseline gap-1.5 sm:flex-nowrap">
                         {row.code ? (
-                          <span className="truncate font-mono text-red-300" title={row.code}>{row.code}</span>
+                          <span className="break-all font-mono text-red-300 sm:truncate" title={row.code}>{row.code}</span>
                         ) : (
                           !row.httpStatus && <span className="text-white/35">No provider code</span>
                         )}
@@ -353,11 +353,11 @@ export function AdminErrorsTab({ data, usersById }) {
                           <span className="shrink-0 rounded bg-white/[0.06] px-1 font-mono text-[10px] text-white/50">HTTP {row.httpStatus}</span>
                         )}
                       </p>
-                      <p className="mt-0.5 line-clamp-2 text-white/60" title={errorText(row)}>
+                      <p className="mt-0.5 break-words text-white/60 sm:line-clamp-2" title={errorText(row)}>
                         {errorText(row) || <span className="text-white/25">-</span>}
                       </p>
                     </td>
-                    <td className="max-w-[230px] truncate px-3 py-2 font-mono text-[11px] text-white/55" title={row.requestId || ""}>
+                    <td className="min-w-0 break-all px-3 py-2 font-mono text-[11px] text-white/55 sm:max-w-[230px] sm:truncate" title={row.requestId || ""}>
                       {row.requestId || <span className="font-sans text-white/25">-</span>}
                     </td>
                     <td className="px-3 py-2 text-right">
@@ -365,8 +365,8 @@ export function AdminErrorsTab({ data, usersById }) {
                     </td>
                   </tr>
                   {expanded && (
-                    <tr className="bg-white/[0.02]">
-                      <td colSpan={6} className="p-0">
+                    <tr className="block bg-white/[0.02] sm:table-row">
+                      <td colSpan={6} className="block p-0 sm:table-cell">
                         <div className="sticky left-0" style={visibleWidth ? { width: visibleWidth } : undefined}>
                           <ErrorDetail row={row} />
                         </div>

@@ -4,7 +4,7 @@ import { useMaintenance } from "@/lib/maintenance-client";
 
 import { notify } from "@/lib/notify";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { EXPORT_POLL_MAX_MS, exportPollDelay } from "@/lib/poll-schedule";
 import {
   Search,
@@ -81,6 +81,9 @@ export function HistoryPanel() {
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const navigationToggle = useRef(null);
+  const navigationId = useId();
   const [unsortedDrop, setUnsortedDrop] = useState(false);
   const [folderDropError, setFolderDropError] = useState("");
   const [briefView, setBriefView] = useState(false);
@@ -323,6 +326,16 @@ export function HistoryPanel() {
     if (moveModalOpen) return;
 
     if (e.key === "Escape") {
+      if (navigationOpen) {
+        e.preventDefault();
+        e.stopPropagation();
+        // The app root is the document, so the phone drawer's own document
+        // Escape listener shares this node; only an immediate stop reaches it.
+        e.nativeEvent.stopImmediatePropagation();
+        setNavigationOpen(false);
+        navigationToggle.current?.focus();
+        return;
+      }
       if (selectedIds.length > 0) {
         e.preventDefault();
         clearSelection();
@@ -366,17 +379,27 @@ export function HistoryPanel() {
   return (
     <div
       onKeyDown={handlePanelKeyDown}
-      className="history-panel flex h-full w-full overflow-hidden bg-ink-850"
+      data-navigation-open={navigationOpen}
+      className="history-panel flex h-full w-full flex-col overflow-hidden bg-ink-850 sm:flex-row"
     >
       {/* ══════════════════════════════════════════════════════════════════════
           LEFT: PERSISTENT NAVIGATION SIDEBAR (w-60 shrink-0)
           ══════════════════════════════════════════════════════════════════════ */}
-      <aside className="history-navigation flex min-h-0 shrink-0 flex-col border-r border-line bg-ink-850 select-none">
+      <div className="flex shrink-0 items-center border-b border-line px-3 py-2 sm:hidden">
+        <button ref={navigationToggle} type="button" aria-expanded={navigationOpen} aria-controls={navigationId}
+          aria-label={navigationOpen ? "Hide folders" : "Show folders"}
+          onClick={() => setNavigationOpen((open) => !open)}
+          className="flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-white/80 hover:bg-white/10">
+          <Layers className="h-4 w-4" />{navigationOpen ? "Back to assets" : "Folders"}
+        </button>
+      </div>
+      <aside id={navigationId} aria-label="Library folders" className="history-navigation flex min-h-0 shrink-0 flex-col border-r border-line bg-ink-850 select-none">
         {/* Workspace Switcher (~40-44px high) */}
         <Dropdown
           align="left"
           label="Switch workspace"
           className="w-full shrink-0"
+          triggerClassName="w-full"
           trigger={(open) => (
             <span
               className={cn(
@@ -565,12 +588,12 @@ export function HistoryPanel() {
           {/* Left: Location breadcrumb statement */}
           <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
             {rightTab === "history" ? (
-              <div className="flex items-center gap-2 font-semibold text-white">
+              <div className="flex min-w-0 items-center gap-2 font-semibold text-white">
                 <LayoutGrid className="h-4 w-4 text-white/50" />
-                <span>All Generations</span>
+                <span className="truncate">All Generations</span>
               </div>
             ) : rightTab === "favorites" ? (
-              <div className="flex items-center gap-2 font-semibold text-white">
+              <div className="flex min-w-0 items-center gap-2 font-semibold text-white">
                 <Star className="h-4 w-4 text-amber-400" />
                 <span>Favourites</span>
               </div>
@@ -600,6 +623,7 @@ export function HistoryPanel() {
               onClick={() => {
                 setBriefView(false);
                 setRightTab("project");
+                setNavigationOpen(window.matchMedia("(max-width: 639px)").matches);
                 setAddingScope({
                   projectId: activeProjectId,
                   parentId: activeFolderId === UNSORTED ? null : activeFolderId,
@@ -739,10 +763,10 @@ export function HistoryPanel() {
             </div>
           </div>
         ) : (
-          /* Normal State: Search + Filters + View (EXACT same h-11) */
-          <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-line bg-ink-850 px-4 select-none">
+          /* Phone search gets its own row; desktop retains the compact command bar. */
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-line bg-ink-850 px-4 py-2 select-none sm:h-11 sm:flex-nowrap sm:gap-3 sm:py-0">
             {/* Search Input (max-w ~380px) */}
-            <div className="relative w-full max-w-sm sm:max-w-md">
+            <div className="relative min-w-0 w-full basis-full sm:basis-auto sm:max-w-md">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-white/35" />
               <input
                 value={searchDraft}
@@ -782,7 +806,7 @@ export function HistoryPanel() {
             </div>
 
             {/* Type Filter & View Controls */}
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex w-full shrink-0 items-center justify-end gap-2 sm:w-auto">
               {/* Type Filter Dropdown */}
               <Dropdown
                 align="right"

@@ -64,3 +64,22 @@ test('ZIP rapid activation creates and finalizes once;409 reason is visible and 
     assert.ok([...document.querySelectorAll('button')].some(button => button.textContent === 'Retry'));
   });
 });
+
+test('folder navigation toggle exposes its state and Escape returns focus without closing the library', async () => {
+  await harness(async ({ render }) => {
+    await render();
+    const toggle = document.querySelector('button[aria-label="Show folders"]');
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+    assert.ok(document.getElementById(toggle.getAttribute('aria-controls')));
+    await act(async () => toggle.click());
+    assert.equal(toggle.getAttribute('aria-expanded'), 'true');
+    assert.equal(toggle.getAttribute('aria-label'), 'Hide folders');
+    toggle.focus();
+    let escaped = false;
+    document.addEventListener('keydown', () => { escaped = true; });
+    await act(async () => toggle.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })));
+    assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+    assert.equal(document.activeElement, toggle);
+    assert.equal(escaped, false, 'Escape closes folders before it can close the outer drawer');
+  });
+});
