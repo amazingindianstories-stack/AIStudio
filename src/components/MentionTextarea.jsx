@@ -800,7 +800,8 @@ export function replaceTagEverywhere(text, start, tag) {
 }
 
 /** Split text into plain runs and @tag tokens; valid tags get a dusty light blue (#589edb) highlight,
- *  unknown ones go red, recognized non-canonical tags get an amber hint. */
+ *  unknown ones and well-formed tags past the last attached slot go red, recognized
+ *  non-canonical tags get an amber hint. */
 function renderHighlighted(
   text,
   tagCount,
