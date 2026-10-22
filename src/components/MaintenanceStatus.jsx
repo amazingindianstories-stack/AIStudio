@@ -18,8 +18,8 @@ export function MaintenanceStatus({ children }) {
         if (typeof value.enabled !== "boolean") throw new Error("Invalid status");
         if (!controller.signal.aborted) useMaintenance.setState({ enabled: value.enabled });
       } catch {
-        // The middleware reports source failures as OFF too. A disconnected
-        // browser keeps the last known state until the next successful poll.
+        // The middleware answers source failures with its last known state. A
+        // disconnected browser keeps its last known state until a successful poll.
       } finally { pending = false; }
     };
     void refresh();

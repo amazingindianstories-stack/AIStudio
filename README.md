@@ -3,7 +3,7 @@
 Internal image and video production application: prompt composer with references, hosted image
 and video providers, a project/folder library, canvas boards and native-master exports.
 
-- Frontend: Next.js on Vercel (`src/`), transport only.
+- Frontend: Next.js on Vercel (`src/`), transport plus the maintenance write freeze.
 - Backend: Django + DRF on Railway (`backend/`): API, generation worker, export worker, scheduler.
 - See [docs/architecture/overview.md](docs/architecture/overview.md) for how the pieces fit and
   [docs/operations/status.md](docs/operations/status.md) for the current production state.
