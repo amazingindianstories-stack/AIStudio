@@ -740,10 +740,13 @@ export const useStore = create((set, get) => ({
           : resolutions[resolutions.length - 1],
       };
     }),
-  // @imgN is positional, as in Higgsfield Cinema Studio: neither removing nor
-  // reordering rewrites the prompt, so a typed @img1 means whatever occupies
-  // slot 1 now, and a tag past the last slot shows as unresolved until it is
-  // replaced or a reference fills that slot again.
+  // @imgN is positional, as observed in Higgsfield Cinema Studio (removing ref 2,
+  // and separately ref 1, left "@Image 1 ... @Image 2 ... @image_3" unchanged:
+  // later refs shifted into the freed slots, @image_3 turned red, and attaching
+  // a third ref revived it). Neither removing nor reordering rewrites the
+  // prompt, so a typed @img1 means whatever occupies slot 1 now, and a tag past
+  // the last slot shows red as unresolved until it is replaced or a reference
+  // fills that slot again.
   removeReference: (index) =>
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),

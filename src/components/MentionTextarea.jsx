@@ -81,6 +81,8 @@ export const MentionTextarea = forwardRef(
       videoRefs = [],
       audioRefs = [],
       assets = [],
+      // Portrait Gallery items, so asset:// portrait references show their thumbnails as in the strip.
+      portraits = [],
       placeholder,
       className,
       maxLength,
@@ -115,7 +117,7 @@ export const MentionTextarea = forwardRef(
         tag: `@img${n}`,
         label: `@img${n}`,
         sub: "uploaded image",
-        thumb: referenceDisplayUrl(references[n - 1], assets),
+        thumb: referenceDisplayUrl(references[n - 1], portraits),
       }));
     const assetSuggestions = assets
       .filter((a) => (a.slug || "").toLowerCase().startsWith(q) || (a.name || "").toLowerCase().includes(q))
@@ -136,7 +138,7 @@ export const MentionTextarea = forwardRef(
     const attachedOptions = [
       ...references.map((reference, i) => {
         const tag = referenceTags[i] || `@img${i + 1}`;
-        return { tag, label: tag, sub: referenceTags[i] ? "material" : "uploaded image", thumb: referenceDisplayUrl(reference, assets) };
+        return { tag, label: tag, sub: referenceTags[i] ? "material" : "uploaded image", thumb: referenceDisplayUrl(reference, portraits) };
       }),
       ...attachedMediaSuggestions("", videoRefs.length, audioRefs.length),
     ];
@@ -604,6 +606,7 @@ function TagReplaceMenu({ raw, anchorRect, options, assets, onPick, onClose }) {
 
   useEffect(() => {
     const dismiss = (e) => {
+      if (!latest.current.present) return;
       if (!menuRef.current?.contains(e.target)) latest.current.onClose(false);
     };
     document.addEventListener("pointerdown", dismiss, true);
@@ -831,13 +834,20 @@ function renderHighlighted(
       isValid = assetSlugs.has(info.slug);
     }
 
+    const pastLastSlot = Boolean(info?.isCanonical) && info.index >= 1 && !isValid;
     const reservedImage = /^@(?:img|imgg|image|pic)(?:$|[\s\d_-])/i.test(raw);
-    const imageWarning = reservedImage && (!isValid || isInformal || !info?.isCanonical);
+    const imageWarning = reservedImage && !pastLastSlot && (!isValid || isInformal || !info?.isCanonical);
     out.push(
       <span
         key={key++}
         data-mention-start={m.index}
-        title={imageWarning ? "Literal image-reference text. Attach the exact numbered reference or use a valid @imgN tag; this warning does not block submission." : undefined}
+        title={
+          imageWarning
+            ? "Literal image-reference text. Attach the exact numbered reference or use a valid @imgN tag; this warning does not block submission."
+            : pastLastSlot
+              ? "No reference is attached at this position. Click to replace it with an attached reference."
+              : undefined
+        }
         className={cn(
           "rounded-sm",
           imageWarning ? "bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/40" : isValid

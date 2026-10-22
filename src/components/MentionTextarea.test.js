@@ -80,13 +80,28 @@ test("reserved malformed image tags stay whole and amber while unknown named ass
       value: "@img1 @img100 @img0 @img02 @img2x @imgg1 @img @missing_named", onChange() {}, references: ["/one.png", "/two.png"],
     }));
     assert.match(html, /bg-mention\/20 text-mention">@img1<\/span>/);
-    for (const token of ["@img100", "@img0", "@img02", "@img2x", "@imgg1", "@img"]) assert.ok(html.includes(`text-amber-200 ring-1 ring-amber-400/40">${token}</span>`), token);
+    for (const token of ["@img0", "@img02", "@img2x", "@imgg1", "@img"]) assert.ok(html.includes(`text-amber-200 ring-1 ring-amber-400/40">${token}</span>`), token);
     assert.match(html, /text-red-300">@missing_named<\/span>/);
     assert.match(html, /Literal image-reference text/);
   } finally { globalThis.React = previousReact; }
 });
 
-async function withMentionTextarea(initial, run) {
+test("well-formed tags past the last attached slot are red and unresolved, as in Higgsfield", () => {
+  const previousReact = globalThis.React; globalThis.React = React;
+  try {
+    const html = renderToString(React.createElement(MentionTextarea, {
+      value: "@img2 @img3 @img100 @vid1 @vid2 @audio1 @audio2", onChange() {},
+      references: ["/one.png", "/two.png"], videoRefs: ["v.mp4"], audioRefs: ["a.mp3"],
+    }));
+    for (const token of ["@img2", "@vid1", "@audio1"]) assert.ok(html.includes(`bg-mention/20 text-mention">${token}</span>`), token);
+    for (const token of ["@img3", "@img100", "@vid2", "@audio2"]) {
+      assert.match(html, new RegExp(`title="No reference is attached at this position\\. Click to replace it with an attached reference\\." class="rounded-sm bg-red-500/20 text-red-300">${token}</span>`), token);
+    }
+    assert.doesNotMatch(html, /Literal image-reference text/);
+  } finally { globalThis.React = previousReact; }
+});
+
+async function withMentionTextarea(initial, run, { references: initialReferences = ["/a.png", "/b.png"], ...props } = {}) {
   const { JSDOM } = await import("jsdom");
   const { act } = await import("react");
   const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost", pretendToBeVisual: true });
@@ -99,9 +114,9 @@ async function withMentionTextarea(initial, run) {
   let setReferences;
   function Harness() {
     const [value, setValue] = React.useState(initial);
-    const [references, setRefs] = React.useState(["/a.png", "/b.png"]);
+    const [references, setRefs] = React.useState(initialReferences);
     setReferences = setRefs;
-    return React.createElement(MentionTextarea, { value, onChange: setValue, onSubmit() {}, references });
+    return React.createElement(MentionTextarea, { ...props, value, onChange: setValue, onSubmit() {}, references });
   }
   const root = createRoot(document.querySelector("#root"));
   try {
@@ -148,7 +163,7 @@ async function withMentionTextarea(initial, run) {
     // A closing menu fades out before it leaves the DOM; only an open one counts.
     const menu = () => document.querySelector('[data-tag-replace-menu="open"]');
     const options = () => [...(menu()?.querySelectorAll('[role="option"]') || [])].map((o) => ({ label: o.textContent, selected: o.getAttribute("aria-selected") === "true", thumb: o.querySelector("img")?.getAttribute("src") }));
-    await run({ ta, type, select, flush, click, press, search, menu, options, setReferences: (next) => act(async () => setReferences(next)) });
+    await run({ act, dom, ta, type, select, flush, click, press, search, menu, options, setReferences: (next) => act(async () => setReferences(next)) });
   } finally {
     await act(async () => root.unmount());
     Object.assign(globalThis, previous);
@@ -232,4 +247,30 @@ test("after a reorder the replace menu lists references in their new slots", asy
     assert.deepEqual(options().map((o) => o.thumb), ["/b.png", "/a.png"]);
     await press("Escape");
   });
+});
+
+test("a press inside a new replace menu is not taken as outside a menu still fading out", async () => {
+  await withMentionTextarea("@img1 then @img2", async ({ act, dom, click, press, menu }) => {
+    await click(2);
+    await press("Escape");
+    assert.ok(document.querySelector('[data-tag-replace-menu="closing"]'), "the first menu is still fading out");
+    await click(13);
+    const open = menu();
+    assert.match(open.textContent, /Replace @img2 with:/);
+    await act(async () => { open.querySelector("input").dispatchEvent(new dom.window.MouseEvent("pointerdown", { bubbles: true })); });
+    assert.ok(menu() === open, "the new menu stays open");
+    await press("Escape");
+  });
+});
+
+test("replace menu and autocomplete thumbnails resolve portrait references like the strip", async () => {
+  const portraits = [{ id: "p1", byteplusAssetId: "bp-1", imageUrl: "/portrait.png" }];
+  await withMentionTextarea("@img1", async ({ click, options, press, type }) => {
+    await click(2);
+    assert.deepEqual(options().map((o) => o.thumb), ["/portrait.png", "/b.png"]);
+    await press("Escape");
+    await type(" @");
+    const autocomplete = [...document.querySelectorAll('[role="listbox"]:not(#tag-replace-options) [role="option"] img')].map((img) => img.getAttribute("src"));
+    assert.deepEqual(autocomplete, ["/portrait.png", "/b.png"]);
+  }, { references: ["asset://bp-1", "/b.png"], portraits });
 });

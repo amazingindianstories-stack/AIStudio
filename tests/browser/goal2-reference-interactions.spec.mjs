@@ -422,8 +422,9 @@ test('Goal2 reordering and removing references leave the prompt alone, as in Hig
   expect(await order(page)).toEqual(ids);
   await page.getByRole('button', { name: 'Remove reference 2', exact: true }).click();
   expect(await order(page)).toEqual([ids[0], ids[2]]);
-  // @img3 now points past the last slot and shows as unresolved until it is replaced.
+  // @img3 now points past the last slot and shows red as unresolved until it is replaced.
   await expect(prompt).toHaveValue('@img1 then @img3');
+  await expect(page.locator('[data-mention-start="11"]')).toHaveClass(/text-red-300/);
 });
 
 test('Goal2 clicking an unresolved tag replaces it from a menu of the attached references', async ({ page, context, baseURL }, testInfo) => {
@@ -432,8 +433,7 @@ test('Goal2 clicking an unresolved tag replaces it from a menu of the attached r
   const prompt = page.locator('textarea').first();
   await prompt.fill('@img1 walks past @img3 while @img3 waves');
   const tag = page.locator('[data-mention-start="17"]');
-  // Veevee marks a tag past the last slot amber (literal text), where Higgsfield shows red.
-  await expect(tag).toHaveClass(/text-amber-200/);
+  await expect(tag).toHaveClass(/text-red-300/);
   const box = await tag.boundingBox();
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   const menu = page.locator('[data-tag-replace-menu="open"]');
