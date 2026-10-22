@@ -3,10 +3,16 @@ import { createClient } from "@vercel/global-config";
 import { createMaintenanceReader, maintenanceBlocks, MAINTENANCE_CODE, MAINTENANCE_MESSAGE } from "./lib/maintenance";
 import { djangoDestination } from "./lib/backend-routing";
 
-const readMaintenance = createMaintenanceReader(async () => {
-  if (!process.env.EDGE_CONFIG) throw new Error("Maintenance source unconfigured");
-  return createClient(process.env.EDGE_CONFIG, { staleIfError: false, cache: "no-store", disableDevelopmentCache: true }).get("veevee_maintenance");
-});
+/** A store connected as Global Config exposes GLOBAL_CONFIG; older connections expose EDGE_CONFIG. */
+export function maintenanceToggle(env = process.env, connect = createClient) {
+  return async () => {
+    const connection = env.GLOBAL_CONFIG || env.EDGE_CONFIG;
+    if (!connection) throw new Error("Maintenance source unconfigured");
+    return connect(connection, { staleIfError: false, cache: "no-store", disableDevelopmentCache: true }).get("veevee_maintenance");
+  };
+}
+
+const readMaintenance = createMaintenanceReader(maintenanceToggle());
 
 /** Vercel write freeze works with the old Django backend too. */
 export function createMiddleware(readToggle) {

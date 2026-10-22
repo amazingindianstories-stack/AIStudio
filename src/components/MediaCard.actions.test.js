@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 import { createRoot } from 'react-dom/client';
 import { useStore } from '../lib/store.js';
 import { MediaCard } from './MediaCard.jsx';
+import { useMaintenance } from '../lib/maintenance-client.js';
 
 async function harness(item, run, state = {}) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
@@ -48,6 +49,26 @@ test('failed card has no in-card generate buttons; its menu Edit & retry confirm
     assert.deepEqual(s.referenceImages, failed.referenceImages);
     assert.equal(calls.some(([url]) => String(url).startsWith('/api/generate')), false);
   });
+});
+
+test('during maintenance Edit & retry stays enabled and loads the composer while retry and delete stay blocked', async () => {
+  useMaintenance.setState({ enabled: true });
+  try {
+    await harness(failed, async ({ calls, card }) => {
+      await openMenu(card);
+      for (const key of ['retry', 'retry-text', 'delete']) assert.equal(menuItem(key).getAttribute('aria-disabled'), 'true', key);
+      assert.notEqual(menuItem('edit').getAttribute('aria-disabled'), 'true');
+      await act(async () => menuItem('edit').click());
+      const confirm = [...document.querySelectorAll('button')].find(b => b.textContent === 'Load into composer');
+      assert.equal(confirm.disabled, false);
+      await act(async () => confirm.click());
+      const s = useStore.getState();
+      assert.equal(s.prompt, 'Sati @img1 walks');
+      assert.deepEqual(s.referenceImages, failed.referenceImages);
+      assert.equal(document.body.textContent.includes('Edit and retry?'), false);
+      assert.equal(calls.some(([url]) => String(url).startsWith('/api/generate')), false);
+    });
+  } finally { useMaintenance.setState({ enabled: false }); }
 });
 
 test('rendering card delete is blocked in the menu and says why', async () => {

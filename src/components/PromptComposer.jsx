@@ -166,7 +166,7 @@ export function PromptComposer() {
   }, []);
 
   const handleFrameUpload = async (file, target) => {
-    if (maintenance || !file) return;
+    if (!file) return;
     try {
       let dataUrl;
       if (uploadContentType(file).startsWith("video/")) {
@@ -742,7 +742,7 @@ export function PromptComposer() {
       {/* input row */}
       <div className="flex items-start gap-2">
         {/* upload */}
-        <Dropdown maintenanceWrite
+        <Dropdown
           side="top"
           onOpen={() => {
             if (s.portraits.enabled === null && !s.portraits.loading) void s.loadPortraits();
@@ -765,6 +765,7 @@ export function PromptComposer() {
           {(close) => (
             <>
               <MenuItem
+                maintenanceWrite
                 onClick={() => {
                   openFilePicker(fileRef);
                   close();
@@ -849,7 +850,6 @@ export function PromptComposer() {
         />
         <input
           ref={firstFrameFileRef}
-          disabled={maintenance}
           type="file"
           accept="image/*,video/*"
           hidden
@@ -861,7 +861,6 @@ export function PromptComposer() {
         />
         <input
           ref={lastFrameFileRef}
-          disabled={maintenance}
           type="file"
           accept="image/*,video/*"
           hidden

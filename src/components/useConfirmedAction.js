@@ -41,7 +41,6 @@ export function useConfirmedAction() {
     const copy = request ? mediaActionCopy(request.kind) : {};
     return {
       open: Boolean(request),
-      maintenanceWrite: request?.kind !== "downloadOriginal",
       ...copy,
       busy,
       error,

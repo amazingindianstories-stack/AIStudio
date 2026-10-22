@@ -38,7 +38,7 @@ export function TextPromptDialog() {
   if (!request || typeof document === "undefined") return null;
   if (request.kind === "confirm") {
     return <ConfirmActionDialog open title={request.title} description={request.description} confirmLabel={request.confirmLabel}
-      destructive={request.destructive} onCancel={() => settleTextRequest(false)} onConfirm={() => settleTextRequest(true)} />;
+      destructive={request.destructive} maintenanceWrite onCancel={() => settleTextRequest(false)} onConfirm={() => settleTextRequest(true)} />;
   }
   const trimmed = value.trim();
   const canSubmit = !maintenance && (request.optional || trimmed.length > 0);

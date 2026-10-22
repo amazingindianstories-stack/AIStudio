@@ -10,8 +10,8 @@ or live provider calls; the owner approves each one.
 Next.js and React own the interface, Zustand owns client state, and `src/middleware.js` forwards
 same-origin `/api` requests to Django with a server-only ingress header, after enforcing the
 maintenance write freeze and serving its status. Vercel holds `DJANGO_API_ORIGIN`,
-`GOAL4_PRIVATE_INGRESS_SECRET` and optional server-only `EDGE_CONFIG`; no database, storage,
-provider or session-signing secrets.
+`GOAL4_PRIVATE_INGRESS_SECRET` and optional server-only `GLOBAL_CONFIG` (or `EDGE_CONFIG`);
+no database, storage, provider or session-signing secrets.
 
 Railway Green runs the Django API behind `backend/deploy/gateway.py`, plus the generation worker,
 export worker and scheduler, all started by `python -m deploy.entrypoint <component>` from

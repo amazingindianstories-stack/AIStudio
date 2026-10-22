@@ -18,7 +18,7 @@ export function ConfirmActionDialog({
   confirmLabel,
   destructive = false,
   busy = false,
-  maintenanceWrite = true,
+  maintenanceWrite = false,
   error = "",
   onCancel,
   onConfirm,

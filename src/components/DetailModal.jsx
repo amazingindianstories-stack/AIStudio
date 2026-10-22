@@ -558,7 +558,7 @@ export function DetailModal() {
                 )}
                 {item.kind === "image" && item.url && (
                   <>
-                    <button disabled={maintenance}
+                    <button
                       onClick={() => {
                         addReferenceFromUrl(item.url);
                         setMode("image");
@@ -570,7 +570,7 @@ export function DetailModal() {
                       <ImagePlus className="h-4 w-4" /> Use as reference
                     </button>
                     <div className="grid grid-cols-2 gap-2">
-                      <button disabled={maintenance}
+                      <button
                         onClick={async () => {
                           await setAsFirstFrame(item.url);
                           setActiveId(null);
@@ -580,7 +580,7 @@ export function DetailModal() {
                       >
                         <Play className="h-3.5 w-3.5 text-brand" /> Use as first frame
                       </button>
-                      <button disabled={maintenance}
+                      <button
                         onClick={async () => {
                           await setAsLastFrame(item.url);
                           setActiveId(null);
@@ -617,7 +617,7 @@ export function DetailModal() {
                     </button>
                     {(supportsFirstLastFrame(item.model) || supportsFirstLastFrame(model)) && (
                       <div className="grid grid-cols-2 gap-2">
-                        <button disabled={maintenance}
+                        <button
                           onClick={async () => {
                             const video = document.querySelector("[data-detail-video]");
                             await setVideoFrameAsFirstFrame(item.url, video?.currentTime);
@@ -628,7 +628,7 @@ export function DetailModal() {
                         >
                           <Play className="h-3.5 w-3.5 text-brand" /> First frame
                         </button>
-                        <button disabled={maintenance}
+                        <button
                           onClick={async () => {
                             const video = document.querySelector("[data-detail-video]");
                             await setVideoFrameAsLastFrame(item.url, video?.currentTime);
@@ -654,7 +654,7 @@ export function DetailModal() {
                 {item.kind === "video" &&
                   item.url &&
                   supportsFirstFrameContinuation(item.model) && (
-                    <button disabled={maintenance}
+                    <button
                       onClick={() => {
                         confirmation.ask("continueShot", async () => {
                           const result = await continueShot(item.id);
@@ -674,7 +674,7 @@ export function DetailModal() {
                     reference_video field — offering it otherwise would attach a
                     clip that the provider silently ignores. */}
                 {item.kind === "video" && item.url && supportsVideoReference(model) && (
-                  <button disabled={maintenance}
+                  <button
                     onClick={() => {
                       addReferenceVideo(item.url);
                       setMode("video");
@@ -686,7 +686,7 @@ export function DetailModal() {
                     <Clapperboard className="h-4 w-4" /> Use clip as video reference
                   </button>
                 )}
-                <button disabled={maintenance}
+                <button
                   onClick={() => {
                     confirmation.ask("cloneToComposer", async () => {
                       const result = await cloneToComposer(item.id);

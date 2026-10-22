@@ -451,6 +451,7 @@ function PortraitGalleryDialog() {
         description={`${pendingDelete?.slice(0, 6).map((p) => p.name).join(", ") || ""}${pendingDelete?.length > 6 ? ", ..." : ""}. They are removed for everyone who uses the gallery.`}
         confirmLabel={`Delete ${pendingDelete?.length || 0}`}
         destructive
+        maintenanceWrite
         busy={busy}
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => runDelete(pendingDelete)}

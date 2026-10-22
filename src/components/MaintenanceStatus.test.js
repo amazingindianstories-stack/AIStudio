@@ -57,7 +57,9 @@ test("an open tab shows the persistent banner, disables writes and restores cont
     assert.equal(button("Generate again").disabled, true);
     assert.equal([...document.querySelectorAll("button")].find((el) => el.textContent === "Upscale with Magnific").disabled, true);
     assert.equal([...document.querySelectorAll("button")].find((el) => el.textContent === "Replace image").disabled, true);
-    assert.ok([...document.querySelectorAll("input[type=file]")].every((el) => el.disabled));
+    assert.equal(document.querySelector("input[type=file][multiple]").disabled, true, "composer attachments upload");
+    assert.ok([...document.querySelectorAll("input[type=file]:not([accept='image/*,video/*'])")].every((el) => el.disabled));
+    assert.ok([...document.querySelectorAll("input[type=file][accept='image/*,video/*']")].every((el) => !el.disabled), "first/last frames stay local");
     assert.equal(button("Tree folder actions: Folder").disabled, true);
     assert.equal(document.querySelector("button[title='Create new folder']").disabled, true);
     assert.equal(button("Move").disabled, true);
