@@ -146,8 +146,10 @@ test('during maintenance an unfavourited card has no favourite star while a favo
       const star = card.querySelector('[data-favorite-star]');
       assert.equal(star.disabled, true);
       assert.equal(star.getAttribute('aria-pressed'), 'true');
+      // Rendering resolves the thumbnail (read-only); the click itself must send nothing.
+      const before = [...calls];
       await act(async () => star.click());
-      assert.equal(calls.length, 0);
+      assert.deepEqual(calls, before);
     });
   } finally { useMaintenance.setState({ enabled: false }); }
 });

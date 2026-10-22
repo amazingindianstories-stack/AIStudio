@@ -34,7 +34,7 @@ export function MaintenanceStatus({ children }) {
     };
   }, []);
   return <div data-maintenance-active={enabled ? "true" : undefined} className="flex h-[100dvh] flex-col overflow-hidden">
-    {enabled && <div role="status" className="relative z-[300] shrink-0 border-b border-amber-300/25 bg-amber-300/10 px-4 py-3 text-center text-sm text-amber-100">{MAINTENANCE_MESSAGE}</div>}
+    {enabled && <div role="status" className="shrink-0 border-b border-amber-300/25 bg-amber-300/10 px-4 py-3 text-center text-sm text-amber-100">{MAINTENANCE_MESSAGE}</div>}
     <div className="min-h-0 flex-1 overflow-auto">{children}</div>
   </div>;
 }

@@ -191,3 +191,22 @@ scoped('a viewer opened from the chat thread walks the thread, not the folder th
   await page.keyboard.press('ArrowRight');
   await expect(shown(page)).toHaveAttribute('data-viewer-item-id', threadIds[index + 1] ?? threadIds[0]);
 });
+
+scoped('while maintenance is ON the viewer covers the banner and its close button takes the click', async ({ page, scope }) => {
+  // The status poll is the only thing stubbed: the banner, the viewer and their stacking are real.
+  await page.route('**/api/maintenance', (route) => route.fulfill({ json: { enabled: true, available: true } }));
+  const expected = await scope.rows(`folderId=${scope.target.id}`);
+  const panel = await openPanel(page);
+  await expect(page.getByRole('status').filter({ hasText: 'Veevee is being updated' })).toBeVisible();
+  await openTreeFolder(panel, `${scope.tag} Target`);
+  await panel.locator(`[data-asset-card-id="${expected[0]}"]`).click({ position: { x: 88, y: 24 } });
+  await expect(shown(page)).toHaveAttribute('data-viewer-item-id', expected[0]);
+  const close = page.getByRole('button', { name: 'Close viewer' });
+  const topmost = await close.evaluate((button) => {
+    const box = button.getBoundingClientRect();
+    return document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)?.closest('button') === button;
+  });
+  expect(topmost).toBe(true);
+  await close.click();
+  await expect(close).toHaveCount(0);
+});
