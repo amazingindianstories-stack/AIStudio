@@ -1,4 +1,5 @@
 "use client";
+import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useRef, useState, useEffect } from "react";
 import { notify } from "@/lib/notify";
@@ -55,6 +56,7 @@ const MODELS = [
 ];
 
 export function UpscalerComposer() {
+  const maintenance = useMaintenance((s) => s.enabled);
   const s = useStore();
   const upscalerImage = s.upscalerImage;
   const setUpscalerImage = s.setUpscalerImage;
@@ -83,7 +85,7 @@ export function UpscalerComposer() {
   if (s.upscalerMedia === "video") return <VideoUpscalerComposer />;
 
   const handleSelectFile = async (file) => {
-    if (!file) return;
+    if (maintenance || !file) return;
     const contentType = uploadContentType(file);
     if (!["image/png", "image/jpeg", "image/webp"].includes(contentType)) {
       setUploadError("Magnific accepts PNG, JPEG or WebP images. Video upscaling is unsupported.");
@@ -228,6 +230,7 @@ export function UpscalerComposer() {
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
+        disabled={maintenance}
         type="file"
         accept="image/png,image/jpeg,image/webp"
         className="hidden"
@@ -319,6 +322,7 @@ export function UpscalerComposer() {
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
+                  disabled={maintenance}
                   onClick={() => fileInputRef.current?.click()}
                   className="rounded-lg bg-white/5 px-2.5 py-1 text-xs font-medium text-white/80 hover:bg-white/10 hover:text-white transition"
                 >
@@ -337,7 +341,8 @@ export function UpscalerComposer() {
           </div>
         ) : (
           <div
-            onClick={() => fileInputRef.current?.click()}
+            aria-disabled={maintenance}
+            onClick={() => !maintenance && fileInputRef.current?.click()}
             className={cn(
               "group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all duration-200",
               dragging
@@ -861,7 +866,7 @@ export function UpscalerComposer() {
           <button
             type="button"
             onClick={async () => { setUploadError(""); const source = upscalerImage; const projectId = s.activeProjectId; const item = await generateUpscale(); if (useStore.getState().activeProjectId !== projectId) return; if (item?.id) setLastResult({ source, item }); else setUploadError("Could not start the upscale. Check the source and retry."); }}
-            disabled={!upscalerImage || generating || uploading}
+            disabled={maintenance || !upscalerImage || generating || uploading}
             className={cn(
               "flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-ink-950 shadow-md transition duration-200",
               !upscalerImage || generating || uploading

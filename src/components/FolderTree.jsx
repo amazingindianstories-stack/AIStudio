@@ -1,5 +1,7 @@
 "use client";
 
+import { useMaintenance } from "@/lib/maintenance-client";
+
 import { useEffect, useId, useRef, useState } from "react";
 import { notify } from "@/lib/notify";
 import {
@@ -41,6 +43,7 @@ export function FolderTree({
   onOpenMoveModal,
   onOpenNewFolderModal,
 }) {
+  const maintenance = useMaintenance((s) => s.enabled);
   const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const [expanded, setExpanded] = useState({});
   const [dragOverId, setDragOverId] = useState(null);
@@ -76,6 +79,7 @@ export function FolderTree({
   };
 
   const isDropTargetValid = (targetFolderId, e) => {
+    if (maintenance) return false;
     if (!isAdmin && !isFolderDragEvent(e) && !getFolderDragData(e)) return false;
     const draggedFolderId = getFolderDragData(e);
     if (draggedFolderId) {
@@ -119,6 +123,7 @@ export function FolderTree({
     setDragOverId(null);
     setDragOverValid(true);
 
+    if (maintenance) return;
     const assetPayload = getAssetDragData(e, useStore.getState());
     const draggedFolderId = getFolderDragData(e);
 
@@ -200,8 +205,9 @@ export function FolderTree({
           onKeyDown={(e) => onKeyDown(folder, hasChildren, isExpanded, e)}
           title={folder.name}
           aria-busy={busy}
-          draggable={!isEditing && !busy}
+          draggable={!isEditing && !busy && !maintenance}
           onDragStart={(e) => {
+            if (maintenance) { e.preventDefault(); return; }
             setFolderDragData(e.dataTransfer, folder.id, folder.name);
           }}
           onDragEnd={() => {
@@ -287,7 +293,7 @@ export function FolderTree({
           {busy && <Loader2 aria-label="Folder operation pending" className="h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />}
           {/* Folder context menu */}
           <div inert={busy ? true : undefined} onClick={(e) => e.stopPropagation()} className="sticky right-0 shrink-0 bg-ink-850">
-            <Dropdown
+            <Dropdown maintenanceWrite
               label={`Tree folder actions: ${folder.name}`}
               align="right"
               trigger={(open) => (

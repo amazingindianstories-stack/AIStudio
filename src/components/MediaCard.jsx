@@ -21,6 +21,8 @@ import {
   Check,
 } from "lucide-react";
 
+import { useMaintenance } from "@/lib/maintenance-client";
+import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 import { UNSORTED } from "@/lib/feed-scope";
 import { useStore } from "@/lib/store";
 import { useDirectMediaUrl } from "@/lib/media-resolver";
@@ -293,6 +295,7 @@ export function MediaCard({
   const busyReason = "Another generation is starting - try again in a moment";
   const editable = item.kind !== "depth";
 
+  const maintenance = useMaintenance((s) => s.enabled);
   const menuGroups = [
     [
       editable && (done || failed) && {
@@ -401,6 +404,14 @@ export function MediaCard({
     ],
   ];
 
+  if (maintenance) {
+    for (const group of menuGroups) for (const action of group) {
+      if (action && ["retry", "retry-text", "finalize", "favorite", "delete"].includes(action.key)) {
+        action.disabled = true;
+        action.reason = MAINTENANCE_MESSAGE;
+      }
+    }
+  }
   const menuOpen = menu !== null;
   // Hover/keyboard-focus chrome; the checkbox also stays while selected.
   const revealOnHover =
@@ -706,6 +717,7 @@ export function MediaCard({
           {done && (
             <button
               type="button"
+              disabled={maintenance}
               aria-label={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
               aria-pressed={item.isFavorite === true}
               title={item.isFavorite ? "Remove from favourites" : "Add to favourites"}

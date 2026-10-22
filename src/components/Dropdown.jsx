@@ -11,6 +11,8 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { createPortal } from "react-dom";
+import { useMaintenance } from "@/lib/maintenance-client";
+import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 import { cn } from "@/lib/utils";
 
 export function Dropdown({
@@ -22,7 +24,10 @@ export function Dropdown({
   panelClassName,
   label,
   onOpen,
+  maintenanceWrite = false,
 }) {
+  const maintenance = useMaintenance((s) => s.enabled);
+  const disabled = maintenanceWrite && maintenance;
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState(null);
   const ref = useRef(null);
@@ -30,6 +35,8 @@ export function Dropdown({
   const panelRef = useRef(null);
   const keyboardFocusRef = useRef(null);
   const panelId = useId();
+
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
 
   const closeAndRestore = useCallback(({ restoreFocus = true } = {}) => {
     keyboardFocusRef.current = null;
@@ -160,6 +167,8 @@ export function Dropdown({
   return (
     <div ref={ref} className={cn("relative", className)}>
       <button
+        disabled={disabled}
+        title={disabled ? MAINTENANCE_MESSAGE : undefined}
         ref={triggerRef}
         type="button"
         onClick={() => {
@@ -220,11 +229,14 @@ export function Dropdown({
 export function MenuItem({
   active,
   disabled,
+  maintenanceWrite = false,
   onClick,
   children,
 }
 
 ) {
+  const maintenance = useMaintenance((s) => s.enabled);
+  disabled = disabled || (maintenanceWrite && maintenance);
   return (
     <button
       type="button"

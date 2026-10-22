@@ -1,4 +1,5 @@
 "use client";
+import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -17,10 +18,12 @@ export function ConfirmActionDialog({
   confirmLabel,
   destructive = false,
   busy = false,
+  maintenanceWrite = true,
   error = "",
   onCancel,
   onConfirm,
 }) {
+  const maintenance = useMaintenance((s) => s.enabled);
   const titleId = useId();
   const descriptionId = useId();
   const cancelRef = useRef(null);
@@ -114,7 +117,7 @@ export function ConfirmActionDialog({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || (maintenanceWrite && maintenance)}
             className={cn(
               "flex min-w-24 items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-45",
               destructive

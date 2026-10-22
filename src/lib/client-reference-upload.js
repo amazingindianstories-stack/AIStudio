@@ -1,5 +1,6 @@
 "use client";
 
+import { assertMaintenanceWritable } from "./maintenance-client";
 import { apiErrorMessage } from "./api-error";
 
 const MIME_BY_EXTENSION = Object.freeze({
@@ -36,6 +37,7 @@ function uploadError(message, retryable = false, code = null) {
 }
 
 async function request(fetchImpl, url, options, signal, timeoutMs) {
+  assertMaintenanceWritable();
   const controller = new AbortController();
   const abort = () => controller.abort(signal.reason);
   if (signal?.aborted) abort();
@@ -81,7 +83,7 @@ async function jsonRequest(fetchImpl, url, body, signal, timeoutMs) {
   if (!response.ok) {
     const code = typeof value.code === "string" ? value.code : typeof value.error === "string" ? value.error : null;
     // A quota 429 lasts far longer than the retry window; only transient limits are retried.
-    const retryable = response.status === 408 || response.status >= 500
+    const retryable = response.status === 408 || (response.status >= 500 && code !== "MAINTENANCE")
       || (response.status === 429 && !QUOTA_CODES.has(code));
     throw uploadError(apiErrorMessage(value, response.status, "Upload failed. Try again."), retryable, code);
   }

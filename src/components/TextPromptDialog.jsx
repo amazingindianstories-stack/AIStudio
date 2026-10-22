@@ -1,4 +1,5 @@
 "use client";
+import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -6,6 +7,7 @@ import { settleTextRequest, useTextRequest } from "@/lib/ask-text";
 import { ConfirmActionDialog } from "@/components/ConfirmActionDialog";
 
 export function TextPromptDialog() {
+  const maintenance = useMaintenance((s) => s.enabled);
   const request = useTextRequest((state) => state.request);
   const [value, setValue] = useState("");
   const titleId = useId();
@@ -39,7 +41,7 @@ export function TextPromptDialog() {
       destructive={request.destructive} onCancel={() => settleTextRequest(false)} onConfirm={() => settleTextRequest(true)} />;
   }
   const trimmed = value.trim();
-  const canSubmit = request.optional || trimmed.length > 0;
+  const canSubmit = !maintenance && (request.optional || trimmed.length > 0);
 
   return createPortal(
     <div className="fixed inset-0 z-[220] grid place-items-center bg-black/65 p-4 backdrop-blur-sm"

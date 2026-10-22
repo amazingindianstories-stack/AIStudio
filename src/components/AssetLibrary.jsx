@@ -1,5 +1,9 @@
 "use client";
 
+import { useMaintenance } from "@/lib/maintenance-client";
+import { MaintenanceWriteBoundary } from "./MaintenanceStatus";
+
+
 import { useEffect, useRef, useState, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -172,6 +176,7 @@ export function AssetLibrary() {
 }
 
 function AssetList({ assets, loading, refreshing, error, activeProject: propActiveProject }) {
+  const maintenance = useMaintenance((s) => s.enabled);
   const setEditing = useStore((s) => s.setEditingAsset);
   const deleteAsset = useStore((s) => s.deleteAsset);
   const setOpen = useStore((s) => s.setAssetLibraryOpen);
@@ -245,6 +250,7 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
             )}
           </div>
           <button
+            disabled={maintenance}
             onClick={() => setEditing("new")}
             className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-brand/15 px-3.5 py-2 text-sm font-semibold text-brand transition hover:bg-brand/25 active:scale-95"
           >
@@ -312,6 +318,7 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
             </p>
             {!searchQuery && (
               <button
+                disabled={maintenance}
                 onClick={() => setEditing("new")}
                 className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15"
               >
@@ -376,6 +383,7 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
                           e.stopPropagation();
                           setEditing(a);
                         }}
+                        disabled={maintenance}
                         title="Edit material"
                         className="grid h-6 w-6 place-items-center rounded-md bg-black/65 text-white/75 backdrop-blur-sm transition hover:bg-white/20 hover:text-white"
                       >
@@ -388,6 +396,7 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
                           confirmation.ask("deleteAsset", () => deleteAsset(a.id));
                         }}
                         aria-label={`Delete ${a.name}`}
+                        disabled={maintenance}
                         title="Delete material"
                         className="grid h-6 w-6 place-items-center rounded-md bg-black/65 text-white/75 backdrop-blur-sm transition hover:bg-red-600/80 hover:text-white"
                       >
@@ -544,7 +553,7 @@ function AssetEditor({ asset }) {
   };
 
   return (
-    <div className="space-y-4">
+    <MaintenanceWriteBoundary className="space-y-4">
       {/* Kind Selector */}
       <div>
         <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
@@ -710,6 +719,6 @@ function AssetEditor({ asset }) {
           {saving ? "Saving…" : asset ? "Save Changes" : "Save Material"}
         </button>
       </div>
-    </div>
+    </MaintenanceWriteBoundary>
   );
 }
