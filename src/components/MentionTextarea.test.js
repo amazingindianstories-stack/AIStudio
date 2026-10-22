@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToString } from "react-dom/server";
-import { MentionTextarea, attachedMediaSuggestions } from "./MentionTextarea.jsx";
+import { MentionTextarea, attachedMediaSuggestions, replaceTagEverywhere } from "./MentionTextarea.jsx";
 test("audio-only attachments offer numbered autocomplete matches", () => {
   assert.deepEqual(attachedMediaSuggestions("AuDiO", 0, 2).map((s) => s.tag), ["@audio1", "@audio2"]);
   assert.deepEqual(attachedMediaSuggestions("audio2", 1, 2).map((s) => s.tag), ["@audio2"]);
@@ -96,11 +96,12 @@ async function withMentionTextarea(initial, run) {
   dom.window.HTMLElement.prototype.scrollIntoView = function () {};
   // react-dom/client decides at import whether native `input` events exist, so it loads after the DOM.
   const { createRoot } = await import("react-dom/client");
-  let setPrompt;
+  let setReferences;
   function Harness() {
     const [value, setValue] = React.useState(initial);
-    setPrompt = setValue;
-    return React.createElement(MentionTextarea, { value, onChange: setValue, onSubmit() {}, references: ["/a.png", "/b.png"] });
+    const [references, setRefs] = React.useState(["/a.png", "/b.png"]);
+    setReferences = setRefs;
+    return React.createElement(MentionTextarea, { value, onChange: setValue, onSubmit() {}, references });
   }
   const root = createRoot(document.querySelector("#root"));
   try {
@@ -125,7 +126,29 @@ async function withMentionTextarea(initial, run) {
       ta.setSelectionRange(position, position);
       await act(async () => { document.dispatchEvent(new dom.window.Event("selectionchange")); });
     };
-    await run({ ta, type, select, flush, setPrompt: (next) => act(async () => setPrompt(next)) });
+    // A click on the prompt as the browser delivers it: the caret moves first, then `click` fires.
+    const click = async (position) => {
+      ta.focus();
+      ta.setSelectionRange(position, position);
+      await act(async () => { ta.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); });
+      await flush();
+    };
+    const press = async (key) => {
+      await act(async () => { document.activeElement.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })); });
+      await flush();
+    };
+    const search = async (text) => {
+      const input = document.activeElement;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(input, text);
+        input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      });
+      await flush();
+    };
+    // A closing menu fades out before it leaves the DOM; only an open one counts.
+    const menu = () => document.querySelector('[data-tag-replace-menu="open"]');
+    const options = () => [...(menu()?.querySelectorAll('[role="option"]') || [])].map((o) => ({ label: o.textContent, selected: o.getAttribute("aria-selected") === "true", thumb: o.querySelector("img")?.getAttribute("src") }));
+    await run({ ta, type, select, flush, click, press, search, menu, options, setReferences: (next) => act(async () => setReferences(next)) });
   } finally {
     await act(async () => root.unmount());
     Object.assign(globalThis, previous);
@@ -140,12 +163,73 @@ test("typing a numbered tag by hand keeps the caret after the digit", async () =
   });
 });
 
-test("an outside renumber keeps the caret on the same literal text", async () => {
-  await withMentionTextarea("@img10 and more", async ({ ta, setPrompt, select, flush }) => {
-    await select(10);
-    await setPrompt("@img9 and more");
-    await flush();
-    assert.equal(ta.value, "@img9 and more");
-    assert.equal(ta.selectionStart, 9, "the caret stays after \"and\" instead of jumping to the end");
+test("replacing a tag rewrites every spelling of it and leaves the caret after the clicked one", () => {
+  const text = "@img1 walks past @img2 while @IMG2 waves at @image 2, not a@img2 or @img20";
+  const start = text.indexOf("@IMG2");
+  assert.deepEqual(replaceTagEverywhere(text, start, "@img3"), {
+    text: "@img1 walks past @img3 while @img3 waves at @img3, not a@img2 or @img20",
+    caret: "@img1 walks past @img3 while @img3".length,
+  });
+  assert.equal(replaceTagEverywhere(text, text.indexOf("walks"), "@img3"), null);
+});
+
+test("clicking an unresolved tag opens a replace menu of every attached reference, driven by the keyboard", async () => {
+  await withMentionTextarea("@img1 walks past @img3 waves", async ({ ta, click, press, menu, options }) => {
+    await click(19);
+    assert.ok(menu(), "the menu opens on the red @img3");
+    assert.match(menu().textContent, /Replace @img3 with:/);
+    assert.ok(document.activeElement === menu().querySelector("input"), "focus moves to the search field");
+    assert.deepEqual(options().map((o) => o.label), ["@img1uploaded image", "@img2uploaded image"]);
+    assert.deepEqual(options().map((o) => o.selected), [false, false], "nothing is highlighted until an arrow key");
+    await press("ArrowDown");
+    assert.deepEqual(options().map((o) => o.selected), [true, false]);
+    await press("ArrowDown");
+    await press("ArrowDown");
+    assert.deepEqual(options().map((o) => o.selected), [false, true], "the highlight stops at the last reference");
+    await press("Enter");
+    assert.ok(!menu(), "the menu closes");
+    assert.equal(ta.value, "@img1 walks past @img2 waves");
+    assert.ok(document.activeElement === ta, "focus returns to the prompt");
+    assert.equal(ta.selectionStart, "@img1 walks past @img2".length, "the caret lands right after the replacement");
+  });
+});
+
+test("the replace menu searches, and Escape closes it without touching the prompt", async () => {
+  await withMentionTextarea("a @imgg2 b", async ({ ta, click, press, search, menu, options }) => {
+    await click(4);
+    assert.match(menu().textContent, /Replace @imgg2 with:/, "a misspelled tag opens the menu too");
+    await search("2");
+    assert.deepEqual(options().map((o) => [o.label, o.selected]), [["@img2uploaded image", true]]);
+    await search("9");
+    assert.deepEqual(options(), []);
+    await press("Escape");
+    assert.ok(!menu(), "the menu closes");
+    assert.equal(ta.value, "a @imgg2 b");
+    assert.ok(document.activeElement === ta, "focus returns to the prompt");
+    assert.equal(ta.selectionStart, 4, "the caret goes back where the click put it");
+    await click(5);
+    await search("2");
+    await press("Enter");
+    assert.equal(ta.value, "a @img2 b");
+  });
+});
+
+test("clicking plain text or the edge of a tag keeps the normal caret behaviour", async () => {
+  await withMentionTextarea("@img1 walks", async ({ click, menu }) => {
+    await click(8);
+    assert.ok(!menu());
+    await click(5);
+    assert.ok(!menu(), "a caret at the tag's end edge is a click past it, not on it");
+    await click(2);
+    assert.ok(menu(), "a valid tag opens the menu as well, like a Higgsfield chip");
+  });
+});
+
+test("after a reorder the replace menu lists references in their new slots", async () => {
+  await withMentionTextarea("@img1 then @img2", async ({ click, options, press, setReferences }) => {
+    await setReferences(["/b.png", "/a.png"]);
+    await click(2);
+    assert.deepEqual(options().map((o) => o.thumb), ["/b.png", "/a.png"]);
+    await press("Escape");
   });
 });

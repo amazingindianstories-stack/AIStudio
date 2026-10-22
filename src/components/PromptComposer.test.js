@@ -621,6 +621,48 @@ test("composer collapses when focus leaves right after typing an @tag while its 
   }
 });
 
+test("the composer stays open while a tag's replace menu has focus and the pointer is over it", async () => {
+  const { dom, restore } = installComposerDom();
+  const before = { ...useStore.getInitialState() };
+  const root = createRoot(document.querySelector("#root"));
+  try {
+    const prompt = "@img1 walks past @img3";
+    useStore.setState({ mode: "image", prompt, referenceImages: ["/a.png", "/b.png"], referenceIds: ["ref-a", "ref-b"], referenceKinds: ["image", "image"] });
+    await act(async () => root.render(React.createElement(PromptComposer)));
+    const shell = document.querySelector('[data-testid="prompt-composer"]');
+    const textarea = shell.querySelector("textarea");
+    await act(async () => {
+      shell.dispatchEvent(new dom.window.MouseEvent("mouseenter"));
+      textarea.focus();
+      textarea.setSelectionRange(19, 19);
+      textarea.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    const menu = document.querySelector('[data-tag-replace-menu="open"]');
+    assert.ok(menu, "clicking @img3 opens its replace menu");
+    assert.ok(document.activeElement === menu.querySelector("input"), "the menu's search field has focus");
+    // Moving onto the portaled menu leaves the shell's DOM.
+    await act(async () => {
+      shell.dispatchEvent(new dom.window.MouseEvent("mouseleave"));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    assert.equal(shell.getAttribute("data-composer-collapsed"), "false", "the open menu keeps the composer expanded");
+    await act(async () => {
+      document.activeElement.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    });
+    await act(async () => {
+      document.activeElement.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    assert.equal(useStore.getState().prompt, "@img1 walks past @img1");
+    assert.ok(document.activeElement === textarea, "the prompt gets focus back");
+  } finally {
+    await act(async () => root.unmount());
+    useStore.setState(before, true);
+    restore();
+  }
+});
+
 test("composer pointer tracking follows the shell across a mode switch remount", async () => {
   const { dom, restore } = installComposerDom();
   const before = { ...useStore.getInitialState() };

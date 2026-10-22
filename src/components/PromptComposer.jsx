@@ -887,6 +887,7 @@ export function PromptComposer() {
           }}
           assets={s.assets}
           references={s.referenceImages}
+          referenceTags={s.referenceTags}
           videoRefs={s.referenceVideos}
           audioRefs={s.audioNotes}
           maxLength={maxPromptLength}

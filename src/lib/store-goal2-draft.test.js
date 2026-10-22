@@ -21,7 +21,7 @@ test('store moves duplicate occurrences without moving another source metadata',
   } finally {useStore.setState(previous,true);}
 });
 
-test('every reorder path keeps the prompt text while removal still renumbers later tags', () => {
+test('reordering and removing references never rewrite the prompt, as in Higgsfield', () => {
   const previous=useStore.getState();
   const prompt='@img1 then @IMG3 and @img2, not @img30 @slug';
   try {
@@ -41,10 +41,14 @@ test('every reorder path keeps the prompt text while removal still renumbers lat
     assert.deepEqual(useStore.getState().referenceIds,[a,b,c]);
     assert.equal(useStore.getState().prompt,prompt);
     assert.equal(useStore.getState().referenceReorderUndo,null);
-    // Removing slot 2 shifts @img3 to @img2 so it still names image c.
+    // Removing slot 2 closes the strip up and leaves every tag's number alone: @img2 now names
+    // image c and @IMG3 points past the last slot until it is replaced or a third reference lands.
     useStore.getState().removeReference(1);
     assert.deepEqual(useStore.getState().referenceLabels,['a','c']);
-    assert.equal(useStore.getState().prompt,'@img1 then @IMG2 and @img2, not @img30 @slug');
+    assert.equal(useStore.getState().prompt,prompt);
+    useStore.getState().addReference('/api/media/d','image','d');
+    assert.deepEqual(useStore.getState().referenceLabels,['a','c','d']);
+    assert.equal(useStore.getState().prompt,prompt);
   } finally {useStore.setState(previous,true);}
 });
 

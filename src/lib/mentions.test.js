@@ -9,7 +9,6 @@ import {
   parseAssetSlugs,
   parseMentionIndices,
   parseVideoMentionIndices,
-  renumberImgMentions,
   resolveReferences,
   resolveVideoReferences,
   resolveAllReferences,
@@ -96,55 +95,6 @@ test("a prompt mixing all three tag kinds resolves each independently", () => {
   assert.deepEqual(parseVideoMentionIndices(prompt), [1]);
 });
 
-/**
- * Removing a composer reference calls this to keep already-typed @imgN tags
- * after the removed slot pointing at the same image (see the doc comment on
- * renumberImgMentions - @imgN is a live array index, not a stored id).
- */
-
-test("renumberImgMentions shifts later tags down and leaves the removed slot's tag literal", () => {
-  // Reference 2 of 3 removed: mapping [0, undefined, 1].
-  assert.equal(
-    renumberImgMentions("@img1 @img2 @img3 @img30", [0, undefined, 1]),
-    "@img1 @img2 @img2 @img30"
-  );
-});
-
-test("renumberImgMentions swaps a pair of tags without clobbering", () => {
-  // mapping[0]=1, mapping[1]=0: images at index 0 and 1 traded places.
-  assert.equal(
-    renumberImgMentions("put @img1 next to @img2", [1, 0]),
-    "put @img2 next to @img1"
-  );
-});
-
-test("renumberImgMentions handles a move-to-end shift", () => {
-  // First image dragged to the last slot; the other two shift down by one.
-  assert.equal(
-    renumberImgMentions("@img1 @img2 @img3", [2, 0, 1]),
-    "@img3 @img1 @img2"
-  );
-});
-
-test("renumberImgMentions leaves out-of-range tags untouched", () => {
-  // Only 2 images in the mapping; @img5 doesn't correspond to any of them.
-  assert.equal(
-    renumberImgMentions("@img1 and @img5", [1, 0]),
-    "@img2 and @img5"
-  );
-});
-
-test("renumberImgMentions is case-insensitive and preserves token case", () => {
-  assert.equal(renumberImgMentions("@IMG2 stays put", [1, 0]), "@IMG1 stays put");
-});
-
-test("renumberImgMentions renumbers every occurrence of a repeated tag", () => {
-  assert.equal(
-    renumberImgMentions("@img1 matches @img1 again", [1, 0]),
-    "@img2 matches @img2 again"
-  );
-});
-
 test("audio tags resolve separately from images, clips and named assets", () => {
   const prompt = "@AUDIO2 @audio2 @img1 @vid1 @priya";
   assert.equal(isAudioTag("AUDIO2"), true);
@@ -152,15 +102,6 @@ test("audio tags resolve separately from images, clips and named assets", () => 
   assert.deepEqual(parseAssetSlugs(prompt), ["priya"]);
   assert.deepEqual(parseAudioMentionIndices(prompt), [2]);
   assert.deepEqual(resolveAudioReferences(prompt, ["a.mp3", "b.wav"]), ["b.wav"]);
-});
-
-test("renumberImgMentions preserves named material tags completely untouched", () => {
-  const prompt = "@sati in @scene-1 holding @img1 and @img2 next to @mysong";
-  const renumbered = renumberImgMentions(prompt, [1, 0]);
-  assert.equal(
-    renumbered,
-    "@sati in @scene-1 holding @img2 and @img1 next to @mysong"
-  );
 });
 
 test("resolveAllReferences resolves named materials and ad-hoc uploads together", () => {

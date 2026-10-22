@@ -7,7 +7,7 @@ import { FeedBlock } from "./ConversationPanel.jsx";
 import { useStore } from "../lib/store";
 import { ReferenceStrip, stagedReferenceCount, referenceSubmissionWarning } from "./PromptComposer.jsx";
 import { uploadContentType } from "../lib/client-reference-upload";
-import { MentionTextarea, mapMentionSelection } from "./MentionTextarea.jsx";
+import { MentionTextarea } from "./MentionTextarea.jsx";
 import { resolveGenerationFolder, relativeGenerationTime } from "./MediaCard.jsx";
 
 test("reference controls preserve duplicate occurrence IDs and support move, keyboard, position and undo", async () => {
@@ -81,11 +81,6 @@ test("fifty staged references expose independent labelled insertion and reorder 
     assert.match(html, /Move reference 50 left/);
     globalThis.React = prior;
   });
-});
-
-test("mention caret mapping preserves literal suffixes at one-to-two-digit boundaries", () => {
-  assert.equal(mapMentionSelection("@img1 and @img10 end", "@img50 and @img2 end", 19), 19);
-  assert.equal(mapMentionSelection("before @img1 after", "before @img50 after", 18), 19);
 });
 
 test("generation folder cues reveal only available scoped names and timestamp handles absent dates", () => {

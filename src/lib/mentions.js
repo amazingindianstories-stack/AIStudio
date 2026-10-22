@@ -334,31 +334,6 @@ export function resolveReferences(
 }
 
 /**
- * Rewrites @imgN tokens so they keep pointing at the same physical image
- * after a reference is removed. @imgN is a live index into whatever
- * `referenceImages` currently holds (see resolveReferences) rather than a
- * stored id, so removing slot 2 without this would silently repoint an
- * already-typed @img3 at a different image. Reordering deliberately does not
- * call this: tags are positional, so @img1 follows slot 1, not its image.
- *
- * `mapping[oldIndex]` (0-based) is the image's new 0-based index; an old
- * index missing from `mapping` (out of range) is left untouched, matching
- * resolveReferences' "out-of-range tags ignored" behavior.
- *
- * Safe for swaps (e.g. @img1 <-> @img2): String.replace with a global regex
- * resolves every match against the *original* string before substituting, so
- * an already-replaced token is never re-matched.
- */
-export function renumberImgMentions(prompt, mapping) {
-  const re = new RegExp(MENTION_REGEX);
-  return prompt.replace(re, (match, digits) => {
-    const oldIndex = parseInt(digits, 10) - 1;
-    const newIndex = mapping[oldIndex];
-    return newIndex === undefined || newIndex < 0 ? match : `${match.slice(0, 4)}${newIndex + 1}`;
-  });
-}
-
-/**
  * Resolves all references from both the Material Library (@sati, @scene1)
  * and ad-hoc attachments (@imgN, @vidN, @audioN).
  */

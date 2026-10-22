@@ -33,7 +33,6 @@ import {
   VIDEO_TASK_MODES,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
-import { renumberImgMentions } from "./mentions";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import { apiFetch as crossOriginFetch, retryWhileBusy, fetchRetryBusy } from "./api";
@@ -741,19 +740,20 @@ export const useStore = create((set, get) => ({
           : resolutions[resolutions.length - 1],
       };
     }),
+  // @imgN is positional, as in Higgsfield Cinema Studio: neither removing nor
+  // reordering rewrites the prompt, so a typed @img1 means whatever occupies
+  // slot 1 now, and a tag past the last slot shows as unresolved until it is
+  // replaced or a reference fills that slot again.
   removeReference: (index) =>
     set((s) => ({
       referenceImages: s.referenceImages.filter((_, i) => i !== index),
       referenceIds: referenceIdsFor(s).filter((_, i) => i !== index),
       referenceReorderUndo: null,
-      prompt: renumberImgMentions(s.prompt, s.referenceImages.map((_, i) => i === index ? undefined : i > index ? i - 1 : i)),
       referenceKinds: s.referenceKinds.filter((_, i) => i !== index),
       referenceLabels: (s.referenceLabels || []).filter((_, i) => i !== index),
       referenceTags: (s.referenceTags || []).filter((_, i) => i !== index),
       unavailableReferences: (s.unavailableReferences || []).filter((ref) => ref !== s.referenceImages[index]),
     })),
-  // @imgN is positional: reordering never rewrites the prompt, so a typed
-  // @img1 means whatever occupies slot 1 after the move.
   reorderReferencesByIds: (ids) => set((s) => ({
     ...referencePermutation(s, ids),
     referenceReorderUndo: { ids: referenceIdsFor(s), afterIds: [...ids] },
