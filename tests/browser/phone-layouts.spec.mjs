@@ -7,7 +7,7 @@ async function login(page, context, baseURL, width, height = width === 390 ? 844
   await context.addCookies([{ name: 'veevee_session', value: `${payload}.${sig}`, url: baseURL }]);
   await page.setViewportSize({ width, height });
   await page.goto('/');
-  await expect(page.getByRole('button', { name: width < 1024 ? 'D' : /Desktop fixture/, exact: width < 1024 })).toBeVisible();
+  await expect(page.getByRole('button', { name: width < 768 ? 'D' : /Desktop fixture/, exact: width < 768 })).toBeVisible();
 }
 async function contained(locator) {
   await expect(locator).toBeVisible();
@@ -102,6 +102,16 @@ for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1440, 1000]
     await expect(page.getByText('Thumbnail Size', { exact: true })).toBeVisible();
     await view.click();
     await expect(page.getByText('Thumbnail Size', { exact: true })).toBeHidden();
+    const card = panel.locator('[data-asset-card-id]').first();
+    const select = card.getByRole('checkbox', { name: 'Select' });
+    await card.scrollIntoViewIfNeeded();
+    const before = await card.boundingBox();
+    await select.click();
+    await expect(panel.getByTestId('selection-toolbar')).toBeVisible();
+    expect((await card.boundingBox()).y).toBe(before.y);
+    await select.click();
+    await expect(search).toBeVisible();
+    expect((await card.boundingBox()).y).toBe(before.y);
     if (drawer) {
       await navToggle.click();
       await expect(allAssets).toBeVisible();
@@ -124,6 +134,26 @@ for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1440, 1000]
       await expect(navToggle).toBeFocused();
       await expect(page.getByRole('button', { name: 'Close assets panel' })).toBeVisible();
       await expect(search).toBeVisible();
+    }
+  });
+}
+for (const width of [390, 768, 1024, 1280]) {
+  test(`Phone layouts header ${width}`, async ({ page, context, baseURL }, info) => {
+    await login(page, context, baseURL, width);
+    await page.screenshot({ path: info.outputPath('header.png'), clip: { x: 0, y: 0, width, height: 56 } });
+    const nav = page.getByRole('navigation', { name: 'Sections' });
+    expect(await nav.evaluate(el => el.scrollWidth <= el.clientWidth)).toBeTruthy();
+    await noPageOverflow(page);
+    const account = page.getByRole('button', { name: width < 768 ? 'D' : /Desktop fixture/, exact: width < 768 });
+    const controls = [account, ...(width < 1024 ? [page.getByRole('button', { name: 'Open assets panel', exact: true })] : [])];
+    for (const section of await nav.getByRole('button').all()) {
+      await contained(section);
+      for (const control of controls) await separate(section, control);
+    }
+    for (const label of ['Image', 'Video', 'Board', 'Audio', 'Agents']) {
+      const text = nav.getByText(label, { exact: true });
+      if (width >= 1024) await expect(text).toBeVisible();
+      else await expect(text).toBeHidden();
     }
   });
 }

@@ -51,7 +51,7 @@ const ZOOM_MIN = 120;
 const ZOOM_MAX = 260;
 const ACTIVE_EXPORT_KEY = "veevee-active-media-export-v1";
 
-export function HistoryPanel() {
+export function HistoryPanel({ drawer = false }) {
   const maintenance = useMaintenance((s) => s.enabled);
   const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const actorId = useStore((s) => s.currentUser?.id);
@@ -322,11 +322,6 @@ export function HistoryPanel() {
     } finally { exportBusy.current = false; }
   };
 
-  const narrowLayout = () => {
-    const bar = navigationToggle.current?.parentElement;
-    return Boolean(bar) && window.getComputedStyle(bar).display !== "none";
-  };
-
   const showAssets = () => {
     if (!navigationOpen) return;
     setNavigationOpen(false);
@@ -337,7 +332,7 @@ export function HistoryPanel() {
     if (moveModalOpen) return;
 
     if (e.key === "Escape") {
-      if (navigationOpen && narrowLayout()) {
+      if (navigationOpen) {
         e.preventDefault();
         e.stopPropagation();
         // The app root is the document, so the phone drawer's own document
@@ -389,6 +384,7 @@ export function HistoryPanel() {
   return (
     <div
       onKeyDown={handlePanelKeyDown}
+      data-drawer={drawer}
       data-navigation-open={navigationOpen}
       className="history-panel h-full w-full overflow-hidden bg-ink-850"
     >
@@ -396,13 +392,15 @@ export function HistoryPanel() {
         {/* ══════════════════════════════════════════════════════════════════════
             LEFT: PERSISTENT NAVIGATION SIDEBAR (w-60 shrink-0)
             ══════════════════════════════════════════════════════════════════════ */}
-        <div className="history-navigation-toggle flex shrink-0 items-center border-b border-line px-3 py-2">
-          <button ref={navigationToggle} type="button" aria-expanded={navigationOpen} aria-controls={navigationId}
-            onClick={() => setNavigationOpen((open) => !open)}
-            className="flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-white/80 hover:bg-white/10">
-            <Layers className="h-4 w-4" />{navigationOpen ? "Back to assets" : "Folders"}
-          </button>
-        </div>
+        {drawer && (
+          <div className="flex shrink-0 items-center border-b border-line px-3 py-2">
+            <button ref={navigationToggle} type="button" aria-expanded={navigationOpen} aria-controls={navigationId}
+              onClick={() => setNavigationOpen((open) => !open)}
+              className="flex items-center gap-2 rounded-md px-2 py-1 text-xs font-medium text-white/80 hover:bg-white/10">
+              <Layers className="h-4 w-4" />{navigationOpen ? "Back to assets" : "Folders"}
+            </button>
+          </div>
+        )}
         <aside id={navigationId} aria-label="Library folders" className="history-navigation flex min-h-0 shrink-0 flex-col border-r border-line bg-ink-850 select-none">
           {/* Workspace Switcher (~40-44px high) */}
           <Dropdown
@@ -639,7 +637,7 @@ export function HistoryPanel() {
                 onClick={() => {
                   setBriefView(false);
                   setRightTab("project");
-                  setNavigationOpen(narrowLayout());
+                  setNavigationOpen(drawer);
                   setAddingScope({
                     projectId: activeProjectId,
                     parentId: activeFolderId === UNSORTED ? null : activeFolderId,
@@ -657,7 +655,7 @@ export function HistoryPanel() {
 
           {/* ── ROW 2: ASSET COMMAND BAR WITH IN-PLACE CONTEXTUAL SELECTION (~44px high) ── */}
           {selectedIds.length > 0 ? (
-            /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same h-11).
+            /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same height as the search row).
                Narrow panels drop labels instead of wrapping (see globals.css). */
             <div
               data-testid="selection-toolbar"
@@ -779,7 +777,7 @@ export function HistoryPanel() {
               </div>
             </div>
           ) : (
-            /* Narrow panels give search its own row (globals.css); wide ones keep the compact command bar. */
+            /* The drawer gives search its own row (globals.css); the sidebar layout keeps the compact command bar. */
             <div className="history-search-row flex h-11 shrink-0 items-center justify-between gap-3 border-b border-line bg-ink-850 px-4 select-none">
               {/* Search Input (max-w ~380px) */}
               <div className="history-search relative min-w-0 w-full max-w-md">

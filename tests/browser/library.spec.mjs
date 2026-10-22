@@ -264,15 +264,11 @@ for (const width of [1024, 1440]) {
   test(`15-level breadcrumb scroll at ${width}px retains ancestors and toolbar`, async ({ page, library }) => {
     let parent = library.globalRoot;
     for (let i = 0; i < 14; i++) parent = await library.createFolder(`Level ${i} long folder name`, null, parent.id);
-    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width, height: 1000 });
     await page.reload();
     await expect(page.locator('button[aria-controls="desktop-history-panel"]')).toBeVisible();
     if (await page.locator('button[aria-controls="desktop-history-panel"]').getAttribute("aria-expanded") !== "true") await page.locator('button[aria-controls="desktop-history-panel"]').click();
-    const folders = library.panel.getByRole("button", { name: "Folders", exact: true });
-    if (await folders.count()) await folders.click();
-    await library.navigate("global");
-    if (await folders.count()) await folders.click();
+    await library.panel.getByRole("button", { name: "Global library", exact: true }).click(); await library.navigate("global");
     let row = library.panel.getByRole("treeitem").filter({ hasText: library.globalRoot.name });
     await row.getByRole("button").first().click();
     for (let i = 0; i < 13; i++) {

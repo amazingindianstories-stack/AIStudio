@@ -229,7 +229,7 @@ export default function Page() {
                   </button>
                 </div>
                 <div className="min-h-0 flex-1">
-                  <HistoryPanel />
+                  <HistoryPanel drawer />
                 </div>
               </motion.aside>
             </>
