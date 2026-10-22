@@ -5,6 +5,7 @@ import { useMaintenance } from "@/lib/maintenance-client";
 import { notify } from "@/lib/notify";
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { EXPORT_POLL_MAX_MS, exportPollDelay } from "@/lib/poll-schedule";
 import {
   Search,
@@ -348,17 +349,14 @@ export function HistoryPanel({ drawer = false }) {
       }
     }
 
-    if ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) {
+    if (
+      ((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) ||
+      (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA")
+    ) {
       const searchInput = document.querySelector('input[aria-label="Search prompts"]');
       if (searchInput) {
         e.preventDefault();
-        searchInput.focus();
-        searchInput.select?.();
-      }
-    } else if (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA") {
-      const searchInput = document.querySelector('input[aria-label="Search prompts"]');
-      if (searchInput) {
-        e.preventDefault();
+        if (navigationOpen) flushSync(() => setNavigationOpen(false));
         searchInput.focus();
         searchInput.select?.();
       }

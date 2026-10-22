@@ -50,6 +50,8 @@ for (const width of [390, 1440]) {
     await page.getByRole('button', { name: 'Errors', exact: true }).click();
     await expect(page.getByText('Showing 1 of 1 errors')).toBeVisible();
     await page.screenshot({ path: info.outputPath('admin-errors.png') });
+    const frame = page.locator('table').filter({ visible: true }).locator('..');
+    expect(await frame.evaluate(el => getComputedStyle(el).borderLeftWidth)).toBe(width === 390 ? '0px' : '1px');
     const copy = page.getByRole('button', { name: 'Copy support details', exact: true }).filter({ visible: true });
     await contained(copy);
     await copy.click();
@@ -141,6 +143,13 @@ for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1440, 1000]
       await expect(navToggle).toBeFocused();
       await expect(page.getByRole('button', { name: 'Close assets panel' })).toBeVisible();
       await expect(search).toBeVisible();
+      for (const shortcut of ['/', 'ControlOrMeta+f']) {
+        await navToggle.click();
+        await expect(allAssets).toBeVisible();
+        await page.keyboard.press(shortcut);
+        await expect(search).toBeFocused();
+        await expect(allAssets).toBeHidden();
+      }
     }
   });
 }

@@ -298,7 +298,7 @@ export function AdminErrorsTab({ data, usersById }) {
             : `Showing ${rows.length.toLocaleString()} of ${total.toLocaleString()} errors`}
       </p>
 
-      <div ref={scroller} className="scroll-thin relative overflow-x-auto rounded-xl border border-line">
+      <div ref={scroller} className="scroll-thin relative overflow-x-auto border-line sm:rounded-xl sm:border">
         <table className="block w-full text-sm sm:table sm:min-w-[900px]">
           <thead className="hidden bg-ink-800 text-left sm:table-header-group text-xs uppercase tracking-wide text-white/40">
             <tr>
