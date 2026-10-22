@@ -5,6 +5,7 @@ import { JSDOM } from 'jsdom';
 import { createRoot } from 'react-dom/client';
 import { useStore } from '../lib/store.js';
 import { MediaCard } from './MediaCard.jsx';
+import { useMaintenance } from '../lib/maintenance-client.js';
 
 async function harness(item, run, state = {}) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
@@ -48,6 +49,26 @@ test('failed card has no in-card generate buttons; its menu Edit & retry confirm
     assert.deepEqual(s.referenceImages, failed.referenceImages);
     assert.equal(calls.some(([url]) => String(url).startsWith('/api/generate')), false);
   });
+});
+
+test('during maintenance Edit & retry stays enabled and loads the composer while retry and delete stay blocked', async () => {
+  useMaintenance.setState({ enabled: true });
+  try {
+    await harness(failed, async ({ calls, card }) => {
+      await openMenu(card);
+      for (const key of ['retry', 'retry-text', 'delete']) assert.equal(menuItem(key).getAttribute('aria-disabled'), 'true', key);
+      assert.notEqual(menuItem('edit').getAttribute('aria-disabled'), 'true');
+      await act(async () => menuItem('edit').click());
+      const confirm = [...document.querySelectorAll('button')].find(b => b.textContent === 'Load into composer');
+      assert.equal(confirm.disabled, false);
+      await act(async () => confirm.click());
+      const s = useStore.getState();
+      assert.equal(s.prompt, 'Sati @img1 walks');
+      assert.deepEqual(s.referenceImages, failed.referenceImages);
+      assert.equal(document.body.textContent.includes('Edit and retry?'), false);
+      assert.equal(calls.some(([url]) => String(url).startsWith('/api/generate')), false);
+    });
+  } finally { useMaintenance.setState({ enabled: false }); }
 });
 
 test('rendering card delete is blocked in the menu and says why', async () => {
@@ -112,6 +133,25 @@ test('the card face holds only the avatar, the draft label, the checkbox, the ".
   await harness({ ...base, id: 'running-1', status: 'running', url: null }, async ({ card }) => {
     assert.equal(card.querySelector('[data-favorite-star]'), null, 'only finished generations can be favourited');
   }, users);
+});
+
+test('during maintenance an unfavourited card has no favourite star while a favourite keeps its disabled star', async () => {
+  const base = { ...failed, status: 'succeeded', error: null, moderationBlocked: false, url: '/api/media/generations/v.mov', createdAt: Date.now() };
+  useMaintenance.setState({ enabled: true });
+  try {
+    await harness({ ...base, id: 'plain-1' }, async ({ card }) => {
+      assert.equal(card.querySelector('[data-favorite-star]'), null);
+    });
+    await harness({ ...base, id: 'fav-2', isFavorite: true }, async ({ calls, card }) => {
+      const star = card.querySelector('[data-favorite-star]');
+      assert.equal(star.disabled, true);
+      assert.equal(star.getAttribute('aria-pressed'), 'true');
+      // Rendering resolves the thumbnail (read-only); the click itself must send nothing.
+      const before = [...calls];
+      await act(async () => star.click());
+      assert.deepEqual(calls, before);
+    });
+  } finally { useMaintenance.setState({ enabled: false }); }
 });
 
 test('the "..." button opens the same menu and toggles it closed; Escape closes it', async () => {

@@ -103,6 +103,7 @@ export function ProjectMenu({ close }) {
       <div data-testid="project-actions-footer" aria-busy={pending} inert={pending ? true : undefined} className="shrink-0 border-t border-line bg-ink-900 pt-1">
       {/* Project Actions */}
       <MenuItem
+        maintenanceWrite
         onClick={async () => {
           const name = await askText({ title: "New project", label: "Project name", confirmLabel: "Create" });
           if (name) void mutate(() => createProject(name));
@@ -115,7 +116,8 @@ export function ProjectMenu({ close }) {
       {project && (
         <>
           <MenuItem
-            onClick={async () => {
+            maintenanceWrite
+        onClick={async () => {
               const name = await askText({ title: "Rename project", label: "Project name", defaultValue: project.name, confirmLabel: "Rename" });
               if (name && name !== project.name) void mutate(() => renameProject(project.id, name));
             }}
@@ -124,7 +126,8 @@ export function ProjectMenu({ close }) {
             <span className="flex-1">Rename current project</span>
           </MenuItem>
           <MenuItem
-            onClick={async () => {
+            maintenanceWrite
+        onClick={async () => {
               if (
                 await askConfirm({ title: `Delete project "${project.name}"?`, description: "Its items move to the Global Library.", confirmLabel: "Delete project", destructive: true })
               )

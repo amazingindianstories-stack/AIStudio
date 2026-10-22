@@ -35,6 +35,22 @@ test("only permanent deletion confirmations use destructive styling", () => {
   assert.equal(mediaActionCopy("retryTextToVideo").destructive, undefined);
 });
 
+test("only confirmations that send a write are blocked during maintenance", () => {
+  const blocked = Object.keys(MEDIA_ACTION_COPY).filter((kind) => mediaActionCopy(kind).maintenanceWrite === true).sort();
+  assert.deepEqual(blocked, [
+    "addFavorite",
+    "deleteAsset",
+    "deleteGeneration",
+    "deletePortrait",
+    "deletePortraitGroup",
+    "finalizeDraft",
+    "regenerate",
+    "regenerateWithSameSeed",
+    "removeFavorite",
+    "retryTextToVideo",
+  ]);
+});
+
 test("unknown media action kinds fail loudly", () => {
   assert.throws(() => mediaActionCopy("unknown"), /Unknown confirmed media action/);
 });

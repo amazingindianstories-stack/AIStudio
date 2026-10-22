@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { middleware } from '../middleware.js';
 import { readFileSync } from 'node:fs';
-test('machine and retired execution paths receive the same Django transport', () => {
+test('machine and retired execution paths receive the same Django transport', async () => {
   const old = process.env.DJANGO_API_ORIGIN, oldIngress = process.env.GOAL4_PRIVATE_INGRESS_SECRET;
   process.env.DJANGO_API_ORIGIN = 'https://django.example';
   process.env.GOAL4_PRIVATE_INGRESS_SECRET = 'test-ingress-secret-0123456789abcdef0123456789abcdef';
   try {
     for (const path of ['/api/queue/execute', '/api/depth-worker/claim', '/api/cron/recover', '/api/media-exports/worker/claim']) {
-      const response = middleware({ url: `https://frontend.example${path}`, method: 'POST', nextUrl: { pathname: path } });
+      const response = await middleware({ url: `https://frontend.example${path}`, method: 'POST', nextUrl: { pathname: path } });
       assert.equal(response.headers.get('x-middleware-rewrite'), `https://django.example${path}`);
     }
   } finally {

@@ -1,7 +1,9 @@
+import { MAINTENANCE_MESSAGE } from "./maintenance";
 // Provider and gateway errors may be strings or structured envelopes.
 // Extract only displayable messages; never stringify the full response.
 // Machine codes (UPLOAD_NOT_READY, …) are translated, never shown raw.
 const CODE_MESSAGES = {
+  MAINTENANCE: MAINTENANCE_MESSAGE,
   UNAUTHENTICATED: "Your session has ended. Sign in again.",
   UNAUTHORIZED: "Your session has ended. Sign in again.",
   FORBIDDEN: "You don't have permission to do that.",

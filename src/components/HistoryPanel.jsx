@@ -1,5 +1,7 @@
 "use client";
 
+import { useMaintenance } from "@/lib/maintenance-client";
+
 import { notify } from "@/lib/notify";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -50,6 +52,7 @@ const ZOOM_MAX = 260;
 const ACTIVE_EXPORT_KEY = "veevee-active-media-export-v1";
 
 export function HistoryPanel() {
+  const maintenance = useMaintenance((s) => s.enabled);
   const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const actorId = useStore((s) => s.currentUser?.id);
   const items = useStore((s) => s.items);
@@ -542,9 +545,9 @@ export function HistoryPanel() {
         </div>
         <div data-testid="sticky-unsorted-rail" className="shrink-0 border-t border-line bg-ink-850 p-2">
           <button type="button" aria-label={`${project?.name || "Global"} Unsorted`} onClick={() => { setRightTab("project"); setBriefView(false); setActiveFolder(UNSORTED); }}
-            onDragOver={(e) => { e.preventDefault(); const valid = isAdmin && !isFolderDragEvent(e); e.dataTransfer.dropEffect = valid ? "move" : "none"; setUnsortedDrop(valid); }}
+            onDragOver={(e) => { e.preventDefault(); const valid = isAdmin && !maintenance && !isFolderDragEvent(e); e.dataTransfer.dropEffect = valid ? "move" : "none"; setUnsortedDrop(valid); }}
             onDragLeave={() => setUnsortedDrop(false)}
-            onDrop={(e) => { e.preventDefault(); setUnsortedDrop(false); if (!isAdmin || isFolderDragEvent(e)) return; const { ids } = getAssetDragData(e, useStore.getState()); if (!ids.length) return; setFolderDropError(""); void moveGenerationsToDestination(ids, activeProjectId ? { type: "project_unsorted", projectId: activeProjectId } : { type: "global_unsorted" }).catch((err) => setFolderDropError(err.message)); }}
+            onDrop={(e) => { e.preventDefault(); setUnsortedDrop(false); if (maintenance || !isAdmin || isFolderDragEvent(e)) return; const { ids } = getAssetDragData(e, useStore.getState()); if (!ids.length) return; setFolderDropError(""); void moveGenerationsToDestination(ids, activeProjectId ? { type: "project_unsorted", projectId: activeProjectId } : { type: "global_unsorted" }).catch((err) => setFolderDropError(err.message)); }}
             className={cn("flex w-full items-center gap-2 rounded px-2 py-2 text-xs text-white/70", activeFolderId === UNSORTED && rightTab === "project" && "bg-brand/15 text-white", unsortedDrop && "ring-1 ring-brand bg-brand/20")}>
             <Inbox className="h-4 w-4" /><span className="flex-1 text-left">Unsorted</span><span>{activeProjectId ? counts.project?.unsorted ?? 0 : counts.globalLibrary?.unsorted ?? 0}</span>
           </button>
@@ -603,6 +606,7 @@ export function HistoryPanel() {
                 });
               }}
               className="flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-white/15"
+              disabled={maintenance}
               title="Create new folder"
             >
               <FolderPlus className="h-3.5 w-3.5" />
@@ -648,7 +652,7 @@ export function HistoryPanel() {
               <button
                 type="button"
                 onClick={downloadSelectedZip}
-                disabled={!selectedExportableIds.length || isDownloadingZip}
+                disabled={maintenance || !selectedExportableIds.length || isDownloadingZip}
                 className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label="Download ZIP"
                 title="Download selected items as ZIP"
@@ -663,6 +667,7 @@ export function HistoryPanel() {
 
               {isAdmin && (<button
                 type="button"
+                disabled={maintenance}
                 onClick={() => setMoveModalOpen(true)}
                 className="selection-action flex h-6 items-center gap-1.5 rounded-full bg-brand/20 font-semibold text-brand transition hover:bg-brand/30"
                 aria-label="Move"
@@ -675,6 +680,7 @@ export function HistoryPanel() {
               {/* More Actions Dropdown */}
               {isAdmin && (<Dropdown
                 align="right"
+                maintenanceWrite
                 label="More actions"
                 trigger={(open) => (
                   <span
@@ -983,7 +989,7 @@ export function HistoryPanel() {
               <span className="text-rose-300">{displayedExport.error || "ZIP export failed."}</span>
               {displayedExport.status === "failed" && displayedExport.id && displayedExport.canRetry !== false && <button
                 type="button"
-                disabled={isDownloadingZip}
+                disabled={maintenance || isDownloadingZip}
                 onClick={retryExport}
                 className="font-semibold text-brand hover:underline"
               >

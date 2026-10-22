@@ -1,4 +1,5 @@
 "use client";
+import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -47,6 +48,7 @@ export function DestinationPickerModal({
   movingFolderCurrentParentId = null,
   onConfirm,
 }) {
+  const maintenance = useMaintenance((s) => s.enabled);
   const dialogRef = useRef(null);
   useEffect(() => {
     if (!open) return;
@@ -390,7 +392,7 @@ export function DestinationPickerModal({
             </button>
             <button
               type="button"
-              disabled={!selectedDest || submitting}
+              disabled={maintenance || !selectedDest || submitting}
               onClick={handleSubmit}
               className="flex items-center gap-1.5 rounded-lg bg-brand px-4 py-1.5 text-xs font-semibold text-ink-950 transition hover:bg-brand/90 disabled:opacity-40 disabled:cursor-not-allowed"
             >

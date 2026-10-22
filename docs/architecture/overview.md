@@ -27,7 +27,7 @@ flowchart LR
 
 | Piece | Code | Notes |
 |---|---|---|
-| Frontend | `src/` | Next.js App Router, React, Zustand. `src/middleware.js` forwards every `/api/*` request to Django with the server-only ingress header. No route handlers and no backend credentials live here. |
+| Frontend | `src/` | Next.js App Router, React, Zustand. `src/middleware.js` forwards `/api/*` requests to Django with the server-only ingress header, after enforcing the maintenance write freeze and answering `GET /api/maintenance` itself (see `operations/release-runbook.md`). No route handlers and no backend credentials live here. |
 | Ingress gateway | `backend/deploy/gateway.py` | Runs in front of gunicorn in the API service. Refuses requests without the ingress header and blocks non-allowlisted routes (see F-07 in `operations/status.md`). |
 | API | `backend/config`, `backend/apps/*` | Django + DRF. Started by `python -m deploy.entrypoint api`. |
 | Generation worker | `apps/generation` (`generation_worker`) | Admission, provider submission, task receipts, polling and terminal state. |

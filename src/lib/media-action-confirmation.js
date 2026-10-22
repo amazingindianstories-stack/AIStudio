@@ -4,18 +4,21 @@ export const MEDIA_ACTION_COPY = {
     description:
       "Starts a new paid generation with all references and @tags removed.",
     confirmLabel: "Start retry",
+    maintenanceWrite: true,
   },
   regenerate: {
     title: "Generate this again?",
     description:
       "Starts a new paid generation with the same prompt, settings and references.",
     confirmLabel: "Generate again",
+    maintenanceWrite: true,
   },
   regenerateWithSameSeed: {
     title: "Regenerate with the same seed?",
     description:
       "Starts a new paid generation with the same seed, prompt, settings and references.",
     confirmLabel: "Regenerate",
+    maintenanceWrite: true,
   },
   cloneToComposer: {
     title: "Replace the current composer?",
@@ -38,11 +41,13 @@ export const MEDIA_ACTION_COPY = {
     title: "Add to favourites?",
     description: "Adds this generation to Favourites.",
     confirmLabel: "Add to favourites",
+    maintenanceWrite: true,
   },
   removeFavorite: {
     title: "Remove from favourites?",
     description: "Removes it from Favourites. The generation is kept.",
     confirmLabel: "Remove",
+    maintenanceWrite: true,
   },
   editPrompt: {
     title: "Replace the current prompt?",
@@ -61,12 +66,14 @@ export const MEDIA_ACTION_COPY = {
     description:
       "Starts a new paid 1080p generation from this draft. The draft stays in your library.",
     confirmLabel: "Generate final",
+    maintenanceWrite: true,
   },
   deleteGeneration: {
     title: "Delete this generation?",
     description: "Removes it from your history. This can't be undone.",
     confirmLabel: "Delete",
     destructive: true,
+    maintenanceWrite: true,
   },
   deleteAsset: {
     title: "Delete this saved asset?",
@@ -74,6 +81,7 @@ export const MEDIA_ACTION_COPY = {
       "Removes the asset and its reference images. This can't be undone.",
     confirmLabel: "Delete asset",
     destructive: true,
+    maintenanceWrite: true,
   },
   deletePortrait: {
     title: "Delete this portrait?",
@@ -81,6 +89,7 @@ export const MEDIA_ACTION_COPY = {
       "Removes the portrait from the gallery. This can't be undone.",
     confirmLabel: "Delete portrait",
     destructive: true,
+    maintenanceWrite: true,
   },
   deletePortraitGroup: {
     title: "Delete this character group?",
@@ -88,6 +97,7 @@ export const MEDIA_ACTION_COPY = {
       "Removes the character and all of its portraits. This can't be undone.",
     confirmLabel: "Delete character",
     destructive: true,
+    maintenanceWrite: true,
   },
 };
 

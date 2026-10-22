@@ -1,6 +1,7 @@
 
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { MaintenanceStatus } from "@/components/MaintenanceStatus";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -28,7 +29,7 @@ export default function RootLayout({
 ) {
   return (
     <html lang="en" className={inter.variable}>
-      <body className="font-sans antialiased">{children}</body>
+      <body className="font-sans antialiased"><MaintenanceStatus>{children}</MaintenanceStatus></body>
     </html>
   );
 }

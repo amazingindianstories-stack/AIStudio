@@ -1,5 +1,7 @@
 "use client";
 
+import { useMaintenance } from "@/lib/maintenance-client";
+
 import { useEffect, useRef, useState } from "react";
 import { UploadCloud, Loader2, X, Users, AlertCircle } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -16,6 +18,7 @@ import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-uplo
  * worker" section for the end-to-end architecture.
  */
 export function DepthComposer() {
+  const maintenance = useMaintenance((s) => s.enabled);
   const s = useStore();
   const status = s.depthWorkerStatus;
   const loadStatus = s.loadDepthWorkerStatus;
@@ -44,6 +47,7 @@ export function DepthComposer() {
   const checking = status === null;
 
   const pickFile = (f) => {
+    if (maintenance) return;
     if (!f) return;
     if (!uploadContentType(f).startsWith("video/")) {
       setError("That's not a video file.");
@@ -100,7 +104,7 @@ export function DepthComposer() {
   };
 
   const submit = async () => {
-    if (!file || uploading || generating) return;
+    if (maintenance || !file || uploading || generating) return;
     setUploading(true);
     setError(null);
     try {
@@ -141,7 +145,8 @@ export function DepthComposer() {
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          onClick={() => fileRef.current?.click()}
+          aria-disabled={maintenance}
+          onClick={() => !maintenance && fileRef.current?.click()}
           className={cn(
             "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line bg-ink-900/50 px-4 py-10 text-center transition-all duration-200 hover:border-lineStrong",
             dragging &&
@@ -169,6 +174,7 @@ export function DepthComposer() {
           </p>
           <input
             ref={fileRef}
+            disabled={maintenance}
             type="file"
             accept="video/*"
             className="hidden"
@@ -243,7 +249,7 @@ export function DepthComposer() {
       <button
         type="button"
         onClick={submit}
-        disabled={!file || uploading || generating || !online}
+        disabled={maintenance || !file || uploading || generating || !online}
         className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-brand py-2.5 text-sm font-semibold text-ink-900 transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
       >
         {uploading || generating ? (

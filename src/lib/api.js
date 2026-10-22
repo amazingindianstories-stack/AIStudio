@@ -1,3 +1,6 @@
+import { assertMaintenanceWritable, useMaintenance } from "./maintenance-client";
+import { maintenanceBlocks } from "./maintenance";
+
 // Browser requests stay same-origin; Next transports /api directly to Django.
 export const API_BASE = "";
 
@@ -12,8 +15,12 @@ export function apiUrl(path) {
   return path;
 }
 
-export function apiFetch(path, options = {}) {
-  return fetch(apiUrl(path), { credentials: "include", ...options });
+export async function apiFetch(path, options = {}) {
+  const url = apiUrl(path);
+  if (maintenanceBlocks(options.method || "GET", new URL(url, "https://same-origin.invalid").pathname)) assertMaintenanceWritable();
+  const response = await fetch(url, { credentials: "include", ...options });
+  if (response.status === 503 && response.headers?.get("X-Veevee-Maintenance") === "1") useMaintenance.setState({ enabled: true });
+  return response;
 }
 
 export const CAPACITY_BUSY_CODE = "SLOW_REQUEST_CAPACITY_BUSY";

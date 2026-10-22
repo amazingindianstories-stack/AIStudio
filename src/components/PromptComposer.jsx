@@ -1,4 +1,6 @@
 "use client";
+
+import { useMaintenance } from "@/lib/maintenance-client";
 import { uploadFileDirect, uploadOriginalReference, uploadContentType } from "@/lib/client-reference-upload";
 import { notify } from "@/lib/notify";
 import { useDirectMediaUrl } from "@/lib/media-resolver";
@@ -95,6 +97,7 @@ const MODE_ICONS = {
 };
 
 export function PromptComposer() {
+  const maintenance = useMaintenance((s) => s.enabled);
   const s = useStore();
   // s.limits is populated async on load (store.ts's loadLimits) and starts
   // empty — fall back to the registry's own default so there's no window
@@ -141,7 +144,7 @@ export function PromptComposer() {
   const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ overlayOpen: pickingClips, dragging });
 
   const handleSubmitPrompt = async () => {
-    if (uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength) return;
+    if (maintenance || uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength) return;
     collapseOnSend();
     const created = await s.generate();
     if (!(Array.isArray(created) ? created.length > 0 : Boolean(created))) reopenAfterFailedSend();
@@ -279,6 +282,7 @@ export function PromptComposer() {
   // Track whole batches through every async path, including failures and early
   // returns. A counter keeps overlapping drops from hiding an active upload.
   const addImageFiles = async (files) => {
+    if (maintenance) return;
     const supported = files.filter((file) => /^(image|video|audio)\//.test(uploadContentType(file)));
     if (supported.length !== files.length) showDragNotice("error", "Some dropped files have an unsupported format.");
     if (!supported.length) return;
@@ -761,6 +765,7 @@ export function PromptComposer() {
           {(close) => (
             <>
               <MenuItem
+                maintenanceWrite
                 onClick={() => {
                   openFilePicker(fileRef);
                   close();
@@ -836,6 +841,7 @@ export function PromptComposer() {
         <div className="flex min-w-0 flex-1 flex-col">
         <input
           ref={fileRef}
+          disabled={maintenance}
           type="file"
           accept="image/*,video/*,audio/*"
           multiple
@@ -1339,10 +1345,10 @@ export function PromptComposer() {
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => void handleSubmitPrompt()}
-          disabled={uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength}
+          disabled={maintenance || uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength}
           className={cn(
             "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
-            !uploading && s.prompt.trim() && !s.generating && s.prompt.length <= maxPromptLength
+            !maintenance && !uploading && s.prompt.trim() && !s.generating && s.prompt.length <= maxPromptLength
               ? "bg-gradient-to-br from-brand to-accent text-ink-900 shadow-glow hover:brightness-110"
               : "cursor-not-allowed bg-ink-650 text-white/30"
           )}

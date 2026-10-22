@@ -1,4 +1,6 @@
 "use client";
+
+import { useMaintenance } from "@/lib/maintenance-client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, ImagePlus, Loader2, Search, Trash2, Upload, X } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -44,6 +46,7 @@ async function filesFromLibraryItems(items) {
 }
 
 function PortraitGalleryDialog() {
+  const maintenance = useMaintenance((s) => s.enabled);
   const portraits = useStore((state) => state.portraits);
   const uploads = useStore((state) => state.portraitUploads);
   const loadPortraits = useStore((state) => state.loadPortraits);
@@ -165,16 +168,16 @@ function PortraitGalleryDialog() {
   }), [addToPrompt, runDelete]);
 
   const uploadFiles = useCallback(async (files) => {
-    if (!files.length) return;
+    if (maintenance || !files.length) return;
     setError("");
     await uploadPortraits(files);
-  }, [uploadPortraits]);
+  }, [maintenance, uploadPortraits]);
 
   const drop = useDropzoneGuard({ onValidate: (e) => validatePortraitDrop(e, useStore.getState()) });
   const onDrop = async (e) => {
     e.preventDefault();
     drop.handleDrop(e);
-    if (!available) return;
+    if (maintenance || !available) return;
     const verdict = validatePortraitDrop(e, useStore.getState());
     if (!verdict.valid) { setError(verdict.reason); return; }
     // Read synchronously: the DataTransfer is emptied once the handler yields.
@@ -265,7 +268,7 @@ function PortraitGalleryDialog() {
           <h2 className="truncate text-sm font-semibold">Portrait Gallery</h2>
           <div className="flex items-center gap-2">
             {available && (
-              <button type="button" onClick={() => input.current?.click()} className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-zinc-200">
+              <button disabled={maintenance} type="button" onClick={() => input.current?.click()} className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-zinc-950 transition hover:bg-zinc-200">
                 <Upload className="h-3.5 w-3.5" /> Upload
               </button>
             )}
@@ -275,6 +278,7 @@ function PortraitGalleryDialog() {
           </div>
           <input
             ref={input}
+            disabled={maintenance}
             type="file"
             multiple
             accept="image/*"
@@ -386,7 +390,7 @@ function PortraitGalleryDialog() {
                       <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-dashed border-white/25 text-white/55"><ImagePlus className="h-5 w-5" /></div>
                       <p className="mt-3 text-sm font-medium text-white/85">Drop images here</p>
                       <p className="mt-1 text-xs leading-5 text-white/45">Add one or many portraits by dragging them in. Faces in your prompt references appear here automatically.</p>
-                      <button type="button" onClick={() => input.current?.click()} className="mt-4 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/15">Choose images</button>
+                      <button disabled={maintenance} type="button" onClick={() => input.current?.click()} className="mt-4 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/15">Choose images</button>
                     </div>
                   )}
                 </div>
@@ -447,6 +451,7 @@ function PortraitGalleryDialog() {
         description={`${pendingDelete?.slice(0, 6).map((p) => p.name).join(", ") || ""}${pendingDelete?.length > 6 ? ", ..." : ""}. They are removed for everyone who uses the gallery.`}
         confirmLabel={`Delete ${pendingDelete?.length || 0}`}
         destructive
+        maintenanceWrite
         busy={busy}
         onCancel={() => setPendingDelete(null)}
         onConfirm={() => runDelete(pendingDelete)}

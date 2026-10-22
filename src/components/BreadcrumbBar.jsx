@@ -1,4 +1,5 @@
 "use client";
+import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useEffect, useRef, useState } from "react";
 import { notify } from "@/lib/notify";
@@ -23,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { askConfirm } from "@/lib/ask-text";
 
 export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
+  const maintenance = useMaintenance((s) => s.enabled);
   const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeFolderId = useStore((s) => s.activeFolderId);
@@ -188,6 +190,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
         {onOpenNewFolderModal && (
           <button
             type="button"
+            disabled={maintenance}
             onClick={onOpenNewFolderModal}
             className="flex items-center gap-1 rounded-md bg-white/5 px-2 py-1 text-xs text-white/70 transition hover:bg-white/10 hover:text-white"
             title={activeFolderId && activeFolderId !== UNSORTED ? "New subfolder" : "New folder"}
@@ -201,6 +204,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
 
         {currentFolder && (
           <Dropdown
+            maintenanceWrite
             label="Current folder actions"
             align="right"
             trigger={(_open) => (

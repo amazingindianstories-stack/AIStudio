@@ -127,7 +127,7 @@ export default function Page() {
       reducedMotion="user"
       transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
     >
-      <div className="flex h-[100dvh] flex-col overflow-hidden bg-ink-900">
+      <div className="flex h-full flex-col overflow-hidden bg-ink-900">
         <TopBar />
         <LocalDataStatus />
 

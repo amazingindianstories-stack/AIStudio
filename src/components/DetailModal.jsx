@@ -1,5 +1,7 @@
 "use client";
 
+import { useMaintenance } from "@/lib/maintenance-client";
+
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { motion, useReducedMotion } from "framer-motion";
@@ -187,6 +189,7 @@ function ReferenceCollage({ images }) {
 }
 
 export function DetailModal() {
+  const maintenance = useMaintenance((s) => s.enabled);
   const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const reducedMotion = useReducedMotion();
   const activeId = useStore((s) => s.activeId);
@@ -435,6 +438,7 @@ export function DetailModal() {
                   <p className="text-xs capitalize text-white/45">{item.kind} generation</p>
                 </div>
                 <button
+                  disabled={maintenance}
                   onClick={() => toggleFlag(item.id)}
                   className={cn(
                     "ml-auto grid h-8 w-8 place-items-center rounded-lg border transition",
@@ -458,6 +462,7 @@ export function DetailModal() {
                   <Flag className={cn("h-4 w-4", item.flagged && "fill-current")} />
                 </button>
                 <button
+                  disabled={maintenance}
                   onClick={() => toggleFavorite(item.id)}
                   className={cn(
                     "grid h-8 w-8 place-items-center rounded-lg border transition",
@@ -537,7 +542,7 @@ export function DetailModal() {
               {/* sticky bottom actions */}
               <div className="flex flex-col gap-2 p-5 pt-2 border-t border-white/5 bg-ink-850/95 backdrop-blur z-10 shadow-[0_-10px_20px_rgba(0,0,0,0.2)]">
                 {canFinalizeDraft(item) && (
-                  <button
+                  <button disabled={maintenance}
                     onClick={() => {
                       confirmation.ask("finalizeDraft", async () => {
                         const result = await finalizeDraft(item.id);
@@ -595,7 +600,7 @@ export function DetailModal() {
                     back into the next generation. */}
                 {item.kind === "video" && item.url && (
                   <>
-                    <button
+                    <button disabled={maintenance}
                       onClick={() => {
                         const video = document.querySelector(
                           "[data-detail-video]"
@@ -701,7 +706,7 @@ export function DetailModal() {
                     ORIGINAL seed rather than starting a fresh render, so the
                     two buttons produce deliberately different results. */}
                 {item.seed != null && (
-                  <button
+                  <button disabled={maintenance}
                     onClick={() => {
                       confirmation.ask("regenerateWithSameSeed", async () => {
                         const result = await regenerateWithSameSeed(item.id);
@@ -729,7 +734,7 @@ export function DetailModal() {
                   )}
                   {isAdmin && (
                   <button
-                    disabled={item.status === "queued" || item.status === "running"}
+                    disabled={maintenance || item.status === "queued" || item.status === "running"}
                     title={item.status === "queued" || item.status === "running" ? "Still rendering — delete after it finishes" : "Delete"}
                     onClick={() => {
                       confirmation.ask("deleteGeneration", async () => {

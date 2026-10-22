@@ -1,4 +1,5 @@
 "use client";
+import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -171,6 +172,7 @@ function PromptText({ text }) {
 }
 
 export function FeedBlock({ item, index }) {
+  const maintenance = useMaintenance((s) => s.enabled);
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
   const toggleFavorite = useStore((s) => s.toggleFavorite);
@@ -289,6 +291,7 @@ export function FeedBlock({ item, index }) {
                   "grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35",
                   item.isFavorite && "text-amber-300 hover:text-amber-200"
                 )}
+                disabled={maintenance}
                 aria-label={
                   item.isFavorite ? "Remove from favourites" : "Add to favourites"
                 }
@@ -309,6 +312,7 @@ export function FeedBlock({ item, index }) {
                   confirmation.ask("regenerate", () => regenerate(item.id));
                 }}
                 className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
+                disabled={maintenance}
                 aria-label="Generate again"
                 title="Generate again with the same prompt and settings"
               >

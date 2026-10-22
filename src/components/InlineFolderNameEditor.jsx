@@ -1,15 +1,18 @@
 "use client";
 
+import { useMaintenance } from "@/lib/maintenance-client";
 import { useRef, useState } from "react";
 
 /** One editor session owns one commit. Blur never retries a failed mutation. */
 export function InlineFolderNameEditor({ initialName = "", label, onCommit, onClose }) {
+  const maintenance = useMaintenance((s) => s.enabled);
   const [name, setName] = useState(initialName);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const state = useRef("editing");
 
   const commit = async (explicit = false) => {
+    if (maintenance) return;
     if (state.current !== "editing" && !(explicit && state.current === "failed")) return;
     const trimmed = name.trim();
     if (!trimmed || trimmed === initialName) {
@@ -37,7 +40,7 @@ export function InlineFolderNameEditor({ initialName = "", label, onCommit, onCl
   return (
     <form className="min-w-0 w-full max-w-[180px] flex-1" onClick={(e) => e.stopPropagation()}
       onSubmit={(e) => { e.preventDefault(); void commit(true); }}>
-      <input title={name} aria-busy={saving} autoFocus aria-label={label} aria-invalid={Boolean(error)}
+      <input disabled={maintenance} title={name} aria-busy={saving} autoFocus aria-label={label} aria-invalid={Boolean(error)}
         value={name} readOnly={saving}
         onChange={(e) => { setName(e.target.value); setError(""); }}
         onBlur={() => void commit()}

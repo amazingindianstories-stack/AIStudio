@@ -1,5 +1,7 @@
 "use client";
 
+import { useMaintenance } from "@/lib/maintenance-client";
+
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { AlertCircle, Check, ChevronDown, Clapperboard, Info, Loader2, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
@@ -92,6 +94,7 @@ function formatSeconds(seconds) {
 }
 
 export function VideoUpscalerComposer() {
+  const maintenance = useMaintenance((s) => s.enabled);
   const s = useStore();
   const source = s.upscalerVideo;
   const setSource = s.setUpscalerVideo;
@@ -121,7 +124,7 @@ export function VideoUpscalerComposer() {
   const tooLong = Number.isFinite(source?.duration) && source.duration > MAGNIFIC_VIDEO_MAX_SECONDS;
 
   const handleSelectFile = async (file) => {
-    if (!file) return;
+    if (maintenance || !file) return;
     const contentType = uploadContentType(file);
     if (!VIDEO_TYPES.includes(contentType)) {
       setError("Video upscaling accepts MP4, MOV or WebM files.");
@@ -221,7 +224,7 @@ export function VideoUpscalerComposer() {
     else setError("Could not start the video upscale. Check the source and retry.");
   };
 
-  const disabled = !source || generating || uploading || tooLong;
+  const disabled = maintenance || !source || generating || uploading || tooLong;
 
   return (
     <motion.div
@@ -233,6 +236,7 @@ export function VideoUpscalerComposer() {
     >
       <input
         ref={fileInputRef}
+        disabled={maintenance}
         type="file"
         accept="video/mp4,video/quicktime,video/x-m4v,video/webm"
         className="hidden"
@@ -321,6 +325,7 @@ export function VideoUpscalerComposer() {
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
+                  disabled={maintenance}
                   onClick={() => fileInputRef.current?.click()}
                   className="rounded-lg bg-white/5 px-2.5 py-1 text-xs font-medium text-white/80 hover:bg-white/10 hover:text-white transition"
                 >
@@ -339,7 +344,8 @@ export function VideoUpscalerComposer() {
           </div>
         ) : (
           <div
-            onClick={() => !uploading && fileInputRef.current?.click()}
+            aria-disabled={maintenance}
+            onClick={() => !maintenance && !uploading && fileInputRef.current?.click()}
             className={cn(
               "group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all duration-200",
               dragging
