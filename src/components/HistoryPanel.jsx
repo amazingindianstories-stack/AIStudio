@@ -390,7 +390,7 @@ export function HistoryPanel({ drawer = false }) {
     >
       <div className="history-layout flex h-full w-full">
         {/* ══════════════════════════════════════════════════════════════════════
-            LEFT: PERSISTENT NAVIGATION SIDEBAR (w-60 shrink-0)
+            LEFT: NAVIGATION SIDEBAR (the drawer swaps it with the assets via Folders)
             ══════════════════════════════════════════════════════════════════════ */}
         {drawer && (
           <div className="flex shrink-0 items-center border-b border-line px-3 py-2">
@@ -653,7 +653,7 @@ export function HistoryPanel({ drawer = false }) {
             </div>
           </div>
 
-          {/* ── ROW 2: ASSET COMMAND BAR WITH IN-PLACE CONTEXTUAL SELECTION (~44px high) ── */}
+          {/* ── ROW 2: ASSET COMMAND BAR WITH IN-PLACE CONTEXTUAL SELECTION (44px; taller in the drawer, see globals.css) ── */}
           {selectedIds.length > 0 ? (
             /* Selection Mode: In-Place Swap (ZERO vertical jump, EXACT same height as the search row).
                Narrow panels drop labels instead of wrapping (see globals.css). */
