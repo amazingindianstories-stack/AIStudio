@@ -886,7 +886,9 @@ export function PromptComposer() {
             void handleSubmitPrompt();
           }}
           assets={s.assets}
+          portraits={s.portraits?.items}
           references={s.referenceImages}
+          referenceTags={s.referenceTags}
           videoRefs={s.referenceVideos}
           audioRefs={s.audioNotes}
           maxLength={maxPromptLength}

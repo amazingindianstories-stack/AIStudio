@@ -409,7 +409,7 @@ test('Goal2 long three-level folders keyboard scroll eight colours hide reload a
   }
 });
 
-test('Goal2 removing a reference renumbers later tags while reordering leaves the prompt alone', async ({ page, context, baseURL }) => {
+test('Goal2 reordering and removing references leave the prompt alone, as in Higgsfield', async ({ page, context, baseURL }) => {
   await ready(page, context, baseURL);
   const ids = await stage(page, context, 3);
   const prompt = page.locator('textarea').first();
@@ -422,7 +422,39 @@ test('Goal2 removing a reference renumbers later tags while reordering leaves th
   expect(await order(page)).toEqual(ids);
   await page.getByRole('button', { name: 'Remove reference 2', exact: true }).click();
   expect(await order(page)).toEqual([ids[0], ids[2]]);
-  await expect(prompt).toHaveValue('@img1 then @img2');
+  // @img3 now points past the last slot and shows red as unresolved until it is replaced.
+  await expect(prompt).toHaveValue('@img1 then @img3');
+  await expect(page.locator('[data-mention-start="11"]')).toHaveClass(/text-red-300/);
+});
+
+test('Goal2 clicking an unresolved tag replaces it from a menu of the attached references', async ({ page, context, baseURL }, testInfo) => {
+  await ready(page, context, baseURL);
+  await stage(page, context, 2);
+  const prompt = page.locator('textarea').first();
+  await prompt.fill('@img1 walks past @img3 while @img3 waves');
+  const tag = page.locator('[data-mention-start="17"]');
+  await expect(tag).toHaveClass(/text-red-300/);
+  const box = await tag.boundingBox();
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  const menu = page.locator('[data-tag-replace-menu="open"]');
+  await expect(menu).toContainText('Replace @img3 with:');
+  await expect(menu.getByRole('option')).toHaveText([/@img1/, /@img2/]);
+  await expect(menu.getByRole('combobox', { name: 'Search references' })).toBeFocused();
+  // The menu follows the tag while the composer settles, centred on it.
+  await expect.poll(async () => {
+    const [menuBox, tagBox] = [await menu.boundingBox(), await tag.boundingBox()];
+    return Math.abs(menuBox.x + menuBox.width / 2 - (tagBox.x + tagBox.width / 2));
+  }).toBeLessThan(2);
+  await page.screenshot({ path: testInfo.outputPath('tag-replace-menu.png') });
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(menu).toHaveCount(0);
+  await expect(prompt).toHaveValue('@img1 walks past @img2 while @img2 waves');
+  await expect(prompt).toBeFocused();
+  expect(await prompt.evaluate(el => el.selectionStart)).toBe('@img1 walks past @img2'.length);
+  await page.keyboard.type('X');
+  await expect(prompt).toHaveValue('@img1 walks past @img2X while @img2 waves');
 });
 
 test('Goal2 hover side arrows shift neighbours without overlap and thumbnail drag reorders', async ({ page, context, baseURL }, testInfo) => {
@@ -447,7 +479,8 @@ test('Goal2 hover side arrows shift neighbours without overlap and thumbnail dra
   expect(secondAfter.x).toBeGreaterThanOrEqual(arrowBox.x + arrowBox.width - 1);
   await page.mouse.move(10, 10);
   await expect.poll(arrowWidth).toBe(0);
-  expect((await secondCard.boundingBox()).x).toBeCloseTo(secondBefore.x, 0);
+  // The arrow collapses before the neighbour finishes sliding back, so wait for the card to settle.
+  await expect.poll(async () => Math.abs((await secondCard.boundingBox()).x - secondBefore.x)).toBeLessThan(0.5);
   // Focus on the thumbnail alone keeps the arrows hidden; tabbing onto an arrow reveals it and makes
   // the same room; blurring hides it.
   await page.getByRole('button', { name: 'Move reference 1 to position', exact: true }).focus();
