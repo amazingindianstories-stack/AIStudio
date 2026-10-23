@@ -14,6 +14,60 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Production release 2026-10-23 - 5968d4c
+
+Owner-approved release of `5968d4c4dc742101ddf0e8f3077d9304d6400027`, following the exact-commit release gate and 107-check rehearsal on 2026-10-22. This includes permanent generation names and admin-only library changes, the composer changes, model-picker filtering, generation worker rolling dispatch with four slots, the maintenance switch, refactors and Cinema Studio style references.
+
+Maintenance was enabled before the fresh backup, schema changes and credential rotation. The bootstrap frontend was `dpl_Hc1jLeGSZpiEjRQYjD2XxTa4RSm9`. The owner verified signed-in Admin browsing, asset/video details, the maintenance banner and disabled submission before the cutover.
+
+### Migration and backup evidence
+
+A fresh full PostgreSQL 18.6 backup, with globals excluding passwords, was restored into a disposable local database. The bundle SHA-256 was `d625045358cf3763952662f2b02c88ec67ffd3c74fbf65507cbc063df2aaf509`. Backup and detailed evidence remain private outside Git. Restore verification preserved data, ownership, grants, RLS, functions, constraints and triggers.
+
+The exact release image passed the fresh-copy migration and `audit_generation_names`. Production then applied `generation.0003_generation_permanent_name` and `generation.0004_generation_unique_permanent_name`, moving the migration count from 62 to 64, with no pending migrations. All 7,926 generations received permanent names; the unique index is present. The audit reported 1,150 legacy duplicate-name groups across 3,899 rows (largest group 21), accounting for 2,749 rows needing distinct permanent suffixes; 1,082 new ZIP leaf changes are intended, with zero disagreements for frozen exports. Before/after audit counts matched. Queues and active encrypted uploads were empty at the credential cutover.
+
+### Credential changes and remaining work
+
+Rotated the owner, API and shared worker database role passwords in one transaction; replaced `DJANGO_SECRET_KEY` and `AUTH_SECRET` (users must sign in again), the matched API/frontend ingress secret, and `DEPTH_WORKER_TOKEN`. Installed the supplied replacement `GOOGLE_API_KEY`, `ARK_API_KEY`, BytePlus access-key pair and `MAGNIFIC_API_KEY` in their Railway and applicable Vercel holders. Variable target and branch scopes were preserved. No credential values were written into release artifacts or Git.
+
+`KLING_API` was removed from generation and the legacy Vercel holder; `VEEVEE_KLING=0` remains in force. The old Kling key still needs owner revocation in its console. Owner issuer revocations of the old Google AI, ARK, BytePlus and Magnific keys also remain pending. No billed provider creation or live generation canary was run in this window, so replacement-key provider acceptance is not claimed. The offline external depth worker must receive the rotated token before restart.
+
+Every packed storage `.adc` field and `GCP_SERVICE_ACCOUNT_EMAIL` was preserved. Storage key rotation remains deferred to `veevee-gcs-key-rotation` because organisation policy prevents key creation. This release does not close unrelated historical credential cleanup.
+
+### Deployment and essential verification
+
+All four Railway services deployed the qualified source successfully, then restarted on the same release with the rotated credentials. The owner approved parallel deployment for this window.
+
+| Service | Initial qualified deploy | Current deploy after rotation |
+|---|---|---|
+| api | `8b4935c6-4a94-4ae8-8958-bdf20d8fbabd` | `972195b7-b696-40c6-8ef6-bdabbde5ea64` |
+| generation | `e5e7d765-a995-48f8-bee1-02199fd0ec0a` | `c07cc138-50fb-4ca7-b7cd-fc03f6c67e52` |
+| export | `970cf0e4-60b8-41d8-8ae8-285ec85ba463` | `f1e4bebd-dd0a-4a50-8f25-1031e72eb9e2` |
+| scheduler | `5a3950c7-edb1-437d-82f5-5c6f7e4b4984` | `22aa70ae-53fc-4150-991e-f58f77ddb6a1` |
+
+Final frontend `dpl_BjJwNbEmyWZUB91qSnKtf5g9uqTs` is READY in the intended Production project and promoted. Maintenance is OFF: all three Production aliases return `enabled:false, available:true` with `no-store`, public health reports database ready, and harmless OPTIONS requests reach Django. The exact final deployment passed matched-ingress health before promotion; all three worker entrypoints were running after rotation. Production-origin login requests reach empty-input validation (400), confirming the ingress and origin configuration. A transient 403 during alias propagation cleared before maintenance was disabled. The signed-out browser displays the login form without the maintenance banner. Signed-in verification after the signing-key rotation remains owner-pending; the earlier signed-in maintenance evidence predates that rotation.
+
+Removed obsolete branch-scoped Preview `AUTH_SECRET` and `ARK_API_KEY` variables after confirming their branches no longer exist, under the owner's explicit cleanup approval.
+
+### Memory snapshot and observation
+
+Cgroup memory in MiB (current / peak / limit), before the window versus immediately after rotation and reopening:
+
+| Service | Before | After |
+|---|---|---|
+| api | 1918.2 / 2120.1 / 3814.7 | 142.7 / 142.8 / 3814.7 |
+| generation | 343.6 / 1066.1 / 1907.3 | 64.4 / 65.2 / 1907.3 |
+| export | 67.4 / 283.0 / 476.8 | 65.3 / 66.1 / 476.8 |
+| scheduler | 112.1 / 419.9 / 476.8 | 72.7 / 73.2 / 476.8 |
+
+These are quiet startup snapshots, not a sustained generation-load result. The required next-day generation-memory watch and issuer revocations remain follow-up work. No background monitor was left running by this release worker.
+
+### Recovery
+
+Pre-window Railway targets were API `e4de5376-81aa-4be9-96d2-50239363a038`, generation `dc65f58a-e3dc-4b2d-a55e-b5534d2c976f`, export `3516a6ec-87b9-43f9-b509-41154d0daa7a` and scheduler `df1fc5d1-ce7e-4f3f-82ff-8b235cb7de6d`; frontend `dpl_4cxqGjvoNGLyaThDMEeCTC8KUCcH`. Those backend images only accept schema count 62. Before rotation, an approved emergency path could restore the freeze-time backup before old-service recovery; exact commands and restore-completeness evidence were recorded privately. It was not needed or executed. The historical API redeploy command was rejected by Railway before any upload.
+
+After credential rotation, recover forward using schema64, the qualified release and current credentials. Do not restore old credentials or promote an old-ingress frontend. A day of generation-memory observation remains required.
+
 ## Draft names and media cards (code only, not deployed)
 
 Seedance 2.5 finals share their draft's immutable name reservation while retaining distinct generation IDs.
@@ -43,7 +97,7 @@ browser run passed 135 cases before these fixes).
 Upgrade/reversal and existing runtime-role grants pass on disposable PostgreSQL with real-shaped fixtures.
 No production access, deployment, restored-production service rehearsal or live-provider acceptance was performed.
 
-## Generation worker queue fix (code only, not deployed)
+## Generation worker queue fix (deployed 2026-10-23)
 
 The generation entrypoint now defaults to four execution slots through
 `VEEVEE_GENERATION_WORKER_SLOTS` (optional integer override, 1-8). Its persistent pool
@@ -52,7 +106,7 @@ polls, and queued ones already confirmed admissible, the slot ahead of image job
 within each group); videos held by a provider lane or user cap keep their place in line. Admission limits, provider
 lanes and the 120-second deployment drain remain unchanged. Admissible queued image
 and video cards show "Waiting for a free worker slot" while all execution slots are busy.
-Production continues to use its deployed commit until a separately approved release.
+Deployed in the owner-approved 2026-10-23 release recorded above.
 
 ## Phase summary
 | Phase | State | Notes |
