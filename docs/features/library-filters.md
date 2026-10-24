@@ -74,8 +74,9 @@ loaded, or that more load on scroll; navigation restores are not announced. The 
 trigger is named with its active dimension count ("Filters, 2 active"). Cached rows retain their scope
 so metadata mutations can remove rows that no longer match.
 
-Search and filters are restored per actor and navigation source in this browser
-tab's sessionStorage, bounded to recent sources. A new folder starts clean;
+Search, filters and sort are restored per actor and navigation source in this
+browser tab's sessionStorage, bounded to recent sources; the date-grouping choice
+is kept per actor. A new folder starts clean;
 returning restores its query. Actor changes and logout clear the previous actor's
 session metadata. Only predicate metadata is stored, never media/bearer URLs.
 The library predicates do not narrow the chat thread or change its folder rules.
