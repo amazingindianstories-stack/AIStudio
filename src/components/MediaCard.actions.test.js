@@ -33,6 +33,17 @@ const menuItem = (key) => document.querySelector(`[role="menu"] [data-menu-item=
 const failed = { id: 'f1', kind: 'video', status: 'failed', moderationBlocked: true, error: 'BytePlus rejected the reference image', prompt: 'Sati @img1 walks', model: 'Seedance 2.5',
   aspectRatio: '21:9', resolution: '480p', duration: 10, referenceImages: ['/api/media/uploads/image-reference/a', '/api/media/uploads/portrait/b'], createdAt: 1 };
 
+test('card names retain the complete sequence separately from the truncating stem and expose the full filename', async () => {
+  for (const filename of ['Shiv_Sati_Very_Long_Folder_Ancestry_0001.mov', 'unsorted_0002.png', 'Scene_10000.mov', 'Scene.with.dots_0042.mov']) {
+    await harness({ ...failed, filename }, async ({ card }) => {
+      const name = card.querySelector('[data-generation-name]');
+      assert.equal(name.title, filename);
+      assert.equal(name.textContent, filename.replace(/\.[^.]+$/, ''));
+      assert.equal(name.lastElementChild.textContent, filename.match(/(_\d+)\.[^.]+$/)[1]);
+    });
+  }
+});
+
 test('failed card has no in-card generate buttons; its menu Edit & retry confirms then restores prompt and references without submitting', async () => {
   await harness(failed, async ({ calls, card }) => {
     assert.equal([...card.querySelectorAll('button')].some(b => /Retry|Edit/.test(b.textContent)), false);
