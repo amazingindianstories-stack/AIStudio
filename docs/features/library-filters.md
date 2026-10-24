@@ -90,7 +90,9 @@ Left/Right. Creation grouping is disabled for Recently starred because that sort
 can interleave creation dates. The grouping preference is retained for a creation
 sort. Exact day counts are deliberately omitted.
 
-On phones, the same form uses a native modal bottom sheet with a horizontally
+On phones, search takes its own row and search, Filters, View, chip removal and
+Clear filters are 44px targets; the selection toolbar matches that row height.
+The same form uses a native modal bottom sheet with a horizontally
 scrolling category rail, scrolling options and a fixed action footer. Native
 dialog modality isolates the background and traps focus; closing restores it to
 Filters. Escape cancels this dialog before the parent assets drawer.

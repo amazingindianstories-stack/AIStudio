@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { emptyLibraryFilters, libraryDateBounds, localDateKey, libraryDateLabel, matchesLibraryFilters } from "./library-filters";
+import { activeLibraryFilters, emptyLibraryFilters, libraryDateBounds, libraryDayLabel, localDateKey, libraryDateLabel, matchesLibraryFilters } from "./library-filters";
 import { scopeKey, scopeToQuery, matchesScope, compareInScope } from "./feed-scope";
 import { historyFilterToParams } from "./history-query";
 import { packDateSections } from "../components/AssetGrid";
@@ -65,4 +65,13 @@ test("day packs append without moving old cards and publish every viewer column 
   assert.deepEqual(resolveStep({ list: rows, columns: before.columns.map(column => column.map(row => row.id)), currentId: "a", key: "ArrowDown" }), { id: "c" });
   assert.equal(packDateSections(rows, 400, 160, false).sections.length, 1);
   assert.ok(compareInScope(rows[2], rows[0], { sort: "oldest" }) < 0);
+});
+
+test("active dimensions follow the dialog's category order and day labels stay human", () => {
+  const filters = { ...emptyLibraryFilters(), stages: ["draft"], date: "week", models: ["seedance-25"], types: ["video"], favorite: true };
+  assert.deepEqual(activeLibraryFilters(filters), ["types", "favorite", "models", "date", "stages"]);
+  const now = new Date(2026, 9, 24, 12).getTime();
+  assert.equal(libraryDayLabel("2026-10-18", now), "18 Oct");
+  assert.equal(libraryDayLabel("2025-12-31", now), "31 Dec 2025");
+  assert.equal(libraryDateLabel("2026-10-24", now), "Today");
 });

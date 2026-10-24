@@ -30,9 +30,11 @@ export function normalizeLibraryFilters(value = {}) {
   return result;
 }
 
+/** Active dimensions, in the Filters dialog's category order. */
+const DIMENSION_ORDER = ["types", "favorite", "models", "date", "resolutions", "aspects", "durations", "stages", "creators", "statuses", "bitrates"];
 export function activeLibraryFilters(value) {
   const filters = normalizeLibraryFilters(value);
-  return [...LIBRARY_FILTER_ARRAYS.filter(key => filters[key].length), ...(filters.favorite ? ["favorite"] : []), ...(filters.date !== "any" ? ["date"] : [])];
+  return DIMENSION_ORDER.filter(key => key === "favorite" ? filters.favorite : key === "date" ? filters.date !== "any" : filters[key].length > 0);
 }
 
 function parseDate(value) {
@@ -114,8 +116,13 @@ export function libraryDateLabel(key, now = Date.now()) {
   yesterday.setDate(yesterday.getDate() - 1);
   if (key === localDateKey(today)) return "Today";
   if (key === localDateKey(yesterday)) return "Yesterday";
+  return libraryDayLabel(key, now);
+}
+
+/** "20 Oct" within the current year, "20 Oct 2025" outside it. */
+export function libraryDayLabel(key, now = Date.now()) {
   const date = parseDate(key);
-  return date?.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(date.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}) }) || "Date unavailable";
+  return date?.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(date.getFullYear() !== new Date(now).getFullYear() ? { year: "numeric" } : {}) }) || "Date unavailable";
 }
 
 /** The identity of navigation only; filters/search belong to that source. */

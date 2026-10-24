@@ -2,14 +2,14 @@
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, Search, SlidersHorizontal, X } from "lucide-react";
+import { ListFilter, Loader2, Search, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
 import { scopeToQuery } from "@/lib/feed-scope";
 import { historyFilterToParams } from "@/lib/history-query";
 import { getModelDefinition } from "@/lib/model-registry";
 import { activeLibraryFilters, DATE_PRESETS, emptyLibraryFilters, FILTER_LABELS, FILTER_VALUES,
-  libraryDateBounds, librarySourceKey, localDateKey, normalizeLibraryFilters } from "@/lib/library-filters";
+  libraryDateBounds, libraryDayLabel, librarySourceKey, localDateKey, normalizeLibraryFilters } from "@/lib/library-filters";
 import { cn } from "@/lib/utils";
 
 const CATEGORIES = [["types", "Type"], ["models", "Model"], ["date", "Date created"],
@@ -34,9 +34,23 @@ export function libraryValueLabel(key, value, users = {}, actorId) {
   if (key === "creators") return value === "unknown" ? "Unknown creator" : value === actorId ? "You" : users[value]?.name || "Former creator";
   if (key === "resolutions") {
     const [kind, resolution] = value.split(":");
-    return `${kind === "image" ? "Image" : kind === "video" ? "Video" : "Depth"} ${resolution === "unknown" ? "not recorded" : resolution.toUpperCase().replace("P", "p")}`;
+    return `${kind === "image" ? "Image" : kind === "video" ? "Video" : "Depth"} ${resolutionSettingLabel(resolution).replace("Not", "not")}`;
   }
   return FILTER_VALUES[key]?.find(([id]) => id === value)?.[1] || value;
+}
+
+function resolutionSettingLabel(setting) {
+  return setting === "unknown" ? "Not recorded" : setting.toUpperCase().replace("P", "p");
+}
+
+/** A small outline of a recorded ratio, scaled into an 18x14 box. */
+function RatioOutline({ value }) {
+  const [width, height] = String(value).split(":").map(Number);
+  const valid = width > 0 && height > 0;
+  const wide = valid && width / height >= 18 / 14;
+  return <span className="library-filter-ratio" aria-hidden="true">
+    {valid && <i style={wide ? { width: 18, height: Math.max(4, 18 * height / width) } : { width: Math.max(4, 14 * width / height), height: 14 }} />}
+  </span>;
 }
 
 export function LibraryFilterChips() {
@@ -52,7 +66,7 @@ export function LibraryFilterChips() {
   const remove = key => setFilters({ ...normalized, [key]: key === "date" ? "any" : key === "favorite" ? false : [] });
   return <div className="library-filter-chips" aria-label="Active library filters">
     {active.map(key => {
-      const values = key === "date" ? normalized.date === "custom" ? `${normalized.from} to ${normalized.through}` : DATE_PRESETS[normalized.date]
+      const values = key === "date" ? normalized.date === "custom" ? `${libraryDayLabel(normalized.from)} to ${libraryDayLabel(normalized.through)}` : DATE_PRESETS[normalized.date]
         : key === "favorite" ? "Favourites only" : normalized[key].map(value => libraryValueLabel(key, value, users, actorId)).join(" + ");
       const label = key === "favorite" ? values : `${FILTER_LABELS[key]}: ${values}`;
       return <span key={key} className="library-filter-chip" title={label}><span>{label}</span>
@@ -66,9 +80,14 @@ export function LibraryNoMatches() {
   const filters = useStore(s => s.libraryFilters), kind = useStore(s => s.filterKind), search = useStore(s => s.search);
   const setFilters = useStore(s => s.setLibraryFilters), setSearch = useStore(s => s.setSearch);
   const filtering = activeLibraryFilters(filters).length || kind !== "all";
+  const normalized = normalizeLibraryFilters(filters);
+  // Video-only facets cannot match a Type that excludes videos; say so instead of hiding the conflict.
+  const videoConflict = normalized.types.length > 0 && !normalized.types.includes("video") &&
+    (normalized.durations.length || normalized.stages.length || normalized.bitrates.length);
   return <div className="grid h-full place-items-center px-5 text-center">
     <div className="max-w-xs"><Search className="mx-auto mb-3 h-6 w-6 text-white/35" /><h3 className="text-sm font-medium text-white/80">No matching work</h3>
-      <p className="mt-2 text-xs leading-5 text-white/45">Try fewer filters{search.trim() ? " or a different search." : ". Your work is still in this library."}</p>
+      <p className="mt-2 text-xs leading-5 text-white/45">{videoConflict ? "Duration, stage and bitrate only match videos. Include Videos in Type, or remove those filters."
+        : <>Try fewer filters{search.trim() ? " or a different search." : ". Your work is still in this library."}</>}</p>
       <div className="mt-4 flex flex-wrap justify-center gap-2">
         {Boolean(filtering) && <button type="button" className="rounded-lg bg-white px-3 py-2 text-xs font-medium text-ink-900" onClick={() => setFilters(emptyLibraryFilters())}>Clear filters</button>}
         {search.trim() && <button type="button" className="rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/10" onClick={() => setSearch("")}>Clear search</button>}
@@ -93,7 +112,7 @@ export function LibraryFilters() {
   return <>
     <button ref={triggerRef} type="button" aria-expanded={open} aria-controls={dialogId} aria-haspopup="dialog"
       onClick={() => setOpen(true)} className={cn("library-filter-trigger flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 hover:text-white", open && "border-brand/40 text-white")}>
-      <SlidersHorizontal className="h-3 w-3" /><span>Filters</span>{count > 0 && <span className="library-filter-badge">{count}</span>}
+      <ListFilter className="h-3 w-3" /><span>Filters</span>{count > 0 && <span className="library-filter-badge">{count}</span>}
     </button>
     {open && <FilterDialog key={`${source}:${actorId}`} id={dialogId} triggerRef={triggerRef} scope={scope} initial={normalized}
       onCancel={() => setOpen(false)} onApply={value => { setFilters(value); setOpen(false); }} />}
@@ -148,7 +167,7 @@ function FilterDialog({ id, triggerRef, scope, initial, onCancel, onApply }) {
   const options = (key, values) => values.map(entry => {
     const value = Array.isArray(entry) ? entry[0] : entry;
     const label = Array.isArray(entry) ? entry[1] : libraryValueLabel(key, value, users, actorId);
-    return <label key={value} className="library-filter-option"><input type="checkbox" value={value} checked={draft[key].includes(value)} onChange={() => toggle(key, value)} /><span>{label}</span></label>;
+    return <label key={value} className="library-filter-option"><input type="checkbox" value={value} checked={draft[key].includes(value)} onChange={() => toggle(key, value)} />{key === "aspects" && <RatioOutline value={value} />}<span>{label}</span></label>;
   });
   const mergeOptions = (key, values) => [...new Set([...(values || []), ...draft[key]])];
   const title = category === "resolutions" ? "Requested resolution" : CATEGORIES.find(([key]) => key === category)[1];
@@ -178,9 +197,9 @@ function FilterDialog({ id, triggerRef, scope, initial, onCancel, onApply }) {
           {category === "date" && <>{Object.entries(DATE_PRESETS).map(([value, label]) => <label key={value} className="library-filter-option"><input type="radio" name={`${id}-date`} value={value} checked={draft.date === value} onChange={() => selectDate(value)} /><span>{label}</span></label>)}
             {draft.date === "custom" && <><div className="library-filter-dates"><label>From<input type="date" value={draft.from} aria-describedby={!dateValid ? errorId : undefined} onChange={event => setDraft({ ...draft, from: event.target.value })} /></label><label>Through<input type="date" value={draft.through} aria-describedby={!dateValid ? errorId : undefined} onChange={event => setDraft({ ...draft, through: event.target.value })} /></label></div>{!dateValid && <p id={errorId} className="mt-2 text-[11px] text-red-200">Choose a start date on or before the end date.</p>}</>}
             <p className="library-filter-help">{Intl.DateTimeFormat().resolvedOptions().timeZone} · Calendar days, including today.</p></>}
-          {category === "resolutions" && <>{["image", "video", "depth"].map(kind => { const values = mergeOptions("resolutions", catalog?.resolutions).filter(value => value.startsWith(`${kind}:`)); return values.length ? <div key={kind}>{sectionTitle(kind === "image" ? "Image" : kind === "video" ? "Video" : "Depth")}{options("resolutions", values.map(value => [value, libraryValueLabel("resolutions", value).replace(/^(Image|Video|Depth) /, "")]))}</div> : null; })}<p className="library-filter-help">Generation settings, not measured master dimensions.</p></>}
+          {category === "resolutions" && <>{["image", "video", "depth"].map(kind => { const values = mergeOptions("resolutions", catalog?.resolutions).filter(value => value.startsWith(`${kind}:`)); return values.length ? <div key={kind}>{sectionTitle(kind === "image" ? "Image" : kind === "video" ? "Video" : "Depth")}{options("resolutions", values.map(value => [value, resolutionSettingLabel(value.split(":")[1])]))}</div> : null; })}<p className="library-filter-help">Generation settings, not measured master dimensions.</p></>}
           {category === "aspects" && <>{options("aspects", mergeOptions("aspects", ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", ...(catalog?.aspects || [])]))}<p className="library-filter-help">Uses the requested ratio. No crop is applied.</p></>}
-          {category === "video" && <>{draft.types.length === 1 && draft.types[0] === "image" && <p className="library-filter-help">Images are selected. Include videos in Type, or remove video filters below.</p>}{sectionTitle("Duration")}{options("durations", FILTER_VALUES.durations)}<div className="library-filter-rule" />{sectionTitle("Render stage")}{options("stages", FILTER_VALUES.stages)}<p className="library-filter-help">Final means a recorded non-draft video. Missing stage is not treated as Final.</p></>}
+          {category === "video" && <>{draft.types.length === 1 && draft.types[0] === "image" && <p className="library-filter-help" style={{ marginTop: 0 }}>Images are selected. Include Videos in Type, or remove video filters below.</p>}{sectionTitle("Duration")}{options("durations", FILTER_VALUES.durations)}<div className="library-filter-rule" />{sectionTitle("Render stage")}{options("stages", FILTER_VALUES.stages)}<p className="library-filter-help">Final means a recorded non-draft video. Missing stage is not treated as Final.</p></>}
           {category === "creators" && <>{options("creators", creatorOptions)}{!creatorOptions.length && <p className="library-filter-help">No creators in this source yet.</p>}</>}
           {category === "more" && <>{sectionTitle("Status")}{options("statuses", FILTER_VALUES.statuses)}<div className="library-filter-rule" />{sectionTitle("Video bitrate")}{options("bitrates", FILTER_VALUES.bitrates)}<p className="library-filter-help">The requested bitrate mode. Filtering never changes a master.</p></>}
         </>}

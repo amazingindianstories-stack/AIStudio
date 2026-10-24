@@ -811,7 +811,11 @@ export function HistoryPanel({ drawer = false }) {
                   }}
                   placeholder="Search prompts…"
                   aria-label="Search prompts"
-                  className="w-full rounded-full border border-line bg-ink-700/80 py-1 pl-8 pr-8 text-xs text-white/90 outline-none transition placeholder:text-white/35 focus:border-brand/40 focus:bg-ink-650"
+                  className={cn(
+                    "w-full text-ellipsis rounded-full border border-line bg-ink-700/80 py-1 pl-8 text-xs text-white/90 outline-none transition placeholder:text-white/35 focus:border-brand/40 focus:bg-ink-650",
+                    // Reserve the clear/refresh slot only when it is shown, so a narrow toolbar keeps the placeholder whole.
+                    searchDraft || refreshing ? "pr-8" : "pr-3"
+                  )}
                 />
                 {searchDraft && (
                   <button
@@ -842,7 +846,7 @@ export function HistoryPanel({ drawer = false }) {
                   trigger={(open) => (
                     <span
                       className={cn(
-                        "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
+                        "history-view-trigger flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
                         open && "border-brand/40 text-white"
                       )}
                     >
@@ -894,7 +898,7 @@ export function HistoryPanel({ drawer = false }) {
                           <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
                           {rightTab === "favorites" && <option value="starred">Recently starred</option>}
                         </select>
-                        <label className="mt-3 flex items-center gap-2 text-xs text-white/70"><input type="checkbox" className="accent-white" checked={groupByDate} disabled={sort === "starred"} onChange={event => setGroupByDate(event.target.checked)} />Group by date</label>
+                        <label className="mt-3 flex items-center gap-2 text-xs text-white/70"><input type="checkbox" className="accent-white" checked={groupByDate && sort !== "starred"} disabled={sort === "starred"} onChange={event => setGroupByDate(event.target.checked)} />Group by date</label>
                         {sort === "starred" && <p className="mt-2 text-[10px] leading-4 text-white/40">Date grouping is off while sorted by when starred.</p>}
                       </div>
                     </div>
