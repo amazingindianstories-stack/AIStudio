@@ -86,7 +86,9 @@ function ElapsedTime({ since }) {
 
 /** A library card is the media and very little else: the creator's avatar,
  *  "Draft" on drafts, a star on favourites, and - on hover or keyboard focus -
- *  a select checkbox, a "..." button and the favourite toggle. Everything else (details and actions) lives in the card's
+ *  a select checkbox, a "..." button and the favourite toggle. Under the media
+ *  sits the generation name row, whose stem truncates while its trailing
+ *  sequence digits stay visible. Everything else (details and actions) lives in the card's
  *  context menu, opened by right click, the "..." button, the keyboard
  *  (ContextMenu key or Shift+F10) or a long press on touch. The face scales
  *  with the card's rendered width through the container queries on
@@ -745,7 +747,7 @@ export function MediaCard({
           </div>
         </div>
       </div>
-      <GenerationName item={item} className="px-2 py-1.5 text-white/80" />
+      <GenerationName item={item} height={GENERATION_NAME_ROW_HEIGHT} className="px-2 text-white/80" />
     </motion.div>
       {menu && (
         <CardContextMenu
@@ -782,14 +784,17 @@ export function resolveGenerationFolder(item, tree) {
   return { label: `${root} / ${path ? path.join(" / ") : "Folder unavailable"}`, navigable: Boolean(path) };
 }
 
-export function GenerationName({ item, className }) {
+/** Library cards' name row height in px; AssetGrid packs and sizes skeletons with it. */
+export const GENERATION_NAME_ROW_HEIGHT = 28;
+
+export function GenerationName({ item, height = 16, className }) {
   const displayName = item.filename?.replace(/\.[^.]+$/, "") || "";
   // Only the ancestry stem may shrink. Keep the entire sequence, including
   // sequences longer than four digits, visible at every width. The row keeps
   // its height before the name arrives so the card never shifts.
   const nameParts = displayName.match(/^([\s\S]*?)(_\d+)$/);
   return (
-    <div data-generation-name title={item.filename || undefined} className={cn("box-content flex h-4 min-w-0 text-[11px] leading-4", className)}>
+    <div data-generation-name title={item.filename || undefined} style={{ height }} className={cn("flex min-w-0 shrink-0 items-center text-[11px] leading-4", className)}>
       <span className="min-w-0 truncate">{nameParts ? nameParts[1] : displayName}</span>
       {nameParts && <span className="shrink-0">{nameParts[2]}</span>}
     </div>

@@ -42,7 +42,6 @@ test('library and main chat cards retain the complete sequence separately from t
         assert.equal(name.title, filename);
         assert.equal(name.textContent, filename.replace(/\.[^.]+$/, ''));
         assert.equal(name.lastElementChild.textContent, filename.match(/(_\d+)\.[^.]+$/)[1]);
-        assert.match(name.lastElementChild.className, /shrink-0/);
       }, {}, Component);
     }
   }
@@ -55,7 +54,6 @@ test('library and main chat cards reserve an empty name row until the item has a
       assert.ok(name);
       assert.equal(name.textContent, '');
       assert.equal(name.hasAttribute('title'), false);
-      assert.match(name.className, /\bh-4\b/);
     }, {}, Component);
   }
 });

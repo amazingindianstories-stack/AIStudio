@@ -14,6 +14,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { getNextGridFocus } from "@/lib/grid-navigation";
+import { GENERATION_NAME_ROW_HEIGHT } from "./MediaCard";
 
 /**
  * The one scrolling asset grid, shared by the project view and the global
@@ -403,6 +404,12 @@ export function packColumns(
   cardWidth
 ) {
   const count = columnCount(containerWidth, cardWidth);
+  // Each card adds its name row and the gap below it, in the same column-width
+  // units as the media's aspect-ratio height.
+  const columnWidth = containerWidth
+    ? (containerWidth - 32 - GRID_GAP * (count - 1)) / count
+    : cardWidth;
+  const rowAndGap = (GENERATION_NAME_ROW_HEIGHT + GRID_GAP) / columnWidth;
   const columns = Array.from({ length: count }, () => []);
   const heights = new Array(count).fill(0);
 
@@ -414,7 +421,7 @@ export function packColumns(
       if (heights[i] < heights[target]) target = i;
     }
     columns[target].push(item);
-    heights[target] += relativeHeight(item.aspectRatio) + 0.06; // + gap
+    heights[target] += relativeHeight(item.aspectRatio) + rowAndGap;
   }
   return columns;
 }
@@ -438,7 +445,7 @@ export function SkeletonGrid({ cardWidth }) {
       style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
     >
       {[180, 240, 200, 280, 160, 220, 260, 190, 210, 250, 175, 230].map((h, i) => (
-        <div key={i} className="skeleton rounded-xl" style={{ height: h }} />
+        <div key={i} className="skeleton rounded-xl" style={{ height: h + GENERATION_NAME_ROW_HEIGHT }} />
       ))}
     </div>
   );
