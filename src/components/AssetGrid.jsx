@@ -372,10 +372,10 @@ export function AssetGrid({
 
 const GRID_GAP = 12; // matches gap-3
 
-/** Relative height of a card, from its aspect ratio, in units of one column
- *  width. Only the ratio matters for packing, so no DOM measurement is needed —
- *  which is what keeps the layout deterministic and free of a measure/paint
- *  feedback loop. */
+/** Relative height of a card's media, from its aspect ratio, in units of one
+ *  column width. Packing adds only the fixed name row and gap to it, so no DOM
+ *  measurement is needed — which is what keeps the layout deterministic and
+ *  free of a measure/paint feedback loop. */
 function relativeHeight(aspectRatio) {
   const [w, h] = String(aspectRatio ?? "").split(":").map(Number);
   if (!w || !h || !Number.isFinite(w) || !Number.isFinite(h)) return 9 / 16;
