@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { activeLibraryFilters, emptyLibraryFilters, libraryDateBounds, libraryDayLabel, libraryDayTitle, localDateKey, libraryDateLabel, matchesLibraryFilters } from "./library-filters";
-import { scopeKey, scopeToQuery, matchesScope, compareInScope } from "./feed-scope";
+import { scopeKey, scopeToQuery, matchesScope, compareInScope, sortValue } from "./feed-scope";
 import { historyFilterToParams } from "./history-query";
 import { packDateSections } from "../components/AssetGrid";
 import { getNextGridFocus } from "./grid-navigation";
@@ -76,4 +76,22 @@ test("active dimensions follow the dialog's category order and day labels stay h
   assert.match(libraryDayTitle("2025-12-31"), /2025/);
   assert.equal(libraryDayTitle("unknown"), "Date unavailable");
   assert.equal(libraryDateLabel("2026-10-24", now), "Today");
+});
+
+test("a Favourites filter outside the Favourites tab keeps creation order on the wire and in the client", () => {
+  const filters = { ...emptyLibraryFilters(), favorite: true };
+  const row = { createdAt: 100, favoritedAt: 900 };
+  for (const tab of ["history", "library", "project", "folder", "global_unsorted"]) {
+    const scope = { tab, projectId: "p", folderId: "f", kind: "all", q: "", filters };
+    const params = historyFilterToParams(scopeToQuery(scope));
+    assert.equal(params.get("favorite"), "1", tab);
+    assert.equal(params.get("sort"), "newest", tab);
+    assert.equal(historyFilterToParams(scopeToQuery({ ...scope, sort: "oldest" })).get("sort"), "oldest", tab);
+    assert.equal(sortValue(row, scope), 100, tab);
+    assert.notEqual(scopeKey(scope), scopeKey({ ...scope, filters: emptyLibraryFilters() }), tab);
+  }
+  const favourites = { tab: "favorites", kind: "all", q: "", filters };
+  assert.equal(historyFilterToParams(scopeToQuery(favourites)).get("sort"), null);
+  assert.equal(sortValue(row, favourites), 900);
+  assert.equal(historyFilterToParams(scopeToQuery({ tab: "history", kind: "all", q: "" })).get("sort"), null);
 });

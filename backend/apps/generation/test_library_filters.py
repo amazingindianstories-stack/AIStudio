@@ -76,6 +76,17 @@ class LibraryFilterTests(TransactionTestCase):
         for changed in ({'sort': 'newest'}, {'sort': 'oldest', 'q': 'elsewhere'}, {'sort': 'oldest', 'model': 'seedance'}):
             self.assertEqual(self.client.get('/api/history', {**changed, 'cursor': first['nextCursor']}).status_code, 400)
 
+    def test_favourites_default_to_starred_order_unless_creation_order_is_requested(self):
+        early = self.row(created_at=100, is_favorite=True, favorited_at=900)
+        late = self.row(created_at=200, is_favorite=True, favorited_at=800)
+        self.row(created_at=300)
+        self.assertEqual(self.ids(favorite='1'), [str(early.id), str(late.id)])
+        self.assertEqual(self.ids(favorite='1', sort='newest'), [str(late.id), str(early.id)])
+        self.assertEqual(self.ids(favorite='1', sort='oldest'), [str(early.id), str(late.id)])
+        first = self.client.get('/api/history', {'favorite': '1', 'sort': 'newest', 'limit': 1}).json()
+        second = self.client.get('/api/history', {'favorite': '1', 'sort': 'newest', 'limit': 1, 'cursor': first['nextCursor']}).json()
+        self.assertEqual([item['id'] for item in first['items'] + second['items']], [str(late.id), str(early.id)])
+
     def test_options_include_retired_and_missing_values_from_entire_source_without_counts(self):
         folder = Folder.objects.create(name='Option scope', created_at=1)
         for index in range(24):

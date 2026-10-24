@@ -35,8 +35,16 @@ export const UNSORTED = "__unsorted__";
  */
 export function scopeKey(scope) {
   const base = baseScopeKey(scope);
-  const query = { ...libraryFilterQuery(scope.filters, scope.now), ...(scope.sort ? { sort: scope.sort } : {}) };
+  const query = libraryQuery(scope);
   return Object.keys(query).length ? `${base}:${JSON.stringify(query)}` : base;
+}
+
+/** A Favourites filter shares the Favourites tab's wire flag, so outside that tab
+ *  the server must be told to keep creation order instead of its starred default. */
+function libraryQuery(scope) {
+  const query = libraryFilterQuery(scope.filters, scope.now);
+  const sort = scope.sort || (query.favorite && scope.tab !== "favorites" ? "newest" : null);
+  return sort ? { ...query, sort } : query;
 }
 
 function baseScopeKey(scope) {
@@ -58,7 +66,7 @@ function baseScopeKey(scope) {
 
 /** The querystring shape of a scope. Mirrors parseHistoryFilter on the server. */
 export function scopeToQuery(scope) {
-  return { ...baseScopeToQuery(scope), ...libraryFilterQuery(scope.filters, scope.now), ...(scope.sort ? { sort: scope.sort } : {}) };
+  return { ...baseScopeToQuery(scope), ...libraryQuery(scope) };
 }
 
 function baseScopeToQuery(scope) {

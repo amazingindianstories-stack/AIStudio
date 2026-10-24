@@ -131,7 +131,7 @@ function currentScope(s) {
     tab,
     projectId: s.activeProjectId,
     folderId: s.activeFolderId,
-    kind: s.filterKind,
+    kind: "all",
     q: s.search,
     filters: s.libraryFilters,
     sort: s.librarySort,
@@ -538,7 +538,6 @@ export const useStore = create((set, get) => ({
   // list order. See setGridColumns below.
   gridColumns: [],
   search: "",
-  filterKind: "all",
   libraryFilters: emptyLibraryFilters(),
   librarySort: null,
   libraryGroupByDate: true,
@@ -842,12 +841,10 @@ export const useStore = create((set, get) => ({
     set({ gridColumns: columns.map((col) => col.map((item) => item.id)) }),
   setSearch: (search) =>
     set((s) => (s.search === search ? {} : { search, ...CLEAR_SELECTION_PATCH })),
-  setFilterKind: (filterKind) =>
-    set((s) => (s.filterKind === filterKind ? {} : { filterKind, ...CLEAR_SELECTION_PATCH })),
   setLibraryFilters: (value) => {
     const filters = normalizeLibraryFilters(value);
     if (libraryDateBounds(filters) === null) return;
-    set({ libraryFilters: filters, filterKind: "all", ...CLEAR_SELECTION_PATCH });
+    set({ libraryFilters: filters, ...CLEAR_SELECTION_PATCH });
   },
   setLibrarySort: (librarySort) => set({ librarySort, ...CLEAR_SELECTION_PATCH }),
   setLibraryGroupByDate: (libraryGroupByDate) => set({ libraryGroupByDate }),
@@ -3089,7 +3086,7 @@ if (typeof window !== "undefined") {
       }
       return;
     }
-    if (s.libraryFilters !== prev.libraryFilters || s.search !== prev.search || s.filterKind !== prev.filterKind || s.librarySort !== prev.librarySort || s.libraryGroupByDate !== prev.libraryGroupByDate) {
+    if (s.libraryFilters !== prev.libraryFilters || s.search !== prev.search || s.librarySort !== prev.librarySort || s.libraryGroupByDate !== prev.libraryGroupByDate) {
       writeLibrarySession(actor, source, s);
     }
     const projectChanged = s.activeProjectId !== prev.activeProjectId;
@@ -3099,10 +3096,9 @@ if (typeof window !== "undefined") {
       searchChanged ||
       s.rightTab !== prev.rightTab ||
       s.activeFolderId !== prev.activeFolderId ||
-      s.filterKind !== prev.filterKind ||
       s.libraryFilters !== prev.libraryFilters ||
       s.librarySort !== prev.librarySort ||
-      s.libraryDateNow !== prev.libraryDateNow;
+      (s.libraryDateNow !== prev.libraryDateNow && scopeKey(currentScope(s)) !== scopeKey(currentScope(prev)));
 
     if (effectiveScopeChanged && (s.selectedIds.length > 0 || s.focusedAssetId !== null || s.selectionAnchorId !== null)) {
       useStore.setState(CLEAR_SELECTION_PATCH);

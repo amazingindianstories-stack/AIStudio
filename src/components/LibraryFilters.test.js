@@ -16,7 +16,7 @@ test("filter edits stage until Show results; Cancel discards and chip clear pres
     fetch: async () => new Response(JSON.stringify({ options: { types: ["image", "video"], models: [], aspects: [], resolutions: [], creators: [] } })) });
   dom.window.HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   dom.window.HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
-  useStore.setState({ libraryFilters: emptyLibraryFilters(), filterKind: "all", rightTab: "folder", activeFolderId: "source", search: "mountain" });
+  useStore.setState({ libraryFilters: emptyLibraryFilters(), rightTab: "folder", activeFolderId: "source", search: "mountain" });
   const root = createRoot(document.querySelector("#root"));
   const button = label => [...document.querySelectorAll("button")].find(node => node.textContent === label);
   const option = label => [...document.querySelectorAll(".library-filter-option")].find(node => node.textContent === label).querySelector("input");
@@ -54,7 +54,7 @@ test("options read as settings, ratios get outlines, chips use day labels and th
   dom.window.HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
   const thisYear = new Date().getFullYear();
   useStore.setState({ libraryFilters: { ...emptyLibraryFilters(), date: "custom", from: `${thisYear}-01-02`, through: `${thisYear}-01-05` },
-    filterKind: "all", rightTab: "folder", activeFolderId: "source", search: "" });
+    rightTab: "folder", activeFolderId: "source", search: "" });
   const root = createRoot(document.querySelector("#root"));
   const button = label => [...document.querySelectorAll("button")].find(node => node.textContent.startsWith(label));
   const labels = () => [...document.querySelectorAll(".library-filter-option")].map(node => node.textContent);
@@ -88,7 +88,7 @@ test("Not recorded follows the source catalog, and applied filters are announced
     fetch: async () => new Response(JSON.stringify({ options: { types: ["video"], models: [], aspects: [], resolutions: [], creators: [], unrecorded: ["stage"] } })) });
   dom.window.HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   dom.window.HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
-  useStore.setState({ libraryFilters: emptyLibraryFilters(), filterKind: "all", rightTab: "folder", activeFolderId: "source", search: "",
+  useStore.setState({ libraryFilters: emptyLibraryFilters(), rightTab: "folder", activeFolderId: "source", search: "",
     loading: false, items: [{ id: "a" }, { id: "b" }], hasMoreHistory: false });
   const root = createRoot(document.querySelector("#root"));
   const button = label => [...document.querySelectorAll("button")].find(node => node.textContent.startsWith(label));
@@ -136,7 +136,7 @@ test("the phone category rail fades only the edges with more categories past the
     Object.defineProperty(dom.window.HTMLElement.prototype, key, { configurable: true,
       get() { return this.classList.contains("library-filter-categories") ? rail[key] : 0; } });
   }
-  useStore.setState({ libraryFilters: emptyLibraryFilters(), filterKind: "all", rightTab: "folder", activeFolderId: "source", search: "" });
+  useStore.setState({ libraryFilters: emptyLibraryFilters(), rightTab: "folder", activeFolderId: "source", search: "" });
   const root = createRoot(document.querySelector("#root"));
   const nav = () => document.querySelector(".library-filter-categories");
   const scrollTo = async left => { rail.scrollLeft = left; await act(async () => nav().dispatchEvent(new dom.window.Event("scroll"))); };

@@ -67,7 +67,6 @@ export function HistoryPanel({ drawer = false }) {
   const setRightTab = useStore((s) => s.setRightTab);
   const search = useStore((s) => s.search);
   const setSearch = useStore((s) => s.setSearch);
-  const filterKind = useStore((s) => s.filterKind);
   const libraryFilters = useStore((s) => s.libraryFilters);
   const librarySort = useStore((s) => s.librarySort);
   const setLibrarySort = useStore((s) => s.setLibrarySort);
@@ -76,7 +75,7 @@ export function HistoryPanel({ drawer = false }) {
   const feedError = useStore((s) => s.feedError);
   const loadFeed = useStore((s) => s.loadFeed);
   useLibraryDayClock();
-  const filtering = Boolean(search.trim()) || filterKind !== "all" || activeLibraryFilters(libraryFilters).length > 0;
+  const filtering = Boolean(search.trim()) || activeLibraryFilters(libraryFilters).length > 0;
   const sort = librarySort || (rightTab === "favorites" ? "starred" : "newest");
   const selectedIds = useStore((s) => s.selectedIds);
   const selectAll = useStore((s) => s.selectAll);

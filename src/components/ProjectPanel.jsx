@@ -42,7 +42,6 @@ export function ProjectPanel({ cardWidth = 160 }) {
   const loading = useStore((s) => s.loading);
   const counts = useStore((s) => s.counts);
   const search = useStore((s) => s.search);
-  const filterKind = useStore((s) => s.filterKind);
   const libraryFilters = useStore((s) => s.libraryFilters);
   const setActiveProject = useStore((s) => s.setActiveProject);
   const setActiveFolder = useStore((s) => s.setActiveFolder);
@@ -157,7 +156,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
     await moveFolder(movingFolder.id, destination);
   };
 
-  const filtering = Boolean(search.trim()) || filterKind !== "all" || activeLibraryFilters(libraryFilters).length > 0;
+  const filtering = Boolean(search.trim()) || activeLibraryFilters(libraryFilters).length > 0;
 
   // Derive active folder name for empty state
   const activeFolderName = useMemo(() => {

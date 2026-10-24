@@ -38,7 +38,7 @@ These additional parameters are accepted:
 | `bitrate` | Repeated `high`, `standard`, `unknown`; video only |
 | `createdFrom` | Inclusive UTC epoch milliseconds |
 | `createdBefore` | Exclusive UTC epoch milliseconds |
-| `sort` | `newest`, `oldest`, or `starred` in the Favourites source |
+| `sort` | `newest`, `oldest`, or `starred` in the Favourites source. `favorite=1` without `sort` means `starred`, so the Favourites only filter in any other source sends `newest` or `oldest` |
 
 Lists are bounded to 50 values, scalar lengths are bounded, and invalid values
 return 400. Known model aliases resolve through the existing Python registry.

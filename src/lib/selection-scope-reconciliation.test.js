@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { useStore } from "./store.js";
+import { emptyLibraryFilters } from "./library-filters.js";
 
 test("scope change reconciliation: setActiveProject clears selection", () => {
   useStore.setState({
@@ -70,18 +71,18 @@ test("scope change reconciliation: setSearch clears selection when query changes
   assert.equal(state.selectionAnchorId, null);
 });
 
-test("scope change reconciliation: setFilterKind clears selection when filter changes", () => {
+test("scope change reconciliation: setLibraryFilters clears selection when the Type filter changes", () => {
   useStore.setState({
-    filterKind: "all",
+    libraryFilters: emptyLibraryFilters(),
     selectedIds: ["asset-6"],
     focusedAssetId: "asset-6",
     selectionAnchorId: "asset-6",
   });
 
-  useStore.getState().setFilterKind("video");
+  useStore.getState().setLibraryFilters({ ...emptyLibraryFilters(), types: ["video"] });
 
   const state = useStore.getState();
-  assert.equal(state.filterKind, "video");
+  assert.deepEqual(state.libraryFilters.types, ["video"]);
   assert.deepEqual(state.selectedIds, []);
   assert.equal(state.focusedAssetId, null);
   assert.equal(state.selectionAnchorId, null);
@@ -110,14 +111,12 @@ test("infinite scroll appends items without clearing active selection in same sc
 test("idempotent scope calls with same value preserve selection", () => {
   useStore.setState({
     search: "same-query",
-    filterKind: "image",
     activeProjectId: "p-stay",
     selectedIds: ["asset-keep"],
     focusedAssetId: "asset-keep",
   });
 
   useStore.getState().setSearch("same-query");
-  useStore.getState().setFilterKind("image");
   useStore.getState().setActiveProject("p-stay");
 
   const state = useStore.getState();

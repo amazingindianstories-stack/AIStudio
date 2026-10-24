@@ -73,7 +73,7 @@ async function bulkDelete(ids, failing, selectedIds = ids) {
     const key = scopeKey({ tab: "history", projectId: null, folderId: null, kind: "all", q: "" });
     putFeedCache(key, { items, nextCursor: null, at: 0 });
     useStore.setState({ currentUser: { id: "admin", role: "admin" }, rightTab: "history", activeProjectId: null,
-      activeFolderId: null, filterKind: "all", search: "", items, feedKey: key, selectedIds });
+      activeFolderId: null, search: "", items, feedKey: key, selectedIds });
     const pending = useStore.getState().deleteGenerations(ids);
     useStore.setState((s) => ({ selectedIds: [...s.selectedIds, "picked-during-delete"] }));
     try {

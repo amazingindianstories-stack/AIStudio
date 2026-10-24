@@ -55,12 +55,10 @@ function RatioOutline({ value }) {
 
 export function LibraryFilterChips() {
   const filters = useStore(s => s.libraryFilters);
-  const kind = useStore(s => s.filterKind);
   const setFilters = useStore(s => s.setLibraryFilters);
   const users = useStore(s => s.usersById);
   const actorId = useStore(s => s.currentUser?.id);
   const normalized = normalizeLibraryFilters(filters);
-  if (kind !== "all" && !normalized.types.length) normalized.types = [kind];
   const active = activeLibraryFilters(normalized);
   if (!active.length) return null;
   const remove = key => setFilters({ ...normalized, [key]: key === "date" ? "any" : key === "favorite" ? false : [] });
@@ -100,9 +98,9 @@ export function LibraryResultsAnnouncer() {
 }
 
 export function LibraryNoMatches() {
-  const filters = useStore(s => s.libraryFilters), kind = useStore(s => s.filterKind), search = useStore(s => s.search);
+  const filters = useStore(s => s.libraryFilters), search = useStore(s => s.search);
   const setFilters = useStore(s => s.setLibraryFilters), setSearch = useStore(s => s.setSearch);
-  const filtering = activeLibraryFilters(filters).length || kind !== "all";
+  const filtering = activeLibraryFilters(filters).length > 0;
   const normalized = normalizeLibraryFilters(filters);
   // Video-only facets cannot match a Type that excludes videos; say so instead of hiding the conflict.
   const videoConflict = normalized.types.length > 0 && !normalized.types.includes("video") &&
@@ -112,7 +110,7 @@ export function LibraryNoMatches() {
       <p className="mt-2 text-xs leading-5 text-white/45">{videoConflict ? "Duration, stage and bitrate only match videos. Include Videos in Type, or remove those filters."
         : <>Try fewer filters{search.trim() ? " or a different search." : ". Your work is still in this library."}</>}</p>
       <div className="mt-4 flex flex-wrap justify-center gap-2">
-        {Boolean(filtering) && <button type="button" className="rounded-lg bg-white px-3 py-2 text-xs font-medium text-ink-900" onClick={() => setFilters(emptyLibraryFilters())}>Clear filters</button>}
+        {filtering && <button type="button" className="rounded-lg bg-white px-3 py-2 text-xs font-medium text-ink-900" onClick={() => setFilters(emptyLibraryFilters())}>Clear filters</button>}
         {search.trim() && <button type="button" className="rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/10" onClick={() => setSearch("")}>Clear search</button>}
       </div>
     </div>
@@ -120,7 +118,7 @@ export function LibraryNoMatches() {
 }
 
 export function LibraryFilters() {
-  const filters = useStore(s => s.libraryFilters), kind = useStore(s => s.filterKind);
+  const filters = useStore(s => s.libraryFilters);
   const setFilters = useStore(s => s.setLibraryFilters);
   const tab = useStore(s => s.rightTab), projectId = useStore(s => s.activeProjectId), folderId = useStore(s => s.activeFolderId);
   const actorId = useStore(s => s.currentUser?.id);
@@ -130,7 +128,6 @@ export function LibraryFilters() {
   const source = librarySourceKey(scope);
   useEffect(() => setOpen(false), [source, actorId]);
   const normalized = normalizeLibraryFilters(filters);
-  if (kind !== "all" && !normalized.types.length) normalized.types = [kind];
   const count = activeLibraryFilters(normalized).length;
   return <>
     <button ref={triggerRef} type="button" aria-expanded={open} aria-controls={dialogId} aria-haspopup="dialog"

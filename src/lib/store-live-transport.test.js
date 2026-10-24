@@ -18,7 +18,7 @@ test('queued work resumes through read-only updates and reaches completion witho
     return Response.json({ items: [{ id: 'job', kind: 'video', status: ++poll === 1 ? 'running' : 'succeeded', updatedAt: Date.now() + poll, createdAt: Date.now(), url: poll === 2 ? '/api/media/master.mov' : null }], now: 500 + poll });
   });
   try {
-    useStore.setState({ items: [{ id: 'job', kind: 'video', status: 'queued', updatedAt: Date.now() - 1000, createdAt: Date.now() - 1000 }], threadItems: [], pendingItems: [], rightTab: 'library', filterKind: 'all', activeProjectId: null, activeFolderId: null, search: '' });
+    useStore.setState({ items: [{ id: 'job', kind: 'video', status: 'queued', updatedAt: Date.now() - 1000, createdAt: Date.now() - 1000 }], threadItems: [], pendingItems: [], rightTab: 'library', activeProjectId: null, activeFolderId: null, search: '' });
     useStore.getState().startLiveUpdates();
     useStore.getState().startLiveUpdates();
     assert.equal(timers.length, 1);

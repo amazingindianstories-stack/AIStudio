@@ -29,7 +29,6 @@ function harness(overrides = {}) {
     rightTab: "history",
     activeProjectId: null,
     activeFolderId: null,
-    filterKind: "all",
     search: "",
     feedPinned: true,
     ...overrides,
@@ -178,7 +177,7 @@ test("mergeLiveItems: queueNote is dropped once the item leaves the queue", () =
 test("mergeLiveItems: an update that moves a row out of scope removes it rather than showing something a refetch would immediately drop", () => {
   const cur = makeItem({ id: "a", updatedAt: 100, kind: "image" });
   const inc = makeItem({ id: "a", updatedAt: 200, kind: "video" });
-  const h = harness({ items: [cur], filterKind: "image" });
+  const h = harness({ items: [cur], libraryFilters: { types: ["image"] } });
   mergeLiveItems([inc], h.set);
   assert.equal(h.state().items.length, 0);
 });
@@ -209,7 +208,7 @@ test("mergeLiveItems: a new row is buffered into pendingItems when the user is s
 
 test("mergeLiveItems: a row outside the current scope is ignored entirely, whether pinned or not", () => {
   const inc = makeItem({ id: "new", kind: "video", status: "running" });
-  const h = harness({ items: [], filterKind: "image", feedPinned: false });
+  const h = harness({ items: [], libraryFilters: { types: ["image"] }, feedPinned: false });
   mergeLiveItems([inc], h.set);
   assert.equal(h.state().items.length, 0);
   assert.equal(h.state().pendingItems.length, 0);

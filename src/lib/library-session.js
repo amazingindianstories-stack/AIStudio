@@ -14,7 +14,6 @@ export function readLibrarySession(actor, source) {
   const filters = normalizeLibraryFilters(value.filters);
   if (libraryDateBounds(filters) === null) Object.assign(filters, { date: "any", from: "", through: "" });
   return { libraryFilters: filters, search: typeof value.search === "string" ? value.search.slice(0, 200) : "",
-    filterKind: ["image", "video", "audio"].includes(value.kind) ? value.kind : "all",
     librarySort: ["newest", "oldest", "starred"].includes(value.sort) ? value.sort : null, ...view };
 }
 
@@ -24,7 +23,7 @@ export function writeLibrarySession(actor, source, state) {
     const previous = book(actor);
     const sources = previous.sources && typeof previous.sources === "object" ? previous.sources : {};
     delete sources[source];
-    sources[source] = { filters: normalizeLibraryFilters(state.libraryFilters), search: state.search.slice(0, 200), kind: state.filterKind, sort: state.librarySort };
+    sources[source] = { filters: normalizeLibraryFilters(state.libraryFilters), search: state.search.slice(0, 200), sort: state.librarySort };
     while (Object.keys(sources).length > 24) delete sources[Object.keys(sources)[0]];
     window.sessionStorage.setItem(key(actor), JSON.stringify({ sources, groupByDate: state.libraryGroupByDate }));
   } catch { /* Private browsing/storage limits must not disable retrieval. */ }
@@ -34,4 +33,4 @@ export function clearLibrarySession(actor) {
   try { if (actor && typeof window !== "undefined") window.sessionStorage.removeItem(key(actor)); } catch {}
 }
 
-export const cleanLibraryQuery = () => ({ libraryFilters: emptyLibraryFilters(), search: "", filterKind: "all", librarySort: null });
+export const cleanLibraryQuery = () => ({ libraryFilters: emptyLibraryFilters(), search: "", librarySort: null });
