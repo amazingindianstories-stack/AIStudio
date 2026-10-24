@@ -364,7 +364,7 @@ body {
 .library-filter-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 5px 4px 5px 9px; }
 .library-filter-chip button { display: grid; width: 28px; min-height: 28px; flex-shrink: 0; place-items: center; border-radius: 0 7px 7px 0; color: rgba(255,255,255,.5); }
 .library-filter-chip button:hover { color: white; background: rgba(255,255,255,.07); }
-.library-filter-clear { padding: 5px; color: rgba(255,255,255,.6); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255,255,255,.2); }
+.library-filter-clear { margin-left: -6px; padding: 5px 6px; color: rgba(255,255,255,.6); font-size: 11px; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: rgba(255,255,255,.2); }
 .library-filter-dialog { position: fixed; margin: 0; padding: 0; width: min(510px, calc(100vw - 24px)); max-width: none; max-height: calc(100dvh - 24px); overflow: hidden; border: 1px solid rgba(255,255,255,.12); border-radius: 14px; background: #16181b; color: #e7e9ec; box-shadow: 0 12px 48px rgba(0,0,0,.55); }
 .library-filter-dialog[open] { display: flex; flex-direction: column; }
 .library-filter-dialog::backdrop { background: transparent; }
@@ -372,11 +372,12 @@ body {
 .library-filter-header { display: flex; min-height: 51px; align-items: center; gap: 8px; padding: 10px 14px 10px 16px; border-bottom: 1px solid rgba(255,255,255,.07); }
 .library-filter-header h2 { flex: 1; font-size: 13px; font-weight: 500; }
 .library-filter-header button { display: grid; min-width: 28px; min-height: 28px; place-items: center; border-radius: 6px; padding-inline: 5px; color: #a9afb8; font-size: 11px; }
-.library-filter-header button:hover, .library-filter-categories button:hover { background: rgba(255,255,255,.05); }
+.library-filter-header button:hover { background: rgba(255,255,255,.05); }
+.library-filter-categories button:hover { color: #d0d4da; background: rgba(255,255,255,.03); }
 .library-filter-body { display: grid; grid-template-columns: 139px minmax(0,1fr); height: min(420px, calc(100dvh - 145px)); overflow: hidden; }
 .library-filter-categories { display: flex; flex-direction: column; gap: 2px; overflow: auto; padding: 9px; border-right: 1px solid rgba(255,255,255,.07); background: rgba(17,18,20,.6); scrollbar-width: thin; }
 .library-filter-categories button { display: flex; min-height: 37px; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 5px; padding: 8px; border-radius: 7px; color: #a6adb7; text-align: left; font-size: 11px; }
-.library-filter-categories button[aria-current] { color: white; background: rgba(255,255,255,.05); }
+.library-filter-categories button[aria-current] { color: white; font-weight: 500; background: rgba(255,255,255,.09); }
 .library-filter-categories button span { display: grid; min-width: 15px; height: 15px; place-items: center; border-radius: 5px; background: rgba(255,255,255,.07); color: #d0d6dd; font-size: 9px; }
 .library-filter-content { min-width: 0; overflow: auto; padding: 18px; scrollbar-width: thin; overscroll-behavior: contain; }
 .library-filter-content h3 { font-size: 12px; font-weight: 500; color: #d9dce0; }
@@ -406,7 +407,7 @@ body {
   /* Two 44px rows; the selection toolbar keeps the same height so ticking a card never moves the grid. */
   .history-panel[data-drawer="true"] :is(.history-search-row, .selection-toolbar) { height: 7rem; }
   .library-filter-chip button { min-width: 40px; }
-  .library-filter-clear { min-height: 44px; padding-inline: 8px; }
+  .library-filter-clear { min-height: 44px; margin-left: -8px; padding-inline: 8px; }
   .library-filter-dialog { left: 8px !important; right: 8px; top: auto !important; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 88dvh; border-radius: 16px; }
   .library-filter-dialog::backdrop { background: rgba(0,0,0,.55); }
   .library-filter-body { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); height: min(460px, calc(88dvh - 130px)); }

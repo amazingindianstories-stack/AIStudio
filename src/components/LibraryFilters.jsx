@@ -134,7 +134,7 @@ export function LibraryFilters() {
   const count = activeLibraryFilters(normalized).length;
   return <>
     <button ref={triggerRef} type="button" aria-expanded={open} aria-controls={dialogId} aria-haspopup="dialog"
-      onClick={() => setOpen(true)} className={cn("library-filter-trigger flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 hover:text-white", open && "border-brand/40 text-white")}>
+      aria-label={count ? `Filters, ${count} active` : undefined} onClick={() => setOpen(true)} className={cn("library-filter-trigger flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 hover:text-white", open && "border-brand/40 text-white")}>
       <ListFilter className="h-3 w-3" /><span>Filters</span>{count > 0 && <span className="library-filter-badge">{count}</span>}
     </button>
     {open && <FilterDialog key={`${source}:${actorId}`} id={dialogId} triggerRef={triggerRef} scope={scope} initial={normalized}

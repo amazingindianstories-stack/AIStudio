@@ -98,7 +98,7 @@ for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1440, 1000]
     await contained(panel.locator('main'));
     const view = panel.getByRole('button', { name: 'View settings' });
     await contained(view); await separate(search, view);
-    await contained(panel.getByRole('button', { name: 'Filter by type' }));
+    await contained(panel.getByRole('button', { name: 'Filters', exact: true }));
     await noPageOverflow(page);
     await view.click();
     await expect(page.getByText('Thumbnail Size', { exact: true })).toBeVisible();

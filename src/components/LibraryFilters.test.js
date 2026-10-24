@@ -32,6 +32,7 @@ test("filter edits stage until Show results; Cancel discards and chip clear pres
     await act(async () => button("Show results").click());
     assert.deepEqual(useStore.getState().libraryFilters.types, ["video"]);
     assert.match(document.querySelector('[aria-label="Active library filters"]').textContent, /Type: Videos/);
+    assert.equal(document.querySelector("[aria-haspopup=dialog]").getAttribute("aria-label"), "Filters, 1 active");
     await act(async () => button("Clear filters").click());
     assert.deepEqual(useStore.getState().libraryFilters, emptyLibraryFilters());
     assert.equal(useStore.getState().search, "mountain");

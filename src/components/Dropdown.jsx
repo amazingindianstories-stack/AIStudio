@@ -15,6 +15,28 @@ import { useMaintenance } from "@/lib/maintenance-client";
 import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 import { cn } from "@/lib/utils";
 
+const PANEL_MARGIN = 8;
+const PANEL_GAP = 8;
+
+// Opens on the preferred side, flips when only the other side fits, and when
+// neither fits uses the roomier side with a scrolling cap so the panel never
+// covers its own trigger.
+export function placeDropdownPanel({ trigger, width, height, viewport, align, side }) {
+  const panelWidth = Math.min(width, viewport.width - PANEL_MARGIN * 2);
+  let left = align === "right" ? trigger.right - panelWidth : trigger.left;
+  left = Math.min(Math.max(PANEL_MARGIN, left), viewport.width - panelWidth - PANEL_MARGIN);
+
+  const spaceAbove = Math.max(0, trigger.top - PANEL_GAP - PANEL_MARGIN);
+  const spaceBelow = Math.max(0, viewport.height - PANEL_MARGIN - trigger.bottom - PANEL_GAP);
+  const preferBelow = side !== "top";
+  const below = height <= (preferBelow ? spaceBelow : spaceAbove) ? preferBelow
+    : height <= (preferBelow ? spaceAbove : spaceBelow) ? !preferBelow
+    : spaceBelow >= spaceAbove;
+  const maxHeight = Math.min(height, below ? spaceBelow : spaceAbove);
+  const top = below ? trigger.bottom + PANEL_GAP : trigger.top - PANEL_GAP - maxHeight;
+  return { left, top, maxHeight };
+}
+
 export function Dropdown({
   trigger,
   children,
@@ -142,23 +164,16 @@ export function Dropdown({
       const panel = panelRef.current;
       if (!trigger || !panel) return;
 
-      const margin = 8;
-      const gap = 8;
-      const triggerRect = trigger.getBoundingClientRect();
-      const panelRect = panel.getBoundingClientRect();
-      const width = Math.min(panelRect.width, window.innerWidth - margin * 2);
-      const height = Math.min(panelRect.height, window.innerHeight - margin * 2);
-
-      let left = align === "right" ? triggerRect.right - width : triggerRect.left;
-      left = Math.min(Math.max(margin, left), window.innerWidth - width - margin);
-
-      const above = triggerRect.top - height - gap;
-      const below = triggerRect.bottom + gap;
-      let top = side === "top" ? above : below;
-      if (top < margin) top = below;
-      if (top + height > window.innerHeight - margin) top = Math.max(margin, above);
-
-      setPosition({ left, top });
+      // Measure the unconstrained content height, not the capped or animating box.
+      const height = panel.scrollHeight + panel.offsetHeight - panel.clientHeight;
+      setPosition(placeDropdownPanel({
+        trigger: trigger.getBoundingClientRect(),
+        width: panel.offsetWidth,
+        height,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        align,
+        side,
+      }));
     };
 
     const frame = requestAnimationFrame(place);
@@ -223,6 +238,7 @@ export function Dropdown({
                 style={{
                   left: position?.left ?? 8,
                   top: position?.top ?? 8,
+                  maxHeight: position?.maxHeight,
                   visibility: position ? "visible" : "hidden",
                 }}
                 className={cn(

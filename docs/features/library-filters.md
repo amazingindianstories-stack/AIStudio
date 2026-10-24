@@ -70,7 +70,8 @@ the feed cache key, API transport and incoming-row membership. Applying a set
 clears old selection and resets paging. Query response sequencing still prevents
 a late result from repainting a different scope. Once an applied set's first page
 settles, a polite status announces no matches, an exact count when every match is
-loaded, or that more load on scroll; navigation restores are not announced. Cached rows retain their scope
+loaded, or that more load on scroll; navigation restores are not announced. The Filters
+trigger is named with its active dimension count ("Filters, 2 active"). Cached rows retain their scope
 so metadata mutations can remove rows that no longer match.
 
 Search and filters are restored per actor and navigation source in this browser
