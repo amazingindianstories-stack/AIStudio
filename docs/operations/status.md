@@ -29,8 +29,10 @@ separate bar; selection controls smoothly displace the library label. Reference 
 drag, Alt + arrow keys, position controls and their tooltip remain available. New receipts include filenames.
 New ZIP media leaves already use full permanent names; actual browser downloads from All generations, a parent
 folder, its nested folder and a cross-folder selection all produced `Parent_Child_NNNN` leaves matching the
-card and individual download, so no view-dependent shortening exists. Regression coverage also includes shared
-draft/final names and native MOV archive bytes. Frozen older manifests are never rewritten, and a generation
+card and individual download, so no view-dependent shortening exists. A draft and its finals in one ZIP
+directory keep that directory: the earliest final keeps the shared leaf, later finals take `_2`, `_3` and the
+draft `_draft`; only unrelated historical duplicates use generation-ID subdirectories. Regression coverage also
+includes native MOV archive bytes. Frozen older manifests are never rewritten, and a generation
 filed before its folder was nested keeps its original permanent name.
 
 Local verification after the latest fixes: 639 frontend tests pass and lint is clean; the focused backend
