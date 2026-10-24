@@ -12,7 +12,8 @@ Type, model, creation date and favourites come first, followed by requested
 resolution, aspect ratio, video duration/render stage, creator and the less common
 status/bitrate controls. Favourites are shared generation state, not private likes.
 Final is an explicit non-draft video; a missing draft flag is not Final. Missing
-resolution, duration, stage and bitrate have explicit Not recorded choices.
+resolution, duration, stage and bitrate have explicit Not recorded choices, shown
+only when the source has such rows.
 
 Resolution, duration and bitrate describe the saved generation settings. They do
 not claim measured master metadata. Image and video resolutions have distinct
@@ -50,7 +51,9 @@ compatible with the historical read contracts.
 navigation source. It ignores prompt/metadata predicates, includes historical
 models and values beyond the first page, and respects project, folder and the
 inherited Favourites source. It returns types, model descriptions, typed
-resolutions, aspects and creator IDs. This is an option directory, not facet
+resolutions, aspects, creator IDs and `unrecorded`: the video fields
+(`durationBucket`, `stage`, `bitrate`) missing on at least one video, which is
+when Not recorded is offered. This is an option directory, not facet
 counts. Existing `/api/history/counts` remains navigation totals; do not present
 its numbers or loaded-page lengths as exact filtered totals.
 
@@ -65,7 +68,9 @@ The wire mapping and row membership are in `src/lib/library-filters.js`, with
 navigation and ordering in `src/lib/feed-scope.js`. Every predicate participates in
 the feed cache key, API transport and incoming-row membership. Applying a set
 clears old selection and resets paging. Query response sequencing still prevents
-a late result from repainting a different scope. Cached rows retain their scope
+a late result from repainting a different scope. Once an applied set's first page
+settles, a polite status announces no matches, an exact count when every match is
+loaded, or that more load on scroll; navigation restores are not announced. Cached rows retain their scope
 so metadata mutations can remove rows that no longer match.
 
 Search and filters are restored per actor and navigation source in this browser

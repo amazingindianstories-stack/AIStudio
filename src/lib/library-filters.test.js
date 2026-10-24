@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activeLibraryFilters, emptyLibraryFilters, libraryDateBounds, libraryDayLabel, localDateKey, libraryDateLabel, matchesLibraryFilters } from "./library-filters";
+import { activeLibraryFilters, emptyLibraryFilters, libraryDateBounds, libraryDayLabel, libraryDayTitle, localDateKey, libraryDateLabel, matchesLibraryFilters } from "./library-filters";
 import { scopeKey, scopeToQuery, matchesScope, compareInScope } from "./feed-scope";
 import { historyFilterToParams } from "./history-query";
 import { packDateSections } from "../components/AssetGrid";
@@ -73,5 +73,7 @@ test("active dimensions follow the dialog's category order and day labels stay h
   const now = new Date(2026, 9, 24, 12).getTime();
   assert.equal(libraryDayLabel("2026-10-18", now), "18 Oct");
   assert.equal(libraryDayLabel("2025-12-31", now), "31 Dec 2025");
+  assert.match(libraryDayTitle("2025-12-31"), /2025/);
+  assert.equal(libraryDayTitle("unknown"), "Date unavailable");
   assert.equal(libraryDateLabel("2026-10-24", now), "Today");
 });

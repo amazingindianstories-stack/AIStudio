@@ -8,7 +8,7 @@ import hashlib
 import json
 from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import Count, Q
 from django.db.models.functions import Lower, Trim
 from rest_framework.exceptions import ValidationError
 
@@ -134,6 +134,11 @@ def library_options(rows):
         key = canonical_model(value)
         models[key] = {'value': key, 'label': definition['name'] if definition else value,
                        'kind': kind, 'upscale': bool(definition and definition.get('capabilities', {}).get('upscaleMedia'))}
+    # Not recorded is offered only for video fields that are missing in this source.
+    missing = rows.filter(kind='video').alias(library_bitrate=Trim('bitrate_mode')).aggregate(
+        durationBucket=Count('pk', filter=Q(duration__isnull=True)),
+        stage=Count('pk', filter=Q(draft_mode__isnull=True)),
+        bitrate=Count('pk', filter=Q(bitrate_mode__isnull=True) | Q(library_bitrate='')))
     resolutions = {f'{kind}:{value.strip().lower() if value and value.strip() else "unknown"}'
                    for kind, value in rows.values_list('kind', 'resolution').distinct()}
     return {'types': sorted(rows.values_list('kind', flat=True).distinct()),
@@ -141,7 +146,8 @@ def library_options(rows):
             'resolutions': sorted(resolutions),
             'aspects': sorted(rows.values_list('aspect_ratio', flat=True).distinct()),
             'creators': sorted(str(value) if value else 'unknown'
-                               for value in rows.values_list('user_id', flat=True).distinct())}
+                               for value in rows.values_list('user_id', flat=True).distinct()),
+            'unrecorded': sorted(key for key, count in missing.items() if count)}
 
 
 def query_fingerprint(params, filters):

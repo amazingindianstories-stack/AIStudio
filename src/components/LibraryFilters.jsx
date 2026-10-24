@@ -76,6 +76,29 @@ export function LibraryFilterChips() {
   </div>;
 }
 
+/** Politely announces an applied filter set once its first page settles; a paged prefix is never called a total. */
+export function LibraryResultsAnnouncer() {
+  const filters = useStore(s => s.libraryFilters), loading = useStore(s => s.loading);
+  const count = useStore(s => s.items.length), more = useStore(s => s.hasMoreHistory);
+  const tab = useStore(s => s.rightTab), projectId = useStore(s => s.activeProjectId), folderId = useStore(s => s.activeFolderId);
+  const source = librarySourceKey({ tab, projectId, folderId });
+  const [pending, setPending] = useState(false), [message, setMessage] = useState("");
+  const applied = useRef({ filters, source });
+  useEffect(() => {
+    // Navigation restores a source's saved filters; only an applied change is announced.
+    const previous = applied.current;
+    applied.current = { filters, source };
+    if (previous.filters !== filters && previous.source === source) setPending(true);
+  }, [filters, source]);
+  useEffect(() => {
+    if (!pending || loading) return;
+    setPending(false);
+    setMessage(count === 0 ? "No matching work." : more ? "Showing matching work. More loads as you scroll."
+      : `Showing ${count} ${count === 1 ? "result" : "results"}.`);
+  }, [pending, loading, count, more]);
+  return <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">{message}</span>;
+}
+
 export function LibraryNoMatches() {
   const filters = useStore(s => s.libraryFilters), kind = useStore(s => s.filterKind), search = useStore(s => s.search);
   const setFilters = useStore(s => s.setLibraryFilters), setSearch = useStore(s => s.setSearch);
@@ -170,6 +193,8 @@ function FilterDialog({ id, triggerRef, scope, initial, onCancel, onApply }) {
     return <label key={value} className="library-filter-option"><input type="checkbox" value={value} checked={draft[key].includes(value)} onChange={() => toggle(key, value)} />{key === "aspects" && <RatioOutline value={value} />}<span>{label}</span></label>;
   });
   const mergeOptions = (key, values) => [...new Set([...(values || []), ...draft[key]])];
+  // Not recorded appears only when the source has such videos, or the draft already selected it.
+  const recorded = (key, wire) => FILTER_VALUES[key].filter(([value]) => value !== "unknown" || catalog?.unrecorded?.includes(wire) || draft[key].includes(value));
   const title = category === "resolutions" ? "Requested resolution" : CATEGORIES.find(([key]) => key === category)[1];
   const dateValid = libraryDateBounds(draft) !== null;
   const needsCatalog = ["models", "resolutions", "aspects", "creators"].includes(category);
@@ -199,9 +224,9 @@ function FilterDialog({ id, triggerRef, scope, initial, onCancel, onApply }) {
             <p className="library-filter-help">{Intl.DateTimeFormat().resolvedOptions().timeZone} · Calendar days, including today.</p></>}
           {category === "resolutions" && <>{["image", "video", "depth"].map(kind => { const values = mergeOptions("resolutions", catalog?.resolutions).filter(value => value.startsWith(`${kind}:`)); return values.length ? <div key={kind}>{sectionTitle(kind === "image" ? "Image" : kind === "video" ? "Video" : "Depth")}{options("resolutions", values.map(value => [value, resolutionSettingLabel(value.split(":")[1])]))}</div> : null; })}<p className="library-filter-help">Generation settings, not measured master dimensions.</p></>}
           {category === "aspects" && <>{options("aspects", mergeOptions("aspects", ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9", ...(catalog?.aspects || [])]))}<p className="library-filter-help">Uses the requested ratio. No crop is applied.</p></>}
-          {category === "video" && <>{draft.types.length === 1 && draft.types[0] === "image" && <p className="library-filter-help" style={{ marginTop: 0 }}>Images are selected. Include Videos in Type, or remove video filters below.</p>}{sectionTitle("Duration")}{options("durations", FILTER_VALUES.durations)}<div className="library-filter-rule" />{sectionTitle("Render stage")}{options("stages", FILTER_VALUES.stages)}<p className="library-filter-help">Final means a recorded non-draft video. Missing stage is not treated as Final.</p></>}
+          {category === "video" && <>{draft.types.length === 1 && draft.types[0] === "image" && <p className="library-filter-help" style={{ marginTop: 0 }}>Images are selected. Include Videos in Type, or remove video filters below.</p>}{sectionTitle("Duration")}{options("durations", recorded("durations", "durationBucket"))}<div className="library-filter-rule" />{sectionTitle("Render stage")}{options("stages", recorded("stages", "stage"))}<p className="library-filter-help">Final means a recorded non-draft video. Missing stage is not treated as Final.</p></>}
           {category === "creators" && <>{options("creators", creatorOptions)}{!creatorOptions.length && <p className="library-filter-help">No creators in this source yet.</p>}</>}
-          {category === "more" && <>{sectionTitle("Status")}{options("statuses", FILTER_VALUES.statuses)}<div className="library-filter-rule" />{sectionTitle("Video bitrate")}{options("bitrates", FILTER_VALUES.bitrates)}<p className="library-filter-help">The requested bitrate mode. Filtering never changes a master.</p></>}
+          {category === "more" && <>{sectionTitle("Status")}{options("statuses", FILTER_VALUES.statuses)}<div className="library-filter-rule" />{sectionTitle("Video bitrate")}{options("bitrates", recorded("bitrates", "bitrate"))}<p className="library-filter-help">The requested bitrate mode. Filtering never changes a master.</p></>}
         </>}
     </div></div><footer className="library-filter-footer"><span>Changes apply together</span><button type="button" onClick={onCancel}>Cancel</button><button type="button" className="library-filter-apply" disabled={!dateValid} onClick={() => onApply(draft)}>Show results</button></footer>
   </dialog>, document.body);

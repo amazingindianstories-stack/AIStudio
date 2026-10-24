@@ -34,7 +34,7 @@ import { apiFetch } from "@/lib/api";
 import { MediaCard } from "./MediaCard";
 import { EmptyState, BriefEditor } from "./ProjectPanel";
 import { AssetGrid } from "./AssetGrid";
-import { LibraryFilters, LibraryFilterChips, LibraryNoMatches } from "./LibraryFilters";
+import { LibraryFilters, LibraryFilterChips, LibraryNoMatches, LibraryResultsAnnouncer } from "./LibraryFilters";
 import { activeLibraryFilters } from "@/lib/library-filters";
 import { useLibraryDayClock } from "@/lib/use-library-day-clock";
 import { Dropdown, MenuItem } from "./Dropdown";
@@ -908,7 +908,7 @@ export function HistoryPanel({ drawer = false }) {
             </div>
           )}
 
-          {!briefView && <LibraryFilterChips />}
+          {!briefView && <><LibraryFilterChips /><LibraryResultsAnnouncer /></>}
           {!briefView && feedError && items.length > 0 && <div role="alert" className="flex flex-wrap items-center gap-2 px-4 pt-3 text-xs text-white/60">Could not update the library.<button type="button" className="underline" onClick={() => loadFeed({ force: true })}>Retry</button></div>}
 
           {/* ── ROW 3: OPTIONAL COMPACT FOLDER SECTION (COLLAPSED BY DEFAULT) ── */}
@@ -945,30 +945,14 @@ export function HistoryPanel({ drawer = false }) {
                   filtering ? <LibraryNoMatches /> : rightTab === "favorites" ? (
                     <EmptyState
                       icon={<Star className="h-6 w-6 text-amber-300/70" />}
-                      title={
-                        search.trim() || filterKind !== "all"
-                          ? "No matching favourites"
-                          : "No favourites yet"
-                      }
-                      body={
-                        search.trim() || filterKind !== "all"
-                          ? "No starred item matches the current search and type filter."
-                          : "Star your best generations and they collect here, newest first."
-                      }
+                      title="No favourites yet"
+                      body="Star your best generations and they collect here, newest first."
                     />
                   ) : (
                     <EmptyState
                       icon={<HistoryIcon className="h-6 w-6" />}
-                      title={
-                        search.trim() || filterKind !== "all"
-                          ? "No matches"
-                          : "Nothing generated yet"
-                      }
-                      body={
-                        search.trim() || filterKind !== "all"
-                          ? "No generation matches the current search and type filter."
-                          : "Every image and video generated appears here."
-                      }
+                      title="Nothing generated yet"
+                      body="Every image and video generated appears here."
                     />
                   )
                 }

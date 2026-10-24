@@ -80,14 +80,17 @@ class LibraryFilterTests(TransactionTestCase):
         folder = Folder.objects.create(name='Option scope', created_at=1)
         for index in range(24):
             self.row(folder=folder, created_at=index, model='Seedance 2.5')
-        self.row(folder=folder, model='Retired creative model', resolution=None, aspect_ratio='3:2')
-        self.row(model='Other folder model')
+        self.row(folder=folder, model='Retired creative model', resolution=None, aspect_ratio='3:2', draft_mode=None, bitrate_mode=' ')
+        self.row(folder=folder, kind='image', duration=None, draft_mode=None, bitrate_mode=None)
+        self.row(model='Other folder model', duration=None)
         response = self.client.get('/api/history', {'options': '1', 'folderId': str(folder.id), 'limit': 1, 'q': 'no results', 'type': 'image'})
         self.assertEqual(response.status_code, 200)
         options = response.json()['options']
         self.assertEqual({item['label'] for item in options['models']}, {'Seedance 2.5', 'Retired creative model'})
         self.assertIn('video:unknown', options['resolutions'])
         self.assertIn('3:2', options['aspects'])
+        # Images never make a video field Not recorded; another folder's gaps do not leak in.
+        self.assertEqual(options['unrecorded'], ['bitrate', 'stage'])
         self.assertNotIn('counts', options)
 
     def test_invalid_parameters_are_bounded_400s_and_options_require_authentication(self):

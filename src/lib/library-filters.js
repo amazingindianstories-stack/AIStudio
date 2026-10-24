@@ -125,6 +125,11 @@ export function libraryDayLabel(key, now = Date.now()) {
   return date?.toLocaleDateString("en-GB", { day: "numeric", month: "short", ...(date.getFullYear() !== new Date(now).getFullYear() ? { year: "numeric" } : {}) }) || "Date unavailable";
 }
 
+/** The full localized day for a divider's tooltip, e.g. "Thursday, 22 October 2026". */
+export function libraryDayTitle(key) {
+  return parseDate(key)?.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) || "Date unavailable";
+}
+
 /** The identity of navigation only; filters/search belong to that source. */
 export function librarySourceKey(scope) {
   if (scope.tab === "project") return `project:${scope.projectId || "-"}:${scope.folderId ?? "*"}`;

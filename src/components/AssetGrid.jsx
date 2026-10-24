@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { getNextGridFocus } from "@/lib/grid-navigation";
 import { GENERATION_NAME_ROW_HEIGHT } from "./MediaCard";
-import { libraryDateLabel, localDateKey } from "@/lib/library-filters";
+import { libraryDateLabel, libraryDayTitle, localDateKey } from "@/lib/library-filters";
 
 /**
  * The one scrolling asset grid, shared by the project view and the global
@@ -318,7 +318,7 @@ export function AssetGrid({
             <div className={grouped ? "space-y-4" : undefined}>
               {layout.sections.map(section => <section key={section.key} aria-label={grouped ? libraryDateLabel(section.key, now) : undefined}>
                 {grouped && <h3 className="mb-3 flex h-7 items-center gap-3 text-xs font-medium text-white/65 before:hidden after:h-px after:flex-1 after:bg-line">
-                  {section.key === "unknown" ? "Date unavailable" : <time dateTime={section.key} title={section.key}>{libraryDateLabel(section.key, now)}</time>}
+                  {section.key === "unknown" ? "Date unavailable" : <time dateTime={section.key} title={libraryDayTitle(section.key)}>{libraryDateLabel(section.key, now)}</time>}
                 </h3>}
                 <div className="flex items-start gap-3">
               {section.columns.map((column, ci) => (
