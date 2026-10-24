@@ -69,7 +69,7 @@ async function insideViewport(page) {
   return box;
 }
 
-test2('card context: the card face is only the avatar, Draft, and the hover checkbox, "..." button and favourite star', async ({ page, library }) => {
+test2('card context: the card face has the name overlay, avatar, Draft, and hover controls', async ({ page, library }) => {
   const { draftCard, imageCard } = library;
   await page.mouse.move(2, 2);
   for (const card of [draftCard, imageCard]) {
@@ -83,14 +83,19 @@ test2('card context: the card face is only the avatar, Draft, and the hover chec
   await expect(draftCard.locator('[data-draft-label]')).toHaveCSS('color', 'rgb(255, 255, 255)');
   await expect(imageCard.locator('[data-draft-label]')).toHaveCount(0);
   // Besides media-state content (an undecodable mock master reads "Preview unavailable" under its poster).
-  expect((await draftCard.locator('.media-card-body').innerText()).trim()).toMatch(/^(Preview unavailable\. Open to download the original\.\s*)?Draft\s*D$/);
-  expect((await imageCard.locator('.media-card-body').innerText()).trim()).toBe('D');
+  const faceWithoutName = card => card.locator('.media-card-body').evaluate(element => {
+    const face = element.cloneNode(true);
+    face.querySelector('[data-generation-name]')?.remove();
+    return face.textContent.trim();
+  });
+  expect(await faceWithoutName(draftCard)).toMatch(/^(Preview unavailable\. Open to download the original\.\s*)?Draft\s*D$/);
+  expect(await faceWithoutName(imageCard)).toBe('D');
   for (const card of [draftCard, imageCard]) {
     const name = card.locator('[data-generation-name]');
     await expect(name).toBeVisible();
     const filename = await name.getAttribute('title');
-    expect(await name.textContent()).toBe(filename.replace(/\.[^.]+$/, ''));
-    await expect(name.locator('span').last()).toHaveText(/_\d+$/);
+    await expect(name.locator('.sr-only')).toHaveText(filename);
+    await expect(name.locator('[aria-hidden="true"]')).toHaveText(filename.match(/_(\d+)\.[^.]+$/)[1]);
   }
 
   await imageCard.hover();

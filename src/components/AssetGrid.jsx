@@ -14,7 +14,6 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { getNextGridFocus } from "@/lib/grid-navigation";
-import { GENERATION_NAME_ROW_HEIGHT } from "./MediaCard";
 
 /**
  * The one scrolling asset grid, shared by the project view and the global
@@ -395,7 +394,7 @@ function relativeHeight(aspectRatio) {
  * the identical prefix.
  *
  * (Re-packing does happen when the container width changes — a panel resize,
- * a zoom change, or a classic scrollbar appearing — because the name row and
+ * a zoom change, or a classic scrollbar appearing - because the
  * gap are measured against the resulting column width, and when a new item is
  * prepended. Each is a direct consequence of something the user did or a
  * one-time layout change, not movement under a passive scroll.)
@@ -423,14 +422,13 @@ export function packColumns(
   return columns;
 }
 
-/** The name row under each library card's media and the gap after the card,
- *  in the same column-width units as the media's aspect-ratio height. */
+/** The gap after each card, in column-width units like its aspect-ratio height. */
 export function libraryCardSpacing(containerWidth, cardWidth) {
   const count = columnCount(containerWidth, cardWidth);
   const columnWidth = containerWidth
     ? (containerWidth - 32 - GRID_GAP * (count - 1)) / count
     : cardWidth;
-  return { below: GENERATION_NAME_ROW_HEIGHT / columnWidth, gap: GRID_GAP / columnWidth };
+  return { below: 0, gap: GRID_GAP / columnWidth };
 }
 
 /** How many cards fit across, honouring the zoom control's card width as a
@@ -452,7 +450,7 @@ export function SkeletonGrid({ cardWidth }) {
       style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
     >
       {[180, 240, 200, 280, 160, 220, 260, 190, 210, 250, 175, 230].map((h, i) => (
-        <div key={i} className="skeleton rounded-xl" style={{ height: h + GENERATION_NAME_ROW_HEIGHT }} />
+        <div key={i} className="skeleton rounded-xl" style={{ height: h }} />
       ))}
     </div>
   );

@@ -40,7 +40,6 @@ import {
   Volume2,
   SkipForward,
   ArrowRight,
-  ArrowLeft,
   Undo2,
 } from "lucide-react";
 import { useStore, restoreComposerDraft, findItem } from "@/lib/store";
@@ -1478,13 +1477,7 @@ function ReferenceThumbnail({ src, alt, className, portrait = false }) {
 
 
 const TOUCH_LONG_PRESS_MS = 350;
-// Side arrows take no space until their card is hovered or the arrow itself has keyboard focus; then
-// they widen outside the thumbnail and push the neighbouring cards aside. Focus restored to a
-// thumbnail (closing its preview) must not reveal them, or the next click elsewhere in the strip
-// would collapse them between mousedown and mouseup and land on a shifted chip.
-const REFERENCE_ARROW_REVEAL = "w-0 opacity-0 pointer-events-none group-hover/ref:w-5 group-hover/ref:opacity-100 group-hover/ref:pointer-events-auto focus-visible:w-5 focus-visible:opacity-100 focus-visible:pointer-events-auto";
 const TOUCH_PRESS_SLOP = 8;
-const ARROW_REPEAT_CLICK_MS = 500;
 
 /** Pointer sorting starts on the reference thumbnail: a mouse or pen drag reorders at once, while a
  * touch must long-press first, so a touch swipe keeps the strip a native scroll surface. Only a
@@ -1494,7 +1487,6 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
   const gesture = useRef(null);
   const frame = useRef(null);
   const suppressNextClick = useRef(false);
-  const lastArrowMove = useRef(null);
   const [preview, setPreview] = useState(null);
   const [announcement, setAnnouncement] = useState("");
   const [positionId, setPositionId] = useState(null);
@@ -1571,17 +1563,6 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
   const openLightbox = (itemKey, triggerEl) => {
     setLightboxState({ key: itemKey, triggerEl: triggerEl || document.activeElement });
   };
-  const moveByArrow = (e, id, target) => {
-    e.stopPropagation();
-    lastArrowMove.current = e.detail > 0 ? { id, at: performance.now() } : null;
-    move(id, target);
-  };
-  const previewImage = (id, triggerEl) => {
-    const recent = lastArrowMove.current;
-    if (recent?.id === id && performance.now() - recent.at < ARROW_REPEAT_CLICK_MS) return;
-    openLightbox(`img:${id}`, triggerEl);
-  };
-
   const start = (e, id) => {
     suppressNextClick.current = false;
     if (e.button !== 0 || ids.length < 2) return;
@@ -1628,7 +1609,7 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
       suppressNextClick.current = false;
     }, 0);
     if (current.active) commit(current.ordered, current.id);
-    else previewImage(current.id, current.triggerEl);
+    else openLightbox(`img:${current.id}`, current.triggerEl);
   };
 
   if (totalCount === 0) return null;
@@ -1714,18 +1695,7 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
         const label = s.referenceLabels?.[sourceIndex] || source.name || (source.type === "portrait" ? "Portrait" : `Reference ${sourceIndex + 1}`);
         return <div key={id} data-reference-id={id} data-reference-media="image" data-reference-position={i + 1}
           onKeyDown={(e) => { if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) { e.preventDefault(); move(id, sourceIndex + (e.key === "ArrowLeft" ? -1 : 1)); } }}
-          // Pressing the thumbnail captures the pointer on the strip, which fires mouseleave here;
-          // only a real exit ends the repeat-arrow-click window.
-          onMouseLeave={() => { if (lastArrowMove.current?.id === id && gesture.current?.id !== id) lastArrowMove.current = null; }}
           className="group/ref relative flex shrink-0 items-center">
-          <button type="button" data-reference-arrow="left" aria-label={`Move reference ${sourceIndex + 1} left`} disabled={sourceIndex === 0}
-            onClick={(e) => moveByArrow(e, id, sourceIndex - 1)}
-            className={cn(
-              "grid h-7 shrink-0 place-items-center overflow-hidden border-0 bg-transparent p-0 text-white/75 shadow-none transition-opacity duration-150 hover:bg-transparent hover:text-white disabled:opacity-25",
-              ids.length > 1 ? cn(REFERENCE_ARROW_REVEAL, "group-hover/ref:mr-0.5 focus-visible:mr-0.5") : "w-0 opacity-0 pointer-events-none"
-            )}>
-            <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
-          </button>
           <div className={cn("relative h-12 w-12 shrink-0 overflow-hidden rounded-lg border bg-ink-800 focus-within:ring-2 focus-within:ring-mention", preview?.id === id ? "border-mention ring-2 ring-mention/70 opacity-50" : "border-line hover:border-white/25")}>
             <button type="button" data-reference-preview aria-label={`Preview reference ${sourceIndex + 1}`} title={`${label} (${tag}) - Click to preview, drag or Alt + arrow keys to reorder`}
               onPointerDown={(e) => start(e, id)}
@@ -1735,7 +1705,7 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
                   suppressNextClick.current = false;
                   return;
                 }
-                previewImage(id, e.currentTarget);
+                openLightbox(`img:${id}`, e.currentTarget);
               }}
               className={cn("relative block h-full w-full cursor-grab select-none overflow-hidden rounded-[7px] [-webkit-touch-callout:none] focus-visible:outline-brand active:cursor-grabbing", preview?.id === id ? "touch-none" : "touch-pan-x")}>
               <ReferenceThumbnail src={referenceThumbnailUrl(imageRefs[sourceIndex], s.portraits?.items)} alt={label} portrait={source.type === "portrait"} className="h-full w-full object-cover" />
@@ -1763,14 +1733,6 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
             <button type="button" aria-label={`Remove reference ${sourceIndex + 1}`} onClick={(e) => { e.stopPropagation(); s.removeReference(sourceIndex); }} className="absolute right-0.5 top-0.5 grid h-4 w-4 place-items-center rounded-full bg-ink-950/90 text-white/90 hover:bg-red-600 hover:text-white"><X className="h-2.5 w-2.5" /></button>
             <button type="button" aria-label={`Move reference ${sourceIndex + 1} to position`} onClick={() => { setPositionId(id); setPosition(sourceIndex + 1); }} className="sr-only focus:not-sr-only focus:absolute focus:inset-x-0 focus:top-0 focus:z-20 focus:bg-ink-950 focus:text-[9px] focus:text-mention">Move to position…</button>
           </div>
-          <button type="button" data-reference-arrow="right" aria-label={`Move reference ${sourceIndex + 1} right`} disabled={sourceIndex === ids.length - 1}
-            onClick={(e) => moveByArrow(e, id, sourceIndex + 1)}
-            className={cn(
-              "grid h-7 shrink-0 place-items-center overflow-hidden border-0 bg-transparent p-0 text-white/75 shadow-none transition-opacity duration-150 hover:bg-transparent hover:text-white disabled:opacity-25",
-              ids.length > 1 ? cn(REFERENCE_ARROW_REVEAL, "group-hover/ref:ml-0.5 focus-visible:ml-0.5") : "w-0 opacity-0 pointer-events-none"
-            )}>
-            <ArrowRight className="h-3.5 w-3.5 shrink-0" />
-          </button>
         </div>;
       })}
 

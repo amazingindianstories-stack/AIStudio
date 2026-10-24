@@ -14,6 +14,26 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Draft names and media cards (code only, not deployed)
+
+Seedance 2.5 finals share their draft's immutable name reservation while retaining distinct generation IDs.
+Migration `generation.0005_generation_name_owner` preserves existing names, historical duplicate ordinals,
+counters and frozen ZIP manifests. It requires a controlled maintenance window with generation/folder
+writers and workers quiesced through migration and compatible-code promotion. Schema reversal preserves
+all names; normal release rollback should retain the additive schema. See
+`docs/architecture/permanent-generation-names.md` for the ownership and rollback contracts.
+
+Chat follows the open folder. Library sequence labels and full chat names overlay the media without a
+separate bar; selection controls smoothly displace the library label. Reference hover arrows are removed;
+drag, Alt + arrow keys, position controls and their tooltip remain available. New receipts include filenames.
+New ZIP media leaves already use full permanent names; regression coverage now includes shared draft/final
+names and confirms native MOV archive bytes. Frozen older manifests are never rewritten.
+
+Local verification: 1,113 backend tests and 638 frontend tests pass, with lint clean. Browser qualification
+passed 135 cases in the broad run and eight targeted cases after updating four changed UI contracts.
+Upgrade/reversal and existing runtime-role grants pass on disposable PostgreSQL with real-shaped fixtures.
+No production access, deployment, restored-production service rehearsal or live-provider acceptance was performed.
+
 ## Generation worker queue fix (code only, not deployed)
 
 The generation entrypoint now defaults to four execution slots through

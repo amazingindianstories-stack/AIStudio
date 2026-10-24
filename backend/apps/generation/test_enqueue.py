@@ -263,6 +263,7 @@ class EnqueueContractTests(TransactionTestCase):
         source_name = source.permanent_name
         first=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
         self.assertEqual(first.status_code,200,first.content)
+        self.assertEqual(first.json()['filename'].rsplit('.', 1)[0], source_name)
         with patch('apps.generation.enqueue_views.enqueue.build_final') as build:
             second=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
             build.assert_not_called()
@@ -270,7 +271,7 @@ class EnqueueContractTests(TransactionTestCase):
         self.assertEqual(second.json()['id'],first.json()['id'])
         frozen = Generation.objects.get(pk=first.json()['id']).permanent_name
         self.assertTrue(frozen)
-        self.assertNotEqual(frozen, source_name)
+        self.assertEqual(frozen, source_name)
         self.assertEqual(Generation.objects.get(pk=second.json()['id']).permanent_name, frozen)
         self.assertEqual(Generation.objects.get(pk=source.id).permanent_name, source_name)
         self.assertEqual(Generation.objects.filter(source_generation_id=source.id).count(),1)
@@ -280,6 +281,8 @@ class EnqueueContractTests(TransactionTestCase):
             again=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
             self.assertEqual(again.status_code,200,again.content)
             self.assertNotEqual(again.json()['id'],first.json()['id'])
+            self.assertEqual(Generation.objects.get(pk=again.json()['id']).permanent_name, source_name)
+            self.assertEqual(again.json()['filename'].rsplit('.', 1)[0], source_name)
             self.assertEqual(Generation.objects.filter(source_generation_id=source.id,status='queued').count(),1)
 
     def test_concurrent_finalize_creates_one_final(self):
@@ -307,14 +310,9 @@ class EnqueueContractTests(TransactionTestCase):
         self.cookie()
         for owner in [uuid.uuid4(),None]:
             source=self.row(user_id=owner)
-            item={'id':str(uuid.uuid4()),'kind':'video','costCents':0}
-            with patch('apps.generation.enqueue_views.enqueue.build_final',return_value=item) as build, \
-                 patch('apps.generation.enqueue_views.enqueue.persist') as persist:
-                response=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
-                self.assertEqual(response.status_code,200,response.content)
-                build.assert_called_once()
-                self.assertEqual(str(build.call_args.args[1]),str(session_fixtures.UID))
-                persist.assert_called_once_with(item)
+            response=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
+            self.assertEqual(response.status_code,200,response.content)
+            self.assertEqual(str(Generation.objects.get(pk=response.json()['id']).user_id), str(session_fixtures.UID))
             self.assertEqual(self.client.get('/api/generate/video/status',{'id':str(source.id)}).status_code,403)
         from apps.authentication.models import User
         User.objects.filter(pk=session_fixtures.UID).update(role='admin')

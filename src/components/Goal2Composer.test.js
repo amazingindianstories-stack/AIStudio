@@ -37,10 +37,10 @@ test("reference controls preserve duplicate occurrence IDs and support move, key
     await act(async () => button("Insert @sati").click());
     assert.deepEqual(inserted, ["@sati"]);
     assert.deepEqual(ordered, []);
-    await act(async () => button("Move reference 2 left").click());
+    await act(async () => button("Preview reference 2").dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowLeft", altKey: true, bubbles: true })));
     assert.deepEqual(ordered.at(-1), ["second", "first", "third"]);
     assert.match(document.querySelector("[role=status]").textContent, /Reference 2 moved to position 1/);
-    assert.equal(button("Move reference 1 left").disabled, true);
+    assert.equal(document.querySelectorAll("[data-reference-arrow]").length, 0);
     await act(async () => button("Preview reference 2").dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", altKey: true, bubbles: true })));
     assert.deepEqual(ordered.at(-1), ["first", "third", "second"]);
     await act(async () => button("Move reference 1 to position").click());
@@ -78,7 +78,7 @@ test("fifty staged references expose independent labelled insertion and reorder 
     assert.doesNotMatch(html, /data-reference-grip/);
     assert.match(html, /Insert @img50/);
     assert.match(html, /Preview reference 50/);
-    assert.match(html, /Move reference 50 left/);
+    assert.match(html, /Move reference 50 to position/);
     globalThis.React = prior;
   });
 });

@@ -414,6 +414,7 @@ def _persist(item):
     values = {fields[key]:value for key,value in item.items() if key in fields}
     row = Generation.objects.create(**values)
     assign_generation_naming(row.id,row.folder_id,row.project_id,item['createdAt'])
+    row.refresh_from_db()
     return row
 
 
@@ -421,7 +422,9 @@ def finish_enqueue(item, prepared, identifier, now, user_id):
     result = {**item,**prepared,'id':str(identifier),'status':'queued','createdAt':now,'updatedAt':now}
     if user_id is not None: result['userId'] = str(user_id)
     warnings = reference_warnings(item['prompt'], result.get('referenceImages'), assets())
-    persist(result)
+    row = persist(result)
+    from apps.generation.serialization import generation_item
+    result['filename'] = generation_item(row)['filename']
     log_activity(user_id,'generate',{'id':str(identifier),'kind':item['kind'],'model':item['model'],'costCents':prepared['costCents']})
     if warnings:
         result['referenceWarnings'] = warnings

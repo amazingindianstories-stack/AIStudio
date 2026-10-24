@@ -110,6 +110,62 @@ class PermanentNamesTests(TransactionTestCase):
             with self.assertRaises(IntegrityError), transaction.atomic():
                 Generation.objects.filter(pk=row.id).update(permanent_name=name)
 
+    def test_unsorted_draft_and_all_finals_keep_one_name_even_after_filing(self):
+        self.cookie()
+        User.objects.filter(pk=UID).update(role='admin')
+        from apps.library.services.idempotency import now_ms
+        draft = Generation.objects.create(kind='video', model='Seedance 2.5', status='succeeded', draft_mode=True,
+            task_id='draft-task', prompt='draft', aspect_ratio='1:1', created_at=now_ms(), updated_at=now_ms())
+        assign_generation_naming(draft.id)
+        initial = self.filename(draft)
+        self.assertIsNone(Generation.objects.get(pk=draft.id).permanent_name)
+        for filed in (False, True):
+            if filed:
+                folder = folders.create_folder(name='Filed')
+                folders.move_generations(ids=[str(draft.id)], destination={'type': 'folder', 'folderId': folder['id']})
+            response = self.client.post('/api/generate/video/finalize', {'sourceGenerationId': str(draft.id)}, content_type='application/json')
+            self.assertEqual(response.status_code, 200, response.content)
+            final = Generation.objects.get(pk=response.json()['id'])
+            self.assertEqual((final.permanent_name, final.name_owner_id), (initial.rsplit('.', 1)[0], draft.id))
+            self.assertEqual(response.json()['filename'], initial)
+            Generation.objects.filter(pk=final.id).update(status='succeeded')
+        self.assertEqual(self.filename(draft), initial)
+
+    def test_name_reservations_reject_unrelated_claims_and_survive_deleting_the_draft(self):
+        from django.db import IntegrityError, transaction
+        from apps.generation.models import GenerationNameOwner
+        draft = Generation.objects.create(kind='video', status='succeeded', model='Seedance 2.5', draft_mode=True,
+            task_id='draft', prompt='draft', aspect_ratio='1:1', created_at=1, updated_at=1)
+        final = Generation.objects.create(kind='video', status='queued', model='Seedance 2.5', draft_mode=False,
+            source_generation_id=draft.id, draft_task_id='draft', prompt='final', aspect_ratio='1:1', created_at=2, updated_at=2)
+        assign_generation_naming(final.id)
+        draft.refresh_from_db()
+        final.refresh_from_db()
+        ordinary = self.generation()
+        for changes in (
+            {'permanent_name': draft.permanent_name},
+            {'permanent_name': draft.permanent_name, 'legacy_name_duplicate': 1},
+            {'permanent_name': draft.permanent_name, 'name_owner_id': draft.id},
+        ):
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                Generation.objects.filter(pk=ordinary.id).update(**changes)
+        from uuid import uuid4
+        for changes in ({'id': uuid4()}, {'name_owner_id': final.id}, {'source_generation_id': None}, {'legacy_name_duplicate': 1}):
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                Generation.objects.filter(pk=final.id).update(**changes)
+        for action in ('update', 'delete'):
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                owner = GenerationNameOwner.objects.filter(pk=draft.id)
+                owner.update(permanent_name='wrong') if action == 'update' else owner.delete()
+        owner_id = draft.id
+        draft.delete()
+        final.delete()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            GenerationNameOwner.objects.filter(pk=owner_id).delete()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Generation.objects.filter(pk=ordinary.id).update(permanent_name=draft.permanent_name)
+        self.assertTrue(GenerationNameOwner.objects.filter(pk=owner_id).exists())
+
     def test_delete_role_and_ownership_matrix_for_all_generation_kinds(self):
         from uuid import uuid4
         self.cookie()
