@@ -13,7 +13,8 @@ function relativeHeight(aspectRatio) {
  * `below` is content under each card's media and `gap` the space between
  * cards, both in column widths.
  */
-function getColumnItemCenter(column, index, { below, gap }) {
+function getColumnItemCenter(column, index, { below, gap, centers }) {
+  if (centers?.[column[index]?.id] !== undefined) return centers[column[index].id];
   let top = 0;
   for (let i = 0; i < index; i++) {
     top += relativeHeight(column[i]?.aspectRatio) + below + gap;

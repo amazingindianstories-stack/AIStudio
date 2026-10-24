@@ -1,5 +1,7 @@
 
 
+import { compareInScope, matchesScope } from "./feed-scope";
+
 /**
  * LRU cache of library feeds, keyed by scope.
  *
@@ -108,7 +110,9 @@ export function patchCached(
     if (!cached || !cached.items.some((i) => i.id === id)) continue;
     cache.set(key, {
       ...cached,
-      items: cached.items.map((i) => (i.id === id ? patch(i) : i)),
+      items: cached.scope
+        ? cached.items.map((i) => (i.id === id ? patch(i) : i)).filter(item => matchesScope(item, cached.scope)).sort((a, b) => compareInScope(a, b, cached.scope))
+        : cached.items.map((i) => (i.id === id ? patch(i) : i)),
     });
   }
 }

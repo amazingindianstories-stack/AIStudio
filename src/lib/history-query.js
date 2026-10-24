@@ -1,5 +1,4 @@
-
-
+import { appendLibraryQuery } from "./library-filters";
 /**
  * The wire format for "which slice of the library do you want", shared by the
  * feed route, the counts route and the client store.
@@ -57,5 +56,5 @@ export function historyFilterToParams(filter
   if (filter.favorite) params.set("favorite", "1");
   const q = filter.q?.trim();
   if (q) params.set("q", q.slice(0, MAX_QUERY_LENGTH));
-  return params;
+  return appendLibraryQuery(params, filter);
 }

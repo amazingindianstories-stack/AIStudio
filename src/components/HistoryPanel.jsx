@@ -34,6 +34,9 @@ import { apiFetch } from "@/lib/api";
 import { MediaCard } from "./MediaCard";
 import { EmptyState, BriefEditor } from "./ProjectPanel";
 import { AssetGrid } from "./AssetGrid";
+import { LibraryFilters, LibraryFilterChips, LibraryNoMatches } from "./LibraryFilters";
+import { activeLibraryFilters } from "@/lib/library-filters";
+import { useLibraryDayClock } from "@/lib/use-library-day-clock";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { ProjectMenu } from "./ProjectMenu";
 import { getAssetDragData, isFolderDragEvent } from "@/lib/asset-drag-contract";
@@ -65,7 +68,16 @@ export function HistoryPanel({ drawer = false }) {
   const search = useStore((s) => s.search);
   const setSearch = useStore((s) => s.setSearch);
   const filterKind = useStore((s) => s.filterKind);
-  const setFilterKind = useStore((s) => s.setFilterKind);
+  const libraryFilters = useStore((s) => s.libraryFilters);
+  const librarySort = useStore((s) => s.librarySort);
+  const setLibrarySort = useStore((s) => s.setLibrarySort);
+  const groupByDate = useStore((s) => s.libraryGroupByDate);
+  const setGroupByDate = useStore((s) => s.setLibraryGroupByDate);
+  const feedError = useStore((s) => s.feedError);
+  const loadFeed = useStore((s) => s.loadFeed);
+  useLibraryDayClock();
+  const filtering = Boolean(search.trim()) || filterKind !== "all" || activeLibraryFilters(libraryFilters).length > 0;
+  const sort = librarySort || (rightTab === "favorites" ? "starred" : "newest");
   const selectedIds = useStore((s) => s.selectedIds);
   const selectAll = useStore((s) => s.selectAll);
   const clearSelection = useStore((s) => s.clearSelection);
@@ -224,9 +236,6 @@ export function HistoryPanel({ drawer = false }) {
         .map((item) => item.id),
     [items, selectedIds]
   );
-
-  const kindLabel =
-    filterKind === "all" ? "All types" : filterKind === "image" ? "Images" : "Videos";
 
   const downloadSelectedZip = async () => {
     if (!selectedExportableIds.length || exportBusy.current || !actorId) return;
@@ -800,7 +809,7 @@ export function HistoryPanel({ drawer = false }) {
                       }
                     }
                   }}
-                  placeholder="Search assets…"
+                  placeholder="Search prompts…"
                   aria-label="Search prompts"
                   className="w-full rounded-full border border-line bg-ink-700/80 py-1 pl-8 pr-8 text-xs text-white/90 outline-none transition placeholder:text-white/35 focus:border-brand/40 focus:bg-ink-650"
                 />
@@ -824,42 +833,7 @@ export function HistoryPanel({ drawer = false }) {
 
               {/* Type Filter & View Controls */}
               <div className="history-view-controls flex shrink-0 items-center justify-end gap-2">
-                {/* Type Filter Dropdown */}
-                <Dropdown
-                  align="right"
-                  label="Filter by type"
-                  trigger={(open) => (
-                    <span
-                      className={cn(
-                        "flex items-center gap-1.5 rounded-full border border-line bg-ink-700/80 px-3 py-1 text-xs text-white/75 transition hover:text-white",
-                        open && "border-brand/40 text-white"
-                      )}
-                    >
-                      <span>{kindLabel}</span>
-                      <ChevronDown
-                        className={cn("h-3 w-3 transition-transform", open && "rotate-180")}
-                      />
-                    </span>
-                  )}
-                >
-                  {(close) =>
-                    ["all", "image", "video"].map((k) => (
-                      <MenuItem
-                        key={k}
-                        active={filterKind === k}
-                        onClick={() => {
-                          setFilterKind(k);
-                          close();
-                        }}
-                      >
-                        <span className="flex-1 capitalize">
-                          {k === "all" ? "All types" : k + "s"}
-                        </span>
-                        {filterKind === k && <Check className="h-3.5 w-3.5 text-brand" />}
-                      </MenuItem>
-                    ))
-                  }
-                </Dropdown>
+                <LibraryFilters />
 
                 {/* View Dropdown (Thumbnail Size Slider) */}
                 <Dropdown
@@ -914,12 +888,24 @@ export function HistoryPanel({ drawer = false }) {
                           <ZoomIn className="h-3 w-3" />
                         </button>
                       </div>
+                      <div className="border-t border-line pt-2">
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-white/40" htmlFor={`${navigationId}-sort`}>Sort by</label>
+                        <select id={`${navigationId}-sort`} aria-label="Sort library" value={sort} onChange={(event) => setLibrarySort(event.target.value)} className="mt-2 w-full rounded-lg border border-line bg-ink-800 px-2 py-2 text-xs text-white/80">
+                          <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
+                          {rightTab === "favorites" && <option value="starred">Recently starred</option>}
+                        </select>
+                        <label className="mt-3 flex items-center gap-2 text-xs text-white/70"><input type="checkbox" className="accent-white" checked={groupByDate} disabled={sort === "starred"} onChange={event => setGroupByDate(event.target.checked)} />Group by date</label>
+                        {sort === "starred" && <p className="mt-2 text-[10px] leading-4 text-white/40">Date grouping is off while sorted by when starred.</p>}
+                      </div>
                     </div>
                   )}
                 </Dropdown>
               </div>
             </div>
           )}
+
+          {!briefView && <LibraryFilterChips />}
+          {!briefView && feedError && items.length > 0 && <div role="alert" className="flex flex-wrap items-center gap-2 px-4 pt-3 text-xs text-white/60">Could not update the library.<button type="button" className="underline" onClick={() => loadFeed({ force: true })}>Retry</button></div>}
 
           {/* ── ROW 3: OPTIONAL COMPACT FOLDER SECTION (COLLAPSED BY DEFAULT) ── */}
           {!briefView && rightTab === "project" && activeFolderId !== UNSORTED && (
@@ -950,8 +936,9 @@ export function HistoryPanel({ drawer = false }) {
                 items={items}
                 loading={loading}
                 cardWidth={assetCardWidth}
+                groupByDate={groupByDate && sort !== "starred"}
                 empty={
-                  rightTab === "favorites" ? (
+                  filtering ? <LibraryNoMatches /> : rightTab === "favorites" ? (
                     <EmptyState
                       icon={<Star className="h-6 w-6 text-amber-300/70" />}
                       title={
