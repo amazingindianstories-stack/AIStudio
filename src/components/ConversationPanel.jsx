@@ -21,7 +21,7 @@ import {
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
-import { GenerationFolderCue, GenerationTimestamp } from "./MediaCard";
+import { GenerationFolderCue, GenerationName, GenerationTimestamp } from "./MediaCard";
 import { GenerationStatus, waitingNote } from "./GenerationStatus";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
@@ -200,6 +200,7 @@ export function FeedBlock({ item, index }) {
         {label} {index}
       </span>
 
+      <GenerationName item={item} className="text-white/80" />
       <div className="flex min-w-0 items-center justify-between gap-2">
         <GenerationFolderCue item={item} />
         <GenerationTimestamp timestamp={item.createdAt} />

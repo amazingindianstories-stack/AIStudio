@@ -292,10 +292,6 @@ export function MediaCard({
   const downloadExtension = item.filename?.includes(".")
     ? item.filename.split(".").pop().toUpperCase()
     : null;
-  const displayName = item.filename?.replace(/\.[^.]+$/, "") || "";
-  // Only the ancestry stem may shrink. Keep the entire sequence, including
-  // sequences longer than four digits, visible at every grid zoom level.
-  const nameParts = displayName.match(/^([\s\S]*?)(_\d+)$/);
   const busyReason = "Another generation is starting - try again in a moment";
   const editable = item.kind !== "depth";
 
@@ -749,12 +745,7 @@ export function MediaCard({
           </div>
         </div>
       </div>
-      {displayName && (
-        <div data-generation-name title={item.filename} className="flex min-w-0 px-2 py-1.5 text-[11px] leading-4 text-white/80">
-          <span className="min-w-0 truncate">{nameParts ? nameParts[1] : displayName}</span>
-          {nameParts && <span className="shrink-0">{nameParts[2]}</span>}
-        </div>
-      )}
+      <GenerationName item={item} className="px-2 py-1.5 text-white/80" />
     </motion.div>
       {menu && (
         <CardContextMenu
@@ -789,6 +780,20 @@ export function resolveGenerationFolder(item, tree) {
   };
   const path = find(project ? project.folders : tree.globalFolders);
   return { label: `${root} / ${path ? path.join(" / ") : "Folder unavailable"}`, navigable: Boolean(path) };
+}
+
+export function GenerationName({ item, className }) {
+  const displayName = item.filename?.replace(/\.[^.]+$/, "") || "";
+  // Only the ancestry stem may shrink. Keep the entire sequence, including
+  // sequences longer than four digits, visible at every width. The row keeps
+  // its height before the name arrives so the card never shifts.
+  const nameParts = displayName.match(/^([\s\S]*?)(_\d+)$/);
+  return (
+    <div data-generation-name title={item.filename || undefined} className={cn("box-content flex h-4 min-w-0 text-[11px] leading-4", className)}>
+      <span className="min-w-0 truncate">{nameParts ? nameParts[1] : displayName}</span>
+      {nameParts && <span className="shrink-0">{nameParts[2]}</span>}
+    </div>
+  );
 }
 
 export function GenerationFolderCue({ item }) {
