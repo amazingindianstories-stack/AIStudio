@@ -45,6 +45,25 @@ test('switching folders clears the old thread and rejects a late response for th
   } finally { useStore.setState(initial, true); }
 });
 
+test('reloading the open folder keeps its thread on screen until the fresh page arrives', async (t) => {
+  const initial = useStore.getState();
+  const replies = [];
+  t.mock.method(globalThis, 'fetch', () => new Promise(resolve => replies.push(resolve)));
+  try {
+    useStore.setState({ activeProjectId: 'p', activeFolderId: 'a', threadItems: [], threadScopeKey: null });
+    const first = useStore.getState().loadThread();
+    replies[0](Response.json({ items: [row('one', 'p', 'a'), row('two', 'p', 'a')] }));
+    await first;
+    const loaded = useStore.getState().threadItems;
+    const reload = useStore.getState().loadThread();
+    assert.equal(useStore.getState().threadItems, loaded);
+    assert.equal(useStore.getState().threadLoading, false);
+    replies[1](Response.json({ items: [row('two', 'p', 'a')] }));
+    await reload;
+    assert.deepEqual(useStore.getState().threadItems.map(item => item.id), ['two']);
+  } finally { useStore.setState(initial, true); }
+});
+
 test('live moves remove generations from the open folder thread', () => {
   const initial = useStore.getState();
   try {

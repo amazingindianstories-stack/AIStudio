@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { getNextGridFocus } from "./grid-navigation.js";
-import { libraryCardSpacing } from "../components/AssetGrid";
+import { libraryCardGap } from "../components/AssetGrid";
 
 test("getNextGridFocus navigates vertically within the same column", () => {
   const col0 = [{ id: "c0-0", aspectRatio: "1:1" }, { id: "c0-1", aspectRatio: "1:1" }, { id: "c0-2", aspectRatio: "1:1" }];
@@ -81,11 +81,10 @@ test("library Left/Right uses media height and gap with names overlaid", () => {
   const squares = [{ id: "square-0", aspectRatio: "1:1" }, { id: "square-1", aspectRatio: "1:1" }];
   const columns = [strips, squares];
   const items = [...strips, ...squares];
-  const spacing = libraryCardSpacing(444, 200);
-  assert.equal(spacing.below, 0);
-  assert.equal(getNextGridFocus(columns, "strip-4", "right", items, spacing), "square-0");
-  assert.equal(getNextGridFocus(columns, "strip-0", "right", items, spacing), "square-0");
-  assert.equal(getNextGridFocus(columns, "square-1", "left", items, spacing), "strip-4");
+  const gap = libraryCardGap(444, 200);
+  assert.equal(getNextGridFocus(columns, "strip-4", "right", items, gap), "square-0");
+  assert.equal(getNextGridFocus(columns, "strip-0", "right", items, gap), "square-0");
+  assert.equal(getNextGridFocus(columns, "square-1", "left", items, gap), "strip-4");
   // Both library and portrait gallery use media-only estimates.
   assert.equal(getNextGridFocus(columns, "strip-4", "right", items), "square-0");
 });

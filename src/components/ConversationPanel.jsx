@@ -30,8 +30,6 @@ import { setAssetDragData } from "@/lib/asset-drag-contract";
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
 // under typical multi-megapixel originals while staying sharp at ~2x DPR.
 const FEED_THUMB_WIDTH = 1200;
-// Product switch for main chat labels. Library labels always show the sequence.
-const CHAT_NUMBER_ONLY_NAMES = false;
 
 export function ConversationPanel() {
   // The thread has its own server-scoped pool rather than filtering the right
@@ -59,9 +57,10 @@ export function ConversationPanel() {
     scrollToBottom(false);
   }, [loading, scrollToBottom]);
 
+  const newestId = threadItems[0]?.id;
   useEffect(() => {
     scrollToBottom(true);
-  }, [feed.length, activeProjectId, activeFolderId, scrollToBottom]);
+  }, [newestId, activeProjectId, activeFolderId, scrollToBottom]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -240,7 +239,7 @@ export function FeedBlock({ item, index }) {
         )}
       >
         <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
-          <GenerationName item={item} numberOnly={CHAT_NUMBER_ONLY_NAMES} className="generation-name-overlay chat-generation-name z-20" />
+          <GenerationName item={item} numberOnly={false} className="generation-name-overlay chat-generation-name z-20" />
           {item.status === "succeeded" && item.kind === "image" && item.url && (
             <img
               src={thumbUrl(item.url, FEED_THUMB_WIDTH)}

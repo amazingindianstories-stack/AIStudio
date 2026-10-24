@@ -131,6 +131,35 @@ class PermanentNamesTests(TransactionTestCase):
             Generation.objects.filter(pk=final.id).update(status='succeeded')
         self.assertEqual(self.filename(draft), initial)
 
+    def test_unsorted_draft_keeps_its_shown_name_at_finalize_unless_another_generation_holds_it(self):
+        from apps.generation.updates import read_generation_updates
+        from apps.library.models import GenerationNaming, NamingCounter
+        from apps.library.services.idempotency import now_ms
+        self.cookie()
+        User.objects.filter(pk=UID).update(role='admin')
+        NamingCounter.objects.create(namespace='global_unsorted', next_sequence=3, updated_at=1)
+        NamingCounter.objects.create(namespace='name:unsorted', next_sequence=517, updated_at=1)
+        results = []
+        for task in ('free', 'taken'):
+            draft = Generation.objects.create(kind='video', model='Seedance 2.5', status='succeeded', draft_mode=True,
+                task_id=task, prompt=task, aspect_ratio='1:1', created_at=now_ms(), updated_at=1, url='/api/media/draft.mov')
+            assign_generation_naming(draft.id)
+            GenerationNaming.objects.filter(generation_id=draft.id).update(assigned_at=1)
+            shown = self.filename(draft)
+            if task == 'taken':
+                self.generation(permanent_name=shown.rsplit('.', 1)[0].upper())
+            response = self.client.post('/api/generate/video/finalize', {'sourceGenerationId': str(draft.id)}, content_type='application/json')
+            self.assertEqual(response.status_code, 200, response.content)
+            changed = {item['id']: item['filename'] for item in read_generation_updates(1)[0]}
+            self.assertEqual(changed[str(draft.id)], self.filename(draft))
+            self.assertEqual(response.json()['filename'].rsplit('.', 1)[0], self.filename(draft).rsplit('.', 1)[0])
+            results.append((shown, self.filename(draft), GenerationNaming.objects.get(generation_id=draft.id).assigned_at))
+        (free_shown, free_name, free_assigned), (taken_shown, taken_name, taken_assigned) = results
+        self.assertEqual((free_shown, free_name, free_assigned), ('unsorted_0003.mov', 'unsorted_0003.mov', 1))
+        self.assertNotEqual(taken_shown, taken_name)
+        self.assertEqual(taken_name, 'unsorted_0517.mov')
+        self.assertGreater(taken_assigned, 1)
+
     def test_name_reservations_reject_unrelated_claims_and_survive_deleting_the_draft(self):
         from django.db import IntegrityError, transaction
         from apps.generation.models import GenerationNameOwner

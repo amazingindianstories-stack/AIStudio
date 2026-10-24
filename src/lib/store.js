@@ -519,6 +519,7 @@ export const useStore = create((set, get) => ({
   counts: EMPTY_COUNTS,
   feedKey: "",
   threadItems: [],
+  threadScopeKey: null,
   threadLoading: true,
   pendingItems: [],
   feedPinned: true,
@@ -1042,14 +1043,15 @@ export const useStore = create((set, get) => ({
 
   loadThread: async () => {
     const scope = threadScope(get());
+    const key = scopeKey(scope);
     const seq = nextStoreRequestSequence("thread");
-    set({ threadItems: [], threadLoading: true });
+    if (get().threadScopeKey !== key) set({ threadItems: [], threadScopeKey: key, threadLoading: true });
     try {
       const params = historyFilterToParams(scopeToQuery(scope));
       params.set("limit", String(THREAD_PAGE_SIZE));
       const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
       const json = await res.json();
-      if (seq !== currentStoreRequestSequence("thread") || scopeKey(scope) !== scopeKey(threadScope(get()))) return;
+      if (seq !== currentStoreRequestSequence("thread") || key !== scopeKey(threadScope(get()))) return;
       // Depth rows are excluded from the thread (see insertNewItem's comment) —
       // filtered client-side rather than via the shared history-query `kind`
       // param, which only supports a single "image"|"video" inclusion filter

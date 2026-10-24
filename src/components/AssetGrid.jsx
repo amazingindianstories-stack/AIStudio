@@ -202,7 +202,7 @@ export function AssetGrid({
     if (direction) {
       e.preventDefault();
       const currentId = focusedAssetId || selectedIds[0] || itemIds[0];
-      const nextId = getNextGridFocus(columns, currentId, direction, items, libraryCardSpacing(width, cardWidth));
+      const nextId = getNextGridFocus(columns, currentId, direction, items, libraryCardGap(width, cardWidth));
       if (nextId) {
         setFocusedAssetId(nextId);
         if (e.shiftKey) {
@@ -395,7 +395,7 @@ function relativeHeight(aspectRatio) {
  *
  * (Re-packing does happen when the container width changes — a panel resize,
  * a zoom change, or a classic scrollbar appearing - because the
- * gap are measured against the resulting column width, and when a new item is
+ * gap is measured against the resulting column width, and when a new item is
  * prepended. Each is a direct consequence of something the user did or a
  * one-time layout change, not movement under a passive scroll.)
  */
@@ -405,7 +405,7 @@ export function packColumns(
   cardWidth
 ) {
   const count = columnCount(containerWidth, cardWidth);
-  const { below, gap } = libraryCardSpacing(containerWidth, cardWidth);
+  const gap = libraryCardGap(containerWidth, cardWidth);
   const columns = Array.from({ length: count }, () => []);
   const heights = new Array(count).fill(0);
 
@@ -417,18 +417,18 @@ export function packColumns(
       if (heights[i] < heights[target]) target = i;
     }
     columns[target].push(item);
-    heights[target] += relativeHeight(item.aspectRatio) + below + gap;
+    heights[target] += relativeHeight(item.aspectRatio) + gap;
   }
   return columns;
 }
 
 /** The gap after each card, in column-width units like its aspect-ratio height. */
-export function libraryCardSpacing(containerWidth, cardWidth) {
+export function libraryCardGap(containerWidth, cardWidth) {
   const count = columnCount(containerWidth, cardWidth);
   const columnWidth = containerWidth
     ? (containerWidth - 32 - GRID_GAP * (count - 1)) / count
     : cardWidth;
-  return { below: 0, gap: GRID_GAP / columnWidth };
+  return GRID_GAP / columnWidth;
 }
 
 /** How many cards fit across, honouring the zoom control's card width as a

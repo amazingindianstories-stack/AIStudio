@@ -1,6 +1,8 @@
 """Stable names and monotonic namespace counters, in the caller's transaction."""
 from django.conf import settings
 from django.db import connection, transaction
+from django.db.models import F, Value
+from django.db.models.functions import Greatest
 from apps.library.models import GenerationNaming
 from .idempotency import now_ms
 
@@ -72,10 +74,15 @@ def assign_generation_naming(generation_id, folder_id=None, project_id=None, now
         if draft:
             # Finalizing is the point at which even an Unsorted draft needs a
             # durable name. All subsequent finals reuse this single reservation.
+            now = now_ms() if now is None else now
+            newly_named = not draft.permanent_name
             assign_generation_naming(draft.id, draft.folder_id, draft.project_id, now)
             draft.refresh_from_db()
-            freeze_names([draft], now)
-            draft.refresh_from_db()
+            if not draft.permanent_name:
+                freeze_provisional_name(draft, now)
+            if newly_named:
+                Generation.objects.filter(pk=draft.id).update(updated_at=Greatest(Value(now), F('updated_at') + 1))
+                draft.refresh_from_db()
             Generation.objects.filter(pk=generation.id).update(permanent_name=draft.permanent_name,
                 name_owner_id=draft.name_owner_id, legacy_name_duplicate=draft.legacy_name_duplicate)
             generation.refresh_from_db()
@@ -98,6 +105,22 @@ def names_in_use(names):
         cursor.execute('''SELECT lower(permanent_name) FROM generation_name_owners
             WHERE permanent_name IS NOT NULL AND lower(permanent_name) = ANY(%s)''', [[name.lower() for name in names]])
         return {row[0] for row in cursor.fetchall()}
+
+
+def freeze_provisional_name(generation, now):
+    """Freeze an Unsorted generation at the provisional name it shows, if that name is free library-wide.
+
+    On a collision a new library-wide name is allocated, and the naming record's
+    assignment time marks when the visible name changed.
+    """
+    from apps.generation.models import Generation
+    from apps.library.filenames import batch_resolve_generation_filenames
+    name = batch_resolve_generation_filenames([generation.id])[str(generation.id)]['filename'].rsplit('.', 1)[0]
+    if not names_in_use([name]):
+        Generation.objects.filter(pk=generation.id).update(permanent_name=name)
+        return
+    freeze_names([generation], now)
+    GenerationNaming.objects.filter(generation_id=generation.id).update(assigned_at=now)
 
 
 def freeze_names(generations, now=None):
