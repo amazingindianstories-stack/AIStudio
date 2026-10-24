@@ -146,7 +146,8 @@ function FilterDialog({ id, triggerRef, scope, initial, onCancel, onApply }) {
   const [draft, setDraft] = useState(initial), [category, setCategory] = useState("types");
   const [catalog, setCatalog] = useState(null), [error, setError] = useState(false), [retry, setRetry] = useState(0), [modelSearch, setModelSearch] = useState("");
   const users = useStore(s => s.usersById), actorId = useStore(s => s.currentUser?.id);
-  const dialogRef = useRef(null), categoryRef = useRef(null);
+  const dialogRef = useRef(null), categoryRef = useRef(null), railRef = useRef(null);
+  const [railFade, setRailFade] = useState(undefined);
   const titleId = useId(), errorId = useId();
   const source = librarySourceKey(scope);
   useEffect(() => {
@@ -181,6 +182,21 @@ function FilterDialog({ id, triggerRef, scope, initial, onCancel, onApply }) {
     return () => { observer.disconnect(); window.removeEventListener("resize", place); dialog.close(); trigger?.focus(); };
   }, [triggerRef]);
 
+  // On phones the category rail scrolls sideways; fade an edge only while more categories lie past it.
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const update = () => {
+      const start = rail.scrollLeft > 1, end = rail.scrollLeft + rail.clientWidth < rail.scrollWidth - 1;
+      setRailFade(start && end ? "both" : start ? "start" : end ? "end" : undefined);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(rail);
+    rail.addEventListener("scroll", update, { passive: true });
+    return () => { observer.disconnect(); rail.removeEventListener("scroll", update); };
+  }, []);
+
   const toggle = (key, value) => setDraft(current => ({ ...current, [key]: current[key].includes(value) ? current[key].filter(item => item !== value) : [...current[key], value] }));
   const selectDate = date => {
     const today = new Date(), start = new Date();
@@ -210,7 +226,7 @@ function FilterDialog({ id, triggerRef, scope, initial, onCancel, onApply }) {
     onKeyDown={event => { if (event.key === "Escape") event.stopPropagation(); }}
     onClick={event => { if (event.target === event.currentTarget) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) onCancel(); } }}>
     <header className="library-filter-header"><h2 id={titleId}>Filters</h2><button type="button" onClick={() => setDraft(emptyLibraryFilters())}>Reset</button><button type="button" aria-label="Cancel filter changes" onClick={onCancel}><X className="h-4 w-4" /></button></header>
-    <div className="library-filter-body"><nav className="library-filter-categories" aria-label="Filter categories">
+    <div className="library-filter-body"><nav ref={railRef} className="library-filter-categories" data-fade={railFade} aria-label="Filter categories">
       {CATEGORIES.map(([key, label], index) => { const count = categoryCount(key, draft); return <button ref={index === 0 ? categoryRef : undefined} key={key} type="button" aria-current={category === key ? "true" : undefined} onClick={() => setCategory(key)}>{label}{count > 0 && <span>{count}</span>}</button>; })}
     </nav><div className="library-filter-content"><h3>{title}</h3><p className="library-filter-description">{DESCRIPTIONS[category]}</p>
       {needsCatalog && !catalog && !error ? <p className="flex items-center gap-2 py-5 text-xs text-white/45"><Loader2 className="h-3 w-3 animate-spin" />Loading options...</p>

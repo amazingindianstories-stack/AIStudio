@@ -120,3 +120,40 @@ test("Not recorded follows the source catalog, and applied filters are announced
     Object.assign(globalThis, before); dom.window.close();
   }
 });
+
+test("the phone category rail fades only the edges with more categories past them", async () => {
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
+  const names = ["window", "document", "HTMLElement", "React", "IS_REACT_ACT_ENVIRONMENT", "fetch", "ResizeObserver"];
+  const before = Object.fromEntries(names.map(name => [name, globalThis[name]])), original = useStore.getState();
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement,
+    React, IS_REACT_ACT_ENVIRONMENT: true, ResizeObserver: class { observe() {} disconnect() {} },
+    fetch: async () => new Response(JSON.stringify({ options: { types: ["image", "video"], models: [], aspects: [], resolutions: [], creators: [] } })) });
+  dom.window.HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  dom.window.HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
+  // A 372px rail holding 544px of categories, as on a 390px phone.
+  const rail = { scrollWidth: 544, clientWidth: 372, scrollLeft: 0 };
+  for (const key of Object.keys(rail)) {
+    Object.defineProperty(dom.window.HTMLElement.prototype, key, { configurable: true,
+      get() { return this.classList.contains("library-filter-categories") ? rail[key] : 0; } });
+  }
+  useStore.setState({ libraryFilters: emptyLibraryFilters(), filterKind: "all", rightTab: "folder", activeFolderId: "source", search: "" });
+  const root = createRoot(document.querySelector("#root"));
+  const nav = () => document.querySelector(".library-filter-categories");
+  const scrollTo = async left => { rail.scrollLeft = left; await act(async () => nav().dispatchEvent(new dom.window.Event("scroll"))); };
+  try {
+    await act(async () => root.render(React.createElement(LibraryFilters)));
+    await act(async () => [...document.querySelectorAll("button")].find(node => node.textContent === "Filters").click());
+    assert.equal(nav().dataset.fade, "end");
+    await scrollTo(80);
+    assert.equal(nav().dataset.fade, "both");
+    await scrollTo(172);
+    assert.equal(nav().dataset.fade, "start");
+    rail.scrollWidth = 372;
+    await scrollTo(0);
+    assert.equal(nav().dataset.fade, undefined);
+  } finally {
+    await act(async () => root.unmount()); useStore.setState(original, true);
+    for (const key of Object.keys(rail)) delete dom.window.HTMLElement.prototype[key];
+    Object.assign(globalThis, before); dom.window.close();
+  }
+});

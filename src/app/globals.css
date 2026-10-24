@@ -411,8 +411,14 @@ body {
   .library-filter-dialog { left: 8px !important; right: 8px; top: auto !important; bottom: max(8px, env(safe-area-inset-bottom)); width: auto; max-height: 88dvh; border-radius: 16px; }
   .library-filter-dialog::backdrop { background: rgba(0,0,0,.55); }
   .library-filter-body { grid-template-columns: minmax(0,1fr); grid-template-rows: auto minmax(0,1fr); height: min(460px, calc(88dvh - 130px)); }
-  .library-filter-categories { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; border-right: 0; border-bottom: 1px solid rgba(255,255,255,.07); padding: 8px; }
+  /* The divider sits on the content, not the rail, so the rail's edge fade never fades the line. */
+  .library-filter-categories { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; border-right: 0; padding: 8px; background: transparent; scrollbar-width: none; }
+  .library-filter-categories::-webkit-scrollbar { display: none; }
   .library-filter-categories button { min-height: 44px; padding-inline: 11px; white-space: nowrap; }
+  .library-filter-content { border-top: 1px solid rgba(255,255,255,.07); }
+  .library-filter-categories[data-fade="end"] { mask-image: linear-gradient(to right, black calc(100% - 56px), transparent); }
+  .library-filter-categories[data-fade="start"] { mask-image: linear-gradient(to left, black calc(100% - 56px), transparent); }
+  .library-filter-categories[data-fade="both"] { mask-image: linear-gradient(to right, transparent, black 56px, black calc(100% - 56px), transparent); }
   .library-filter-option, .library-filter-header button, .library-filter-footer button, .library-filter-dates input, .library-filter-search { min-height: 44px; }
   .library-filter-footer { padding: 12px; }
   .library-filter-header { padding-block: 6px; }
