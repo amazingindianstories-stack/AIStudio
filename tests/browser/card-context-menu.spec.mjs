@@ -83,8 +83,15 @@ test2('card context: the card face is only the avatar, Draft, and the hover chec
   await expect(draftCard.locator('[data-draft-label]')).toHaveCSS('color', 'rgb(255, 255, 255)');
   await expect(imageCard.locator('[data-draft-label]')).toHaveCount(0);
   // Besides media-state content (an undecodable mock master reads "Preview unavailable" under its poster).
-  expect((await draftCard.innerText()).trim()).toMatch(/^(Preview unavailable\. Open to download the original\.\s*)?Draft\s*D$/);
-  expect((await imageCard.innerText()).trim()).toBe('D');
+  expect((await draftCard.locator('.media-card-body').innerText()).trim()).toMatch(/^(Preview unavailable\. Open to download the original\.\s*)?Draft\s*D$/);
+  expect((await imageCard.locator('.media-card-body').innerText()).trim()).toBe('D');
+  for (const card of [draftCard, imageCard]) {
+    const name = card.locator('[data-generation-name]');
+    await expect(name).toBeVisible();
+    const filename = await name.getAttribute('title');
+    expect(await name.textContent()).toBe(filename.replace(/\.[^.]+$/, ''));
+    await expect(name.locator('span').last()).toHaveText(/_\d+$/);
+  }
 
   await imageCard.hover();
   await expect(imageCard.getByRole('checkbox', { name: 'Select' })).toHaveCSS('opacity', '1');

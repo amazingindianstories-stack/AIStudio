@@ -14,6 +14,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { getNextGridFocus } from "@/lib/grid-navigation";
+import { GENERATION_NAME_ROW_HEIGHT } from "./MediaCard";
 
 /**
  * The one scrolling asset grid, shared by the project view and the global
@@ -202,7 +203,7 @@ export function AssetGrid({
     if (direction) {
       e.preventDefault();
       const currentId = focusedAssetId || selectedIds[0] || itemIds[0];
-      const nextId = getNextGridFocus(columns, currentId, direction, items);
+      const nextId = getNextGridFocus(columns, currentId, direction, items, libraryCardSpacing(width, cardWidth));
       if (nextId) {
         setFocusedAssetId(nextId);
         if (e.shiftKey) {
@@ -371,10 +372,10 @@ export function AssetGrid({
 
 const GRID_GAP = 12; // matches gap-3
 
-/** Relative height of a card, from its aspect ratio, in units of one column
- *  width. Only the ratio matters for packing, so no DOM measurement is needed —
- *  which is what keeps the layout deterministic and free of a measure/paint
- *  feedback loop. */
+/** Relative height of a card's media, from its aspect ratio, in units of one
+ *  column width. Packing adds only the fixed name row and gap to it, so no DOM
+ *  measurement is needed — which is what keeps the layout deterministic and
+ *  free of a measure/paint feedback loop. */
 function relativeHeight(aspectRatio) {
   const [w, h] = String(aspectRatio ?? "").split(":").map(Number);
   if (!w || !h || !Number.isFinite(w) || !Number.isFinite(h)) return 9 / 16;
@@ -393,9 +394,11 @@ function relativeHeight(aspectRatio) {
  * items 1…n landed, and re-running the whole pack on every render reproduces
  * the identical prefix.
  *
- * (Re-packing does happen when the column count changes — a panel resize or a
- * zoom change — and when a new item is prepended. Both are direct consequences
- * of something the user just did, not movement under a passive scroll.)
+ * (Re-packing does happen when the container width changes — a panel resize,
+ * a zoom change, or a classic scrollbar appearing — because the name row and
+ * gap are measured against the resulting column width, and when a new item is
+ * prepended. Each is a direct consequence of something the user did or a
+ * one-time layout change, not movement under a passive scroll.)
  */
 export function packColumns(
   items,
@@ -403,6 +406,7 @@ export function packColumns(
   cardWidth
 ) {
   const count = columnCount(containerWidth, cardWidth);
+  const { below, gap } = libraryCardSpacing(containerWidth, cardWidth);
   const columns = Array.from({ length: count }, () => []);
   const heights = new Array(count).fill(0);
 
@@ -414,9 +418,19 @@ export function packColumns(
       if (heights[i] < heights[target]) target = i;
     }
     columns[target].push(item);
-    heights[target] += relativeHeight(item.aspectRatio) + 0.06; // + gap
+    heights[target] += relativeHeight(item.aspectRatio) + below + gap;
   }
   return columns;
+}
+
+/** The name row under each library card's media and the gap after the card,
+ *  in the same column-width units as the media's aspect-ratio height. */
+export function libraryCardSpacing(containerWidth, cardWidth) {
+  const count = columnCount(containerWidth, cardWidth);
+  const columnWidth = containerWidth
+    ? (containerWidth - 32 - GRID_GAP * (count - 1)) / count
+    : cardWidth;
+  return { below: GENERATION_NAME_ROW_HEIGHT / columnWidth, gap: GRID_GAP / columnWidth };
 }
 
 /** How many cards fit across, honouring the zoom control's card width as a
@@ -438,7 +452,7 @@ export function SkeletonGrid({ cardWidth }) {
       style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
     >
       {[180, 240, 200, 280, 160, 220, 260, 190, 210, 250, 175, 230].map((h, i) => (
-        <div key={i} className="skeleton rounded-xl" style={{ height: h }} />
+        <div key={i} className="skeleton rounded-xl" style={{ height: h + GENERATION_NAME_ROW_HEIGHT }} />
       ))}
     </div>
   );
