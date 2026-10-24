@@ -61,6 +61,8 @@ class GenerationNaming(models.Model):
     namespace = models.TextField()
     sequence = models.BigIntegerField()
     assigned_at = models.BigIntegerField()
+    fallback_from_name = models.TextField(null=True)
+    fallback_reason = models.TextField(null=True)
 
     class Meta:
         managed = True

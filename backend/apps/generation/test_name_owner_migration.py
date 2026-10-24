@@ -12,7 +12,8 @@ class NameOwnerMigrationTests(TransactionTestCase):
         from apps.library.services.naming import assign_generation_naming
         executor = MigrationExecutor(connection)
         final = executor.loader.graph.leaf_nodes()
-        previous = [node for node in final if node[0] != 'generation'] + [('generation', '0004_generation_unique_permanent_name')]
+        previous = [node for node in final if node[0] not in ('generation', 'library')] + [
+            ('generation', '0004_generation_unique_permanent_name'), ('library', '0005_railway_v2_invariants')]
         roles = ['goal4_green_preview_api', 'goal4_green_preview_worker']
         created = []
         try:
@@ -49,7 +50,8 @@ class NameOwnerMigrationTests(TransactionTestCase):
     def test_upgrade_preserves_names_naming_counters_and_frozen_exports_and_reverses(self):
         executor = MigrationExecutor(connection)
         final = executor.loader.graph.leaf_nodes()
-        previous = [node for node in final if node[0] != 'generation'] + [('generation', '0004_generation_unique_permanent_name')]
+        previous = [node for node in final if node[0] not in ('generation', 'library')] + [
+            ('generation', '0004_generation_unique_permanent_name'), ('library', '0005_railway_v2_invariants')]
         try:
             executor.migrate(previous)
             apps = executor.loader.project_state(previous).apps
@@ -81,6 +83,8 @@ class NameOwnerMigrationTests(TransactionTestCase):
             self.assertEqual(dict(Current.objects.values_list('id', 'permanent_name')), names)
             self.assertEqual(list(Counter.objects.order_by('namespace').values()), counters)
             self.assertEqual(list(Naming.objects.order_by('generation_id').values()), naming)
+            from apps.library.models import GenerationNaming as CurrentNaming
+            self.assertEqual(set(CurrentNaming.objects.values_list('fallback_from_name', 'fallback_reason')), {(None, None)})
             self.assertEqual(GenerationNameOwner.objects.count(), 4)
             self.assertIsNone(Current.objects.get(pk=unnamed.id).name_owner_id)
             self.assertEqual(Current.objects.get(pk=historical_final.id).name_owner_id, historical_final.id)

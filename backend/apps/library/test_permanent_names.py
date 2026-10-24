@@ -153,12 +153,73 @@ class PermanentNamesTests(TransactionTestCase):
             changed = {item['id']: item['filename'] for item in read_generation_updates(1)[0]}
             self.assertEqual(changed[str(draft.id)], self.filename(draft))
             self.assertEqual(response.json()['filename'].rsplit('.', 1)[0], self.filename(draft).rsplit('.', 1)[0])
-            results.append((shown, self.filename(draft), GenerationNaming.objects.get(generation_id=draft.id).assigned_at))
-        (free_shown, free_name, free_assigned), (taken_shown, taken_name, taken_assigned) = results
-        self.assertEqual((free_shown, free_name, free_assigned), ('unsorted_0003.mov', 'unsorted_0003.mov', 1))
-        self.assertNotEqual(taken_shown, taken_name)
-        self.assertEqual(taken_name, 'unsorted_0517.mov')
-        self.assertGreater(taken_assigned, 1)
+            record = GenerationNaming.objects.get(generation_id=draft.id)
+            results.append((shown, self.filename(draft), record.assigned_at, record.fallback_from_name, record.fallback_reason))
+        free, taken = results
+        self.assertEqual(free, ('unsorted_0003.mov', 'unsorted_0003.mov', 1, None, None))
+        self.assertEqual(taken[1], 'unsorted_0517.mov')
+        self.assertGreater(taken[2], 1)
+        self.assertEqual(taken[3:], (taken[0].rsplit('.', 1)[0], 'provisional_name_reserved'))
+
+    def test_concurrent_finalizes_of_drafts_showing_the_same_name_both_succeed(self):
+        import threading
+        from django.db import connection, transaction
+        from apps.library.models import GenerationNaming
+        from apps.projects.models import Project
+        finals = []
+        for index in range(2):
+            project = Project.objects.create(name=f'Concurrent {index}', created_at=1, updated_at=1)
+            draft = Generation.objects.create(kind='video', model='Seedance 2.5', status='succeeded', draft_mode=True,
+                task_id=f'draft-{index}', prompt='draft', aspect_ratio='1:1', created_at=1, updated_at=1,
+                url='/api/media/draft.mov', project=project)
+            final = Generation.objects.create(kind='video', model='Seedance 2.5', status='queued', draft_mode=False,
+                source_generation_id=draft.id, draft_task_id=f'draft-{index}', prompt='final', aspect_ratio='1:1',
+                created_at=2, updated_at=2, project=project)
+            finals.append((draft, final))
+        self.assertEqual({self.filename(draft) for draft, _ in finals}, {'unsorted_0001.mov'})
+        claimed, errors, blocked = threading.Event(), [], []
+
+        def first():
+            try:
+                with transaction.atomic():
+                    assign_generation_naming(finals[0][1].id)
+                    claimed.set()
+                    with connection.cursor() as cursor:
+                        for _ in range(50):
+                            cursor.execute('SELECT pg_stat_clear_snapshot()')
+                            cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()")
+                            if cursor.fetchone()[0]:
+                                blocked.append(True)
+                                break
+                            cursor.execute('SELECT pg_sleep(0.1)')
+            except Exception as error:
+                errors.append(error)
+            finally:
+                connection.close()
+
+        def second():
+            claimed.wait(10)
+            try:
+                assign_generation_naming(finals[1][1].id)
+            except Exception as error:
+                errors.append(error)
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=first), threading.Thread(target=second)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        self.assertEqual((errors, blocked), ([], [True]))
+        (winner, _), (loser, _) = finals
+        self.assertEqual(self.filename(winner), 'unsorted_0001.mov')
+        self.assertNotEqual(self.filename(loser), 'unsorted_0001.mov')
+        for draft, final in finals:
+            self.assertEqual(Generation.objects.get(pk=final.id).permanent_name, Generation.objects.get(pk=draft.id).permanent_name)
+        self.assertEqual(GenerationNaming.objects.filter(generation_id=winner.id).values_list('fallback_from_name', flat=True).get(), None)
+        self.assertEqual(GenerationNaming.objects.filter(generation_id=loser.id).values_list('fallback_from_name', 'fallback_reason').get(),
+            ('unsorted_0001', 'provisional_name_reserved'))
 
     def test_name_reservations_reject_unrelated_claims_and_survive_deleting_the_draft(self):
         from django.db import IntegrityError, transaction

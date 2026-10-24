@@ -18,7 +18,8 @@ Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs 
 
 Seedance 2.5 finals share their draft's immutable name reservation while retaining distinct generation IDs.
 Migration `generation.0005_generation_name_owner` preserves existing names, historical duplicate ordinals,
-counters and frozen ZIP manifests. It requires a controlled maintenance window with generation/folder
+counters and frozen ZIP manifests; `library.0006_generation_naming_fallback` adds nullable provenance columns
+recording when a finalized Unsorted draft could not keep its shown provisional name (66 migration rows). It requires a controlled maintenance window with generation/folder
 writers and workers quiesced through migration and compatible-code promotion. Schema reversal preserves
 all names; normal release rollback should retain the additive schema. See
 `docs/architecture/permanent-generation-names.md` for the ownership and rollback contracts.
@@ -26,11 +27,16 @@ all names; normal release rollback should retain the additive schema. See
 Chat follows the open folder. Library sequence labels and full chat names overlay the media without a
 separate bar; selection controls smoothly displace the library label. Reference hover arrows are removed;
 drag, Alt + arrow keys, position controls and their tooltip remain available. New receipts include filenames.
-New ZIP media leaves already use full permanent names; regression coverage now includes shared draft/final
-names and confirms native MOV archive bytes. Frozen older manifests are never rewritten.
+New ZIP media leaves already use full permanent names; actual browser downloads from All generations, a parent
+folder, its nested folder and a cross-folder selection all produced `Parent_Child_NNNN` leaves matching the
+card and individual download, so no view-dependent shortening exists. Regression coverage also includes shared
+draft/final names and native MOV archive bytes. Frozen older manifests are never rewritten, and a generation
+filed before its folder was nested keeps its original permanent name.
 
-Local verification: 1,113 backend tests and 638 frontend tests pass, with lint clean. Browser qualification
-passed 135 cases in the broad run and eight targeted cases after updating four changed UI contracts.
+Local verification after the latest fixes: 639 frontend tests pass and lint is clean; the focused backend
+naming, migration, export and enqueue suites (108 tests) and the four generation-name browser cases pass. The
+full backend count and a broad browser run must be recorded from the final qualified run (the earlier broad
+browser run passed 135 cases before these fixes).
 Upgrade/reversal and existing runtime-role grants pass on disposable PostgreSQL with real-shaped fixtures.
 No production access, deployment, restored-production service rehearsal or live-provider acceptance was performed.
 

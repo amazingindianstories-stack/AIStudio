@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createHmac, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { fixtureDatabase } from './fixture-db.mjs';
 
 // Number labels stay readable while the complete permanent name remains accessible.
@@ -106,7 +107,7 @@ test('main chat follows folder switches and Unsorted with the same membership as
     for (const [index, folder] of [...folders, null].entries()) {
       const id = randomUUID(); ids.push(id);
       await db`INSERT INTO generations (id, kind, status, model, prompt, aspect_ratio, url, user_id, project_id, folder_id, permanent_name, created_at, updated_at)
-        SELECT ${id},kind,status,${`${tag} ${index}`},model,aspect_ratio,url,user_id,${project.id},${folder?.id || null},${`${tag}_${index}_0001`},${Date.now()},${Date.now()}
+        SELECT ${id},kind,status,model,${`${tag} ${index}`},aspect_ratio,url,user_id,${project.id},${folder?.id || null},${`${tag}_${index}_0001`},${Date.now()},${Date.now()}
         FROM generations WHERE id='10000000-0000-4000-8000-000000000000'`;
     }
     await page.addInitScript(projectId => localStorage.setItem('veevee-draft-settings-v1', JSON.stringify({ activeProjectId: projectId })), project.id);
@@ -128,6 +129,115 @@ test('main chat follows folder switches and Unsorted with the same membership as
   } finally {
     await db`DELETE FROM generations WHERE project_id=${project.id}`;
     for (const folder of folders) await db`DELETE FROM folders WHERE id=${folder.id}`;
+    await db`DELETE FROM projects WHERE id=${project.id}`;
+  }
+});
+
+test('ZIPs from All generations, folder views and a cross-folder selection name every file by its full location', async ({ page, context, baseURL }, testInfo) => {
+  test.setTimeout(180000);
+  await authenticate(context, baseURL);
+  const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
+  const tag = `Zip${randomUUID().slice(0, 8)}`;
+  const post = (path, data) => context.request.post(path, { headers: { Origin: baseURL }, data });
+  const { project } = await (await post('/api/projects', { op: 'createProject', name: tag })).json();
+  const folders = [], ids = [], exports = [];
+  try {
+    let parentId;
+    for (const name of [`${tag}One`, 'Two']) {
+      const response = await post('/api/folders', { name, projectId: project.id, parentId, idempotencyKey: randomUUID() });
+      expect(response.ok()).toBeTruthy();
+      folders.push((await response.json()).folder);
+      parentId = folders.at(-1).id;
+    }
+    const [outer, inner] = folders;
+    const placement = { [outer.id]: [], [inner.id]: [] };
+    for (const folder of [inner, inner, outer]) {
+      const id = randomUUID(); ids.push(id); placement[folder.id].push(id);
+      await db`INSERT INTO generations (id, kind, status, model, prompt, aspect_ratio, url, user_id, project_id, created_at, updated_at)
+        SELECT ${id},kind,status,model,${tag},aspect_ratio,url,user_id,${project.id},${Date.now()},${Date.now()}
+        FROM generations WHERE id='10000000-0000-4000-8000-000000000000'`;
+      const moved = await post('/api/history/move', { ids: [id], destination: { type: 'folder', folderId: folder.id } });
+      expect(moved.ok()).toBeTruthy();
+    }
+    const individual = {};
+    for (const id of ids) {
+      const response = await context.request.get(`/api/generations/${id}/download`);
+      expect(response.status()).toBe(200);
+      individual[id] = /filename="([^"]+)"/.exec(response.headers()['content-disposition'])[1];
+    }
+    for (const id of placement[inner.id]) expect(individual[id]).toMatch(new RegExp(`^${tag}One_Two_\\d{4}\\.png$`));
+    for (const id of placement[outer.id]) expect(individual[id]).toMatch(new RegExp(`^${tag}One_\\d{4}\\.png$`));
+
+    await page.addInitScript(projectId => localStorage.setItem('veevee-draft-settings-v1', JSON.stringify({ activeProjectId: projectId })), project.id);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    const panel = page.locator('#desktop-history-panel');
+    async function open(view) {
+      await page.goto('/');
+      const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+      await expect(toggle).toBeVisible();
+      if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
+      if (view === 'all') await panel.getByRole('button', { name: 'All assets', exact: true }).click();
+      else if (view === 'project') await panel.getByRole('button', { name: /^Project assets/ }).click();
+      else if (view === 'outer') await panel.getByRole('treeitem', { name: new RegExp(`Tree folder actions: ${outer.name}$`) }).click();
+      else {
+        await panel.getByRole('button', { name: `Expand ${outer.name}`, exact: true }).click();
+        await panel.getByRole('treeitem', { name: /Tree folder actions: Two$/ }).click();
+      }
+    }
+    async function select(id) {
+      const card = panel.locator(`[data-asset-card-id="${id}"]`);
+      await expect(card).toHaveCount(1);
+      await card.scrollIntoViewIfNeeded();
+      await card.hover();
+      await card.getByRole('checkbox', { name: 'Select', exact: true }).click();
+    }
+    async function selectAll(id) {
+      await select(id);
+      const all = panel.getByRole('checkbox', { name: 'Select all' });
+      if (await all.getAttribute('aria-checked') !== 'true') await all.click();
+    }
+    async function zip(label) {
+      const selected = await panel.locator('[data-asset-card-id]').evaluateAll(cards => cards
+        .filter(card => card.querySelector('[role="checkbox"][aria-checked="true"]'))
+        .map(card => [card.dataset.assetCardId, card.querySelector('[data-generation-name]').getAttribute('title')]));
+      await panel.getByRole('button', { name: 'Download ZIP', exact: true }).click();
+      const status = panel.getByRole('status', { name: 'ZIP export' });
+      await expect(status.filter({ hasText: 'ZIP ready' })).toBeVisible({ timeout: 60000 });
+      exports.push(...(await db`SELECT id FROM media_exports WHERE user_id=${USER_ID} ORDER BY created_at DESC LIMIT 1`).map(row => row.id));
+      const downloading = page.waitForEvent('download');
+      await status.getByRole('link', { name: 'Download', exact: true }).click();
+      const download = await downloading;
+      const path = testInfo.outputPath(`${label}.zip`);
+      await download.saveAs(path);
+      const entries = JSON.parse(execFileSync(process.env.E2E_PYTHON, ['-c',
+        'import sys,json,zipfile; print(json.dumps(zipfile.ZipFile(sys.argv[1]).namelist()))', path], { encoding: 'utf8' }));
+      await testInfo.attach(`${label}-entries`, { body: JSON.stringify({ selected, entries }, null, 2), contentType: 'application/json' });
+      expect(entries.length).toBe(selected.length);
+      for (const [id, cardName] of selected) {
+        expect(cardName).toBe(individual[id]);
+        const directory = placement[inner.id].includes(id) ? `${outer.name}/Two` : outer.name;
+        expect(entries).toContain(`Projects/${tag}/${directory}/${individual[id]}`);
+      }
+      return selected.map(([id]) => id).sort();
+    }
+
+    await open('all');
+    for (const id of ids) await select(id);
+    expect(await zip('all-generations')).toEqual([...ids].sort());
+    await open('outer');
+    await selectAll(placement[outer.id][0]);
+    expect(await zip('folder-one')).toEqual(placement[outer.id]);
+    await open('inner');
+    await selectAll(placement[inner.id][0]);
+    expect(await zip('folder-two')).toEqual([...placement[inner.id]].sort());
+    await open('project');
+    await select(placement[inner.id][1]);
+    await select(placement[outer.id][0]);
+    expect(await zip('multi-select')).toEqual([placement[inner.id][1], placement[outer.id][0]].sort());
+  } finally {
+    if (exports.length) await db`DELETE FROM media_exports WHERE id IN ${db(exports)}`;
+    await db`DELETE FROM generations WHERE project_id=${project.id}`;
+    for (const folder of folders.reverse()) await db`DELETE FROM folders WHERE id=${folder.id}`;
     await db`DELETE FROM projects WHERE id=${project.id}`;
   }
 });

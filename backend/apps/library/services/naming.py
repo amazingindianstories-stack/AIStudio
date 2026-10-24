@@ -1,6 +1,6 @@
 """Stable names and monotonic namespace counters, in the caller's transaction."""
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import F, Value
 from django.db.models.functions import Greatest
 from apps.library.models import GenerationNaming
@@ -107,20 +107,41 @@ def names_in_use(names):
         return {row[0] for row in cursor.fetchall()}
 
 
-def freeze_provisional_name(generation, now):
-    """Freeze an Unsorted generation at the provisional name it shows, if that name is free library-wide.
+PROVISIONAL_NAME_RESERVED = 'provisional_name_reserved'
 
-    On a collision a new library-wide name is allocated, and the naming record's
-    assignment time marks when the visible name changed.
+
+def unique_violation(error):
+    return getattr(error.__cause__, 'sqlstate', None) == '23505'
+
+
+def freeze_provisional_name(generation, now):
+    """Freeze an Unsorted generation at the provisional name it shows, if no reservation holds it.
+
+    The reservation index settles concurrent claims. A generation that loses it
+    receives a newly allocated name, and its naming record keeps the shown name
+    it could not keep.
     """
     from apps.generation.models import Generation
     from apps.library.filenames import batch_resolve_generation_filenames
-    name = batch_resolve_generation_filenames([generation.id])[str(generation.id)]['filename'].rsplit('.', 1)[0]
-    if not names_in_use([name]):
-        Generation.objects.filter(pk=generation.id).update(permanent_name=name)
+    shown = batch_resolve_generation_filenames([generation.id])[str(generation.id)]['filename'].rsplit('.', 1)[0]
+    try:
+        with transaction.atomic():
+            Generation.objects.filter(pk=generation.id).update(permanent_name=shown)
         return
-    freeze_names([generation], now)
-    GenerationNaming.objects.filter(generation_id=generation.id).update(assigned_at=now)
+    except IntegrityError as error:
+        if not unique_violation(error):
+            raise
+    while True:
+        generation.permanent_name = None
+        try:
+            with transaction.atomic():
+                freeze_names([generation], now)
+            break
+        except IntegrityError as error:
+            if not unique_violation(error):
+                raise
+    GenerationNaming.objects.filter(generation_id=generation.id).update(
+        assigned_at=now, fallback_from_name=shown, fallback_reason=PROVISIONAL_NAME_RESERVED)
 
 
 def freeze_names(generations, now=None):
