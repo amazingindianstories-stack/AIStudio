@@ -66,3 +66,11 @@ test("restored notes get their length measured; measured and legacy notes are ke
   const untouched = [measured];
   assert.equal(await withAudioDurations(untouched, async () => assert.fail("must not measure")), untouched);
 });
+
+test("OmniHuman accepts 4-300 second audio with exact boundaries", () => {
+  assert.deepEqual(referenceAudioLimits("OmniHuman 2.0"), { clipMin: 4, clipMax: 300, totalMax: 300, slackSeconds: 0 });
+  assert.equal(referenceAudioProblem("OmniHuman 2.0", notes(4)), null);
+  assert.equal(referenceAudioProblem("OmniHuman 2.0", notes(300)), null);
+  assert.match(referenceAudioProblem("OmniHuman 2.0", notes(300.01)).message, /Trim it/);
+  assert.match(referenceAudioProblem("OmniHuman 2.0", notes(3.99)).message, /longer clip/);
+});

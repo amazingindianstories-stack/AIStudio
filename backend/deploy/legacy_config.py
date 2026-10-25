@@ -26,7 +26,7 @@ PROVIDER_KEYS = {'ARK_API_KEY', 'ARK_BASE_URL', 'GOOGLE_API_KEY', 'SEEDANCE_MODE
 BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPLUS_ARK_REGION', 'BYTEPLUS_ARK_HOST', 'BYTEPLUS_ARK_BASE_URL'}
 PASS_THROUGH = ('PATH', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID',
                 'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE',
-                'VEEVEE_MAGNIFIC_UPSCALE', 'VEEVEE_GEMINI_OMNI', 'VEEVEE_KLING',
+                'VEEVEE_MAGNIFIC_UPSCALE', 'VEEVEE_GEMINI_OMNI', 'VEEVEE_KLING', 'VEEVEE_OMNIHUMAN',
                 'VEEVEE_GENERATION_WORKER_SLOTS')
 # Magnific output hosts, observed in live tasks; signed, expiring links. Video
 # results come from cdn-magnific.freepik.com (2026-10-14), image results from
@@ -130,6 +130,15 @@ def _managed_portraits(component, env, out):
     return out
 
 
+def _omnihuman(component, env, out):
+    # Independent Vision credentials are exposed only to the generation worker.
+    if component == 'generation' and env.get('VEEVEE_OMNIHUMAN') == '1':
+        for key in ('OMNIHUMAN_ACCESS_KEY_ID', 'OMNIHUMAN_SECRET_ACCESS_KEY', 'OMNIHUMAN_SECURITY_TOKEN'):
+            if env.get(key):
+                out[key] = env[key]
+    return out
+
+
 def translate(component, env):
     """Return the complete, allowlisted environment for ``component``."""
     if component == 'api':
@@ -146,7 +155,7 @@ def translate(component, env):
         if portraits:
             out.update(_portrait_reads(env))
             out['VEEVEE_PORTRAIT_LIFECYCLE'] = '1'
-        return _kling(component, env, _managed_portraits(component, env, out))
+        return _omnihuman(component, env, _kling(component, env, _managed_portraits(component, env, out)))
     cfg = json.loads(env[WORKER_VARIABLE])
     need(cfg.get('kind') == component, 'configuration belongs to another worker')
     need(str(cfg.get('role', '')).startswith('goal4_') and cfg['role'].endswith('_worker'), 'unexpected worker role')
@@ -167,7 +176,7 @@ def translate(component, env):
     out['VEEVEE_PROVIDER_MEDIA_HOSTS'] = ','.join(hosts)
     if cfg.get('new_exports'):
         out['VEEVEE_EXPORT_ADMISSION'] = '1'
-    return _kling(component, env, _managed_portraits(component, env, out))
+    return _omnihuman(component, env, _kling(component, env, _managed_portraits(component, env, out)))
 
 
 def preflight_contract(component, env):

@@ -1,4 +1,5 @@
 "use client";
+import { capability } from "@/lib/model-registry";
 
 import {
   Plus,
@@ -47,7 +48,8 @@ import { askText } from "@/lib/ask-text";
  */
 export function SettingsToolbar() {
   const s = useStore();
-  const audioApplies = s.mode === "video" && supportsAudio(s.model);
+  const inputDrivenVideo = s.mode === "video" && capability(s.model, "inputDrivenVideo");
+  const audioApplies = s.mode === "video" && supportsAudio(s.model) && !inputDrivenVideo;
   const draftApplies = s.mode === "video" && supportsDraftMode(s.model);
   const bitrateApplies = s.mode === "video" && supportsBitrateMode(s.model);
   const editExtendApplies = s.mode === "video" && supportsVideoEditExtend(s.model);
@@ -135,7 +137,7 @@ export function SettingsToolbar() {
               {s.mode === "video" && (
                 <>
                   <span className="text-white/35">·</span>
-                  <span>{videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}</span>
+                  <span>{inputDrivenVideo ? "Audio length" : videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}</span>
                 </>
               )}
               {firstLastFrameApplies && (s.firstFrameMode || s.firstFrame || s.continuationFrame) && (
@@ -226,15 +228,15 @@ export function SettingsToolbar() {
                 value={s.resolution}
                 onChange={s.setResolution}
               />
-              {s.mode === "video" && videoTaskMode === "edit" && (
+              {s.mode === "video" && (videoTaskMode === "edit" || inputDrivenVideo) && (
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
                     Duration
                   </p>
-                  <p className="text-xs text-white/50">Auto — matches the reference clip</p>
+                  <p className="text-xs text-white/50">{inputDrivenVideo ? "Auto - matches the audio" : "Auto - matches the reference clip"}</p>
                 </div>
               )}
-              {s.mode === "video" && videoTaskMode !== "edit" && durationRange && (
+              {s.mode === "video" && videoTaskMode !== "edit" && !inputDrivenVideo && durationRange && (
                 <div>
                   <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">
                     Duration
@@ -256,7 +258,7 @@ export function SettingsToolbar() {
                   </div>
                 </div>
               )}
-              {s.mode === "video" && videoTaskMode !== "edit" && !durationRange && (
+              {s.mode === "video" && videoTaskMode !== "edit" && !inputDrivenVideo && !durationRange && (
                 <Segment
                   label="Duration"
                   options={durationsForModel(s.model).map((d) => `${d}s`)}

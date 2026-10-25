@@ -16,7 +16,7 @@ from apps.common.leases import now_ms
 from apps.generation.model_registry import is_provider_model, capability
 from apps.generation.prompting.assembler import assemble_prompt
 from apps.generation.prompting.image_prep import prep_reference
-from apps.generation.providers import gemini, omni, seedance
+from apps.generation.providers import gemini, omni, seedance, omnihuman
 from apps.integrations.transport import ProviderError
 from apps.generation.references import asset_slugs, resolve_references, mention_indices, TOKEN_END
 from apps.media.keys import media_key_from_ref
@@ -147,10 +147,10 @@ def _data_url(raw, prepare):
     return 'data:' + mime.lower() + ';base64,' + data
 
 
-def sign_reference(ref, *, actor_id=None):
+def sign_reference(ref, *, actor_id=None, seconds=900):
     key = media_key_from_ref(ref, getattr(settings, 'GCP_MEDIA_CDN_URL', ''))
     if key:
-        return get_storage().signed_read_url(key, actor_id=actor_id)
+        return get_storage().signed_read_url(key, seconds=seconds, actor_id=actor_id)
     if isinstance(ref, str) and ref.startswith('https://'):
         return ref
     raise ValueError('Reference is not a stored media file or secure URL.')
@@ -164,6 +164,7 @@ class Dependencies:
     sign = staticmethod(sign_reference)
     seedance_submit = staticmethod(seedance.create_video_task)
     seedance_final = staticmethod(seedance.create_final_video_task)
+    omnihuman_submit = staticmethod(omnihuman.create_video_task)
     omni_submit = staticmethod(omni.create_video_task)
     gemini_generate = staticmethod(gemini.generate_image)
 
@@ -223,6 +224,20 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
         return {**base, 'task_id': task_id, 'poster': poster}
     if item.draft_task_id:
         task_id = deps.seedance_final({'modelDisplay': item.model, 'draftTaskId': item.draft_task_id, 'callbackUrl': callbacks}, signal=signal)
+        on_task(task_id, 0, 1)
+        return {**base, 'task_id': task_id}
+    if is_provider_model(item.model, 'omnihuman'):
+        from .omnihuman_inputs import validate
+        combined = combined_references(item.prompt, deps.assets(item.project_id), item.reference_images or [])
+        images = [ref['imageUrl'] for ref in combined]
+        audios = resolve_references(item.prompt, item.reference_audios or [], 'audio')
+        seconds = validate(images, audios)
+        if item.duration != math.ceil(seconds):
+            raise ValueError('The OmniHuman audio changed after queueing. Attach it again before generating.')
+        def signed(ref):
+            return deps.sign(ref) if dependencies is not None else sign_reference(ref, actor_id=item.user_id, seconds=12 * 60 * 60)
+        task_id = deps.omnihuman_submit({'prompt': item.prompt, 'imageUrls': [signed(ref.split('#', 1)[0]) for ref in images],
+            'audioUrls': [signed(ref) for ref in audios]}, signal=signal)
         on_task(task_id, 0, 1)
         return {**base, 'task_id': task_id}
     if is_provider_model(item.model, 'omni'):

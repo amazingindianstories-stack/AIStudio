@@ -630,3 +630,25 @@ test("composer collapses once the pointer moves on after an overlay that blocked
     restore();
   }
 });
+
+test("OmniHuman reuses video controls with audio-driven duration and optional prompt", () => {
+  const previousReact = globalThis.React;
+  globalThis.React = React;
+  const initial = useStore.getInitialState();
+  const before = { ...initial };
+  try {
+    Object.assign(initial, { mode: "video", model: "OmniHuman 2.0", prompt: "", aspectRatio: "Auto", resolution: "Auto",
+      duration: 5, availableModelIds: null, maintenance: false, generating: false });
+    const html = renderToString(React.createElement(PromptComposer));
+    const dom = new JSDOM(html);
+    const generate = dom.window.document.querySelector('button[aria-label="Generate"]');
+    assert.ok(generate);
+    assert.equal(generate.disabled, false, "an optional prompt must not disable a valid input-driven job");
+    assert.match(dom.window.document.body.textContent, /Audio length/);
+    assert.ok(!dom.window.document.querySelector('input[aria-label="Duration"]'));
+    dom.window.close();
+  } finally {
+    Object.assign(initial, before);
+    globalThis.React = previousReact;
+  }
+});

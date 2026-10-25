@@ -27,6 +27,8 @@ def compute_cost(input, pricing):
         amount += max(0, input.get('referenceCount', 0) - 1) * rate('Seedream 5.0 Pro · extra reference')
         return math.floor(amount / 1000 + .5)
     row = rows.get(definition.get('pricingKey', input['model']))
+    if definition.get('provider') == 'omnihuman' and (not row or row['unit'] != 'per_second' or row['unitCostCents'] <= 0):
+        raise ValueError('OmniHuman pricing is not configured. Ask an administrator to set the account rate before generating.')
     if not row:
         return 0
     if row['unit'] == 'per_second':

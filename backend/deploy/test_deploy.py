@@ -174,6 +174,19 @@ class LegacyConfigTests(SimpleTestCase):
             self.assertNotIn('VEEVEE_GEMINI_OMNI', self.legacy.translate(component, env))
             self.assertEqual(self.legacy.translate(component, {**env, 'VEEVEE_GEMINI_OMNI': '1'})['VEEVEE_GEMINI_OMNI'], '1')
 
+    def test_omnihuman_vision_credentials_reach_only_enabled_generation_worker(self):
+        keys = {'OMNIHUMAN_ACCESS_KEY_ID': 'synthetic-ak', 'OMNIHUMAN_SECRET_ACCESS_KEY': 'synthetic-sk',
+                'OMNIHUMAN_SECURITY_TOKEN': 'synthetic-sts'}
+        envs = {'api': self.api_env(), **{kind: self.worker_env(kind) for kind in ('generation', 'export', 'scheduler')}}
+        for component, env in envs.items():
+            off = self.legacy.translate(component, {**env, **keys})
+            self.assertFalse(set(keys) & set(off))
+            on = self.legacy.translate(component, {**env, **keys, 'VEEVEE_OMNIHUMAN': '1'})
+            self.assertEqual(on['VEEVEE_OMNIHUMAN'], '1')
+            for key, value in keys.items():
+                self.assertEqual(on.get(key), value if component == 'generation' else None)
+            self.assertEqual(on.get('VEEVEE_PROVIDER_MEDIA_HOSTS'), off.get('VEEVEE_PROVIDER_MEDIA_HOSTS'))
+
     def test_kling_switch_key_host_and_result_hosts(self):
         kling = {'KLING_API': 'kk', 'KLING_API_HOST': 'https://api.klingai.com'}
         envs = {'api': self.api_env(), **{kind: self.worker_env(kind) for kind in ('generation', 'export', 'scheduler')}}

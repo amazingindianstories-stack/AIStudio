@@ -125,26 +125,31 @@ def save_from_url_with_metadata(url,ext,identifier,metadata=None,fetcher=None):
     fetch = fetcher or get_media_fetcher()
     if ext in ('mov','mp4','webm') and isinstance(fetch, SafeMediaFetcher):
         with fetch.open_file(url) as (stream, _):
-            result = _save_video_stream(stream, ext, identifier)
-            requested = (metadata or {}).get('requestedAspectRatio', (metadata or {}).get('requested_aspect_ratio'))
-            try:
-                with tempfile.TemporaryDirectory(prefix='veevee-media-metadata-') as directory:
-                    source = Path(directory)/('input.'+ext)
-                    stream.seek(0)
-                    with source.open('wb') as output:
-                        shutil.copyfileobj(stream, output, 256*1024)
-                    _, output = _run_ffmpeg(['-protocol_whitelist','file,pipe','-i',str(source),'-map','0:v:0',
-                        '-frames:v','1','-vf','showinfo','-f','null','-'])
-                    text = output.decode(errors='replace')
-                    match = re.search(r'\bs:([0-9]{1,6})x([0-9]{1,6})\b',text) or re.search(r'Video:[^\n]*?\b([0-9]{2,6})x([0-9]{2,6})\b',text)
-                    width,height = int(match[1]),int(match[2])
-                    aspect = nearest_supported_aspect_ratio(width,height,(metadata or {}).get('supportedRatios') or DEFAULT_RATIOS['video'])
-                    if not aspect: raise ValueError('No supported aspect ratio.')
-                    return {'url':result,'width':width,'height':height,'aspectRatio':aspect}
-            except Exception:
-                return {'url':result,'aspectRatio':requested}
+            return save_video_stream_with_metadata(stream, ext, identifier, metadata)
     data,_ = fetch(url)
     return save_buffer_with_metadata(data,ext,identifier,metadata)
+
+
+def save_video_stream_with_metadata(stream, ext, identifier, metadata=None):
+    """Persist a spooled original video without decoding or re-encoding its master."""
+    result = _save_video_stream(stream, ext, identifier)
+    requested = (metadata or {}).get('requestedAspectRatio', (metadata or {}).get('requested_aspect_ratio'))
+    try:
+        with tempfile.TemporaryDirectory(prefix='veevee-media-metadata-') as directory:
+            source = Path(directory)/('input.'+ext)
+            stream.seek(0)
+            with source.open('wb') as output:
+                shutil.copyfileobj(stream, output, 256*1024)
+            _, output = _run_ffmpeg(['-protocol_whitelist','file,pipe','-i',str(source),'-map','0:v:0',
+                '-frames:v','1','-vf','showinfo','-f','null','-'])
+            text = output.decode(errors='replace')
+            match = re.search(r'\bs:([0-9]{1,6})x([0-9]{1,6})\b',text) or re.search(r'Video:[^\n]*?\b([0-9]{2,6})x([0-9]{2,6})\b',text)
+            width,height = int(match[1]),int(match[2])
+            aspect = nearest_supported_aspect_ratio(width,height,(metadata or {}).get('supportedRatios') or DEFAULT_RATIOS['video'])
+            if not aspect: raise ValueError('No supported aspect ratio.')
+            return {'url':result,'width':width,'height':height,'aspectRatio':aspect}
+    except Exception:
+        return {'url':result,'aspectRatio':requested}
 
 
 def _save_video_stream(stream, ext, identifier):

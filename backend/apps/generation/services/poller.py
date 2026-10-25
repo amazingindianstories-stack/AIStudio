@@ -14,7 +14,7 @@ from apps.common.leases import now_ms
 from apps.generation.model_registry import is_provider_model, model_definition
 from apps.generation import provider_errors
 from apps.generation.models import Generation
-from apps.generation.providers import magnific, omni
+from apps.generation.providers import magnific, omni, omnihuman
 from apps.generation.realtime import publish_best_effort
 from apps.media import persistence
 from apps.media.errors import MediaTooLargeError
@@ -24,6 +24,13 @@ from . import coordinator
 from .deadline import Cancellation
 from .pricing import read_pricing, seedance_token_cost
 
+
+OMNIHUMAN_VIDEO_MAX_BYTES = 4 * 1024 * 1024 * 1024
+OMNIHUMAN_DOWNLOAD_SECONDS = 600
+OMNIHUMAN_DOWNLOAD_WINDOW_MS = 45 * 60 * 1000
+OMNIHUMAN_TASK_LIFETIME_MS = 12 * 60 * 60 * 1000
+OMNIHUMAN_DOWNLOAD_FAILED = 'OmniHuman finished, but its original video could not be saved before the output link expired. Nothing was resubmitted.'
+OMNIHUMAN_TOO_LARGE = "The OmniHuman original exceeds Veevee's 4 GB storage limit. Contact the team to recover this provider task."
 
 MAGNIFIC_VIDEO_MAX_BYTES = 4 * 1024 * 1024 * 1024
 # A 3.5 GB ProRes master needs ~6 MB/s to land in this budget; three attempts
@@ -98,6 +105,7 @@ class Dependencies:
         from apps.generation.providers.higgsfield import job_status
         return job_status(task_id, signal=signal)
 
+    get_omnihuman = staticmethod(omnihuman.get_video_task)
     get_omni = staticmethod(omni.get_video_status)
     get_magnific = staticmethod(magnific.get_upscale_status)
     get_magnific_video = staticmethod(magnific.get_video_upscale_status)
@@ -113,6 +121,21 @@ class Dependencies:
             fetcher = copy.copy(fetcher)
             fetcher.max_bytes, fetcher.total_timeout = MAGNIFIC_VIDEO_MAX_BYTES, MAGNIFIC_VIDEO_DOWNLOAD_SECONDS
         return persistence.save_from_url_with_metadata(url, ext, identifier, metadata, fetcher=fetcher)
+
+    def save_omnihuman_video(self, url, ext, identifier, metadata):
+        import copy
+        from apps.integrations.remote import SafeMediaFetcher
+        fetcher = get_media_fetcher()
+        if isinstance(fetcher, SafeMediaFetcher):
+            fetcher = copy.copy(fetcher)
+            fetcher.max_bytes, fetcher.total_timeout = OMNIHUMAN_VIDEO_MAX_BYTES, OMNIHUMAN_DOWNLOAD_SECONDS
+            with fetcher.open_file(url) as (stream, _):
+                from apps.generation.providers.omnihuman import video_container
+                return persistence.save_video_stream_with_metadata(stream, video_container(stream), identifier, metadata)
+        data, _ = fetcher(url)
+        import io
+        from apps.generation.providers.omnihuman import video_container
+        return persistence.save_buffer_with_metadata(data, video_container(io.BytesIO(data)), identifier, metadata)
 
     def fetch(self, url):
         return get_media_fetcher()(url)
@@ -233,6 +256,22 @@ def _download_error(item, deps, owner, message, *, max_attempts=None, window_ms=
         delay = download_retry_ms(count)
         coordinator.schedule_generation(Generation.objects.get(pk=item.id), now=deps.now(), delay_ms=delay, owner=owner)
     return {'kind': 'poll_error', 'pollErrorCount': count, 'retryAfterMs': delay}
+
+
+def _omnihuman_output(item, deps, owner):
+    """Remember completion observation without storing the bearer URL. Survives worker restarts."""
+    records = item.provider_responses if isinstance(item.provider_responses, list) else []
+    first = next((entry.get('omnihumanOutputFirstSeenAt') for entry in records
+                  if isinstance(entry, dict) and type(entry.get('omnihumanOutputFirstSeenAt')) is int), None)
+    if first is not None:
+        return item, deps.now() - first >= OMNIHUMAN_DOWNLOAD_WINDOW_MS
+    timestamp = max(deps.now(), item.updated_at + 1)
+    with transaction.atomic():
+        if not coordinator.expected_version(item, owner=owner).filter(task_id=item.task_id).update(
+                provider_responses=[*records, {'omnihumanOutputFirstSeenAt': deps.now()}],
+                provider_status=DOWNLOAD_PENDING, updated_at=timestamp):
+            return None, False
+        return Generation.objects.get(pk=item.id), False
 
 
 def _best_of(item, deps, signal, owner, provider):
@@ -373,7 +412,7 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
         return {'kind': item.status, 'item': item}
     if not item.task_id:
         return {'kind': 'pending', 'item': item}
-    deps, signal = dependencies or Dependencies(), signal or Cancellation(60000)
+    deps, signal = dependencies or Dependencies(), signal or Cancellation(900000 if is_provider_model(item.model, 'omnihuman') else 60000)
     provider = dict(provider or {})
     if callback_received_at:
         provider['callback_received_at'] = callback_received_at
@@ -389,9 +428,14 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
             return _terminal(item, {'status': 'succeeded', 'url': item.poster}, deps, signal, owner, provider)
         if item.candidate_task_ids:
             return _best_of(item, deps, signal, owner, provider)
+        is_omnihuman = is_provider_model(item.model, 'omnihuman')
+        if is_omnihuman and deps.now() - (item.submitted_at or item.created_at) >= OMNIHUMAN_TASK_LIFETIME_MS:
+            return _terminal(item, {'status': 'failed', 'error': omnihuman.EXPIRED,
+                **_with_records(item, provider_errors.local('omnihuman', 'expired', omnihuman.EXPIRED, task_id=item.task_id))},
+                deps, signal, owner, {})
         is_omni = is_provider_model(item.model, 'omni')
         is_higgsfield = is_provider_model(item.model, 'higgsfield')
-        get_status = deps.get_omni if is_omni else deps.get_higgsfield if is_higgsfield else deps.get_video
+        get_status = deps.get_omnihuman if is_omnihuman else deps.get_omni if is_omni else deps.get_higgsfield if is_higgsfield else deps.get_video
         result = get_status(item.task_id, signal=signal)
         if (item.cancellation_state in ('requested', 'uncertain') and
                 (result.get('providerError') or {}).get('httpStatus') in (404, 410)):
@@ -400,8 +444,8 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
         if result['status'] == 'cancelled':
             return _terminal(item, {'status': 'cancelled'}, deps, signal, owner, provider)
         if result['status'] == 'failed':
-            blocked, message = (result.get('moderationBlocked'), result.get('error') or 'Generation failed.') if is_omni else _moderation(result.get('error'))
-            if blocked and not is_omni and not is_higgsfield:
+            blocked, message = (result.get('moderationBlocked'), result.get('error') or 'Generation failed.') if is_omni or is_omnihuman else _moderation(result.get('error'))
+            if blocked and not is_omni and not is_omnihuman and not is_higgsfield:
                 message = _learned_message(item, [result]) or message
             return _terminal(item, {'status': 'failed', 'error': message, 'moderation_blocked': blocked,
                                     **_with_records(item, result.get('providerError'))}, deps, signal, owner, provider)
@@ -430,16 +474,30 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
             if not url:
                 return _terminal(item, {'status': 'failed', 'error': 'Provider reported success but returned no video.',
                                         **_with_records(item, _local_record(item, 'no_video', phase='task'))}, deps, signal, owner, provider)
+            if is_omnihuman:
+                item, expired = _omnihuman_output(item, deps, owner)
+                if item is None:
+                    return {'kind': 'raced'}
+                if expired:
+                    return _terminal(item, {'status': 'failed', 'error': OMNIHUMAN_DOWNLOAD_FAILED,
+                        **_with_records(item, _local_record(item, 'output_link_expired', phase='download'))},
+                        deps, signal, owner, provider)
             signal.check()
             try:
-                saved = deps.save_url(url, video_extension(result), f'{item.id}/{uuid4().hex}', _metadata(item))
+                save = deps.save_omnihuman_video if is_omnihuman else deps.save_url
+                saved = save(url, video_extension(result), f'{item.id}/{uuid4().hex}', _metadata(item))
             except Exception as error:
-                return _download_error(item, deps, owner, DOWNLOAD_ABANDONED, window_ms=GIVE_UP_MS, error=error)
+                if is_omnihuman and isinstance(error, MediaTooLargeError):
+                    return _terminal(item, {'status': 'failed', 'error': OMNIHUMAN_TOO_LARGE,
+                        **_with_records(item, _local_record(item, 'output_too_large', error, phase='download'))},
+                        deps, Cancellation(30000), owner, provider)
+                return _download_error(item, deps, owner, OMNIHUMAN_DOWNLOAD_FAILED if is_omnihuman else DOWNLOAD_ABANDONED,
+                    window_ms=OMNIHUMAN_DOWNLOAD_WINDOW_MS if is_omnihuman else GIVE_UP_MS, error=error)
             if (model_definition(item.model) or {}).get('usageCost') == 'seedance-token':
                 cost = seedance_token_cost(item.model, result.get('totalTokens'), bool(item.reference_videos), deps.pricing())
                 if cost is not None:
                     updates.update(cost_cents=cost, cost_basis='reconciled')
         updates.update(url=saved['url'], aspect_ratio=saved.get('aspectRatio') or item.aspect_ratio)
-        return _terminal(item, updates, deps, signal, owner, provider)
+        return _terminal(item, updates, deps, Cancellation(30000) if is_omnihuman else signal, owner, provider)
     except Exception as error:
         return _poll_error(item, deps, owner, error)
