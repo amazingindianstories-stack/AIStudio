@@ -335,9 +335,9 @@ function insertNewItem(
     const scope = currentScope(s);
     const patch = {};
 
-    // A new generation is always the newest row, so it goes at the head — no
-    // re-sort needed, and none wanted: re-sorting the visible list is exactly
-    // the movement this work is removing.
+    // A new generation is placed where the active sort puts it: the head for
+    // newest first, the tail for oldest first. Under oldest first with more
+    // pages to load it belongs on a later page, so it is left for pagination.
     if (matchesScope(item, scope) && !(scope.sort === "oldest" && s.hasMoreHistory && s.items.length && compareInScope(item, s.items.at(-1), scope) > 0)) {
       const items = [item, ...s.items.filter((i) => i.id !== item.id)].sort((a, b) => compareInScope(a, b, scope));
       patch.items = items;
@@ -1534,9 +1534,8 @@ export const useStore = create((set, get) => ({
       // denied, a network blip, the row already gone) left the item
       // invisible in this tab even though it was untouched server-side,
       // with zero indication anything went wrong. Mirrors toggleFavorite's
-      // rollback below. insertNewItem's head-of-list placement is a rough
-      // approximation of where the row was — loadFeed corrects the exact
-      // position/scope membership right after.
+      // rollback below. restoreItemInPlace puts the row back where it sorts;
+      // loadFeed corrects scope membership right after.
       if (item) restoreItemInPlace(set, item);
       if (refresh) {
         void get().loadFeed({ force: true });
@@ -2785,9 +2784,11 @@ useStore.subscribe((state, previous) => {
  *  - Only consider rows that belong in the scope on screen. The feed is a
  *    server-filtered query now, so splicing in a row from another project would
  *    show something a refetch immediately removes.
- *  - Only INSERT rows newer than the oldest page we've loaded, or still in
- *    flight. items is a paginated window; splicing an old row into the middle
- *    of it creates a hole that pagination then duplicates or skips.
+ *  - Only INSERT rows that sort within the pages we've loaded, or are still in
+ *    flight under a descending sort. items is a paginated window; splicing a
+ *    row from a later page into it creates a hole that pagination then
+ *    duplicates or skips. Under oldest first, in-flight work is the newest and
+ *    so belongs on a later page too.
  *  - **Never insert above the viewport while the user is scrolled.** An update
  *    to a row already on screen is a repaint in place and always applied; a new
  *    row is an insertion at the head, which shifts every card below it. That
@@ -2854,7 +2855,7 @@ export function mergeLiveItems(
       unseen = true;
       if (!matchesScope(inc, scope)) continue;
       const inFlight = inc.status === "queued" || inc.status === "running";
-      if (!inFlight && lastLoaded && s.hasMoreHistory !== false && compareInScope(inc, lastLoaded, scope) > 0) continue;
+      if ((!inFlight || scope.sort === "oldest") && lastLoaded && s.hasMoreHistory !== false && compareInScope(inc, lastLoaded, scope) > 0) continue;
 
       if (s.feedPinned) {
         byId.set(inc.id, inc);

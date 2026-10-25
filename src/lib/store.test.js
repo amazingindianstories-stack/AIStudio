@@ -198,6 +198,25 @@ test("mergeLiveItems: a new finished row older than the oldest loaded page is sk
   assert.ok(!h.state().items.some((i) => i.id === "new"));
 });
 
+test("mergeLiveItems: under oldest first with more pages to load, a new in-flight row belongs on a later page and is neither inserted nor buffered", () => {
+  const loaded = makeItem({ id: "old", createdAt: 1000 });
+  const inc = makeItem({ id: "new", createdAt: 9999, status: "queued" });
+  for (const feedPinned of [true, false]) {
+    const h = harness({ items: [loaded], librarySort: "oldest", hasMoreHistory: true, feedPinned });
+    mergeLiveItems([inc], h.set);
+    assert.deepEqual(h.state().items.map((i) => i.id), ["old"]);
+    assert.deepEqual(h.state().pendingItems, []);
+  }
+});
+
+test("mergeLiveItems: under oldest first with every page loaded, a new in-flight row joins the tail", () => {
+  const loaded = makeItem({ id: "old", createdAt: 1000 });
+  const inc = makeItem({ id: "new", createdAt: 9999, status: "running" });
+  const h = harness({ items: [loaded], librarySort: "oldest", hasMoreHistory: false, feedPinned: true });
+  mergeLiveItems([inc], h.set);
+  assert.deepEqual(h.state().items.map((i) => i.id), ["old", "new"]);
+});
+
 test("mergeLiveItems: a new row is buffered into pendingItems when the user is scrolled away from the top, not spliced above the viewport", () => {
   const inc = makeItem({ id: "new", createdAt: 9999, status: "running" });
   const h = harness({ items: [], feedPinned: false });
