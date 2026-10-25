@@ -19,8 +19,11 @@ from .deadline import Cancellation
 ACTIVE = ('queued', 'running')
 UNSETTLED = ('requested', 'uncertain')
 COST_UNCONFIRMED = 'cancelled_billing_unconfirmed'
-# OmniHuman can register its Vision adapter here when its provider lands. Its
-# signature, identifiers and polling contract must stay with that adapter.
+COST_UNSUBMITTED = 'cancelled_before_submission'
+# OmniHuman's provider is a separate change; whichever of the two lands second
+# registers its CVCancelTask adapter here and its cancel endpoint in
+# paid_guard.CANCEL_ENDPOINTS. Its signature, identifiers and polling contract
+# must stay with that adapter.
 ADAPTERS = {'byteplus': (seedance.get_video_task, seedance.cancel_video_task),
             'omni': (omni.get_cancel_status, omni.cancel_video_task)}
 
@@ -88,7 +91,7 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
             # Claim + row lock excludes submission. No remote paid task exists.
             Generation.objects.filter(pk=item.id, worker_lease_id=owner).update(status='cancelled',
                 cancellation_state='confirmed', completed_at=now, next_poll_at=None,
-                cost_basis=COST_UNCONFIRMED)
+                cost_cents=0, cost_basis=COST_UNSUBMITTED)
             current = coordinator.release_generation(item.id, owner)
             transaction.on_commit(lambda: publish_best_effort(current))
             return current, None

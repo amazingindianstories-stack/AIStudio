@@ -9,9 +9,17 @@ Supported adapters are registered in `generation/services/cancellation.py`:
 ModelArk Seedance queued tasks and Gemini Developer API background interactions.
 Vertex is excluded until its official cancellation contract is verified.
 Higgsfield's hosted OAuth MCP is distinct from its REST request API and has no
-verified cancel contract. An OmniHuman Vision adapter must use its own signed
+verified cancel contract. OmniHuman 2.0's provider is a separate change that is
+not in this tree; whichever of the two lands second registers its adapter and
+its paid-guard cancel endpoint. That adapter must use its own signed
 `CVCancelTask` operation, fixed service `cv` and region `ap-singapore-1`, and
 normalize its `canceled` query result to `cancelled` before registration.
+
+With `VEEVEE_PAID_GUARD` set, the guard allows exactly two cancel requests
+outside a submission claim: DELETE of the ModelArk task URL and POST of the
+Interactions `/{id}/cancel` URL, each without a body and only for the task of a
+queued or running generation of that provider whose cancellation is
+`requested`. Every other non-GET request stays refused.
 
 Cancellation claims the existing worker lease before provider I/O. Local queued
 work can settle immediately only while the same claim excludes submission and
@@ -25,18 +33,23 @@ for the aggregate to settle as cancelled.
 ModelArk DELETE also deletes completed task records. A task can complete between
 the preflight query and DELETE, so an empty successful DELETE or subsequent 404
 cannot prove cancellation. Such work remains active with durable cancellation
-state, keeps its receipt and continues polling. Transport uncertainty does not
-exhaust into a guessed failure. Deletion refuses active or uncertain work.
+state, keeps its receipt and continues polling under the same 6-hour
+poll-abandonment cap as any other poll. At the cap it settles as failed and keeps
+its cancellation state, task receipt, provider evidence and estimated cost; it
+can then be deleted like any failed row. Deletion refuses active work.
 
 A confirmed `cancelled` generation is terminal, excluded from worker claims,
 rendered with the existing failure treatment and included in the Failed filter.
 It remains in history/counts and can be deleted under the usual admin rule.
 Updates use the existing serialized history/realtime transport.
 
-Veevee has no customer credit ledger. Confirmed cancellation retains the
-estimated provider cost and records `cost_basis=cancelled_billing_unconfirmed`.
-The rolling spend gate includes cancelled rows. This is conservative accounting,
-not a promise of a refund or a zero provider charge.
+Veevee has no customer credit ledger. Confirmed cancellation of a submitted
+task retains the estimated provider cost and records
+`cost_basis=cancelled_billing_unconfirmed`. The rolling spend gate includes those
+rows. This is conservative accounting, not a promise of a refund or a zero
+provider charge. Queued work cancelled before any provider task existed was
+never sent: it records cost 0 with `cost_basis=cancelled_before_submission` and
+is excluded from the spend gate.
 
 Migration `generation.0006` is additive and nullable. Apply it through the
 controlled release process before promoting code that reads the new field.
@@ -82,4 +95,4 @@ Checked 2026-10-25, including persisted historical models.
 | Higgsfield MCP / Higgsfield Soul (unoffered) | REST has [POST /requests/{request_id}/cancel](https://docs.higgsfield.ai/docs/api-reference/requests/cancel-a-queued-request); hosted MCP equivalent not documented in reviewed official sources | REST: all jobs queued; MCP: unverified | REST: [queued cancellations refunded](https://docs.higgsfield.ai/docs/concepts/billing-and-retention); do not assume REST contract applies to MCP | REST: canceled; MCP support unresolved, so no Cancel until verified |
 | Higgsfield MCP / Higgsfield Seedance 2.0 (unoffered) | REST has [POST /requests/{request_id}/cancel](https://docs.higgsfield.ai/docs/api-reference/requests/cancel-a-queued-request); hosted MCP equivalent not documented in reviewed official sources | REST: all jobs queued; MCP: unverified | REST: [queued cancellations refunded](https://docs.higgsfield.ai/docs/concepts/billing-and-retention); do not assume REST contract applies to MCP | REST: canceled; MCP support unresolved, so no Cancel until verified |
 | Higgsfield MCP / Higgsfield Seedance 2.0 Mini (unoffered) | REST has [POST /requests/{request_id}/cancel](https://docs.higgsfield.ai/docs/api-reference/requests/cancel-a-queued-request); hosted MCP equivalent not documented in reviewed official sources | REST: all jobs queued; MCP: unverified | REST: [queued cancellations refunded](https://docs.higgsfield.ai/docs/concepts/billing-and-retention); do not assume REST contract applies to MCP | REST: canceled; MCP support unresolved, so no Cancel until verified |
-| BytePlus Vision / OmniHuman 2.0 (parallel addition) | [POST /?Action=CVCancelTask&Version=2024-06-06](https://docs.byteplus.com/en/docs/byteplus-vision/omnihuman-2-0-video-generation) | in_queue only; generating / executed task refused with code 50217 | Unspecified; retain estimate, mark billing unconfirmed (decision 002) | canceled; success code 10000 followed by result reconciliation |
+| BytePlus Vision / OmniHuman 2.0 (separate change, not yet registered) | [POST /?Action=CVCancelTask&Version=2024-06-06](https://docs.byteplus.com/en/docs/byteplus-vision/omnihuman-2-0-video-generation) | in_queue only; generating / executed task refused with code 50217 | Unspecified; retain estimate, mark billing unconfirmed (decision 002) | canceled; success code 10000 followed by result reconciliation |

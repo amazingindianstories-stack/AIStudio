@@ -35,7 +35,7 @@ def generation_item(row, filename=None):
     for name, fallback in [('poll_attempts', 0), ('poll_error_count', 0), ('location_version', 1)]:
         item = value(row, name)
         result[camel(name)] = fallback if item is None else item
-    result['costBasis'] = row.cost_basis if row.cost_basis in ('reconciled', 'cancelled_billing_unconfirmed') else 'estimated'
+    result['costBasis'] = row.cost_basis if row.cost_basis in ('reconciled', 'cancelled_billing_unconfirmed', 'cancelled_before_submission') else 'estimated'
     from .services.cancellation import can_cancel
     result['canCancel'] = can_cancel(row)
     result['cancellationState'] = row.cancellation_state

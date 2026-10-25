@@ -178,7 +178,7 @@ def _terminal(item, updates, deps, signal, owner, provider):
         from .cancellation import COST_UNCONFIRMED
         updates = {**updates, 'cost_basis': COST_UNCONFIRMED, 'cancellation_state': 'confirmed', 'next_poll_at': None}
     elif updates.get('status') in ('succeeded', 'failed'):
-        updates = {**updates, 'cancellation_state': None}
+        updates = {'cancellation_state': None, **updates}
     defaults = {'url': None, 'error': None, 'moderation_blocked': None,
                 'completed_at': item.completed_at or timestamp, 'updated_at': max(timestamp, item.updated_at + 1)}
     persisted = coordinator.compare_and_set_outcome(item, {**defaults, **provider, **updates}, owner=owner)
@@ -204,15 +204,15 @@ def _poll_error(item, deps, owner, error=None):
         if not query.update(poll_error_count=F('poll_error_count') + 1, last_poll_error_at=deps.now()):
             return {'kind': 'raced'}
         current = Generation.objects.get(pk=item.id)
-        abandoned = (current.cancellation_state not in ('requested', 'uncertain') and
-                     waited_ms(retry_after_ms, current.poll_error_count) >= GIVE_UP_MS)
+        abandoned = waited_ms(retry_after_ms, current.poll_error_count) >= GIVE_UP_MS
         delay = retry_after_ms(current.poll_error_count)
         if not abandoned:
             coordinator.schedule_generation(current, now=deps.now(), delay_ms=delay, owner=owner)
     if abandoned:
         record = getattr(error, 'provider_response', None)
         record = record if provider_errors.is_record(record) else _local_record(current, 'poll_abandoned', error, phase='status')
-        return _terminal(current, {'status': 'failed', 'error': POLL_ABANDONED, **_with_records(current, record)}, deps,
+        return _terminal(current, {'status': 'failed', 'error': POLL_ABANDONED, 'cancellation_state': current.cancellation_state,
+                                   **_with_records(current, record)}, deps,
                          Cancellation(30000), owner, {})
     return {'kind': 'poll_error', 'pollErrorCount': current.poll_error_count, 'retryAfterMs': delay}
 

@@ -29,6 +29,7 @@ def is_moderation_message(text):
 
 TEXT_POLICY_MESSAGE = 'The video provider rejected the prompt under its text content policy. Review the prompt before submitting a new request.'
 NEUTRAL_POLICY_MESSAGE = 'The video provider rejected the input under its content policy. Change the prompt or references before submitting a new request.'
+EXPIRED_MESSAGE = 'The video provider expired this task before it finished, so no video was generated. Submit a new request to try again.'
 
 
 def friendly_error(status,body):
@@ -205,7 +206,8 @@ def normalize_video_task_payload(payload=None):
         result['outputFormat'] = source['output_format']
     if status == 'failed':
         error = source.get('error')
-        result['error'] = (error.get('message') if isinstance(error,dict) else None) or error or 'Generation failed'
+        result['error'] = (error.get('message') if isinstance(error,dict) else None) or error or (
+            EXPIRED_MESSAGE if raw_status == 'expired' else 'Generation failed')
         # The task's own failure (code, message, task id) for the row's provider_responses and the user's message.
         result['providerError'] = provider_errors.capture('seedance',phase='task',body=json.dumps(source,default=str),
             task_id=source.get('id') if isinstance(source.get('id'),str) else None)

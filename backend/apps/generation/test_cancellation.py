@@ -17,9 +17,9 @@ from .test_provider_adapters import ScriptedTransport, result
 
 class CancellationTests(TransactionTestCase):
     def job(self, **values):
-        return Generation.objects.create(**dict(kind='video', status='running', prompt='cancel fixture',
+        return Generation.objects.create(**{**dict(kind='video', status='running', prompt='cancel fixture',
             model='Seedance 2.5', aspect_ratio='16:9', user_id=uuid4(), task_id='paid-task',
-            created_at=1, updated_at=2, cost_cents=60, **values))
+            created_at=1, updated_at=2, cost_cents=60), **values})
 
     def run_cancel(self, row, get_status, cancel=None):
         cancel = cancel or Mock()
@@ -70,12 +70,29 @@ class CancellationTests(TransactionTestCase):
         cancel.assert_called_once()
         self.assertEqual((current.status, current.cancellation_state, current.task_id), ('running', 'requested', 'paid-task'))
         self.assertIsNotNone(current.next_poll_at)
-        deps = poller.Dependencies(mock=lambda: False, get_video=Mock(side_effect=ProviderError('gone', status=404)))
-        Generation.objects.filter(pk=current.id).update(poll_error_count=1000)
-        current.refresh_from_db()
+        deps = poller.Dependencies(mock=lambda: False, publish=lambda row: None,
+            get_video=Mock(side_effect=ProviderError('gone', status=404)))
         self.assertEqual(poller.advance(current, dependencies=deps)['kind'], 'poll_error')
         current.refresh_from_db()
-        self.assertEqual(current.status, 'running')
+        self.assertEqual((current.status, current.cancellation_state), ('running', 'requested'))
+
+    def test_permanent_missing_record_after_cancel_settles_failed_at_the_poll_cap_and_is_deletable(self):
+        SettingsTests.setUp(self)
+        SettingsTests.cookie(self)
+        User.objects.filter(pk='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').update(role='admin')
+        row = self.job(cancellation_state='uncertain')
+        self.assertEqual(self.client.delete('/api/history?id='+str(row.id)).status_code, 409)
+        deps = poller.Dependencies(mock=lambda: False, publish=lambda row: None,
+            get_video=Mock(side_effect=ProviderError('gone', status=404)))
+        Generation.objects.filter(pk=row.id).update(poll_error_count=1000)
+        row.refresh_from_db()
+        self.assertEqual(poller.advance(row, dependencies=deps)['kind'], 'failed')
+        row.refresh_from_db()
+        self.assertEqual((row.status, row.error, row.cancellation_state, row.task_id, row.cost_cents),
+            ('failed', poller.POLL_ABANDONED, 'uncertain', 'paid-task', 60))
+        self.assertEqual(row.provider_responses[-1]['taskId'], 'paid-task')
+        self.assertFalse(cancellation.can_cancel(row, {}))
+        self.assertEqual(self.client.delete('/api/history?id='+str(row.id)).status_code, 200)
 
     def test_timeout_uncertain_and_repeated_request_does_not_reissue(self):
         row = self.job()
@@ -102,6 +119,17 @@ class CancellationTests(TransactionTestCase):
         current, _, _ = self.run_cancel(row, Mock())
         self.assertEqual(current.status, 'cancelled')
         self.assertIsNone(coordinator.claim_generation(row.id, 'submit-after-cancel'))
+
+    def test_unsubmitted_omni_cancel_costs_nothing_and_leaves_the_gemini_spend_window(self):
+        from .services import admission
+        row = self.job(model='Gemini Omni Flash 1.1', status='queued', task_id=None, created_at=1000, updated_at=2000)
+        current, message, _ = self.run_cancel(row, Mock())
+        self.assertIsNone(message)
+        self.assertEqual((current.status, current.cost_cents, current.cost_basis),
+            ('cancelled', 0, cancellation.COST_UNSUBMITTED))
+        Generation.objects.filter(pk=row.id).update(updated_at=2000)
+        snapshot = admission.snapshot(self.job(), now=3000, best_of=2)
+        self.assertEqual((snapshot['window_cents'], snapshot['window_rows'], snapshot['oldest_updated_at']), (0, 0, None))
 
     def test_supported_capabilities_and_vertex_disabled(self):
         row = self.job()
@@ -145,6 +173,59 @@ class CancellationTests(TransactionTestCase):
         self.assertEqual(poller.advance(row, dependencies=deps)['kind'], 'poll_error')
         row.refresh_from_db()
         self.assertEqual(row.status, 'running')
+
+    def test_paid_guard_lets_only_a_requested_cancel_reach_the_real_adapters(self):
+        from django.test import override_settings
+        from apps.integrations.transport import HttpTransport
+        from .test_paid_guard import SEEDANCE_ENDPOINT, UNLIMITED
+        interactions = 'https://generativelanguage.googleapis.com/v1beta/interactions/'
+        seedance_task = SEEDANCE_ENDPOINT + '/'
+        statuses = {seedance_task + 'seedance-task': ['queued', 'cancelled'], interactions + 'omni-task': ['in_progress', 'cancelled']}
+        sent = []
+
+        def send(transport, method, url, **kwargs):
+            sent.append((method, url))
+            return result({'status': statuses[url].pop(0)} if method == 'GET' else {})
+
+        seedance_row = self.job(task_id='seedance-task')
+        omni_row = self.job(task_id='omni-task', model='Gemini Omni Flash 1.1')
+        held = self.job(task_id='held-task', cancellation_state='requested')
+        actor = SimpleNamespace(id=None, role='admin')
+        with override_settings(VEEVEE_PAID_GUARD=UNLIMITED), patch.object(HttpTransport, '_send', send), \
+                patch.dict('os.environ', {'ARK_API_KEY': 'mock', 'GOOGLE_API_KEY': 'mock', 'MOCK_GENERATION': '0'}):
+            for row in (seedance_row, omni_row):
+                current, message = cancellation.cancel_generation(row.id, actor, env={})
+                self.assertEqual((current.status, current.cancellation_state, message), ('cancelled', 'confirmed', None))
+            self.assertIn(('DELETE', seedance_task + 'seedance-task'), sent)
+            self.assertIn(('POST', interactions + 'omni-task/cancel'), sent)
+            sent.clear()
+            for method, url, body in (('DELETE', seedance_task + 'seedance-task', None),
+                                      ('POST', interactions + 'omni-task/cancel', None),
+                                      ('DELETE', seedance_task + 'unknown-task', None),
+                                      ('POST', interactions + 'held-task/cancel', None),
+                                      ('DELETE', seedance_task + 'held-task?force=1', None),
+                                      ('DELETE', seedance_task + 'held-task/extra', None),
+                                      ('POST', seedance_task + 'held-task', None),
+                                      ('DELETE', seedance_task + 'held-task', {'status': 'cancelled'}),
+                                      ('POST', SEEDANCE_ENDPOINT, {'model': 'seedance', 'output_format': 'mov'}),
+                                      ('PUT', seedance_task + 'held-task', None)):
+                with self.subTest(method=method, url=url), self.assertRaises(ProviderError) as caught:
+                    HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com', 'generativelanguage.googleapis.com']).request(
+                        method, url, body=body)
+                self.assertEqual(caught.exception.code, 'preview_paid_scope')
+            self.assertEqual(sent, [])
+            HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com']).request('DELETE', seedance_task + 'held-task')
+        self.assertEqual(sent, [('DELETE', seedance_task + 'held-task')])
+
+    def test_expired_seedance_task_fails_with_accurate_copy(self):
+        transport = ScriptedTransport(result({'id': 'paid-task', 'status': 'expired'}))
+        deps = poller.Dependencies(mock=lambda: False, publish=lambda row: None,
+            get_video=lambda task_id, signal: seedance.get_video_task(task_id, env={'ARK_API_KEY': 'mock'},
+                transport=transport, signal=signal))
+        row = self.job()
+        self.assertEqual(poller.advance(row, dependencies=deps)['kind'], 'failed')
+        row.refresh_from_db()
+        self.assertEqual((row.status, row.error, row.moderation_blocked), ('failed', seedance.EXPIRED_MESSAGE, False))
 
     def test_provider_http_contracts(self):
         transport = ScriptedTransport(result({}, 204))
