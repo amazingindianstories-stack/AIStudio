@@ -338,6 +338,30 @@ class AudioClaimTests(TransactionTestCase):
         result=claim_audio(row.id,'audio:test',now=100,expected=row)
         self.assertEqual((result.is_favorite,result.favorited_at,result.updated_at),(True,42,1001))
 
+    def test_first_filing_before_claim_retains_an_uncertain_paid_receipt_without_replay(self):
+        from unittest.mock import Mock, patch
+        from apps.generation.services.deadline import Cancellation
+        from apps.generation.services.audio_submission import process_audio
+        from apps.library.services import folder_engine
+        from apps.media.audio_inputs import validated_audio_input
+        row, storage = self.prepared_job()
+        folder = folder_engine.create_folder(name='Validated interview')
+        def file_after_validation(expected, *args, **kwargs):
+            result = validated_audio_input(expected, *args, **kwargs)
+            folder_engine.move_generations(ids=[str(row.id)], destination={'type': 'folder', 'folderId': folder['id']})
+            return result
+        provider = Mock()
+        provider.transcribe.side_effect = RuntimeError('offline ambiguous failure')
+        with patch('apps.media.audio_inputs.validated_audio_input', side_effect=file_after_validation):
+            with self.assertRaisesRegex(RuntimeError, 'offline ambiguous'):
+                process_audio(row.id, 'audio:test', signal=Cancellation(), provider=provider, storage=storage)
+        row.refresh_from_db()
+        self.assertEqual((row.name_owner_id, row.permanent_name), (row.id, 'Validated_interview_0001'))
+        self.assertEqual(row.provider_status, 'SUBMISSION_UNCERTAIN')
+        self.assertIsNone(row.worker_lease_id)
+        self.assertEqual(process_audio(row.id, 'audio:retry', signal=Cancellation(), provider=provider, storage=storage), {'kind': 'unclaimed'})
+        provider.transcribe.assert_called_once()
+
     def test_two_workers_racing_claim_have_exactly_one_winner(self):
         from concurrent.futures import ThreadPoolExecutor
         from threading import Barrier

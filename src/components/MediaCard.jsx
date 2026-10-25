@@ -86,9 +86,8 @@ function ElapsedTime({ since }) {
 
 /** A library card is the media and very little else: the creator's avatar,
  *  "Draft" on drafts, a star on favourites, and - on hover or keyboard focus -
- *  a select checkbox, a "..." button and the favourite toggle. Under the media
- *  sits the generation name row, whose stem truncates while its trailing
- *  sequence digits stay visible. Everything else (details and actions) lives in the card's
+ *  a select checkbox, a "..." button and the favourite toggle. The generation's
+ *  sequence sits over the top-left corner. Everything else (details and actions) lives in the card's
  *  context menu, opened by right click, the "..." button, the keyboard
  *  (ContextMenu key or Shift+F10) or a long press on touch. The face scales
  *  with the card's rendered width through the container queries on
@@ -431,6 +430,8 @@ export function MediaCard({
       aria-selected={selectable ? selected : undefined}
       aria-haspopup="menu"
       data-selected={selected ? "true" : undefined}
+      data-selectable={selectable ? "true" : undefined}
+      data-draft={isDraft ? "true" : undefined}
       data-menu-open={menuOpen ? "true" : undefined}
       draggable={done && Boolean(item.url)}
       onDragStart={handleDragStart}
@@ -648,6 +649,7 @@ export function MediaCard({
 
         {/* card face */}
         <div className="media-card-face pointer-events-none absolute inset-0 z-30">
+          <GenerationName item={item} className="generation-name-overlay media-card-name" />
           {isDraft && (
             <span data-draft-label className="media-card-draft absolute right-0 top-0 flex items-start justify-end font-semibold leading-none tracking-wide text-white">
               Draft
@@ -747,7 +749,6 @@ export function MediaCard({
           </div>
         </div>
       </div>
-      <GenerationName item={item} height={GENERATION_NAME_ROW_HEIGHT} className="px-2 text-white/80" />
     </motion.div>
       {menu && (
         <CardContextMenu
@@ -784,19 +785,18 @@ export function resolveGenerationFolder(item, tree) {
   return { label: `${root} / ${path ? path.join(" / ") : "Folder unavailable"}`, navigable: Boolean(path) };
 }
 
-/** Library cards' name row height in px; AssetGrid packs and sizes skeletons with it. */
-export const GENERATION_NAME_ROW_HEIGHT = 28;
-
-export function GenerationName({ item, height = 16, className }) {
+export function GenerationName({ item, className, numberOnly = true }) {
   const displayName = item.filename?.replace(/\.[^.]+$/, "") || "";
-  // Only the ancestry stem may shrink. Keep the entire sequence, including
-  // sequences longer than four digits, visible at every width. The row keeps
-  // its height before the name arrives so the card never shifts.
+  if (!displayName) return null;
+  // Keep the entire sequence, including values longer than four digits.
+  // Full-name mode truncates only the ancestry stem. Overlays never change
+  // card dimensions, including while the filename is still loading.
   const nameParts = displayName.match(/^([\s\S]*?)(_\d+)$/);
   return (
-    <div data-generation-name title={item.filename || undefined} style={{ height }} className={cn("flex min-w-0 shrink-0 items-center text-[11px] leading-4", className)}>
-      <span className="min-w-0 truncate">{nameParts ? nameParts[1] : displayName}</span>
-      {nameParts && <span className="shrink-0">{nameParts[2]}</span>}
+    <div data-generation-name title={item.filename} className={cn("flex min-w-0 items-center", className)}>
+      {item.filename && <span className="sr-only">{item.filename}</span>}
+      {(!numberOnly || !nameParts) && <span aria-hidden="true" className="min-w-0 truncate">{nameParts ? nameParts[1] : displayName}</span>}
+      {nameParts && <span aria-hidden="true" className="shrink-0">{numberOnly ? nameParts[2].slice(1) : nameParts[2]}</span>}
     </div>
   );
 }

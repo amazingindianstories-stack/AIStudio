@@ -34,26 +34,24 @@ const menuItem = (key) => document.querySelector(`[role="menu"] [data-menu-item=
 const failed = { id: 'f1', kind: 'video', status: 'failed', moderationBlocked: true, error: 'BytePlus rejected the reference image', prompt: 'Sati @img1 walks', model: 'Seedance 2.5',
   aspectRatio: '21:9', resolution: '480p', duration: 10, referenceImages: ['/api/media/uploads/image-reference/a', '/api/media/uploads/portrait/b'], createdAt: 1 };
 
-test('library and main chat cards retain the complete sequence separately from the truncating stem and expose the full filename', async () => {
+test('library number and main chat full-name overlays expose the complete filename accessibly', async () => {
   for (const Component of [MediaCard, FeedBlock]) {
     for (const filename of ['Shiv_Sati_Very_Long_Folder_Ancestry_0001.mov', 'unsorted_0002.png', 'Scene_10000.mov', 'Scene.with.dots_0042.mov']) {
       await harness({ ...failed, filename }, async ({ card }) => {
         const name = card.querySelector('[data-generation-name]');
         assert.equal(name.title, filename);
-        assert.equal(name.textContent, filename.replace(/\.[^.]+$/, ''));
-        assert.equal(name.lastElementChild.textContent, filename.match(/(_\d+)\.[^.]+$/)[1]);
+        assert.equal(name.querySelector('.sr-only').textContent, filename);
+        assert.equal([...name.querySelectorAll('[aria-hidden="true"]')].map(el => el.textContent).join(''), Component === MediaCard ? filename.match(/_(\d+)\.[^.]+$/)[1] : filename.replace(/\.[^.]+$/, ''));
       }, {}, Component);
     }
   }
 });
 
-test('library and main chat cards reserve an empty name row until the item has a filename', async () => {
+test('library and main chat cards omit the overlay until the item has a filename', async () => {
   for (const Component of [MediaCard, FeedBlock]) {
     await harness(failed, async ({ card }) => {
       const name = card.querySelector('[data-generation-name]');
-      assert.ok(name);
-      assert.equal(name.textContent, '');
-      assert.equal(name.hasAttribute('title'), false);
+      assert.equal(name, null);
     }, {}, Component);
   }
 });

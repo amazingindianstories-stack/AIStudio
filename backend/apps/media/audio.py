@@ -9,6 +9,7 @@ from django.views.decorators.http import require_http_methods
 from django.utils.module_loading import import_string
 from apps.authentication.session import lookup
 from apps.generation.models import Generation
+from apps.library.services.naming import same_execution_identity
 from .storage import get_storage, MediaTooLargeError
 from .views import _body
 from .audio_inputs import capture_audio_input, InvalidAudioType, MAX_AUDIO_BYTES
@@ -139,13 +140,9 @@ def transcribe(request):
 
 def _persist_audio_result(expected, transcript, completed):
     """Fence execution identity; retry local writes without repeating paid I/O."""
-    metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
-        'flagged','flagged_at','flag_reason','updated_at'}
     result_fields={'status','prompt','provider_status','completed_at'}
     def identity_matches(row, *, recovered=False):
-        ignored=metadata | (result_fields if recovered else set())
-        return all(getattr(row,field.attname)==getattr(expected,field.attname)
-            for field in Generation._meta.concrete_fields if field.attname not in ignored)
+        return same_execution_identity(row, expected, ignored=result_fields if recovered else ())
     def acknowledged(row):
         return (identity_matches(row,recovered=True) and row.status=='succeeded'
             and row.prompt==transcript and row.provider_status=='COMPLETED'
@@ -176,12 +173,9 @@ def _persist_audio_result(expected, transcript, completed):
 
 def _mark_audio_uncertain(expected):
     """Retain ambiguity without modifying a changed execution or newer metadata."""
-    metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
-        'flagged','flagged_at','flag_reason','updated_at'}
     with transaction.atomic():
         row=Generation.objects.select_for_update().filter(pk=expected.id).first()
-        if row is None or any(getattr(row,field.attname)!=getattr(expected,field.attname)
-                for field in Generation._meta.concrete_fields if field.attname not in metadata):
+        if row is None or not same_execution_identity(row, expected):
             return
         Generation.objects.filter(pk=row.id).update(provider_status='SUBMISSION_UNCERTAIN',
             updated_at=max(int(time.time()*1000),row.updated_at+1))
@@ -189,12 +183,9 @@ def _mark_audio_uncertain(expected):
 
 def _mark_audio_failed(expected, message, responses=None):
     """A definite provider refusal: the row ends failed and its audio capacity is released."""
-    metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
-        'flagged','flagged_at','flag_reason','updated_at'}
     with transaction.atomic():
         row=Generation.objects.select_for_update().filter(pk=expected.id).first()
-        if row is None or any(getattr(row,field.attname)!=getattr(expected,field.attname)
-                for field in Generation._meta.concrete_fields if field.attname not in metadata):
+        if row is None or not same_execution_identity(row, expected):
             return
         now=int(time.time()*1000)
         Generation.objects.filter(pk=row.id).update(status='failed',error=message,provider_status='REJECTED',

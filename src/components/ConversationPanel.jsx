@@ -40,11 +40,11 @@ export function ConversationPanel() {
   const threadItems = useStore((s) => s.threadItems);
   const loading = useStore((s) => s.threadLoading);
   const activeProjectId = useStore((s) => s.activeProjectId);
+  const activeFolderId = useStore((s) => s.activeFolderId);
   const scrollRef = useRef(null);
   const [showJump, setShowJump] = useState(false);
 
-  // Chat is scoped to the active project — each project has its own thread, so a
-  // new project starts a fresh, empty chat. Chronological, newest at the bottom.
+  // The store fetches the open folder's thread. Chronological, newest at the bottom.
   const feed = useMemo(() => [...threadItems].reverse(), [threadItems]);
 
   const scrollToBottom = useCallback((smooth = true) => {
@@ -57,9 +57,10 @@ export function ConversationPanel() {
     scrollToBottom(false);
   }, [loading, scrollToBottom]);
 
+  const newestId = threadItems[0]?.id;
   useEffect(() => {
     scrollToBottom(true);
-  }, [feed.length, activeProjectId, scrollToBottom]);
+  }, [newestId, activeProjectId, activeFolderId, scrollToBottom]);
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -200,7 +201,6 @@ export function FeedBlock({ item, index }) {
         {label} {index}
       </span>
 
-      <GenerationName item={item} className="text-white/80" />
       <div className="flex min-w-0 items-center justify-between gap-2">
         <GenerationFolderCue item={item} />
         <GenerationTimestamp timestamp={item.createdAt} />
@@ -234,11 +234,12 @@ export function FeedBlock({ item, index }) {
         // the frame now hugs the image instead of the column, hence mx-auto.
         style={{ maxWidth: aspectMaxWidth(item.aspectRatio) }}
         className={cn(
-          "group/media relative mx-auto w-full overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] focus-within:ring-white/25",
+          "chat-media group/media relative mx-auto w-full overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] focus-within:ring-white/25",
           item.status === "succeeded" && "cursor-pointer cursor-grab active:cursor-grabbing"
         )}
       >
         <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
+          <GenerationName item={item} numberOnly={false} className="generation-name-overlay chat-generation-name z-20" />
           {item.status === "succeeded" && item.kind === "image" && item.url && (
             <img
               src={thumbUrl(item.url, FEED_THUMB_WIDTH)}
@@ -282,7 +283,7 @@ export function FeedBlock({ item, index }) {
           )}
 
           {item.status === "succeeded" && (
-            <div className="absolute right-2.5 top-2.5 z-20 flex gap-1.5 opacity-0 transition group-hover/media:opacity-100 group-focus-within/media:opacity-100">
+            <div className="chat-generation-actions absolute right-2.5 top-2.5 z-20 flex gap-1.5 opacity-0 transition group-hover/media:opacity-100 group-focus-within/media:opacity-100">
               <button
                 onClick={(e) => {
                   e.stopPropagation();

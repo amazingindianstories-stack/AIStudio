@@ -44,7 +44,9 @@ def read_generation_updates(since, limit=PAGE_LIMIT, after_id=None):
     active = [row for row in base.filter(status__in=['queued', 'running']).order_by('-updated_at')[:ACTIVE_LIMIT]
               if row.id not in seen]
     cursor = {'since': rows[-1].updated_at, 'afterId': str(rows[-1].id)} if more else None
-    return [generation_item(row) for row in rows + active], cursor, more
+    from apps.library.filenames import batch_resolve_generation_filenames
+    names = batch_resolve_generation_filenames([row.id for row in rows + active])
+    return [generation_item(row, names.get(str(row.id), {}).get('filename')) for row in rows + active], cursor, more
 
 
 import time

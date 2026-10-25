@@ -110,6 +110,152 @@ class PermanentNamesTests(TransactionTestCase):
             with self.assertRaises(IntegrityError), transaction.atomic():
                 Generation.objects.filter(pk=row.id).update(permanent_name=name)
 
+    def test_unsorted_draft_and_all_finals_keep_one_name_even_after_filing(self):
+        self.cookie()
+        User.objects.filter(pk=UID).update(role='admin')
+        from apps.library.services.idempotency import now_ms
+        draft = Generation.objects.create(kind='video', model='Seedance 2.5', status='succeeded', draft_mode=True,
+            task_id='draft-task', prompt='draft', aspect_ratio='1:1', created_at=now_ms(), updated_at=now_ms())
+        assign_generation_naming(draft.id)
+        initial = self.filename(draft)
+        self.assertIsNone(Generation.objects.get(pk=draft.id).permanent_name)
+        for filed in (False, True):
+            if filed:
+                folder = folders.create_folder(name='Filed')
+                folders.move_generations(ids=[str(draft.id)], destination={'type': 'folder', 'folderId': folder['id']})
+            response = self.client.post('/api/generate/video/finalize', {'sourceGenerationId': str(draft.id)}, content_type='application/json')
+            self.assertEqual(response.status_code, 200, response.content)
+            final = Generation.objects.get(pk=response.json()['id'])
+            self.assertEqual((final.permanent_name, final.name_owner_id), (initial.rsplit('.', 1)[0], draft.id))
+            self.assertEqual(response.json()['filename'], initial)
+            Generation.objects.filter(pk=final.id).update(status='succeeded')
+        self.assertEqual(self.filename(draft), initial)
+
+    def test_unsorted_draft_keeps_its_shown_name_at_finalize_unless_another_generation_holds_it(self):
+        from apps.generation.updates import read_generation_updates
+        from apps.library.models import GenerationNaming, NamingCounter
+        from apps.library.services.idempotency import now_ms
+        self.cookie()
+        User.objects.filter(pk=UID).update(role='admin')
+        NamingCounter.objects.create(namespace='global_unsorted', next_sequence=3, updated_at=1)
+        NamingCounter.objects.create(namespace='name:unsorted', next_sequence=517, updated_at=1)
+        results = []
+        for task in ('free', 'taken'):
+            draft = Generation.objects.create(kind='video', model='Seedance 2.5', status='succeeded', draft_mode=True,
+                task_id=task, prompt=task, aspect_ratio='1:1', created_at=now_ms(), updated_at=1, url='/api/media/draft.mov')
+            assign_generation_naming(draft.id)
+            GenerationNaming.objects.filter(generation_id=draft.id).update(assigned_at=1)
+            shown = self.filename(draft)
+            if task == 'taken':
+                self.generation(permanent_name=shown.rsplit('.', 1)[0].upper())
+            response = self.client.post('/api/generate/video/finalize', {'sourceGenerationId': str(draft.id)}, content_type='application/json')
+            self.assertEqual(response.status_code, 200, response.content)
+            changed = {item['id']: item['filename'] for item in read_generation_updates(1)[0]}
+            self.assertEqual(changed[str(draft.id)], self.filename(draft))
+            self.assertEqual(response.json()['filename'].rsplit('.', 1)[0], self.filename(draft).rsplit('.', 1)[0])
+            record = GenerationNaming.objects.get(generation_id=draft.id)
+            results.append((shown, self.filename(draft), record.assigned_at, record.fallback_from_name, record.fallback_reason))
+        free, taken = results
+        self.assertEqual(free, ('unsorted_0003.mov', 'unsorted_0003.mov', 1, None, None))
+        self.assertEqual(taken[1], 'unsorted_0517.mov')
+        self.assertGreater(taken[2], 1)
+        self.assertEqual(taken[3:], (taken[0].rsplit('.', 1)[0], 'provisional_name_reserved'))
+
+    def test_concurrent_finalizes_of_drafts_showing_the_same_name_both_succeed(self):
+        import threading
+        from django.db import connection, transaction
+        from apps.library.models import GenerationNaming
+        from apps.projects.models import Project
+        finals = []
+        for index in range(2):
+            project = Project.objects.create(name=f'Concurrent {index}', created_at=1, updated_at=1)
+            draft = Generation.objects.create(kind='video', model='Seedance 2.5', status='succeeded', draft_mode=True,
+                task_id=f'draft-{index}', prompt='draft', aspect_ratio='1:1', created_at=1, updated_at=1,
+                url='/api/media/draft.mov', project=project)
+            final = Generation.objects.create(kind='video', model='Seedance 2.5', status='queued', draft_mode=False,
+                source_generation_id=draft.id, draft_task_id=f'draft-{index}', prompt='final', aspect_ratio='1:1',
+                created_at=2, updated_at=2, project=project)
+            finals.append((draft, final))
+        self.assertEqual({self.filename(draft) for draft, _ in finals}, {'unsorted_0001.mov'})
+        claimed, errors, blocked = threading.Event(), [], []
+
+        def first():
+            try:
+                with transaction.atomic():
+                    assign_generation_naming(finals[0][1].id)
+                    claimed.set()
+                    with connection.cursor() as cursor:
+                        for _ in range(50):
+                            cursor.execute('SELECT pg_stat_clear_snapshot()')
+                            cursor.execute("SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = current_database()")
+                            if cursor.fetchone()[0]:
+                                blocked.append(True)
+                                break
+                            cursor.execute('SELECT pg_sleep(0.1)')
+            except Exception as error:
+                errors.append(error)
+            finally:
+                connection.close()
+
+        def second():
+            claimed.wait(10)
+            try:
+                assign_generation_naming(finals[1][1].id)
+            except Exception as error:
+                errors.append(error)
+            finally:
+                connection.close()
+
+        threads = [threading.Thread(target=first), threading.Thread(target=second)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(30)
+        self.assertEqual((errors, blocked), ([], [True]))
+        (winner, _), (loser, _) = finals
+        self.assertEqual(self.filename(winner), 'unsorted_0001.mov')
+        self.assertNotEqual(self.filename(loser), 'unsorted_0001.mov')
+        for draft, final in finals:
+            self.assertEqual(Generation.objects.get(pk=final.id).permanent_name, Generation.objects.get(pk=draft.id).permanent_name)
+        self.assertEqual(GenerationNaming.objects.filter(generation_id=winner.id).values_list('fallback_from_name', flat=True).get(), None)
+        self.assertEqual(GenerationNaming.objects.filter(generation_id=loser.id).values_list('fallback_from_name', 'fallback_reason').get(),
+            ('unsorted_0001', 'provisional_name_reserved'))
+
+    def test_name_reservations_reject_unrelated_claims_and_survive_deleting_the_draft(self):
+        from django.db import IntegrityError, transaction
+        from apps.generation.models import GenerationNameOwner
+        draft = Generation.objects.create(kind='video', status='succeeded', model='Seedance 2.5', draft_mode=True,
+            task_id='draft', prompt='draft', aspect_ratio='1:1', created_at=1, updated_at=1)
+        final = Generation.objects.create(kind='video', status='queued', model='Seedance 2.5', draft_mode=False,
+            source_generation_id=draft.id, draft_task_id='draft', prompt='final', aspect_ratio='1:1', created_at=2, updated_at=2)
+        assign_generation_naming(final.id)
+        draft.refresh_from_db()
+        final.refresh_from_db()
+        ordinary = self.generation()
+        for changes in (
+            {'permanent_name': draft.permanent_name},
+            {'permanent_name': draft.permanent_name, 'legacy_name_duplicate': 1},
+            {'permanent_name': draft.permanent_name, 'name_owner_id': draft.id},
+        ):
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                Generation.objects.filter(pk=ordinary.id).update(**changes)
+        from uuid import uuid4
+        for changes in ({'id': uuid4()}, {'name_owner_id': final.id}, {'source_generation_id': None}, {'legacy_name_duplicate': 1}):
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                Generation.objects.filter(pk=final.id).update(**changes)
+        for action in ('update', 'delete'):
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                owner = GenerationNameOwner.objects.filter(pk=draft.id)
+                owner.update(permanent_name='wrong') if action == 'update' else owner.delete()
+        owner_id = draft.id
+        draft.delete()
+        final.delete()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            GenerationNameOwner.objects.filter(pk=owner_id).delete()
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Generation.objects.filter(pk=ordinary.id).update(permanent_name=draft.permanent_name)
+        self.assertTrue(GenerationNameOwner.objects.filter(pk=owner_id).exists())
+
     def test_delete_role_and_ownership_matrix_for_all_generation_kinds(self):
         from uuid import uuid4
         self.cookie()

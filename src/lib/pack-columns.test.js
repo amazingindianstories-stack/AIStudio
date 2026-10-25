@@ -91,13 +91,12 @@ test("columns stay balanced — no column runs away", () => {
   assert.ok(spread <= 1.9, `columns diverged by ${spread.toFixed(2)}`);
 });
 
-test("a column of many short cards counts each card's name row and gap", () => {
-  // Two 428px columns. The 1:2 card is 856px + 28px name row + 12px gap = 896px;
-  // eleven 10:1 strips are 11 x (42.8 + 28 + 12) = 910.8px, so the twelfth strip
-  // belongs under the tall card even though the strips' media alone is shorter.
+test("overlaid names add no height when packing short cards beside tall media", () => {
+  // Two 428px columns. The tall card is 856px + 12px gap. Twelve strips are
+  // 12 x (42.8 + 12) = 657.6px, so all fit beside it without a name bar.
   const strips = Array.from({ length: 12 }, (_, i) => ({ id: `s${i}`, aspectRatio: "10:1" }));
   const cols = packColumns([{ id: "tall", aspectRatio: "1:2" }, ...strips], 900, 400);
-  assert.deepEqual(cols.map((c) => c.map((i) => i.id)), [["tall", "s11"], strips.slice(0, 11).map((i) => i.id)]);
+  assert.deepEqual(cols.map((c) => c.map((i) => i.id)), [["tall"], strips.map((i) => i.id)]);
 });
 
 test("the first row fills left to right", () => {
