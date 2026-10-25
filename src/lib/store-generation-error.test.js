@@ -85,3 +85,25 @@ test("an audio length notice is withdrawn when the next attempt's clips are with
     useStore.setState(previous, true);
   }
 });
+
+test("cancel patches confirmed state across loaded pools and returns provider refusal copy", async () => {
+  const previous = useStore.getState(), fetchBefore = globalThis.fetch;
+  const row = { id: "cancel-fixture", kind: "video", status: "running", canCancel: true };
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push([url, init]);
+    return new Response(JSON.stringify({ item: { ...row, status: "cancelled", canCancel: false } }), { status: 200 });
+  };
+  useStore.setState({ items: [row], pendingItems: [row], loadFeed: async () => {} });
+  try {
+    assert.deepEqual(await useStore.getState().cancelGeneration(row.id), { ok: true });
+    assert.equal(useStore.getState().items[0].status, "cancelled");
+    assert.equal(calls[0][0], "/api/generate/cancel");
+    assert.deepEqual(JSON.parse(calls[0][1].body), { id: row.id });
+    globalThis.fetch = async () => new Response(JSON.stringify({ error: "Provider already started this task." }), { status: 409 });
+    assert.deepEqual(await useStore.getState().cancelGeneration(row.id), { ok: false, error: "Provider already started this task." });
+  } finally {
+    globalThis.fetch = fetchBefore;
+    useStore.setState(previous, true);
+  }
+});

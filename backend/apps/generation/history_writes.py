@@ -74,7 +74,7 @@ def history_mutation(request, user):
                 return Response({'error': 'Not found.'}, status=404)
             # History deletion is not a provider cancellation/reconciliation
             # protocol. Keep active or ambiguous paid-work evidence durable.
-            if item.status in ('queued','running','pending') or item.provider_status in (
+            if item.status in ('queued','running','pending') or item.cancellation_state in ('requested','uncertain') or item.provider_status in (
                     'SUBMISSION_PENDING','SUBMISSION_UNCERTAIN'):
                 return Response({'error':'GENERATION_REQUIRES_RECONCILIATION',
                     'message':'Active or uncertain generation work must finish or be reconciled before deletion.'},status=409)

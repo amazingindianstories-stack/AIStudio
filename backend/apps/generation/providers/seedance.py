@@ -194,7 +194,7 @@ def normalize_video_task_payload(payload=None):
     payload = payload or {}
     source = payload.get('data') if isinstance(payload.get('data'),dict) else payload
     raw_status = str(source.get('status') or source.get('state') or '').lower()
-    status = 'succeeded' if raw_status == 'succeeded' else 'failed' if raw_status in ('failed','cancelled') else 'queued' if raw_status == 'queued' else 'running'
+    status = 'succeeded' if raw_status == 'succeeded' else 'cancelled' if raw_status == 'cancelled' else 'failed' if raw_status in ('failed', 'expired') else 'queued' if raw_status == 'queued' else 'running'
     result = {'status':status,'raw':payload}
     content = source.get('content') or {}
     content = content[0] if isinstance(content,list) and content else content
@@ -231,3 +231,18 @@ def get_video_task(task_id,options=None,*,env=None,transport=None,signal=None):
             provider_response=provider_errors.capture('seedance',phase='status',status=response.status,body=response.text,
                 headers=response.headers,task_id=task_id))
     return normalize_video_task_payload(response.json())
+
+
+def cancel_video_task(task_id, *, env=None, transport=None, signal=None):
+    """Queued-only cancellation; DELETE can also remove a finished record.
+
+    This intentionally returns no terminal status. Callers must reconcile by GET.
+    """
+    env = os.environ if env is None else env
+    key = required_key(env, 'ARK_API_KEY')
+    transport = transport or HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com'])
+    endpoint = (env.get('ARK_BASE_URL') or 'https://ark.ap-southeast.bytepluses.com/api/v3').rstrip('/')
+    response = transport.request('DELETE', endpoint + '/contents/generations/tasks/' + quote(task_id, safe=''),
+        headers={'Authorization': 'Bearer ' + key}, signal=signal)
+    if not response.ok:
+        raise SeedanceError('Seedance cancellation was not confirmed.', status=response.status)

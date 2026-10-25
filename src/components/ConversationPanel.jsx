@@ -265,10 +265,10 @@ export function FeedBlock({ item, index }) {
             <GenerationStatus status={item.status} note={waitingNote(item)} className="absolute inset-0" />
           )}
 
-          {item.status === "failed" && (
+          {["failed", "cancelled"].includes(item.status) && (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-red-950/30 p-6 text-center">
               <AlertCircle className="h-7 w-7 text-red-400" />
-              <span className="text-sm text-red-200/80">{item.error}</span>
+              <span className="text-sm text-red-200/80">{item.status === "cancelled" ? "Cancelled" : item.error}</span>
               <button
                 onClick={(e) => {
                   e.stopPropagation();

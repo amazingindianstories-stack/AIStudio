@@ -1499,6 +1499,21 @@ export const useStore = create((set, get) => ({
     return true;
   },
 
+  cancelGeneration: async (id) => {
+    try {
+      const res = await apiFetch("/api/generate/cancel", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (body.item?.id) patchEverywhere(set, id, (item) => ({ ...item, ...body.item }));
+      void get().loadFeed({ force: true });
+      if (body.item?.status === "cancelled") return { ok: true };
+      return { ok: false, error: body.message || body.error || "Cancellation could not be confirmed. The generation will continue to be checked." };
+    } catch (error) {
+      return { ok: false, error: error.message || "Cancellation could not be confirmed. Try again." };
+    }
+  },
+
   removeItem: async (id, { refresh = true } = {}) => {
     // Captured before the optimistic drop below, so a failed delete has
     // something to restore — dropEverywhere removes the row from every pool

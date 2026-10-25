@@ -35,7 +35,10 @@ def generation_item(row, filename=None):
     for name, fallback in [('poll_attempts', 0), ('poll_error_count', 0), ('location_version', 1)]:
         item = value(row, name)
         result[camel(name)] = fallback if item is None else item
-    result['costBasis'] = 'reconciled' if row.cost_basis == 'reconciled' else 'estimated'
+    result['costBasis'] = row.cost_basis if row.cost_basis in ('reconciled', 'cancelled_billing_unconfirmed') else 'estimated'
+    from .services.cancellation import can_cancel
+    result['canCancel'] = can_cancel(row)
+    result['cancellationState'] = row.cancellation_state
     if filename is None and (row.permanent_name or not row._state.adding):
         from apps.library.filenames import batch_resolve_generation_filenames, resolve_extension
         filename = (row.permanent_name + '.' + resolve_extension(row.kind, row.url)) if row.permanent_name else (

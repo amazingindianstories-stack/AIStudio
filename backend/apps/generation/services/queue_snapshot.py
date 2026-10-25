@@ -54,21 +54,21 @@ with global_user_limit as (
         ), 0) from generations
         where created_at > %(skirt_start)s
           and updated_at >= %(window_start)s
-          and status in ('running', 'succeeded', 'failed')
+          and status in ('running', 'succeeded', 'failed', 'cancelled')
           and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or model = any(%(gemini_video_models)s::text[]))
           and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as window_cents,
       (select count(*) from generations
         where created_at > %(skirt_start)s
           and updated_at >= %(window_start)s
-          and status in ('running', 'succeeded', 'failed')
+          and status in ('running', 'succeeded', 'failed', 'cancelled')
           and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or model = any(%(gemini_video_models)s::text[]))
           and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as window_rows,
       (select min(updated_at) from generations
         where created_at > %(skirt_start)s
           and updated_at >= %(window_start)s
-          and status in ('running', 'succeeded', 'failed')
+          and status in ('running', 'succeeded', 'failed', 'cancelled')
           and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or model = any(%(gemini_video_models)s::text[]))
           and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as oldest_updated_at

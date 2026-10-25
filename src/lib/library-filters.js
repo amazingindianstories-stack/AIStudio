@@ -93,7 +93,7 @@ export function matchesLibraryFilters(item, value, now) {
   const resolution = `${item.kind}:${item.resolution?.trim().toLowerCase() || "unknown"}`;
   const duration = item.duration == null ? "unknown" : item.duration > 10 ? "long" : item.duration >= 6 ? "medium" : item.duration > 0 ? "short" : "";
   const stage = item.draftMode === true ? "draft" : item.draftMode === false ? "final" : "unknown";
-  const status = item.status === "succeeded" ? "ready" : ["queued", "running"].includes(item.status) ? "creating" : item.status;
+  const status = item.status === "succeeded" ? "ready" : ["queued", "running"].includes(item.status) ? "creating" : item.status === "cancelled" ? "failed" : item.status;
   if (!any("types", item.kind) || !any("models", model) || !any("resolutions", resolution) || !any("aspects", item.aspectRatio) ||
       !any("creators", item.userId || "unknown") || !any("statuses", status) || filters.favorite && !item.isFavorite) return false;
   if (filters.durations.length && (item.kind !== "video" || !any("durations", duration))) return false;

@@ -105,6 +105,8 @@ export function MediaCard({
   // a lone card (inline in a chat) has no list around it.
   const viewerSource = selectable ? "feed" : "single";
   const removeItem = useStore((s) => s.removeItem);
+  const cancelGeneration = useStore((s) => s.cancelGeneration);
+  const canCancelAsActor = useStore((s) => s.currentUser?.role === "admin" || s.currentUser?.id === item.userId);
   const retryTextToVideo = useStore((s) => s.retryTextToVideo);
   const regenerate = useStore((s) => s.regenerate);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
@@ -132,7 +134,7 @@ export function MediaCard({
   const [unplayableUrl, setUnplayableUrl] = useState(null);
 
   const pending = item.status === "running" || item.status === "queued";
-  const failed = item.status === "failed";
+  const failed = item.status === "failed" || item.status === "cancelled";
   const done = item.status === "succeeded";
   const isDraft = item.kind === "video" && item.draftMode === true;
   // Media loads straight from storage once resolved; /api/media is the fallback.
@@ -299,6 +301,10 @@ export function MediaCard({
   const maintenance = useMaintenance((s) => s.enabled);
   const menuGroups = [
     [
+      pending && item.canCancel && canCancelAsActor && {
+        key: "cancel", label: "Cancel", icon: Square, destructive: true,
+        onSelect: ask("cancelGeneration", () => cancelGeneration(item.id)),
+      },
       editable && (done || failed) && {
         key: "retry",
         label: "Retry",
@@ -407,7 +413,7 @@ export function MediaCard({
 
   if (maintenance) {
     for (const group of menuGroups) for (const action of group) {
-      if (action && ["retry", "retry-text", "finalize", "favorite", "delete"].includes(action.key)) {
+      if (action && ["cancel", "retry", "retry-text", "finalize", "favorite", "delete"].includes(action.key)) {
         action.disabled = true;
         action.reason = MAINTENANCE_MESSAGE;
       }
@@ -581,7 +587,7 @@ export function MediaCard({
             )}
             {waitingNote(item) && (
               <span data-portrait-waiting style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-sky-200/80">
-                {item.progressMessage}
+                {waitingNote(item)}
               </span>
             )}
             {item.kind === "video" && item.pollWarning && (
@@ -642,7 +648,7 @@ export function MediaCard({
               <AlertCircle className="h-6 w-6 text-red-400/90" />
             )}
             <span className="line-clamp-3 text-[11px] text-red-100/80">
-              {item.error || "Failed"}
+              {item.status === "cancelled" ? "Cancelled" : item.error || "Failed"}
             </span>
           </div>
         )}

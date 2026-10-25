@@ -5,6 +5,7 @@ import { MEDIA_ACTION_COPY, mediaActionCopy } from "./media-action-confirmation.
 test("every risky media shortcut has explicit confirmation copy", () => {
   assert.deepEqual(Object.keys(MEDIA_ACTION_COPY).sort(), [
     "addFavorite",
+    "cancelGeneration",
     "cloneToComposer",
     "continueShot",
     "deleteAsset",
@@ -39,6 +40,7 @@ test("only confirmations that send a write are blocked during maintenance", () =
   const blocked = Object.keys(MEDIA_ACTION_COPY).filter((kind) => mediaActionCopy(kind).maintenanceWrite === true).sort();
   assert.deepEqual(blocked, [
     "addFavorite",
+    "cancelGeneration",
     "deleteAsset",
     "deleteGeneration",
     "deletePortrait",

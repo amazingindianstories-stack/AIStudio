@@ -111,7 +111,7 @@ def apply_library_filters(rows, filters):
             predicate |= Q(draft_mode={'draft': True, 'final': False, 'unknown': None}[value])
         rows = rows.filter(Q(kind='video') & predicate)
     if filters.get('status'):
-        statuses = {'ready': ['succeeded'], 'creating': ['queued', 'running'], 'failed': ['failed']}
+        statuses = {'ready': ['succeeded'], 'creating': ['queued', 'running'], 'failed': ['failed', 'cancelled']}
         rows = rows.filter(status__in=[status for value in filters['status'] for status in statuses[value]])
     if filters.get('bitrate'):
         rows = rows.alias(library_bitrate=Lower(Trim('bitrate_mode')))

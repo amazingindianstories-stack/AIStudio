@@ -27,6 +27,7 @@ class Generation(models.Model):
     name_owner = models.ForeignKey(GenerationNameOwner, on_delete=models.RESTRICT, null=True, db_index=False)
     kind = models.TextField()
     status = models.TextField()
+    cancellation_state = models.TextField(null=True)
     prompt = models.TextField()
     model = models.TextField()
     aspect_ratio = models.TextField()

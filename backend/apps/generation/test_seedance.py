@@ -105,6 +105,6 @@ class SeedanceTests(SimpleTestCase):
     def test_callback_normalization_and_notfound_not_moderation(self):
         self.assertEqual(friendly_error(404,'{"error":{"code":"SensitiveContent","message":"portrait"}}').code,'seedance_error')
         result=normalize_video_task_payload({'data':{'state':'cancelled','error':{'message':'stopped'},'createdAt':123,'updated_at':456}})
-        self.assertEqual(result['status'],'failed')
-        self.assertEqual(result['error'],'stopped')
+        self.assertEqual(result['status'],'cancelled')
+        self.assertNotIn('error',result)
         self.assertEqual((result['providerCreatedAt'],result['providerUpdatedAt']),(123,456))

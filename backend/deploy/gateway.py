@@ -23,7 +23,7 @@ AGENT_MESSAGES=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/messages')
 DEPTH_POST_ROUTES=frozenset(('/api/generate/depth','/api/worker/depth/claim','/api/worker/depth/heartbeat','/api/worker/depth/progress','/api/worker/depth/upload-url','/api/worker/depth/complete'))
 # Response-header waits beyond the default 25 s: enqueue may normalize large references, transcription
 # waits for its worker result (Django answers 504 itself after 120 s), an agent turn runs a short tool loop.
-LONG_POSTS={'/api/generate/image':120,'/api/generate/video':120,'/api/audio/transcribe':125}
+LONG_POSTS={'/api/generate/cancel':55,'/api/generate/image':120,'/api/generate/video':120,'/api/audio/transcribe':125}
 def upstream_wait(method,path):
     if method!='POST':return 25
     return LONG_POSTS.get(path,120 if AGENT_MESSAGES.fullmatch(path) else 25)
@@ -37,6 +37,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     if method in ('GET','HEAD','POST') and path=='/api/admin/portrait-settings':return True
     if new_exports and method=="POST" and re.fullmatch(r"/api/history/exports(?:/[0-9a-f-]{36}/(?:items|finalize))?",path):return True
     # Everything else under /api is allowed except provider execution, internal worker/callback ingress and export scheduling.
+    if method=='POST' and path=='/api/generate/cancel':return True
     if paid_initial_routes and method=='POST' and path in ('/api/generate/image','/api/generate/video','/api/generate/video/finalize'):return True
     if paid_initial_routes and magnific_upscale and method=='POST' and path=='/api/generate/upscale':return True
     # Audio transcription: the paid guard registers the job and claims its one Gemini call in the worker.

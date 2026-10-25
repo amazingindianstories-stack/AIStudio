@@ -16,7 +16,7 @@ export function generationTiming(item) {
   const created = toMillis(item?.createdAt);
   const submitted = toMillis(item?.submittedAt);
   const completed = toMillis(item?.completedAt);
-  const terminal = item?.status === "succeeded" || item?.status === "failed";
+  const terminal = item?.status === "succeeded" || item?.status === "failed" || item?.status === "cancelled";
   const span = (from, to) => (from != null && to != null && to >= from ? to - from : null);
   return {
     createdAt: created,
