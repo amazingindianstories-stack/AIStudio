@@ -27,7 +27,7 @@ export function CreatorAvatar({ creator, className, style }) {
   );
 }
 
-const STATUS_LABELS = { queued: "Queued", running: "Creating", failed: "Failed" };
+const STATUS_LABELS = { queued: "Queued", running: "Creating", failed: "Failed", cancelled: "Cancelled" };
 
 /** Who made a generation, with what, at what size, for what cost and when. */
 export function GenerationDetails({ item, creator }) {

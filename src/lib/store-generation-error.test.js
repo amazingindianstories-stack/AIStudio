@@ -86,7 +86,7 @@ test("an audio length notice is withdrawn when the next attempt's clips are with
   }
 });
 
-test("cancel patches confirmed state across loaded pools and returns provider refusal copy", async () => {
+test("cancel patches confirmed or reconciling state across loaded pools and returns provider refusal copy", async () => {
   const previous = useStore.getState(), fetchBefore = globalThis.fetch;
   const row = { id: "cancel-fixture", kind: "video", status: "running", canCancel: true };
   const calls = [];
@@ -100,6 +100,10 @@ test("cancel patches confirmed state across loaded pools and returns provider re
     assert.equal(useStore.getState().items[0].status, "cancelled");
     assert.equal(calls[0][0], "/api/generate/cancel");
     assert.deepEqual(JSON.parse(calls[0][1].body), { id: row.id });
+    globalThis.fetch = async () => new Response(JSON.stringify({ item: { ...row, cancellationState: "requested" },
+      message: "Cancellation requested. Waiting for the provider to confirm the outcome." }), { status: 202 });
+    assert.deepEqual(await useStore.getState().cancelGeneration(row.id), { ok: true });
+    assert.equal(useStore.getState().items[0].cancellationState, "requested");
     globalThis.fetch = async () => new Response(JSON.stringify({ error: "Provider already started this task." }), { status: 409 });
     assert.deepEqual(await useStore.getState().cancelGeneration(row.id), { ok: false, error: "Provider already started this task." });
   } finally {

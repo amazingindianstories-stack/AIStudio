@@ -59,6 +59,9 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
     A provider may finish between preflight and cancel. In particular ModelArk
     DELETE can delete a finished record. A subsequent missing task is uncertain,
     never evidence of cancellation; keep its receipt and reconciliation active.
+    Only a cancel the provider accepted marks the row as cancelling, and the
+    request reconciles inline only when every task accepted it; a finished
+    result is always saved by the generation worker, never by this request.
     """
     from .poller import advance as poll
     advance = advance or poll
@@ -84,6 +87,7 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
         claim = coordinator.claim_generation(identifier, owner, now=now, ttl_ms=120000)
         if claim is None:
             raise CancelError('The generation is being updated. Try cancelling again in a moment.')
+        prior = item.cancellation_state
         Generation.objects.filter(pk=item.id, worker_lease_id=owner).update(
             cancellation_state='requested', updated_at=max(now, item.updated_at + 1))
         item = Generation.objects.get(pk=item.id)
@@ -96,7 +100,7 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
             transaction.on_commit(lambda: publish_best_effort(current))
             return current, None
     publish_best_effort(item)
-    message, state = None, 'requested'
+    message, state, attempted, accepted = None, prior, False, 0
     try:
         if env.get('MOCK_GENERATION') == '1':
             # Disposable fixtures never call a real provider.
@@ -106,26 +110,37 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
         else:
             get_status, cancel = adapters[provider_for(item, env)]
             signal = Cancellation(45000)
-            for task_id in [item.task_id, *(item.candidate_task_ids or [])]:
+            tasks = [item.task_id, *(item.candidate_task_ids or [])]
+            for task_id in tasks:
                 result = get_status(task_id, signal=signal)
                 if result['status'] in ('succeeded', 'failed', 'cancelled'):
                     continue
                 if provider_for(item, env) != 'omni' and result['status'] != 'queued':
                     state, message = 'refused', 'The provider has started this task and can no longer cancel it. It will continue normally.'
                     continue
+                attempted = True
                 try:
                     cancel(task_id, signal=signal)
                 except Exception as error:
                     if getattr(error, 'status', None) in (400, 409):
                         state, message = 'refused', 'The provider could not cancel this task because it has already started or finished. Its outcome is being checked.'
-                    else:
-                        raise
-            # Polling, rather than the cancel HTTP response, owns terminal state.
-            current = Generation.objects.get(pk=item.id)
-            advance(current, owner=owner, signal=signal)
+                        continue
+                    raise
+                accepted += 1
+                if state != 'refused':
+                    state = 'requested'
+            if not attempted and state != 'refused':
+                message = 'The generation already finished at the provider. Its result is being saved.'
+            if accepted == len(tasks):
+                # Polling, rather than the cancel HTTP response, owns terminal state.
+                current = Generation.objects.get(pk=item.id)
+                advance(current, owner=owner, signal=signal)
     except Exception:
-        state = 'uncertain'
-        message = 'The provider has not confirmed cancellation. This generation will keep reconciling; it may still finish.'
+        if attempted:
+            state = 'uncertain'
+            message = 'The provider has not confirmed cancellation. This generation will keep reconciling; it may still finish.'
+        else:
+            message = 'The provider could not be reached to cancel this generation. Try again in a moment.'
     finally:
         with transaction.atomic():
             current = Generation.objects.select_for_update().get(pk=item.id)

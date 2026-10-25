@@ -21,10 +21,10 @@ class CancellationTests(TransactionTestCase):
             model='Seedance 2.5', aspect_ratio='16:9', user_id=uuid4(), task_id='paid-task',
             created_at=1, updated_at=2, cost_cents=60), **values})
 
-    def run_cancel(self, row, get_status, cancel=None):
+    def run_cancel(self, row, get_status, cancel=None, save_url=None):
         cancel = cancel or Mock()
-        deps = poller.Dependencies(mock=lambda: False, get_video=get_status, get_omni=get_status,
-            publish=lambda row: None, save_url=lambda *args: {'url': '/api/media/generations/native.mov'})
+        deps = poller.Dependencies(mock=lambda: False, get_video=get_status, get_omni=get_status, publish=lambda row: None,
+            save_url=save_url or (lambda *args: {'url': '/api/media/generations/native.mov'}))
         with patch.object(cancellation, 'publish_best_effort'):
             current, message = cancellation.cancel_generation(row.id, SimpleNamespace(id=row.user_id, role='user'),
                 env={}, adapters={'byteplus': (get_status, cancel), 'omni': (get_status, cancel)},
@@ -42,17 +42,47 @@ class CancellationTests(TransactionTestCase):
         self.assertIsNone(coordinator.claim_generation(row.id, 'late-worker'))
         self.assertEqual(poller.advance(current)['kind'], 'cancelled')
 
-    def test_finish_before_cancel_preserves_master_and_skips_delete(self):
+    def test_finish_before_cancel_skips_delete_and_leaves_the_master_to_the_worker(self):
         query = Mock(return_value={'status': 'succeeded', 'videoUrl': 'https://fixture.invalid/master.mov'})
-        current, message, cancel = self.run_cancel(self.job(), query)
+        save_url = Mock(return_value={'url': '/api/media/generations/native.mov'})
+        current, message, cancel = self.run_cancel(self.job(), query, save_url=save_url)
         cancel.assert_not_called()
-        self.assertEqual((current.status, current.url), ('succeeded', '/api/media/generations/native.mov'))
-        self.assertIn('kept', message)
+        save_url.assert_not_called()
+        self.assertEqual((current.status, current.cancellation_state, current.worker_lease_id), ('running', None, None))
+        self.assertIsNotNone(current.next_poll_at)
+        self.assertIn('being saved', message)
+        from .services import paid_guard
+        from .test_paid_guard import SEEDANCE_ENDPOINT
+        self.assertFalse(paid_guard.cancel_allowed('DELETE', SEEDANCE_ENDPOINT + '/' + current.task_id))
+        deps = poller.Dependencies(mock=lambda: False, get_video=query, publish=lambda row: None, save_url=save_url)
+        self.assertEqual(poller.advance(current, dependencies=deps)['kind'], 'succeeded')
+        current.refresh_from_db()
+        self.assertEqual(current.url, '/api/media/generations/native.mov')
 
     def test_failure_before_cancel_keeps_real_failure(self):
-        current, _, cancel = self.run_cancel(self.job(), Mock(return_value={'status': 'failed', 'error': 'synthetic'}))
+        query = Mock(return_value={'status': 'failed', 'error': 'synthetic'})
+        current, _, cancel = self.run_cancel(self.job(), query)
         cancel.assert_not_called()
+        self.assertEqual((current.status, current.cancellation_state), ('running', None))
+        poller.advance(current, dependencies=poller.Dependencies(mock=lambda: False, get_video=query, publish=lambda row: None))
+        current.refresh_from_db()
         self.assertEqual(current.status, 'failed')
+
+    def test_unreachable_preflight_restores_the_row_without_marking_cancellation(self):
+        cancel = Mock()
+        current, message, _ = self.run_cancel(self.job(), Mock(side_effect=ProviderError('down', status=503)), cancel)
+        cancel.assert_not_called()
+        self.assertEqual((current.status, current.cancellation_state), ('running', None))
+        self.assertIn('could not be reached', message)
+        self.assertTrue(cancellation.can_cancel(current, {}))
+
+    def test_partly_finished_best_of_cancels_the_rest_without_saving_in_the_request(self):
+        query = Mock(side_effect=[{'status': 'succeeded', 'videoUrl': 'https://fixture.invalid/master.mov'}, {'status': 'queued'}])
+        save_url = Mock(return_value={'url': '/api/media/generations/winner.mov'})
+        current, _, cancel = self.run_cancel(self.job(candidate_task_ids=['second-task']), query, save_url=save_url)
+        cancel.assert_called_once()
+        save_url.assert_not_called()
+        self.assertEqual((current.status, current.cancellation_state), ('running', 'requested'))
 
     def test_running_refusal_and_provider_refusal_continue_normally(self):
         for get_status, cancel in (

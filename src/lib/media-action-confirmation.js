@@ -72,6 +72,7 @@ export const MEDIA_ACTION_COPY = {
     title: "Cancel this generation?",
     description: "Asks the provider to cancel this task. If it has already finished, its result is kept. Provider charges may still apply.",
     confirmLabel: "Cancel generation",
+    dismissLabel: "Keep generating",
     destructive: true,
     maintenanceWrite: true,
   },

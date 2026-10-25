@@ -9,13 +9,14 @@ import { cn } from "@/lib/utils";
 /**
  * Shared safety boundary for media shortcuts. The caller owns the requested
  * action and its async state; this component owns modal accessibility and the
- * deliberately safe default focus on Cancel.
+ * deliberately safe default focus on the dismiss button.
  */
 export function ConfirmActionDialog({
   open,
   title,
   description,
   confirmLabel,
+  dismissLabel = "Cancel",
   destructive = false,
   busy = false,
   maintenanceWrite = false,
@@ -112,7 +113,7 @@ export function ConfirmActionDialog({
             disabled={busy}
             className="rounded-lg px-3 py-2 text-sm font-medium text-white/65 outline-none transition hover:bg-white/[0.07] hover:text-white focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-40"
           >
-            Cancel
+            {dismissLabel}
           </button>
           <button
             type="button"

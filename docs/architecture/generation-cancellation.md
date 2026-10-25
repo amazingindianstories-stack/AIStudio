@@ -25,7 +25,12 @@ Cancellation claims the existing worker lease before provider I/O. Local queued
 work can settle immediately only while the same claim excludes submission and
 there is no task receipt or uncertain submission. Submitted work is queried
 before cancellation and reconciled through the existing poller afterward. A
-provider response indicating success or failure retains that real outcome.
+provider response indicating success or failure retains that real outcome. Only
+a cancel the provider accepted marks the generation as cancelling (`202`); the
+request reconciles inline only when every task accepted it. A task that already
+finished, or that the provider refused or could not be reached for, is handed
+straight back to the generation worker, which saves any finished master; the
+API request never downloads it.
 Multiple candidate tasks settle only when every task is terminal; a completed
 candidate still supplies the winning master. Every candidate must be cancelled
 for the aggregate to settle as cancelled.

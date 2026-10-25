@@ -1507,7 +1507,7 @@ export const useStore = create((set, get) => ({
       const body = await res.json().catch(() => ({}));
       if (body.item?.id) patchEverywhere(set, id, (item) => ({ ...item, ...body.item }));
       void get().loadFeed({ force: true });
-      if (body.item?.status === "cancelled") return { ok: true };
+      if (res.ok) return { ok: true };
       return { ok: false, error: body.message || body.error || "Cancellation could not be confirmed. The generation will continue to be checked." };
     } catch (error) {
       return { ok: false, error: error.message || "Cancellation could not be confirmed. Try again." };
