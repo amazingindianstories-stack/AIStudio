@@ -2510,6 +2510,19 @@ export const useStore = create((set, get) => ({
     await Promise.all([get().loadProjects(), get().loadLibraryTree()]);
   },
 
+  renameFolderGenerations: async ({ id, previewToken, idempotencyKey }) => {
+    const res = await apiFetch("/api/folders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, action: "renameGenerations", previewToken, idempotencyKey }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) throw Object.assign(new Error(apiErrorMessage(result, res.status, "Failed to rename generations")), { code: result.code, status: res.status });
+    invalidateFeedCache();
+    await Promise.all([get().loadFeed({ force: true }), get().loadThread()]);
+    return result;
+  },
+
   setFolderColor: async (folderId, color, customIdempotencyKey) => {
     let idempotencyKey = customIdempotencyKey;
     if (!idempotencyKey) {

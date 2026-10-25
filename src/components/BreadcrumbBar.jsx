@@ -18,6 +18,7 @@ import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
 import { UNSORTED } from "@/lib/feed-scope";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { RenameFolderGenerationsItem } from "./RenameFolderGenerationsItem";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 import { getFolderColorClass, FOLDER_COLOR_OPTIONS } from "@/lib/folder-colors";
 import { cn } from "@/lib/utils";
@@ -265,7 +266,8 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
                     <span>Move folder</span>
                   </MenuItem>
                 )}
-                {isAdmin && <div className="my-1 h-px bg-line" />}
+                <RenameFolderGenerationsItem folder={currentFolder} close={close} />
+                  {isAdmin && <div className="my-1 h-px bg-line" />}
                 {isAdmin && (<MenuItem
                   onClick={() => {
                     close();

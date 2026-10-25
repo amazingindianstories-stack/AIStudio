@@ -4,7 +4,7 @@ export function installOperationTracking(store) {
   const tails = new Map();
   const retries = new Map();
   const cancelled = new Set();
-  const actions = ['createFolder','renameFolder','setFolderColor','deleteFolder','moveFolder','moveGenerationsToDestination'];
+  const actions = ['renameFolderGenerations','createFolder','renameFolder','setFolderColor','deleteFolder','moveFolder','moveGenerationsToDestination'];
   const patch = (logical, value) => {
     const entries = Object.entries(store.getState().operations || {}).filter(([key]) => key !== logical);
     store.setState({ operations: Object.fromEntries([...entries.slice(-39), [logical, value]]) });

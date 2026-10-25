@@ -106,3 +106,17 @@ class Generation(models.Model):
             PostgreSQLIndex(name='generations_coordinator_due_idx', fields=['status','next_poll_at','created_at'],
                 condition=models.Q(RawSQL("(kind = 'video' and status in ('queued', 'running')) or (kind = 'image' and (status = 'queued' or (status = 'running' and model like 'Magnific %%')))", [], output_field=models.BooleanField()))),
         ]
+
+
+class GenerationNameChange(models.Model):
+    """Immutable rename receipts, retained independently of media/user deletion."""
+    id = models.UUIDField(primary_key=True)
+    generation_id = models.UUIDField(db_index=True)
+    old_name = models.TextField()
+    new_name = models.TextField()
+    actor_id = models.UUIDField()
+    changed_at = models.BigIntegerField()
+    transaction_id = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'generation_name_changes'
