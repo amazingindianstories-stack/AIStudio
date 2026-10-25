@@ -91,11 +91,6 @@ def plan(folder_id, *, lock=False):
         if all(matches_stem(row, stem) for row in rows):
             unchanged += len(rows)
             continue
-        # A shared stem must have one master owner still present, otherwise
-        # preserve the orphaned lineage rather than inventing a new draft.
-        if len(rows) > 1 and not any(row.id == owner for row in rows):
-            skipped += len(rows)
-            continue
         representative = min(rows, key=lambda row: (row.id != owner, row.created_at, str(row.id)))
         eligible.append((owner, rows, stem, representative))
     eligible.sort(key=lambda item: (item[2].lower(), current_sequence(item[3]), item[3].created_at, str(item[3].id)))

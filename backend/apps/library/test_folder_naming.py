@@ -83,6 +83,21 @@ class FolderNamingTests(TransactionTestCase):
         self.assertEqual(later.permanent_name, draft.permanent_name)
         self.assertEqual(later.name_owner_id, draft.id)
 
+    def test_finals_of_deleted_draft_inside_subtree_rename_together(self):
+        draft = self.generation(draft_mode=True, task_id='draft')
+        finals = [self.generation(draft_mode=False, source_generation_id=draft.id, draft_task_id='draft') for _ in range(2)]
+        Generation.objects.filter(pk=draft.id).delete()
+        self.changed_folder()
+        preview = self.preview()
+        self.assertEqual((preview['renamedCount'], preview['skippedCount']), (2, 0))
+        self.assertEqual(self.rename(preview=preview).status_code, 200)
+        for final in finals:
+            final.refresh_from_db()
+        self.assertEqual([final.permanent_name for final in finals], ['R02_SC018_0001', 'R02_SC018_0001'])
+        self.assertEqual({final.name_owner_id for final in finals}, {draft.id})
+        self.assertEqual(set(GenerationNameChange.objects.values_list('old_name', flat=True)), {'R01_SC018_0001'})
+        self.assertEqual(GenerationNameChange.objects.count(), 2)
+
     def test_boundary_lineage_is_skipped_while_independent_generation_renames(self):
         draft = self.generation(draft_mode=True, task_id='draft')
         other = folders.create_folder(name='Outside')
