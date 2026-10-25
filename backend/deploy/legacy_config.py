@@ -133,7 +133,7 @@ def _managed_portraits(component, env, out):
 def _omnihuman(component, env, out):
     # Independent Vision credentials are exposed only to the generation worker.
     if component == 'generation' and env.get('VEEVEE_OMNIHUMAN') == '1':
-        for key in ('OMNIHUMAN_ACCESS_KEY_ID', 'OMNIHUMAN_SECRET_ACCESS_KEY', 'OMNIHUMAN_SECURITY_TOKEN'):
+        for key in ('OMNIHUMAN_ACCESS_KEY_ID', 'OMNIHUMAN_SECRET_ACCESS_KEY'):
             if env.get(key):
                 out[key] = env[key]
     return out

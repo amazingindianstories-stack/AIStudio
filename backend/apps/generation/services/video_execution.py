@@ -233,7 +233,7 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
         audios = resolve_references(item.prompt, item.reference_audios or [], 'audio')
         seconds = validate(images, audios)
         if item.duration != math.ceil(seconds):
-            raise ValueError('The OmniHuman audio changed after queueing. Attach it again before generating.')
+            raise ValueError(omnihuman.AUDIO_CHANGED)
         def signed(ref):
             return deps.sign(ref) if dependencies is not None else sign_reference(ref, actor_id=item.user_id, seconds=12 * 60 * 60)
         task_id = deps.omnihuman_submit({'prompt': item.prompt, 'imageUrls': [signed(ref.split('#', 1)[0]) for ref in images],

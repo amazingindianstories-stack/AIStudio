@@ -175,8 +175,7 @@ class LegacyConfigTests(SimpleTestCase):
             self.assertEqual(self.legacy.translate(component, {**env, 'VEEVEE_GEMINI_OMNI': '1'})['VEEVEE_GEMINI_OMNI'], '1')
 
     def test_omnihuman_vision_credentials_reach_only_enabled_generation_worker(self):
-        keys = {'OMNIHUMAN_ACCESS_KEY_ID': 'synthetic-ak', 'OMNIHUMAN_SECRET_ACCESS_KEY': 'synthetic-sk',
-                'OMNIHUMAN_SECURITY_TOKEN': 'synthetic-sts'}
+        keys = {'OMNIHUMAN_ACCESS_KEY_ID': 'synthetic-ak', 'OMNIHUMAN_SECRET_ACCESS_KEY': 'synthetic-sk'}
         envs = {'api': self.api_env(), **{kind: self.worker_env(kind) for kind in ('generation', 'export', 'scheduler')}}
         for component, env in envs.items():
             off = self.legacy.translate(component, {**env, **keys})

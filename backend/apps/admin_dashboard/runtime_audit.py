@@ -22,7 +22,7 @@ from .admin_api import node_route, admin_gate
 from .models import UserLimit
 from .queries import query, log_rows, csv_response
 
-CHECK_IDS = ['MIG-04', 'ARCH-03', 'QUAL-03', 'ARCH-04', 'VER-08', 'VER-10', 'REL-02', 'REL-03', 'COST-05', 'REL-07', 'VER-11']
+CHECK_IDS = ['MIG-04', 'ARCH-03', 'QUAL-03', 'ARCH-04', 'VER-08', 'VER-10', 'REL-02', 'REL-03', 'COST-05', 'REL-07']
 
 
 def sanitize(value):
@@ -176,29 +176,10 @@ def poll_recovery_check():
     return 'Python poller recorded a non-terminal transient error, recovered to pending, and rolled back every fixture write'
 
 
-def omnihuman_check():
-    """Local protocol audit only; never use account credentials or contact the provider."""
-    import json
-    from unittest.mock import Mock
-    from apps.generation.providers import omnihuman
-    from apps.integrations.transport import HttpResult
-    from datetime import datetime, timezone
-    transport = Mock(request=Mock(return_value=HttpResult(200, b'{"code":10000,"data":{"status":"generating"}}')))
-    payload = omnihuman.call(omnihuman.QUERY, {'req_key': omnihuman.REQ_KEY, 'task_id': 'audit-task'},
-        env={'OMNIHUMAN_ACCESS_KEY_ID': 'synthetic', 'OMNIHUMAN_SECRET_ACCESS_KEY': 'synthetic'},
-        transport=transport, date=datetime(2026, 10, 25, tzinfo=timezone.utc))
-    assert omnihuman.normalize_video_task_payload(payload)['status'] == 'running'
-    args, kwargs = transport.request.call_args
-    assert args == ('POST', omnihuman.endpoint(omnihuman.QUERY))
-    assert '/ap-singapore-1/cv/request' in kwargs['headers']['Authorization']
-    assert json.loads(kwargs['raw_body'])['req_key'] == omnihuman.REQ_KEY
-    return 'Synthetic OmniHuman signed query: fixed cv/ap-singapore-1 scope and generating lifecycle; no live acceptance claimed'
-
-
 def run_runtime_audit(actor_id, checks=None, *, kling_transport=None, kling_env=None):
     checked = now_ms()
     implementations = {'MIG-04':migration_check, 'ARCH-03':queue_check, 'QUAL-03':lambda:flagged_check(actor_id),
-        'REL-02':spool_check, 'REL-03':deadline_check,'COST-05':partial_submission_check,'REL-07':poll_recovery_check,'VER-11':omnihuman_check}
+        'REL-02':spool_check, 'REL-03':deadline_check,'COST-05':partial_submission_check,'REL-07':poll_recovery_check}
     implementations.update(checks or {})
     from . import kling_validation
     try:

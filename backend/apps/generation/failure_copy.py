@@ -90,8 +90,7 @@ def _curated():
     from .services import audio_submission, poller, portrait_prepare, seedream_references, upscale_submission, video_execution
     exact = {
         seedance.MODERATION_MESSAGE, seedance.TEXT_POLICY_MESSAGE, seedance.NEUTRAL_POLICY_MESSAGE, seedance.EXPIRED_MESSAGE,
-        *omnihuman.ERROR_COPY.values(), omnihuman.AUDIO, omnihuman.UNCERTAIN,
-        'The OmniHuman audio changed after queueing. Attach it again before generating.',
+        *omnihuman.ERROR_COPY.values(), omnihuman.AUDIO, omnihuman.UNCERTAIN, omnihuman.AUDIO_CHANGED,
         portrait_prepare.REJECTED_MESSAGE,
         seedream.AMBIGUOUS_MESSAGE, seedream.NO_RESULT_MESSAGE, seedream.DOWNLOAD_FAILED_MESSAGE,
         poller.MAGNIFIC_TOO_LARGE, poller.MAGNIFIC_IMAGE_TOO_LARGE, poller.MAGNIFIC_SAVE_FAILED,

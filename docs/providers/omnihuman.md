@@ -26,7 +26,9 @@ Original input bytes are checked before queueing and again before submission:
 Submission records a durable receipt before returning. Queueing and processing
 are polled asynchronously so a pending job releases its worker slot between
 checks. The documented task lifetime is 12 hours. Input grants last 12 hours.
-No failure automatically resubmits a paid task. Provider error records retain
+No failure automatically resubmits a paid task. A status query ends a job only
+on an input or content-policy refusal; credential, signature, clock, access and
+service errors back off and keep polling the accepted task. Provider error records retain
 redacted codes and request/task IDs for the user failure copy and admin view.
 All documented states, business errors and common service/gateway errors have
 explicit mappings and synthetic tests.
@@ -48,13 +50,13 @@ An approved deployment needs:
 
 - `VEEVEE_OMNIHUMAN=1` on API and generation worker after acceptance.
 - `OMNIHUMAN_ACCESS_KEY_ID` and `OMNIHUMAN_SECRET_ACCESS_KEY` on the generation
-  worker only. Optional `OMNIHUMAN_SECURITY_TOKEN` supports STS credentials.
+  worker only.
 - The exact output hostname observed in an approved live canary in the worker's
   existing `provider_media_hosts` configuration. Do not add guessed hosts or wildcards.
 - A confirmed account price and approval for a short live canary. A four-second
   canary costs four times that per-second rate, subject to account billing rules.
 
-Local protocol/runtime checks are synthetic and do not establish live acceptance.
+Local protocol checks are synthetic and do not establish live acceptance.
 No production deployment or service configuration change is part of this work.
 
 Cancellation is a separate follow-up. This adapter recognizes a provider-originated

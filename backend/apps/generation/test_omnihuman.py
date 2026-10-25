@@ -76,7 +76,8 @@ class OmniHumanProtocolTests(SimpleTestCase):
                     self.assertEqual(result['providerError']['provider'], 'omnihuman')
         result = api.normalize_video_task_payload({'code': 10000, 'data': {'status': 'done'}}, 'task')
         self.assertEqual((result['status'], result['providerError']['code']), ('failed', 'no_video'))
-        result = api.normalize_video_task_payload({'code': 50510, 'data': {'status': 'done', 'video_url': 'https://fixture.invalid/out.mp4'}})
+        transport = Mock(request=Mock(return_value=response({'code': 50510, 'data': {'status': 'done', 'video_url': 'https://fixture.invalid/out.mp4'}})))
+        result = api.get_video_task('task', env=ENV, transport=transport)
         self.assertEqual((result['status'], result['moderationBlocked']), ('failed', True))
         self.assertNotIn('videoUrl', result)
 
@@ -115,20 +116,24 @@ class OmniHumanProtocolTests(SimpleTestCase):
                     with self.subTest(code=code):
                         payload = {'ResponseMetadata': {'Error': {'Code': code, 'Message': 'fixture'}, 'RequestId': 'gateway-request'},
                             'code': 10000, 'data': {'status': 'done', 'video_url': 'https://ignored.invalid'}}
-                        result = api.normalize_video_task_payload(payload, 'task')
-                        self.assertEqual(result['status'], 'failed')
-                        self.assertEqual(result['error'], sentence)
-                        self.assertEqual(result['providerError']['code'], str(code))
-                        self.assertEqual(result['providerError']['requestId'], 'gateway-request')
+                        transport = Mock(request=Mock(return_value=response(payload, 401)))
+                        with self.assertRaises(ProviderError) as caught:
+                            api.get_video_task('task', env=ENV, transport=transport)
+                        self.assertEqual(str(caught.exception), sentence)
+                        self.assertEqual(caught.exception.provider_response['code'], str(code))
+                        self.assertEqual(caught.exception.provider_response['requestId'], 'gateway-request')
 
     def test_retryable_poll_errors_back_off_and_terminal_refusals_stop(self):
-        for code in [50429, 50430, 50500, 50501]:
+        for code in [50429, 50430, 50500, 50501, 50400, 50402, 50217]:
             transport = Mock(request=Mock(return_value=response({'code': code}, 429 if code < 50500 else 500)))
             with self.subTest(code=code), self.assertRaises(ProviderError):
                 api.get_video_task('task', env=ENV, transport=transport)
             transport.request.assert_called_once()
-        transport = Mock(request=Mock(return_value=response({'code': 50510})))
-        self.assertEqual(api.get_video_task('task', env=ENV, transport=transport)['status'], 'failed')
+        for code in [50200, 50201, 50204, 50205, 50206, 50207, 50215, 50510]:
+            transport = Mock(request=Mock(return_value=response({'code': code})))
+            with self.subTest(code=code):
+                result = api.get_video_task('task', env=ENV, transport=transport)
+                self.assertEqual((result['status'], result['providerError']['code']), ('failed', str(code)))
 
     def test_ambiguous_submission_never_retries_and_missing_inputs_never_send(self):
         for result in [HttpResult(200, b'not-json'), response({'code': 10000, 'data': {}})]:
@@ -238,13 +243,30 @@ class OmniHumanLifecycleTests(TransactionTestCase):
         for code in (50205, 50510):
             with self.subTest(code=code):
                 row = self.job()
-                result = api.normalize_video_task_payload({'code': code, 'message': 'provider detail', 'request_id': 'request-1'}, row.task_id)
-                deps = self.deps(get_omnihuman=lambda *a, **kw: result)
+                transport = Mock(request=Mock(return_value=response({'code': code, 'message': 'provider detail', 'request_id': 'request-1'})))
+                deps = self.deps(get_omnihuman=lambda task_id, **kw: api.get_video_task(task_id, env=ENV, transport=transport))
                 self.assertEqual(poller.advance(row, dependencies=deps)['kind'], 'failed')
                 row.refresh_from_db()
                 self.assertEqual(row.provider_responses[0]['code'], str(code))
                 self.assertEqual(row.moderation_blocked, code == 50510)
                 self.assertNotIn('Portrait Gallery', failure_copy.public_message(row, row.error))
+
+    def test_credential_or_clock_refusal_while_polling_keeps_the_accepted_task(self):
+        for code in ('SignatureDoesNotMatch', 'InvalidTimestamp', 'AccessDenied', 'InvalidAccessKey', 100013, 50400):
+            with self.subTest(code=code):
+                row = self.job()
+                payload = {'ResponseMetadata': {'Error': {'Code': code, 'Message': 'fixture'}, 'RequestId': 'gateway-request'}} \
+                    if isinstance(code, str) or code > 100000 else {'code': code}
+                transport = Mock(request=Mock(return_value=response(payload, 403)))
+                deps = self.deps(get_omnihuman=lambda task_id, **kw: api.get_video_task(task_id, env=ENV, transport=transport))
+                self.assertEqual(poller.advance(row, dependencies=deps)['kind'], 'poll_error')
+                row.refresh_from_db()
+                self.assertEqual((row.status, row.task_id, row.error, row.poll_error_count), ('running', 'accepted-task', None, 1))
+                transport.request.return_value = response({'code': 10000, 'data': {'status': 'generating'}})
+                self.assertEqual(poller.advance(row, dependencies=deps)['kind'], 'pending')
+                row.refresh_from_db()
+                self.assertEqual((row.status, row.task_id, row.poll_error_count), ('running', 'accepted-task', 0))
+                self.assertEqual(transport.request.call_count, 2)
 
     def test_download_retry_stays_within_output_url_lifetime_and_never_resubmits(self):
         row = self.job()

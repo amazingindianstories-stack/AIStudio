@@ -28,6 +28,7 @@ NO_VIDEO = 'OmniHuman finished but returned no video.'
 UNKNOWN = 'OmniHuman returned an unrecognized task response. Nothing was resubmitted.'
 CANCEL_DENIED = 'OmniHuman could not cancel this task because it had already started.'
 UNCERTAIN = 'OmniHuman did not confirm whether it accepted this request. It may still be running and billed; ask the team to check before retrying.'
+AUDIO_CHANGED = 'The OmniHuman audio changed after queueing. Attach it again before generating.'
 # Both the gateway's symbolic codes and its documented CodeN values are accepted.
 GATEWAY = {
     'MissingParameter': (100002, INVALID), 'MissingAuthenticationToken': (100003, UNAVAILABLE),
@@ -53,6 +54,8 @@ ERROR_COPY.update(not_found=EXPIRED, expired=EXPIRED, canceled=CANCELED, no_vide
 RETRYABLE = frozenset(('50429', '50430', '50500', '50501', 'InternalError', 'FailToConnect',
     'InternalServiceTimeout', 'FlowLimitExceeded', 'ServiceUnavailableTemp', 'InternalServiceError',
     '100014', '100015', '100016', '100018', '100019', '100023'))
+# Only these codes describe the task itself; a status query ends the job on no other refusal.
+TASK_FAILURES = frozenset(('50200', '50201', '50204', '50205', '50206', '50207', '50215', '50510'))
 
 
 def endpoint(action):
@@ -90,8 +93,6 @@ def call(action, body, *, env=None, transport=None, signal=None, date=None):
         raise
     raw = json.dumps(body, ensure_ascii=False, separators=(',', ':'))
     headers = {'content-type': 'application/json', 'host': HOST}
-    if env.get('OMNIHUMAN_SECURITY_TOKEN'):
-        headers['x-security-token'] = env['OMNIHUMAN_SECURITY_TOKEN']
     signed = sign_request(body=raw, ak=ak, sk=sk, region=REGION, service=SERVICE,
         query={'Action': action, 'Version': VERSION}, headers=headers, date=date)
     transport = transport or HttpTransport(allowed_hosts={HOST}, timeout=45, max_response_bytes=1024 * 1024)
@@ -132,10 +133,6 @@ def create_video_task(input, *, env=None, transport=None, signal=None):
 
 
 def normalize_video_task_payload(payload, task_id=None):
-    if response_error(payload):
-        error = failure(payload, phase='task', task_id=task_id)
-        return {'status': 'failed', 'error': str(error), 'providerError': error.provider_response,
-                'moderationBlocked': error.code == '50510'}
     data = payload.get('data') if isinstance(payload.get('data'), dict) else {}
     state = data.get('status') if isinstance(data.get('status'), str) else None
     status = STATES.get(state)
@@ -153,7 +150,7 @@ def get_video_task(task_id, *, env=None, transport=None, signal=None):
     try:
         payload = call(QUERY, {'req_key': REQ_KEY, 'task_id': task_id}, env=env, transport=transport, signal=signal)
     except ProviderError as error:
-        if error.code in ERROR_COPY and error.code not in RETRYABLE:
+        if error.code in TASK_FAILURES:
             return {'status': 'failed', 'error': str(error), 'providerError': error.provider_response,
                     'moderationBlocked': error.code == '50510'}
         raise
