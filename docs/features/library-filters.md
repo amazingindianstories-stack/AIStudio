@@ -72,7 +72,9 @@ a late result from repainting a different scope. Once an applied set's first pag
 settles, a polite status announces no matches, an exact count when every match is
 loaded, or that more load on scroll; navigation restores are not announced. The Filters
 trigger is named with its active dimension count ("Filters, 2 active"). Cached rows retain their scope
-so metadata mutations can remove rows that no longer match.
+so metadata mutations can remove rows that no longer match. Under Oldest first, a new
+or in-flight row that sorts past the loaded pages is left for pagination rather than
+spliced into the loaded window.
 
 Search, filters and sort are restored per actor and navigation source in this
 browser tab's sessionStorage, bounded to recent sources; the date-grouping choice
