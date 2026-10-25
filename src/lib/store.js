@@ -139,6 +139,16 @@ function currentScope(s) {
   };
 }
 
+/** Chat follows the open project/folder, independently of grid search and tabs. */
+function threadScope(s) {
+  return { tab: s.activeProjectId ? "project" : "library", projectId: s.activeProjectId,
+    folderId: s.activeFolderId, kind: "all", q: "" };
+}
+
+function matchesThread(item, s) {
+  return item.kind !== "depth" && item.kind !== "audio" && matchesScope(item, threadScope(s));
+}
+
 /**
  * Apply a change to one row everywhere it is held.
  *
@@ -339,7 +349,7 @@ function insertNewItem(
     // join the conversational thread — they're not a prompt/response chat
     // turn the way image/video generations are, and mixing a worker-run
     // depth job into that feed was explicitly unwanted.
-    if (item.kind !== "depth" && item.kind !== "audio" && item.projectId && item.projectId === s.activeProjectId) {
+    if (matchesThread(item, s)) {
       patch.threadItems = [item, ...s.threadItems.filter((i) => i.id !== item.id)];
     }
     return patch;
@@ -514,6 +524,7 @@ export const useStore = create((set, get) => ({
   counts: EMPTY_COUNTS,
   feedKey: "",
   threadItems: [],
+  threadScopeKey: null,
   threadLoading: true,
   pendingItems: [],
   feedPinned: true,
@@ -1045,19 +1056,16 @@ export const useStore = create((set, get) => ({
   },
 
   loadThread: async () => {
-    const projectId = get().activeProjectId;
-    if (!projectId) {
-      set({ threadItems: [], threadLoading: false });
-      return;
-    }
+    const scope = threadScope(get());
+    const key = scopeKey(scope);
     const seq = nextStoreRequestSequence("thread");
-    set({ threadLoading: true });
+    if (get().threadScopeKey !== key) set({ threadItems: [], threadScopeKey: key, threadLoading: true });
     try {
-      const params = historyFilterToParams({ projectId });
+      const params = historyFilterToParams(scopeToQuery(scope));
       params.set("limit", String(THREAD_PAGE_SIZE));
       const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
       const json = await res.json();
-      if (seq !== currentStoreRequestSequence("thread")) return;
+      if (seq !== currentStoreRequestSequence("thread") || key !== scopeKey(threadScope(get()))) return;
       // Depth rows are excluded from the thread (see insertNewItem's comment) —
       // filtered client-side rather than via the shared history-query `kind`
       // param, which only supports a single "image"|"video" inclusion filter
@@ -1066,7 +1074,7 @@ export const useStore = create((set, get) => ({
       // undershoot THREAD_PAGE_SIZE when a page happens to contain depth
       // rows — acceptable for a kind this infrequent, on an unpaginated
       // single fetch.
-      const threadItems = (json.items ?? []).filter((it) => it.kind !== "depth" && it.kind !== "audio");
+      const threadItems = (json.items ?? []).filter((it) => matchesThread(it, get()));
       set({ threadItems, threadLoading: false });
     } catch {
       if (seq !== currentStoreRequestSequence("thread")) return;
@@ -2613,6 +2621,7 @@ export const useStore = create((set, get) => ({
     await Promise.all([
       get().loadFeed({ force: true }),
       get().loadCounts(),
+      get().loadThread(),
     ]);
     return {ok:true,...committed};
   },
@@ -2812,7 +2821,7 @@ export function mergeLiveItems(
       // chat copy permanently `running` until a full thread reload.
       const threadItem = threadById.get(inc.id);
       if (threadItem && inc.updatedAt > threadItem.updatedAt) {
-        if (inc.projectId === s.activeProjectId && inc.kind !== "depth" && inc.kind !== "audio") {
+        if (matchesThread(inc, s)) {
           threadById.set(inc.id, {
             ...threadItem,
             ...inc,
@@ -3090,6 +3099,7 @@ if (typeof window !== "undefined") {
       writeLibrarySession(actor, source, s);
     }
     const projectChanged = s.activeProjectId !== prev.activeProjectId;
+    if (projectChanged || s.activeFolderId !== prev.activeFolderId) void s.loadThread();
     const searchChanged = s.search !== prev.search;
     const effectiveScopeChanged =
       projectChanged ||
@@ -3118,10 +3128,8 @@ if (typeof window !== "undefined") {
       const st = useStore.getState();
       void st.loadFeed();
       void st.loadCounts();
-      // The chat thread and materials depend on the project, so leave them alone when
-      // the user is merely filtering the library.
+      // Materials belong to the project; chat also follows folder changes above.
       if (projectChanged) {
-        void st.loadThread();
         void st.loadAssets(st.activeProjectId);
       }
     };

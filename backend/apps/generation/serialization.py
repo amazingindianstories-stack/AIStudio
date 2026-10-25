@@ -24,7 +24,7 @@ def value(row, name):
     return str(result) if isinstance(result, UUID) else result
 
 
-def generation_item(row):
+def generation_item(row, filename=None):
     result = {camel(name): value(row, name) for name in REQUIRED}
     for name in OPTIONAL:
         item = value(row, name)
@@ -36,6 +36,12 @@ def generation_item(row):
         item = value(row, name)
         result[camel(name)] = fallback if item is None else item
     result['costBasis'] = 'reconciled' if row.cost_basis == 'reconciled' else 'estimated'
+    if filename is None and (row.permanent_name or not row._state.adding):
+        from apps.library.filenames import batch_resolve_generation_filenames, resolve_extension
+        filename = (row.permanent_name + '.' + resolve_extension(row.kind, row.url)) if row.permanent_name else (
+            batch_resolve_generation_filenames([row.id]).get(str(row.id), {}).get('filename'))
+    if filename:
+        result['filename'] = filename
     if row.continuation_frame_url is not None:
         result['firstFrameUrl'] = row.continuation_frame_url
     # Magnific upscales reopen and regenerate with their exact validated parameters.

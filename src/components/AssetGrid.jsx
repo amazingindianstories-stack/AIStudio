@@ -14,7 +14,6 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { getNextGridFocus } from "@/lib/grid-navigation";
-import { GENERATION_NAME_ROW_HEIGHT } from "./MediaCard";
 import { libraryDateLabel, libraryDayTitle, localDateKey } from "@/lib/library-filters";
 
 /**
@@ -213,7 +212,7 @@ export function AssetGrid({
     if (direction) {
       e.preventDefault();
       const currentId = focusedAssetId || selectedIds[0] || itemIds[0];
-      const nextId = getNextGridFocus(columns, currentId, direction, items, { ...libraryCardSpacing(width, cardWidth), centers: layout.centers });
+      const nextId = getNextGridFocus(columns, currentId, direction, items, { gap: libraryCardGap(width, cardWidth), centers: layout.centers });
       if (nextId) {
         setFocusedAssetId(nextId);
         if (e.shiftKey) {
@@ -412,8 +411,8 @@ function relativeHeight(aspectRatio) {
  * the identical prefix.
  *
  * (Re-packing does happen when the container width changes — a panel resize,
- * a zoom change, or a classic scrollbar appearing — because the name row and
- * gap are measured against the resulting column width, and when a new item is
+ * a zoom change, or a classic scrollbar appearing - because the
+ * gap is measured against the resulting column width, and when a new item is
  * prepended. Each is a direct consequence of something the user did or a
  * one-time layout change, not movement under a passive scroll.)
  */
@@ -423,7 +422,7 @@ export function packColumns(
   cardWidth
 ) {
   const count = columnCount(containerWidth, cardWidth);
-  const { below, gap } = libraryCardSpacing(containerWidth, cardWidth);
+  const gap = libraryCardGap(containerWidth, cardWidth);
   const columns = Array.from({ length: count }, () => []);
   const heights = new Array(count).fill(0);
 
@@ -435,7 +434,7 @@ export function packColumns(
       if (heights[i] < heights[target]) target = i;
     }
     columns[target].push(item);
-    heights[target] += relativeHeight(item.aspectRatio) + below + gap;
+    heights[target] += relativeHeight(item.aspectRatio) + gap;
   }
   return columns;
 }
@@ -450,7 +449,7 @@ export function packDateSections(items, containerWidth, cardWidth, grouped = tru
   }
   const count = columnCount(containerWidth, cardWidth);
   const columnWidth = containerWidth ? (containerWidth - 32 - GRID_GAP * (count - 1)) / count : cardWidth;
-  const spacing = libraryCardSpacing(containerWidth, cardWidth);
+  const gap = libraryCardGap(containerWidth, cardWidth);
   const columns = Array.from({ length: count }, () => []), centers = {};
   let top = 0;
   const sections = [...groups].map(([key, rows]) => {
@@ -460,11 +459,11 @@ export function packDateSections(items, containerWidth, cardWidth, grouped = tru
     packed.forEach((column, index) => {
       let offset = 0;
       for (const item of column) {
-        const itemHeight = relativeHeight(item.aspectRatio) + spacing.below;
+        const itemHeight = relativeHeight(item.aspectRatio);
         centers[item.id] = top + offset + itemHeight / 2;
-        offset += itemHeight + spacing.gap;
+        offset += itemHeight + gap;
       }
-      height = Math.max(height, offset ? offset - spacing.gap : 0);
+      height = Math.max(height, offset ? offset - gap : 0);
       columns[index].push(...column);
     });
     top += height + (grouped ? 16 / columnWidth : 0);
@@ -473,14 +472,13 @@ export function packDateSections(items, containerWidth, cardWidth, grouped = tru
   return { sections, columns, centers };
 }
 
-/** The name row under each library card's media and the gap after the card,
- *  in the same column-width units as the media's aspect-ratio height. */
-export function libraryCardSpacing(containerWidth, cardWidth) {
+/** The gap after each card, in column-width units like its aspect-ratio height. */
+export function libraryCardGap(containerWidth, cardWidth) {
   const count = columnCount(containerWidth, cardWidth);
   const columnWidth = containerWidth
     ? (containerWidth - 32 - GRID_GAP * (count - 1)) / count
     : cardWidth;
-  return { below: GENERATION_NAME_ROW_HEIGHT / columnWidth, gap: GRID_GAP / columnWidth };
+  return GRID_GAP / columnWidth;
 }
 
 /** How many cards fit across, honouring the zoom control's card width as a
@@ -502,7 +500,7 @@ export function SkeletonGrid({ cardWidth }) {
       style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cardWidth}px, 1fr))` }}
     >
       {[180, 240, 200, 280, 160, 220, 260, 190, 210, 250, 175, 230].map((h, i) => (
-        <div key={i} className="skeleton rounded-xl" style={{ height: h + GENERATION_NAME_ROW_HEIGHT }} />
+        <div key={i} className="skeleton rounded-xl" style={{ height: h }} />
       ))}
     </div>
   );

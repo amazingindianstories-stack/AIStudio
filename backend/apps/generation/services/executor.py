@@ -13,7 +13,7 @@ from apps.common.leases import now_ms
 from apps.generation.model_registry import capability
 from apps.generation.models import Generation
 from apps.generation.realtime import publish_best_effort
-from apps.library.services.naming import assign_generation_naming
+from apps.library.services.naming import assign_generation_naming, same_execution_identity
 from . import admission, coordinator, paid_guard, poller
 from .deadline import Cancellation
 from .video_execution import submit_video
@@ -105,13 +105,9 @@ def _fenced_completion_update(item,owner,updates):
     receipt/progress state, account, lease owner and any competing master.
     New model fields are protected automatically rather than silently ignored.
     """
-    metadata={'project_id','folder_id','location_version','permanent_name','is_favorite','favorited_at',
-        'flagged','flagged_at','flag_reason','updated_at','worker_lease_until'}
     with transaction.atomic():
         current=Generation.objects.select_for_update().filter(pk=item.id,worker_lease_id=owner).first()
-        if not owner or current is None or any(
-                getattr(current,field.attname)!=getattr(item,field.attname)
-                for field in Generation._meta.concrete_fields if field.attname not in metadata):
+        if not owner or current is None or not same_execution_identity(current, item, ignored={'worker_lease_until'}):
             raise LeaseLost('Generation execution changed before completion persistence.')
         fields={**updates,'updated_at':max(updates.get('updated_at',0),current.updated_at+1)}
         Generation.objects.filter(pk=current.id).update(**fields)

@@ -67,7 +67,7 @@ test('Goal2 actual pointer traverses 50 references with edge autoscroll and pres
   await expect(page.locator('textarea').first()).toHaveValue('@img1 @img10 @img50 literal @img100 @named');
 });
 
-test('Goal2 explicit buttons position keyboard focus and reload preserve attachment occurrence identity', async ({ page, context, baseURL }, testInfo) => {
+test('Goal2 explicit position keyboard focus and reload preserve attachment occurrence identity', async ({ page, context, baseURL }, testInfo) => {
   await ready(page, context, baseURL);
   const ids = await stage(page, context, 10);
   const sources = await page.locator('[data-reference-id] img').evaluateAll(images => images.map(image => image.getAttribute('src')));
@@ -86,7 +86,7 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   expect(await order(page)).toEqual(ids);
   await expect(page.locator('textarea').first()).toHaveValue('@img1 @img10 @img100 @named');
   await page.locator('[data-reference-id]').first().hover();
-  await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).click();
+  await page.getByRole('button', { name: 'Preview reference 1', exact: true }).press('Alt+ArrowRight');
   expect((await order(page))[1]).toBe(ids[0]);
   const moved = page.locator(`[data-reference-id="${ids[0]}"] [data-reference-preview]`);
   await expect(moved).toBeFocused();
@@ -134,7 +134,7 @@ test('Goal2 explicit buttons position keyboard focus and reload preserve attachm
   await page.screenshot({ path: testInfo.outputPath('chat-folder-cue-timestamp.png') });
   await page.locator('textarea').first().fill('A later editable draft @img1');
   await page.locator('[data-reference-id]').first().hover();
-  await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).click();
+  await page.getByRole('button', { name: 'Preview reference 1', exact: true }).press('Alt+ArrowRight');
   const committed = await sql`SELECT prompt, reference_images FROM generations WHERE id=${result.id}`;
   expect(committed[0].prompt).toBe(submitted.prompt);
   expect(committed[0].reference_images).toEqual(expectedSources);
@@ -415,7 +415,7 @@ test('Goal2 reordering and removing references leave the prompt alone, as in Hig
   const prompt = page.locator('textarea').first();
   await prompt.fill('@img1 then @img3');
   await page.locator('[data-reference-id]').first().hover();
-  await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).click();
+  await page.getByRole('button', { name: 'Preview reference 1', exact: true }).press('Alt+ArrowRight');
   expect(await order(page)).toEqual([ids[1], ids[0], ids[2]]);
   await expect(prompt).toHaveValue('@img1 then @img3');
   await page.getByRole('button', { name: 'Undo reorder', exact: true }).click();
@@ -457,40 +457,22 @@ test('Goal2 clicking an unresolved tag replaces it from a menu of the attached r
   await expect(prompt).toHaveValue('@img1 walks past @img2X while @img2 waves');
 });
 
-test('Goal2 hover side arrows shift neighbours without overlap and thumbnail drag reorders', async ({ page, context, baseURL }, testInfo) => {
+test('Goal2 hovering references keeps neighbours fixed and thumbnail drag reorders', async ({ page, context, baseURL }, testInfo) => {
   await ready(page, context, baseURL);
   const ids = await stage(page, context, 20);
   await page.locator('textarea').first().fill('@img1 then @img2');
   await page.mouse.move(10, 10);
   const firstCard = page.locator('[data-reference-id]').first();
   const secondCard = page.locator('[data-reference-id]').nth(1);
-  const rightArrow = page.getByRole('button', { name: 'Move reference 1 right', exact: true });
-  const arrowWidth = () => rightArrow.evaluate((el) => el.getBoundingClientRect().width);
-  await expect.poll(arrowWidth).toBe(0);
+  await firstCard.hover();
+  await page.mouse.move(10, 10);
   const secondBefore = await secondCard.boundingBox();
   await firstCard.hover();
-  await expect.poll(arrowWidth).toBeGreaterThan(10);
-  const arrowBox = await rightArrow.boundingBox();
-  const thumbBox = await firstCard.locator('[data-reference-preview]').boundingBox();
-  const secondAfter = await secondCard.boundingBox();
-  // Right arrow sits outside the right edge of the thumbnail and shifts the second card right with no overlap.
-  expect(arrowBox.x).toBeGreaterThanOrEqual(thumbBox.x + thumbBox.width - 2);
-  expect(secondAfter.x).toBeGreaterThan(secondBefore.x + 15);
-  expect(secondAfter.x).toBeGreaterThanOrEqual(arrowBox.x + arrowBox.width - 1);
-  await page.mouse.move(10, 10);
-  await expect.poll(arrowWidth).toBe(0);
-  // The arrow collapses before the neighbour finishes sliding back, so wait for the card to settle.
-  await expect.poll(async () => Math.abs((await secondCard.boundingBox()).x - secondBefore.x)).toBeLessThan(0.5);
-  // Focus on the thumbnail alone keeps the arrows hidden; tabbing onto an arrow reveals it and makes
-  // the same room; blurring hides it.
-  await page.getByRole('button', { name: 'Move reference 1 to position', exact: true }).focus();
-  await expect.poll(arrowWidth).toBe(0);
-  await page.keyboard.press('Tab');
-  await expect(rightArrow).toBeFocused();
-  await expect.poll(arrowWidth).toBeGreaterThan(10);
-  expect((await secondCard.boundingBox()).x).toBeGreaterThan(secondBefore.x + 15);
-  await page.evaluate(() => document.activeElement?.blur());
-  await expect.poll(arrowWidth).toBe(0);
+  await expect(page.locator('[data-reference-arrow]')).toHaveCount(0);
+  expect(await secondCard.boundingBox()).toEqual(secondBefore);
+  await firstCard.locator('[data-reference-preview]').focus();
+  expect(await secondCard.boundingBox()).toEqual(secondBefore);
+  await expect(firstCard.locator('[data-reference-preview]')).toHaveAttribute('title', /drag or Alt \+ arrow keys to reorder/);
   const strip = page.getByTestId('reference-strip');
   await strip.hover();
   await page.mouse.wheel(400, 0);
@@ -506,70 +488,17 @@ test('Goal2 hover side arrows shift neighbours without overlap and thumbnail dra
   await page.mouse.up();
   await expect.poll(async () => (await order(page))[1]).toBe(ids[0]);
   await expect(page.locator('textarea').first()).toHaveValue('@img1 then @img2');
-  await page.screenshot({ path: testInfo.outputPath('hover-arrows-and-thumbnail-drag-reorder.png') });
+  await page.screenshot({ path: testInfo.outputPath('stable-hover-and-thumbnail-drag-reorder.png') });
 });
 
-test('Goal2 repeated side arrow clicks in place never open the preview of the moved reference', async ({ page, context, baseURL }, testInfo) => {
+test('Goal2 a reference previews immediately after keyboard reordering', async ({ page, context, baseURL }) => {
   await ready(page, context, baseURL);
   const ids = await stage(page, context, 3);
-  const dialog = page.getByRole('dialog', { name: 'Reference Preview', exact: true });
-  const cardOf = (id) => page.locator(`[data-reference-id="${id}"]`);
-  const underPointer = (x, y) => page.evaluate(({ x, y }) => {
-    const hit = document.elementFromPoint(x, y);
-    return { card: hit?.closest('[data-reference-id]')?.dataset.referenceId || null, preview: Boolean(hit?.closest('[data-reference-preview]')) };
-  }, { x, y });
-  // Work in the expanded composer, so a click that focuses the strip does not expand it and move the
-  // thumbnails out from under a pointer held in place.
-  const prompt = page.locator('textarea').first();
-  await prompt.fill('@img1 then @img2');
-  await prompt.press('Escape');
-  await expect(page.getByTestId('prompt-composer')).toHaveAttribute('data-composer-collapsed', 'false');
-  await page.mouse.move(10, 10);
-
-  // Moving right: after the move the moved card's thumbnail slides under the pointer.
-  await cardOf(ids[0]).hover();
-  const right = await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).boundingBox();
-  const rx = right.x + right.width / 2, ry = right.y + right.height / 2;
-  await page.mouse.click(rx, ry);
+  const moved = page.locator(`[data-reference-id="${ids[0]}"] [data-reference-preview]`);
+  await moved.press('Alt+ArrowRight');
   expect(await order(page)).toEqual([ids[1], ids[0], ids[2]]);
-  expect(await underPointer(rx, ry)).toEqual({ card: ids[0], preview: true });
-  await page.mouse.click(rx, ry);
-  await page.waitForTimeout(150);
-  await expect(dialog).toHaveCount(0);
-  expect(await order(page)).toEqual([ids[1], ids[0], ids[2]]);
-  await page.screenshot({ path: testInfo.outputPath('repeat-right-arrow-click-no-preview.png') });
-
-  // A deliberate later click on the same thumbnail, without leaving it, still previews.
-  await page.waitForTimeout(600);
-  await page.mouse.click(rx, ry);
-  await expect(dialog).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath('deliberate-later-click-previews.png') });
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
-
-  // Moving left: the second click lands on the moved card's thumbnail in its new first slot.
-  await page.mouse.move(10, 10);
-  await cardOf(ids[0]).hover();
-  const left = await page.getByRole('button', { name: 'Move reference 2 left', exact: true }).boundingBox();
-  const lx = left.x + left.width / 2, ly = left.y + left.height / 2;
-  await page.mouse.click(lx, ly);
-  expect(await order(page)).toEqual(ids);
-  expect(await underPointer(lx, ly)).toEqual({ card: ids[0], preview: true });
-  await page.mouse.click(lx, ly);
-  await page.waitForTimeout(150);
-  await expect(dialog).toHaveCount(0);
-  expect(await order(page)).toEqual(ids);
-
-  // Leaving the card ends the repeat window: coming straight back and clicking previews at once.
-  await page.mouse.move(10, 10);
-  await cardOf(ids[0]).hover();
-  const again = await page.getByRole('button', { name: 'Move reference 1 right', exact: true }).boundingBox();
-  await page.mouse.click(again.x + again.width / 2, again.y + again.height / 2);
-  expect(await order(page)).toEqual([ids[1], ids[0], ids[2]]);
-  await page.mouse.move(10, 10);
-  const moved = await cardOf(ids[0]).locator('[data-reference-preview]').boundingBox();
-  await page.mouse.click(moved.x + moved.width / 2, moved.y + moved.height / 2);
-  await expect(dialog).toBeVisible();
+  await moved.click();
+  await expect(page.getByRole('dialog', { name: 'Reference Preview', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
 });
 
@@ -774,23 +703,13 @@ test('Goal2 composer inline reference strip dividers blue tags zoomable preview 
   expect(Math.round(thumb1Box.width)).toBeGreaterThanOrEqual(46);
   expect(Math.round(thumb1Box.width)).toBeLessThanOrEqual(48);
 
-  // Verify hover outside side arrows have no background and shift neighbouring thumbnails without overlap
+  // Hover keeps the adjacent chips fixed and the reorder tooltip available.
   await page.mouse.move(10, 10);
-  const rightArrow = page.getByRole('button', { name: 'Move reference 1 right', exact: true });
-  await expect.poll(() => rightArrow.evaluate((el) => el.getBoundingClientRect().width)).toBe(0);
   const secondBefore = await secondCard.boundingBox();
   await firstCard.hover();
-  const arrowStyle = await rightArrow.evaluate((el) => {
-    const cs = window.getComputedStyle(el);
-    return { bg: cs.backgroundColor, width: el.getBoundingClientRect().width };
-  });
-  expect(arrowStyle.bg).toBe('rgba(0, 0, 0, 0)');
-  expect(arrowStyle.width).toBeGreaterThanOrEqual(18);
-  const rightArrowBox = await rightArrow.boundingBox();
-  const secondAfter = await secondCard.boundingBox();
-  expect(secondAfter.x).toBeGreaterThan(secondBefore.x);
-  expect(secondAfter.x).toBeGreaterThanOrEqual(rightArrowBox.x + rightArrowBox.width - 1);
-  await page.screenshot({ path: testInfo.outputPath('shot-01-hover-arrows.png') });
+  await expect(page.locator('[data-reference-arrow]')).toHaveCount(0);
+  expect(await secondCard.boundingBox()).toEqual(secondBefore);
+  await page.screenshot({ path: testInfo.outputPath('shot-01-stable-hover.png') });
 
   // Focus textarea, enter multi-line prompt with @img1, @vid1, @audio1
   const textarea = composer.locator('textarea').first();
@@ -872,7 +791,7 @@ test('Goal2 composer inline reference strip dividers blue tags zoomable preview 
   await expect(previewBtn1).toBeFocused();
 
   // The restored focus leaves the strip still, so the first click on a later chip opens its preview.
-  await expect.poll(() => rightArrow.evaluate((el) => el.getBoundingClientRect().width)).toBe(0);
+  await expect(page.locator('[data-reference-arrow]')).toHaveCount(0);
   const clipBox = await page.getByRole('button', { name: 'Preview reference clip 1', exact: true }).boundingBox();
   await page.mouse.move(clipBox.x + clipBox.width / 2, clipBox.y + clipBox.height / 2);
   await page.mouse.down();

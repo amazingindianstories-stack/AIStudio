@@ -135,9 +135,9 @@ def finalize(request):
             if existing is not None:
                 return reply(request,generation_item(existing))
             item = enqueue.build_final(source,user.id)
-            enqueue.persist(item)
+            row = enqueue.persist(item)
         log_activity(user.id,'generate',{'id':item['id'],'kind':'video','model':source.model,'costCents':item['costCents'],'sourceGenerationId':str(source.id)})
-        return reply(request,item)
+        return reply(request,generation_item(row))
     except Exception:
         return reply(request,{'error':'Failed to queue the final render.'},500)
 
@@ -203,7 +203,7 @@ def upscale(request):
         intent = enqueue.persist({**item,'submissionInput':{'version':1,
             'source':references[0],'params':params}})
         log_activity(user.id,'generate',{'id':str(identifier),'kind':'image','model':model,'costCents':cost})
-        return reply(request,item)
+        return reply(request,generation_item(intent))
     except Exception as error:
         if intent is not None:
             # An ambiguous provider/commit error must leave an inspectable
@@ -241,9 +241,9 @@ def upscale_video(request, user, data):
         for name in ('projectId','folderId'):
             if truthy(data.get(name)): item[name] = data[name]
         # Only the leased Python worker signs the source and submits it.
-        enqueue.persist({**item,'submissionInput':{'version':1,'source':source,'params':params,'sourceMeta':meta}})
+        row = enqueue.persist({**item,'submissionInput':{'version':1,'source':source,'params':params,'sourceMeta':meta}})
         log_activity(user.id,'generate',{'id':str(identifier),'kind':'video','model':model,'costCents':cost})
-        return reply(request,item)
+        return reply(request,generation_item(row))
     except InvalidUpscaleRequest as error:
         return reply(request,{'error':str(error)},400)
     except Exception:

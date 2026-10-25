@@ -60,11 +60,8 @@ def query_history(params):
     selected = list(rows.order_by(*ordering)[:limit+1])
     more = len(selected) > limit
     page = selected[:limit]
-    items = [generation_item(row) for row in page]
     names = batch_resolve_generation_filenames([row.id for row in page])
-    for item in items:
-        if item['id'] in names:
-            item['filename'] = names[item['id']]['filename']
+    items = [generation_item(row, names.get(str(row.id), {}).get('filename')) for row in page]
     next_cursor = None
     if more and page:
         last = page[-1]

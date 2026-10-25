@@ -129,7 +129,7 @@ test("ReferenceStrip renders single inline strip in order images, divider, video
   }
 });
 
-test("clicking a reference opens the preview lightbox while dragging or clicking arrows does not", async () => {
+test("clicking a reference opens the preview lightbox while dragging or keyboard reordering does not", async () => {
   const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
   const keys = ["window", "document", "HTMLElement", "requestAnimationFrame", "cancelAnimationFrame", "React", "IS_REACT_ACT_ENVIRONMENT"];
   const previous = Object.fromEntries(keys.map((key) => [key, globalThis[key]]));
@@ -168,14 +168,14 @@ test("clicking a reference opens the preview lightbox while dragging or clicking
     });
     const strip = document.querySelector('[data-testid="reference-strip"]');
     const previewBtn1 = document.querySelector('button[aria-label="Preview reference 1"]');
-    const moveRightBtn1 = document.querySelector('button[aria-label="Move reference 1 right"]');
+    assert.equal(document.querySelectorAll("[data-reference-arrow]").length, 0);
 
-    // Clicking the arrow button reorders and does NOT open the preview dialog
+    // Alt + arrow reorders and does not open the preview dialog
     await act(async () => {
-      moveRightBtn1.click();
+      previewBtn1.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowRight", altKey: true, bubbles: true }));
     });
     assert.deepEqual(reordered.at(-1), ["ref-2", "ref-1"]);
-    assert.equal(document.querySelector('[role="dialog"]'), null, "arrow click does not open preview");
+    assert.equal(document.querySelector('[role="dialog"]'), null, "keyboard reorder does not open preview");
 
     // Dragging the thumbnail (>5px) reorders and does NOT open the preview dialog
     await act(async () => {
@@ -199,94 +199,6 @@ test("clicking a reference opens the preview lightbox while dragging or clicking
       document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     assert.equal(document.querySelector('[role="dialog"]'), null, "Escape closes preview lightbox");
-  } finally {
-    await act(async () => root.unmount());
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    Object.assign(globalThis, previous);
-    dom.window.close();
-  }
-});
-
-test("a click that lands on a thumbnail just after its arrow moved it is a repeat move, not a preview", async () => {
-  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
-  const keys = ["window", "document", "HTMLElement", "requestAnimationFrame", "cancelAnimationFrame", "React", "IS_REACT_ACT_ENVIRONMENT"];
-  const previous = Object.fromEntries(keys.map((key) => [key, globalThis[key]]));
-  Object.assign(globalThis, {
-    window: dom.window,
-    document: dom.window.document,
-    HTMLElement: dom.window.HTMLElement,
-    React,
-    IS_REACT_ACT_ENVIRONMENT: true,
-    requestAnimationFrame: (fn) => setTimeout(fn, 0),
-    cancelAnimationFrame: clearTimeout,
-  });
-  dom.window.requestAnimationFrame = globalThis.requestAnimationFrame;
-  dom.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
-  dom.window.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {} });
-  dom.window.HTMLElement.prototype.scrollIntoView = function () {};
-  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  const reordered = [];
-  const storeState = {
-    referenceIds: ["ref-1", "ref-2", "ref-3"],
-    referenceImages: ["/img-1.png", "/img-2.png", "/img-3.png"],
-    referenceKinds: ["image", "image", "image"],
-    referenceVideos: [],
-    audioNotes: [],
-    portraits: { items: [] },
-    reorderReferencesByIds: (ids) => reordered.push(ids),
-    undoReferenceReorder() {},
-    removeReference() {},
-  };
-  const root = createRoot(document.querySelector("#root"));
-  const button = (name) => document.querySelector(`button[aria-label="${name}"]`);
-  const dialog = () => document.querySelector('[role="dialog"]');
-  const mouseClick = (el) => el.dispatchEvent(new dom.window.MouseEvent("click", { button: 0, detail: 1, bubbles: true, cancelable: true }));
-  const mousePress = (el, strip) => {
-    el.dispatchEvent(new dom.window.MouseEvent("pointerdown", { button: 0, clientX: 82, clientY: 20, bubbles: true, cancelable: true }));
-    strip.dispatchEvent(new dom.window.MouseEvent("pointerup", { button: 0, clientX: 82, clientY: 20, bubbles: true }));
-    mouseClick(el);
-  };
-  const closeDialog = () => act(async () => {
-    document.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-  });
-  try {
-    await act(async () => root.render(React.createElement(ReferenceStrip, { store: storeState, insertTag() {} })));
-    const strip = document.querySelector('[data-testid="reference-strip"]');
-    strip.setPointerCapture = () => {};
-    const card = document.querySelector('[data-reference-id="ref-1"]');
-
-    // Two clicks in place: the first moves reference 1 with its arrow, the second lands on the
-    // shifted thumbnail and neither previews it nor counts as a drag.
-    await act(async () => mouseClick(button("Move reference 1 right")));
-    assert.deepEqual(reordered.at(-1), ["ref-2", "ref-1", "ref-3"]);
-    await act(async () => mousePress(button("Preview reference 1"), strip));
-    assert.equal(dialog(), null, "a repeated arrow click on the moved thumbnail does not open the preview");
-    await act(async () => button("Preview reference 1").click());
-    assert.equal(dialog(), null, "a click inside the repeat window does not open the preview");
-    assert.equal(reordered.length, 1, "the stray click does not reorder");
-
-    // Another reference is unaffected by reference 1's arrow move.
-    await act(async () => mousePress(button("Preview reference 2"), strip));
-    assert.ok(dialog(), "a different reference still previews");
-    await closeDialog();
-
-    // A deliberate later click previews again.
-    await wait(550);
-    await act(async () => mousePress(button("Preview reference 1"), strip));
-    assert.ok(dialog(), "a click after the repeat window opens the preview");
-    await closeDialog();
-
-    // Leaving the card ends the repeat window at once.
-    await act(async () => mouseClick(button("Move reference 1 right")));
-    await act(async () => card.dispatchEvent(new dom.window.MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
-    await act(async () => mousePress(button("Preview reference 1"), strip));
-    assert.ok(dialog(), "a click after the pointer left the card opens the preview");
-    await closeDialog();
-
-    // A keyboard-activated arrow keeps keyboard previews immediate.
-    await act(async () => button("Move reference 1 right").click());
-    await act(async () => button("Preview reference 1").click());
-    assert.ok(dialog(), "keyboard arrow moves never hold back the preview");
   } finally {
     await act(async () => root.unmount());
     await new Promise((resolve) => setTimeout(resolve, 10));

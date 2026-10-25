@@ -97,14 +97,46 @@ class ZIPHierarchyTests(TransactionTestCase):
         self.assertEqual(item.source_key, 'native.mov')
 
     def test_duplicate_permanent_leaves_disambiguate_directories_even_when_folder_uses_generation_id(self):
+        from django.db import connection
+        from apps.generation.models import GenerationNameOwner
         root = self.folder('Root')
         first, second = self.generation(folder=root), self.generation(folder=root)
         child = self.folder(str(first.id), parent=root)
         third = self.generation(folder=child)
-        for copy, row in enumerate((first, second, third)):
-            Generation.objects.filter(pk=row.id).update(permanent_name='Frozen_0001', legacy_name_duplicate=copy)
+        # Historical duplicates exist only as generation.0004/0005 backfilled them.
+        with connection.cursor() as cursor:
+            cursor.execute('SET session_replication_role = replica')
+            try:
+                for copy, row in enumerate((first, second, third)):
+                    GenerationNameOwner.objects.create(id=row.id, permanent_name='Frozen_0001', legacy_name_duplicate=copy)
+                    Generation.objects.filter(pk=row.id).update(permanent_name='Frozen_0001', legacy_name_duplicate=copy, name_owner_id=row.id)
+            finally:
+                cursor.execute('SET session_replication_role = DEFAULT')
         _, paths = self.paths([first, second, third])
         self.assertEqual(len(set(paths)), 3)
         self.assertEqual(paths[0], f'Global/Root/{first.id}_1/Frozen_0001.mov')
         self.assertTrue(all(path.rsplit('/', 1)[-1] == 'Frozen_0001.mov' for path in paths))
         self.assertEqual(self.paths([first, second, third])[1], paths)
+
+    def test_one_draft_lineage_shares_its_directory_with_ordered_final_and_draft_leaves(self):
+        from apps.library.services.naming import assign_generation_naming
+        project = self.project('P')
+        shot = self.folder('Shot', project, self.folder('Reel', project))
+        draft = self.generation(project, shot)
+        Generation.objects.filter(pk=draft.id).update(model='Seedance 2.5', draft_mode=True, task_id='draft')
+        assign_generation_naming(draft.id, shot.id, project.id)
+        finals = []
+        for created in (3, 2):
+            row = Generation.objects.create(kind='video', status='completed', model='Seedance 2.5', prompt='', aspect_ratio='1:1',
+                url='/api/media/native.mov', project=project, folder=shot, created_at=created, updated_at=created,
+                draft_mode=False, source_generation_id=draft.id, draft_task_id='draft')
+            assign_generation_naming(row.id, shot.id, project.id)
+            finals.append(row)
+        later, earlier = finals
+        base = 'Projects/P/Reel/Shot/Reel_Shot_0001'
+        _, paths = self.paths([draft, later, earlier])
+        self.assertEqual(paths, [f'{base}_draft.mov', f'{base}_2.mov', f'{base}.mov'])
+        self.assertEqual(self.paths([draft, later, earlier])[1], paths)
+        self.assertEqual(self.paths([later, earlier])[1], [f'{base}_2.mov', f'{base}.mov'])
+        self.assertEqual(self.paths([draft, earlier])[1], [f'{base}_draft.mov', f'{base}.mov'])
+        self.assertEqual(self.paths([draft])[1], [f'{base}.mov'])

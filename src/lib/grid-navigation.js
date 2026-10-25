@@ -10,17 +10,16 @@ function relativeHeight(aspectRatio) {
 
 /**
  * Computes the estimated vertical center of an item within its column.
- * `below` is content under each card's media and `gap` the space between
- * cards, both in column widths.
+ * `gap` is the space between cards, in column widths; `centers` holds exact
+ * centers (from date-sectioned packing) that win over the estimate.
  */
-function getColumnItemCenter(column, index, { below, gap, centers }) {
+function getColumnItemCenter(column, index, { gap, centers }) {
   if (centers?.[column[index]?.id] !== undefined) return centers[column[index].id];
   let top = 0;
   for (let i = 0; i < index; i++) {
-    top += relativeHeight(column[i]?.aspectRatio) + below + gap;
+    top += relativeHeight(column[i]?.aspectRatio) + gap;
   }
-  const itemH = relativeHeight(column[index]?.aspectRatio) + below;
-  return top + itemH / 2;
+  return top + relativeHeight(column[index]?.aspectRatio) / 2;
 }
 
 /**
@@ -31,10 +30,11 @@ function getColumnItemCenter(column, index, { below, gap, centers }) {
  * @param {string|null} currentId - Currently focused item ID
  * @param {'up'|'down'|'left'|'right'|'home'|'end'} direction
  * @param {Array<Object>} [items] - Flat list of all items
- * @param {{below: number, gap: number}} [spacing] - Per-card extra height, in column widths
+ * @param {{gap?: number, centers?: Object<string, number>}} [spacing] - Gap between cards in column widths, and optional exact centers
  * @returns {string|null} Next item ID to focus
  */
-export function getNextGridFocus(columns, currentId, direction, items = [], spacing = { below: 0, gap: 0.06 }) {
+export function getNextGridFocus(columns, currentId, direction, items = [], { gap = 0.06, centers } = {}) {
+  const spacing = { gap, centers };
   if (!items || items.length === 0) return null;
   if (!columns || columns.length === 0) return items[0]?.id || null;
 

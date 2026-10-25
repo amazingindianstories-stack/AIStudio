@@ -52,6 +52,31 @@ def suffix(value, identifier):
     return value + '_' + hashlib.sha256(str(identifier).encode()).hexdigest()[:12]
 
 
+def lineage_leaves(aliases, generations, paths, occupied):
+    """Keep one draft lineage in its directory: the earliest final keeps the
+    shared leaf, later finals take _2, _3 in creation order and the draft _draft."""
+    rows = [generations[gid] for gid in aliases]
+    owner = rows[0].name_owner_id
+    if owner is None or any(row.name_owner_id != owner for row in rows):
+        return False
+    parent, leaf = paths[aliases[0]].rsplit('/', 1)
+    stem, extension = leaf.rsplit('.', 1)
+    finals = sorted((row for row in rows if row.id != owner), key=lambda row: (row.created_at, str(row.id)))
+    leaves = {str(row.id): stem + ('_' + str(rank) if rank > 1 else '') for rank, row in enumerate(finals, 1)}
+    leaves.update({str(row.id): stem + '_draft' for row in rows if row.id == owner})
+    candidates = {gid: f'{parent}/{value}.{extension}' for gid, value in leaves.items()}
+    try:
+        for path in candidates.values():
+            safe_zip_member_path(path)
+    except ValueError:
+        return False
+    if any(folded(path) in occupied for gid, path in candidates.items() if folded(path) != folded(paths[gid])):
+        return False
+    paths.update(candidates)
+    occupied.update(folded(path) for path in candidates.values())
+    return True
+
+
 def resolve_archive_paths(items):
     from apps.generation.models import Generation
     from apps.library.models import Folder
@@ -61,7 +86,7 @@ def resolve_archive_paths(items):
         raise ValueError('Invalid export item count.')
     ids = [item.generation_id for item in items]
     naming = batch_resolve_generation_filenames(ids)
-    generations = {str(g.id): g for g in Generation.objects.filter(id__in=ids).only('id', 'folder_id', 'project_id')}
+    generations = {str(g.id): g for g in Generation.objects.filter(id__in=ids).only('id', 'folder_id', 'project_id', 'name_owner_id', 'created_at')}
     folders = {}
     pending = {g.folder_id for g in generations.values() if g.folder_id}
     for _ in range(MAX_DEPTH + 1):
@@ -139,7 +164,7 @@ def resolve_archive_paths(items):
         collisions[folded(path)].append(gid)
     occupied = {folded(path) for path in paths.values()}
     for aliases in collisions.values():
-        if len(aliases) > 1:
+        if len(aliases) > 1 and not lineage_leaves(aliases, generations, paths, occupied):
             # Keep the permanent media leaf even when historical namespaces
             # produced identical names. Archive directories may disambiguate.
             for gid in sorted(aliases):

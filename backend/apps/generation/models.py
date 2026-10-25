@@ -8,10 +8,23 @@ from apps.projects.models import Project
 from apps.library.models import Folder
 
 
+class GenerationNameOwner(models.Model):
+    """One immutable name reservation, shared only by a draft and its finals."""
+    id = models.UUIDField(primary_key=True)
+    permanent_name = models.TextField()
+    legacy_name_duplicate = models.IntegerField(default=0, db_default=0)
+
+    class Meta:
+        db_table = 'generation_name_owners'
+        constraints = [models.UniqueConstraint(Lower('permanent_name'), models.F('legacy_name_duplicate'),
+            name='generation_name_owners_name_key')]
+
+
 class Generation(models.Model):
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     permanent_name = models.TextField(null=True)
     legacy_name_duplicate = models.IntegerField(default=0, db_default=0)
+    name_owner = models.ForeignKey(GenerationNameOwner, on_delete=models.RESTRICT, null=True, db_index=False)
     kind = models.TextField()
     status = models.TextField()
     prompt = models.TextField()
@@ -91,8 +104,4 @@ class Generation(models.Model):
                 condition=models.Q(RawSQL("kind = 'video' and status in ('queued', 'running') and task_id is not null", [], output_field=models.BooleanField()))),
             PostgreSQLIndex(name='generations_coordinator_due_idx', fields=['status','next_poll_at','created_at'],
                 condition=models.Q(RawSQL("(kind = 'video' and status in ('queued', 'running')) or (kind = 'image' and (status = 'queued' or (status = 'running' and model like 'Magnific %%')))", [], output_field=models.BooleanField()))),
-        ]
-        constraints = [
-            models.UniqueConstraint(Lower('permanent_name'), models.F('legacy_name_duplicate'),
-                name='generations_permanent_name_key', condition=models.Q(permanent_name__isnull=False)),
         ]

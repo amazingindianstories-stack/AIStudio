@@ -169,25 +169,23 @@ scoped("Unsorted steps through the project's Unsorted rows only", async ({ page,
   expect([...seen].sort()).toEqual(unsorted);
 });
 
-scoped('a viewer opened from the chat thread walks the thread, not the folder the panel is showing', async ({ page, scope }) => {
-  const targetIds = new Set(await scope.rows(`folderId=${scope.target.id}`));
+scoped('a viewer opened from chat follows chronological order inside the open folder', async ({ page, scope }) => {
+  const folderIds = await scope.rows(`folderId=${scope.other.id}`);
   const panel = await openPanel(page);
   await openTreeFolder(panel, `${scope.tag} Other`);
   await expect.poll(() => panel.locator('[data-asset-card-id]').count()).toBe(IN_OTHER_FOLDER);
+  await expect(page.locator('[data-generation-id]')).toHaveCount(IN_OTHER_FOLDER);
   const threadIds = await page.locator('[data-generation-id]').evaluateAll((cards) => cards.map((card) => card.getAttribute('data-generation-id')));
-  expect(threadIds.length).toBeGreaterThan(IN_OTHER_FOLDER);
-  // The newest thread card that is NOT in the panel's folder: it used to open nothing at all.
-  const outside = [...threadIds].reverse().find((id) => targetIds.has(id));
-  expect(outside).toBeTruthy();
-  const index = threadIds.indexOf(outside);
-  expect(index).toBeGreaterThan(0);
-  await page.locator(`[data-generation-id="${outside}"] img`).first().click();
-  await expect(shown(page)).toHaveAttribute('data-viewer-item-id', outside);
+  expect(threadIds).toEqual([...folderIds].reverse());
+  const index = 2;
+  const current = threadIds[index];
+  await page.locator(`[data-generation-id="${current}"] img`).first().click();
+  await expect(shown(page)).toHaveAttribute('data-viewer-item-id', current);
   // Left goes to the card drawn above it in the thread.
   await page.keyboard.press('ArrowLeft');
   await expect(shown(page)).toHaveAttribute('data-viewer-item-id', threadIds[index - 1]);
   await page.keyboard.press('ArrowRight');
-  await expect(shown(page)).toHaveAttribute('data-viewer-item-id', outside);
+  await expect(shown(page)).toHaveAttribute('data-viewer-item-id', current);
   await page.keyboard.press('ArrowRight');
   await expect(shown(page)).toHaveAttribute('data-viewer-item-id', threadIds[index + 1] ?? threadIds[0]);
 });

@@ -1,10 +1,28 @@
 """Stable names and monotonic namespace counters, in the caller's transaction."""
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import IntegrityError, connection, transaction
+from django.db.models import F, Value
+from django.db.models.functions import Greatest
 from apps.library.models import GenerationNaming
 from .idempotency import now_ms
 
 NAME_NAMESPACE = 'name:'
+
+GENERATION_LIBRARY_METADATA = frozenset({
+    'project_id', 'folder_id', 'location_version', 'permanent_name', 'name_owner_id', 'legacy_name_duplicate',
+    'is_favorite', 'favorited_at', 'flagged', 'flagged_at', 'flag_reason', 'updated_at',
+})
+
+
+def same_execution_identity(current, expected, *, ignored=()):
+    """Fence all execution fields while allowing library edits during paid I/O.
+
+    New model fields are protected by default. Callers may additionally allow
+    their own heartbeat or already-acknowledged completion fields to change.
+    """
+    excluded = GENERATION_LIBRARY_METADATA.union(ignored)
+    return all(getattr(current, field.attname) == getattr(expected, field.attname)
+               for field in current._meta.concrete_fields if field.attname not in excluded)
 
 
 def namespace_for(folder_id=None, project_id=None):
@@ -49,6 +67,25 @@ def assign_generation_naming(generation_id, folder_id=None, project_id=None, now
     # The generation lock makes explicit assignment and retries single-winner.
     from apps.generation.models import Generation
     generation = Generation.objects.select_for_update().get(pk=generation_id)
+    if (not generation.permanent_name and generation.kind == 'video' and generation.model == 'Seedance 2.5'
+            and generation.draft_mode is False and generation.source_generation_id and generation.draft_task_id):
+        draft = Generation.objects.select_for_update().filter(pk=generation.source_generation_id,
+            kind='video', model='Seedance 2.5', draft_mode=True, task_id=generation.draft_task_id).first()
+        if draft:
+            # Finalizing is the point at which even an Unsorted draft needs a
+            # durable name. All subsequent finals reuse this single reservation.
+            now = now_ms() if now is None else now
+            newly_named = not draft.permanent_name
+            assign_generation_naming(draft.id, draft.folder_id, draft.project_id, now)
+            draft.refresh_from_db()
+            if not draft.permanent_name:
+                freeze_provisional_name(draft, now)
+            if newly_named:
+                Generation.objects.filter(pk=draft.id).update(updated_at=Greatest(Value(now), F('updated_at') + 1))
+                draft.refresh_from_db()
+            Generation.objects.filter(pk=generation.id).update(permanent_name=draft.permanent_name,
+                name_owner_id=draft.name_owner_id, legacy_name_duplicate=draft.legacy_name_duplicate)
+            generation.refresh_from_db()
     existing = GenerationNaming.objects.filter(generation_id=generation_id).first()
     if existing:
         if folder_id and not generation.permanent_name:
@@ -65,9 +102,46 @@ def assign_generation_naming(generation_id, folder_id=None, project_id=None, now
 
 def names_in_use(names):
     with connection.cursor() as cursor:
-        cursor.execute('''SELECT lower(permanent_name) FROM generations
+        cursor.execute('''SELECT lower(permanent_name) FROM generation_name_owners
             WHERE permanent_name IS NOT NULL AND lower(permanent_name) = ANY(%s)''', [[name.lower() for name in names]])
         return {row[0] for row in cursor.fetchall()}
+
+
+PROVISIONAL_NAME_RESERVED = 'provisional_name_reserved'
+
+
+def unique_violation(error):
+    return getattr(error.__cause__, 'sqlstate', None) == '23505'
+
+
+def freeze_provisional_name(generation, now):
+    """Freeze an Unsorted generation at the provisional name it shows, if no reservation holds it.
+
+    The reservation index settles concurrent claims. A generation that loses it
+    receives a newly allocated name, and its naming record keeps the shown name
+    it could not keep.
+    """
+    from apps.generation.models import Generation
+    from apps.library.filenames import batch_resolve_generation_filenames
+    shown = batch_resolve_generation_filenames([generation.id])[str(generation.id)]['filename'].rsplit('.', 1)[0]
+    try:
+        with transaction.atomic():
+            Generation.objects.filter(pk=generation.id).update(permanent_name=shown)
+        return
+    except IntegrityError as error:
+        if not unique_violation(error):
+            raise
+    while True:
+        generation.permanent_name = None
+        try:
+            with transaction.atomic():
+                freeze_names([generation], now)
+            break
+        except IntegrityError as error:
+            if not unique_violation(error):
+                raise
+    GenerationNaming.objects.filter(generation_id=generation.id).update(
+        assigned_at=now, fallback_from_name=shown, fallback_reason=PROVISIONAL_NAME_RESERVED)
 
 
 def freeze_names(generations, now=None):
