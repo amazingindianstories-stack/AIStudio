@@ -1,5 +1,4 @@
-
-
+import { libraryFilterQuery, matchesLibraryFilters } from "./library-filters";
 /**
  * A "scope" is the question a library view is asking: which project, which
  * folder, which media kind, which search. Every asset surface in the app is one
@@ -35,6 +34,20 @@ export const UNSORTED = "__unsorted__";
  * clicked through.
  */
 export function scopeKey(scope) {
+  const base = baseScopeKey(scope);
+  const query = libraryQuery(scope);
+  return Object.keys(query).length ? `${base}:${JSON.stringify(query)}` : base;
+}
+
+/** A Favourites filter shares the Favourites tab's wire flag, so outside that tab
+ *  the server must be told to keep creation order instead of its starred default. */
+function libraryQuery(scope) {
+  const query = libraryFilterQuery(scope.filters, scope.now);
+  const sort = scope.sort || (query.favorite && scope.tab !== "favorites" ? "newest" : null);
+  return sort ? { ...query, sort } : query;
+}
+
+function baseScopeKey(scope) {
   const q = scope.q.trim().toLowerCase();
   if (scope.tab === "folder") {
     return `folder:${scope.folderId ?? "*"}:${scope.kind}:${q}`;
@@ -53,6 +66,10 @@ export function scopeKey(scope) {
 
 /** The querystring shape of a scope. Mirrors parseHistoryFilter on the server. */
 export function scopeToQuery(scope) {
+  return { ...baseScopeToQuery(scope), ...libraryQuery(scope) };
+}
+
+function baseScopeToQuery(scope) {
   if (scope.tab === "folder") {
     return {
       folderId: scope.folderId ?? undefined,
@@ -110,6 +127,7 @@ export function matchesScope(item, scope) {
 
   const q = scope.q.trim().toLowerCase();
   if (q && !item.prompt.toLowerCase().includes(q)) return false;
+  if (!matchesLibraryFilters(item, scope.filters, scope.now)) return false;
 
   if (scope.tab === "favorites") return Boolean(item.isFavorite);
 
@@ -147,7 +165,7 @@ export function matchesScope(item, scope) {
  * locally inserted row lands where a refetch would have put it.
  */
 export function sortValue(item, scope) {
-  if (scope.tab === "favorites") return item.favoritedAt ?? item.createdAt;
+  if (scope.sort === "starred" || (!scope.sort && scope.tab === "favorites")) return item.favoritedAt ?? item.createdAt;
   return item.createdAt;
 }
 
@@ -158,7 +176,8 @@ export function compareInScope(
   b,
   scope
 ) {
-  const d = sortValue(b, scope) - sortValue(a, scope);
+  const ascending = scope.sort === "oldest";
+  const d = (sortValue(b, scope) - sortValue(a, scope)) * (ascending ? -1 : 1);
   if (d !== 0) return d;
-  return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
+  return (a.id < b.id ? 1 : a.id > b.id ? -1 : 0) * (ascending ? -1 : 1);
 }

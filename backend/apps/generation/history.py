@@ -14,11 +14,13 @@ from .history_counts import filters, first, base_query
 from .history_parameters import decode_cursor, page_limit
 from .serialization import generation_item
 from .updates import operand_text
+from .library_filters import (apply_library_filters, parse_library_filters, library_options,
+    query_fingerprint, decode_library_cursor, encode_library_cursor)
 
 
-def query_history(params):
+def source_history(params, *, search=True):
     project, kind, query = filters(params)
-    rows = base_query(kind, query)
+    rows = base_query(kind if search else None, query if search else '')
     if first(params, 'projectId') == 'none' or project:
         rows = rows.filter(project_id=project)
     folder = first(params, 'folderId')
@@ -29,16 +31,32 @@ def query_history(params):
     favorite = first(params, 'favorite') == '1'
     if favorite:
         rows = rows.filter(is_favorite=True)
-    sort = 'favorited_at' if favorite else 'created_at'
-    cursor = decode_cursor(first(params, 'cursor'))
+    return rows
+
+
+def query_history(params):
+    if first(params, 'options') == '1':
+        return {'options': library_options(source_history(params, search=False))}
+    selected_filters = parse_library_filters(params)
+    rows = apply_library_filters(source_history(params), selected_filters)
+    favorite = first(params, 'favorite') == '1'
+    sort_mode = selected_filters.get('sort', 'starred' if favorite else 'newest')
+    sort = 'favorited_at' if sort_mode == 'starred' else 'created_at'
+    ascending = sort_mode == 'oldest'
+    fingerprint = query_fingerprint(params, selected_filters) if selected_filters else None
+    raw_cursor = first(params, 'cursor')
+    cursor = (decode_library_cursor(raw_cursor, fingerprint) if raw_cursor and (fingerprint or raw_cursor.startswith('v1:'))
+              else decode_cursor(raw_cursor))
     if cursor:
-        rows = rows.filter(RawSQL(f'("generations"."{sort}", "generations"."id") < (%s::bigint, %s::uuid)',
+        comparator = '>' if ascending else '<'
+        rows = rows.filter(RawSQL(f'("generations"."{sort}", "generations"."id") {comparator} (%s::bigint, %s::uuid)',
             [operand_text(cursor['sort']), cursor['id']], output_field=BooleanField()))
     limit = page_limit(first(params, 'limit'))
     # Match the declared composite indexes. created_at/id cannot be NULL;
     # a favorite cursor comparison also excludes NULL. The first favorite
     # page retains the historical NULL-first behavior for legacy rows.
-    ordering = [F(sort).desc(nulls_last=True), F('id').desc(nulls_last=True)] if not favorite or cursor else ['-'+sort, '-id']
+    ordering = ([F(sort).asc(nulls_last=True), F('id').asc(nulls_last=True)] if ascending else
+                [F(sort).desc(nulls_last=True), F('id').desc(nulls_last=True)] if sort != 'favorited_at' or cursor else ['-'+sort, '-id'])
     selected = list(rows.order_by(*ordering)[:limit+1])
     more = len(selected) > limit
     page = selected[:limit]
@@ -47,8 +65,9 @@ def query_history(params):
     next_cursor = None
     if more and page:
         last = page[-1]
-        value = last.favorited_at if favorite and last.favorited_at is not None else last.created_at
-        next_cursor = f'{operand_text(value)}.{last.id}'
+        value = last.favorited_at if sort == 'favorited_at' and last.favorited_at is not None else last.created_at
+        next_cursor = (encode_library_cursor(value, last.id, fingerprint) if fingerprint
+                       else f'{operand_text(value)}.{last.id}')
     return {'items':items, 'nextCursor':next_cursor}
 
 

@@ -14,6 +14,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { getNextGridFocus } from "@/lib/grid-navigation";
+import { libraryDateLabel, libraryDayTitle, localDateKey } from "@/lib/library-filters";
 
 /**
  * The one scrolling asset grid, shared by the project view and the global
@@ -50,6 +51,7 @@ export function AssetGrid({
   cardWidth,
   empty,
   renderItem,
+  groupByDate,
 }
 
 ) {
@@ -63,6 +65,11 @@ export function AssetGrid({
   const flushPendingItems = useStore((s) => s.flushPendingItems);
   const setFeedPinned = useStore((s) => s.setFeedPinned);
   const setGridColumns = useStore((s) => s.setGridColumns);
+  const dateGrouping = useStore((s) => s.libraryGroupByDate);
+  const sort = useStore((s) => s.librarySort);
+  const tab = useStore((s) => s.rightTab);
+  const now = useStore((s) => s.libraryDateNow);
+  const grouped = (groupByDate ?? dateGrouping) && (sort || (tab === "favorites" ? "starred" : "newest")) !== "starred";
 
   const selectedIds = useStore((s) => s.selectedIds);
   const focusedAssetId = useStore((s) => s.focusedAssetId);
@@ -101,10 +108,13 @@ export function AssetGrid({
     return () => ro.disconnect();
   }, []);
 
-  const columns = useMemo(
-    () => packColumns(items, width, cardWidth),
-    [items, width, cardWidth]
+  const layout = useMemo(
+    () => packDateSections(items, width, cardWidth, grouped),
+    // Midnight and timezone changes can change local date keys.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, width, cardWidth, grouped, now]
   );
+  const columns = layout.columns;
 
   // Published so DetailModal's Up/Down arrow-key handling can walk visual
   // (same-column) neighbors instead of flat `items` order — those diverge as
@@ -202,7 +212,7 @@ export function AssetGrid({
     if (direction) {
       e.preventDefault();
       const currentId = focusedAssetId || selectedIds[0] || itemIds[0];
-      const nextId = getNextGridFocus(columns, currentId, direction, items, libraryCardGap(width, cardWidth));
+      const nextId = getNextGridFocus(columns, currentId, direction, items, { gap: libraryCardGap(width, cardWidth), centers: layout.centers });
       if (nextId) {
         setFocusedAssetId(nextId);
         if (e.shiftKey) {
@@ -304,8 +314,13 @@ export function AssetGrid({
                 as tall as its tallest card, so a 9:16 portrait next to a 21:9
                 still left a band of dead space under the short ones — very
                 visible in a library that mixes those aspect ratios. */}
-            <div className="flex items-start gap-3">
-              {columns.map((column, ci) => (
+            <div className={grouped ? "space-y-4" : undefined}>
+              {layout.sections.map(section => <section key={section.key} aria-label={grouped ? libraryDateLabel(section.key, now) : undefined}>
+                {grouped && <h3 className="mb-3 flex h-7 items-center gap-3 text-xs font-medium text-white/65 before:hidden after:h-px after:flex-1 after:bg-line">
+                  {section.key === "unknown" ? "Date unavailable" : <time dateTime={section.key} title={libraryDayTitle(section.key)}>{libraryDateLabel(section.key, now)}</time>}
+                </h3>}
+                <div className="flex items-start gap-3">
+              {section.columns.map((column, ci) => (
                 <div key={ci} className="flex min-w-0 flex-1 flex-col gap-3">
                   {/* No `mode="popLayout"`. popLayout takes exiting children
                       out of flow and animates their siblings into the gap,
@@ -319,6 +334,8 @@ export function AssetGrid({
                   </AnimatePresence>
                 </div>
               ))}
+                </div>
+              </section>)}
             </div>
 
             {/* Outside the columns: inside one it would lengthen that column
@@ -420,6 +437,39 @@ export function packColumns(
     heights[target] += relativeHeight(item.aspectRatio) + gap;
   }
   return columns;
+}
+
+/** Independent day packs, with complete columns and centers for keyboard/viewer navigation. */
+export function packDateSections(items, containerWidth, cardWidth, grouped = true) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = grouped ? localDateKey(item.createdAt) : "all";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  const count = columnCount(containerWidth, cardWidth);
+  const columnWidth = containerWidth ? (containerWidth - 32 - GRID_GAP * (count - 1)) / count : cardWidth;
+  const gap = libraryCardGap(containerWidth, cardWidth);
+  const columns = Array.from({ length: count }, () => []), centers = {};
+  let top = 0;
+  const sections = [...groups].map(([key, rows]) => {
+    const packed = packColumns(rows, containerWidth, cardWidth);
+    if (grouped) top += 40 / columnWidth; // h-7 + mb-3
+    let height = 0;
+    packed.forEach((column, index) => {
+      let offset = 0;
+      for (const item of column) {
+        const itemHeight = relativeHeight(item.aspectRatio);
+        centers[item.id] = top + offset + itemHeight / 2;
+        offset += itemHeight + gap;
+      }
+      height = Math.max(height, offset ? offset - gap : 0);
+      columns[index].push(...column);
+    });
+    top += height + (grouped ? 16 / columnWidth : 0);
+    return { key, columns: packed };
+  });
+  return { sections, columns, centers };
 }
 
 /** The gap after each card, in column-width units like its aspect-ratio height. */

@@ -12,7 +12,7 @@ test("revalidating the visible scope keeps loaded pages beyond page 1", async (t
   clearFeedCache();
   const initial = useStore.getState();
   try {
-    useStore.setState({ rightTab: "history", activeProjectId: null, activeFolderId: null, filterKind: "all", search: "" });
+    useStore.setState({ rightTab: "history", activeProjectId: null, activeFolderId: null, search: "" });
     const scope = { tab: "history", projectId: null, folderId: null, kind: "all", q: "" };
     const key = scopeKey(scope);
     const loaded = [row("n4", 400), row("n3", 300), row("n2", 200), row("n1", 100)];

@@ -26,7 +26,7 @@ async function withFolderViewer(t, { items, nextCursor, open, source = "feed" },
   clearFeedCache();
   const initial = useStore.getState();
   try {
-    useStore.setState({ rightTab: "project", activeProjectId: "p1", activeFolderId: "folder-a", filterKind: "all", search: "" });
+    useStore.setState({ rightTab: "project", activeProjectId: "p1", activeFolderId: "folder-a", search: "" });
     const key = scopeKey(FOLDER_SCOPE);
     putFeedCache(key, { items, nextCursor, at: Date.now() });
     useStore.setState({ items, feedKey: key, hasMoreHistory: nextCursor !== null, gridColumns: [] });

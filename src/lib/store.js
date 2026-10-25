@@ -35,6 +35,8 @@ import {
 import { encodeBlobWithBudget } from "./client-image-budget";
 import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
+import { emptyLibraryFilters, libraryDateBounds, librarySourceKey, normalizeLibraryFilters } from "./library-filters";
+import { cleanLibraryQuery, clearLibrarySession, readLibrarySession, writeLibrarySession } from "./library-session";
 import { apiFetch as crossOriginFetch, retryWhileBusy, fetchRetryBusy } from "./api";
 import { apiErrorMessage } from "./api-error";
 import { referenceAudioProblem, withAudioDurations } from "./audio-duration";
@@ -129,8 +131,11 @@ function currentScope(s) {
     tab,
     projectId: s.activeProjectId,
     folderId: s.activeFolderId,
-    kind: s.filterKind,
+    kind: "all",
     q: s.search,
+    filters: s.libraryFilters,
+    sort: s.librarySort,
+    now: s.libraryDateNow,
   };
 }
 
@@ -330,11 +335,11 @@ function insertNewItem(
     const scope = currentScope(s);
     const patch = {};
 
-    // A new generation is always the newest row, so it goes at the head — no
-    // re-sort needed, and none wanted: re-sorting the visible list is exactly
-    // the movement this work is removing.
-    if (matchesScope(item, scope)) {
-      const items = [item, ...s.items.filter((i) => i.id !== item.id)];
+    // A new generation is placed where the active sort puts it: the head for
+    // newest first, the tail for oldest first. Under oldest first with more
+    // pages to load it belongs on a later page, so it is left for pagination.
+    if (matchesScope(item, scope) && !(scope.sort === "oldest" && s.hasMoreHistory && s.items.length && compareInScope(item, s.items.at(-1), scope) > 0)) {
+      const items = [item, ...s.items.filter((i) => i.id !== item.id)].sort((a, b) => compareInScope(a, b, scope));
       patch.items = items;
       writeCachedItems(scopeKey(scope), items);
     }
@@ -544,7 +549,10 @@ export const useStore = create((set, get) => ({
   // list order. See setGridColumns below.
   gridColumns: [],
   search: "",
-  filterKind: "all",
+  libraryFilters: emptyLibraryFilters(),
+  librarySort: null,
+  libraryGroupByDate: true,
+  libraryDateNow: Date.now(),
   selectedIds: [],
   draggedItem: null,
   draggedAssets: [],
@@ -844,8 +852,14 @@ export const useStore = create((set, get) => ({
     set({ gridColumns: columns.map((col) => col.map((item) => item.id)) }),
   setSearch: (search) =>
     set((s) => (s.search === search ? {} : { search, ...CLEAR_SELECTION_PATCH })),
-  setFilterKind: (filterKind) =>
-    set((s) => (s.filterKind === filterKind ? {} : { filterKind, ...CLEAR_SELECTION_PATCH })),
+  setLibraryFilters: (value) => {
+    const filters = normalizeLibraryFilters(value);
+    if (libraryDateBounds(filters) === null) return;
+    set({ libraryFilters: filters, ...CLEAR_SELECTION_PATCH });
+  },
+  setLibrarySort: (librarySort) => set({ librarySort, ...CLEAR_SELECTION_PATCH }),
+  setLibraryGroupByDate: (libraryGroupByDate) => set({ libraryGroupByDate }),
+  setLibraryDateNow: (libraryDateNow) => set({ libraryDateNow }),
   setDraggedItem: (draggedItem) => set({ draggedItem }),
   setDraggedAssets: ({ items = [], _ids = [], primaryItem = null } = {}) =>
     set({
@@ -944,7 +958,7 @@ export const useStore = create((set, get) => ({
         items = [...items, ...loadedTail];
         nextCursor = cached?.nextCursor ?? nextCursor;
       }
-      putFeedCache(key, { items, nextCursor, at: Date.now() });
+      putFeedCache(key, { items, nextCursor, at: Date.now(), scope });
       set({
         items,
         hasMoreHistory: nextCursor !== null,
@@ -1003,7 +1017,7 @@ export const useStore = create((set, get) => ({
         // duplicate key.
         const seen = new Set(st.items.map((i) => i.id));
         const appended = [...st.items, ...newItems.filter((i) => !seen.has(i.id))];
-        putFeedCache(key, { items: appended, nextCursor, at: Date.now() });
+        putFeedCache(key, { items: appended, nextCursor, at: Date.now(), scope });
         return { items: appended, hasMoreHistory: nextCursor !== null };
       });
     } catch (e) {
@@ -1074,7 +1088,7 @@ export const useStore = create((set, get) => ({
       const scope = currentScope(s);
       const byId = new Map(s.items.map((i) => [i.id, i]));
       for (const inc of s.pendingItems) byId.set(inc.id, inc);
-      const items = Array.from(byId.values()).sort((a, b) =>
+      const items = Array.from(byId.values()).filter(item => matchesScope(item, scope)).sort((a, b) =>
         compareInScope(a, b, scope)
       );
       writeCachedItems(scopeKey(scope), items);
@@ -1520,9 +1534,8 @@ export const useStore = create((set, get) => ({
       // denied, a network blip, the row already gone) left the item
       // invisible in this tab even though it was untouched server-side,
       // with zero indication anything went wrong. Mirrors toggleFavorite's
-      // rollback below. insertNewItem's head-of-list placement is a rough
-      // approximation of where the row was — loadFeed corrects the exact
-      // position/scope membership right after.
+      // rollback below. restoreItemInPlace puts the row back where it sorts;
+      // loadFeed corrects scope membership right after.
       if (item) restoreItemInPlace(set, item);
       if (refresh) {
         void get().loadFeed({ force: true });
@@ -1543,9 +1556,10 @@ export const useStore = create((set, get) => ({
       isFavorite: nextFavorite,
       favoritedAt,
     }));
+    staleCached();
     // Un-starring while looking at Favourites is a membership change, not just
     // a field change: the row no longer belongs in this scope.
-    if (!nextFavorite && get().rightTab === "favorites") {
+    if (!nextFavorite && (get().rightTab === "favorites" || get().libraryFilters.favorite)) {
       // Only Favourites scopes lose the row; project/library caches keep it.
       dropCachedIn(id, (key) => key.startsWith("favorites:"));
       set((s) => ({ items: s.items.filter((i) => i.id !== id) }));
@@ -1567,8 +1581,9 @@ export const useStore = create((set, get) => ({
         isFavorite: item.isFavorite,
         favoritedAt: item.favoritedAt,
       }));
+      staleCached();
       // The optimistic removal above has to come back too.
-      if (!nextFavorite && get().rightTab === "favorites") void get().loadFeed({ force: true });
+      if (!nextFavorite && (get().rightTab === "favorites" || get().libraryFilters.favorite)) void get().loadFeed({ force: true });
       void get().loadCounts();
     }
   },
@@ -2733,6 +2748,8 @@ export const useStore = create((set, get) => ({
   },
 
   logout: async () => {
+    const actorId = get().currentUser?.id;
+    set(cleanLibraryQuery());
     try {
       clearFeedCache();
       clearMaterialCache();
@@ -2741,6 +2758,7 @@ export const useStore = create((set, get) => ({
       /* ignore */
     }
     disposeStoreRuntime();
+    clearLibrarySession(actorId);
     window.location.href = "/login";
   },
 }));
@@ -2766,9 +2784,11 @@ useStore.subscribe((state, previous) => {
  *  - Only consider rows that belong in the scope on screen. The feed is a
  *    server-filtered query now, so splicing in a row from another project would
  *    show something a refetch immediately removes.
- *  - Only INSERT rows newer than the oldest page we've loaded, or still in
- *    flight. items is a paginated window; splicing an old row into the middle
- *    of it creates a hole that pagination then duplicates or skips.
+ *  - Only INSERT rows that sort within the pages we've loaded, or are still in
+ *    flight under a descending sort. items is a paginated window; splicing a
+ *    row from a later page into it creates a hole that pagination then
+ *    duplicates or skips. Under oldest first, in-flight work is the newest and
+ *    so belongs on a later page too.
  *  - **Never insert above the viewport while the user is scrolled.** An update
  *    to a row already on screen is a repaint in place and always applied; a new
  *    row is an insertion at the head, which shifts every card below it. That
@@ -2786,9 +2806,7 @@ export function mergeLiveItems(
     const scope = currentScope(s);
     const byId = new Map(s.items.map((i) => [i.id, i]));
     const threadById = new Map(s.threadItems.map((i) => [i.id, i]));
-    const oldestLoaded = s.items.length
-      ? Math.min(...s.items.map((i) => i.createdAt))
-      : 0;
+    const lastLoaded = s.items.at(-1);
     const pendingById = new Map(s.pendingItems.map((i) => [i.id, i]));
     let changed = false;
     let threadChanged = false;
@@ -2837,7 +2855,7 @@ export function mergeLiveItems(
       unseen = true;
       if (!matchesScope(inc, scope)) continue;
       const inFlight = inc.status === "queued" || inc.status === "running";
-      if (!inFlight && inc.createdAt <= oldestLoaded) continue;
+      if ((!inFlight || scope.sort === "oldest") && lastLoaded && s.hasMoreHistory !== false && compareInScope(inc, lastLoaded, scope) > 0) continue;
 
       if (s.feedPinned) {
         byId.set(inc.id, inc);
@@ -3055,9 +3073,31 @@ async function restoreScopedComposerDraft() {
 // paint over a later one. (The sequence guard in loadFeed catches that anyway —
 // this just stops us making the requests in the first place.)
 const SEARCH_DEBOUNCE_MS = 300;
+let restoringLibrarySession = false;
 
 if (typeof window !== "undefined") {
   useStore.subscribe((s, prev) => {
+    const source = librarySourceKey(currentScope(s));
+    const previousSource = librarySourceKey(currentScope(prev));
+    const actor = s.currentUser?.id;
+    const previousActor = prev.currentUser?.id;
+    if (source !== previousSource || actor !== previousActor) {
+      if (actor === previousActor) writeLibrarySession(previousActor, previousSource, prev);
+      else { clearLibrarySession(previousActor); clearFeedCache(); }
+      const restored = readLibrarySession(actor, source) || cleanLibraryQuery();
+      if (actor !== previousActor && restored.libraryGroupByDate === undefined) restored.libraryGroupByDate = true;
+      if (restored.librarySort === "starred" && s.rightTab !== "favorites") restored.librarySort = null;
+      restoringLibrarySession = true;
+      try { useStore.setState({ ...restored, ...CLEAR_SELECTION_PATCH }); }
+      finally { restoringLibrarySession = false; }
+      // Chat follows the open folder too, so a folder switch reloads it here.
+      if (s.activeProjectId !== prev.activeProjectId || s.activeFolderId !== prev.activeFolderId) void useStore.getState().loadThread();
+      if (s.activeProjectId !== prev.activeProjectId) void useStore.getState().loadAssets(s.activeProjectId);
+      return;
+    }
+    if (s.libraryFilters !== prev.libraryFilters || s.search !== prev.search || s.librarySort !== prev.librarySort || s.libraryGroupByDate !== prev.libraryGroupByDate) {
+      writeLibrarySession(actor, source, s);
+    }
     const projectChanged = s.activeProjectId !== prev.activeProjectId;
     if (projectChanged || s.activeFolderId !== prev.activeFolderId) void s.loadThread();
     const searchChanged = s.search !== prev.search;
@@ -3066,7 +3106,9 @@ if (typeof window !== "undefined") {
       searchChanged ||
       s.rightTab !== prev.rightTab ||
       s.activeFolderId !== prev.activeFolderId ||
-      s.filterKind !== prev.filterKind;
+      s.libraryFilters !== prev.libraryFilters ||
+      s.librarySort !== prev.librarySort ||
+      (s.libraryDateNow !== prev.libraryDateNow && scopeKey(currentScope(s)) !== scopeKey(currentScope(prev)));
 
     if (effectiveScopeChanged && (s.selectedIds.length > 0 || s.focusedAssetId !== null || s.selectionAnchorId !== null)) {
       useStore.setState(CLEAR_SELECTION_PATCH);
@@ -3092,7 +3134,7 @@ if (typeof window !== "undefined") {
       }
     };
     // Only typing waits; clicking a folder should feel instant.
-    if (searchChanged && !projectChanged) {
+    if (searchChanged && !projectChanged && !restoringLibrarySession) {
       storeRuntime.scopeTimer = setStoreTimeout(run, SEARCH_DEBOUNCE_MS);
     }
     else run();

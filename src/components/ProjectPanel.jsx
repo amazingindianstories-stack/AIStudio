@@ -10,13 +10,14 @@ import {
   Inbox,
   Pencil,
   Trash2,
-  Search as SearchIcon,
   Loader2,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
 import { MediaCard } from "./MediaCard";
 import { AssetGrid } from "./AssetGrid";
+import { LibraryNoMatches } from "./LibraryFilters";
+import { activeLibraryFilters } from "@/lib/library-filters";
 import { UNSORTED } from "@/lib/feed-scope";
 import { cn } from "@/lib/utils";
 import { FolderTree, FolderOperationRail } from "./FolderTree";
@@ -41,7 +42,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
   const loading = useStore((s) => s.loading);
   const counts = useStore((s) => s.counts);
   const search = useStore((s) => s.search);
-  const filterKind = useStore((s) => s.filterKind);
+  const libraryFilters = useStore((s) => s.libraryFilters);
   const setActiveProject = useStore((s) => s.setActiveProject);
   const setActiveFolder = useStore((s) => s.setActiveFolder);
   const renameProject = useStore((s) => s.renameProject);
@@ -155,7 +156,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
     await moveFolder(movingFolder.id, destination);
   };
 
-  const filtering = Boolean(search.trim()) || filterKind !== "all";
+  const filtering = Boolean(search.trim()) || activeLibraryFilters(libraryFilters).length > 0;
 
   // Derive active folder name for empty state
   const activeFolderName = useMemo(() => {
@@ -495,19 +496,7 @@ function EmptyProject({
   filtering,
   folderName,
 }) {
-  if (filtering) {
-    return (
-      <EmptyState
-        icon={<SearchIcon className="h-6 w-6" />}
-        title="No matches"
-        body={
-          folderName
-            ? `Nothing in ${folderName} matches the current search and type filter.`
-            : "Nothing in this location matches the current search and type filter."
-        }
-      />
-    );
-  }
+  if (filtering) return <LibraryNoMatches />;
   return (
     <EmptyState
       icon={<FolderClosed className="h-6 w-6 text-amber-400/70" />}

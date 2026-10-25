@@ -10,9 +10,11 @@ function relativeHeight(aspectRatio) {
 
 /**
  * Computes the estimated vertical center of an item within its column.
- * `gap` is the space between cards, in column widths.
+ * `gap` is the space between cards, in column widths; `centers` holds exact
+ * centers (from date-sectioned packing) that win over the estimate.
  */
-function getColumnItemCenter(column, index, gap) {
+function getColumnItemCenter(column, index, { gap, centers }) {
+  if (centers?.[column[index]?.id] !== undefined) return centers[column[index].id];
   let top = 0;
   for (let i = 0; i < index; i++) {
     top += relativeHeight(column[i]?.aspectRatio) + gap;
@@ -28,10 +30,11 @@ function getColumnItemCenter(column, index, gap) {
  * @param {string|null} currentId - Currently focused item ID
  * @param {'up'|'down'|'left'|'right'|'home'|'end'} direction
  * @param {Array<Object>} [items] - Flat list of all items
- * @param {number} [gap] - Space between cards, in column widths
+ * @param {{gap?: number, centers?: Object<string, number>}} [spacing] - Gap between cards in column widths, and optional exact centers
  * @returns {string|null} Next item ID to focus
  */
-export function getNextGridFocus(columns, currentId, direction, items = [], gap = 0.06) {
+export function getNextGridFocus(columns, currentId, direction, items = [], { gap = 0.06, centers } = {}) {
+  const spacing = { gap, centers };
   if (!items || items.length === 0) return null;
   if (!columns || columns.length === 0) return items[0]?.id || null;
 
@@ -84,12 +87,12 @@ export function getNextGridFocus(columns, currentId, direction, items = [], gap 
     const targetCol = columns[currentColIdx - 1];
     if (!targetCol || targetCol.length === 0) return currentId;
 
-    const currentCenter = getColumnItemCenter(currentCol, currentRowIdx, gap);
+    const currentCenter = getColumnItemCenter(currentCol, currentRowIdx, spacing);
     let bestId = targetCol[0].id;
     let minDiff = Infinity;
 
     for (let ri = 0; ri < targetCol.length; ri++) {
-      const targetCenter = getColumnItemCenter(targetCol, ri, gap);
+      const targetCenter = getColumnItemCenter(targetCol, ri, spacing);
       const diff = Math.abs(targetCenter - currentCenter);
       if (diff < minDiff) {
         minDiff = diff;
@@ -108,12 +111,12 @@ export function getNextGridFocus(columns, currentId, direction, items = [], gap 
     const targetCol = columns[currentColIdx + 1];
     if (!targetCol || targetCol.length === 0) return currentId;
 
-    const currentCenter = getColumnItemCenter(currentCol, currentRowIdx, gap);
+    const currentCenter = getColumnItemCenter(currentCol, currentRowIdx, spacing);
     let bestId = targetCol[0].id;
     let minDiff = Infinity;
 
     for (let ri = 0; ri < targetCol.length; ri++) {
-      const targetCenter = getColumnItemCenter(targetCol, ri, gap);
+      const targetCenter = getColumnItemCenter(targetCol, ri, spacing);
       const diff = Math.abs(targetCenter - currentCenter);
       if (diff < minDiff) {
         minDiff = diff;

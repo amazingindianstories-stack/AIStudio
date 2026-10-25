@@ -29,7 +29,6 @@ function harness(overrides = {}) {
     rightTab: "history",
     activeProjectId: null,
     activeFolderId: null,
-    filterKind: "all",
     search: "",
     feedPinned: true,
     ...overrides,
@@ -178,7 +177,7 @@ test("mergeLiveItems: queueNote is dropped once the item leaves the queue", () =
 test("mergeLiveItems: an update that moves a row out of scope removes it rather than showing something a refetch would immediately drop", () => {
   const cur = makeItem({ id: "a", updatedAt: 100, kind: "image" });
   const inc = makeItem({ id: "a", updatedAt: 200, kind: "video" });
-  const h = harness({ items: [cur], filterKind: "image" });
+  const h = harness({ items: [cur], libraryFilters: { types: ["image"] } });
   mergeLiveItems([inc], h.set);
   assert.equal(h.state().items.length, 0);
 });
@@ -199,6 +198,25 @@ test("mergeLiveItems: a new finished row older than the oldest loaded page is sk
   assert.ok(!h.state().items.some((i) => i.id === "new"));
 });
 
+test("mergeLiveItems: under oldest first with more pages to load, a new in-flight row belongs on a later page and is neither inserted nor buffered", () => {
+  const loaded = makeItem({ id: "old", createdAt: 1000 });
+  const inc = makeItem({ id: "new", createdAt: 9999, status: "queued" });
+  for (const feedPinned of [true, false]) {
+    const h = harness({ items: [loaded], librarySort: "oldest", hasMoreHistory: true, feedPinned });
+    mergeLiveItems([inc], h.set);
+    assert.deepEqual(h.state().items.map((i) => i.id), ["old"]);
+    assert.deepEqual(h.state().pendingItems, []);
+  }
+});
+
+test("mergeLiveItems: under oldest first with every page loaded, a new in-flight row joins the tail", () => {
+  const loaded = makeItem({ id: "old", createdAt: 1000 });
+  const inc = makeItem({ id: "new", createdAt: 9999, status: "running" });
+  const h = harness({ items: [loaded], librarySort: "oldest", hasMoreHistory: false, feedPinned: true });
+  mergeLiveItems([inc], h.set);
+  assert.deepEqual(h.state().items.map((i) => i.id), ["old", "new"]);
+});
+
 test("mergeLiveItems: a new row is buffered into pendingItems when the user is scrolled away from the top, not spliced above the viewport", () => {
   const inc = makeItem({ id: "new", createdAt: 9999, status: "running" });
   const h = harness({ items: [], feedPinned: false });
@@ -209,7 +227,7 @@ test("mergeLiveItems: a new row is buffered into pendingItems when the user is s
 
 test("mergeLiveItems: a row outside the current scope is ignored entirely, whether pinned or not", () => {
   const inc = makeItem({ id: "new", kind: "video", status: "running" });
-  const h = harness({ items: [], filterKind: "image", feedPinned: false });
+  const h = harness({ items: [], libraryFilters: { types: ["image"] }, feedPinned: false });
   mergeLiveItems([inc], h.set);
   assert.equal(h.state().items.length, 0);
   assert.equal(h.state().pendingItems.length, 0);

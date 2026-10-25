@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { useStore, mergeLiveItems } from './store.js';
 import { UNSORTED } from './feed-scope.js';
+import { emptyLibraryFilters } from './library-filters.js';
 
 const row = (id, projectId, folderId, updatedAt = 1) => ({ id, projectId, folderId, updatedAt,
   createdAt: 1, kind: 'image', prompt: id, status: 'succeeded' });
@@ -16,7 +17,8 @@ test('chat requests the open folder, project Unsorted and global Unsorted with l
       [null, UNSORTED, 'none', 'none'], [null, 'global-shot', 'none', 'global-shot'],
       ['project', null, 'project', null], [null, null, 'none', null],
     ]) {
-      useStore.setState({ activeProjectId, activeFolderId, rightTab: 'favorites', search: 'unrelated', filterKind: 'video' });
+      useStore.setState({ activeProjectId, activeFolderId, rightTab: 'favorites', search: 'unrelated',
+        libraryFilters: { ...emptyLibraryFilters(), types: ['video'], favorite: true } });
       await useStore.getState().loadThread();
       const params = calls.at(-1).searchParams;
       assert.equal(params.get('projectId'), project);
@@ -68,7 +70,7 @@ test('live moves remove generations from the open folder thread', () => {
   const initial = useStore.getState();
   try {
     useStore.setState({ activeProjectId: 'p', activeFolderId: 'a', items: [], pendingItems: [],
-      rightTab: 'project', filterKind: 'all', search: '', threadItems: [row('one', 'p', 'a')] });
+      rightTab: 'project', libraryFilters: emptyLibraryFilters(), search: '', threadItems: [row('one', 'p', 'a')] });
     mergeLiveItems([row('one', 'p', 'b', 2)], useStore.setState);
     assert.deepEqual(useStore.getState().threadItems, []);
   } finally { useStore.setState(initial, true); }

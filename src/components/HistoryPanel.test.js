@@ -35,7 +35,7 @@ test('ZIP restore shows explicit download without navigating or requesting a gra
     assert.deepEqual(calls, ['/api/history/exports/job']);
     assert.equal(localStorage.getItem(key('one')), 'job');
     await act(async () => useStore.setState({ currentUser: { id: 'two' } }));
-    assert.equal(document.querySelector('[role="status"]'), null);
+    assert.equal(document.querySelector('[role="status"][aria-label="ZIP export"]'), null);
     assert.equal(localStorage.getItem(key('two')), null);
   });
 });
@@ -45,8 +45,8 @@ for (const status of [401, 403, 404, 410]) test(`ZIP restore handles HTTP${statu
     localStorage.setItem(key('one'), 'job');
     globalThis.fetch = async () => reply(status, {});
     await render();
-    if (status === 410) assert.match(document.querySelector('[role="status"]').textContent, /expired/);
-    else { assert.equal(document.querySelector('[role="status"]'), null); assert.equal(localStorage.getItem(key('one')), null); }
+    if (status === 410) assert.match(document.querySelector('[role="status"][aria-label="ZIP export"]').textContent, /expired/);
+    else { assert.equal(document.querySelector('[role="status"][aria-label="ZIP export"]'), null); assert.equal(localStorage.getItem(key('one')), null); }
   });
 });
 
@@ -60,7 +60,7 @@ test('ZIP rapid activation creates and finalizes once;409 reason is visible and 
     await act(async () => { button.click(); button.click(); });
     assert.equal(calls.filter(url => url === '/api/history/exports').length, 1);
     assert.equal(calls.filter(url => url.endsWith('/finalize')).length, 1);
-    assert.match(document.querySelector('[role="status"]').textContent, /Selected source unavailable/);
+    assert.match(document.querySelector('[role="status"][aria-label="ZIP export"]').textContent, /Selected source unavailable/);
     assert.ok([...document.querySelectorAll('button')].some(button => button.textContent === 'Retry'));
   });
 });

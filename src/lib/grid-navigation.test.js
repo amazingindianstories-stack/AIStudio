@@ -82,9 +82,9 @@ test("library Left/Right uses media height and gap with names overlaid", () => {
   const columns = [strips, squares];
   const items = [...strips, ...squares];
   const gap = libraryCardGap(444, 200);
-  assert.equal(getNextGridFocus(columns, "strip-4", "right", items, gap), "square-0");
-  assert.equal(getNextGridFocus(columns, "strip-0", "right", items, gap), "square-0");
-  assert.equal(getNextGridFocus(columns, "square-1", "left", items, gap), "strip-4");
+  assert.equal(getNextGridFocus(columns, "strip-4", "right", items, { gap }), "square-0");
+  assert.equal(getNextGridFocus(columns, "strip-0", "right", items, { gap }), "square-0");
+  assert.equal(getNextGridFocus(columns, "square-1", "left", items, { gap }), "strip-4");
   // Both library and portrait gallery use media-only estimates.
   assert.equal(getNextGridFocus(columns, "strip-4", "right", items), "square-0");
 });

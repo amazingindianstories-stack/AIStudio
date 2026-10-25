@@ -198,7 +198,7 @@ export function DetailModal() {
   const threadItems = useStore((s) => s.threadItems);
   const rightTab = useStore((s) => s.rightTab);
   const activeProjectId = useStore((s) => s.activeProjectId);
-  // rightTab/search/filterKind are no longer read here: the feed arrives
+  // search and library filters are not read here: the feed arrives
   // already filtered and ordered by those, so re-deriving them would only
   // create a second, drifting definition of the same list.
   const setActiveId = useStore((s) => s.setActiveId);
