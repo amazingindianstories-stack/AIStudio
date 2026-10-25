@@ -3089,10 +3089,9 @@ if (typeof window !== "undefined") {
       restoringLibrarySession = true;
       try { useStore.setState({ ...restored, ...CLEAR_SELECTION_PATCH }); }
       finally { restoringLibrarySession = false; }
-      if (s.activeProjectId !== prev.activeProjectId) {
-        void useStore.getState().loadThread();
-        void useStore.getState().loadAssets(s.activeProjectId);
-      }
+      // Chat follows the open folder too, so a folder switch reloads it here.
+      if (s.activeProjectId !== prev.activeProjectId || s.activeFolderId !== prev.activeFolderId) void useStore.getState().loadThread();
+      if (s.activeProjectId !== prev.activeProjectId) void useStore.getState().loadAssets(s.activeProjectId);
       return;
     }
     if (s.libraryFilters !== prev.libraryFilters || s.search !== prev.search || s.librarySort !== prev.librarySort || s.libraryGroupByDate !== prev.libraryGroupByDate) {
