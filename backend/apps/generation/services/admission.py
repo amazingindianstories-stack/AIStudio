@@ -64,7 +64,7 @@ def lane_models(item):
     """Model names sharing this video job's BytePlus model (versions of one model share its concurrency), else []."""
     from apps.generation.model_registry import MODEL_REGISTRY, is_provider_model, provider_model_id
     if item.kind == 'video' and is_provider_model(item.model, 'omnihuman'):
-        return ['OmniHuman 2.0', 'omnihuman-2']
+        return ['OmniHuman 2.0']
     if item.kind != 'video' or not is_provider_model(item.model, 'byteplus'):
         return []
     target = provider_model_id(item.model)

@@ -16,7 +16,7 @@ from apps.common.javascript import UNDEFINED, truthy, string, utf16_length
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
 from apps.generation import image_limits
-from apps.generation.model_registry import capability, is_provider_model, retirement_message
+from apps.generation.model_registry import capability, is_provider_model, model_definition, retirement_message
 from apps.generation.models import Generation
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
 from apps.generation.serialization import camel
@@ -132,7 +132,7 @@ def video_input(body, user_id=None):
             raise InvalidRequest('OmniHuman is not enabled. Choose another video model.')
         if body.get('referenceVideos') or any(body.get(key) for key in ('firstFrame', 'lastFrame', 'continuationFrame')) or mode != 'generate' or body.get('draftMode') or body.get('draftTaskId'):
             raise InvalidRequest('OmniHuman accepts an image and audio only; video references, frames, Draft, Edit and Extend are unavailable.')
-        ratio, resolution = 'Auto', 'Auto'
+        model, ratio, resolution = model_definition(model)['name'], 'Auto', 'Auto'
     if isinstance(body.get('referenceVideos'),list) and len(body['referenceVideos'])>max_videos and capability(model,'videoReference'):
         raise InvalidRequest(f'{string(model)} accepts at most {max_videos} reference clips (got {len(body["referenceVideos"])}).')
     resolutions = capability(model,'resolutions',['480p','720p','1080p'])

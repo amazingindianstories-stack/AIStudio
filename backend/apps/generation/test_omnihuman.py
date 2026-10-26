@@ -190,7 +190,10 @@ class OmniHumanProtocolTests(SimpleTestCase):
             self.assertIn('omnihuman-2', availability()['models'])
         with override_settings(VEEVEE_OMNIHUMAN=True), patch.object(enqueue, 'prompt_limit', return_value=30000):
             item = enqueue.video_input({'model': 'OmniHuman 2.0', 'prompt': 'Smile', 'duration': 300, 'referenceAudios': ['audio']})
-        self.assertEqual((item['duration'], item['resolution'], item['aspectRatio']), (300, 'Auto', 'Auto'))
+        self.assertEqual((item['model'], item['duration'], item['resolution'], item['aspectRatio']), ('OmniHuman 2.0', 300, 'Auto', 'Auto'))
+        for alias in ('omnihuman-2', ' omnihuman 2.0 '):
+            with self.subTest(alias=alias), override_settings(VEEVEE_OMNIHUMAN=True), patch.object(enqueue, 'prompt_limit', return_value=30000):
+                self.assertEqual(enqueue.video_input({'model': alias, 'referenceAudios': ['audio']})['model'], 'OmniHuman 2.0')
         with self.assertRaisesMessage(ValueError, 'pricing is not configured'):
             compute_cost(item, [])
         self.assertEqual(compute_cost(item, [{'model': 'OmniHuman 2.0', 'unit': 'per_second', 'unitCostCents': 12}]), 3600)
