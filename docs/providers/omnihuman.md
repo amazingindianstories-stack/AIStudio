@@ -28,8 +28,9 @@ are polled asynchronously so a pending job releases its worker slot between
 checks. The documented task lifetime is 12 hours. Input grants last 12 hours.
 No failure automatically resubmits a paid task. A status query ends a job only
 on an input or content-policy refusal; credential, signature, clock, access and
-service errors back off and keep polling the accepted task. Provider error records retain
-redacted codes and request/task IDs for the user failure copy and admin view.
+service errors back off and keep polling the accepted task. Provider error
+records retain redacted codes and request/task IDs for the user failure copy
+and admin view.
 All documented states, business errors and common service/gateway errors have
 explicit mappings and synthetic tests.
 

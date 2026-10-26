@@ -10,6 +10,7 @@
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |
 | [operations/managed-portraits.md](operations/managed-portraits.md) | Rollout and rollback of the automatic BytePlus portrait pool |
+| [providers/omnihuman.md](providers/omnihuman.md) | BytePlus OmniHuman 2.0 inputs, task lifecycle and activation prerequisites |
 | [../local/README.md](../local/README.md) | Running the whole stack on one machine |
 | [../depth-worker/README.md](../depth-worker/README.md) | The external GPU depth-map worker |
 

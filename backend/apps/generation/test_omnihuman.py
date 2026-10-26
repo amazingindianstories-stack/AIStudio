@@ -1,5 +1,4 @@
 """Executable OmniHuman protocol, validation and durable lifecycle coverage. No live calls."""
-import base64
 import io
 import json
 import wave
@@ -11,7 +10,7 @@ from unittest.mock import Mock, patch
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from PIL import Image
 
-from apps.generation import failure_copy, provider_errors
+from apps.generation import failure_copy
 from apps.generation.providers import omnihuman as api
 from apps.generation.services import enqueue, poller, video_execution, paid_guard
 from apps.generation.services.deadline import Cancellation
