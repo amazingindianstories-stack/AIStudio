@@ -11,6 +11,7 @@ from apps.admin_dashboard.tests import SettingsTests
 from apps.integrations.transport import ProviderError
 from .models import Generation
 from .providers import omni, seedance
+from .serialization import generation_item
 from .services import cancellation, coordinator, poller
 from .test_provider_adapters import ScriptedTransport, result
 
@@ -267,6 +268,7 @@ class CancellationTests(TransactionTestCase):
         self.assertEqual(poller.advance(row, dependencies=deps)['kind'], 'failed')
         row.refresh_from_db()
         self.assertEqual((row.status, row.error, row.moderation_blocked), ('failed', seedance.EXPIRED_MESSAGE, False))
+        self.assertEqual(generation_item(row)['error'], seedance.EXPIRED_MESSAGE + ' Task id: paid-task.')
 
     def test_provider_http_contracts(self):
         transport = ScriptedTransport(result({}, 204))

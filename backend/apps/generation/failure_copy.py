@@ -89,7 +89,7 @@ def _curated():
     from .providers import seedance, seedream
     from .services import audio_submission, poller, portrait_prepare, seedream_references, upscale_submission, video_execution
     exact = {
-        seedance.MODERATION_MESSAGE, seedance.TEXT_POLICY_MESSAGE, seedance.NEUTRAL_POLICY_MESSAGE,
+        seedance.MODERATION_MESSAGE, seedance.TEXT_POLICY_MESSAGE, seedance.NEUTRAL_POLICY_MESSAGE, seedance.EXPIRED_MESSAGE,
         portrait_prepare.REJECTED_MESSAGE,
         seedream.AMBIGUOUS_MESSAGE, seedream.NO_RESULT_MESSAGE, seedream.DOWNLOAD_FAILED_MESSAGE,
         poller.MAGNIFIC_TOO_LARGE, poller.MAGNIFIC_IMAGE_TOO_LARGE, poller.MAGNIFIC_SAVE_FAILED,

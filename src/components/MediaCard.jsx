@@ -574,7 +574,12 @@ export function MediaCard({
         {/* pending skeleton */}
         {pending && (
           <div className="absolute inset-0">
-            <GenerationStatus status={item.status} />
+            {/* The waiting note flows under the label (never over it), inset clear of the corner badges. */}
+            <GenerationStatus
+              status={item.status}
+              note={waitingNote(item)}
+              className={cn("px-[calc(var(--face-inset)*2+var(--face-avatar))]", waitingNote(item) && "gap-1.5 py-2")}
+            />
             {/* A job held by the spend gate is healthy and self-starting, so it
                 keeps the normal pending treatment — only the caption changes.
                 Showing it as an error would be the "not a good look" this whole
@@ -583,11 +588,6 @@ export function MediaCard({
             {item.queueNote && (
               <span style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-white/40">
                 {item.queueNote}
-              </span>
-            )}
-            {waitingNote(item) && (
-              <span data-portrait-waiting style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-sky-200/80">
-                {waitingNote(item)}
               </span>
             )}
             {item.kind === "video" && item.pollWarning && (
