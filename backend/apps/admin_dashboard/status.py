@@ -79,13 +79,12 @@ def kling():
 
 
 def omnihuman():
-    from django.conf import settings
-    keys = ('OMNIHUMAN_ACCESS_KEY_ID', 'OMNIHUMAN_SECRET_ACCESS_KEY')
-    if all(os.environ.get(key) for key in keys):
-        return outcome('ok', 'Vision AK/SK configured (config-presence only; cv/ap-singapore-1)')
-    if getattr(settings, 'VEEVEE_OMNIHUMAN', False):
-        return outcome('unknown', 'Enabled (VEEVEE_OMNIHUMAN); Vision AK/SK is held by the generation worker; live acceptance pending')
-    return outcome('unknown', 'OmniHuman disabled or Vision AK/SK not configured')
+    # The generation worker submits and polls; cancellation runs in this API process with the same pair.
+    from apps.integrations.byteplus import config_from_env
+    config = config_from_env()
+    if config['ak'] and config['sk']:
+        return outcome('ok', 'BytePlus AK/SK configured (config-presence only; cv/ap-singapore-1)')
+    return outcome('unknown', 'BytePlus AK/SK not set')
 
 
 def omni():
@@ -179,16 +178,17 @@ def run_all_checks(checks=None, timeout_ms=5000):
         finally: connections.close_all()
     started = time.monotonic()
     futures = []
+    capacity = _probe_capacity
     for _, _, check in checks:
-        if not _probe_capacity.acquire(blocking=False):
+        if not capacity.acquire(blocking=False):
             futures.append(None)
             continue
         try:
             future = _probe_executor.submit(work, check)
         except Exception:
-            _probe_capacity.release()
+            capacity.release()
             raise
-        future.add_done_callback(lambda completed: _probe_capacity.release())
+        future.add_done_callback(lambda completed: capacity.release())
         futures.append(future)
     results = []
     for (identifier, name, _), future in zip(checks, futures):

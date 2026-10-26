@@ -21,7 +21,7 @@ from apps.integrations.byteplus import sign_request
 from apps.integrations.transport import HttpResult, HttpTransport, ProviderError
 from apps.generation.models import Generation
 
-ENV = {'OMNIHUMAN_ACCESS_KEY_ID': 'synthetic-ak', 'OMNIHUMAN_SECRET_ACCESS_KEY': 'synthetic-sk'}
+ENV = {'BYTEPLUS_ACCESS_KEY_ID': 'synthetic-ak', 'BYTEPLUS_SECRET_ACCESS_KEY': 'synthetic-sk'}
 
 
 def response(payload, status=200):
@@ -51,11 +51,12 @@ class OmniHumanProtocolTests(SimpleTestCase):
         args, kwargs = transport.request.call_args
         self.assertEqual(args, ('POST', 'https://cv.byteplusapi.com/?Action=CVSync2AsyncSubmitTask&Version=2024-06-06'))
         self.assertEqual(json.loads(kwargs['raw_body']), {'req_key': 'realman_avatar_picture_omni20_cv',
-            'image_urls': ['https://fixture.invalid/i.png'], 'audio_url': 'https://fixture.invalid/a.wav', 'prompt': 'Slow smile'})
+            'image_urls': ['https://fixture.invalid/i.png'], 'audio_url': 'https://fixture.invalid/a.wav', 'enable_watermark': False,
+            'prompt': 'Slow smile'})
         self.assertIn('/ap-singapore-1/cv/request,', kwargs['headers']['Authorization'])
         self.assertNotIn('Bearer', kwargs['headers']['Authorization'])
         stamp = datetime.strptime(kwargs['headers']['x-date'], '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
-        expected = sign_request(body=kwargs['raw_body'], ak=ENV['OMNIHUMAN_ACCESS_KEY_ID'], sk=ENV['OMNIHUMAN_SECRET_ACCESS_KEY'],
+        expected = sign_request(body=kwargs['raw_body'], ak=ENV['BYTEPLUS_ACCESS_KEY_ID'], sk=ENV['BYTEPLUS_SECRET_ACCESS_KEY'],
             region='ap-singapore-1', service='cv', date=stamp, query={'Action': api.SUBMIT, 'Version': '2024-06-06'},
             headers={'content-type': 'application/json', 'host': 'cv.byteplusapi.com'})
         self.assertEqual(kwargs['headers'], expected['headers'])
@@ -64,9 +65,43 @@ class OmniHumanProtocolTests(SimpleTestCase):
         self.assertEqual(transport.request.call_args.args, ('POST', api.endpoint(api.QUERY)))
         self.assertEqual(json.loads(transport.request.call_args.kwargs['raw_body']), {'req_key': api.REQ_KEY, 'task_id': 'task-1'})
 
+    def test_reuses_the_byteplus_key_pair_with_its_volcengine_fallback_and_never_sends_without_it(self):
+        for env, ak in [(ENV, 'synthetic-ak'), ({'VOLCENGINE_ACCESS_KEY_ID': 'volc-ak', 'VOLCENGINE_SECRET_ACCESS_KEY': 'volc-sk'}, 'volc-ak')]:
+            transport = Mock(request=Mock(return_value=response({'code': 10000, 'data': {'status': 'in_queue'}})))
+            api.get_video_task('task-1', env=env, transport=transport)
+            self.assertIn(f'Credential={ak}/', transport.request.call_args.kwargs['headers']['Authorization'])
+        for env in [{}, {'OMNIHUMAN_ACCESS_KEY_ID': 'ak', 'OMNIHUMAN_SECRET_ACCESS_KEY': 'sk'},
+                    {'BYTEPLUS_ACCESS_KEY_ID': 'ak'}, {**ENV, 'BYTEPLUS_SECRET_ACCESS_KEY': '[SENSITIVE]'}]:
+            transport = Mock()
+            with self.subTest(env=env), self.assertRaises(ProviderError) as caught:
+                api.create_video_task({'imageUrls': ['i'], 'audioUrls': ['a']}, env=env, transport=transport)
+            self.assertEqual((caught.exception.code, caught.exception.may_have_submitted), ('missing_configuration', False))
+            transport.request.assert_not_called()
+
+    def test_signed_cancel_is_exact_and_maps_acceptance_and_started_refusal(self):
+        transport = Mock(request=Mock(return_value=response({'code': 10000, 'message': 'Success'})))
+        self.assertIsNone(api.cancel_video_task('2072219181', env=ENV, transport=transport))
+        args, kwargs = transport.request.call_args
+        self.assertEqual(args, ('POST', 'https://cv.byteplusapi.com/?Action=CVCancelTask&Version=2024-06-06'))
+        self.assertEqual(json.loads(kwargs['raw_body']), {'req_key': 'realman_avatar_picture_omni20_cv', 'task_id': '2072219181'})
+        stamp = datetime.strptime(kwargs['headers']['x-date'], '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
+        self.assertEqual(kwargs['headers'], sign_request(body=kwargs['raw_body'], ak='synthetic-ak', sk='synthetic-sk',
+            region='ap-singapore-1', service='cv', date=stamp, query={'Action': 'CVCancelTask', 'Version': '2024-06-06'},
+            headers={'content-type': 'application/json', 'host': 'cv.byteplusapi.com'})['headers'])
+        for status in (200, 400):
+            transport = Mock(request=Mock(return_value=response({'code': 50217, 'message': 'task already started'}, status)))
+            with self.subTest(status=status), self.assertRaises(ProviderError) as caught:
+                api.cancel_video_task('2072219181', env=ENV, transport=transport)
+            self.assertEqual((caught.exception.code, caught.exception.status, str(caught.exception)), ('50217', 409, api.CANCEL_DENIED))
+            self.assertEqual(caught.exception.provider_response['phase'], 'cancel')
+        transport = Mock(request=Mock(return_value=response({'code': 50500, 'message': 'Internal Error'}, 500)))
+        with self.assertRaises(ProviderError) as caught:
+            api.cancel_video_task('2072219181', env=ENV, transport=transport)
+        self.assertEqual(caught.exception.status, 500)
+
     def test_every_documented_state_and_missing_or_unknown_state(self):
         for state, expected in [('in_queue', 'queued'), ('generating', 'running'), ('done', 'succeeded'),
-            ('not_found', 'failed'), ('expired', 'failed'), ('canceled', 'failed'), ('unexpected', 'failed'), (None, 'failed')]:
+            ('not_found', 'failed'), ('expired', 'failed'), ('canceled', 'cancelled'), ('unexpected', 'failed'), (None, 'failed')]:
             with self.subTest(state=state):
                 result = api.normalize_video_task_payload({'code': 10000, 'data': {'status': state, 'video_url': 'https://fixture.invalid/video.mp4'}}, 'task')
                 self.assertEqual(result['status'], expected)

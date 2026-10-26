@@ -254,6 +254,17 @@ class AdminPureParityTests(SimpleTestCase):
                                                   'detail': 'Enabled (VEEVEE_KLING); KLING_API is held by the generation worker, not this API process'})
         self.assertIn(('kling', 'KlingAI Image', status.kling), status.CHECKS)
 
+    def test_omnihuman_status_checks_the_shared_byteplus_pair(self):
+        ok = {'status': 'ok', 'detail': 'BytePlus AK/SK configured (config-presence only; cv/ap-singapore-1)'}
+        for env in ({'BYTEPLUS_ACCESS_KEY_ID': 'k', 'BYTEPLUS_SECRET_ACCESS_KEY': 's'},
+                    {'VOLCENGINE_ACCESS_KEY_ID': 'k', 'VOLCENGINE_SECRET_ACCESS_KEY': 's'}):
+            with patch.dict('os.environ', env, clear=True):
+                self.assertEqual(status.omnihuman(), ok)
+        for env in ({}, {'OMNIHUMAN_ACCESS_KEY_ID': 'k', 'OMNIHUMAN_SECRET_ACCESS_KEY': 's'}, {'BYTEPLUS_ACCESS_KEY_ID': 'k'}):
+            with patch.dict('os.environ', env, clear=True):
+                self.assertEqual(status.omnihuman(), {'status': 'unknown', 'detail': 'BytePlus AK/SK not set'})
+        self.assertIn(('omnihuman', 'BytePlus Vision / OmniHuman 2.0', status.omnihuman), status.CHECKS)
+
     def test_gemini_status_probes_read_each_image_model_without_generating(self):
         seen=[]
         def transport(url,headers):

@@ -259,6 +259,72 @@ class CancellationTests(TransactionTestCase):
             HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com']).request('DELETE', seedance_task + 'held-task')
         self.assertEqual(sent, [('DELETE', seedance_task + 'held-task')])
 
+    def test_omnihuman_cancels_only_in_queue_tasks_through_the_real_signed_adapter_and_guard(self):
+        import json
+        from django.test import override_settings
+        from apps.integrations.transport import HttpTransport
+        from .providers import omnihuman
+        from .services import paid_guard
+        from .test_paid_guard import UNLIMITED
+        cancel_url, query_url, submit_url = (omnihuman.endpoint(action) for action in (omnihuman.CANCEL, omnihuman.QUERY, omnihuman.SUBMIT))
+        replies = {'queued-task': {query_url: ['in_queue', 'canceled'], cancel_url: [10000]},
+                   'started-task': {query_url: ['generating']},
+                   'raced-task': {query_url: ['in_queue'], cancel_url: [50217]}}
+        sent = []
+
+        def send(transport, method, url, *, raw_body=None, **kwargs):
+            body = json.loads(raw_body)
+            sent.append((method, url, body))
+            reply = replies[body['task_id']][url].pop(0)
+            return result({'code': 10000, 'data': {'status': reply}} if url == query_url else {'code': reply})
+
+        from apps.common.leases import now_ms
+        jobs = {task: self.job(model='OmniHuman 2.0', task_id=task, provider_status='in_queue', submitted_at=now_ms())
+                for task in ('queued-task', 'started-task', 'raced-task')}
+        held = self.job(model='OmniHuman 2.0', task_id='held-task', cancellation_state='requested')
+        seedance_held = self.job(task_id='seedance-held', cancellation_state='requested')
+        actor = SimpleNamespace(id=None, role='admin')
+        with override_settings(VEEVEE_PAID_GUARD=UNLIMITED), patch.object(HttpTransport, '_send', send), patch.object(cancellation, 'publish_best_effort'), \
+                patch.dict('os.environ', {'BYTEPLUS_ACCESS_KEY_ID': 'synthetic-ak', 'BYTEPLUS_SECRET_ACCESS_KEY': 'synthetic-sk', 'MOCK_GENERATION': '0'}):
+            current, message = cancellation.cancel_generation(jobs['queued-task'].id, actor, env={})
+            self.assertEqual((current.status, current.cancellation_state, current.cost_cents, current.cost_basis, message),
+                             ('cancelled', 'confirmed', 60, cancellation.COST_UNCONFIRMED, None))
+            self.assertEqual(sent, [('POST', query_url, {'req_key': omnihuman.REQ_KEY, 'task_id': 'queued-task'}),
+                                    ('POST', cancel_url, {'req_key': omnihuman.REQ_KEY, 'task_id': 'queued-task'}),
+                                    ('POST', query_url, {'req_key': omnihuman.REQ_KEY, 'task_id': 'queued-task'})])
+            for task in ('started-task', 'raced-task'):
+                sent.clear()
+                current, message = cancellation.cancel_generation(jobs[task].id, actor, env={})
+                self.assertEqual((current.status, current.cancellation_state, current.worker_lease_id), ('running', 'refused', None), task)
+                self.assertIn('started', message)
+                self.assertEqual([url for _, url, _ in sent], [query_url] if task == 'started-task' else [query_url, cancel_url])
+            sent.clear()
+            exact = {'req_key': omnihuman.REQ_KEY, 'task_id': 'held-task'}
+            for method, url, body in (('POST', cancel_url, {**exact, 'task_id': 'unknown-task'}),
+                                      ('POST', cancel_url, {**exact, 'task_id': 'seedance-held'}),
+                                      ('POST', cancel_url, {**exact, 'task_id': 'queued-task'}),
+                                      ('POST', cancel_url, {**exact, 'req_key': 'another-model'}),
+                                      ('POST', cancel_url, {**exact, 'image_urls': ['x']}),
+                                      ('POST', cancel_url + '&Action=CVSync2AsyncSubmitTask', exact),
+                                      ('POST', submit_url, exact),
+                                      ('PUT', cancel_url, exact)):
+                with self.subTest(url=url, body=body), self.assertRaises(ProviderError) as caught:
+                    HttpTransport(allowed_hosts={omnihuman.HOST}).request(method, url, raw_body=json.dumps(body).encode())
+                self.assertEqual(caught.exception.code, 'preview_paid_scope')
+            self.assertFalse(paid_guard.cancel_allowed('POST', cancel_url))
+            self.assertEqual(sent, [])
+            replies['held-task'] = {cancel_url: [10000]}
+            HttpTransport(allowed_hosts={omnihuman.HOST}).request('POST', cancel_url, raw_body=json.dumps(exact).encode())
+        self.assertEqual(sent, [('POST', cancel_url, exact)])
+        self.assertEqual((held.status, seedance_held.status), ('running', 'running'))
+
+    def test_omnihuman_cancel_is_offered_only_while_in_queue(self):
+        row = self.job(model='OmniHuman 2.0', task_id='vision-task', provider_status='in_queue')
+        self.assertTrue(cancellation.can_cancel(row, {}))
+        for status in ('generating', 'done', 'DOWNLOAD_PENDING', 'SUBMISSION_UNCERTAIN'):
+            row.provider_status = status
+            self.assertFalse(cancellation.can_cancel(row, {}), status)
+
     def test_expired_seedance_task_fails_with_accurate_copy(self):
         transport = ScriptedTransport(result({'id': 'paid-task', 'status': 'expired'}))
         deps = poller.Dependencies(mock=lambda: False, publish=lambda row: None,

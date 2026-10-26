@@ -4,17 +4,18 @@ import os
 import re
 
 from apps.generation import provider_errors
-from apps.integrations.byteplus import sign_request
-from apps.integrations.transport import HttpTransport, ProviderError, required_key
+from apps.integrations.byteplus import config_from_env, sign_request
+from apps.integrations.transport import HttpTransport, ProviderError
 
 HOST = 'cv.byteplusapi.com'
 VERSION = '2024-06-06'
 REQ_KEY = 'realman_avatar_picture_omni20_cv'
 SUBMIT = 'CVSync2AsyncSubmitTask'
 QUERY = 'CVSync2AsyncGetResult'
+CANCEL = 'CVCancelTask'
 REGION, SERVICE = 'ap-singapore-1', 'cv'
 STATES = {'in_queue': 'queued', 'generating': 'running', 'done': 'succeeded',
-          'not_found': 'failed', 'expired': 'failed', 'canceled': 'failed'}
+          'not_found': 'failed', 'expired': 'failed', 'canceled': 'cancelled'}
 INVALID = 'OmniHuman could not use these inputs. Attach one valid image and one WAV or MP3 audio file of 4-300 seconds.'
 IMAGE = 'OmniHuman needs an image under 30 MB, with each side 300-6000 pixels and an aspect ratio between 0.4 and 2.5.'
 AUDIO = 'OmniHuman needs one WAV or MP3 audio file under 15 MB and 4-300 seconds long.'
@@ -23,7 +24,6 @@ BUSY = 'OmniHuman is busy. Try again in a few minutes.'
 INTERNAL = 'OmniHuman encountered a service error. Try again later.'
 POLICY = 'OmniHuman rejected these inputs under its content policy. Change the image, audio or prompt before trying again.'
 EXPIRED = 'The OmniHuman task expired or could not be found. Nothing was resubmitted.'
-CANCELED = 'The OmniHuman task was canceled at the provider.'
 NO_VIDEO = 'OmniHuman finished but returned no video.'
 UNKNOWN = 'OmniHuman returned an unrecognized task response. Nothing was resubmitted.'
 CANCEL_DENIED = 'OmniHuman could not cancel this task because it had already started.'
@@ -50,7 +50,7 @@ ERROR_COPY = {str(code): message for code, message in {
 }.items()}
 for _name, (_number, _message) in GATEWAY.items():
     ERROR_COPY[_name] = ERROR_COPY[str(_number)] = _message
-ERROR_COPY.update(not_found=EXPIRED, expired=EXPIRED, canceled=CANCELED, no_video=NO_VIDEO, unknown_state=UNKNOWN)
+ERROR_COPY.update(not_found=EXPIRED, expired=EXPIRED, no_video=NO_VIDEO, unknown_state=UNKNOWN)
 RETRYABLE = frozenset(('50429', '50430', '50500', '50501', 'InternalError', 'FailToConnect',
     'InternalServiceTimeout', 'FlowLimitExceeded', 'ServiceUnavailableTemp', 'InternalServiceError',
     '100014', '100015', '100016', '100018', '100019', '100023'))
@@ -81,15 +81,14 @@ def failure(payload, *, phase, http_status=None, task_id=None, code=None, header
 
 
 def call(action, body, *, env=None, transport=None, signal=None, date=None):
-    if action not in (SUBMIT, QUERY):
+    if action not in (SUBMIT, QUERY, CANCEL):
         raise ValueError('Unsupported OmniHuman action.')
-    env = os.environ if env is None else env
-    try:
-        ak = required_key(env, 'OMNIHUMAN_ACCESS_KEY_ID')
-        sk = required_key(env, 'OMNIHUMAN_SECRET_ACCESS_KEY')
-    except ProviderError as error:
-        error.may_have_submitted = False
-        raise
+    phase = {SUBMIT: 'create', QUERY: 'status', CANCEL: 'cancel'}[action]
+    config = config_from_env(os.environ if env is None else env)
+    ak, sk = config['ak'], config['sk']
+    if not ak or not sk or '[SENSITIVE]' in (ak, sk):
+        raise ProviderError('BYTEPLUS_ACCESS_KEY_ID and BYTEPLUS_SECRET_ACCESS_KEY are not set.',
+            code='missing_configuration', may_have_submitted=False)
     raw = json.dumps(body, ensure_ascii=False, separators=(',', ':'))
     headers = {'content-type': 'application/json', 'host': HOST}
     signed = sign_request(body=raw, ak=ak, sk=sk, region=REGION, service=SERVICE,
@@ -106,14 +105,14 @@ def call(action, body, *, env=None, transport=None, signal=None, date=None):
         payload = response.json()
     except ValueError:
         error = ProviderError(UNKNOWN, code='invalid_response', status=response.status,
-            provider_response=provider_errors.capture('omnihuman', phase='create' if action == SUBMIT else 'status',
+            provider_response=provider_errors.capture('omnihuman', phase=phase,
                 status=response.status, body=response.text, headers=response.headers))
         error.submission_is_ambiguous = action == SUBMIT and response.ok
         raise error from None
     if not isinstance(payload, dict):
         raise ProviderError(UNKNOWN, code='invalid_response')
     if not response.ok or response_error(payload):
-        raise failure(payload, phase='create' if action == SUBMIT else 'status', http_status=response.status,
+        raise failure(payload, phase=phase, http_status=response.status,
             headers=response.headers, task_id=body.get('task_id'))
     return payload
 
@@ -122,7 +121,7 @@ def create_video_task(input, *, env=None, transport=None, signal=None):
     images, audios = input.get('imageUrls') or [], input.get('audioUrls') or []
     if len(images) != 1 or len(audios) != 1:
         raise ProviderError(INVALID, code='invalid_inputs', may_have_submitted=False)
-    body = {'req_key': REQ_KEY, 'image_urls': images, 'audio_url': audios[0]}
+    body = {'req_key': REQ_KEY, 'image_urls': images, 'audio_url': audios[0], 'enable_watermark': False}
     if input.get('prompt'):
         body['prompt'] = input['prompt']
     result = call(SUBMIT, body, env=env, transport=transport, signal=signal)
@@ -156,6 +155,17 @@ def get_video_task(task_id, *, env=None, transport=None, signal=None):
                     'moderationBlocked': error.code == '50510'}
         raise
     return normalize_video_task_payload(payload, task_id)
+
+
+def cancel_video_task(task_id, *, env=None, transport=None, signal=None):
+    """Only an in_queue task can be cancelled. Code 10000 accepts the request; polling, not this
+    response, settles the job. 50217 means the task already started: a refusal, so it keeps running."""
+    try:
+        call(CANCEL, {'req_key': REQ_KEY, 'task_id': task_id}, env=env, transport=transport, signal=signal)
+    except ProviderError as error:
+        if error.code == '50217':
+            error.status = 409
+        raise
 
 
 def video_container(stream):

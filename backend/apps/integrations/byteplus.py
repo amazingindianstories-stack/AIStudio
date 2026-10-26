@@ -34,8 +34,8 @@ class Deadline:
             raise TimeoutError('Portrait synchronization deadline exceeded.')
 
 
-def config_from_env():
-    env = os.environ
+def config_from_env(env=None):
+    env = os.environ if env is None else env
     region = env.get('BYTEPLUS_ARK_REGION') or 'ap-southeast-1'
     host = env.get('BYTEPLUS_ARK_HOST') or f'ark.{region}.byteplusapi.com'
     return {'ak': env.get('BYTEPLUS_ACCESS_KEY_ID') or env.get('VOLCENGINE_ACCESS_KEY_ID'),

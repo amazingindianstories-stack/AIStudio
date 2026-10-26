@@ -36,6 +36,8 @@ MAGNIFIC_MEDIA_HOSTS = ('cdn-magnific.freepik.com', 'ai-statics.magnific.com')
 # image API reference (kling.ai/document-api/api/image/3-0-omni/image-generation, read 2026-10-19);
 # cdn.klingai.com is the host in published sample responses of the same API. The first live canary must confirm.
 KLING_MEDIA_HOSTS = ('h1.inkwai.com', 'cdn.klingai.com')
+# OmniHuman result host, observed in the approved live canary (task 2072219181, 2026-10-26); signed, expiring links.
+OMNIHUMAN_MEDIA_HOSTS = ('v16m-default.tiktokcdn.com',)
 # KLING_API_HOST may only name a Kling API origin (the key is sent there); see apps.generation.providers.kling.
 KLING_HOST = re.compile(r'https://(?:[a-z0-9-]+\.)+klingai\.com/?')
 
@@ -131,11 +133,12 @@ def _managed_portraits(component, env, out):
 
 
 def _omnihuman(component, env, out):
-    # Independent Vision credentials are exposed only to the generation worker.
+    """``VEEVEE_OMNIHUMAN=1`` gives the generation worker, the only OmniHuman caller, the existing BytePlus key pair
+    from the portrait configuration; without it the worker refuses to start rather than fail paid jobs."""
     if component == 'generation' and env.get('VEEVEE_OMNIHUMAN') == '1':
-        for key in ('OMNIHUMAN_ACCESS_KEY_ID', 'OMNIHUMAN_SECRET_ACCESS_KEY'):
-            if env.get(key):
-                out[key] = env[key]
+        need(env.get('GOAL4_PREVIEW_PORTRAIT_CONFIGURATION'), 'OmniHuman needs GOAL4_PREVIEW_PORTRAIT_CONFIGURATION on the generation worker')
+        reads = _portrait_reads(env)
+        out.update({key: reads[key] for key in ('BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY')})
     return out
 
 
@@ -173,6 +176,8 @@ def translate(component, env):
         hosts = [*hosts, *(host for host in MAGNIFIC_MEDIA_HOSTS if host not in hosts)]
     if env.get('VEEVEE_KLING') == '1' and component == 'generation':
         hosts = [*hosts, *(host for host in KLING_MEDIA_HOSTS if host not in hosts)]
+    if env.get('VEEVEE_OMNIHUMAN') == '1' and component == 'generation':
+        hosts = [*hosts, *(host for host in OMNIHUMAN_MEDIA_HOSTS if host not in hosts)]
     out['VEEVEE_PROVIDER_MEDIA_HOSTS'] = ','.join(hosts)
     if cfg.get('new_exports'):
         out['VEEVEE_EXPORT_ADMISSION'] = '1'

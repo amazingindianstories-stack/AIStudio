@@ -9,10 +9,14 @@ No portrait registration or Seedance prompt rewriting is applied.
 
 The Django adapter is `backend/apps/generation/providers/omnihuman.py`.
 It uses POST JSON on `https://cv.byteplusapi.com/`, version `2024-06-06`,
-`CVSync2AsyncSubmitTask` and `CVSync2AsyncGetResult`, with
-`req_key=realman_avatar_picture_omni20_cv`.
+`CVSync2AsyncSubmitTask`, `CVSync2AsyncGetResult` and `CVCancelTask`, with
+`req_key=realman_avatar_picture_omni20_cv`. Submissions send
+`enable_watermark=false`, so outputs carry no provider watermark.
 Authentication uses the existing BytePlus HMAC signer with fixed service `cv`
-and region `ap-singapore-1`. It does not use the Seedance ModelArk API key.
+and region `ap-singapore-1`, and Veevee's existing BytePlus access key pair
+(`BYTEPLUS_ACCESS_KEY_ID` / `BYTEPLUS_SECRET_ACCESS_KEY`, read like the BytePlus
+integration, including its `VOLCENGINE_*` fallback). It does not use the
+Seedance ModelArk API key.
 
 Original input bytes are checked before queueing and again before submission:
 
@@ -45,24 +49,40 @@ just after storage completes.
 
 Default availability is off. Default pricing is explicitly unknown, not free;
 set a positive `OmniHuman 2.0` per-second admin rate before admitting requests.
-The API reference does not publish a price or an actual output hostname.
+The API reference does not publish a price, and task responses report no cost
+or usage.
 
 An approved deployment needs:
 
-- `VEEVEE_OMNIHUMAN=1` on API and generation worker after acceptance.
-- `OMNIHUMAN_ACCESS_KEY_ID` and `OMNIHUMAN_SECRET_ACCESS_KEY` on the generation
-  worker only.
-- The exact output hostname observed in an approved live canary in the worker's
-  existing `provider_media_hosts` configuration. Do not add guessed hosts or wildcards.
-- A confirmed account price and approval for a short live canary. A four-second
-  canary costs four times that per-second rate, subject to account billing rules.
+- `VEEVEE_OMNIHUMAN=1` on API and generation worker.
+- `GOAL4_PREVIEW_PORTRAIT_CONFIGURATION` on the generation worker. With the
+  switch on, the worker receives the BytePlus key pair from its `read_environment`
+  and refuses to start without it. No new secret is needed.
+- A confirmed account price.
 
-Local protocol checks are synthetic and do not establish live acceptance.
-No production deployment or service configuration change is part of this work.
+With the switch on, the generation worker also allows the result host
+`v16m-default.tiktokcdn.com`, observed in the approved live canary. Do not add
+guessed hosts or wildcards.
 
-Cancellation is a separate follow-up. This adapter recognizes a provider-originated
-`canceled` status but exposes no cancellation call. BytePlus only allows cancellation
-while a task is `in_queue`; after execution starts it returns `50217`.
+The approved live canary (task `2072219181`, 2026-10-26) went from `generating`
+to `done` in 162 seconds for about 11 seconds of output. It returned a signed,
+expiring `https://v16m-default.tiktokcdn.com/...` link to an MP4 (not MOV) with
+H.264 video and AAC audio, 720x1280, with no visible watermark. Task IDs are
+numeric strings. Querying an unknown task ID returns `50500` `Internal Error`
+rather than a `not_found` state, so it backs off like any service error.
+
+## Cancellation
+
+The adapter is registered in `generation/services/cancellation.py`. BytePlus
+only cancels a task while it is `in_queue`, so Cancel is offered only before the
+task starts generating. `CVCancelTask` code `10000` accepts the request, and
+polling then settles the job: the `canceled` state becomes Veevee's `cancelled`,
+with the estimated cost kept as `cancelled_billing_unconfirmed`. Code `50217`
+means the task already started; that is a refusal, and the job continues
+normally. Cancel requests run in the API process, which holds the same BytePlus
+pair through its portrait configuration. With `VEEVEE_PAID_GUARD` set, the guard allows only the exact
+`CVCancelTask` POST with a `{req_key, task_id}` body for an active OmniHuman
+generation whose cancellation is `requested`, never a submission.
 
 Sources read in full on 2026-10-25:
 [OmniHuman 2.0 API](https://docs.byteplus.com/en/docs/byteplus-vision/omnihuman-2-0-video-generation),

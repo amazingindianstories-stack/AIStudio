@@ -11,7 +11,7 @@ from django.db import transaction
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
 from apps.generation.model_registry import model_definition
-from apps.generation.providers import omni, seedance
+from apps.generation.providers import omni, omnihuman, seedance
 from apps.generation.realtime import publish_best_effort
 from . import coordinator
 from .deadline import Cancellation
@@ -20,12 +20,9 @@ ACTIVE = ('queued', 'running')
 UNSETTLED = ('requested', 'uncertain')
 COST_UNCONFIRMED = 'cancelled_billing_unconfirmed'
 COST_UNSUBMITTED = 'cancelled_before_submission'
-# OmniHuman's provider is a separate change; whichever of the two lands second
-# registers its CVCancelTask adapter here and its cancel endpoint in
-# paid_guard.CANCEL_ENDPOINTS. Its signature, identifiers and polling contract
-# must stay with that adapter.
 ADAPTERS = {'byteplus': (seedance.get_video_task, seedance.cancel_video_task),
-            'omni': (omni.get_cancel_status, omni.cancel_video_task)}
+            'omni': (omni.get_cancel_status, omni.cancel_video_task),
+            'omnihuman': (omnihuman.get_video_task, omnihuman.cancel_video_task)}
 
 
 class CancelError(Exception):
@@ -50,7 +47,7 @@ def can_cancel(item, env=None):
     if not item.task_id:
         return item.status == 'queued'
     provider = provider_for(item, env)
-    return provider == 'omni' or item.provider_status not in ('running', 'generating', 'succeeded', 'completed')
+    return provider == 'omni' or item.provider_status not in ('running', 'generating', 'done', 'succeeded', 'completed')
 
 
 def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=None):
