@@ -70,16 +70,10 @@ def plan(folder_id, *, lock=False):
     if lock:
         query = query.select_for_update(nowait=True)
     members = list(query)
-    # Include unnamed legacy/in-flight rows too. Their first durable allocation
-    # uses the same ordinary naming path, never a provisional filename rewrite.
-    unnamed = Generation.objects.filter(pk__in=[row.id for row in selected if not row.name_owner_id]).order_by('id')
-    if lock:
-        unnamed = unnamed.select_for_update(nowait=True)
-    members += list(unnamed)
     folders = ancestry_folders(members)
     groups = defaultdict(list)
     for row in members:
-        groups[row.name_owner_id or row.id].append(row)
+        groups[row.name_owner_id].append(row)
     eligible, skipped, unchanged = [], 0, 0
     for owner, rows in groups.items():
         stems = {stem_for(row, folders) for row in rows}
@@ -149,13 +143,9 @@ def rename_folder_generations(*, folder_id, actor_id, preview_token, idempotency
                 candidate = stem_name(row, stem, sequence)
             if candidate != change['newName']:
                 raise OrganizationError('PREVIEW_CHANGED', 'Name allocation changed. Review a fresh preview and try again.', 409)
-            if row.permanent_name:
-                with connection.cursor() as cursor:
-                    cursor.execute('SELECT rename_generation_lineage(%s::uuid,%s,%s::uuid,%s)',
-                        [change['owner'], candidate, actor_id, now])
-            else:
-                # The existing trigger makes the first immutable reservation.
-                Generation.objects.filter(pk=row.id).update(permanent_name=candidate, updated_at=now)
+            with connection.cursor() as cursor:
+                cursor.execute('SELECT rename_generation_lineage(%s::uuid,%s,%s::uuid,%s)',
+                    [change['owner'], candidate, actor_id, now])
         result.pop('previewToken')
         return result
     return execute('rename_folder_generations', {'folderId': str(folder_id), 'previewToken': preview_token},

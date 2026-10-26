@@ -20,7 +20,7 @@ export function RenameFolderGenerationsItem({ folder, close }) {
       const response = await apiFetch(`/api/folders?renamePreview=${encodeURIComponent(folder.id)}`);
       const preview = await response.json();
       if (!response.ok) throw new Error(apiErrorMessage(preview, response.status, "Failed to preview names"));
-      const example = preview.example ? ` Example: ${preview.example.oldName || "Unassigned"} → ${preview.example.newName}.` : "";
+      const example = preview.example ? ` Example: ${preview.example.oldName} → ${preview.example.newName}.` : "";
       const skipped = `${generations(preview.skippedCount)} will be skipped${preview.skippedCount ? " because their draft or final lives in another folder" : ""}.`;
       const confirmed = await askConfirm({
         title: `Rename to match "${folder.name}"?`,
