@@ -68,6 +68,14 @@ export const MEDIA_ACTION_COPY = {
     confirmLabel: "Generate final",
     maintenanceWrite: true,
   },
+  cancelGeneration: {
+    title: "Cancel this generation?",
+    description: "Asks the provider to cancel this task. If it has already finished, its result is kept. Provider charges may still apply.",
+    confirmLabel: "Cancel generation",
+    dismissLabel: "Keep generating",
+    destructive: true,
+    maintenanceWrite: true,
+  },
   deleteGeneration: {
     title: "Delete this generation?",
     description: "Removes it from your history. This can't be undone.",

@@ -63,6 +63,11 @@ class HistoricalHistoryPlanTests(TransactionTestCase):
                 return execute(statement, bindings, many, context)
             with connection.execute_wrapper(capture):
                 page=query_history(params)
+            # The frozen response predates the additive cancellation capability.
+            # Its terminal fixture models cannot be cancelled.
+            for item in page['items']:
+                self.assertFalse(item.pop('canCancel'))
+                self.assertIsNone(item.pop('cancellationState'))
             self.assertEqual(case_folded_filenames(page), case_folded_filenames(historical['page']))
             statement, bindings=captured[0]
             self.assertTrue(statement.lstrip().upper().startswith('SELECT'))

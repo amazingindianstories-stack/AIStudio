@@ -174,8 +174,13 @@ def _metadata(item):
 def _terminal(item, updates, deps, signal, owner, provider):
     signal.check()
     timestamp = deps.now()
+    if updates.get('status') == 'cancelled':
+        from .cancellation import COST_UNCONFIRMED
+        updates = {**updates, 'cost_basis': COST_UNCONFIRMED, 'cancellation_state': 'confirmed', 'next_poll_at': None}
+    elif updates.get('status') in ('succeeded', 'failed'):
+        updates = {'cancellation_state': None, **updates}
     defaults = {'url': None, 'error': None, 'moderation_blocked': None,
-                'completed_at': item.completed_at or timestamp, 'updated_at': timestamp}
+                'completed_at': item.completed_at or timestamp, 'updated_at': max(timestamp, item.updated_at + 1)}
     persisted = coordinator.compare_and_set_outcome(item, {**defaults, **provider, **updates}, owner=owner)
     if persisted is None:
         return {'kind': 'raced'}
@@ -206,7 +211,8 @@ def _poll_error(item, deps, owner, error=None):
     if abandoned:
         record = getattr(error, 'provider_response', None)
         record = record if provider_errors.is_record(record) else _local_record(current, 'poll_abandoned', error, phase='status')
-        return _terminal(current, {'status': 'failed', 'error': POLL_ABANDONED, **_with_records(current, record)}, deps,
+        return _terminal(current, {'status': 'failed', 'error': POLL_ABANDONED, 'cancellation_state': current.cancellation_state,
+                                   **_with_records(current, record)}, deps,
                          Cancellation(30000), owner, {})
     return {'kind': 'poll_error', 'pollErrorCount': current.poll_error_count, 'retryAfterMs': delay}
 
@@ -234,10 +240,12 @@ def _best_of(item, deps, signal, owner, provider):
     for task_id in [item.task_id, *(item.candidate_task_ids or [])]:
         signal.check()
         results.append({'taskId': task_id, **deps.get_video(task_id, signal=signal)})
-    if any(result['status'] not in ('succeeded', 'failed') for result in results):
+    if any(result['status'] not in ('succeeded', 'failed', 'cancelled') for result in results):
         return _pending(item, deps, signal, owner, provider)
     succeeded = [result for result in results if result['status'] == 'succeeded' and result.get('videoUrl')]
     if not succeeded:
+        if all(result['status'] == 'cancelled' for result in results):
+            return _terminal(item, {'status': 'cancelled', 'candidate_task_ids': None}, deps, signal, owner, provider)
         blocked = any(_moderation(result.get('error'))[0] for result in results)
         reason = next((result['error'] for result in results if result.get('error')), 'All candidates failed to generate.')
         if blocked:
@@ -279,7 +287,7 @@ def _best_of(item, deps, signal, owner, provider):
 def advance_magnific(item, *, signal=None, owner=None, dependencies=None):
     if item.model not in magnific.MODELS or item.kind != 'image' or not item.task_id:
         raise ValueError('Generation is not a Magnific job.')
-    if item.status in ('succeeded', 'failed'):
+    if item.status in ('succeeded', 'failed', 'cancelled'):
         return {'kind': item.status, 'item': item}
     deps, signal = dependencies or Dependencies(), signal or Cancellation(60000)
     if deps.mock() and item.task_id == 'mock-magnific-'+str(item.id):
@@ -331,7 +339,7 @@ def magnific_image_extension(data):
 def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):
     if item.model not in magnific.VIDEO_MODELS or item.kind != 'video' or not item.task_id:
         raise ValueError('Generation is not a Magnific video job.')
-    if item.status in ('succeeded', 'failed'):
+    if item.status in ('succeeded', 'failed', 'cancelled'):
         return {'kind': item.status, 'item': item}
     deps, signal = dependencies or Dependencies(), signal or Cancellation(60000)
     source = (item.submission_input or {}).get('source')
@@ -361,7 +369,7 @@ def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):
 
 
 def advance(item, *, source='cron', signal=None, owner=None, provider=None, callback_received_at=None, dependencies=None):
-    if item.status in ('succeeded', 'failed'):
+    if item.status in ('succeeded', 'failed', 'cancelled'):
         return {'kind': item.status, 'item': item}
     if not item.task_id:
         return {'kind': 'pending', 'item': item}
@@ -385,7 +393,12 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
         is_higgsfield = is_provider_model(item.model, 'higgsfield')
         get_status = deps.get_omni if is_omni else deps.get_higgsfield if is_higgsfield else deps.get_video
         result = get_status(item.task_id, signal=signal)
+        if (item.cancellation_state in ('requested', 'uncertain') and
+                (result.get('providerError') or {}).get('httpStatus') in (404, 410)):
+            raise IOError('Cancellation outcome is still unknown: provider record unavailable.')
         provider.update(coordinator.provider_timestamps(result))
+        if result['status'] == 'cancelled':
+            return _terminal(item, {'status': 'cancelled'}, deps, signal, owner, provider)
         if result['status'] == 'failed':
             blocked, message = (result.get('moderationBlocked'), result.get('error') or 'Generation failed.') if is_omni else _moderation(result.get('error'))
             if blocked and not is_omni and not is_higgsfield:

@@ -34,7 +34,7 @@ These additional parameters are accepted:
 | `durationBucket` | Repeated `short` (1-5s), `medium` (6-10s), `long` (>10s), `unknown` |
 | `stage` | Repeated `draft`, `final`, `unknown`; video only |
 | `creator` | Repeated user UUIDs or `unknown` (missing attribution) |
-| `status` | Repeated `ready`, `creating` (queued/running), `failed` |
+| `status` | Repeated `ready`, `creating` (queued/running), `failed` (failed/cancelled) |
 | `bitrate` | Repeated `high`, `standard`, `unknown`; video only |
 | `createdFrom` | Inclusive UTC epoch milliseconds |
 | `createdBefore` | Exclusive UTC epoch milliseconds |

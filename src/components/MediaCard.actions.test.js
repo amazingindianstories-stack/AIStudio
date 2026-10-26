@@ -204,3 +204,41 @@ test('non-admin owners and other users have no delete action in generation menus
     }
   }
 });
+
+test('Cancel uses the existing confirmation and only supported active cards offer it to their owner or admin', async () => {
+  const item = { ...failed, status: 'running', moderationBlocked: false, canCancel: true, userId: 'owner', error: null };
+  let requests = 0;
+  await harness(item, async ({ card }) => {
+    await openMenu(card);
+    assert.ok(menuItem('cancel'));
+    await act(async () => menuItem('cancel').click());
+    assert.equal(requests, 0);
+    assert.match(document.body.textContent, /Cancel this generation\?/);
+    const dialogButtons = () => [...document.querySelectorAll('[role="alertdialog"] button')];
+    assert.deepEqual(dialogButtons().map(b => b.textContent), ['Keep generating', 'Cancel generation']);
+    await act(async () => new Promise(resolve => setTimeout(resolve, 10)));
+    assert.equal(document.activeElement, dialogButtons()[0]);
+    await act(async () => dialogButtons()[1].click());
+    assert.equal(requests, 1);
+    assert.match(document.body.textContent, /already started/);
+  }, { currentUser: { id: 'owner', role: 'user' }, cancelGeneration: async () => { requests++; return { ok: false, error: 'The provider already started this task.' }; } });
+  await harness(item, async ({ card }) => {
+    await openMenu(card);
+    await act(async () => menuItem('cancel').click());
+    const confirm = [...document.querySelectorAll('button')].find(b => b.textContent === 'Cancel generation');
+    await act(async () => confirm.click());
+    assert.equal(document.querySelector('[role="alertdialog"]'), null);
+  }, { currentUser: { id: 'owner', role: 'user' }, cancelGeneration: async () => ({ ok: true }) });
+  for (const [row, currentUser] of [[{ ...item, canCancel: false }, { id: 'owner', role: 'user' }],
+    [item, { id: 'another-user', role: 'user' }], [{ ...item, status: 'cancelled' }, { id: 'owner', role: 'user' }]]) {
+    await harness(row, async ({ card }) => { await openMenu(card); assert.equal(menuItem('cancel'), null); }, { currentUser });
+  }
+});
+
+test('cancelled cards render their terminal label using the existing failure treatment', async () => {
+  await harness({ ...failed, status: 'cancelled', error: null, moderationBlocked: false }, async ({ card }) => {
+    assert.match(card.textContent, /Cancelled/);
+    await openMenu(card);
+    assert.equal(menuItem('delete').getAttribute('aria-disabled'), null);
+  });
+});

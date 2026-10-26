@@ -86,7 +86,9 @@ def submission_model(name):
 def map_status(raw):
     if raw == 'completed':
         return 'succeeded'
-    return 'failed' if raw in ('failed', 'cancelled', 'incomplete', 'budget_exceeded', 'requires_action') else 'running'
+    if raw == 'cancelled':
+        return 'cancelled'
+    return 'failed' if raw in ('failed', 'incomplete', 'budget_exceeded', 'requires_action') else 'running'
 
 
 def terminal_status_http_error(status, body):
@@ -173,7 +175,7 @@ def create_video_task(input, *, transport=None, env=None, signal=None, vertex_au
     return task_id
 
 
-def get_video_status(task_id, *, transport=None, download_transport=None, env=None, signal=None, vertex_auth=None):
+def get_video_status(task_id, *, transport=None, download_transport=None, env=None, signal=None, vertex_auth=None, include_video=True):
     env = os.environ if env is None else env
     endpoint, headers = authentication(env, vertex_auth)
     transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com', 'aiplatform.googleapis.com'], max_response_bytes=512 * 1024 * 1024)
@@ -189,8 +191,12 @@ def get_video_status(task_id, *, transport=None, download_transport=None, env=No
     result = response.json()
     status = map_status(result.get('status'))
     if status == 'succeeded':
+        if not include_video:
+            return {'status': status}
         video = extract_video(result, headers, transport=download_transport, signal=signal)
         return {'status': status, 'videoBase64': video['base64'], 'mimeType': video['mimeType']}
+    if status == 'cancelled':
+        return {'status': 'cancelled', 'providerStatus': 'cancelled'}
     if status == 'failed':
         message = (result.get('error') or {}).get('message') or f'Omni generation ended with status "{result.get("status", "undefined")}".'
         # The interaction's own error code, else a telling terminal status (budget_exceeded, incomplete ...) is the code;
@@ -202,3 +208,21 @@ def get_video_status(task_id, *, transport=None, download_transport=None, env=No
         return {'status': status, 'error': message, 'moderationBlocked': bool(re.search(r'polic|safety|moderat|block', message, re.I)),
                 'providerError': record}
     return {'status': status}
+
+
+def cancel_video_task(task_id, *, env=None, transport=None, signal=None):
+    """Developer API background interactions only; status polling settles races."""
+    env = os.environ if env is None else env
+    if env.get('OMNI_USE_VERTEX') == '1':
+        raise ValueError('Vertex cancellation has not been verified.')
+    endpoint, headers = authentication(env)
+    transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
+    response = transport.request('POST', endpoint + '/' + quote(task_id, safe='') + '/cancel',
+        headers=headers, signal=signal)
+    if not response.ok:
+        raise ProviderError('Omni cancellation was not confirmed.', status=response.status)
+
+
+def get_cancel_status(task_id, **options):
+    # Cancellation preflight needs only state, never a duplicate master download.
+    return get_video_status(task_id, include_video=False, **options)

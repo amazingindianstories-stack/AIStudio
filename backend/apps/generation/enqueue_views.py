@@ -265,7 +265,7 @@ def upscale_status(request):
         if row.model not in magnific.MODELS or row.kind != 'image':
             return reply(request,{'error':'Generation is not a Magnific job.'},400)
         if str(row.user_id) != str(user.id) and user.role != 'admin': return reply(request,{'error':'FORBIDDEN'},403)
-        if settings.LOCAL_DATA_MODE == 'read_only_viewer' or not row.task_id or row.status in ('succeeded','failed'): return no_store(request,generation_item(row))
+        if settings.LOCAL_DATA_MODE == 'read_only_viewer' or not row.task_id or row.status in ('succeeded','failed','cancelled'): return no_store(request,generation_item(row))
         try:
             result = advance_magnific(row)
             current = Generation.objects.filter(pk=identifier).first() if result['kind']=='raced' else result.get('item')

@@ -96,6 +96,8 @@ class ProviderAdapterTests(SimpleTestCase):
                     self.assertEqual(expected[key][index], capture(lambda: function(entry)))
         self.assertEqual(expected['retryDelay'], [gemini.retry_delay_ms(v) for v in request['retryDelay']])
         self.assertEqual(expected['ratios'], [kling.nearest_aspect_ratio(*v) for v in request['ratios']])
+        # Cancellation now has a distinct public terminal state; the frozen oracle predates it.
+        expected['omniStatuses'][request['omniStatuses'].index('cancelled')] = 'cancelled'
         self.assertEqual(expected['omniStatuses'], [omni.map_status(v) for v in request['omniStatuses']])
         self.assertEqual(expected['omniErrors'], [omni.terminal_status_http_error(*v) for v in request['omniErrors']])
 

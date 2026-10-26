@@ -209,13 +209,15 @@ def transcribe(run,claimed,*args,**kwargs):
  try:return run(claimed,*args,**kwargs)
  finally:STATE.active=None
 def check_request(transport,method,url,body):
- """HttpTransport.request: anything but GET/HEAD must be the active claim's one quoted POST, claimed ATTEMPTING->SUBMITTING."""
+ """HttpTransport.request: anything but GET/HEAD must be a requested provider cancel or the active claim's one quoted POST,
+ claimed ATTEMPTING->SUBMITTING."""
  if not enabled():return
  from django.db import connection
  from apps.integrations.transport import ProviderError
  # BytePlus asset-library transports (GetAsset, list, create/delete asset) are
  # not generation and each enforces its own exact endpoint/payload allowlist.
  if getattr(transport,'paid_guard_exempt',False) is True:return
+ if body is None and cancel_allowed(method.upper(),url):return
  if method.upper() not in ('GET','HEAD'):
   active=getattr(STATE,'active',None)
   if not active or method.upper()!='POST' or url not in active['quote']['allowed_paid_endpoints']:
@@ -236,6 +238,21 @@ def check_request(transport,method,url,body):
    require(type(value) in (int,float) and 0<=value<=maximum,'Missing or excessive priced token/output bound')
   require(connection.get_autocommit(),'Paid submit claim must be durable')
   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[active['id'],fingerprint(active['contract']),'ATTEMPTING','SUBMITTING'])
+CANCEL_ENDPOINTS={'DELETE':('byteplus','https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks/',''),
+ 'POST':('omni','https://generativelanguage.googleapis.com/v1beta/interactions/','/cancel')}
+def cancel_allowed(method,url):
+ """A provider cancel spends nothing: DELETE of the ModelArk task URL or POST of the Interactions /{id}/cancel URL, only
+ for the task of a queued or running Veevee generation of that provider whose cancellation has been requested."""
+ from urllib.parse import quote,unquote
+ from django.db.models import Q
+ from apps.generation.models import Generation
+ from apps.generation.services.cancellation import ACTIVE,provider_for
+ provider,prefix,suffix=CANCEL_ENDPOINTS.get(method,(None,'',''))
+ if not provider or not url.startswith(prefix) or not url.endswith(suffix):return False
+ task_id=unquote(url[len(prefix):len(url)-len(suffix)])
+ if not task_id or prefix+quote(task_id,safe='')+suffix!=url:return False
+ rows=Generation.objects.filter(status__in=ACTIVE,cancellation_state='requested').filter(Q(task_id=task_id)|Q(candidate_task_ids__contains=[task_id]))
+ return any(provider_for(row)==provider for row in rows)
 def wrap_wsgi(application):
  def guarded(environ,start_response):
   STATE.api_error=None;captured={}

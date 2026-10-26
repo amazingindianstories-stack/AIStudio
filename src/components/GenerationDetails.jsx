@@ -27,7 +27,7 @@ export function CreatorAvatar({ creator, className, style }) {
   );
 }
 
-const STATUS_LABELS = { queued: "Queued", running: "Creating", failed: "Failed" };
+const STATUS_LABELS = { queued: "Queued", running: "Creating", failed: "Failed", cancelled: "Cancelled" };
 
 /** Who made a generation, with what, at what size, for what cost and when. */
 export function GenerationDetails({ item, creator }) {
@@ -96,7 +96,7 @@ export function GenerationDetails({ item, creator }) {
         )}
         {status && (
           <Row label="Status" name="status">
-            <span className={cn("truncate", item.status === "failed" && "text-red-300")}>{status}</span>
+            <span className={cn("truncate", ["failed", "cancelled"].includes(item.status) && "text-red-300")}>{status}</span>
           </Row>
         )}
       </dl>

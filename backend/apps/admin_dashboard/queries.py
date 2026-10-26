@@ -46,7 +46,7 @@ def conditions(params, *, activity=False):
         action = (first(params, 'action') or '').strip(JS_WHITESPACE)
         if action: clauses.append('action=%s'); values.append(utf16_slice(action, 64))
     else:
-        for key, choices in [('kind', ('image', 'video')), ('status', ('queued', 'running', 'succeeded', 'failed'))]:
+        for key, choices in [('kind', ('image', 'video')), ('status', ('queued', 'running', 'succeeded', 'failed', 'cancelled'))]:
             value = first(params, key)
             if value in choices: clauses.append(key + '=%s'); values.append(value)
         model = first(params, 'model')

@@ -23,7 +23,7 @@ export function validateGenerationReference(item, {
   if (item.status && item.status !== "succeeded") {
     return {
       valid: false,
-      reason: item.status === "failed"
+      reason: ["failed", "cancelled"].includes(item.status)
         ? "Failed generations cannot be used as references."
         : "This generation is still processing. Please wait for it to complete.",
       action: "none",

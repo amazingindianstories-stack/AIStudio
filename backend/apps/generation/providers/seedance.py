@@ -3,7 +3,6 @@ import json
 import math
 import os
 import re
-import time
 from urllib.parse import quote
 from apps.generation.model_registry import capability,is_provider_model,provider_model_id
 from apps.generation.prompting.shot_spec import parse_ref_roles
@@ -29,6 +28,7 @@ def is_moderation_message(text):
 
 TEXT_POLICY_MESSAGE = 'The video provider rejected the prompt under its text content policy. Review the prompt before submitting a new request.'
 NEUTRAL_POLICY_MESSAGE = 'The video provider rejected the input under its content policy. Change the prompt or references before submitting a new request.'
+EXPIRED_MESSAGE = 'The video provider expired this task before it finished, so no video was generated. Submit a new request to try again.'
 
 
 def friendly_error(status,body):
@@ -194,7 +194,7 @@ def normalize_video_task_payload(payload=None):
     payload = payload or {}
     source = payload.get('data') if isinstance(payload.get('data'),dict) else payload
     raw_status = str(source.get('status') or source.get('state') or '').lower()
-    status = 'succeeded' if raw_status == 'succeeded' else 'failed' if raw_status in ('failed','cancelled') else 'queued' if raw_status == 'queued' else 'running'
+    status = 'succeeded' if raw_status == 'succeeded' else 'cancelled' if raw_status == 'cancelled' else 'failed' if raw_status in ('failed', 'expired') else 'queued' if raw_status == 'queued' else 'running'
     result = {'status':status,'raw':payload}
     content = source.get('content') or {}
     content = content[0] if isinstance(content,list) and content else content
@@ -205,7 +205,8 @@ def normalize_video_task_payload(payload=None):
         result['outputFormat'] = source['output_format']
     if status == 'failed':
         error = source.get('error')
-        result['error'] = (error.get('message') if isinstance(error,dict) else None) or error or 'Generation failed'
+        result['error'] = (error.get('message') if isinstance(error,dict) else None) or error or (
+            EXPIRED_MESSAGE if raw_status == 'expired' else 'Generation failed')
         # The task's own failure (code, message, task id) for the row's provider_responses and the user's message.
         result['providerError'] = provider_errors.capture('seedance',phase='task',body=json.dumps(source,default=str),
             task_id=source.get('id') if isinstance(source.get('id'),str) else None)
@@ -231,3 +232,18 @@ def get_video_task(task_id,options=None,*,env=None,transport=None,signal=None):
             provider_response=provider_errors.capture('seedance',phase='status',status=response.status,body=response.text,
                 headers=response.headers,task_id=task_id))
     return normalize_video_task_payload(response.json())
+
+
+def cancel_video_task(task_id, *, env=None, transport=None, signal=None):
+    """Queued-only cancellation; DELETE can also remove a finished record.
+
+    This intentionally returns no terminal status. Callers must reconcile by GET.
+    """
+    env = os.environ if env is None else env
+    key = required_key(env, 'ARK_API_KEY')
+    transport = transport or HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com'])
+    endpoint = (env.get('ARK_BASE_URL') or 'https://ark.ap-southeast.bytepluses.com/api/v3').rstrip('/')
+    response = transport.request('DELETE', endpoint + '/contents/generations/tasks/' + quote(task_id, safe=''),
+        headers={'Authorization': 'Bearer ' + key}, signal=signal)
+    if not response.ok:
+        raise SeedanceError('Seedance cancellation was not confirmed.', status=response.status)

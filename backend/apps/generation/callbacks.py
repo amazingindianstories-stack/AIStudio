@@ -54,7 +54,7 @@ def seedance_callback(request):
     timestamp = now_ms()
     provider = coordinator.provider_timestamps(payload)
     current = coordinator.mark_callback_received(task_id, now=timestamp, provider=provider) or item
-    if current.status in ('succeeded', 'failed'):
+    if current.status in ('succeeded', 'failed', 'cancelled'):
         kind = current.status
     else:
         deps = poller.Dependencies()
