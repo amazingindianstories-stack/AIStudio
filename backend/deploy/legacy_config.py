@@ -133,8 +133,9 @@ def _managed_portraits(component, env, out):
 
 
 def _omnihuman(component, env, out):
-    """``VEEVEE_OMNIHUMAN=1`` gives the generation worker, the only OmniHuman caller, the existing BytePlus key pair
-    from the portrait configuration; without it the worker refuses to start rather than fail paid jobs."""
+    """``VEEVEE_OMNIHUMAN=1`` gives the generation worker, which submits, polls and downloads OmniHuman tasks, the
+    existing BytePlus key pair from the portrait configuration; without it the worker refuses to start rather than
+    fail paid jobs. The API's CVCancelTask uses the pair it already receives from that configuration."""
     if component == 'generation' and env.get('VEEVEE_OMNIHUMAN') == '1':
         need(env.get('GOAL4_PREVIEW_PORTRAIT_CONFIGURATION'), 'OmniHuman needs GOAL4_PREVIEW_PORTRAIT_CONFIGURATION on the generation worker')
         reads = _portrait_reads(env)

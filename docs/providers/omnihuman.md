@@ -80,9 +80,10 @@ polling then settles the job: the `canceled` state becomes Veevee's `cancelled`,
 with the estimated cost kept as `cancelled_billing_unconfirmed`. Code `50217`
 means the task already started; that is a refusal, and the job continues
 normally. Cancel requests run in the API process, which holds the same BytePlus
-pair through its portrait configuration. With `VEEVEE_PAID_GUARD` set, the guard allows only the exact
-`CVCancelTask` POST with a `{req_key, task_id}` body for an active OmniHuman
-generation whose cancellation is `requested`, never a submission.
+pair through its portrait configuration. With `VEEVEE_PAID_GUARD` set, the guard
+allows only the exact `CVCancelTask` POST with a `{req_key, task_id}` body for
+an active OmniHuman generation whose cancellation is `requested`, never a
+submission.
 
 Sources read in full on 2026-10-25:
 [OmniHuman 2.0 API](https://docs.byteplus.com/en/docs/byteplus-vision/omnihuman-2-0-video-generation),
