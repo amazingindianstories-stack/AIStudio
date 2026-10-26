@@ -79,7 +79,9 @@ def plan(folder_id, *, lock=False):
         stems = {stem_for(row, folders) for row in rows}
         inside = [row for row in rows if row.folder_id in subtree]
         if any(row.folder_id not in subtree for row in rows) or len(stems) != 1:
-            skipped += len(inside)
+            held = sum(not matches_stem(row, stem_for(row, folders)) for row in inside)
+            skipped += held
+            unchanged += len(inside) - held
             continue
         stem = stems.pop()
         if all(matches_stem(row, stem) for row in rows):

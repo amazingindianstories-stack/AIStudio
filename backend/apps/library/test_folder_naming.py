@@ -123,6 +123,19 @@ class FolderNamingTests(TransactionTestCase):
         self.assertEqual(final.permanent_name, draft.permanent_name)
         self.assertEqual(GenerationNameChange.objects.count(), 0)
 
+    def test_skipped_lineages_count_only_names_that_differ_from_their_current_path(self):
+        self.changed_folder()
+        draft = self.generation(draft_mode=True, task_id='draft')
+        outside = folders.create_folder(name='Outside')
+        self.generation(outside, draft_mode=False, source_generation_id=draft.id, draft_task_id='draft')
+        nested_draft = self.generation(draft_mode=True, task_id='nested')
+        child = folders.create_folder(name='Different', parent_id=self.folder['id'])
+        self.generation(child, draft_mode=False, source_generation_id=nested_draft.id, draft_task_id='nested')
+        preview = self.preview()
+        self.assertEqual((preview['renamedCount'], preview['skippedCount'], preview['unchangedCount']), (0, 1, 2))
+        self.assertEqual(self.rename(preview=preview).status_code, 200)
+        self.assertEqual(GenerationNameChange.objects.count(), 0)
+
     def test_queued_and_running_names_survive_completion_and_stale_writes_fail(self):
         rows = [self.generation() for _ in range(2)]
         for row, status in zip(rows, ['queued', 'running']):
