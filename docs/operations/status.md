@@ -22,7 +22,7 @@ counters and frozen ZIP manifests; `library.0006_generation_naming_fallback` add
 recording when a finalized Unsorted draft could not keep its shown provisional name (66 migration rows). It requires a controlled maintenance window with generation/folder
 writers and workers quiesced through migration and compatible-code promotion. Schema reversal preserves
 all names; normal release rollback should retain the additive schema. The admin-only, audited "Rename to
-match folder" action adds `generation.0006_explicit_folder_name_rename` (67 migration rows); names still stay
+match folder" action adds `generation.0007_explicit_folder_name_rename` (68 migration rows, after the cancellation `generation.0006`); names still stay
 put by default. See `docs/architecture/permanent-generation-names.md` for the ownership, rename and rollback contracts.
 
 Chat follows the open folder. Library sequence labels and full chat names overlay the media without a
