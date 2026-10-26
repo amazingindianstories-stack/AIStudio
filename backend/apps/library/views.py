@@ -48,6 +48,13 @@ def folder_reads(request):
         return folder_mutation(request, user)
     # URLSearchParams.get in current Next reads the first repeated value.
     params = {key: values[0] for key, values in request.query_params.lists()}
+    if params.get('renamePreview'):
+        from .services.folder_naming import preview_folder_names
+        from .services.idempotency import OrganizationError
+        try:
+            return renew(request, Response(preview_folder_names(folder_id=params['renamePreview'], actor_id=user.id)))
+        except OrganizationError as exc:
+            return renew(request, Response({'error': str(exc), 'code': exc.code}, status=exc.status))
     if params.get('tree') in ('1', 'true'):
         result = tree()
     elif params.get('ancestry'):
@@ -108,7 +115,10 @@ def folder_mutation(request, user):
         identifier = body.get('id') or body.get('folderId')
         if not identifier:
             return renew(request, Response({'error': 'Folder ID is required.'}, status=400))
-        if request.method == 'DELETE':
+        if request.method == 'PATCH' and body.get('action') == 'renameGenerations':
+            from .services.folder_naming import rename_folder_generations
+            result = rename_folder_generations(folder_id=identifier, preview_token=body.get('previewToken'), **common)
+        elif request.method == 'DELETE':
             result = service.delete_folder(folder_id=identifier, project_id=body.get('projectId') or MISSING, **common)
         elif 'color' in body and not isinstance(body.get('name'), str) and not js_truthy(body.get('destination')):
             result = {'folder': service.set_folder_color(folder_id=identifier, color=body['color'], **common)}

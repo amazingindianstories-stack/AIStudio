@@ -19,6 +19,7 @@ import {
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { RenameFolderGenerationsItem } from "./RenameFolderGenerationsItem";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 import {
   getAssetDragData,
@@ -367,6 +368,7 @@ export function FolderTree({
                       <span>Move...</span>
                     </MenuItem>
                   )}
+                  <RenameFolderGenerationsItem folder={folder} close={close} />
                   {isAdmin && <div className="my-1 h-px bg-line" />}
                   {isAdmin && (<MenuItem
                     onClick={async () => {

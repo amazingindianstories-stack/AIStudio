@@ -7,6 +7,7 @@ import { useStore } from '../lib/store.js';
 import { MediaCard } from './MediaCard.jsx';
 import { FeedBlock } from './ConversationPanel.jsx';
 import { useMaintenance } from '../lib/maintenance-client.js';
+import { __setMediaResolverFetch } from '../lib/media-resolver.js';
 
 async function harness(item, run, state = {}, Component = MediaCard) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
@@ -19,6 +20,8 @@ async function harness(item, run, state = {}, Component = MediaCard) {
   const original = useStore.getState();
   const calls = [];
   globalThis.fetch = async (url, init) => { calls.push([url, init?.method || 'GET']); return { ok: true, status: 200, json: async () => ({}) }; };
+  // The thumbnail resolver batches on its own timer, so keep it out of `calls` and drop any batch a previous harness left queued.
+  __setMediaResolverFetch(async () => ({ ok: true, status: 200, json: async () => ({ items: [] }) }));
   useStore.setState({ currentUser: { id: "admin", role: "admin" }, items: [item], selectedIds: [], usersById: {}, libraryTree: { globalFolders: [], projects: [] }, prompt: '', referenceImages: [], ...state });
   const root = createRoot(document.querySelector('#root'));
   try {
@@ -169,10 +172,8 @@ test('during maintenance an unfavourited card has no favourite star while a favo
       const star = card.querySelector('[data-favorite-star]');
       assert.equal(star.disabled, true);
       assert.equal(star.getAttribute('aria-pressed'), 'true');
-      // Rendering resolves the thumbnail (read-only); the click itself must send nothing.
-      const before = [...calls];
       await act(async () => star.click());
-      assert.deepEqual(calls, before);
+      assert.deepEqual(calls, []);
     });
   } finally { useMaintenance.setState({ enabled: false }); }
 });

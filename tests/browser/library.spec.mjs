@@ -598,7 +598,8 @@ for (const role of ['user', 'admin']) {
       } else {
         await panel.getByRole('button', { name: `${entry === 'tree' ? 'Tree' : 'Card'} folder actions: ${library.globalRoot.name}`, exact: true }).click();
       }
-      await expect(page.getByRole('menuitem', { name: /Rename/ })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeVisible();
+      await expect(page.getByRole('menuitem', { name: 'Rename to match folder', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
       await expect(page.getByRole('menuitem', { name: /Move/ })).toBeVisible();
       await expect(page.getByRole('menuitem', { name: /^Delete/ })).toHaveCount(role === 'admin' ? 1 : 0);
       await page.keyboard.press('Escape');
