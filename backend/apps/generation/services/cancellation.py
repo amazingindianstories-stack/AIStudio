@@ -100,7 +100,7 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
             transaction.on_commit(lambda: publish_best_effort(current))
             return current, None
     publish_best_effort(item)
-    message, state, attempted, accepted = None, prior, False, 0
+    message, state, refused, attempted, accepted = None, None, False, False, 0
     try:
         if env.get('MOCK_GENERATION') == '1':
             # Disposable fixtures never call a real provider.
@@ -116,20 +116,18 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
                 if result['status'] in ('succeeded', 'failed', 'cancelled'):
                     continue
                 if provider_for(item, env) != 'omni' and result['status'] != 'queued':
-                    state, message = 'refused', 'The provider has started this task and can no longer cancel it. It will continue normally.'
+                    refused, message = True, 'The provider has started this task and can no longer cancel it. It will continue normally.'
                     continue
                 attempted = True
                 try:
                     cancel(task_id, signal=signal)
                 except Exception as error:
                     if getattr(error, 'status', None) in (400, 409):
-                        state, message = 'refused', 'The provider could not cancel this task because it has already started or finished. Its outcome is being checked.'
+                        refused, message = True, 'The provider could not cancel this task because it has already started or finished. Its outcome is being checked.'
                         continue
                     raise
                 accepted += 1
-                if state != 'refused':
-                    state = 'requested'
-            if not attempted and state != 'refused':
+            if not attempted and not refused:
                 message = 'The generation already finished at the provider. Its result is being saved.'
             if accepted == len(tasks):
                 # Polling, rather than the cancel HTTP response, owns terminal state.
@@ -142,6 +140,7 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
         else:
             message = 'The provider could not be reached to cancel this generation. Try again in a moment.'
     finally:
+        state = state or ('refused' if refused else 'requested' if accepted else prior)
         with transaction.atomic():
             current = Generation.objects.select_for_update().get(pk=item.id)
             if current.status in ACTIVE and current.worker_lease_id == owner:

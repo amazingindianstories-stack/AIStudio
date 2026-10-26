@@ -94,6 +94,17 @@ class CancellationTests(TransactionTestCase):
             self.assertIsNone(current.worker_lease_id)
             self.assertIn('started', message)
 
+    def test_retry_after_refusal_reports_this_attempt_not_the_earlier_refusal(self):
+        row = self.job(model='Gemini Omni Flash 1.1', task_id='omni-task', cancellation_state='refused')
+        current, message, cancel = self.run_cancel(row, Mock(return_value={'status': 'succeeded'}))
+        cancel.assert_not_called()
+        self.assertEqual((current.status, current.cancellation_state), ('running', 'refused'))
+        self.assertIn('being saved', message)
+        current, message, cancel = self.run_cancel(current, Mock(return_value={'status': 'running'}))
+        cancel.assert_called_once()
+        self.assertEqual((current.status, current.cancellation_state), ('running', 'requested'))
+        self.assertIn('Cancellation requested', message)
+
     def test_delete_race_404_never_claims_cancel_or_deletes_local_evidence(self):
         query = Mock(side_effect=[{'status': 'queued'}, ProviderError('gone', status=404)])
         current, _, cancel = self.run_cancel(self.job(), query)
