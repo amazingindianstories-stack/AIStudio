@@ -3,7 +3,6 @@ import json
 import math
 import os
 import re
-import time
 from urllib.parse import quote
 from apps.generation.model_registry import capability,is_provider_model,provider_model_id
 from apps.generation.prompting.shot_spec import parse_ref_roles

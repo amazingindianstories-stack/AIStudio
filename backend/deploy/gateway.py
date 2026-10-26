@@ -6,7 +6,7 @@ middleware) reach Django, and only allowlisted routes. ``/__g4_readiness`` is
 the Railway health check. Configuration, including the secret, arrives as JSON
 on stdin so it never appears in process arguments.
 """
-import hmac, http.client, json, os, re, time, socket
+import hmac, http.client, json, re, socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 HEADER='x-veevee-g4-ingress'

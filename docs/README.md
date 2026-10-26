@@ -5,6 +5,7 @@
 | [architecture/overview.md](architecture/overview.md) | How the services fit together and where code lives |
 | [architecture/ADR-django-authoritative-backend.md](architecture/ADR-django-authoritative-backend.md) | Why Django owns the backend |
 | [architecture/permanent-generation-names.md](architecture/permanent-generation-names.md) | Permanent generation names, their upgrade, and library delete/move authorization |
+| [architecture/generation-cancellation.md](architecture/generation-cancellation.md) | Provider-backed generation cancellation, its paid-guard allowance and the provider cancel audit |
 | [features/library-filters.md](features/library-filters.md) | Library Filters dialog, `GET /api/history` filter/sort contract, date sections |
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |
