@@ -15,6 +15,7 @@ from apps.generation import failure_copy, provider_errors
 from apps.generation.providers import omnihuman as api
 from apps.generation.services import enqueue, poller, video_execution, paid_guard
 from apps.generation.services.deadline import Cancellation
+from apps.generation.services.executor import submission_uncertain
 from apps.generation.services.omnihuman_inputs import validate, IMAGE_BYTES, AUDIO_BYTES
 from apps.generation.services.pricing import compute_cost
 from apps.integrations.byteplus import sign_request
@@ -140,7 +141,7 @@ class OmniHumanProtocolTests(SimpleTestCase):
             transport = Mock(request=Mock(return_value=result))
             with self.assertRaises(ProviderError) as caught:
                 api.create_video_task({'imageUrls': ['i'], 'audioUrls': ['a']}, env=ENV, transport=transport)
-            self.assertTrue(caught.exception.may_have_submitted)
+            self.assertTrue(submission_uncertain(caught.exception))
             transport.request.assert_called_once()
         transport = Mock()
         with self.assertRaises(ProviderError):
@@ -148,7 +149,6 @@ class OmniHumanProtocolTests(SimpleTestCase):
         transport.request.assert_not_called()
 
     def test_submit_uncertainty_is_visible_and_explicit_rejections_are_safe(self):
-        from .services.executor import submission_uncertain
         transport = Mock(request=Mock(side_effect=requests.ConnectionError('lost connection')))
         with self.assertRaises(ProviderError) as caught:
             api.create_video_task({'imageUrls': ['i'], 'audioUrls': ['a']}, env=ENV, transport=transport)

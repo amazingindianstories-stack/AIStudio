@@ -77,7 +77,6 @@ def failure(payload, *, phase, http_status=None, task_id=None, code=None, header
     error = ProviderError(ERROR_COPY.get(code, UNKNOWN), code=code, status=http_status, provider_response=record,
         may_have_submitted=phase == 'create' and (code in RETRYABLE - {'50429', '50430', 'FlowLimitExceeded', '100018', 'ServiceUnavailableTemp', '100019'} or code not in ERROR_COPY))
     error.submission_is_ambiguous = error.may_have_submitted
-    error.retryable = code in RETRYABLE
     return error
 
 
@@ -106,9 +105,11 @@ def call(action, body, *, env=None, transport=None, signal=None, date=None):
     try:
         payload = response.json()
     except ValueError:
-        raise ProviderError(UNKNOWN, code='invalid_response', status=response.status,
+        error = ProviderError(UNKNOWN, code='invalid_response', status=response.status,
             provider_response=provider_errors.capture('omnihuman', phase='create' if action == SUBMIT else 'status',
-                status=response.status, body=response.text, headers=response.headers)) from None
+                status=response.status, body=response.text, headers=response.headers))
+        error.submission_is_ambiguous = action == SUBMIT and response.ok
+        raise error from None
     if not isinstance(payload, dict):
         raise ProviderError(UNKNOWN, code='invalid_response')
     if not response.ok or response_error(payload):
