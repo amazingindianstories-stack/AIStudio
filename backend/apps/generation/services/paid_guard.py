@@ -45,6 +45,8 @@ def quote_for(contract,config):
    from apps.generation.providers import gemini
    endpoint=gemini.endpoint(contract['model']) if provider=='gemini' else 'https://ark.ap-southeast.bytepluses.com/api/v3/images/generations'
    return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[endpoint],'provider_payload_allowed_values':{}}
+  if contract['kind']=='video' and provider=='omnihuman':
+   return omnihuman_quote(contract)
   if contract['kind']=='video' and provider=='omni':
    return omni_quote(contract)
   require(contract['kind']=='video' and definition.get('id') in ('seedance','seedance-25'),'Only Seedance 2.0 or 2.5 video authorized')
@@ -68,6 +70,16 @@ def quote_for(contract,config):
  require(contract['kind'] in ('image','video') and contract['user_id'] is not None and not contract['draft_task_id'],'New authenticated generation only; finalization separately held')
  if contract['kind']=='video':require(quote.get('provider_payload_allowed_values',{}).get('output_format')==['mov'],'Native MOV payload guard required')
  return quote
+def omnihuman_quote(contract):
+ from apps.generation.availability import switched_on
+ from apps.generation.providers import omnihuman
+ require(switched_on('omnihuman'),'OmniHuman is not enabled')
+ require(contract['kind']=='video' and not contract.get('draft_task_id'),'New OmniHuman generation only')
+ require(type(contract.get('duration')) is int and 4<=contract['duration']<=300,'OmniHuman audio must be 4-300 seconds')
+ return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE',
+  'allowed_paid_endpoints':[omnihuman.endpoint(omnihuman.SUBMIT)],
+  'provider_payload_allowed_values':{'req_key':[omnihuman.REQ_KEY]}}
+
 def omni_quote(contract):
  """Gemini Omni Flash 1.1 (VEEVEE_GEMINI_OMNI, unlimited scope only): the one Interactions create endpoint, with the
  model code and this job's own ratio, size and length pinned in the payload. Retired Omni models are refused."""
@@ -217,7 +229,10 @@ def check_request(transport,method,url,body):
  # BytePlus asset-library transports (GetAsset, list, create/delete asset) are
  # not generation and each enforces its own exact endpoint/payload allowlist.
  if getattr(transport,'paid_guard_exempt',False) is True:return
- if body is None and cancel_allowed(method.upper(),url):return
+ if cancel_allowed(method.upper(),url,body):return
+ # Vision query is a read-only POST, with an exact action and body contract. Never exempt its submit transport.
+ from apps.generation.providers import omnihuman
+ if method.upper()=='POST' and vision_task(url,body,omnihuman.QUERY):return
  if method.upper() not in ('GET','HEAD'):
   active=getattr(STATE,'active',None)
   if not active or method.upper()!='POST' or url not in active['quote']['allowed_paid_endpoints']:
@@ -240,17 +255,30 @@ def check_request(transport,method,url,body):
   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[active['id'],fingerprint(active['contract']),'ATTEMPTING','SUBMITTING'])
 CANCEL_ENDPOINTS={'DELETE':('byteplus','https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks/',''),
  'POST':('omni','https://generativelanguage.googleapis.com/v1beta/interactions/','/cancel')}
-def cancel_allowed(method,url):
- """A provider cancel spends nothing: DELETE of the ModelArk task URL or POST of the Interactions /{id}/cancel URL, only
- for the task of a queued or running Veevee generation of that provider whose cancellation has been requested."""
+def vision_task(url,body,action):
+ """The task id of an exact OmniHuman Vision request for ``action`` (a {req_key, task_id} body only), else None."""
+ from apps.generation.providers import omnihuman
+ if (url==omnihuman.endpoint(action) and isinstance(body,dict) and set(body)=={'req_key','task_id'}
+     and body['req_key']==omnihuman.REQ_KEY and isinstance(body['task_id'],str) and re.fullmatch(r'[A-Za-z0-9_-]{1,128}',body['task_id'])):
+  return body['task_id']
+ return None
+def cancel_allowed(method,url,body=None):
+ """A provider cancel spends nothing: DELETE of the ModelArk task URL or POST of the Interactions /{id}/cancel URL
+ (each without a body), or the OmniHuman CVCancelTask POST with its exact {req_key, task_id} body, only for the task
+ of a queued or running Veevee generation of that provider whose cancellation has been requested."""
  from urllib.parse import quote,unquote
  from django.db.models import Q
  from apps.generation.models import Generation
+ from apps.generation.providers import omnihuman
  from apps.generation.services.cancellation import ACTIVE,provider_for
- provider,prefix,suffix=CANCEL_ENDPOINTS.get(method,(None,'',''))
- if not provider or not url.startswith(prefix) or not url.endswith(suffix):return False
- task_id=unquote(url[len(prefix):len(url)-len(suffix)])
- if not task_id or prefix+quote(task_id,safe='')+suffix!=url:return False
+ if body is not None:
+  provider,task_id='omnihuman',method=='POST' and vision_task(url,body,omnihuman.CANCEL)
+ else:
+  provider,prefix,suffix=CANCEL_ENDPOINTS.get(method,(None,'',''))
+  if not provider or not url.startswith(prefix) or not url.endswith(suffix):return False
+  task_id=unquote(url[len(prefix):len(url)-len(suffix)])
+  if prefix+quote(task_id,safe='')+suffix!=url:return False
+ if not task_id:return False
  rows=Generation.objects.filter(status__in=ACTIVE,cancellation_state='requested').filter(Q(task_id=task_id)|Q(candidate_task_ids__contains=[task_id]))
  return any(provider_for(row)==provider for row in rows)
 def wrap_wsgi(application):

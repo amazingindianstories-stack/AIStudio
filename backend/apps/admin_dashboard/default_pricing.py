@@ -1,5 +1,7 @@
 """Frozen Node-parity pricing defaults, packaged with the Python backend."""
-DEFAULT_PRICING = [{'model': 'Seedream 5.0 Pro',
+DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_second',
+ 'notes': 'UNPRICED - configure the account rate before enabling. Zero is unknown, not free. Billed by audio length; no resolution multiplier.'},
+ {'model': 'Seedream 5.0 Pro',
   'unitCostCents': 4500,
   'unit': 'per_1000_images',
   'notes': 'Estimated published rate: outputs up to 2.61 megapixels; not invoice reconciled.'},

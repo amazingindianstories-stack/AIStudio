@@ -50,21 +50,22 @@ export function sentAudioIndexes(prompt, count) {
 export function referenceAudioProblem(model, notes = [], prompt = "") {
   const limits = referenceAudioLimits(model);
   if (!limits || !notes.length) return null;
+  const slack = limits.slackSeconds ?? AUDIO_LIMIT_SLACK_SECONDS;
   const rule = `${model} accepts reference audio clips of ${limits.clipMin}-${limits.clipMax}s each and ${limits.totalMax}s in total`;
   const sent = sentAudioIndexes(prompt, notes.length);
   const durations = notes.map((note, index) => (sent.includes(index) && typeof note?.duration === "number" ? note.duration : null));
   const tooLong = [], tooShort = [];
   durations.forEach((seconds, index) => {
     if (seconds === null) return;
-    if (seconds > limits.clipMax + AUDIO_LIMIT_SLACK_SECONDS) tooLong.push(index);
-    else if (seconds < limits.clipMin - AUDIO_LIMIT_SLACK_SECONDS) tooShort.push(index);
+    if (seconds > limits.clipMax + slack) tooLong.push(index);
+    else if (seconds < limits.clipMin - slack) tooShort.push(index);
   });
   const named = (indexes, what) => indexes.map((i) => `@audio${i + 1} is ${what}${formatAudioSeconds(durations[i])}`).join(", ");
   if (tooLong.length) return { indexes: tooLong, message: `${named(tooLong, "")} long. ${rule}. Trim it before generating.` };
   if (tooShort.length) return { indexes: tooShort, message: `${named(tooShort, "only ")} long. ${rule}. Use a longer clip.` };
   if (sent.every((index) => durations[index] !== null)) {
     const total = sent.reduce((sum, index) => sum + durations[index], 0);
-    if (total > limits.totalMax + AUDIO_LIMIT_SLACK_SECONDS) {
+    if (total > limits.totalMax + slack) {
       return { indexes: [], message: `The reference audio adds up to ${formatAudioSeconds(total)}. ${rule}. Shorten or remove a clip.` };
     }
   }

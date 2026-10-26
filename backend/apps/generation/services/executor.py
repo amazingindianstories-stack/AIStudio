@@ -386,7 +386,7 @@ def submission_uncertain(error):
     """True when a failed provider call might still have created a billable job."""
     if getattr(error, 'may_have_submitted', True) is False:
         return False
-    if isinstance(error, (TimeoutError, ConnectionError)):
+    if getattr(error, 'submission_is_ambiguous', False) is True or isinstance(error, (TimeoutError, ConnectionError)):
         return True
     status = getattr(error, 'status', None)
     if status is None:

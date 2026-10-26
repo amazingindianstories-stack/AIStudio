@@ -29,8 +29,8 @@ def release_freed_memory():
 
 
 class WorkerCancellation(Cancellation):
-    def __init__(self, stop):
-        super().__init__()
+    def __init__(self, stop, timeout_ms=270000):
+        super().__init__(timeout_ms)
         self.stop = stop
 
     def check(self):
@@ -62,7 +62,8 @@ def handle_generation(item, process, stop):
     try:
         if stop.is_set():
             return 'stopped'
-        cancellation = WorkerCancellation(stop)
+        from .model_registry import is_provider_model
+        cancellation = WorkerCancellation(stop, timeout_ms=900000 if is_provider_model(item.model, 'omnihuman') else 270000)
         cancellation.check()
         return process(item.id, owner='python-generation:' + str(uuid4()), signal=cancellation)['kind']
     except Exception:

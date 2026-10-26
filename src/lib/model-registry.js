@@ -185,6 +185,17 @@ export const MODEL_REGISTRY = [
     },
   },
   {
+    id: "omnihuman-2", name: "OmniHuman 2.0", kind: "video", provider: "omnihuman",
+    providerModelId: "realman_avatar_picture_omni20_cv", offered: true, badge: "NEW",
+    hint: "BytePlus Vision - one image plus WAV/MP3 audio, 4-300s; output length and framing follow the inputs",
+    pricingKey: "OmniHuman 2.0",
+    capabilities: {
+      aspectRatios: ["Auto"], resolutions: ["Auto"], durations: [4, 5, 10, 30, 60, 120, 300],
+      durationRange: { min: 4, max: 300, step: 1 }, maxReferenceImages: 1, maxReferenceAudios: 1, audio: true, inputDrivenVideo: true,
+      referenceAudioSeconds: { clipMin: 4, clipMax: 300, totalMax: 300, slackSeconds: 0 }, resolutionPriceFactors: { Auto: 1 },
+    },
+  },
+  {
     // ai.google.dev/gemini-api/docs/models/gemini-omni-flash and /docs/omni (read 2026-10-18): stable
     // model code, output 3-10s, 16:9/9:16, 360p/720p (1080p/4k are upscaled and their price is not
     // published in text, so they are not offered). Audio comes from the prompt; there is no audio field.

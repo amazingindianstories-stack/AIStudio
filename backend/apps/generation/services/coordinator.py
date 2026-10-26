@@ -45,7 +45,7 @@ def provider_timestamps(payload):
         timestamp = provider_timestamp(value)
         if timestamp is not None:
             result['provider_' + snake] = timestamp
-    status = source.get('status', source.get('state'))
+    status = payload.get('providerStatus', source.get('status', source.get('state')))
     if status is not None:
         result['provider_status'] = status
     return result

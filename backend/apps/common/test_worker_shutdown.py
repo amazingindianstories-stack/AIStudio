@@ -26,7 +26,7 @@ class WorkerShutdownTests(SimpleTestCase):
             stop.set()
             return {'kind':'pending'}
         with patch.object(worker,'reap_stale_running_images'),patch.object(worker,'select_due_generations',
-                return_value=[SimpleNamespace(id=index) for index in range(25)]):
+                return_value=[SimpleNamespace(id=index,model='Seedance 2.0') for index in range(25)]):
             result=worker.run_once(concurrency=1,process=process,stop=stop)
         self.assertEqual(started,[0])
         self.assertEqual(result['outcomes'],{'pending':1,'stopped':24})
@@ -44,7 +44,7 @@ class WorkerShutdownTests(SimpleTestCase):
                 return {'kind':'pending'}
             self.fail('Wait did not observe shutdown')
         with patch.object(worker,'reap_stale_running_images'),patch.object(worker,'select_due_generations',
-                return_value=[SimpleNamespace(id=index) for index in range(3)]):
+                return_value=[SimpleNamespace(id=index,model='Seedance 2.0') for index in range(3)]):
             with ThreadPoolExecutor(max_workers=1) as pool:
                 future=pool.submit(worker.run_once,concurrency=1,process=process,stop=stop)
                 self.assertTrue(active.wait(2))

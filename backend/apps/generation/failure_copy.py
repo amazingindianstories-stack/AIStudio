@@ -86,14 +86,15 @@ def _curated():
     """Exact messages from the constants that produce them (imported lazily: this runs on every history read)."""
     from apps.assets import managed_pool
     from .image_limits import SEEDANCE_MESSAGE
-    from .providers import seedance, seedream
+    from .providers import seedance, seedream, omnihuman
     from .services import audio_submission, poller, portrait_prepare, seedream_references, upscale_submission, video_execution
     exact = {
         seedance.MODERATION_MESSAGE, seedance.TEXT_POLICY_MESSAGE, seedance.NEUTRAL_POLICY_MESSAGE, seedance.EXPIRED_MESSAGE,
+        *omnihuman.ERROR_COPY.values(), omnihuman.AUDIO, omnihuman.UNCERTAIN, omnihuman.AUDIO_CHANGED,
         portrait_prepare.REJECTED_MESSAGE,
         seedream.AMBIGUOUS_MESSAGE, seedream.NO_RESULT_MESSAGE, seedream.DOWNLOAD_FAILED_MESSAGE,
         poller.MAGNIFIC_TOO_LARGE, poller.MAGNIFIC_IMAGE_TOO_LARGE, poller.MAGNIFIC_SAVE_FAILED,
-        poller.POLL_ABANDONED, poller.DOWNLOAD_ABANDONED,
+        poller.POLL_ABANDONED, poller.DOWNLOAD_ABANDONED, poller.OMNIHUMAN_DOWNLOAD_FAILED, poller.OMNIHUMAN_TOO_LARGE,
         upscale_submission.UPSCALE_REJECTED, upscale_submission.UPSCALE_PREPARE_FAILED,
         video_execution.FACE_NOT_READY, video_execution.LOOKUP_UNAVAILABLE,
         managed_pool.PORTRAIT_UNPREPARED + managed_pool.NOT_CHARGED, managed_pool.PORTRAIT_REFUSED + managed_pool.NOT_CHARGED,
@@ -165,8 +166,13 @@ def _face(row):
 def public_message(row, diagnostic):
     """The text safe to show for a failed generation: the plain sentence, then the exact provider detail."""
     from . import provider_errors
-    sentence = _sentence(row, diagnostic)
     entry = provider_errors.primary(getattr(row, 'provider_responses', None))
+    from .providers import omnihuman
+    sentence = (omnihuman.ERROR_COPY.get(entry.get('code')) if entry and entry.get('provider') == 'omnihuman' else None) or _sentence(row, diagnostic)
+    if (provider_errors.provider_for_model(row.model) == 'omnihuman' and
+            any(isinstance(record, dict) and record.get('uncertainSubmission') is True
+                for record in (getattr(row, 'provider_responses', None) or []))):
+        sentence = omnihuman.UNCERTAIN
     detail = provider_errors.user_detail(entry)
     if not detail:
         return sentence

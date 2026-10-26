@@ -10,7 +10,7 @@ from .model_registry import MODEL_REGISTRY
 
 # The backend switch (a Railway service variable on the API and the generation worker) that admits new jobs for each
 # provider. A provider with no entry has no switch.
-SWITCHES = {'kling': 'VEEVEE_KLING', 'omni': 'VEEVEE_GEMINI_OMNI', 'magnific': 'VEEVEE_MAGNIFIC_UPSCALE'}
+SWITCHES = {'omnihuman': 'VEEVEE_OMNIHUMAN', 'kling': 'VEEVEE_KLING', 'omni': 'VEEVEE_GEMINI_OMNI', 'magnific': 'VEEVEE_MAGNIFIC_UPSCALE'}
 
 
 def switched_on(provider):

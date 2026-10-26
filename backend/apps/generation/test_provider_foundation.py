@@ -19,9 +19,10 @@ class PureProviderParityTests(SimpleTestCase):
         # the frozen Node registry; compare the frozen entries and assert the additions explicitly.
         # Gemini Omni Flash 1.1 (2026-10-18) postdates it as well.
         added = [item for item in MODEL_REGISTRY if item.get('capabilities', {}).get('upscaleMedia') == 'video'
-                 or item['id'] in ('nano-banana-2-1', 'gemini-omni-1-1-flash')]
+                 or item['id'] in ('nano-banana-2-1', 'gemini-omni-1-1-flash', 'omnihuman-2')]
         self.assertEqual([(item['name'], item['provider'], item['kind'], item['pricingKey']) for item in added], [
             ('Nano Banana 2.1', 'gemini', 'image', 'Nano Banana 2.1'),
+            ('OmniHuman 2.0', 'omnihuman', 'video', 'OmniHuman 2.0'),
             ('Gemini Omni Flash 1.1', 'omni', 'video', 'Gemini Omni Flash 1.1'),
             *[(name, 'magnific', 'upscale', name) for name in ('Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz')]])
         self.assertEqual(provider_model_id('Nano Banana 2.1', {}), 'gemini-nano-banana-2.1')
@@ -68,7 +69,8 @@ class PureProviderParityTests(SimpleTestCase):
         self.assertEqual({name: limits for name, limits in audio_limits.items() if limits}, {
             'Seedance 2.0': {'clipMin': 2, 'clipMax': 15, 'totalMax': 15},
             'Seedance 2.0 Mini': {'clipMin': 2, 'clipMax': 15, 'totalMax': 15},
-            'Seedance 2.5': {'clipMin': 2, 'clipMax': 30, 'totalMax': 30}})
+            'Seedance 2.5': {'clipMin': 2, 'clipMax': 30, 'totalMax': 30},
+            'OmniHuman 2.0': {'clipMin': 4, 'clipMax': 300, 'totalMax': 300, 'slackSeconds': 0}})
         frozen = [{**item, 'capabilities': {key: value for key, value in item['capabilities'].items() if key != 'referenceAudioSeconds'}}
                   for item in frozen]
         self.assertEqual(expected['models'], frozen)

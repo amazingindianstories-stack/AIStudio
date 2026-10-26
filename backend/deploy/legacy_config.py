@@ -26,7 +26,7 @@ PROVIDER_KEYS = {'ARK_API_KEY', 'ARK_BASE_URL', 'GOOGLE_API_KEY', 'SEEDANCE_MODE
 BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPLUS_ARK_REGION', 'BYTEPLUS_ARK_HOST', 'BYTEPLUS_ARK_BASE_URL'}
 PASS_THROUGH = ('PATH', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID',
                 'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE',
-                'VEEVEE_MAGNIFIC_UPSCALE', 'VEEVEE_GEMINI_OMNI', 'VEEVEE_KLING',
+                'VEEVEE_MAGNIFIC_UPSCALE', 'VEEVEE_GEMINI_OMNI', 'VEEVEE_KLING', 'VEEVEE_OMNIHUMAN',
                 'VEEVEE_GENERATION_WORKER_SLOTS')
 # Magnific output hosts, observed in live tasks; signed, expiring links. Video
 # results come from cdn-magnific.freepik.com (2026-10-14), image results from
@@ -36,6 +36,8 @@ MAGNIFIC_MEDIA_HOSTS = ('cdn-magnific.freepik.com', 'ai-statics.magnific.com')
 # image API reference (kling.ai/document-api/api/image/3-0-omni/image-generation, read 2026-10-19);
 # cdn.klingai.com is the host in published sample responses of the same API. The first live canary must confirm.
 KLING_MEDIA_HOSTS = ('h1.inkwai.com', 'cdn.klingai.com')
+# OmniHuman result host, observed in the approved live canary (task 2072219181, 2026-10-26); signed, expiring links.
+OMNIHUMAN_MEDIA_HOSTS = ('v16m-default.tiktokcdn.com',)
 # KLING_API_HOST may only name a Kling API origin (the key is sent there); see apps.generation.providers.kling.
 KLING_HOST = re.compile(r'https://(?:[a-z0-9-]+\.)+klingai\.com/?')
 
@@ -130,6 +132,17 @@ def _managed_portraits(component, env, out):
     return out
 
 
+def _omnihuman(component, env, out):
+    """``VEEVEE_OMNIHUMAN=1`` gives the generation worker, which submits, polls and downloads OmniHuman tasks, the
+    existing BytePlus key pair from the portrait configuration; without it the worker refuses to start rather than
+    fail paid jobs. The API's CVCancelTask uses the pair it already receives from that configuration."""
+    if component == 'generation' and env.get('VEEVEE_OMNIHUMAN') == '1':
+        need(env.get('GOAL4_PREVIEW_PORTRAIT_CONFIGURATION'), 'OmniHuman needs GOAL4_PREVIEW_PORTRAIT_CONFIGURATION on the generation worker')
+        reads = _portrait_reads(env)
+        out.update({key: reads[key] for key in ('BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY')})
+    return out
+
+
 def translate(component, env):
     """Return the complete, allowlisted environment for ``component``."""
     if component == 'api':
@@ -146,7 +159,7 @@ def translate(component, env):
         if portraits:
             out.update(_portrait_reads(env))
             out['VEEVEE_PORTRAIT_LIFECYCLE'] = '1'
-        return _kling(component, env, _managed_portraits(component, env, out))
+        return _omnihuman(component, env, _kling(component, env, _managed_portraits(component, env, out)))
     cfg = json.loads(env[WORKER_VARIABLE])
     need(cfg.get('kind') == component, 'configuration belongs to another worker')
     need(str(cfg.get('role', '')).startswith('goal4_') and cfg['role'].endswith('_worker'), 'unexpected worker role')
@@ -164,10 +177,12 @@ def translate(component, env):
         hosts = [*hosts, *(host for host in MAGNIFIC_MEDIA_HOSTS if host not in hosts)]
     if env.get('VEEVEE_KLING') == '1' and component == 'generation':
         hosts = [*hosts, *(host for host in KLING_MEDIA_HOSTS if host not in hosts)]
+    if env.get('VEEVEE_OMNIHUMAN') == '1' and component == 'generation':
+        hosts = [*hosts, *(host for host in OMNIHUMAN_MEDIA_HOSTS if host not in hosts)]
     out['VEEVEE_PROVIDER_MEDIA_HOSTS'] = ','.join(hosts)
     if cfg.get('new_exports'):
         out['VEEVEE_EXPORT_ADMISSION'] = '1'
-    return _kling(component, env, _managed_portraits(component, env, out))
+    return _omnihuman(component, env, _kling(component, env, _managed_portraits(component, env, out)))
 
 
 def preflight_contract(component, env):

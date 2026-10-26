@@ -10,7 +10,7 @@ import { create } from "zustand";
 import { installOperationTracking } from "./operation-state";
 import { snapshotScope, composerMetadata, metadataToDraft, saveComposerSnapshot, loadComposerSnapshot } from "./composer-snapshots";
 import { newReferenceId, referenceIdsFor, referencePermutation } from "./reference-order";
-import { composerModel, getModelDefinition, isModelAvailable } from "./model-registry";
+import { composerModel, getModelDefinition, isModelAvailable, isProviderModel } from "./model-registry";
 
 import {
   DEFAULTS,
@@ -1144,7 +1144,7 @@ export const useStore = create((set, get) => ({
   generate: async () => {
     let s = get();
     const prompt = s.prompt.trim();
-    if (!prompt || s.generating) return [];
+    if ((!prompt && !isProviderModel(s.model, "omnihuman")) || s.generating) return [];
     if (s.referenceImages.some(ref => !ref)) {
       notify("Attach the missing draft references again before generating.");
       return [];

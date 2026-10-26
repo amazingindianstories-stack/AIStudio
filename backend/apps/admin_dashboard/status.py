@@ -78,6 +78,15 @@ def kling():
     return configured('KLING_API')
 
 
+def omnihuman():
+    # The generation worker submits and polls; cancellation runs in this API process with the same pair.
+    from apps.integrations.byteplus import config_from_env
+    config = config_from_env()
+    if config['ak'] and config['sk']:
+        return outcome('ok', 'BytePlus AK/SK configured (config-presence only; cv/ap-singapore-1)')
+    return outcome('unknown', 'BytePlus AK/SK not set')
+
+
 def omni():
     if os.environ.get('OMNI_USE_VERTEX') == '1':
         return outcome('ok', 'Vertex configured (config-presence only)') if os.environ.get('GOOGLE_CLOUD_PROJECT') else outcome('unknown', 'OMNI_USE_VERTEX=1 but GOOGLE_CLOUD_PROJECT not set')
@@ -144,7 +153,7 @@ CHECKS = [
     ('gemini-nano-banana-2-1', 'Gemini / Nano Banana 2.1', lambda: gemini(model='Nano Banana 2.1')),
     ('higgsfield', 'Higgsfield MCP', higgsfield),
     ('seedance', 'BytePlus ModelArk / Seedance', lambda: configured('ARK_API_KEY')), ('kling', 'KlingAI Image', kling),
-    ('omni', 'Gemini Omni Flash 1.1', omni), ('postgres', 'Postgres', postgres), ('generation-indexes', 'Generation Indexes', generation_indexes),
+    ('omni', 'Gemini Omni Flash 1.1', omni), ('omnihuman', 'BytePlus Vision / OmniHuman 2.0', omnihuman), ('postgres', 'Postgres', postgres), ('generation-indexes', 'Generation Indexes', generation_indexes),
     ('stuck-generations', 'Stuck Generations', stuck_generations), ('storage', 'Media Storage', storage),
     ('ffmpeg-runtime', 'ffmpeg Runtime', ffmpeg), ('media-delivery', 'Media Delivery', media_delivery),
 ]
@@ -169,16 +178,17 @@ def run_all_checks(checks=None, timeout_ms=5000):
         finally: connections.close_all()
     started = time.monotonic()
     futures = []
+    capacity = _probe_capacity
     for _, _, check in checks:
-        if not _probe_capacity.acquire(blocking=False):
+        if not capacity.acquire(blocking=False):
             futures.append(None)
             continue
         try:
             future = _probe_executor.submit(work, check)
         except Exception:
-            _probe_capacity.release()
+            capacity.release()
             raise
-        future.add_done_callback(lambda completed: _probe_capacity.release())
+        future.add_done_callback(lambda completed: capacity.release())
         futures.append(future)
     results = []
     for (identifier, name, _), future in zip(checks, futures):

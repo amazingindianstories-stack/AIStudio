@@ -36,7 +36,7 @@ class HttpTransport:
     def request(self, method, url, *, headers=None, body=None, raw_body=None, signal=None):
         from apps.generation.services import paid_guard  # known upward dependency; remove in refactor step 6
         if paid_guard.enabled():
-            paid_guard.check_request(self, method, url, body)
+            paid_guard.check_request(self, method, url, json.loads(raw_body) if raw_body is not None and body is None else body)
         return self._send(method, url, headers=headers, body=body, raw_body=raw_body, signal=signal)
 
     def _send(self, method, url, *, headers=None, body=None, raw_body=None, signal=None):

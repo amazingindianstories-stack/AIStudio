@@ -6,20 +6,20 @@ server's `canCancel` capability and the existing confirmation dialog. No
 unsupported provider is stopped locally while its remote paid work continues.
 
 Supported adapters are registered in `generation/services/cancellation.py`:
-ModelArk Seedance queued tasks and Gemini Developer API background interactions.
+ModelArk Seedance queued tasks, Gemini Developer API background interactions
+and BytePlus Vision OmniHuman 2.0 queued (`in_queue`) tasks. OmniHuman uses its
+signed `CVCancelTask` operation with fixed service `cv` and region
+`ap-singapore-1`, and its `canceled` query result normalizes to `cancelled`.
 Vertex is excluded until its official cancellation contract is verified.
 Higgsfield's hosted OAuth MCP is distinct from its REST request API and has no
-verified cancel contract. OmniHuman 2.0's provider is a separate change that is
-not in this tree; whichever of the two lands second registers its adapter and
-its paid-guard cancel endpoint. That adapter must use its own signed
-`CVCancelTask` operation, fixed service `cv` and region `ap-singapore-1`, and
-normalize its `canceled` query result to `cancelled` before registration.
+verified cancel contract.
 
-With `VEEVEE_PAID_GUARD` set, the guard allows exactly two cancel requests
+With `VEEVEE_PAID_GUARD` set, the guard allows exactly three cancel requests
 outside a submission claim: DELETE of the ModelArk task URL and POST of the
-Interactions `/{id}/cancel` URL, each without a body and only for the task of a
-queued or running generation of that provider whose cancellation is
-`requested`. Every other non-GET request stays refused.
+Interactions `/{id}/cancel` URL, each without a body, and the OmniHuman
+`CVCancelTask` POST with exactly a `{req_key, task_id}` body. Each is allowed
+only for the task of a queued or running generation of that provider whose
+cancellation is `requested`. Every other non-GET request stays refused.
 
 Cancellation claims the existing worker lease before provider I/O. Local queued
 work can settle immediately only while the same claim excludes submission and
@@ -100,4 +100,4 @@ Checked 2026-10-25, including persisted historical models.
 | Higgsfield MCP / Higgsfield Soul (unoffered) | REST has [POST /requests/{request_id}/cancel](https://docs.higgsfield.ai/docs/api-reference/requests/cancel-a-queued-request); hosted MCP equivalent not documented in reviewed official sources | REST: all jobs queued; MCP: unverified | REST: [queued cancellations refunded](https://docs.higgsfield.ai/docs/concepts/billing-and-retention); do not assume REST contract applies to MCP | REST: canceled; MCP support unresolved, so no Cancel until verified |
 | Higgsfield MCP / Higgsfield Seedance 2.0 (unoffered) | REST has [POST /requests/{request_id}/cancel](https://docs.higgsfield.ai/docs/api-reference/requests/cancel-a-queued-request); hosted MCP equivalent not documented in reviewed official sources | REST: all jobs queued; MCP: unverified | REST: [queued cancellations refunded](https://docs.higgsfield.ai/docs/concepts/billing-and-retention); do not assume REST contract applies to MCP | REST: canceled; MCP support unresolved, so no Cancel until verified |
 | Higgsfield MCP / Higgsfield Seedance 2.0 Mini (unoffered) | REST has [POST /requests/{request_id}/cancel](https://docs.higgsfield.ai/docs/api-reference/requests/cancel-a-queued-request); hosted MCP equivalent not documented in reviewed official sources | REST: all jobs queued; MCP: unverified | REST: [queued cancellations refunded](https://docs.higgsfield.ai/docs/concepts/billing-and-retention); do not assume REST contract applies to MCP | REST: canceled; MCP support unresolved, so no Cancel until verified |
-| BytePlus Vision / OmniHuman 2.0 (separate change, not yet registered) | [POST /?Action=CVCancelTask&Version=2024-06-06](https://docs.byteplus.com/en/docs/byteplus-vision/omnihuman-2-0-video-generation) | in_queue only; generating / executed task refused with code 50217 | Unspecified; retain estimate, mark billing unconfirmed (decision 002) | canceled; success code 10000 followed by result reconciliation |
+| BytePlus Vision / OmniHuman 2.0 | [POST /?Action=CVCancelTask&Version=2024-06-06](https://docs.byteplus.com/en/docs/byteplus-vision/omnihuman-2-0-video-generation) | in_queue only; generating / executed task refused with code 50217 | Unspecified; retain estimate, mark billing unconfirmed (decision 002) | canceled; success code 10000 followed by result reconciliation |

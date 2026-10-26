@@ -174,6 +174,50 @@ class LegacyConfigTests(SimpleTestCase):
             self.assertNotIn('VEEVEE_GEMINI_OMNI', self.legacy.translate(component, env))
             self.assertEqual(self.legacy.translate(component, {**env, 'VEEVEE_GEMINI_OMNI': '1'})['VEEVEE_GEMINI_OMNI'], '1')
 
+    def test_omnihuman_reuses_the_byteplus_pair_on_the_enabled_generation_worker_only(self):
+        import json
+        portrait = {'GOAL4_PREVIEW_PORTRAIT_CONFIGURATION': json.dumps({'read_environment': {
+            'BYTEPLUS_ACCESS_KEY_ID': 'k', 'BYTEPLUS_SECRET_ACCESS_KEY': 's', 'BYTEPLUS_ARK_REGION': 'ap-southeast-1'}})}
+        pair = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY'}
+        for kind in ('generation', 'export', 'scheduler'):
+            env = {**self.worker_env(kind), **portrait, 'OMNIHUMAN_ACCESS_KEY_ID': 'a', 'OMNIHUMAN_SECRET_ACCESS_KEY': 'b'}
+            off = self.legacy.translate(kind, env)
+            self.assertFalse(pair & set(off), 'the pair stays out of a worker without the switch')
+            on = self.legacy.translate(kind, {**env, 'VEEVEE_OMNIHUMAN': '1'})
+            self.assertEqual(on['VEEVEE_OMNIHUMAN'], '1')
+            self.assertFalse({key for key in on if key.startswith('OMNIHUMAN_') or key.startswith('GOAL4_')})
+            self.assertEqual({key: on[key] for key in pair if key in on}, {'BYTEPLUS_ACCESS_KEY_ID': 'k', 'BYTEPLUS_SECRET_ACCESS_KEY': 's'}
+                             if kind == 'generation' else {}, kind)
+            self.assertNotIn('BYTEPLUS_ARK_REGION', on)
+        with self.assertRaises(SystemExit):
+            self.legacy.translate('generation', {**self.worker_env('generation'), 'VEEVEE_OMNIHUMAN': '1'})
+        for reads in ({'BYTEPLUS_ACCESS_KEY_ID': 'k'}, {'BYTEPLUS_ACCESS_KEY_ID': 'k', 'BYTEPLUS_SECRET_ACCESS_KEY': 's', 'ARK_API_KEY': 'x'}):
+            with self.subTest(reads=reads), self.assertRaises(SystemExit):
+                self.legacy.translate('generation', {**self.worker_env('generation'), 'VEEVEE_OMNIHUMAN': '1',
+                    'GOAL4_PREVIEW_PORTRAIT_CONFIGURATION': json.dumps({'read_environment': reads})})
+        api = self.legacy.translate('api', {**self.api_env(), 'VEEVEE_OMNIHUMAN': '1'})
+        self.assertEqual(api['VEEVEE_OMNIHUMAN'], '1')
+
+    def test_omnihuman_result_host_only_on_the_enabled_generation_worker(self):
+        import json
+        import socket
+        from apps.integrations.remote import UnsafeMediaURL, validated_target
+        portrait = {'GOAL4_PREVIEW_PORTRAIT_CONFIGURATION': json.dumps({'read_environment': {'BYTEPLUS_ACCESS_KEY_ID': 'k', 'BYTEPLUS_SECRET_ACCESS_KEY': 's'}})}
+        for kind in ('generation', 'export', 'scheduler'):
+            off = self.legacy.translate(kind, {**self.worker_env(kind), **portrait})
+            on = self.legacy.translate(kind, {**self.worker_env(kind), **portrait, 'VEEVEE_OMNIHUMAN': '1'})
+            self.assertEqual(on['VEEVEE_PROVIDER_MEDIA_HOSTS'], 'cdn.example,v16m-default.tiktokcdn.com' if kind == 'generation'
+                             else off['VEEVEE_PROVIDER_MEDIA_HOSTS'], kind)
+        both = self.legacy.translate('generation', {**self.worker_env('generation'), **portrait, 'VEEVEE_OMNIHUMAN': '1', 'VEEVEE_KLING': '1'})
+        self.assertEqual(both['VEEVEE_PROVIDER_MEDIA_HOSTS'], 'cdn.example,h1.inkwai.com,cdn.klingai.com,v16m-default.tiktokcdn.com')
+        public = lambda host, port, type=None: [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('1.1.1.1', 443))]
+        hosts = both['VEEVEE_PROVIDER_MEDIA_HOSTS'].split(',')
+        url = 'https://v16m-default.tiktokcdn.com/0a1b2c/68f0/video/tos/alisg/tos-alisg-ve-0051c001-sg/o/?a=4475&x-expires=1761500000'
+        self.assertEqual(validated_target(url, hosts, public)[0], 'v16m-default.tiktokcdn.com')
+        for url in ('https://v16-default.tiktokcdn.com/x.mp4', 'https://evil.tiktokcdn.com/x.mp4', 'http://v16m-default.tiktokcdn.com/x.mp4'):
+            with self.subTest(url=url), self.assertRaises(UnsafeMediaURL):
+                validated_target(url, hosts, public)
+
     def test_kling_switch_key_host_and_result_hosts(self):
         kling = {'KLING_API': 'kk', 'KLING_API_HOST': 'https://api.klingai.com'}
         envs = {'api': self.api_env(), **{kind: self.worker_env(kind) for kind in ('generation', 'export', 'scheduler')}}

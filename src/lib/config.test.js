@@ -86,14 +86,14 @@ test("every model in the picker resolves without throwing", () => {
   }
 });
 
-test("exactly the two native BytePlus models in the picker are audio-capable today", () => {
+test("the native BytePlus video models accept audio references", () => {
   // "Seedance 2.0" and "Seedance 2.5" (both BytePlus direct). The BytePlus
   // mini SKU exists in the provider (pickModel routes mini/fast to
   // SEEDANCE_MODEL_FAST) and has a pricing row, but it has never been added to
   // MODELS. If a native mini is ever added to the picker this assertion should
   // be updated, not deleted.
   const capable = MODELS.filter((m) => supportsAudio(m.name)).map((m) => m.name);
-  assert.deepEqual(capable, ["Seedance 2.0", "Seedance 2.5"]);
+  assert.deepEqual(capable, ["Seedance 2.0", "Seedance 2.5", "OmniHuman 2.0"]);
 });
 
 test("no image model is ever audio-capable", () => {
@@ -249,10 +249,12 @@ test("Omni and image models take no video reference", () => {
   assert.equal(supportsVideoReference("Nano Banana Pro"), false);
 });
 
-test("audio and video-reference support agree on which models are native", () => {
+test("Seedance accepts video and audio references; OmniHuman accepts audio only", () => {
   // Both gate on the same thing — the native BytePlus path — so a future model
   // that diverges should be a deliberate edit, not an accident.
-  for (const m of MODELS) {
+  assert.equal(supportsAudio("OmniHuman 2.0"), true);
+  assert.equal(supportsVideoReference("OmniHuman 2.0"), false);
+  for (const m of MODELS.filter((model) => model.id !== "omnihuman-2")) {
     assert.equal(
       supportsVideoReference(m.name),
       supportsAudio(m.name),
@@ -359,7 +361,7 @@ test("Gemini Omni Flash 1.1 replaces Gemini Omni Flash in the picker with its do
   const videos = MODELS.filter((m) => m.kind === "video").map((m) => m.name);
   assert.ok(videos.includes("Gemini Omni Flash 1.1"));
   assert.ok(!videos.includes("Gemini Omni Flash"), "the retired preview is not selectable");
-  assert.equal(videos.indexOf("Gemini Omni Flash 1.1"), videos.indexOf("Seedance 2.5") + 1);
+  assert.equal(videos.indexOf("Gemini Omni Flash 1.1"), videos.indexOf("OmniHuman 2.0") + 1);
   const offered = MODELS.find((m) => m.name === "Gemini Omni Flash 1.1");
   assert.deepEqual(offered, { id: "gemini-omni-1-1-flash", name: "Gemini Omni Flash 1.1", kind: "video", badge: "NEW",
     hint: "Google Interactions API · 360p draft or 720p · 4-10s · 16:9/9:16 · sound from the prompt" });

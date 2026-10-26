@@ -43,7 +43,7 @@ def enabled():
 def applies(item):
     model = item.model or ''
     return (enabled() and item.kind == 'video' and not is_provider_model(model, 'omni')
-            and not is_provider_model(model, 'higgsfield'))
+            and not is_provider_model(model, 'higgsfield') and not is_provider_model(model, 'omnihuman'))
 
 
 def reference_urls(item):

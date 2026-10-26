@@ -214,6 +214,8 @@ class DepthContractTests(TransactionTestCase):
         rows = [self.row(kind='video',task_id=f't{i}',updated_at=now+i,next_poll_at=now) for i in range(6)]
         self.row(kind='video',task_id='future',next_poll_at=now+1)
         self.row(kind='video',task_id=None)
+        self.row(kind='video',task_id='magnific',model='Magnific Video Creative',updated_at=now-2,next_poll_at=now)
+        self.row(kind='video',task_id='omnihuman',model='OmniHuman 2.0',updated_at=now-1,next_poll_at=now)
         self.assertEqual([r.id for r in maintenance.select_videos(now)],[r.id for r in rows[:5]])
         kinds = iter(['succeeded','failed','poll_error','raced','pending'])
         def advance(item, *, source, signal):

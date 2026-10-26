@@ -79,7 +79,7 @@ import {
 } from "@/lib/config";
 import { formatAudioSeconds, measureAudioDuration, referenceAudioProblem } from "@/lib/audio-duration";
 import { cn, referenceDisplayUrl, thumbUrl } from "@/lib/utils";
-import { isProviderModel } from "@/lib/model-registry";
+import { capability, isProviderModel } from "@/lib/model-registry";
 
 import {
   downscaleBlob,
@@ -111,7 +111,8 @@ export function PromptComposer() {
    * generations, which have no audio at all. One const so they cannot drift
    * apart again.
    */
-  const audioApplies = s.mode === "video" && supportsAudio(s.model);
+  const inputDrivenVideo = s.mode === "video" && capability(s.model, "inputDrivenVideo");
+  const audioApplies = s.mode === "video" && supportsAudio(s.model) && !inputDrivenVideo;
   const draftApplies = s.mode === "video" && supportsDraftMode(s.model);
   const bitrateApplies = s.mode === "video" && supportsBitrateMode(s.model);
   const audioProblem = s.mode === "video" ? referenceAudioProblem(s.model, s.audioNotes, s.prompt) : null;
@@ -143,7 +144,7 @@ export function PromptComposer() {
   const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ overlayOpen: pickingClips, dragging });
 
   const handleSubmitPrompt = async () => {
-    if (maintenance || uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength) return;
+    if (maintenance || uploading || (!s.prompt.trim() && !inputDrivenVideo) || s.generating || s.prompt.length > maxPromptLength) return;
     collapseOnSend();
     const created = await s.generate();
     if (!(Array.isArray(created) ? created.length > 0 : Boolean(created))) reopenAfterFailedSend();
@@ -1022,7 +1023,7 @@ export function PromptComposer() {
                 <>
                   <span className="composer-secondary-setting text-white/35">·</span>
                   <span className="composer-secondary-setting">
-                    {videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}
+                    {inputDrivenVideo ? "Audio length" : videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}
                   </span>
                 </>
               )}
@@ -1125,17 +1126,17 @@ export function PromptComposer() {
                 value={s.resolution}
                 onChange={s.setResolution}
               />
-              {s.mode === "video" && videoTaskMode === "edit" && (
+              {s.mode === "video" && (videoTaskMode === "edit" || inputDrivenVideo) && (
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
                     Duration
                   </p>
                   <p className="text-xs text-white/50">
-                    Auto — matches the reference clip
+                    {inputDrivenVideo ? "Auto - matches the audio" : "Auto - matches the reference clip"}
                   </p>
                 </div>
               )}
-              {s.mode === "video" && videoTaskMode !== "edit" && durationRange && (
+              {s.mode === "video" && videoTaskMode !== "edit" && !inputDrivenVideo && durationRange && (
                 <div>
                   <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">
                     Duration
@@ -1157,7 +1158,7 @@ export function PromptComposer() {
                   </div>
                 </div>
               )}
-              {s.mode === "video" && videoTaskMode !== "edit" && !durationRange && (
+              {s.mode === "video" && videoTaskMode !== "edit" && !inputDrivenVideo && !durationRange && (
                 <Segment
                   label="Duration"
                   options={durationsForModel(s.model).map((d) => `${d}s`)}
@@ -1346,10 +1347,10 @@ export function PromptComposer() {
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => void handleSubmitPrompt()}
-          disabled={maintenance || uploading || !s.prompt.trim() || s.generating || s.prompt.length > maxPromptLength}
+          disabled={maintenance || uploading || (!s.prompt.trim() && !inputDrivenVideo) || s.generating || s.prompt.length > maxPromptLength}
           className={cn(
             "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
-            !maintenance && !uploading && s.prompt.trim() && !s.generating && s.prompt.length <= maxPromptLength
+            !maintenance && !uploading && (s.prompt.trim() || inputDrivenVideo) && !s.generating && s.prompt.length <= maxPromptLength
               ? "bg-gradient-to-br from-brand to-accent text-ink-900 shadow-glow hover:brightness-110"
               : "cursor-not-allowed bg-ink-650 text-white/30"
           )}

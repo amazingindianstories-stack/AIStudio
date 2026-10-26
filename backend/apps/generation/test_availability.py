@@ -11,10 +11,10 @@ from .availability import SWITCHES, availability, available
 from .model_registry import MODEL_REGISTRY
 
 ALWAYS = ['seedream-5-pro', 'nano-banana-pro', 'nano-banana-2-1', 'seedance', 'seedance-25', 'depth-anything-local']
-SWITCHED = {'kling': ['kling-image-3', 'kling-image-21'], 'omni': ['gemini-omni-1-1-flash'],
+SWITCHED = {'omnihuman': ['omnihuman-2'], 'kling': ['kling-image-3', 'kling-image-21'], 'omni': ['gemini-omni-1-1-flash'],
             'magnific': ['magnific-creative', 'magnific-precision-v2', 'magnific-precision-v1', 'magnific-video-creative',
                          'magnific-video-creative-turbo', 'magnific-video-precision', 'magnific-video-topaz']}
-ALL_OFF = {'VEEVEE_KLING': False, 'VEEVEE_GEMINI_OMNI': False, 'VEEVEE_MAGNIFIC_UPSCALE': False}
+ALL_OFF = {'VEEVEE_OMNIHUMAN': False, 'VEEVEE_KLING': False, 'VEEVEE_GEMINI_OMNI': False, 'VEEVEE_MAGNIFIC_UPSCALE': False}
 ALL_ON = {name: True for name in ALL_OFF}
 
 

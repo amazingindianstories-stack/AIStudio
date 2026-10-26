@@ -139,3 +139,6 @@ if VEEVEE_RUNTIME_COMPONENT in ('generation', 'export', 'scheduler'):
 VEEVEE_PORTRAIT_LIFECYCLE = os.environ.get('VEEVEE_PORTRAIT_LIFECYCLE') == '1'
 # Automatic BytePlus portrait pool (face detection, expiry, eviction). Off = manual Gallery uploads.
 VEEVEE_MANAGED_PORTRAITS = os.environ.get('VEEVEE_MANAGED_PORTRAITS') == '1'
+
+# Admits OmniHuman jobs; BytePlus Vision calls sign with the existing BytePlus access key pair.
+VEEVEE_OMNIHUMAN = os.environ.get('VEEVEE_OMNIHUMAN') == '1'

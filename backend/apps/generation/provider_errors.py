@@ -5,7 +5,7 @@ Records are kept in ``generations.provider_responses`` (a list; a failed best-of
 
     provider    adapter name (seedance, seedream, gemini, omni, kling, magnific, higgsfield, byteplus-assets)
     model       registry display name when the caller knows it
-    phase       create | task | status | download | timeout | transcribe | an asset API action
+    phase       create | task | status | cancel | download | timeout | transcribe | an asset API action
     source      'provider' (the provider answered) or 'veevee' (our transport, deadline or download gave up)
     httpStatus  the provider's HTTP status
     code        the provider's own error code (BytePlus code, Google status/reason, Kling numeric code ...)
@@ -28,6 +28,7 @@ MESSAGE_LIMIT = 1000
 PUBLIC_MESSAGE_LIMIT = 240
 
 PROVIDERS = {
+    'omnihuman': 'OmniHuman 2.0',
     'seedance': 'Seedance', 'seedream': 'Seedream', 'gemini': 'Gemini', 'omni': 'Gemini Omni', 'kling': 'Kling',
     'magnific': 'Magnific', 'higgsfield': 'Higgsfield', 'byteplus-assets': 'Portrait service',
 }

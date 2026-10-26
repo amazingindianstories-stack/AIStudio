@@ -16,7 +16,7 @@ from apps.common.javascript import UNDEFINED, truthy, string, utf16_length
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
 from apps.generation import image_limits
-from apps.generation.model_registry import capability, is_provider_model, retirement_message
+from apps.generation.model_registry import capability, is_provider_model, model_definition, retirement_message
 from apps.generation.models import Generation
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
 from apps.generation.serialization import camel
@@ -108,7 +108,7 @@ def video_input(body, user_id=None):
         source = body.get(name)
         return [value for value in source if isinstance(value,str) and value][:maximum] if enabled and isinstance(source,list) else []
     videos = references('referenceVideos',capability(model,'videoReference'),max_videos)
-    max_audios = 10 if capability(model,'editExtend') else 3
+    max_audios = capability(model, 'maxReferenceAudios', 10 if capability(model,'editExtend') else 3)
     if capability(model,'audio') and isinstance(body.get('referenceAudios'),list) and len(body['referenceAudios']) > max_audios:
         raise InvalidRequest(f'{string(model)} accepts at most {max_audios} reference audio clips (got {len(body["referenceAudios"])}).')
     audios = references('referenceAudios',capability(model,'audio'),max_audios)
@@ -120,12 +120,19 @@ def video_input(body, user_id=None):
     last = body.get('lastFrame') if frames and isinstance(body.get('lastFrame'),str) else UNDEFINED
     if mode != 'generate' and (truthy(first) or truthy(last)): raise InvalidRequest('Frame generation cannot be combined with Edit/Extend.')
     if truthy(last) and not truthy(first): raise InvalidRequest('A first frame is required when providing a last frame.')
-    if not prompt: raise InvalidRequest('Prompt is required.')
+    if not prompt and not is_provider_model(model, 'omnihuman'): raise InvalidRequest('Prompt is required.')
     max_images = capability(model,'maxReferenceImages',None)
     images = body.get('referenceImages')
     if max_images is not None and isinstance(images,list) and len(images)>max_images:
         raise InvalidRequest(f'{string(model)} accepts at most {max_images} reference images (got {len(images)}).')
-    validate_prompt(prompt,user_id)
+    if prompt: validate_prompt(prompt,user_id)
+    if is_provider_model(model, 'omnihuman'):
+        from apps.generation.availability import switched_on
+        if not switched_on('omnihuman'):
+            raise InvalidRequest('OmniHuman is not enabled. Choose another video model.')
+        if body.get('referenceVideos') or any(body.get(key) for key in ('firstFrame', 'lastFrame', 'continuationFrame')) or mode != 'generate' or body.get('draftMode') or body.get('draftTaskId'):
+            raise InvalidRequest('OmniHuman accepts an image and audio only; video references, frames, Draft, Edit and Extend are unavailable.')
+        model, ratio, resolution = model_definition(model)['name'], 'Auto', 'Auto'
     if isinstance(body.get('referenceVideos'),list) and len(body['referenceVideos'])>max_videos and capability(model,'videoReference'):
         raise InvalidRequest(f'{string(model)} accepts at most {max_videos} reference clips (got {len(body["referenceVideos"])}).')
     resolutions = capability(model,'resolutions',['480p','720p','1080p'])
@@ -143,7 +150,7 @@ def video_input(body, user_id=None):
         if not integer(duration) or duration not in durations:
             raise InvalidRequest(f'{string(model)} supports {"/".join(map(str,durations))}s durations (got {string(duration)}).')
     return clean(dict(kind='video',prompt=prompt,model=model,aspectRatio=ratio,resolution=resolution,duration=duration,
-        generateAudio=body.get('generateAudio') is True and bool(capability(model,'audio')),
+        generateAudio=is_provider_model(model, 'omnihuman') or body.get('generateAudio') is True and bool(capability(model,'audio')),
         referenceVideos=videos if videos else UNDEFINED,referenceAudios=audios if audios else UNDEFINED,
         firstFrame=first,lastFrame=last,**controls,videoTaskMode=mode if mode != 'generate' else UNDEFINED,
         projectId=default(body.get('projectId'),UNDEFINED),folderId=default(body.get('folderId'),UNDEFINED),
@@ -383,6 +390,23 @@ def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMA
 
 
 def prepare_video(item, body, identifier):
+    if is_provider_model(item.get('model'), 'omnihuman'):
+        from .omnihuman_inputs import validate
+        from .video_execution import combined_references, read_assets
+        from apps.generation.references import resolve_references
+        combined = combined_references(item['prompt'], read_assets(item.get('projectId')), body.get('referenceImages') or [])
+        audios = resolve_references(item['prompt'], item.get('referenceAudios') or [], 'audio')
+        try:
+            seconds = validate([ref['imageUrl'] for ref in combined], audios)
+        except ValueError as error:
+            raise InvalidRequest(str(error)) from None
+        item['duration'] = math.ceil(seconds)
+        try:
+            cost = compute_cost(item, read_pricing())
+        except ValueError as error:
+            raise InvalidRequest(str(error)) from None
+        refs = save_reference_images(body.get('referenceImages') or [], identifier)
+        return {'referenceImages': refs, 'costCents': cost}
     verify_reference_audio_durations(item)
     managed = getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False)
     model = item.get('model') or ''
