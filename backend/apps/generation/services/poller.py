@@ -269,7 +269,7 @@ def _omnihuman_output(item, deps, owner):
     with transaction.atomic():
         if not coordinator.expected_version(item, owner=owner).filter(task_id=item.task_id).update(
                 provider_responses=[*records, {'omnihumanOutputFirstSeenAt': deps.now()}],
-                provider_status=DOWNLOAD_PENDING, updated_at=timestamp):
+                provider_status=DOWNLOAD_PENDING, poll_error_count=0, last_poll_error_at=None, updated_at=timestamp):
             return None, False
         return Generation.objects.get(pk=item.id), False
 

@@ -284,6 +284,22 @@ class OmniHumanLifecycleTests(TransactionTestCase):
         self.assertEqual(row.status, 'failed')
         self.assertLess(poller.waited_ms(poller.download_retry_ms, row.poll_error_count), 60 * 60 * 1000)
 
+    def test_status_poll_errors_before_completion_do_not_count_as_download_attempts(self):
+        row = self.job(poll_error_count=120, last_poll_error_at=19000)
+        save = Mock(side_effect=IOError('transient storage failure'))
+        deps = self.deps(get_omnihuman=lambda *a, **kw: {'status': 'succeeded', 'videoUrl': 'https://fixture.invalid/master.mp4'},
+            save_omnihuman_video=save)
+        self.assertEqual(poller.advance(row, dependencies=deps)['kind'], 'poll_error')
+        row.refresh_from_db()
+        self.assertEqual((row.status, row.task_id, row.provider_status, row.poll_error_count),
+                         ('running', 'accepted-task', poller.DOWNLOAD_PENDING, 1))
+        save.side_effect = None
+        save.return_value = {'url': '/api/media/generations/master.mp4'}
+        now = row.next_poll_at
+        deps.now = lambda: now
+        self.assertEqual(poller.advance(row, dependencies=deps)['kind'], 'succeeded')
+        self.assertEqual(save.call_count, 2)
+
     def test_submit_validates_originals_and_records_receipt_before_return(self):
         from apps.media.storage import MemoryAdapter, StorageService
         storage = StorageService(MemoryAdapter())
