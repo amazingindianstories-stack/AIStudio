@@ -1877,14 +1877,22 @@ export function inputDrivenVideoMissing(state) {
   return `Attach ${missing} to generate with ${state.model}.`;
 }
 
-/** The prompt box's placeholder, matched to what the selected model reads from it. */
+/** The prompt box's placeholders, matched to what the selected model reads from it. Longest
+ *  first: the prompt box shows the longest one that fits, so a narrow composer never cuts it off. */
 export function composerPlaceholder(state) {
   if (state.mode === "video" && capability(state.model, "inputDrivenVideo")) {
-    return "Optional: describe gestures, expression or camera movement.";
+    return [
+      "Optional: describe gestures, expression or camera movement.",
+      "Optional: gestures, expression, camera.",
+      "Optional: describe the motion.",
+    ];
   }
-  return state.mode === "image"
-    ? "Describe the image… type @ to reference uploaded images (@img1, @img2)."
-    : "Describe the video… type @ to reference uploaded images (@img1, @img2).";
+  const subject = state.mode === "image" ? "image" : "video";
+  return [
+    `Describe the ${subject}… type @ to reference uploaded images (@img1, @img2).`,
+    `Describe the ${subject}… @ to reference images`,
+    `Describe the ${subject}…`,
+  ];
 }
 
 export function stagedReferenceCount(state) {

@@ -358,6 +358,39 @@ for (const width of [1440, 1920]) {
   });
 }
 
+for (const width of [1024, 1440]) {
+  test(`beside the library at ${width}px the composer placeholder is never cut off`, async ({ page, library }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.reload();
+    const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+    await expect(toggle).toBeVisible();
+    if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+    await expect(library.panel).toBeVisible();
+    for (const section of ["Image", "Video"]) {
+      await page.getByRole("navigation", { name: "Sections" }).getByRole("button", { name: section, exact: true }).click();
+      const prompt = page.locator(`textarea[placeholder^="Describe the ${section.toLowerCase()}"]`);
+      await expect(prompt).toBeVisible();
+      // Lay the shown placeholder out in the prompt box's own font and width; every line must lie
+      // inside the box's visible height.
+      await expect(async () => {
+        const fit = await prompt.evaluate((ta) => {
+          const style = getComputedStyle(ta);
+          const probe = document.createElement("div");
+          for (const name of ["fontFamily", "fontSize", "fontWeight", "lineHeight", "letterSpacing", "wordSpacing", "whiteSpace", "overflowWrap", "wordBreak", "paddingLeft", "paddingRight", "boxSizing", "tabSize"]) probe.style[name] = style[name];
+          Object.assign(probe.style, { position: "absolute", visibility: "hidden", width: `${ta.clientWidth}px` });
+          probe.textContent = ta.placeholder;
+          document.body.append(probe);
+          const height = probe.getBoundingClientRect().height;
+          probe.remove();
+          return { placeholder: ta.placeholder, height, visible: ta.clientHeight - parseFloat(style.paddingTop), width: ta.clientWidth };
+        });
+        expect(fit.height, JSON.stringify(fit)).toBeLessThanOrEqual(fit.visible + 0.5);
+        if (width === 1440) expect(fit.placeholder, JSON.stringify(fit)).toContain("type @ to reference uploaded images (@img1, @img2)");
+      }).toPass();
+    }
+  });
+}
+
 test("a compact breadcrumb returns to the full trail when the panel widens again", async ({ page, library }) => {
   const reel = { ...await library.createFolder("Reel", library.project.id), name: "R02" };
   const scene = { ...await library.createFolder("Scene", library.project.id, reel.id), name: "SC018" };
