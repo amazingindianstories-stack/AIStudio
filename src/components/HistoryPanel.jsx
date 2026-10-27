@@ -97,7 +97,7 @@ export function HistoryPanel({ drawer = false }) {
     () => (activeFolderId && activeFolderId !== UNSORTED ? childFoldersOf(libraryTree, activeFolderId, activeProjectId).length : 0),
     [libraryTree, activeFolderId, activeProjectId]
   );
-  // A folder whose work all lives in subfolders: its own grid is empty by design.
+  // A folder with subfolders but no generations of its own.
   const subfolderOnly = rightTab === "project" && childFolderCount > 0 && !filtering && !loading && items.length === 0;
 
   const [navigationOpen, setNavigationOpen] = useState(false);
@@ -959,8 +959,8 @@ export function HistoryPanel({ drawer = false }) {
                   ) : subfolderOnly ? (
                     <EmptyState
                       icon={<FolderClosed className="h-6 w-6" />}
-                      title="No generations directly in this folder"
-                      body={`Its work is in the ${childFolderCount === 1 ? "subfolder" : `${childFolderCount} subfolders`} above.`}
+                      title="This folder has no generations of its own"
+                      body="Open a subfolder above."
                     />
                   ) : (
                     <EmptyState

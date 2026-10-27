@@ -120,6 +120,21 @@ test("the operation rail speaks plain language, shows a few entries and clears f
   });
 });
 
+test("dismissing a failed operation hides only that attempt, not a later retry of the same operation", async () => {
+  await withDom(async ({ render }) => {
+    const logical = JSON.stringify(["actor", "renameFolder", ["a", "B"]]);
+    const attempt = (n, status) => ({ [logical]: { key: "same-key", operation: "renameFolder", status, error: "Offline", attempt: n, startedAt: Date.now(), entity: JSON.stringify(["actor", "a"]) } });
+    useStore.setState({ currentUser: { id: "actor" }, loadLibraryTree: async () => {}, operations: attempt(1, "failed") });
+    await render(React.createElement(FolderOperationRail));
+    await act(async () => Array.from(document.querySelectorAll("button")).find((node) => node.textContent === "Dismiss").click());
+    assert.equal(document.querySelector('[role="status"]'), null);
+    await act(async () => useStore.setState({ operations: attempt(2, "pending") }));
+    assert.match(document.querySelector('[role="status"]').textContent, /Renaming folder… \(attempt 2\)/);
+    await act(async () => useStore.setState({ operations: attempt(2, "failed") }));
+    assert.match(document.querySelector('[role="status"]').textContent, /Couldn't rename folder: Offline \(attempt 2\)/);
+  });
+});
+
 test("inline editor permits one pending commit and explicitly retries failure", async () => {
   await withDom(async ({ dom, render }) => {
     let reject; let calls = 0;

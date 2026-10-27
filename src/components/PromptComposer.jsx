@@ -1866,18 +1866,14 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
 
 
 /** What an input-driven video model (OmniHuman 2.0) still needs before it can
- *  generate, as a hint, or null when its image and audio are attached. The
- *  server probes the audio itself; a name that says it is another format is
- *  refused here so the artist is not left waiting for that answer. */
+ *  generate, as a hint, or null when an image and an audio file are attached.
+ *  The server probes the audio's real format itself. */
 export function inputDrivenVideoMissing(state) {
   if (state.mode !== "video" || !capability(state.model, "inputDrivenVideo")) return null;
   const hasImage = (state.referenceImages?.length || 0) > 0;
-  const audios = state.audioNotes || [];
-  const extension = (note) => /\.([a-z0-9]+)$/i.exec(String(note?.name || note?.ref || "").split(/[?#]/)[0])?.[1]?.toLowerCase();
-  const hasAudio = audios.some((note) => !extension(note) || ["wav", "mp3"].includes(extension(note)));
+  const hasAudio = (state.audioNotes?.length || 0) > 0;
   if (hasImage && hasAudio) return null;
-  const audioHint = audios.length && !hasAudio ? "a WAV or MP3 audio file (this audio's format is not accepted)" : "one WAV or MP3 audio file";
-  const missing = !hasImage && !hasAudio ? `one image and ${audioHint}` : !hasImage ? "one image" : audioHint;
+  const missing = !hasImage && !hasAudio ? "one image and one WAV or MP3 audio file" : !hasImage ? "one image" : "one WAV or MP3 audio file";
   return `Attach ${missing} to generate with ${state.model}.`;
 }
 

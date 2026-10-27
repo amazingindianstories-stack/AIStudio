@@ -30,6 +30,8 @@ test('cancelled queued rename never reaches the server', async () => {
   const logical=Object.keys(state.operations).find(key=>JSON.parse(key)[2][1]==='second');
   assert.equal(state.cancelFolderOperation(logical),true);
   const rejected=assert.rejects(second,/cancelled/);
+  const cancelledAt=state.operations[logical].completedAt;
   release();await Promise.all([first,rejected]);
   assert.equal(calls,1);assert.equal(state.operations[logical].status,'cancelled');
+  assert.equal(state.operations[logical].completedAt>=cancelledAt,true,'the settled row keeps a completion time once its queue reaches it');
 });

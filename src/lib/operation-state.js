@@ -76,7 +76,7 @@ export function installOperationTracking(store) {
         } catch (error) {
           if (error.code === 'VERSION_CONFLICT' || [400,401,403,404,409,422].includes(error.status)) retries.delete(logical);
           if (!error.cancelled) await store.getState().loadLibraryTree().catch(() => {});
-          patch(logical,{...state,status:error.cancelled ? 'cancelled' : error.code === 'VERSION_CONFLICT' ? 'conflicted' : 'failed',error:error.cancelled ? null : error.message});
+          patch(logical,{...state,status:error.cancelled ? 'cancelled' : error.code === 'VERSION_CONFLICT' ? 'conflicted' : 'failed',error:error.cancelled ? null : error.message,completedAt:Date.now()});
           throw error;
         } finally { inflight.delete(logical); }
       });

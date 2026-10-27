@@ -355,6 +355,27 @@ for (const width of [1440, 1920]) {
   });
 }
 
+test("a compact breadcrumb returns to the full trail when the panel widens again", async ({ page, library }) => {
+  const reel = { ...await library.createFolder("Reel", library.project.id), name: "R02" };
+  const scene = { ...await library.createFolder("Scene", library.project.id, reel.id), name: "SC018" };
+  for (const folder of [reel, scene]) await library.db`UPDATE folders SET name = ${folder.name} WHERE id = ${folder.id}`;
+  await page.setViewportSize({ width: 1024, height: 1000 });
+  await page.reload();
+  const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+  await expect(toggle).toBeVisible();
+  if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+  await library.navigate("project");
+  await library.panel.getByRole("button", { name: `Expand ${reel.name}`, exact: true }).click();
+  await openTreeFolder(library.panel, scene.name);
+  const nav = library.panel.getByRole("navigation", { name: "Breadcrumb" });
+  await expect(nav.locator('[aria-current="page"]')).toContainText(scene.name);
+  await expect(nav.getByRole("button", { name: "Show 1 hidden folder", exact: true })).toBeVisible();
+  await expect(nav).not.toContainText(library.project.name);
+  await page.setViewportSize({ width: 1920, height: 1000 });
+  await expect(nav).toContainText(`${library.project.name}${reel.name}${scene.name}`);
+  await expect(nav.getByRole("button", { name: "Show 1 hidden folder", exact: true })).toHaveCount(0);
+});
+
 test("creation Escape cancels and a rejected request retains the draft until explicit retry", async ({ page, library }) => {
   await library.navigate("global");
   await library.panel.getByRole("button", { name: "+ New folder" }).click();

@@ -459,7 +459,7 @@ export function FolderOperationRail() {
   const [retryError, setRetryError] = useState("");
   const [dismissed, setDismissed] = useState(() => new Set());
   const [now, setNow] = useState(() => Date.now());
-  const entries = Object.entries(operations || {}).filter(([, op]) => !dismissed.has(op.key)).reverse();
+  const entries = Object.entries(operations || {}).filter(([, op]) => !dismissed.has(`${op.key}:${op.attempt}`)).reverse();
   const settledAt = (op) => op.completedAt ?? op.startedAt ?? 0;
   const isSettled = (op) => ["confirmed", "cancelled"].includes(op.status);
   const fresh = entries.filter(([, op]) => !isSettled(op) || now - settledAt(op) < SETTLED_OPERATION_MS);
@@ -486,7 +486,7 @@ export function FolderOperationRail() {
       {["queued", "pending"].includes(op.status) && <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />}
       <span className="min-w-0 flex-1 break-words">{folderOperationLabel(op)}{op.attempt > 1 ? ` (attempt ${op.attempt})` : ""}</span>
       {op.status === "queued" && <button type="button" className="underline" onClick={() => cancelOperation(logical)}>Cancel</button>}
-      {["failed", "conflicted"].includes(op.status) && <span className="flex shrink-0 gap-1"><button type="button" className="underline" onClick={() => void retry(logical)}>Retry</button><button type="button" className="underline" onClick={() => loadLibraryTree().catch(() => {})}>Refresh folders</button><button type="button" className="underline" aria-label={`Dismiss: ${folderOperationLabel(op)}`} onClick={() => setDismissed((keys) => new Set(keys).add(op.key))}>Dismiss</button></span>}
+      {["failed", "conflicted"].includes(op.status) && <span className="flex shrink-0 gap-1"><button type="button" className="underline" onClick={() => void retry(logical)}>Retry</button><button type="button" className="underline" onClick={() => loadLibraryTree().catch(() => {})}>Refresh folders</button><button type="button" className="underline" aria-label={`Dismiss: ${folderOperationLabel(op)}`} onClick={() => setDismissed((keys) => new Set(keys).add(`${op.key}:${op.attempt}`))}>Dismiss</button></span>}
     </div>)}
     {hidden > 0 && <p className="py-0.5 text-white/40">+{hidden} more</p>}
     {retryError && <p role="alert" className="text-red-400">{retryError}</p>}

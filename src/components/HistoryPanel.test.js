@@ -86,7 +86,7 @@ test('folder navigation toggle exposes its state and Escape returns focus withou
   });
 });
 
-test('a folder holding only subfolders shows them open with copy that points to them, not "Nothing generated yet"', async () => {
+test('a folder holding only subfolders shows them open with neutral copy that points to them, not "Nothing generated yet"', async () => {
   await harness(async ({ render }) => {
     globalThis.fetch = async () => reply(200, { breadcrumbs: [], items: [], assets: [] });
     localStorage.setItem('veevee_folders_expanded:one', 'false');
@@ -94,8 +94,9 @@ test('a folder holding only subfolders shows them open with copy that points to 
     useStore.setState({ rightTab: 'project', activeFolderId: 'r02', libraryTree: tree, items: [] });
     await render();
     const text = document.body.textContent;
-    assert.match(text, /No generations directly in this folder/);
-    assert.match(text, /Its work is in the subfolder above\./);
+    assert.match(text, /This folder has no generations of its own/);
+    assert.match(text, /Open a subfolder above\./);
+    assert.doesNotMatch(text, /work is in/, 'the copy never claims the subfolders hold work');
     assert.doesNotMatch(text, /Nothing generated yet/);
     const toggle = document.querySelector('button[aria-label="Collapse folders"]');
     assert.equal(toggle?.getAttribute('aria-expanded'), 'true', 'the remembered collapsed preference does not hide the only content');

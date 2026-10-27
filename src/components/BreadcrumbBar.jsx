@@ -125,7 +125,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   };
 
   return (
-    <div className="flex min-w-0 items-center text-xs">
+    <div className="flex min-w-0 flex-1 items-center text-xs">
       {/* Breadcrumb list */}
       <nav ref={navRef} aria-label="Breadcrumb" title={fullPath}
         className="flex flex-1 min-w-0 items-center gap-1 overflow-hidden py-0.5">

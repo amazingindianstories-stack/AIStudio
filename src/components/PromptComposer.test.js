@@ -655,16 +655,19 @@ test("OmniHuman reuses video controls with audio-driven duration and optional pr
     assert.equal(doc.querySelector('button[aria-label="Generate"]').disabled, true);
     assert.match(doc.querySelector('[data-testid="composer-missing-inputs"]').textContent, /^Attach one WAV or MP3 audio file/);
 
-    Object.assign(initial, { audioNotes: [{ name: "voice.m4a", ref: "/api/media/references/voice.m4a" }] });
+    Object.assign(initial, { referenceImages: [], referenceKinds: [], audioNotes: [{ name: "voice.mp3", ref: "/api/media/references/voice.mp3" }] });
     doc = render();
     assert.equal(doc.querySelector('button[aria-label="Generate"]').disabled, true);
-    assert.match(doc.querySelector('[data-testid="composer-missing-inputs"]').textContent, /format is not accepted/);
+    assert.equal(doc.querySelector('[data-testid="composer-missing-inputs"]').textContent, "Attach one image to generate with OmniHuman 2.0.");
 
-    Object.assign(initial, { audioNotes: [{ name: "voice.mp3", ref: "/api/media/references/voice.mp3" }], referenceAudios: ["/api/media/references/voice.mp3"] });
-    doc = render();
-    generate = doc.querySelector('button[aria-label="Generate"]');
-    assert.equal(generate.disabled, false, "an optional prompt must not disable a valid input-driven job");
-    assert.equal(doc.querySelector('[data-testid="composer-missing-inputs"]'), null);
+    for (const name of ["voice.mp3", "voice.mpeg", "voice.wave", "voice"]) {
+      Object.assign(initial, { referenceImages: ["/api/media/references/face.png"], referenceKinds: ["image"],
+        audioNotes: [{ name, ref: `/api/media/references/${name}` }], referenceAudios: [`/api/media/references/${name}`] });
+      doc = render();
+      generate = doc.querySelector('button[aria-label="Generate"]');
+      assert.equal(generate.disabled, false, `${name}: the server judges the audio format; an optional prompt must not disable the job`);
+      assert.equal(doc.querySelector('[data-testid="composer-missing-inputs"]'), null);
+    }
 
     Object.assign(initial, { model: "Seedance 2.5", referenceImages: [], audioNotes: [], referenceAudios: [], prompt: "" });
     doc = render();
