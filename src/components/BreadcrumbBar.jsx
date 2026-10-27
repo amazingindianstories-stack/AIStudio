@@ -35,6 +35,11 @@ function minimumTrailWidth(depth) {
   return 50 + 4 + 40 + 4 + 38 + 4 + 74;
 }
 
+/** The narrowest the compact trail can be with the workspace icon (22) beside
+ *  the folded menu and the current folder. Below it the current folder keeps
+ *  its few characters and the workspace moves into the menu. */
+const COMPACT_TRAIL_WIDTH = 22 + 4 + 40 + 4 + 74;
+
 export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   const maintenance = useMaintenance((s) => s.enabled);
   const isAdmin = useStore((s) => s.currentUser?.role === "admin");
@@ -96,11 +101,13 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   }, []);
 
   const narrow = navWidth > 0 && navWidth < minimumTrailWidth(ancestry.length);
+  const rootFolded = narrow && ancestry.length > 1 && navWidth < COMPACT_TRAIL_WIDTH;
   const currentFolder = ancestry.length > 0 ? ancestry[ancestry.length - 1] : null;
   const rootName = currentProject ? currentProject.name : "Global Library";
   // The trail keeps its two ends: the workspace, the parent and the current
   // folder stay on screen, and any ancestors between them fold into one menu.
-  // Too narrow for that, every ancestor folds and the workspace keeps its icon.
+  // Too narrow for that, every ancestor folds and the workspace keeps its icon;
+  // narrower still, the workspace folds too, ahead of the current folder.
   const collapsed = narrow ? ancestry.slice(0, -1) : ancestry.length > 2 ? ancestry.slice(0, -2) : [];
   const shown = ancestry.slice(collapsed.length);
   const pathTo = (index) => [rootName, ...ancestry.slice(0, index + 1).map((crumb) => crumb.name)].join(" / ");
@@ -134,7 +141,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
             at its minimum width each keeps its icon and 1.5rem of name (a parent
             beside folded ancestors keeps only its icon). The
             trail starts at its left edge and never scrolls it away. */}
-        <button
+        {!rootFolded && <button
           type="button"
           onClick={() => setActiveFolder(null)}
           title={rootName}
@@ -143,11 +150,11 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
         >
           <Layers className={cn("h-3.5 w-3.5 shrink-0", currentProject ? "text-brand/80" : "text-white/50")} />
           {!narrow && <span className="font-medium truncate max-w-[140px]">{rootName}</span>}
-        </button>
+        </button>}
 
         {collapsed.length > 0 && (
           <div className="flex shrink-0 items-center gap-1">
-            <ChevronRight className="h-3 w-3 shrink-0 text-white/30" />
+            {!rootFolded && <ChevronRight className="h-3 w-3 shrink-0 text-white/30" />}
             <Dropdown
               align="left"
               label={`Show ${collapsed.length} hidden ${collapsed.length === 1 ? "folder" : "folders"}`}
@@ -159,9 +166,17 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
             >
               {(close) => (
                 <div className="py-1 min-w-[160px] max-w-[280px]">
+                  {rootFolded && (
+                    <MenuItem onClick={() => { close(); setActiveFolder(null); }}>
+                      <span title={rootName} className="flex min-w-0 items-center gap-2">
+                        <Layers className={cn("h-3.5 w-3.5 shrink-0", currentProject ? "text-brand/80" : "text-white/50")} />
+                        <span className="truncate">{rootName}</span>
+                      </span>
+                    </MenuItem>
+                  )}
                   {collapsed.map((crumb, idx) => (
                     <MenuItem key={crumb.id} onClick={() => { close(); setActiveFolder(crumb.id); }}>
-                      <span title={pathTo(idx)} className="flex min-w-0 items-center gap-2" style={{ paddingLeft: `${idx * 0.5}rem` }}>
+                      <span title={pathTo(idx)} className="flex min-w-0 items-center gap-2" style={{ paddingLeft: `${(idx + (rootFolded ? 1 : 0)) * 0.5}rem` }}>
                         <FolderClosed className={cn("h-3.5 w-3.5 shrink-0", getFolderColorClass(crumb.color))} />
                         <span className="truncate">{crumb.name}</span>
                       </span>
@@ -189,7 +204,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
           const idx = collapsed.length + shownIdx;
           const isLast = idx === ancestry.length - 1;
           return (
-            <div key={crumb.id} className={cn("flex items-center gap-1", !isLast ? (collapsed.length ? "min-w-[2.375rem] shrink-[100000000]" : "min-w-[4.125rem] shrink-[100000000]") : isRenaming ? "shrink-0" : narrow ? "min-w-[3.25rem]" : "min-w-[4.625rem]")}>
+            <div key={crumb.id} className={cn("flex items-center gap-1", !isLast ? (collapsed.length ? "min-w-[2.375rem] shrink-[100000000]" : "min-w-[4.125rem] shrink-[100000000]") : isRenaming ? "shrink-0" : "min-w-[4.625rem]")}>
               <ChevronRight className="h-3 w-3 shrink-0 text-white/30" />
               {isLast ? (
                 isRenaming ? (

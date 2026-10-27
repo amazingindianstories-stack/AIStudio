@@ -269,6 +269,16 @@ body {
 .history-panel[data-drawer="true"] .history-search-row { flex-wrap: wrap; align-content: center; row-gap: .5rem; }
 .history-panel[data-drawer="true"] .history-search { flex-basis: 100%; max-width: none; }
 .history-panel[data-drawer="true"] .history-view-controls { width: 100%; }
+/* Beside the open chat on a small desktop the library column is too narrow
+   for search beside Filters and View (at 1024px search had 12px under the
+   Filters button), so it takes the drawer's two rows. */
+.history-main { container: history-main / inline-size; }
+@container history-main (max-width: 20rem) {
+  :is(.history-search-row, .selection-toolbar) { height: 4.75rem; }
+  .history-search-row { flex-wrap: wrap; align-content: center; row-gap: .5rem; }
+  .history-search { flex-basis: 100%; max-width: none; }
+  .history-view-controls { width: 100%; }
+}
 
 /* The selection toolbar swaps in for the search row at its height, so ticking a card
    never moves the grid. It stays one row at every library width: labels give

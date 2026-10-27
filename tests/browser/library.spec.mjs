@@ -280,24 +280,27 @@ for (const width of [1024, 1440]) {
     const nav = library.panel.getByRole("navigation", { name: "Breadcrumb" });
     await expect(nav).toContainText(parent.name);
     // The workspace, the parent and the current folder stay; the thirteen ancestors between fold into one menu.
-    // At 1024px the trail is too narrow for the parent too, so all fourteen fold and the workspace keeps its icon.
+    // At 1024px the trail is too narrow for the parent too, so all fourteen fold, and the workspace
+    // folds into the same menu so the current folder keeps its room.
     const folded = width === 1024 ? 14 : 13;
     const hidden = nav.getByRole("button", { name: `Show ${folded} hidden folders`, exact: true });
     await expect(hidden).toBeVisible();
-    expect(await nav.locator("button").count()).toBe(width === 1024 ? 2 : 3);
+    expect(await nav.locator("button").count()).toBe(width === 1024 ? 1 : 3);
     const geometry = await nav.evaluate((el) => {
       const bounds = el.getBoundingClientRect(); const first = el.firstElementChild.getBoundingClientRect(); const last = el.lastElementChild.getBoundingClientRect();
       return { overflow: el.scrollWidth - el.clientWidth, firstInside: first.left >= bounds.left - 0.5, lastInside: last.right <= bounds.right + 0.5 };
     });
     expect(geometry, JSON.stringify(geometry)).toEqual({ overflow: 0, firstInside: true, lastInside: true });
-    await expect(nav.getByRole("button", { name: "Global Library" })).toBeVisible();
+    if (width !== 1024) await expect(nav.getByRole("button", { name: "Global Library" })).toBeVisible();
     expect(await nav.getAttribute("title")).toBe(["Global Library", library.globalRoot.name, ...Array.from({ length: 14 }, (_, i) => `${library.prefix} Level ${i} long folder name`)].join(" / "));
     await expect(library.panel.getByRole("button", { name: "Current folder actions" })).toBeVisible();
     await hidden.click();
     const items = page.getByRole("menuitem");
-    await expect(items).toHaveCount(folded);
-    await expect(items.first()).toContainText(library.globalRoot.name);
-    await items.nth(3).click();
+    const workspace = width === 1024 ? 1 : 0;
+    await expect(items).toHaveCount(folded + workspace);
+    if (workspace) await expect(items.first()).toHaveText("Global Library");
+    await expect(items.nth(workspace)).toContainText(library.globalRoot.name);
+    await items.nth(workspace + 3).click();
     await expect(nav.locator('[aria-current="page"]')).toContainText(`${library.prefix} Level 2 long folder name`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   });
@@ -375,6 +378,74 @@ test("a compact breadcrumb returns to the full trail when the panel widens again
   await expect(nav).toContainText(`${library.project.name}${reel.name}${scene.name}`);
   await expect(nav.getByRole("button", { name: "Show 1 hidden folder", exact: true })).toHaveCount(0);
 });
+
+for (const width of [1024, 1440]) {
+  test(`beside the video chat at ${width}px the current folder stays readable and search clears Filters and View`, async ({ page, library }) => {
+    const reel = await library.createFolder("Reel");
+    const scene = await library.createFolder("Scene", null, reel.id);
+    try {
+      await library.db`UPDATE folders SET name = 'R02' WHERE id = ${reel.id}`;
+      await library.db`UPDATE folders SET name = 'SC018' WHERE id = ${scene.id}`;
+      await page.setViewportSize({ width, height: 900 });
+      await page.reload();
+      await page.getByRole("navigation", { name: "Sections" }).getByRole("button", { name: "Video", exact: true }).click();
+      const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
+      await expect(toggle).toBeVisible();
+      if (await toggle.getAttribute("aria-expanded") !== "true") await toggle.click();
+      await library.navigate("global");
+      await library.panel.getByRole("button", { name: "Expand R02", exact: true }).click();
+      await openTreeFolder(library.panel, "SC018");
+      const nav = library.panel.getByRole("navigation", { name: "Breadcrumb" });
+      const current = nav.locator('[aria-current="page"]');
+      await expect(current).toContainText("SC018");
+      await expect(nav).toHaveAttribute("title", "Global Library / R02 / SC018");
+      // The trail settles once the folder's actions button narrows it; the current folder then
+      // shows whole, or at least a few characters ending in an ellipsis.
+      await expect(async () => {
+        const crumb = await current.evaluate((el) => {
+          const text = el.querySelector(".truncate"); const box = el.getBoundingClientRect(); const bounds = el.closest("nav").getBoundingClientRect();
+          return { shown: text.clientWidth, full: text.scrollWidth, ellipsis: getComputedStyle(text).textOverflow === "ellipsis",
+            inside: box.left >= bounds.left - 0.5 && box.right <= bounds.right + 0.5, overflow: el.closest("nav").scrollWidth - el.closest("nav").clientWidth };
+        });
+        expect(crumb.inside && crumb.overflow === 0, JSON.stringify(crumb)).toBe(true);
+        expect(crumb.shown, JSON.stringify(crumb)).toBeGreaterThanOrEqual(Math.min(crumb.full, 24));
+        if (crumb.full > crumb.shown) expect(crumb.ellipsis).toBe(true);
+        if (width === 1440) expect(crumb.shown).toBe(crumb.full);
+      }).toPass();
+      if (width === 1440) {
+        await expect(nav).toContainText("Global LibraryR02SC018");
+      } else {
+        // Too narrow for the workspace icon as well: it moves into the folded menu, first.
+        await expect(nav.getByRole("button", { name: "Global Library" })).toHaveCount(0);
+        await nav.getByRole("button", { name: "Show 1 hidden folder", exact: true }).click();
+        const items = page.getByRole("menuitem");
+        await expect(items).toHaveText(["Global Library", "R02"]);
+        await page.keyboard.press("Escape");
+      }
+
+      const boxes = await library.panel.evaluate((panel) => Object.fromEntries(Object.entries({
+        row: ".history-search-row", search: 'input[aria-label="Search prompts"]', filters: ".library-filter-trigger", view: ".history-view-trigger",
+      }).map(([name, selector]) => { const box = panel.querySelector(selector).getBoundingClientRect(); return [name, { left: box.left, right: box.right, top: box.top, bottom: box.bottom }]; })));
+      const overlaps = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+      // Search keeps room for its placeholder and never sits under Filters or View; all stay inside the row.
+      expect(boxes.search.right - boxes.search.left, JSON.stringify(boxes)).toBeGreaterThanOrEqual(140);
+      expect(overlaps(boxes.search, boxes.filters) || overlaps(boxes.search, boxes.view), JSON.stringify(boxes)).toBe(false);
+      for (const name of ["search", "filters", "view"]) {
+        const box = boxes[name];
+        expect(box.left >= boxes.row.left && box.right <= boxes.row.right && box.top >= boxes.row.top && box.bottom <= boxes.row.bottom, `${name} ${JSON.stringify(boxes)}`).toBe(true);
+      }
+
+      if (width === 1024) {
+        await nav.getByRole("button", { name: "Show 1 hidden folder", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Global Library" }).click();
+        await expect(nav.locator('[aria-current="page"]')).toHaveCount(0);
+        await expect(nav.getByRole("button", { name: "Global Library" })).toBeVisible();
+      }
+    } finally {
+      await library.db`DELETE FROM folders WHERE id IN (${scene.id}, ${reel.id})`;
+    }
+  });
+}
 
 test("creation Escape cancels and a rejected request retains the draft until explicit retry", async ({ page, library }) => {
   await library.navigate("global");
