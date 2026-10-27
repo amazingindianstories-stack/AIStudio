@@ -96,7 +96,15 @@ test('Goal2 folder faults: lost response retry reuses idempotency key and persis
   expect((await dbFolder(sql, folder.id)).name).toBe(renamed);
   const failed = (await operation(page, folder.id)).find(op => op.status === 'failed');
   expect(failed).toBeTruthy();
-  await page.locator('[role="status"]').filter({ hasText: "Couldn't rename folder" }).getByRole('button', { name: 'Retry', exact: true }).last().click();
+  // The failed row stays readable in the narrow sidebar: its actions wrap under a full-width
+  // label instead of squeezing it to one character per line, and the folder tree stays in view.
+  const rail = page.locator('[role="status"]').filter({ hasText: "Couldn't rename folder" }).last();
+  const label = rail.locator('span').filter({ hasText: "Couldn't rename folder" }).last();
+  const [railBox, labelBox, lineHeight] = await Promise.all([rail.boundingBox(), label.boundingBox(), label.evaluate(node => parseFloat(getComputedStyle(node).lineHeight))]);
+  expect(labelBox.width).toBeGreaterThan(railBox.width * 0.8);
+  expect(Math.round(labelBox.height / lineHeight)).toBeLessThanOrEqual(2);
+  await expect(page.locator('[role="treeitem"]').filter({ hasText: renamed }).first()).toBeInViewport();
+  await rail.getByRole('button', { name: 'Retry', exact: true }).last().click();
   await expect.poll(async () => (await operation(page, folder.id)).find(op => op.logical === failed.logical)?.attempt).toBe(2);
   await expect.poll(async () => (await operation(page, folder.id)).find(op => op.logical === failed.logical)?.status).toBe("failed");
   await page.locator('[role="status"]').filter({ hasText: "Couldn't rename folder" }).getByRole("button", { name: "Retry", exact: true }).last().click();

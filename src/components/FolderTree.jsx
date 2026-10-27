@@ -482,11 +482,11 @@ export function FolderOperationRail() {
   };
   if (!visible.length && !retryError) return null;
   return <div role="status" aria-live="polite" className="shrink-0 border-t border-line px-2 py-1 text-[10px] text-white/60">
-    {visible.map(([logical, op]) => <div key={op.key} className="flex items-start gap-1 py-0.5">
+    {visible.map(([logical, op]) => <div key={op.key} className="flex flex-wrap items-start gap-x-1 py-0.5">
       {["queued", "pending"].includes(op.status) && <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />}
       <span className="min-w-0 flex-1 break-words">{folderOperationLabel(op)}{op.attempt > 1 ? ` (attempt ${op.attempt})` : ""}</span>
       {op.status === "queued" && <button type="button" className="underline" onClick={() => cancelOperation(logical)}>Cancel</button>}
-      {["failed", "conflicted"].includes(op.status) && <span className="flex shrink-0 gap-1"><button type="button" className="underline" onClick={() => void retry(logical)}>Retry</button><button type="button" className="underline" onClick={() => loadLibraryTree().catch(() => {})}>Refresh folders</button><button type="button" className="underline" aria-label={`Dismiss: ${folderOperationLabel(op)}`} onClick={() => setDismissed((keys) => new Set(keys).add(`${op.key}:${op.attempt}`))}>Dismiss</button></span>}
+      {["failed", "conflicted"].includes(op.status) && <span className="flex basis-full flex-wrap gap-x-2"><button type="button" className="underline" onClick={() => void retry(logical)}>Retry</button><button type="button" className="underline" onClick={() => loadLibraryTree().catch(() => {})}>Refresh folders</button><button type="button" className="underline" aria-label={`Dismiss: ${folderOperationLabel(op)}`} onClick={() => setDismissed((keys) => new Set(keys).add(`${op.key}:${op.attempt}`))}>Dismiss</button></span>}
     </div>)}
     {hidden > 0 && <p className="py-0.5 text-white/40">+{hidden} more</p>}
     {retryError && <p role="alert" className="text-red-400">{retryError}</p>}
