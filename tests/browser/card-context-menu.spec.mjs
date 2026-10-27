@@ -351,8 +351,8 @@ for (const role of ['user', 'admin']) {
         await page.keyboard.press('Escape');
         await expect(menu(page)).toHaveCount(0);
       }
-      // Ticking a card swaps the search row for the selection toolbar in place:
-      // one 44px row at every library width, so the grid never moves.
+      // Ticking a card swaps the search row for the selection toolbar in place,
+      // at the search row's height, so the grid never moves; its actions stay one row.
       const fits = (element) => [element.offsetHeight, element.scrollWidth <= element.clientWidth];
       const before = await card.boundingBox();
       await card.getByRole('checkbox', { name: 'Select' }).click();
@@ -363,9 +363,10 @@ for (const role of ['user', 'admin']) {
       await expect(toolbar.getByRole('button', { name: 'Move', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
       await expect(toolbar.getByRole('button', { name: 'More actions', exact: true })).toHaveCount(role === 'admin' ? 1 : 0);
       // The narrowest desktop library; reduced motion skips the panel's width transition.
+      // Beside the chat its column gives search a second row, so the toolbar matches 76px.
       await page.emulateMedia({ reducedMotion: 'reduce' });
       await page.setViewportSize({ width: 1024, height: 1000 });
-      expect(await toolbar.evaluate(fits)).toEqual([44, true]);
+      expect(await toolbar.evaluate(fits)).toEqual([76, true]);
       await page.setViewportSize({ width: 1440, height: 1000 });
       await card.click({ button: 'right' });
       await menu(page).getByRole('menuitem', { name: 'Open details' }).click();

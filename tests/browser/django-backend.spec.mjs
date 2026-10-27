@@ -376,6 +376,10 @@ test('queued image and video cards explain a worker slot wait after reload', asy
         'Worker slot waiting fixture','1:1',${USER_ID},${now + index},${now + index},
         'WORKER_SLOT_WAITING','Waiting for a free worker slot',${now + 3600000})`;
     }
+    // The reload restores the Global Library, so its grid is already painted when
+    // the panel opens. Reduced motion opens it at full width: while the panel widens
+    // the masonry re-packs, and a card fading out of its old column is a second copy.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await ready(page);
     const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
     if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
