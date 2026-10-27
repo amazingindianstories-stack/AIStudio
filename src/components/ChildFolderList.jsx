@@ -33,11 +33,41 @@ import { askConfirm } from "@/lib/ask-text";
 
 const FOLDERS_EXPANDED_KEY = "veevee_folders_expanded";
 
+/** Immediate child folders of a folder, or the root folders of a project or the Global Library. */
+export function childFoldersOf(libraryTree, parentId, projectId) {
+  if (!libraryTree) return [];
+  function findNode(nodes, id) {
+    for (const n of nodes) {
+      if (n.id === id) return n;
+      if (n.children?.length) {
+        const found = findNode(n.children, id);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+  if (parentId) {
+    const allRoots = [
+      ...(libraryTree.globalFolders ?? []),
+      ...(libraryTree.projects?.flatMap((p) => p.folders ?? []) ?? []),
+    ];
+    return findNode(allRoots, parentId)?.children ?? [];
+  }
+  if (projectId) {
+    const proj = libraryTree.projects?.find((p) => p.id === projectId);
+    return (proj?.folders ?? []).filter((f) => !f.parentId);
+  }
+  return (libraryTree.globalFolders ?? []).filter((f) => !f.parentId);
+}
+
 export function ChildFolderList({
   parentId = null,
   projectId = null,
   onOpenMoveModal,
   onOpenNewFolderModal: _onOpenNewFolderModal,
+  // When the folder holds no generations of its own, its subfolders are the
+  // content: show them regardless of the remembered collapsed preference.
+  autoExpand = false,
 }) {
   const isAdmin = useStore((s) => s.currentUser?.role === "admin");
   const operations = useStore((s) => s.operations);
@@ -54,6 +84,8 @@ export function ChildFolderList({
 
   const [expanded, setExpanded] = useState(false);
   const [hidden, setHidden] = useState(false);
+  const [autoDismissed, setAutoDismissed] = useState(false);
+  useEffect(() => setAutoDismissed(false), [parentId, projectId]);
   const [dragOverFolderId, setDragOverFolderId] = useState(null);
   const [dragOverFolderValid, setDragOverFolderValid] = useState(true);
   const dragCounterMap = useRef(new Map());
@@ -70,19 +102,23 @@ export function ChildFolderList({
     }
   }, [preferenceKey]);
 
+  const setHiddenPreference = (next) => {
+    setHidden(next);
+    try { localStorage.setItem(`${preferenceKey}:hidden`, String(next)); } catch { /* ignore */ }
+  };
+  const setExpandedPreference = (next) => {
+    setExpanded(next);
+    try { localStorage.setItem(preferenceKey, String(next)); } catch { /* ignore */ }
+  };
+  // Collapsing or hiding subfolders that were shown automatically also records
+  // that preference, so the choice holds in every other folder.
   const toggleHidden = () => {
-    setHidden((previous) => { const next = !previous; try { localStorage.setItem(`${preferenceKey}:hidden`, String(next)); } catch {} return next; });
+    if (showAll) setAutoDismissed(true);
+    setHiddenPreference(showAll ? true : !hidden);
   };
   const toggleExpanded = () => {
-    setExpanded((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(preferenceKey, String(next));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
+    if (showAll) setAutoDismissed(true);
+    setExpandedPreference(showAll ? false : !expanded);
   };
 
   // All folders across global + projects for ancestor cycle checks
@@ -93,37 +129,9 @@ export function ChildFolderList({
     ];
   }, [libraryTree]);
 
-  // Find immediate child folders from libraryTree
-  const childFolders = useMemo(() => {
-    if (!libraryTree) return [];
-
-    function findNode(nodes, id) {
-      for (const n of nodes) {
-        if (n.id === id) return n;
-        if (n.children?.length) {
-          const found = findNode(n.children, id);
-          if (found) return found;
-        }
-      }
-      return null;
-    }
-
-    if (parentId) {
-      const allRoots = [
-        ...(libraryTree.globalFolders ?? []),
-        ...(libraryTree.projects?.flatMap((p) => p.folders ?? []) ?? []),
-      ];
-      const node = findNode(allRoots, parentId);
-      return node?.children ?? [];
-    }
-
-    if (projectId) {
-      const proj = libraryTree.projects?.find((p) => p.id === projectId);
-      return (proj?.folders ?? []).filter((f) => !f.parentId);
-    }
-
-    return (libraryTree.globalFolders ?? []).filter((f) => !f.parentId);
-  }, [libraryTree, parentId, projectId]);
+  const childFolders = useMemo(() => childFoldersOf(libraryTree, parentId, projectId), [libraryTree, parentId, projectId]);
+  const showAll = autoExpand && !autoDismissed;
+  const showFolders = showAll || (!hidden && expanded);
 
   // If 0 child folders, do not render at all
   if (!childFolders || childFolders.length === 0) {
@@ -207,16 +215,16 @@ export function ChildFolderList({
   return (
     <div className="border-b border-line bg-ink-900/60 select-none">
       <div className="flex items-center">
-      {hidden ? <button type="button" aria-label="Show folders" onClick={toggleHidden} className="h-8 px-4 text-xs text-white/60 hover:text-white">Show folders ({childFolders.length})</button> : <>
+      {hidden && !showAll ? <button type="button" aria-label="Show folders" onClick={toggleHidden} className="h-8 px-4 text-xs text-white/60 hover:text-white">Show folders ({childFolders.length})</button> : <>
       {/* Collapsible Section Header (approx 32-36px high) */}
       <button
         type="button"
         onClick={toggleExpanded}
-        aria-label={expanded ? "Collapse folders" : "Expand folders"}
-        aria-expanded={expanded}
+        aria-label={showFolders ? "Collapse folders" : "Expand folders"}
+        aria-expanded={showFolders}
         className="flex h-8 flex-1 items-center gap-1.5 px-4 text-xs font-medium text-white/60 transition hover:bg-white/5 hover:text-white"
       >
-        {expanded ? (
+        {showFolders ? (
           <ChevronDown className="h-3.5 w-3.5 text-white/50" />
         ) : (
           <ChevronRight className="h-3.5 w-3.5 text-white/50" />
@@ -231,7 +239,7 @@ export function ChildFolderList({
       </div>
 
       {/* Expanded Compact Folder Tiles */}
-      {!hidden && expanded && (
+      {showFolders && (
         <div
           data-testid="child-folder-list"
           style={{ gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 160px), 1fr))" }}

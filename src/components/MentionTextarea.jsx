@@ -83,6 +83,7 @@ export const MentionTextarea = forwardRef(
       assets = [],
       // Portrait Gallery items, so asset:// portrait references show their thumbnails as in the strip.
       portraits = [],
+      // A string, or alternatives longest first: the field shows the longest that fits its visible lines.
       placeholder,
       className,
       maxLength,
@@ -206,6 +207,43 @@ export const MentionTextarea = forwardRef(
     useEffect(() => {
       autosize();
     }, [value, autosize]);
+
+    const placeholders = Array.isArray(placeholder) ? placeholder : [placeholder];
+    const placeholdersKey = placeholders.join("\n");
+    const placeholderProbeRef = useRef(null);
+    const [placeholderIndex, setPlaceholderIndex] = useState(0);
+    // A placeholder that wraps past the visible lines (one when collapsed, two open) would be cut
+    // off, so lay each out in the field's width and keep the longest that fits.
+    useLayoutEffect(() => {
+      const ta = taRef.current;
+      const probe = placeholderProbeRef.current;
+      const options = placeholdersKey.split("\n");
+      if (!ta || !probe || options.length < 2) {
+        setPlaceholderIndex(0);
+        return undefined;
+      }
+      const fit = () => {
+        const lineHeight = parseFloat(probe.ownerDocument.defaultView.getComputedStyle(probe).lineHeight);
+        if (!ta.clientWidth || !Number.isFinite(lineHeight)) return setPlaceholderIndex(0);
+        probe.style.width = `${ta.clientWidth}px`;
+        const lines = collapsed ? 1 : 2;
+        const index = options.findIndex((text) => {
+          probe.textContent = text;
+          return probe.getBoundingClientRect().height <= lines * lineHeight + 0.5;
+        });
+        probe.textContent = "";
+        setPlaceholderIndex(index === -1 ? options.length - 1 : index);
+      };
+      fit();
+      const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(fit);
+      observer?.observe(ta);
+      let live = true;
+      probe.ownerDocument.fonts?.ready.then(() => live && fit());
+      return () => {
+        live = false;
+        observer?.disconnect();
+      };
+    }, [placeholdersKey, collapsed, className]);
 
     useImperativeHandle(ref, () => ({
       insertTag: (tag) => {
@@ -420,7 +458,7 @@ export const MentionTextarea = forwardRef(
             }, 120);
           }}
           rows={collapsed ? 1 : 3}
-          placeholder={placeholder}
+          placeholder={placeholders[placeholderIndex] ?? placeholders[0]}
           className={cn(
             // Deliberately NOT scroll-thin: a visible scrollbar (any width)
             // narrows this element's text-wrapping width relative to the
@@ -432,6 +470,14 @@ export const MentionTextarea = forwardRef(
           )}
           style={SYNCED_TEXT_STYLE}
         />
+        {placeholders.length > 1 && (
+          <div
+            ref={placeholderProbeRef}
+            aria-hidden
+            className={cn("pointer-events-none invisible absolute left-0 top-0", TYPO, className, "py-0")}
+            style={SYNCED_TEXT_STYLE}
+          />
+        )}
 
         {/* Character counter — only surfaces once it's actually relevant
             (near or over the admin-configured limit), so a normal short

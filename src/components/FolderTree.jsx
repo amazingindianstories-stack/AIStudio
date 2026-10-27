@@ -423,13 +423,54 @@ export function FolderTree({
   );
 }
 
-/** Bounded retained store history; no synthetic percentages or retry payloads. */
+// [in progress, done, failed] wording for each tracked folder operation.
+const OPERATION_LABELS = {
+  createFolder: ["Creating folder", "Created folder", "Couldn't create folder"],
+  renameFolder: ["Renaming folder", "Renamed folder", "Couldn't rename folder"],
+  setFolderColor: ["Changing folder color", "Changed folder color", "Couldn't change folder color"],
+  deleteFolder: ["Deleting folder", "Deleted folder", "Couldn't delete folder"],
+  moveFolder: ["Moving folder", "Moved folder", "Couldn't move folder"],
+  renameFolderGenerations: ["Renaming generations to match folder", "Renamed generations to match folder", "Couldn't rename generations"],
+  moveGenerationsToDestination: ["Moving assets", "Moved assets", "Couldn't move assets"],
+};
+/** How long a finished operation stays in the rail before it clears itself. */
+export const SETTLED_OPERATION_MS = 6000;
+const MAX_VISIBLE_OPERATIONS = 3;
+
+export function folderOperationLabel(op) {
+  const [doing, done, failed] = OPERATION_LABELS[op.operation] ?? ["Updating folders", "Updated folders", "Couldn't update folders"];
+  const moving = op.operation === "moveGenerationsToDestination";
+  switch (op.status) {
+    case "queued": return `${moving ? `Moving ${op.total} assets` : doing} (waiting)`;
+    case "pending": return `${moving ? `Moving ${op.total} assets` : doing}…`;
+    case "confirmed": return moving ? `Moved ${op.committedCount ?? 0} of ${op.total} assets` : done;
+    case "cancelled": return `Cancelled: ${doing.toLowerCase()}`;
+    case "conflicted": return `${failed}: it changed elsewhere${op.error ? ` (${op.error})` : ""}`;
+    default: return `${failed}${op.error ? `: ${op.error}` : ""}`;
+  }
+}
+
+/** Operations still running or needing a decision stay until handled (newest
+ *  first, a few at a time); a finished one shows briefly, then clears itself. */
 export function FolderOperationRail() {
   const operations = useStore((s) => s.operations);
   const loadLibraryTree = useStore((s) => s.loadLibraryTree);
   const cancelOperation = useStore((s) => s.cancelFolderOperation);
-  const recent = Object.entries(operations || {}).slice(-3);
   const [retryError, setRetryError] = useState("");
+  const [dismissed, setDismissed] = useState(() => new Set());
+  const [now, setNow] = useState(() => Date.now());
+  const entries = Object.entries(operations || {}).filter(([, op]) => !dismissed.has(`${op.key}:${op.attempt}`)).reverse();
+  const settledAt = (op) => op.completedAt ?? op.startedAt ?? 0;
+  const isSettled = (op) => ["confirmed", "cancelled"].includes(op.status);
+  const fresh = entries.filter(([, op]) => !isSettled(op) || now - settledAt(op) < SETTLED_OPERATION_MS);
+  const visible = fresh.slice(0, MAX_VISIBLE_OPERATIONS);
+  const hidden = fresh.length - visible.length;
+  const nextExpiry = Math.min(...fresh.filter(([, op]) => isSettled(op)).map(([, op]) => settledAt(op) + SETTLED_OPERATION_MS));
+  useEffect(() => {
+    if (!Number.isFinite(nextExpiry)) return undefined;
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, nextExpiry - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [nextExpiry, operations]);
   const retry = async (logical) => {
     try {
       const [actor, action, args] = JSON.parse(logical);
@@ -439,14 +480,15 @@ export function FolderOperationRail() {
       await state[action](...args);
     } catch (error) { setRetryError(error.message || "Retry failed."); }
   };
-  if (!recent.length) return null;
+  if (!visible.length && !retryError) return null;
   return <div role="status" aria-live="polite" className="shrink-0 border-t border-line px-2 py-1 text-[10px] text-white/60">
-    {recent.map(([logical, op]) => <div key={op.key} className="flex items-start gap-1 py-0.5">
+    {visible.map(([logical, op]) => <div key={op.key} className="flex flex-wrap items-start gap-x-1 py-0.5">
       {["queued", "pending"].includes(op.status) && <Loader2 className="mt-0.5 h-3 w-3 shrink-0 animate-spin motion-reduce:animate-none" />}
-      <span className="min-w-0 flex-1 break-words">{op.operation === "moveGenerationsToDestination" ? (op.status === "confirmed" ? `Moved ${op.committedCount ?? 0} of ${op.total} assets` : `Moving ${op.total} assets`) : op.operation?.replace(/([A-Z])/g, " $1")} · {op.status} {op.attempt > 1 ? `(attempt ${op.attempt})` : ""}{op.error ? `: ${op.error}` : ""}</span>
-      {op.status === "queued" && <button type="button" className="underline" onClick={() => cancelOperation(logical)}>Cancel queued</button>}
-      {["failed", "conflicted"].includes(op.status) && <span className="flex shrink-0 gap-1"><button type="button" className="underline" onClick={() => void retry(logical)}>Retry</button><button type="button" className="underline" onClick={() => loadLibraryTree().catch(() => {})}>Refresh folders</button></span>}
+      <span className="min-w-0 flex-1 break-words">{folderOperationLabel(op)}{op.attempt > 1 ? ` (attempt ${op.attempt})` : ""}</span>
+      {op.status === "queued" && <button type="button" className="underline" onClick={() => cancelOperation(logical)}>Cancel</button>}
+      {["failed", "conflicted"].includes(op.status) && <span className="flex basis-full flex-wrap gap-x-2"><button type="button" className="underline" onClick={() => void retry(logical)}>Retry</button><button type="button" className="underline" onClick={() => loadLibraryTree().catch(() => {})}>Refresh folders</button><button type="button" className="underline" aria-label={`Dismiss: ${folderOperationLabel(op)}`} onClick={() => setDismissed((keys) => new Set(keys).add(`${op.key}:${op.attempt}`))}>Dismiss</button></span>}
     </div>)}
+    {hidden > 0 && <p className="py-0.5 text-white/40">+{hidden} more</p>}
     {retryError && <p role="alert" className="text-red-400">{retryError}</p>}
   </div>;
 }

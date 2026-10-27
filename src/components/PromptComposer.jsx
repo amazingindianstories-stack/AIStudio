@@ -116,6 +116,7 @@ export function PromptComposer() {
   const draftApplies = s.mode === "video" && supportsDraftMode(s.model);
   const bitrateApplies = s.mode === "video" && supportsBitrateMode(s.model);
   const audioProblem = s.mode === "video" ? referenceAudioProblem(s.model, s.audioNotes, s.prompt) : null;
+  const missingInputs = inputDrivenVideoMissing(s);
   // Edit/Extend only exist on Seedance 2.5 (config.supportsVideoEditExtend).
   // Both require BytePlus's ratio:"adaptive" and Edit also forces duration to
   // "match the source" — see the videoTaskMode branches on the Aspect
@@ -135,6 +136,7 @@ export function PromptComposer() {
   const [dragging, setDragging] = useState(false);
   const [pendingUploads, setPendingUploads] = useState(0);
   const uploading = pendingUploads > 0;
+  const canSubmit = !maintenance && !uploading && (Boolean(s.prompt.trim()) || inputDrivenVideo) && !missingInputs && !s.generating && s.prompt.length <= maxPromptLength;
   const [extractingFrames, setExtractingFrames] = useState(0);
   const [pickingClips, setPickingClips] = useState(false);
   const [preferredWidth, setPreferredWidth] = useState(768);
@@ -144,7 +146,7 @@ export function PromptComposer() {
   const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ overlayOpen: pickingClips, dragging });
 
   const handleSubmitPrompt = async () => {
-    if (maintenance || uploading || (!s.prompt.trim() && !inputDrivenVideo) || s.generating || s.prompt.length > maxPromptLength) return;
+    if (!canSubmit) return;
     collapseOnSend();
     const created = await s.generate();
     if (!(Array.isArray(created) ? created.length > 0 : Boolean(created))) reopenAfterFailedSend();
@@ -873,6 +875,7 @@ export function PromptComposer() {
 
         {referenceSubmissionWarning(s) && <p role="status" className="mb-1 text-xs text-amber-200">{referenceSubmissionWarning(s)}</p>}
         {s.draftStorageWarning && <p role="status" className="mb-1 text-xs text-amber-200">{s.draftStorageWarning}</p>}
+        {missingInputs && <p role="status" data-testid="composer-missing-inputs" className="mb-1 text-xs text-white/60">{missingInputs}</p>}
         {normalizePromptMentions(s.prompt) !== s.prompt && <p role="status" className="mb-1 text-xs text-amber-200">Some reference tags are informal. They remain literal text; use @img1 for an exact reference.</p>}
         <div className={cn("mb-2 flex gap-3 text-xs text-white/60", collapsed && "hidden")}><button type="button" onClick={() => s.clearComposerDraft()}>New / Clear</button><button type="button" disabled={!s.recentSubmission} onClick={() => s.restoreRecentSubmission()}>Recent submission</button></div>
         <MentionTextarea
@@ -892,11 +895,7 @@ export function PromptComposer() {
           videoRefs={s.referenceVideos}
           audioRefs={s.audioNotes}
           maxLength={maxPromptLength}
-          placeholder={
-            s.mode === "image"
-              ? "Describe the image… type @ to reference uploaded images (@img1, @img2)."
-              : "Describe the video… type @ to reference uploaded images (@img1, @img2)."
-          }
+          placeholder={composerPlaceholder(s)}
         />
         </div>
       </div>
@@ -1347,15 +1346,15 @@ export function PromptComposer() {
         <motion.button
           whileTap={{ scale: 0.92 }}
           onClick={() => void handleSubmitPrompt()}
-          disabled={maintenance || uploading || (!s.prompt.trim() && !inputDrivenVideo) || s.generating || s.prompt.length > maxPromptLength}
+          disabled={!canSubmit}
           className={cn(
             "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
-            !maintenance && !uploading && (s.prompt.trim() || inputDrivenVideo) && !s.generating && s.prompt.length <= maxPromptLength
+            canSubmit
               ? "bg-gradient-to-br from-brand to-accent text-ink-900 shadow-glow hover:brightness-110"
               : "cursor-not-allowed bg-ink-650 text-white/30"
           )}
           aria-label="Generate"
-          title={uploading ? "Waiting for attachments to finish uploading" : s.prompt.length > maxPromptLength ? `Prompt exceeds the ${maxPromptLength.toLocaleString()}-character limit` : undefined}
+          title={uploading ? "Waiting for attachments to finish uploading" : s.prompt.length > maxPromptLength ? `Prompt exceeds the ${maxPromptLength.toLocaleString()}-character limit` : missingInputs ?? undefined}
         >
           {s.generating || uploading ? (
             <Loader2 className="h-5 w-5 animate-spin" />
@@ -1865,6 +1864,36 @@ export function ReferenceStrip({ store: s, insertTag, audioProblem }) {
   </div>;
 }
 
+
+/** What an input-driven video model (OmniHuman 2.0) still needs before it can
+ *  generate, as a hint, or null when an image and an audio file are attached.
+ *  The server probes the audio's real format itself. */
+export function inputDrivenVideoMissing(state) {
+  if (state.mode !== "video" || !capability(state.model, "inputDrivenVideo")) return null;
+  const hasImage = (state.referenceImages?.length || 0) > 0;
+  const hasAudio = (state.audioNotes?.length || 0) > 0;
+  if (hasImage && hasAudio) return null;
+  const missing = !hasImage && !hasAudio ? "one image and one WAV or MP3 audio file" : !hasImage ? "one image" : "one WAV or MP3 audio file";
+  return `Attach ${missing} to generate with ${state.model}.`;
+}
+
+/** The prompt box's placeholders, matched to what the selected model reads from it. Longest
+ *  first: the prompt box shows the longest one that fits, so a narrow composer never cuts it off. */
+export function composerPlaceholder(state) {
+  if (state.mode === "video" && capability(state.model, "inputDrivenVideo")) {
+    return [
+      "Optional: describe gestures, expression or camera movement.",
+      "Optional: gestures, expression, camera.",
+      "Optional: describe the motion.",
+    ];
+  }
+  const subject = state.mode === "image" ? "image" : "video";
+  return [
+    `Describe the ${subject}… type @ to reference uploaded images (@img1, @img2).`,
+    `Describe the ${subject}… @ to reference images`,
+    `Describe the ${subject}…`,
+  ];
+}
 
 export function stagedReferenceCount(state) {
   return (state.referenceImages?.length || 0) + (state.referenceVideos?.length || 0) + (state.audioNotes?.length || 0);
