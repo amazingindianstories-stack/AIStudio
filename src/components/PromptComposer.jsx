@@ -1884,7 +1884,7 @@ export function inputDrivenVideoMissing(state) {
 /** The prompt box's placeholder, matched to what the selected model reads from it. */
 export function composerPlaceholder(state) {
   if (state.mode === "video" && capability(state.model, "inputDrivenVideo")) {
-    return "Optional: describe the performance, e.g. gestures, expression or camera. The image and audio drive the video.";
+    return "Optional: describe gestures, expression or camera movement.";
   }
   return state.mode === "image"
     ? "Describe the image… type @ to reference uploaded images (@img1, @img2)."

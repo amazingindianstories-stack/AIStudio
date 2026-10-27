@@ -177,7 +177,7 @@ export function ChatSidebar({
               )}
             >
               <Layers className="h-3.5 w-3.5 shrink-0 text-white/50" />
-              <span className="min-w-0 flex-1 truncate text-left">{project ? project.name : "No project"}</span>
+              <span className="min-w-0 flex-1 truncate text-left">{project ? project.name : projects.length ? "Global Library" : "No project"}</span>
               <ChevronDown className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-180")} />
             </span>
           )}

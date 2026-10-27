@@ -55,12 +55,12 @@ export function ChatScopeBar() {
       <div className="flex min-w-0 items-center rounded-full bg-ink-800 ring-1 ring-line">
         <button
           onClick={() => openPanel("project")}
-          title={project ? `Open ${project.name}` : "No project yet"}
+          title={project ? `Open ${project.name}` : projects.length ? "Open the Global Library" : "No project yet"}
           className="flex min-w-0 items-center gap-1.5 rounded-l-full py-1.5 pl-3 pr-1.5 text-sm font-medium text-white/80 transition hover:text-white"
         >
           <Layers className="h-4 w-4 shrink-0 text-white/50" />
           <span className="max-w-[11rem] truncate">
-            {project ? project.name : "No project"}
+            {project ? project.name : projects.length ? "Global Library" : "No project"}
           </span>
           {counts.project.total > 0 && (
             <span className="shrink-0 rounded-full bg-white/[0.08] px-1.5 text-[11px] font-medium tabular-nums text-white/50">

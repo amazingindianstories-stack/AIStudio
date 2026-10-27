@@ -1,7 +1,7 @@
 "use client";
 import { useMaintenance } from "@/lib/maintenance-client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { notify } from "@/lib/notify";
 import {
   ChevronRight,
@@ -23,6 +23,17 @@ import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 import { getFolderColorClass, FOLDER_COLOR_OPTIONS } from "@/lib/folder-colors";
 import { cn } from "@/lib/utils";
 import { askConfirm } from "@/lib/ask-text";
+
+/** The narrowest the full trail can be, in px: each crumb's minimum width
+ *  (chevron included) plus the 4px gaps. The workspace takes 50, a folded
+ *  menu 40, a parent 66 (38 beside the menu), the current folder 74. Below
+ *  it, every ancestor folds and the workspace keeps only its icon. */
+function minimumTrailWidth(depth) {
+  if (depth === 0) return 0;
+  if (depth === 1) return 50 + 4 + 74;
+  if (depth === 2) return 50 + 4 + 66 + 4 + 74;
+  return 50 + 4 + 40 + 4 + 38 + 4 + 74;
+}
 
 export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   const maintenance = useMaintenance((s) => s.enabled);
@@ -72,11 +83,25 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
 
   useEffect(() => setIsRenaming(false), [activeFolderId, activeProjectId]);
 
+  // The trail's width comes from the layout (it is a flex-1 item), not from its
+  // crumbs, so measuring it cannot feed back into itself.
+  const navRef = useRef(null);
+  const [navWidth, setNavWidth] = useState(0);
+  useEffect(() => {
+    const nav = navRef.current;
+    if (!nav || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(([entry]) => setNavWidth(entry.contentRect.width));
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, []);
+
+  const narrow = navWidth > 0 && navWidth < minimumTrailWidth(ancestry.length);
   const currentFolder = ancestry.length > 0 ? ancestry[ancestry.length - 1] : null;
   const rootName = currentProject ? currentProject.name : "Global Library";
   // The trail keeps its two ends: the workspace, the parent and the current
   // folder stay on screen, and any ancestors between them fold into one menu.
-  const collapsed = ancestry.length > 2 ? ancestry.slice(0, -2) : [];
+  // Too narrow for that, every ancestor folds and the workspace keeps its icon.
+  const collapsed = narrow ? ancestry.slice(0, -1) : ancestry.length > 2 ? ancestry.slice(0, -2) : [];
   const shown = ancestry.slice(collapsed.length);
   const pathTo = (index) => [rootName, ...ancestry.slice(0, index + 1).map((crumb) => crumb.name)].join(" / ");
   const fullPath = activeFolderId === UNSORTED ? `${rootName} / Unsorted` : pathTo(ancestry.length - 1);
@@ -102,20 +127,22 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
   return (
     <div className="flex min-w-0 items-center text-xs">
       {/* Breadcrumb list */}
-      <nav aria-label="Breadcrumb" title={fullPath}
+      <nav ref={navRef} aria-label="Breadcrumb" title={fullPath}
         className="flex flex-1 min-w-0 items-center gap-1 overflow-hidden py-0.5">
         {/* Root crumb. Names shrink to an ellipsis (each tooltip gives the path
-            to it), the workspace and ancestors before the current folder, but
-            at its minimum width each keeps its icon and 1.5rem of name. The
+            to it): the parent first, then the workspace, then the current folder;
+            at its minimum width each keeps its icon and 1.5rem of name (a parent
+            beside folded ancestors keeps only its icon). The
             trail starts at its left edge and never scrolls it away. */}
         <button
           type="button"
           onClick={() => setActiveFolder(null)}
           title={rootName}
-          className="flex min-w-[3.125rem] shrink-[100000] items-center gap-1 rounded-md px-1 py-1 text-white/60 transition hover:bg-white/10 hover:text-white"
+          aria-label={narrow ? rootName : undefined}
+          className={cn("flex items-center gap-1 rounded-md px-1 py-1 text-white/60 transition hover:bg-white/10 hover:text-white", narrow ? "shrink-0" : "min-w-[3.125rem] shrink-[1000000]")}
         >
           <Layers className={cn("h-3.5 w-3.5 shrink-0", currentProject ? "text-brand/80" : "text-white/50")} />
-          <span className="font-medium truncate max-w-[140px]">{rootName}</span>
+          {!narrow && <span className="font-medium truncate max-w-[140px]">{rootName}</span>}
         </button>
 
         {collapsed.length > 0 && (
@@ -162,7 +189,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
           const idx = collapsed.length + shownIdx;
           const isLast = idx === ancestry.length - 1;
           return (
-            <div key={crumb.id} className={cn("flex items-center gap-1", !isLast ? "min-w-[4.125rem] shrink-[100000]" : isRenaming ? "shrink-0" : "min-w-[4.625rem]")}>
+            <div key={crumb.id} className={cn("flex items-center gap-1", !isLast ? (collapsed.length ? "min-w-[2.375rem] shrink-[100000000]" : "min-w-[4.125rem] shrink-[100000000]") : isRenaming ? "shrink-0" : narrow ? "min-w-[3.25rem]" : "min-w-[4.625rem]")}>
               <ChevronRight className="h-3 w-3 shrink-0 text-white/30" />
               {isLast ? (
                 isRenaming ? (

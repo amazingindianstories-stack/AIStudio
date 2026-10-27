@@ -122,7 +122,8 @@ test.describe('pointer folder move evidence', () => {
     const child = library.panel.getByRole('treeitem').filter({ hasText: library.globalChild.name });
     await expect(child).toBeVisible();
     await openTreeFolder(library.panel, library.globalChild.name);
-    await expect(library.panel.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(destination.name);
+    // Destination > root > child: the destination folds into the trail's menu, and its full path names it.
+    await expect(library.panel.getByRole('navigation', { name: 'Breadcrumb' })).toHaveAttribute('title', `Global Library / ${destination.name} / ${library.globalRoot.name} / ${library.globalChild.name}`);
     await expect(library.panel.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(library.globalChild.name);
     await testInfo.attach('pointer-folder-move-after-reload', { body: await page.screenshot(), contentType: 'image/png' });
   });
@@ -279,20 +280,22 @@ for (const width of [1024, 1440]) {
     const nav = library.panel.getByRole("navigation", { name: "Breadcrumb" });
     await expect(nav).toContainText(parent.name);
     // The workspace, the parent and the current folder stay; the thirteen ancestors between fold into one menu.
-    const hidden = nav.getByRole("button", { name: "Show 13 hidden folders", exact: true });
+    // At 1024px the trail is too narrow for the parent too, so all fourteen fold and the workspace keeps its icon.
+    const folded = width === 1024 ? 14 : 13;
+    const hidden = nav.getByRole("button", { name: `Show ${folded} hidden folders`, exact: true });
     await expect(hidden).toBeVisible();
-    expect(await nav.locator("button").count()).toBe(3);
+    expect(await nav.locator("button").count()).toBe(width === 1024 ? 2 : 3);
     const geometry = await nav.evaluate((el) => {
       const bounds = el.getBoundingClientRect(); const first = el.firstElementChild.getBoundingClientRect(); const last = el.lastElementChild.getBoundingClientRect();
       return { overflow: el.scrollWidth - el.clientWidth, firstInside: first.left >= bounds.left - 0.5, lastInside: last.right <= bounds.right + 0.5 };
     });
     expect(geometry, JSON.stringify(geometry)).toEqual({ overflow: 0, firstInside: true, lastInside: true });
-    await expect(nav).toContainText("Global Library");
+    await expect(nav.getByRole("button", { name: "Global Library" })).toBeVisible();
     expect(await nav.getAttribute("title")).toBe(["Global Library", library.globalRoot.name, ...Array.from({ length: 14 }, (_, i) => `${library.prefix} Level ${i} long folder name`)].join(" / "));
     await expect(library.panel.getByRole("button", { name: "Current folder actions" })).toBeVisible();
     await hidden.click();
     const items = page.getByRole("menuitem");
-    await expect(items).toHaveCount(13);
+    await expect(items).toHaveCount(folded);
     await expect(items.first()).toContainText(library.globalRoot.name);
     await items.nth(3).click();
     await expect(nav.locator('[aria-current="page"]')).toContainText(`${library.prefix} Level 2 long folder name`);
