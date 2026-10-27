@@ -4,7 +4,7 @@ import React, { act } from "react";
 import { JSDOM } from "jsdom";
 import { createRoot } from "react-dom/client";
 import { useStore } from "../lib/store.js";
-import { FolderTree, FolderOperationRail, isFolderOperationBusy } from "./FolderTree.jsx";
+import { FolderTree, FolderOperationRail, SETTLED_OPERATION_MS, isFolderOperationBusy } from "./FolderTree.jsx";
 import { ChildFolderList } from "./ChildFolderList.jsx";
 import { ProjectMenu } from "./ProjectMenu.jsx";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor.jsx";
@@ -90,9 +90,33 @@ test("operation feedback blocks only the matching folder and retry replays the s
     assert.ok(document.querySelector('[inert]'));
     await act(async () => useStore.setState({ operations: { [logical]: { ...useStore.getState().operations[logical], status: "conflicted", error: "Changed elsewhere", attempt: 2 } } }));
     await render(React.createElement(FolderOperationRail));
-    assert.match(document.querySelector('[role="status"]').textContent, /conflicted.*attempt 2.*Changed elsewhere/);
+    assert.match(document.querySelector('[role="status"]').textContent, /Couldn't move folder: it changed elsewhere \(Changed elsewhere\) \(attempt 2\)/);
     await act(async () => Array.from(document.querySelectorAll("button")).find((node) => node.textContent === "Retry").click());
     assert.deepEqual(calls, [["folder", { type: "global_root" }]]);
+  });
+});
+
+test("the operation rail speaks plain language, shows a few entries and clears finished ones", async () => {
+  await withDom(async ({ render }) => {
+    const now = Date.now();
+    const op = (n, operation, status, extra = {}) => [JSON.stringify(["actor", operation, [`f${n}`]]),
+      { key: `k${n}`, operation, status, attempt: 1, startedAt: now - 1000, entity: JSON.stringify(["actor", `f${n}`]), ...extra }];
+    useStore.setState({ currentUser: { id: "actor" }, loadLibraryTree: async () => {}, operations: Object.fromEntries([
+      op(1, "renameFolder", "confirmed", { completedAt: now - SETTLED_OPERATION_MS - 1 }),
+      op(2, "renameFolderGenerations", "confirmed", { completedAt: now }),
+      op(3, "renameFolder", "confirmed", { completedAt: now }),
+      op(4, "setFolderColor", "failed", { error: "Offline" }),
+      op(5, "createFolder", "pending"),
+    ]) });
+    await render(React.createElement(FolderOperationRail));
+    const rows = () => Array.from(document.querySelectorAll('[role="status"] > div')).map((row) => row.querySelector("span").textContent);
+    assert.deepEqual(rows(), ["Creating folder…", "Couldn't change folder color: Offline", "Renamed folder"], "newest first, capped at three");
+    assert.match(document.querySelector('[role="status"]').textContent, /\+1 more/);
+    assert.doesNotMatch(document.querySelector('[role="status"]').textContent, /rename Folder|confirmed|· /, "no internal action names or raw statuses");
+    await act(async () => Array.from(document.querySelectorAll("button")).find((node) => node.textContent === "Dismiss").click());
+    assert.deepEqual(rows(), ["Creating folder…", "Renamed folder", "Renamed generations to match folder"]);
+    await act(async () => useStore.setState({ operations: Object.fromEntries([op(2, "renameFolderGenerations", "confirmed", { completedAt: now - SETTLED_OPERATION_MS - 1 })]) }));
+    assert.equal(document.querySelector('[role="status"]'), null, "a finished operation clears itself");
   });
 });
 

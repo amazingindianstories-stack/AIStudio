@@ -254,6 +254,11 @@ body {
 /* Size library navigation against the panel, not the whole browser. */
 .history-panel { container-type: inline-size; container-name: history; }
 .history-navigation { width: clamp(10.5rem, 30cqw, 15rem); max-width: 40%; }
+/* Beside the open chat the panel is narrow; the location trail needs the room
+   more than the button's label, which stays as its accessible name. */
+@container history (max-width: 40rem) {
+  .history-new-folder-label { display: none; }
+}
 /* The phone and tablet drawer (at most 28rem wide) shows folders or assets,
    not both, and gives search its own row. The desktop panel keeps the sidebar. */
 .history-panel[data-drawer="true"] .history-layout { flex-direction: column; }

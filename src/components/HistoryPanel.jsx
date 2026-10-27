@@ -28,6 +28,7 @@ import {
   AlertCircle,
   Inbox,
   MoreHorizontal,
+  FolderClosed,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
@@ -42,7 +43,7 @@ import { ProjectMenu } from "./ProjectMenu";
 import { getAssetDragData, isFolderDragEvent } from "@/lib/asset-drag-contract";
 import { FolderTree, FolderOperationRail } from "./FolderTree";
 import { BreadcrumbBar } from "./BreadcrumbBar";
-import { ChildFolderList } from "./ChildFolderList";
+import { ChildFolderList, childFoldersOf } from "./ChildFolderList";
 import { DestinationPickerModal } from "./DestinationPickerModal";
 import { InlineFolderNameEditor } from "./InlineFolderNameEditor";
 import { UNSORTED } from "@/lib/feed-scope";
@@ -92,6 +93,12 @@ export function HistoryPanel({ drawer = false }) {
   const deleteGenerations = useStore((s) => s.deleteGenerations);
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
+  const childFolderCount = useMemo(
+    () => (activeFolderId && activeFolderId !== UNSORTED ? childFoldersOf(libraryTree, activeFolderId, activeProjectId).length : 0),
+    [libraryTree, activeFolderId, activeProjectId]
+  );
+  // A folder whose work all lives in subfolders: its own grid is empty by design.
+  const subfolderOnly = rightTab === "project" && childFolderCount > 0 && !filtering && !loading && items.length === 0;
 
   const [navigationOpen, setNavigationOpen] = useState(false);
   const navigationToggle = useRef(null);
@@ -428,7 +435,7 @@ export function HistoryPanel({ drawer = false }) {
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <Layers className="h-4 w-4 shrink-0 text-brand" />
-                  <span className="scope-project-name truncate text-xs font-semibold uppercase tracking-wider text-white">
+                  <span title={activeProjectId === null ? "Global Library" : project?.name ?? "Global Library"} className="scope-project-name truncate text-xs font-semibold text-white">
                     {activeProjectId === null
                       ? "Global Library"
                       : project
@@ -657,9 +664,10 @@ export function HistoryPanel({ drawer = false }) {
                 className="flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-white/15"
                 disabled={maintenance}
                 title="Create new folder"
+                aria-label="+ New folder"
               >
                 <FolderPlus className="h-3.5 w-3.5" />
-                <span>+ New folder</span>
+                <span className="history-new-folder-label">+ New folder</span>
               </button>
             </div>
           </div>
@@ -915,6 +923,7 @@ export function HistoryPanel({ drawer = false }) {
             <ChildFolderList
               parentId={activeFolderId}
               projectId={activeProjectId}
+              autoExpand={Boolean(activeFolderId) && subfolderOnly}
               onOpenMoveModal={(folder) => {
                 setMovingFolder(folder);
                 setMoveModalOpen(true);
@@ -946,6 +955,12 @@ export function HistoryPanel({ drawer = false }) {
                       icon={<Star className="h-6 w-6 text-amber-300/70" />}
                       title="No favourites yet"
                       body="Star your best generations and they collect here, newest first."
+                    />
+                  ) : subfolderOnly ? (
+                    <EmptyState
+                      icon={<FolderClosed className="h-6 w-6" />}
+                      title="No generations directly in this folder"
+                      body={`Its work is in the ${childFolderCount === 1 ? "subfolder" : `${childFolderCount} subfolders`} above.`}
                     />
                   ) : (
                     <EmptyState

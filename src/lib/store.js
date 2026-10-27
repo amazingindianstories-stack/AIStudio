@@ -2333,6 +2333,8 @@ export const useStore = create((set, get) => ({
       set({
         projects,
         activeProjectId: nextProjectId,
+        // A folder belongs to its project; a stale project takes its folder with it.
+        ...(nextProjectId !== currentActiveId ? { activeFolderId: null } : {}),
       });
       if (nextProjectId) {
         void get().loadAssets(nextProjectId);
@@ -2355,6 +2357,7 @@ export const useStore = create((set, get) => ({
         },
         globalFolders: data.globalFolders ?? [],
       });
+      dropMismatchedRestoredFolder(get, set);
     } catch {
       /* ignore */
     }
@@ -3048,8 +3051,17 @@ export function restoreComposerDraft() {
       // starts closed (see the drawer in page.tsx).
       // loadProjects validates the restored project id against the fetched
       // list, so a stale id self-heals to the default project.
+      // The Global Library is a null project id, so only an explicit globalScope
+      // marker restores it; a bare null is the unloaded initial state.
       if (typeof d.activeProjectId === "string") patch.activeProjectId = d.activeProjectId;
-      if (typeof d.activeFolderId === "string") patch.activeFolderId = d.activeFolderId;
+      else if (d.globalScope === true && d.activeProjectId === null) {
+        patch.activeProjectId = null;
+        patch.projectScopeSelected = true;
+      }
+      if (typeof d.activeFolderId === "string" && "activeProjectId" in patch) {
+        patch.activeFolderId = d.activeFolderId;
+        restoredFolderId = d.activeFolderId;
+      }
       useStore.setState(patch);
     }
     if (useStore.getState().availabilityAnswered) reconcileAvailability(useStore.getState, useStore.setState);
@@ -3065,6 +3077,29 @@ export function restoreComposerDraft() {
 
 let restoringDraft = false;
 let draftRestoreEpoch = 0;
+/** The folder restoreComposerDraft reopened, until the first library tree
+ *  confirms it still exists in the restored project (or the Global Library). */
+let restoredFolderId = null;
+
+function findTreeFolder(nodes, id) {
+  if (!Array.isArray(nodes)) return null;
+  for (const node of nodes) {
+    if (node.id === id) return node;
+    const found = findTreeFolder(node.children, id);
+    if (found) return found;
+  }
+  return null;
+}
+
+function dropMismatchedRestoredFolder(get, set) {
+  const folderId = restoredFolderId;
+  restoredFolderId = null;
+  const { activeFolderId, activeProjectId, libraryTree } = get();
+  if (!folderId || folderId === UNSORTED || activeFolderId !== folderId) return;
+  const folder = findTreeFolder(libraryTree.globalFolders, folderId) ||
+    findTreeFolder(libraryTree.projects.flatMap((p) => p.folders ?? []), folderId);
+  if (!folder || (folder.projectId ?? null) !== (activeProjectId ?? null)) set({ activeFolderId: null });
+}
 
 async function restoreScopedComposerDraft() {
   const epoch = ++draftRestoreEpoch;
@@ -3197,6 +3232,7 @@ if (typeof window !== "undefined") {
       s.bitrateMode !== prev.bitrateMode ||
       s.rightTab !== prev.rightTab ||
       s.activeProjectId !== prev.activeProjectId ||
+      s.projectScopeSelected !== prev.projectScopeSelected ||
       s.activeFolderId !== prev.activeFolderId
     ) {
       try {
@@ -3216,6 +3252,7 @@ if (typeof window !== "undefined") {
             audioDefault: true,
             rightTab: s.rightTab,
             activeProjectId: s.activeProjectId,
+            globalScope: s.activeProjectId === null && s.projectScopeSelected === true,
             activeFolderId: s.activeFolderId,
           })
         );

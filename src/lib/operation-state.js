@@ -14,7 +14,7 @@ export function installOperationTracking(store) {
     if (operation?.status !== 'queued') return false;
     cancelled.add(logical);
     retries.delete(logical);
-    patch(logical,{...operation,status:'cancelled',error:null});
+    patch(logical,{...operation,status:'cancelled',error:null,completedAt:Date.now()});
     return true;
   }});
   for (const name of actions) {

@@ -639,14 +639,37 @@ test("OmniHuman reuses video controls with audio-driven duration and optional pr
   try {
     Object.assign(initial, { mode: "video", model: "OmniHuman 2.0", prompt: "", aspectRatio: "Auto", resolution: "Auto",
       duration: 5, availableModelIds: null, maintenance: false, generating: false });
-    const html = renderToString(React.createElement(PromptComposer));
-    const dom = new JSDOM(html);
-    const generate = dom.window.document.querySelector('button[aria-label="Generate"]');
+    const render = () => new JSDOM(renderToString(React.createElement(PromptComposer))).window.document;
+    let doc = render();
+    let generate = doc.querySelector('button[aria-label="Generate"]');
     assert.ok(generate);
+    assert.equal(generate.disabled, true, "nothing attached: the server would only refuse it");
+    assert.equal(doc.querySelector('[data-testid="composer-missing-inputs"]').textContent, "Attach one image and one WAV or MP3 audio file to generate with OmniHuman 2.0.");
+    assert.equal(generate.title, "Attach one image and one WAV or MP3 audio file to generate with OmniHuman 2.0.");
+    assert.doesNotMatch(doc.querySelector("textarea").getAttribute("placeholder"), /@img1/, "the placeholder fits a model that reads no @ references");
+    assert.match(doc.body.textContent, /Audio length/);
+    assert.ok(!doc.querySelector('input[aria-label="Duration"]'));
+
+    Object.assign(initial, { referenceImages: ["/api/media/references/face.png"], referenceKinds: ["image"] });
+    doc = render();
+    assert.equal(doc.querySelector('button[aria-label="Generate"]').disabled, true);
+    assert.match(doc.querySelector('[data-testid="composer-missing-inputs"]').textContent, /^Attach one WAV or MP3 audio file/);
+
+    Object.assign(initial, { audioNotes: [{ name: "voice.m4a", ref: "/api/media/references/voice.m4a" }] });
+    doc = render();
+    assert.equal(doc.querySelector('button[aria-label="Generate"]').disabled, true);
+    assert.match(doc.querySelector('[data-testid="composer-missing-inputs"]').textContent, /format is not accepted/);
+
+    Object.assign(initial, { audioNotes: [{ name: "voice.mp3", ref: "/api/media/references/voice.mp3" }], referenceAudios: ["/api/media/references/voice.mp3"] });
+    doc = render();
+    generate = doc.querySelector('button[aria-label="Generate"]');
     assert.equal(generate.disabled, false, "an optional prompt must not disable a valid input-driven job");
-    assert.match(dom.window.document.body.textContent, /Audio length/);
-    assert.ok(!dom.window.document.querySelector('input[aria-label="Duration"]'));
-    dom.window.close();
+    assert.equal(doc.querySelector('[data-testid="composer-missing-inputs"]'), null);
+
+    Object.assign(initial, { model: "Seedance 2.5", referenceImages: [], audioNotes: [], referenceAudios: [], prompt: "" });
+    doc = render();
+    assert.match(doc.querySelector("textarea").getAttribute("placeholder"), /@img1/);
+    assert.equal(doc.querySelector('[data-testid="composer-missing-inputs"]'), null);
   } finally {
     Object.assign(initial, before);
     globalThis.React = previousReact;

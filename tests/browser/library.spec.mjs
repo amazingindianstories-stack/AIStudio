@@ -261,7 +261,7 @@ test("rename Escape cancels; blur commits; errors retain draft; conflict retries
 });
 
 for (const width of [1024, 1440]) {
-  test(`15-level breadcrumb scroll at ${width}px retains ancestors and toolbar`, async ({ page, library }) => {
+  test(`15-level breadcrumb at ${width}px folds middle ancestors and keeps both ends and the toolbar`, async ({ page, library }) => {
     let parent = library.globalRoot;
     for (let i = 0; i < 14; i++) parent = await library.createFolder(`Level ${i} long folder name`, null, parent.id);
     await page.setViewportSize({ width, height: 1000 });
@@ -278,18 +278,24 @@ for (const width of [1024, 1440]) {
     await openTreeFolder(library.panel, parent.name);
     const nav = library.panel.getByRole("navigation", { name: "Breadcrumb" });
     await expect(nav).toContainText(parent.name);
-    expect(await nav.locator("button").count()).toBe(15);
-    const geometry = await nav.evaluate((el) => ({ width: el.clientWidth, total: el.scrollWidth, left: el.scrollLeft }));
-    expect(geometry.total).toBeGreaterThan(geometry.width); expect(geometry.left).toBeGreaterThan(0);
+    // The workspace, the parent and the current folder stay; the thirteen ancestors between fold into one menu.
+    const hidden = nav.getByRole("button", { name: "Show 13 hidden folders", exact: true });
+    await expect(hidden).toBeVisible();
+    expect(await nav.locator("button").count()).toBe(3);
+    const geometry = await nav.evaluate((el) => {
+      const bounds = el.getBoundingClientRect(); const first = el.firstElementChild.getBoundingClientRect(); const last = el.lastElementChild.getBoundingClientRect();
+      return { overflow: el.scrollWidth - el.clientWidth, firstInside: first.left >= bounds.left - 0.5, lastInside: last.right <= bounds.right + 0.5 };
+    });
+    expect(geometry, JSON.stringify(geometry)).toEqual({ overflow: 0, firstInside: true, lastInside: true });
+    await expect(nav).toContainText("Global Library");
+    expect(await nav.getAttribute("title")).toBe(["Global Library", library.globalRoot.name, ...Array.from({ length: 14 }, (_, i) => `${library.prefix} Level ${i} long folder name`)].join(" / "));
     await expect(library.panel.getByRole("button", { name: "Current folder actions" })).toBeVisible();
-    await nav.evaluate((el) => { el.scrollLeft = 0; });
-    expect(await nav.evaluate((el) => el.scrollLeft)).toBe(0);
-    await nav.dispatchEvent("wheel", { deltaY: 100, deltaX: 0, shiftKey: true });
-    expect(await nav.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
-    await nav.locator("button").last().focus();
-    expect(await nav.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
-    await nav.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
-    expect(await nav.evaluate((el) => Math.abs(el.scrollWidth - el.clientWidth - el.scrollLeft))).toBeLessThan(2);
+    await hidden.click();
+    const items = page.getByRole("menuitem");
+    await expect(items).toHaveCount(13);
+    await expect(items.first()).toContainText(library.globalRoot.name);
+    await items.nth(3).click();
+    await expect(nav.locator('[aria-current="page"]')).toContainText(`${library.prefix} Level 2 long folder name`);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   });
 }
@@ -335,7 +341,7 @@ for (const width of [1440, 1920]) {
         // Each name is on screen: whole, or at least a few characters ending in an ellipsis with the full name in the tooltip.
         expect(crumb.inside, JSON.stringify(crumb)).toBe(true);
         expect(crumb.shown, JSON.stringify(crumb)).toBeGreaterThanOrEqual(Math.min(crumb.full, 24));
-        if (crumb.full > crumb.shown) { expect(crumb.ellipsis).toBe(true); expect(crumb.title).toBe(crumb.name); }
+        if (crumb.full > crumb.shown) { expect(crumb.ellipsis).toBe(true); expect(crumb.title.endsWith(crumb.name), JSON.stringify(crumb)).toBe(true); }
       }
       // The current folder (e.g. the take number) is squeezed below its own cap only once every ancestor has shrunk to its minimum.
       const current = geometry.crumbs.at(-1);

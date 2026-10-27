@@ -96,10 +96,10 @@ test('Goal2 folder faults: lost response retry reuses idempotency key and persis
   expect((await dbFolder(sql, folder.id)).name).toBe(renamed);
   const failed = (await operation(page, folder.id)).find(op => op.status === 'failed');
   expect(failed).toBeTruthy();
-  await page.locator('[role="status"]').filter({ hasText: 'failed' }).getByRole('button', { name: 'Retry', exact: true }).last().click();
+  await page.locator('[role="status"]').filter({ hasText: "Couldn't rename folder" }).getByRole('button', { name: 'Retry', exact: true }).last().click();
   await expect.poll(async () => (await operation(page, folder.id)).find(op => op.logical === failed.logical)?.attempt).toBe(2);
   await expect.poll(async () => (await operation(page, folder.id)).find(op => op.logical === failed.logical)?.status).toBe("failed");
-  await page.locator('[role="status"]').filter({ hasText: "failed" }).getByRole("button", { name: "Retry", exact: true }).last().click();
+  await page.locator('[role="status"]').filter({ hasText: "Couldn't rename folder" }).getByRole("button", { name: "Retry", exact: true }).last().click();
   await expect.poll(async () => (await operation(page, folder.id)).find(op => op.logical === failed.logical)?.status).toBe("confirmed");
   expect(submitted).toHaveLength(3);
   expect(submitted[1].idempotencyKey).toBe(submitted[0].idempotencyKey);
@@ -185,13 +185,13 @@ test('Goal2 folder faults: queued folder moves expose real pending cancel and fa
   await expect.poll(() => submitted.length).toBe(1);
   const sourceRow = page.locator('[role="treeitem"]').filter({ hasText: source.name }).first();
   await expect(sourceRow).toHaveAttribute('aria-busy', 'true');
-  const status = page.locator('#desktop-history-panel [role="status"]').filter({ hasText: 'move Folder' });
-  await expect(status).toContainText('pending');
-  await expect(status).toContainText('queued');
-  await expect(status.getByRole('button', { name: 'Cancel queued', exact: true })).toBeVisible();
+  const status = page.locator('#desktop-history-panel [role="status"]').filter({ hasText: /folder/i });
+  await expect(status).toContainText('Moving folder…');
+  await expect(status).toContainText('Moving folder (waiting)');
+  await expect(status.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('folder-move-pending-queued.png') });
-  await status.getByRole('button', { name: 'Cancel queued', exact: true }).click();
-  await expect(status).toContainText('cancelled');
+  await status.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(status).toContainText('Cancelled: moving folder');
   expect((await sql`SELECT parent_id FROM folders WHERE id=${source.id}`)[0].parent_id).toBe(before.parent_id);
   await page.screenshot({ path: testInfo.outputPath('folder-move-queued-cancelled.png') });
   release();
@@ -201,14 +201,14 @@ test('Goal2 folder faults: queued folder moves expose real pending cancel and fa
   expect(committed.version).toBe(before.version + 1);
   expect(submitted).toHaveLength(1);
   expect(submitted[0].destination.folderId).toBe(firstParent.id);
-  await expect(status).toContainText('confirmed');
+  await expect(status).toContainText('Moved folder');
   // Real Django rejects moving the parent into its now-persisted descendant.
   const invalid = await page.evaluate(async ({ parentId, childId }) => {
     try { await window.__folderFaultStore.getState().moveFolder(parentId, { type: 'folder', folderId: childId }); return { rejected: false }; }
     catch (error) { return { rejected: true, code: error.code }; }
   }, { parentId: firstParent.id, childId: source.id });
   expect(invalid.rejected).toBeTruthy();
-  await expect(status).toContainText('failed');
+  await expect(status).toContainText("Couldn't move folder");
   await expect(status.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
   expect((await sql`SELECT parent_id FROM folders WHERE id=${firstParent.id}`)[0].parent_id).toBeNull();
   await page.screenshot({ path: testInfo.outputPath('folder-move-real-failure.png') });
