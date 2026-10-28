@@ -96,4 +96,5 @@ with controls.hold_slot(principal):                                    # at most
 
 One additive migration set: `mcp_auth.0001_initial` (the four tables) and `generation.0008_generation_mcp_origin`
 (nullable `created_via`, `mcp_token_id`, `mcp_client_id`, no backfill, and a partial per-grant spend index).
-`MIGRATION_ROWS` accepts 69 and 70.
+`MIGRATION_ROWS` accepts 69 and 70, and 71 for the MCP service's `generation.0009_generation_url_lookup` (a
+`generations.url` hash index built concurrently, `mcp-server.md`).
