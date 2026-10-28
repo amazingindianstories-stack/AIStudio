@@ -271,9 +271,10 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
         with override_settings(PUBLIC_APP_URL=''):
             self.assertEqual(self.client.get('/api/oauth/authorization-server').status_code, 503)
 
-    def test_dynamic_registration_accepts_loopback_https_and_native_redirects(self):
+    def test_dynamic_registration_accepts_https_and_loopback_redirects(self):
         for uris in ([LOOPBACK], ['http://localhost:8787/callback'], ['https://claude.ai/api/mcp/auth_callback'],
-                     ['https://chatgpt.com/connector_platform_oauth_redirect'], ['cursor://anysphere.cursor-mcp/oauth/callback']):
+                     ['https://chatgpt.com/connector_platform_oauth_redirect'], ['https://www.cursor.com/agents/mcp/oauth/callback'],
+                     ['http://127.0.0.1:33418'], ['https://vscode.dev/redirect'], ['http://[::1]:5000/cb']):
             with self.subTest(uris=uris):
                 response = self.post_json('/api/oauth/register', {'client_name': 'Fixture', 'redirect_uris': uris,
                                           'token_endpoint_auth_method': 'none', 'grant_types': ['authorization_code', 'refresh_token']},
@@ -286,6 +287,10 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
 
     def test_dynamic_registration_refuses_unsafe_metadata(self):
         for document in ({'redirect_uris': ['http://example.com/callback']}, {'redirect_uris': ['javascript:alert(1)']},
+                         {'redirect_uris': ['http://192.168.1.2/cb']}, {'redirect_uris': ['cursor://anysphere.cursor-mcp/oauth/callback']},
+                         {'redirect_uris': ['vscode://vscode.github-authentication/did-authenticate']},
+                         {'redirect_uris': ['com.example.app:/cb']}, {'redirect_uris': ['myapp://callback']},
+                         {'redirect_uris': [LOOPBACK, 'cursor://anysphere.cursor-mcp/oauth/callback']},
                          {'redirect_uris': ['https://example.com/cb#fragment']}, {'redirect_uris': ['data:text/html,x']},
                          {'redirect_uris': []}, {'redirect_uris': ['https://u:p@example.com/cb']},
                          {'redirect_uris': [LOOPBACK], 'token_endpoint_auth_method': 'client_secret_basic'},
@@ -583,6 +588,11 @@ class ControlsTests(AgentAccessCase):
         principal = self.principal()
         self.assertEqual([controls.price_decision(principal, cost) for cost in (0, 25, 26, 99, 100, 500)],
                          ['submit', 'submit', 'quote', 'quote', 'confirm', 'confirm'])
+
+    def test_confirmation_wins_over_the_highest_auto_approve_amount(self):
+        principal = self.principal(auto=100)
+        self.assertEqual([controls.price_decision(principal, cost) for cost in (0, 99, 100, 101)],
+                         ['submit', 'submit', 'confirm', 'confirm'])
 
     def test_rate_windows_count_per_grant_and_reset(self):
         principal = self.principal()

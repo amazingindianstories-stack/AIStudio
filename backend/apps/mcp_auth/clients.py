@@ -1,7 +1,8 @@
 """OAuth client identification: Client ID Metadata Documents (CIMD) and Dynamic Client Registration (DCR).
 
 Only public clients exist (``token_endpoint_auth_method: none``); PKCE S256 protects every code. Redirect URIs
-are https, loopback http on any port (Claude Code, Cursor), or a native app's private-use scheme.
+are https or loopback http on any port (Claude Code, Cursor, VS Code). Private-use native schemes are refused:
+no in-scope client documents one for MCP OAuth, and a client without a verified redirect uses a personal access token.
 """
 import ipaddress
 import json
@@ -23,7 +24,6 @@ UNUSED_DCR_TTL_MS = 24 * 60 * 60 * 1000
 MAX_REDIRECT_URIS = 10
 MAX_URI_LENGTH = 2000
 LOOPBACK_HOSTS = ('127.0.0.1', 'localhost', '[::1]', '::1')
-FORBIDDEN_SCHEMES = {'http', 'https', 'javascript', 'data', 'file', 'vbscript', 'about', 'blob', 'ws', 'wss', 'ftp', 'mailto', 'tel'}
 CIMD_DNS = BoundedMediaResolver(slots=2)
 
 
@@ -50,8 +50,7 @@ def valid_redirect_uri(value):
         return bool(parsed.hostname)
     if scheme == 'http':
         return parsed.hostname in LOOPBACK_HOSTS and (port is None or 0 < port < 65536)
-    # RFC 8252 private-use scheme for a native app, e.g. cursor://anysphere.cursor-mcp/oauth/callback.
-    return bool(scheme) and scheme not in FORBIDDEN_SCHEMES and scheme[0].isalpha()
+    return False
 
 
 def redirect_matches(registered, supplied):
@@ -85,7 +84,7 @@ def clean_metadata(document, *, cimd_url=None):
         raise ClientError('invalid_client_metadata', 'Client metadata must be a JSON object.')
     uris = document.get('redirect_uris')
     if not isinstance(uris, list) or not 1 <= len(uris) <= MAX_REDIRECT_URIS or not all(valid_redirect_uri(uri) for uri in uris):
-        raise ClientError('invalid_redirect_uri', 'Provide 1 to 10 redirect URIs: https, loopback http, or a native app scheme.')
+        raise ClientError('invalid_redirect_uri', 'Provide 1 to 10 redirect URIs: https or loopback http.')
     method = document.get('token_endpoint_auth_method', 'none')
     if method != 'none':
         raise ClientError('invalid_client_metadata', 'Only public clients are supported (token_endpoint_auth_method "none").')

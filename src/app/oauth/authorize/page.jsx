@@ -204,7 +204,7 @@ function Consent({ request, details }) {
               </div>
               <p className="text-xs leading-5 text-white/40">
                 Jobs at or below the auto-approve amount start right away. Pricier jobs show the price first, and jobs of{" "}
-                {dollars(details.confirmAtCents)} or more need your OK. Your account limit is {dollars(details.userDailyCapCents)} a day.
+                {dollars(details.confirmAtCents)} or more always need your OK. Your account limit is {dollars(details.userDailyCapCents)} a day.
               </p>
             </div>
           )}

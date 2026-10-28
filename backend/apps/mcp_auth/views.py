@@ -210,7 +210,7 @@ def client_summary(client, redirect_uri):
     target = urlsplit(redirect_uri)
     return {'name': client.client_name, 'clientId': client.client_id, 'kind': client.kind, 'uri': client.client_uri,
             'logoUri': client.logo_uri, 'redirectUri': redirect_uri,
-            'redirectHost': target.netloc or target.scheme + ':', 'verifiedUrl': client.client_id if client.kind == 'cimd' else None}
+            'redirectHost': target.netloc, 'verifiedUrl': client.client_id if client.kind == 'cimd' else None}
 
 
 def consent_options(user):

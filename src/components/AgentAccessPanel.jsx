@@ -336,7 +336,7 @@ function CreateTokenForm({ access, onCancel, onCreated }) {
         </div>
         <p className="text-xs leading-5 text-white/40">
           Jobs at or below the auto-approve amount start right away. Pricier jobs show the price first, and
-          jobs of {dollars(access.confirmAtCents)} or more need your OK. Your account limit is {dollars(access.userDailyCapCents)} a day.
+          jobs of {dollars(access.confirmAtCents)} or more always need your OK. Your account limit is {dollars(access.userDailyCapCents)} a day.
         </p>
         <div className="flex min-h-9 flex-wrap items-center justify-between gap-3 border-t border-line pt-3.5">
           <span role="status" aria-live="polite" className="min-h-5 text-xs text-red-300">{error}</span>

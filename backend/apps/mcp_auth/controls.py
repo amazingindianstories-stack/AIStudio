@@ -99,10 +99,10 @@ def active_jobs(user_id):
 
 
 def price_decision(principal, cost_cents):
-    """'submit' at or below the grant's auto-approve amount; otherwise 'quote', or 'confirm' at or above $1."""
-    if cost_cents <= principal.caps.auto_approve_cents:
-        return 'submit'
-    return 'confirm' if cost_cents >= principal.caps.confirm_at_cents else 'quote'
+    """'confirm' at or above $1 whatever the auto-approve amount; else 'submit' at or below it, otherwise 'quote'."""
+    if cost_cents >= principal.caps.confirm_at_cents:
+        return 'confirm'
+    return 'submit' if cost_cents <= principal.caps.auto_approve_cents else 'quote'
 
 
 def admit_paid_submission(principal, cost_cents, *, now=None):

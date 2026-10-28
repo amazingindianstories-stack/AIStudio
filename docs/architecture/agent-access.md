@@ -12,8 +12,9 @@ is a separate service built on this app; it calls the Python interface below, ne
 - `mcpDailyCapCents` (default 2000, $20) and `mcpActiveJobs` (default 4) are ordinary registered limits
   (`admin_dashboard/views.py` `LIMITS`, `src/lib/limits.js`): a global default with per-user overrides.
 - Each grant (a personal access token or one connected app) has its own daily cap (default $10, never above
-  the user cap) and an auto-approve amount (default 25 cents, 0 to 100). Jobs of $1.00 or more need the
-  user's confirmation. Amounts are estimator cents, the unit of `generations.cost_cents`.
+  the user cap) and an auto-approve amount (default 25 cents, 0 to 100). Jobs at or below the auto-approve
+  amount start right away unless they cost $1.00 or more: those always need the user's confirmation, whatever
+  the auto-approve amount. Amounts are estimator cents, the unit of `generations.cost_cents`.
 
 ## Tokens
 
@@ -42,8 +43,14 @@ Users manage tokens and connected apps in Account settings, Agent access (`/api/
 - Public clients only (`token_endpoint_auth_method: none`). A client is either registered (DCR, `vvc_` id)
   or identified by an https Client ID Metadata Document URL (CIMD), fetched with pinned public DNS, no
   redirects, 5 KB and 5 s limits, and cached for an hour.
-- Redirect URIs are https, loopback http on any port, or a native app's private-use scheme. The consent page
-  shows where the decision returns before the user chooses.
+- Redirect URIs are https or loopback http (`127.0.0.1`, `[::1]` or `localhost`, any port). That covers
+  every in-scope client's documented redirect: Cursor's `https://www.cursor.com/agents/mcp/oauth/callback`
+  and `http://localhost:8787/callback` (https://cursor.com/docs/context/mcp), VS Code's
+  `http://127.0.0.1:33418` and `https://vscode.dev/redirect`, and Claude's and ChatGPT's https or loopback
+  callbacks. Private-use native schemes (`cursor://`, `vscode://`, `com.example.app:/`) are refused: none is
+  documented by a primary source for MCP OAuth, and adding one needs that verification. A client without a
+  verified redirect connects with a personal access token. The consent page shows where the decision returns
+  before the user chooses.
 - A code works once, for two minutes, for its client, redirect URI and PKCE verifier; a replay revokes the
   grant it produced. Presenting an already rotated refresh token revokes the whole grant. Responses carry
   `iss` (RFC 9207).
