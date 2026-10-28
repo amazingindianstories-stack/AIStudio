@@ -267,7 +267,7 @@ class BodyStreamSecurityTests(SimpleTestCase):
         handler.assert_not_called()
 
 
-@override_settings(VEEVEE_BROWSER_ORIGINS=('https://frontend.example',))
+@override_settings(VEEVEE_BROWSER_ORIGINS=('https://frontend.example',), PUBLIC_APP_URL='https://frontend.example')
 class ProtocolBoundaryTests(TransactionTestCase):
     def setUp(self):
         from apps.common import test_api_coverage as coverage
@@ -289,8 +289,13 @@ class ProtocolBoundaryTests(TransactionTestCase):
                             continue
                         with self.subTest(path=path, method=method, headers=headers):
                             response = coverage.CompleteApiNegativeBoundaryTests.request(self, path, method, self.valid, headers)
-                            self.assertEqual(response.status_code, 403)
-                            self.assertEqual(response.json(), {'error': 'FORBIDDEN_ORIGIN'})
+                            if path in coverage.COOKIELESS_OAUTH:
+                                # Cross-origin by design and cookie-blind: the empty body is refused, nothing is granted.
+                                self.assertEqual(response.status_code, coverage.NEGATIVE_STATUS[path][method])
+                                self.assertNotEqual(response.json().get('error'), 'FORBIDDEN_ORIGIN')
+                            else:
+                                self.assertEqual(response.status_code, 403)
+                                self.assertEqual(response.json(), {'error': 'FORBIDDEN_ORIGIN'})
             coverage.CompleteApiNegativeBoundaryTests.assert_no_effects(self, before)
 
     def test_method_override_headers_and_query_do_not_mutate_authenticated_get(self):

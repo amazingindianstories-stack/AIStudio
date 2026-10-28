@@ -18,7 +18,10 @@ SAFE_POST=re.compile(r'^/api/(?:auth/(?:login|logout)|uploads/init|uploads/[0-9a
 SAFE_PUT=re.compile(r'^/api/uploads/[0-9a-f-]{36}/local$')
 ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/errors','/api/admin/activity','/api/admin/status'))
 # Admin data mutations (Django answers 401 without a session and 403 for a non-admin).
-ADMIN_MUTATIONS={'/api/admin/users':('POST','PATCH','DELETE'),'/api/admin/pricing':('POST',),'/api/admin/limits':('POST',),'/api/admin/user-limits':('POST',)}
+ADMIN_MUTATIONS={'/api/admin/users':('POST','PATCH','DELETE'),'/api/admin/pricing':('POST',),'/api/admin/limits':('POST',),'/api/admin/user-limits':('POST',),
+                 '/api/admin/agent-access':('POST',),'/api/admin/agent-access/revoke':('POST',)}
+# CORS preflights for the OAuth endpoints browser-based agent clients call (Django answers them).
+OAUTH_PREFLIGHT=frozenset(('/api/oauth/authorization-server','/api/oauth/protected-resource','/api/oauth/register','/api/oauth/token','/api/oauth/revoke'))
 AGENT_MESSAGES=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/messages')
 DEPTH_POST_ROUTES=frozenset(('/api/generate/depth','/api/worker/depth/claim','/api/worker/depth/heartbeat','/api/worker/depth/progress','/api/worker/depth/upload-url','/api/worker/depth/complete'))
 # Response-header waits beyond the default 25 s: enqueue may normalize large references, transcription
@@ -33,6 +36,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     # Higgsfield token seeding stays closed: no offered model uses it, and it stores a provider credential.
     if method in ('GET','HEAD') and path in ADMIN_READ_PATHS:return True
     if method in ADMIN_MUTATIONS.get(path,()):return True
+    if method=='OPTIONS' and path in OAUTH_PREFLIGHT:return True
     # Managed portrait pool settings (Django requires an admin session for both methods).
     if method in ('GET','HEAD','POST') and path=='/api/admin/portrait-settings':return True
     if new_exports and method=="POST" and re.fullmatch(r"/api/history/exports(?:/[0-9a-f-]{36}/(?:items|finalize))?",path):return True

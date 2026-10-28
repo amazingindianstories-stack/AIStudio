@@ -95,6 +95,26 @@ GOAL2_UPLOADS = {
 }
 EXPECTED.update(GOAL2_UPLOADS)
 
+# Reviewed agent-access (MCP auth) additions.
+MCP_AUTH = {
+ '/api/oauth/authorization-server': ['GET'],
+ '/api/oauth/protected-resource': ['GET'],
+ '/api/oauth/register': ['POST'],
+ '/api/oauth/token': ['POST'],
+ '/api/oauth/revoke': ['POST'],
+ '/api/oauth/authorize/request': ['GET'],
+ '/api/oauth/authorize/decision': ['POST'],
+ '/api/mcp/tokens': ['GET', 'POST'],
+ '/api/mcp/tokens/[id]': ['DELETE'],
+ '/api/mcp/connections/[id]': ['DELETE'],
+ '/api/mcp/me': ['GET'],
+ '/api/admin/agent-access': ['POST'],
+ '/api/admin/agent-access/revoke': ['POST'],
+}
+EXPECTED.update(MCP_AUTH)
+# Agent OAuth endpoints read no cookies and answer browser-based clients cross-origin (apps.common.origin).
+COOKIELESS_OAUTH = {'/api/oauth/register', '/api/oauth/token', '/api/oauth/revoke'}
+
 
 def concrete(path):
     return re.sub(r'\[[^]]+\]',lambda match:'generated/fixture.png' if match[0]=='[...path]' else 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',path)
@@ -122,10 +142,10 @@ def leaves(patterns,prefix=''):
 
 @override_settings(ROOT_URLCONF='config.urls')
 class CompleteApiCoverageTests(SimpleTestCase):
-    def test_all_99_explicit_methods_resolve_to_the_declared_python_handlers(self):
-        # 90 migrated methods, the media resolver, the managed-portrait routes and the admin provider error log.
-        self.assertEqual(len(EXPECTED),77)
-        self.assertEqual(sum(map(len,EXPECTED.values())),99)
+    def test_all_113_explicit_methods_resolve_to_the_declared_python_handlers(self):
+        # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log and agent access.
+        self.assertEqual(len(EXPECTED),90)
+        self.assertEqual(sum(map(len,EXPECTED.values())),113)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -226,8 +246,12 @@ NEGATIVE_STATUS = {
 }
 
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in GOAL2_UPLOADS.items()})
+NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in MCP_AUTH.items()})
+# Public discovery documents, and machine endpoints refusing an empty body or an unknown client.
+NEGATIVE_STATUS.update({'/api/oauth/authorization-server':{'GET':200},'/api/oauth/protected-resource':{'GET':200},
+    '/api/oauth/register':{'POST':400},'/api/oauth/token':{'POST':401},'/api/oauth/revoke':{'POST':400}})
 
-@override_settings(ROOT_URLCONF='config.urls',VEEVEE_BROWSER_ORIGINS=('https://frontend.example',),
+@override_settings(ROOT_URLCONF='config.urls',VEEVEE_BROWSER_ORIGINS=('https://frontend.example',),PUBLIC_APP_URL='https://frontend.example',
     DEPTH_WORKER_TOKEN='boundary-depth',CRON_SECRET='boundary-cron',
     GENERATION_WORKER_SECRET='boundary-worker',EXPORT_WORKER_SECRET='boundary-export',SEEDANCE_CALLBACK_SECRET='boundary-callback')
 class CompleteApiNegativeBoundaryTests(TransactionTestCase):
@@ -244,7 +268,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         payload,signature=self.valid.split('.')
         self.forged=payload+'.'+('A' if signature[0]!='A' else 'B')+signature[1:]
         self.tables=sorted({model._meta.db_table for model in apps.get_models() if model._meta.managed})
-        self.assertEqual(len(self.tables),29)
+        self.assertEqual(len(self.tables),33)
         self.assertEqual({path:set(methods) for path,methods in EXPECTED.items()},
             {path:set(methods) for path,methods in NEGATIVE_STATUS.items()})
 
@@ -291,7 +315,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         self.assertEqual(self.write_attempts,[])
         for effect in self.effects: effect.assert_not_called()
 
-    def test_all_99_methods_match_negative_request_contract_without_effects(self):
+    def test_all_113_methods_match_negative_request_contract_without_effects(self):
         # Empty/malformed payload failures on public routes are not proof of
         # account-only authorization. Paid video now requires login; valid-payload
         # zero-effects and owner checks are covered by enqueue contract tests.
@@ -311,7 +335,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*99)
+            self.assertEqual(len(seen),3*113)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):
@@ -327,8 +351,13 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             'HTTP_AUTHORIZATION':'Bearer boundary-depth','HTTP_X_GENERATION_WORKER_SECRET':'boundary-worker','HTTP_X_EXPORT_WORKER_SECRET':'boundary-export',
                             'HTTP_X_SETUP_SECRET':'boundary-setup'}
                         response=self.request(path,method,self.valid,headers,'?token=boundary-callback')
-                        self.assertEqual(response.status_code,403)
-                        self.assertEqual(response.json(),{'error':'FORBIDDEN_ORIGIN'})
+                        if path in COOKIELESS_OAUTH:
+                            # Cross-origin by design; the valid cookie grants nothing, so the empty body is refused.
+                            self.assertEqual(response.status_code,NEGATIVE_STATUS[path][method])
+                            self.assertNotEqual(response.json().get('error'),'FORBIDDEN_ORIGIN')
+                        else:
+                            self.assertEqual(response.status_code,403)
+                            self.assertEqual(response.json(),{'error':'FORBIDDEN_ORIGIN'})
                         seen.add((path,method))
             self.assertEqual(seen,{(path,method) for path,methods in EXPECTED.items() for method in methods if method not in ('GET','HEAD','OPTIONS')})
             self.assert_no_effects(before)

@@ -18,7 +18,8 @@ from .models import AppSetting, Pricing, UserLimit
 from .views import GLOBAL_ONLY, LIMITS
 
 COLORS = ['#34d399', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#f87171', '#22d3ee', '#fb923c']
-LABELS = {'maxPromptLength': 'max prompt length', 'maxConcurrentJobs': 'max concurrent jobs', 'seedanceConcurrency': 'Seedance tasks per model'}
+LABELS = {'maxPromptLength': 'max prompt length', 'maxConcurrentJobs': 'max concurrent jobs', 'seedanceConcurrency': 'Seedance tasks per model',
+          'mcpDailyCapCents': 'agent daily limit', 'mcpActiveJobs': 'agent active jobs'}
 MISSING = object()
 
 
@@ -155,6 +156,9 @@ def user_mutations(request):
         if not changed: return reply(request, {'error': 'Nothing to update.'}, 400)
         if revoke: values['auth_version'] = F('auth_version') + 1
         if not User.objects.filter(pk=target.pk).update(**values): return reply(request, {'error': 'User not found.'}, 404)
+        if revoke:
+            from apps.mcp_auth.tokens import revoke_all_for_user
+            revoke_all_for_user(target.pk)
         target.refresh_from_db()
         action = 'admin_password_reset' if changed == ['password'] else ('admin_user_enabled' if target.is_active else 'admin_user_disabled') if changed == ['isActive'] else 'admin_user_updated'
         log_activity(actor.id, action, {'targetUserId': str(target.id), 'changedFields': changed})

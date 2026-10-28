@@ -39,6 +39,7 @@ import {
   AlertTriangle,
   SlidersHorizontal,
   Lock,
+  Bot,
 } from "lucide-react";
 import { formatCost } from "@/lib/format-cost";
 import { LIMIT_DEFINITIONS, USER_LIMIT_DEFINITIONS } from "@/lib/limits";
@@ -820,7 +821,7 @@ function UserActions({
         type="button"
         onClick={onLimits}
         aria-label={`Limits for ${user.name || user.email}`}
-        title="Limits"
+        title="Limits and agent access"
         className="grid h-8 w-8 place-items-center rounded-lg text-white/55 transition hover:bg-white/10 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
       >
         <SlidersHorizontal className="h-4 w-4" />
@@ -1012,6 +1013,7 @@ function UserLimitsModal({
   return (
     <AdminModal title={`Limits for ${user.name || user.email}`} onClose={onClose}>
       <div className="space-y-4">
+        <AgentAccessControls user={user} onSaved={onSaved} />
         <p className="text-sm leading-5 text-white/55">
           Leave a field blank to use the global default (Limits tab). A value
           here overrides it for this user specifically.
@@ -1050,6 +1052,121 @@ function UserLimitsModal({
         </div>
       </div>
     </AdminModal>
+  );
+}
+
+/** Agent (MCP) opt-in for one user, off by default, plus the emergency revoke of every token and app. */
+function AgentAccessControls({ user, onSaved }) {
+  const [enabled, setEnabled] = useState(Boolean(user.agentAccess?.enabled));
+  const [grants, setGrants] = useState(user.agentAccess?.activeGrants ?? 0);
+  const [busy, setBusy] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+  const [notice, setNotice] = useState(null);
+  const labelId = useId();
+
+  const post = async (path, body, kind) => {
+    setBusy(kind);
+    setNotice(null);
+    try {
+      const res = await apiFetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: user.id, ...body }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not update agent access."));
+      onSaved();
+      return json;
+    } catch (error) {
+      setNotice({ kind: "error", text: error instanceof Error ? error.message : "Could not update agent access." });
+      return null;
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const toggle = async () => {
+    const json = await post("/api/admin/agent-access", { enabled: !enabled }, "toggle");
+    if (json) setEnabled(json.enabled);
+  };
+
+  const revokeAll = async () => {
+    const json = await post("/api/admin/agent-access/revoke", {}, "revoke");
+    setConfirming(false);
+    if (json) {
+      setGrants(0);
+      setNotice({ kind: "success", text: `Revoked ${json.revoked} token${json.revoked === 1 ? "" : "s"}.` });
+    }
+  };
+
+  return (
+    <div className="space-y-3 rounded-xl border border-line p-3">
+      <div className="flex items-start gap-3">
+        <Bot className="mt-0.5 h-4 w-4 shrink-0 text-white/55" />
+        <div className="min-w-0 flex-1">
+          <p id={labelId} className="text-sm font-medium text-white">Agent access (MCP)</p>
+          <p className="text-xs leading-5 text-white/45">
+            Lets this user connect AI agents such as Claude, ChatGPT or Cursor that browse and generate on their behalf,
+            within the agent limits below. Off by default.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-labelledby={labelId}
+          onClick={toggle}
+          disabled={busy !== null}
+          className={cn(
+            "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/30 disabled:opacity-50",
+            enabled ? "bg-emerald-500" : "bg-white/15"
+          )}
+        >
+          <span
+            className={cn(
+              "absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+              enabled ? "translate-x-5" : "translate-x-0"
+            )}
+          />
+        </button>
+      </div>
+      <div className="flex min-h-8 flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
+        <span className="text-xs text-white/50">
+          {grants === 0 ? "No active tokens or apps" : `${grants} active token${grants === 1 ? "" : "s"} or app${grants === 1 ? "" : "s"}`}
+        </span>
+        {confirming ? (
+          <span className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setConfirming(false)}
+              disabled={busy !== null}
+              className="h-8 rounded-lg px-2.5 text-xs text-white/60 transition hover:bg-white/[0.06] hover:text-white"
+            >
+              Keep
+            </button>
+            <button
+              type="button"
+              onClick={revokeAll}
+              disabled={busy !== null}
+              className="flex h-8 items-center gap-1.5 rounded-lg bg-red-500/90 px-3 text-xs font-semibold text-white transition hover:bg-red-500 disabled:opacity-60"
+            >
+              {busy === "revoke" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              Revoke all now
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            disabled={grants === 0 || busy !== null}
+            className="h-8 rounded-lg border border-line px-3 text-xs font-medium text-white/70 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line disabled:hover:bg-transparent disabled:hover:text-white/70"
+          >
+            Revoke all agent tokens
+          </button>
+        )}
+      </div>
+      {notice && <AdminNoticeLine notice={notice} />}
+    </div>
   );
 }
 
@@ -1521,6 +1638,16 @@ function activitySummary(a) {
       return [d.kind, d.model, d.costCents != null ? formatCost(Number(d.costCents)) : null]
         .filter(Boolean)
         .join(" · ");
+    case "mcp_token_issued":
+      return [d.kind === "pat" ? `token "${d.name}"` : d.clientName, (d.scopes || []).join(" ")].filter(Boolean).join(" · ");
+    case "mcp_consent_granted":
+      return [d.clientName, d.dailyCapCents != null ? `${formatCost(Number(d.dailyCapCents))}/day` : null].filter(Boolean).join(" · ");
+    case "mcp_token_revoked":
+      return [d.kind, d.reason].filter(Boolean).join(" · ");
+    case "admin_mcp_access_updated":
+      return `agent access ${d.enabled ? "on" : "off"} for ${d.targetUserId ?? ""}`;
+    case "admin_mcp_tokens_revoked":
+      return `revoked ${d.revoked ?? 0} agent tokens for ${d.targetUserId ?? ""}`;
     default:
       return d && Object.keys(d).length ? JSON.stringify(d).slice(0, 100) : "";
   }

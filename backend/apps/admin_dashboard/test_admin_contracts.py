@@ -121,7 +121,7 @@ class AdminContractTests(TransactionTestCase):
         self.assertEqual((result['stats']['totalGenerations'],result['stats']['totalCostCents'],result['stats']['reconciledCostCents'],result['stats']['estimatedCostCents']),(4,50,30,20))
         self.assertEqual(result['users'][0]['genCount'],4)
         self.assertEqual(result['users'][0]['costCents'],50)
-        self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':8,'seedanceConcurrency':3})
+        self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':8,'seedanceConcurrency':3,'mcpDailyCapCents':2000,'mcpActiveJobs':4})
         self.assertEqual(len(result['pricing']),30)  # 23 frozen rows + 4 Magnific video rows + Nano Banana 2.1 + Gemini Omni Flash 1.1
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(Pricing.objects.get(pk='Nano Banana Pro').unit_cost_cents,777)
