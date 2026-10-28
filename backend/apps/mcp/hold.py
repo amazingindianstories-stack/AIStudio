@@ -58,10 +58,14 @@ def status_of(generation_id):
 
 async def hold(call, generation_id, *, max_wait_seconds=None, clock=time.monotonic, sleep=asyncio.sleep, read=status_of,
                terminal=TERMINAL, busy=BUSY_NOTE):
-    """Wait until the job (a generation unless ``read``/``terminal`` say otherwise) is terminal or the budget is spent;
-    returns ``busy`` when the wait was skipped for want of a slot."""
+    """Wait until the job (a generation unless ``read``/``terminal`` say otherwise) is terminal, gone (``read`` returns
+    None) or the budget is spent; returns ``busy`` when the wait was skipped for want of a slot."""
     deadline = call.started + wait_seconds(max_wait_seconds)
-    if clock() >= deadline or await db(read, generation_id) in terminal:
+
+    async def done():
+        status = await db(read, generation_id)
+        return status is None or status in terminal
+    if clock() >= deadline or await done():
         return None
     async with hold_slot(call.principal) as slot:
         if slot is None:
@@ -72,5 +76,5 @@ async def hold(call, generation_id, *, max_wait_seconds=None, clock=time.monoton
             if remaining <= 0:
                 return None
             await sleep(min(FAST_POLL_SECONDS if clock() - began < FAST_PHASE_SECONDS else SLOW_POLL_SECONDS, remaining))
-            if await db(read, generation_id) in terminal:
+            if await done():
                 return None

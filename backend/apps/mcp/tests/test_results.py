@@ -319,6 +319,17 @@ class ResultTests(StorageMixin, McpCase):
         self.assertLess(time.monotonic() - began, 6)
         self.assertEqual(self.hold_rows(), [])
 
+    def test_a_job_deleted_while_waiting_is_not_found_at_once(self):
+        row = self.row(status='running', completed_at=None, url=None)
+        timer = threading.Timer(1.5, lambda: (Generation.objects.filter(pk=row.pk).delete(), connection.close()))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        began = time.monotonic()
+        error = self.assert_tool_error(self.get(row.id, wait=True, maxWaitSeconds=30), 'NOT_FOUND')
+        self.assertLess(time.monotonic() - began, 6)
+        self.assertIn('search_generations', error['message'])
+        self.assertEqual(self.hold_rows(), [])
+
     def test_wait_stops_at_max_wait_with_the_running_shape(self):
         row = self.row(status='running', completed_at=None, url=None)
         began = time.monotonic()
@@ -391,6 +402,14 @@ class HoldTests(McpCase):
     def test_returns_when_terminal(self):
         note, clock = self.run_hold(['running', 'running', 'running', 'succeeded'])
         self.assertEqual((note, clock.now), (None, 3))
+
+    def test_a_missing_row_ends_the_wait(self):
+        with patch.object(hold, 'hold_slot') as slot:
+            note, clock = self.run_hold([None])
+        self.assertEqual((note, clock.now), (None, 0))
+        slot.assert_not_called()
+        note, clock = self.run_hold(['running', 'running', None])
+        self.assertEqual((note, clock.now), (None, 2))
 
     def test_already_terminal_does_not_wait_or_take_a_slot(self):
         with patch.object(hold, 'hold_slot') as slot:

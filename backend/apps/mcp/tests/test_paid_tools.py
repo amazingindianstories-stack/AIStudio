@@ -422,8 +422,11 @@ class PaidToolTests(StorageMixin, McpCase):
         arguments = self.generate(raw=raw).structured_content['next']['arguments']
         row = self.submitted(self.call(raw, 'generate_image', arguments))
         Generation.objects.filter(pk=row.id).delete()
-        error = self.assert_tool_error(self.call(raw, 'generate_image', arguments), 'NOT_FOUND')
-        self.assertIn('search_generations', error['message'])
+        for wait in (False, True):
+            began = time.monotonic()
+            error = self.assert_tool_error(self.call(raw, 'generate_image', {**arguments, 'wait': wait}), 'NOT_FOUND')
+            self.assertLess(time.monotonic() - began, 5)                   # a vanished job ends the wait at once
+            self.assertIn('search_generations', error['message'])
         self.assertEqual(Generation.objects.count(), 0)
 
     def test_web_submissions_keep_no_agent_origin(self):

@@ -278,6 +278,17 @@ class ExportTests(StorageMixin, McpCase):
         self.assertEqual(waited, self.get(export['id']).structured_content)
         self.assertEqual(waited['outcome'], 'running')
 
+    def test_an_export_deleted_while_waiting_is_not_found_at_once(self):
+        image = self.row()
+        export = self.export({'ids': [str(image.id)]}).structured_content['export']
+        timer = threading.Timer(1.5, lambda: (MediaExport.objects.filter(pk=export['id']).delete(), connection.close()))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        began = time.monotonic()
+        error = self.assert_tool_error(self.get(export['id'], wait=True, maxWaitSeconds=30), 'NOT_FOUND')
+        self.assertLess(time.monotonic() - began, 6)
+        self.assertIn('export_zip', error['message'])
+
     def test_maintenance_pauses_export_zip_but_not_get_export(self):
         image = self.row()
         export = self.export({'ids': [str(image.id)]}).structured_content['export']
