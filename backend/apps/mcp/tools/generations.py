@@ -130,6 +130,8 @@ def deferred(identifier):
 def settled(identifier):
     """What a deferred cancel came to, once the worker had a few seconds to send it."""
     row = Generation.objects.filter(pk=identifier).values('status', 'cancellation_state').first()
+    if row is None:
+        raise not_found(identifier)
     state = row['cancellation_state']
     message = (None if row['status'] == 'cancelled' else cancellation.DEFERRED if state == cancellation.PENDING
                else REFUSED if state == 'refused' else CONFIRMING if state in cancellation.UNSETTLED

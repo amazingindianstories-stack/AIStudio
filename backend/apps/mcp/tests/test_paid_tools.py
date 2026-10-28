@@ -513,6 +513,19 @@ class CancelTests(StorageMixin, McpCase):
         row.refresh_from_db()
         self.assertEqual((row.cancellation_state, row.cost_cents, row.cost_basis), ('confirmed', 98, 'cancelled_billing_unconfirmed'))
 
+    def test_a_job_deleted_during_the_cancel_hold_is_not_found(self):
+        row = self.row(task_id='cgt-deleted', submitted_at=2)
+
+        def delete(identifier):
+            Generation.objects.filter(pk=identifier).delete()
+
+        async def deleted_while_holding(call, identifier, **options):
+            await db(delete, identifier)
+        with patch.object(hold, 'hold', deleted_while_holding):
+            error = self.assert_tool_error(self.cancel(row), 'NOT_FOUND')
+        self.assertIn('search_generations', error['message'])
+        self.assertFalse(Generation.objects.filter(pk=row.pk).exists())
+
     def test_a_deferred_cancel_reports_requested_too_late_or_uncertain(self):
         waiting = self.row(task_id='cgt-nobody-home', submitted_at=2)
         began = time.monotonic()
