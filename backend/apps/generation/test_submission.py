@@ -139,25 +139,6 @@ class QuoteTests(TransactionTestCase):
                     Generation.objects.all().delete()
                     self.storage.primary.objects.clear()
 
-    def test_finalize_and_upscale_quotes_match_the_recorded_estimate(self):
-        now = enqueue.now_ms()
-        draft = Generation.objects.create(id=uuid.uuid4(), kind='video', status='succeeded', prompt='draft', model='Seedance 2.5',
-            aspect_ratio='16:9', resolution='480p', duration=8, draft_mode=True, task_id='draft-task', created_at=now, updated_at=now)
-        quote = submission.quote_finalize(self.actor, str(draft.id))
-        self.assertEqual(Generation.objects.count(), 1)
-        self.assertEqual(quote, {'kind': 'video', 'model': 'Seedance 2.5',
-                                 'costCents': submission.finalize_draft(self.actor, str(draft.id))['costCents']})
-        with self.assertRaises(submission.Refused) as refused:
-            submission.quote_finalize(self.actor, str(uuid.uuid4()))
-        self.assertEqual((refused.exception.status, refused.exception.code), (404, 'NOT_FOUND'))
-        body = dict(model='Magnific Precision V2', image=data_url(picture(160, 90)),
-                    params=dict(scaleFactor='4x', flavor='photo', sharpen=7, smartGrain=7, ultraDetail=30))
-        with override_settings(VEEVEE_MEDIA_STORAGE=self.storage, VEEVEE_MAGNIFIC_UPSCALE=True):
-            quote = submission.quote_upscale(self.actor, body, origin='https://veevee.test')
-            self.assertEqual((Generation.objects.count(), self.storage.primary.objects), (2, {}))
-            item = submission.submit_upscale(self.actor, body, origin='https://veevee.test')
-        self.assertEqual(quote, {'kind': 'image', 'model': 'Magnific Precision V2', 'costCents': item['costCents']})
-
 
 class ReadTests(TransactionTestCase):
     def setUp(self):

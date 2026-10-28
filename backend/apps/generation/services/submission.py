@@ -158,16 +158,6 @@ def draft_source(actor, source_generation_id):
     return source
 
 
-def quote_finalize(actor, source_generation_id):
-    """The estimate finalize_draft would record for this draft; nothing is stored or queued."""
-    source = draft_source(actor, source_generation_id)
-    try:
-        cost = enqueue.build_final(source, actor.id)['costCents']
-    except Exception:
-        raise Refused(500, {'error': 'Failed to price the final render.'}) from None
-    return {'kind': 'video', 'model': source.model, 'costCents': cost}
-
-
 def finalize_draft(actor, source_generation_id):
     """Queue the 1080p final of a Seedance 2.5 draft, billed to ``actor``, and return its public item."""
     source = draft_source(actor, source_generation_id)
@@ -192,24 +182,15 @@ def finalize_draft(actor, source_generation_id):
         raise Refused(500, {'error': 'Failed to queue the final render.'}) from None
 
 
-def quote_upscale(actor, body, *, origin):
-    """Validate an image or video upscale as submit_upscale does and price it; nothing is stored or queued."""
-    return upscale(actor, body, origin, commit=False)
-
-
 def submit_upscale(actor, body, *, origin):
     """Queue a Magnific image or video upscale for ``actor`` and return its public item.
 
     ``origin`` is this site's own origin, the one source URL outside the media store that is accepted.
     """
-    return upscale(actor, body, origin, commit=True)
-
-
-def upscale(actor, body, origin, *, commit):
     try:
         data = resolve_submission_references(body, actor.id)
         if 'video' in data:
-            return video_upscale(actor, data, origin, commit=commit)
+            return video_upscale(actor, data, origin)
         validated = validate_upscale_request(data)
         enqueue.refuse_unavailable(validated['model'], 'upscale')
         validate_source(data['image'], origin)
@@ -234,8 +215,6 @@ def upscale(actor, body, origin, *, commit):
         source = with_queue_execution_deadline(lambda signal: get_storage().read_as_base64(raw, max_bytes=MAX_BYTES), timeout_ms=15000)
         meta = inspect_image(source['data'], source['mimeType'])['meta']
         validate_output_area(model, params, meta)
-        if not commit:
-            return {'kind': 'image', 'model': model, 'costCents': cost}
         data_uri = f"data:{source['mimeType'].lower()};base64,{source['data']}"
         references = save_reference_images([data_uri], str(identifier))
         item = dict(id=str(identifier), kind='image', status='queued', prompt=prompt or f'{model} ({scale})',
@@ -268,7 +247,7 @@ def upscale(actor, body, origin, *, commit):
         raise Refused(500, {'error': 'Failed to start upscale generation.'}) from None
 
 
-def video_upscale(actor, data, origin, *, commit):
+def video_upscale(actor, data, origin):
     """Queue a Magnific video upscale. No copy of the source and no provider call here."""
     validated = validate_video_upscale_request(data)
     enqueue.refuse_unavailable(validated['model'], 'upscale')
@@ -280,8 +259,6 @@ def video_upscale(actor, data, origin, *, commit):
         meta = inspect_video_source(source, actor_id=actor.id)
         validate_prores_size(model, params, meta)
         cost = video_upscale_cost(model, params, meta, read_pricing())
-        if not commit:
-            return {'kind': 'video', 'model': model, 'costCents': cost}
         item = dict(id=str(identifier), kind='video', status='queued', prompt=f"{model} ({params['resolution']})",
             model=model, aspectRatio=aspect_ratio(meta['width'], meta['height']), resolution=params['resolution'],
             duration=max(1, round(meta['durationSeconds'])), referenceVideos=[source], userId=str(actor.id),
