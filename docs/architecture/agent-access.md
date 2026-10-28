@@ -37,13 +37,14 @@ Users manage tokens and connected apps in Account settings, Agent access (`/api/
 | Authorization server metadata (RFC 8414) | `/.well-known/oauth-authorization-server` (served at `/api/oauth/authorization-server`) |
 | Dynamic client registration (RFC 7591) | `POST /api/oauth/register`, 20 per client address per hour |
 | Authorization | `/oauth/authorize`, the Next.js consent page, backed by `/api/oauth/authorize/request` and `/decision` |
-| Token | `POST /api/oauth/token`: `authorization_code` with PKCE S256, `refresh_token` with rotation |
+| Token | `POST /api/oauth/token`: `authorization_code` with PKCE S256, `refresh_token` with rotation; 60 per client and client address per minute |
 | Revocation (RFC 7009) | `POST /api/oauth/revoke` |
 
 - Public clients only (`token_endpoint_auth_method: none`). A client is either registered (DCR, `vvc_` id)
   or identified by an https Client ID Metadata Document URL (CIMD), fetched with pinned public DNS, no
-  redirects, 5 KB and 5 s limits, and cached for an hour.
-- Redirect URIs are https or loopback http (`127.0.0.1`, `[::1]` or `localhost`, any port). That covers
+  redirects, 5 KB and 5 s in total, and cached for an hour; any fetch or parse failure is `invalid_client`.
+- Redirect URIs are https or loopback http (`127.0.0.1`, `[::1]` or `localhost`, any port), with no userinfo,
+  fragment or backslash; a supplied redirect passes the same check before it is matched. That covers
   every in-scope client's documented redirect: Cursor's `https://www.cursor.com/agents/mcp/oauth/callback`
   and `http://localhost:8787/callback` (https://cursor.com/docs/context/mcp), VS Code's
   `http://127.0.0.1:33418` and `https://vscode.dev/redirect`, and Claude's and ChatGPT's https or loopback
