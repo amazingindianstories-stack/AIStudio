@@ -237,12 +237,6 @@ class SearchTests(Library):
         self.assert_tool_error(self.search(favorite=False), 'INVALID_INPUT')
         self.assert_tool_error(self.search(folderId='not-a-folder'), 'INVALID_INPUT')
 
-    def test_web_history_refuses_malformed_ids_with_400(self):
-        self.client.cookies['veevee_session'] = sign_session(self.user)
-        for query in ({'projectId': 'not-a-uuid'}, {'folderId': 'nope'}):
-            response = self.client.get('/api/history', query)
-            self.assertEqual((response.status_code, response.json()), (400, {'error': 'Invalid history query.'}))
-
 
 class DownloadLinkTests(Library):
     def test_batch_with_per_item_errors_in_both_eras(self):

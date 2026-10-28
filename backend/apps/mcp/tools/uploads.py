@@ -150,12 +150,10 @@ def from_upload_error(error, **values):
     return errors.ToolError(code, message.format(**{'id': '', 'type': 'declared', 'limit': 'size', **values}).replace('  ', ' '))
 
 
-def request_key(call, how, values):
-    """The session's per-user replay key: the agent's idempotencyKey, or one derived from token, input and minute."""
+def request_key(call):
+    """The session's per-user replay key from the agent's idempotencyKey; without one every call stores a new file."""
     explicit = call.arguments.get('idempotencyKey')
-    if explicit:
-        return 'mcp:' + hashlib.sha256(explicit.encode()).hexdigest()[:60]
-    return paid.derived_key(call.principal, 'upload_reference:' + how, values)
+    return 'mcp:' + hashlib.sha256(explicit.encode()).hexdigest()[:60] if explicit else ''
 
 
 def store(user_id, body, data):
@@ -199,7 +197,7 @@ async def from_inline(call):
     digest = hashlib.sha256(data).hexdigest()
     filename = call.arguments.get('filename', '')
     body = {'purpose': purpose, 'contentType': mime, 'byteSize': len(data), 'filename': filename, 'sha256': digest,
-            'requestKey': request_key(call, 'inline', {'contentType': mime, 'sha256': digest, 'filename': filename})}
+            'requestKey': request_key(call)}
     return await db(store, call.principal.user.id, body, io.BytesIO(data))
 
 
@@ -259,7 +257,7 @@ async def from_url(call):
             filename = call.arguments.get('filename') or filename_from(url)
             body = {'purpose': purpose, 'contentType': mime, 'byteSize': size, 'filename': filename,
                     'sha256': digest.hexdigest(),
-                    'requestKey': request_key(call, 'url', {'url': url, 'contentType': wanted, 'filename': filename})}
+                    'requestKey': request_key(call)}
             return await db(store, call.principal.user.id, body, spool)
 
     # A dropped client never abandons a half-stored file: the import finishes (and frees its slot) and a retry replays it.
@@ -274,7 +272,7 @@ async def start_session(call):
         raise errors.ToolError(errors.INVALID_INPUT, str(error)) from None
     body = {'purpose': purpose, 'contentType': mime, 'byteSize': arguments['byteSize'],
             'filename': arguments.get('filename', ''), 'sha256': arguments.get('sha256', '')}
-    body['requestKey'] = request_key(call, 'session', {key: value for key, value in body.items() if key != 'purpose'})
+    body['requestKey'] = request_key(call)
 
     def begin(user_id):
         storage = get_storage()
@@ -329,7 +327,9 @@ WAYS = ('url', 'dataBase64', 'byteSize', 'uploadId')
         'sha256': {'type': 'string', 'pattern': '^[0-9a-f]{64}$', 'description': 'Optional checksum checked at finalize.'},
         'uploadId': {**results.UUID, 'description': 'Finish a signed upload after PUTting every byte.'},
         'filename': {'type': 'string', 'maxLength': 255, 'description': 'Optional name to show for the file.'},
-        'idempotencyKey': paid.PAID_CONTROLS['idempotencyKey'],
+        'idempotencyKey': {**paid.PAID_CONTROLS['idempotencyKey'],
+                           'description': 'Retrying with the same key returns the first reference instead of storing the '
+                                          'file again. Without a key every call stores a new reference.'},
     }),
     output_schema=UPLOAD_RESULT)
 async def upload_reference(call):

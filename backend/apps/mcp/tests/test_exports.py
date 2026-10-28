@@ -26,7 +26,6 @@ from apps.mcp.shapes import iso
 from apps.mcp.tools.exports import EXPORT_RESULT
 from apps.projects.models import Project
 from .support import ERAS, SITE, McpCase
-from .test_paid_tools import mid_minute
 from .test_read_tools import leaf
 from .test_results import StorageMixin, mov_bytes, png_bytes
 
@@ -38,9 +37,6 @@ class ExportTests(StorageMixin, McpCase):
         super().setUp()
         self.use_storage()
         self.raw = self.token(scopes=ORGANIZE)
-        clock = patch('apps.mcp.paid.now_ms', return_value=mid_minute())
-        clock.start()
-        self.addCleanup(clock.stop)
         self.project = Project.objects.create(name='Winter', created_at=1, updated_at=1)
         self.campaign = Folder.objects.create(project=self.project, name='Campaign', created_at=1)
         self.hero = Folder.objects.create(project=self.project, parent=self.campaign, name='Hero shots', created_at=2)
@@ -228,10 +224,10 @@ class ExportTests(StorageMixin, McpCase):
         made = self.export(keyed).structured_content['export']['id']
         self.assertEqual(self.export(keyed).structured_content['export']['id'], made)
         self.assert_tool_error(self.export({**keyed, 'ids': [str(second.id)]}), 'IDEMPOTENCY_CONFLICT')
-        # Without a key, an identical call in the same minute is a retry of the first one.
-        derived = self.export({'ids': [str(second.id)]}).structured_content['export']['id']
-        self.assertEqual(self.export({'ids': [str(second.id)], 'wait': False}).structured_content['export']['id'], derived)
-        self.assertEqual(MediaExport.objects.count(), 2)
+        # Without a key every call is a new export, even with identical arguments.
+        unkeyed = {self.export({'ids': [str(second.id)], 'wait': False}).structured_content['export']['id'] for _ in range(2)}
+        self.assertEqual(len(unkeyed), 2)
+        self.assertEqual(MediaExport.objects.count(), 3)
 
     def test_exports_are_owner_only(self):
         image = self.row()

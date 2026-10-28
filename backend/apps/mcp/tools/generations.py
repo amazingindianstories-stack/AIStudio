@@ -16,17 +16,17 @@ def not_found(identifier):
     return errors.ToolError(errors.NOT_FOUND, f'No generation {identifier} is visible to you. Use search_generations to find it.')
 
 
-def detail(identifier):
+def detail(identifier, *, until=None):
     """``(item, Generation)`` for an id, with fresh links; None when no generation has that id."""
     item = reads.get_generation(identifier)
-    return (item, results.generations([item])[0]) if item else None
+    return (item, results.generations([item], until=until)[0]) if item else None
 
 
-def blocks(item, generation, *, include_preview):
+def blocks(item, generation, *, include_preview, until=None):
     """Extra content: the inline preview (image thumbnail or video poster) when finished, and a link to the resource."""
     found = []
     if include_preview and generation['status'] == 'succeeded' and generation['outputs']:
-        preview = links.preview_image(item)
+        preview = links.preview_image(item, until=until)
         if preview:
             data, mime = preview
             found.append(types.ImageContent(type='image', data=base64.b64encode(data).decode(), mime_type=mime))
@@ -40,7 +40,7 @@ async def generation_reply(call, found, *, quote=None, note=None, include_previe
     item, generation = found
     call.record['generationId'] = generation['id']
     result = results.generation_result(generation, quote=quote, note=note)
-    extra = await db(blocks, item, generation, include_preview=include_preview)
+    extra = await db(blocks, item, generation, include_preview=include_preview, until=hold.reply_deadline(call))
     return ToolResult(result, results.sentence(result), extra, outcome=result['outcome'])
 
 
@@ -66,7 +66,7 @@ async def get_generation(call):
         if not await db(hold.status_of, identifier):
             raise not_found(identifier)
         note = await hold.hold(call, identifier, max_wait_seconds=arguments.get('maxWaitSeconds'))
-    found = await db(detail, identifier)
+    found = await db(detail, identifier, until=hold.reply_deadline(call))
     if found is None:
         raise not_found(identifier)
     return await generation_reply(call, found, note=note, include_preview=arguments.get('includePreview', True))
@@ -155,7 +155,7 @@ async def cancel_generation(call):
         # Give the generation worker a few seconds to send it, so the answer is usually final.
         await hold.hold(call, identifier, max_wait_seconds=CANCEL_WAIT_SECONDS, read=deferred, terminal=('settled',))
         state, message = await db(settled, identifier)
-    reply = await generation_reply(call, await db(detail, identifier), include_preview=False)
+    reply = await generation_reply(call, await db(detail, identifier, until=hold.reply_deadline(call)), include_preview=False)
     reply.structured.update(cancellation=state, message=message)
     reply.sentence = f'Cancellation {state.replace("_", " ")}: {message}' if message else reply.sentence
     return reply

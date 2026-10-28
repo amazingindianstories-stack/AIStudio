@@ -2,8 +2,9 @@
 
 A quote is an HMAC (``MCP_QUOTE_SECRET``) over the user, the token grant, the tool, the canonical arguments, the price
 and a 10-minute expiry, so a quote for a 4 s 480p clip can never pay for a 15 s 1080p one. The token carries those
-values in the clear (nothing secret: ids, a digest and cents) and the signature binds them. A quote pays for one job:
-``consume`` records its id in the transaction that creates the row, until the quote expires.
+values in the clear (nothing secret: ids, a digest and cents) and the signature binds them. A quote pays for exactly
+one job: ``consume`` records the quote and that job's id in the transaction that creates the row, until the quote
+expires, and a later call with the same quote gets that job back.
 """
 import base64
 import binascii
@@ -13,9 +14,9 @@ import json
 import secrets
 
 from django.conf import settings
-from django.db import connection
 
 from apps.common.leases import now_ms
+from apps.library.models import OrganizationIdempotencyKey
 from .shapes import dollars, iso
 
 TTL_MS = 10 * 60 * 1000
@@ -80,9 +81,10 @@ def echo(principal, token, payload, summary):
             'summary': summary, 'requiresUserConfirmation': payload['c'] >= principal.caps.confirm_at_cents}
 
 
-def consume(payload):
-    """Mark the quote spent; False when it already paid for a job. Call inside the transaction that creates the row."""
-    with connection.cursor() as cursor:
-        cursor.execute('''INSERT INTO mcp_rate_windows (bucket, window_start, count, expires_at) VALUES (%s, 0, 1, %s)
-            ON CONFLICT (bucket, window_start) DO NOTHING RETURNING count''', ['quote:' + payload['q'], payload['e']])
-        return cursor.fetchone() is not None
+def consume(payload, generation_id):
+    """Spend the quote on ``generation_id``: None when it was unspent, else the id of the job it already paid for.
+    Call inside the transaction that creates the row, so a refused or failed submission leaves the quote unspent."""
+    spend, created = OrganizationIdempotencyKey.objects.get_or_create(pk='mcp-quote:' + payload['q'], defaults={
+        'actor_id': payload['u'], 'operation': 'MCP_QUOTE', 'fingerprint': payload['a'], 'result': {'id': generation_id},
+        'created_at': now_ms(), 'expires_at': payload['e']})
+    return None if created else spend.result['id']

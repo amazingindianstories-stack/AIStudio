@@ -19,7 +19,6 @@ from mcp.client.streamable_http import streamable_http_client
 from apps.authentication.models import User
 from apps.authentication.password import hash_password
 from apps.mcp_auth import policy, tokens
-from apps.mcp import runtime
 from apps.mcp.app import build_application
 
 SITE = 'https://veevee.test'
@@ -37,8 +36,6 @@ class McpCase(TransactionTestCase):
         max_age = database['CONN_MAX_AGE']
         database['CONN_MAX_AGE'] = 0
         self.addCleanup(database.__setitem__, 'CONN_MAX_AGE', max_age)
-        runtime.forget_switch()
-        self.addCleanup(runtime.forget_switch)
         quiet = patch.object(logging.getLogger('veevee.mcp'), 'handlers', [logging.NullHandler()])
         quiet.start()
         self.addCleanup(quiet.stop)

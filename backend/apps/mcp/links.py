@@ -4,7 +4,9 @@
 where storage cannot sign attachments). ``preview``, ``thumbnail`` and ``poster`` are signed reads reported as 14
 minutes, like /api/media-resolve. Image previews and thumbnails are the 1280 and 512 px WebP derivatives; a video
 previews as its master and its thumbnail is the poster frame. A derivative that cannot be made is null (a missing
-image preview falls back to the master); the master is never touched.
+image preview falls back to the master); the master is never touched. With a reply deadline (``until``, monotonic
+seconds) a derivative is made only while it can finish ``MAKE_RESERVE_SECONDS`` before the deadline; later, only one
+that already exists is used.
 """
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -12,10 +14,10 @@ from concurrent.futures import ThreadPoolExecutor
 from django.conf import settings
 from django.db import close_old_connections
 
-from apps.media.derivatives import bounded_derivative
+from apps.media.derivatives import READ_DEADLINE_SECONDS, bounded_derivative
 from apps.media.images import is_thumbnailable
 from apps.media.keys import media_key_from_ref
-from apps.media.posters import bounded_poster, is_video_key
+from apps.media.posters import DEADLINE_SECONDS as POSTER_SECONDS, bounded_poster, is_video_key
 from apps.media.storage import MIME, attachment_disposition, get_storage
 from apps.media.views import authorize_media_key
 
@@ -25,6 +27,8 @@ READ_SECONDS = 900
 READ_REPORTED_MS = (READ_SECONDS - 60) * 1000      # signed reads may come from a 45 s per-process cache
 PREVIEW_MAX_BYTES = 2 * 1024 * 1024
 THREADS = 8
+MAKE_RESERVE_SECONDS = 5           # left after making derivatives, for measuring, the inline preview and the reply
+MIN_MAKE_SECONDS = 4               # with less time than this, make nothing
 
 
 def media_key(item):
@@ -46,13 +50,23 @@ def _original_url(storage, key, filename):
     return url, int(time.time() * 1000) + ORIGINAL_SECONDS * 1000
 
 
-def derivative(storage, key, variant):
+def make_seconds(until, ceiling):
+    """How long making one derivative may take: ``ceiling`` without a deadline, 0 (existing ones only) when it is near."""
+    if until is None:
+        return ceiling
+    left = until - MAKE_RESERVE_SECONDS - time.monotonic()
+    return min(ceiling, left) if left >= MIN_MAKE_SECONDS else 0
+
+
+def derivative(storage, key, variant, *, until=None):
     """``(derivative_key, fresh_bytes_or_None)`` for preview/thumbnail/poster, made on first use; None when unavailable."""
     if is_video_key(key):
-        return bounded_poster(storage, key) if variant in ('thumbnail', 'poster') else None
+        return (bounded_poster(storage, key, seconds=make_seconds(until, POSTER_SECONDS))
+                if variant in ('thumbnail', 'poster') else None)
     if variant == 'poster' or not is_thumbnailable(key):
         return None
-    target, fresh = bounded_derivative(storage, key, 1280 if variant == 'preview' else 512)
+    target, fresh = bounded_derivative(storage, key, 1280 if variant == 'preview' else 512,
+                                       seconds=make_seconds(until, READ_DEADLINE_SECONDS))
     return (target, fresh) if target != key else None
 
 
@@ -77,7 +91,7 @@ def stored_file(storage, key, kind, *, measure):
     return found
 
 
-def resolve(item, variants, *, measure=False, storage=None, key=None):
+def resolve(item, variants, *, measure=False, storage=None, key=None, until=None):
     """The Output links for one generation item: ``{'urls', 'urlsExpireAt', 'bytes', 'width', 'height'}`` or None."""
     key = key or media_key(item)
     if key is None:
@@ -92,7 +106,7 @@ def resolve(item, variants, *, measure=False, storage=None, key=None):
             elif variant == 'preview' and (is_video_key(key) or item.get('kind') == 'audio'):
                 url, expires = _read_url(storage, key)
             else:
-                made = derivative(storage, key, variant)
+                made = derivative(storage, key, variant, until=until)
                 if made is None and variant == 'preview':
                     made = (key, None)
                 url, expires = _read_url(storage, made[0]) if made else (None, None)
@@ -105,7 +119,7 @@ def resolve(item, variants, *, measure=False, storage=None, key=None):
             **stored_file(storage, key, item.get('kind'), measure=measure)}
 
 
-def resolve_many(items, variants, *, measure=False):
+def resolve_many(items, variants, *, measure=False, until=None):
     """``resolve`` for a batch, eight storage calls at a time; results in the order of ``items``.
 
     Keys are authorized here, on the caller's database thread; the pool only talks to storage."""
@@ -115,23 +129,23 @@ def resolve_many(items, variants, *, measure=False):
     def one(pair):
         item, key = pair
         try:
-            return resolve(item, variants, measure=measure, storage=storage, key=key) if key else None
+            return resolve(item, variants, measure=measure, storage=storage, key=key, until=until) if key else None
         finally:
             close_old_connections()
     if len(items) <= 1:
-        return [resolve(item, variants, measure=measure, storage=storage, key=key) if key else None
+        return [resolve(item, variants, measure=measure, storage=storage, key=key, until=until) if key else None
                 for item, key in zip(items, keys)]
     with ThreadPoolExecutor(max_workers=THREADS, thread_name_prefix='mcp-links') as pool:
         return list(pool.map(one, zip(items, keys)))
 
 
-def preview_image(item):
+def preview_image(item, *, until=None):
     """``(webp_bytes, 'image/webp')`` for the inline preview: the 512 px thumbnail or the video poster; else None."""
     key = media_key(item)
     if key is None:
         return None
     storage = get_storage()
-    made = derivative(storage, key, 'thumbnail')
+    made = derivative(storage, key, 'thumbnail', until=until)
     if made is None:
         return None
     target, fresh = made

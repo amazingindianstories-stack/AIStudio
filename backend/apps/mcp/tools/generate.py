@@ -227,7 +227,7 @@ def prepare(kind):
 PREPARE = {'generate_image': prepare('image'), 'generate_video': prepare('video')}
 PAID_RESULT = (' Cheap jobs start at once; above your auto-approve amount the result is outcome "quote_required" with a '
                'price and next: ask the user when quote.requiresUserConfirmation is true, then make the call in next. '
-               'Spending limits, rates and running-job limits apply (get_account shows them). ')
+               'Each call without an idempotencyKey or a quoteToken starts a new job. Spending limits, rates and running-job limits apply (get_account shows them). ')
 
 
 @register(

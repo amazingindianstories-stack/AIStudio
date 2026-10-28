@@ -197,26 +197,16 @@ class SwitchTests(McpCase):
                 self.assertFalse(self.call(raw, 'get_account', mode=mode, headers=maintenance).is_error)
             self.assertFalse(self.call(raw, 'fake_paid', headers={'x-veevee-maintenance': '0'}).is_error)
 
-    def test_the_admin_switch_refuses_write_tools_within_five_seconds(self):
+    def test_the_admin_switch_refuses_write_tools_on_the_next_call(self):
         raw = self.token()
         with patch.dict(REGISTRY):
             fake_tools()
             self.assertFalse(self.call(raw, 'fake_paid').is_error)
             AppSetting.objects.create(key=runtime.ADMIN_SWITCH, value='false', updated_at=1)
-            runtime.forget_switch()
             self.assertIn('switched off in Veevee', self.assert_tool_error(self.call(raw, 'fake_paid'), 'MCP_DISABLED')['message'])
             self.assertFalse(self.call(raw, 'get_account').is_error)
             AppSetting.objects.filter(key=runtime.ADMIN_SWITCH).update(value='true')
-            runtime.forget_switch()
             self.assertFalse(self.call(raw, 'fake_paid').is_error)
-
-    def test_switch_cache_lasts_at_most_five_seconds(self):
-        clock = iter((100.0, 104.9, 105.1))
-        tick = lambda: next(clock)  # noqa: E731
-        self.assertTrue(runtime.admin_switch_on(clock=tick))
-        AppSetting.objects.create(key=runtime.ADMIN_SWITCH, value='false', updated_at=1)
-        self.assertTrue(runtime.admin_switch_on(clock=tick))
-        self.assertFalse(runtime.admin_switch_on(clock=tick))
 
     def test_the_per_token_call_rate_applies(self):
         raw = self.token()

@@ -162,7 +162,7 @@ def create(call):
         selection = {'ids': list(dict.fromkeys(identifier.lower() for identifier in arguments['ids']))}
     else:
         selection = {'folderId': arguments['folderId'].lower(), 'includeSubfolders': bool(arguments.get('includeSubfolders'))}
-    key = arguments.get('idempotencyKey') or paid.derived_key(call.principal, 'export_zip', selection)
+    key = arguments.get('idempotencyKey')
 
     def mutation():
         ids = selection.get('ids') or folder_selection(selection['folderId'], selection['includeSubfolders'])
@@ -207,8 +207,9 @@ async def reply(call, identifier, *, skipped=(), wait=False):
                       'wait': {'type': 'boolean', 'default': True, 'description': 'Wait for the archive to be ready.'},
                       'maxWaitSeconds': WAIT_SECONDS,
                       'idempotencyKey': {**paid.PAID_CONTROLS['idempotencyKey'],
-                                         'description': 'Retrying with the same key returns the first export. Use a '
-                                                        'new key for each export you mean to make.'}}),
+                                         'description': 'Retrying with the same key returns the first export. Without '
+                                                        'a key every call makes a new export; use a new key for each '
+                                                        'export you mean to make.'}}),
     output_schema=EXPORT_RESULT)
 async def export_zip(call):
     made = await db(create, call)

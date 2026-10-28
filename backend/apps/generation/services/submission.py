@@ -105,7 +105,7 @@ def submit_generation(actor, kind, body, *, idempotency_key=None, origin=None, a
 
     ``idempotency_key`` is the client's raw key: a repeat with the same key and values returns the first
     generation instead of queueing a second billable job. Agent callers pass ``origin`` (the row's
-    ``created_via``/``mcp_*`` fields) and ``admit(values)``, which runs with the priced values in the transaction
+    ``created_via``/``mcp_*`` fields) and ``admit(values)``, which runs with the priced values and new ``id`` in the transaction
     that creates the row; whatever it raises comes back as ``AdmissionRefused``. The web passes neither.
     """
     submitted = copy.deepcopy(body)
@@ -130,7 +130,7 @@ def submit_generation(actor, kind, body, *, idempotency_key=None, origin=None, a
         # a second billable job. Prepared values are not part of the fingerprint.
         created = {}
         def submit():
-            admitted(admit, {**item, **prepared})
+            admitted(admit, {**item, **prepared, 'id': str(identifier)})
             created['item'] = enqueue.finish_enqueue({**item, **origin_values(origin)}, prepared, identifier, now, actor.id)
             return {'id': created['item']['id']}
         receipt = idempotency.execute('GENERATION_ENQUEUE_' + kind.upper(), submitted, submit,
@@ -290,29 +290,8 @@ def persist_upscale(actor, item, submitted, *, key, origin, admit):
     return (found['row'], True) if 'row' in found else (Generation.objects.get(pk=receipt['id']), False)
 
 
-def upscale_source_generation(source, kind):
-    """The library generation an upscale source URL shows, or ``None`` (uploads, data URLs).
-
-    The oldest finished row at that URL is the source; a regenerated image upscale sends its immutable reference copy,
-    so it inherits the source the upscale it repeats recorded.
-    """
-    from django.conf import settings
-    from apps.media.keys import media_key_from_ref
-    key = media_key_from_ref(source, getattr(settings, 'GCP_MEDIA_CDN_URL', ''))
-    if not key:
-        return None
-    urls = sorted({source, '/api/media/' + key})
-    found = Generation.objects.filter(url__in=urls, kind=kind, status='succeeded').order_by('created_at', 'id').values_list(
-        'id', flat=True).first()
-    if found:
-        return str(found)
-    return Generation.objects.filter(model__startswith='Magnific ', kind=kind, submission_input__source__in=urls,
-                                     submission_input__sourceGenerationId__isnull=False).order_by('-created_at', '-id').values_list(
-        'submission_input__sourceGenerationId', flat=True).first()
-
-
 def with_source(intent, source_id):
-    """The intent with its source generation recorded (additive; older intents have none)."""
+    """The intent with the source generation an agent picked by id (additive; web and older intents have none)."""
     return {**intent, 'sourceGenerationId': source_id} if source_id else intent
 
 
@@ -321,8 +300,8 @@ def submit_upscale(actor, body, *, origin, idempotency_key=None, created_by=None
 
     ``origin`` is this site's own origin, the one source URL outside the media store that is accepted. Agent callers
     pass ``idempotency_key``, ``created_by`` (the row's agent origin fields) and ``admit`` as for ``submit_generation``,
-    and ``source_id`` when they picked the source generation by id; the web passes none of them, and its source
-    generation is found from the source URL. Either way the intent records it as ``sourceGenerationId``.
+    and ``source_id`` when they picked the source generation by id, which the intent records as ``sourceGenerationId``.
+    The web passes none of them.
     """
     submitted, key = copy.deepcopy(body), receipt_key(idempotency_key, actor.id)
     agent = dict(submitted=submitted, key=key, created_by=created_by, admit=admit, source_id=source_id)
@@ -362,7 +341,7 @@ def submit_upscale(actor, body, *, origin, idempotency_key=None, created_by=None
         # Persist immutable parameters/reference before returning; only the
         # leased Python worker may perform billable submission.
         intent, created = persist_upscale(actor, {**item, 'submissionInput': with_source({'version': 1,
-            'source': references[0], 'params': params}, source_id or upscale_source_generation(raw, 'image'))},
+            'source': references[0], 'params': params}, source_id)},
             submitted, key=key, origin=created_by, admit=admit)
         if created:
             log_activity(actor.id, 'generate', {'id': str(identifier), 'kind': 'image', 'model': model, 'costCents': cost})
@@ -409,8 +388,7 @@ def video_upscale(actor, data, origin, *, submitted=None, key=None, created_by=N
         for name in ('projectId', 'folderId'):
             if truthy(data.get(name)): item[name] = data[name]
         # Only the leased Python worker signs the source and submits it.
-        intent = with_source({'version': 1, 'source': source, 'params': params, 'sourceMeta': meta},
-                             source_id or upscale_source_generation(source, 'video'))
+        intent = with_source({'version': 1, 'source': source, 'params': params, 'sourceMeta': meta}, source_id)
         row, created = persist_upscale(actor, {**item, 'submissionInput': intent}, submitted, key=key, origin=created_by, admit=admit)
         if created:
             log_activity(actor.id, 'generate', {'id': str(identifier), 'kind': 'video', 'model': model, 'costCents': cost})

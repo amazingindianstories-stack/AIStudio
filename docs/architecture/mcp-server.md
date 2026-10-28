@@ -35,7 +35,7 @@ flowchart LR
 - `backend/deploy/legacy_config.py` gives the `mcp` component the API database role and storage, plus
   `VEEVEE_MCP`, `MCP_QUOTE_SECRET` and `MCP_MAX_HOLD_SECONDS`, and never any provider credential (Gemini,
   ModelArk, BytePlus, Magnific, Kling) or the portrait lifecycle switches. Settings refuse to start the component
-  without `VEEVEE_MCP=1`, a quote secret of 32 or more characters and a hold of 1-50 s (default 45).
+  without `VEEVEE_MCP=1`, a quote secret of 32 or more characters and a hold of 1-45 s (default 45).
 - The service is stateless Streamable HTTP with JSON responses (`mcp==2.3.0`, `stateless_http`, `json_response`):
   no sessions and no server-initiated streams. One endpoint serves the 2025 handshake (`2025-06-18`,
   `2025-11-25`) and the `2026-07-28` revision. Django runs in-process; ORM work runs on an 8-thread executor
@@ -59,12 +59,15 @@ flowchart LR
 | More than 120 calls a minute per token | `RATE_LIMITED` with `retryAfterSeconds` |
 
 The switches, from broadest to narrowest: `VEEVEE_MCP` (the service does not start without it); the global
-`settings` row `mcpEnabled` (`'false'` refuses every write tool; a missing row means on; read at most every 5 s);
+`settings` row `mcpEnabled` (`'false'` refuses every write tool; a missing row means on; read on every call);
 the per-user opt-in (admin Users tab); and token revocation (Account settings, the admin Users tab, or
 `admin_revoke_mcp_tokens`). The global switch has no admin page yet; set it from a Django shell on the API
 service with `AppSetting` (`apps.admin_dashboard.models`) and `now_ms` (`apps.common.leases`):
 `AppSetting.objects.update_or_create(key='mcpEnabled', defaults={'value': 'false', 'updated_at': now_ms()})`.
-Deleting the row switches writes back on within 5 s.
+Deleting the row switches writes back on with the next call. `admin_revoke_mcp_tokens` is a write tool, so it is
+refused while the switch is off or maintenance is on. The emergency revoke is the web one (Account settings or the
+admin Users tab), which the switch does not affect; maintenance freezes it with every other web write, while
+agents can only read.
 
 ## Tools
 
@@ -114,17 +117,23 @@ that return URLs say when links expire and to call `get_download_links` again.
    result is `outcome: "quote_required"` with a `quote` and the exact call to repeat with `quoteToken`, plus
    `confirmedByUser: true` at $1.00 or more (the agent must ask the user). A quote is an HMAC
    (`MCP_QUOTE_SECRET`) over user, grant, tool, canonical arguments, price and a 10-minute expiry
-   (`apps/mcp/quotes.py`), and pays for one job. A price that rose above the approved amount gets a new quote.
+   (`apps/mcp/quotes.py`), and pays for exactly one job: the transaction that creates the row records the quote
+   with that job's id, and a later call with the same quote (whatever its `idempotencyKey`) returns that job instead
+   of starting another, so a retried paid call is never charged twice. A price that rose above the approved amount
+   gets a new quote.
 3. Admit and submit in one transaction: `controls.admit_paid_submission` (user and grant daily caps, 10 paid
    calls a minute and 200 a day per token, active jobs) runs inside the transaction that creates the row, which
    also consumes the quote.
-4. Idempotency: `idempotencyKey` (`[A-Za-z0-9_.:-]{8,128}`) goes to the shared receipts; without one the server
-   derives a key from token, tool, arguments and the minute, so a transport retry returns the first job. The same
-   key with other arguments is `IDEMPOTENCY_CONFLICT`.
+4. Idempotency: `idempotencyKey` (`[A-Za-z0-9_.:-]{8,128}`) goes to the shared receipts, so a retry with the same
+   key returns the first job; the same key with other arguments is `IDEMPOTENCY_CONFLICT`. Without a key (and
+   without a quote) every call is a new, independent job: four identical calls make four jobs. `export_zip`,
+   `upload_reference` and the organise tools follow the same rule.
 5. Wait: `wait` (default true) and `maxWaitSeconds` (1-45) count from the start of the call. The hold
    (`apps/mcp/hold.py`) polls the row on `asyncio.sleep` (1 s for 10 s, then 2 s) and takes one of the grant's
    4 hold slots; with none free the call returns at once with a note. A client that disconnects stops only the
-   wait, never the job.
+   wait, never the job. The result is built by 50 s after the call began (`hold.REPLY_SECONDS`, inside the
+   gateway's 55 s): a missing preview, thumbnail or poster is made only while it can finish 5 s before then, and
+   otherwise comes back null until a later `get_generation` makes it. `MCP_MAX_HOLD_SECONDS` is 1-45.
 
 `cancel_generation` marks a job with a provider task `cancellation_state='pending'`
 (`generation/services/cancellation.py`, `defer=True`), because this service holds no provider credentials. The
@@ -151,13 +160,12 @@ sentence plus the JSON in a text block, `structuredContent` matching the tool's 
 WebP preview when finished (the thumbnail, or the poster for a video) and a `resource_link` to
 `veevee://generation/{id}`.
 
-An upscale links to its source as `related.upscaleSourceId` (and its one reference's `generationId`). The shared
-`submission.submit_upscale` records the source generation in the immutable intent as
-`submission_input.sourceGenerationId`, for agent and web upscales alike: `upscale_media` passes the id it was given,
-the web's source URL names the oldest finished row at that URL, and a regenerated image upscale (which sends the
-reference copy) inherits the id the upscale it repeats recorded. Uploads record none, and web responses are
-unchanged. Older upscales fall back to matching the reference URL against library rows, which finds video sources
-but not copied image sources.
+An upscale links to its source as `related.upscaleSourceId` (and its one reference's `generationId`). When
+`upscale_media` is given a generation id, the shared `submission.submit_upscale` records it in the immutable intent
+as `submission_input.sourceGenerationId`; uploads record none. The web's Upscale path records nothing and runs no
+lookup, so its speed and responses are unchanged. Web and older upscales fall back to matching the reference URL
+against library rows (the `generations_url_hash_idx` index, `generation.0009`), which finds video sources but not
+copied image sources.
 
 Links (`apps/mcp/links.py`) reuse the media resolver: originals are 5-minute signed downloads with the canonical
 filename and native bytes (MOV stays MOV); previews and thumbnails are the existing derivatives. Video posters are

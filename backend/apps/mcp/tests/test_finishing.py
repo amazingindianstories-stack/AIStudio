@@ -42,10 +42,9 @@ class UpscaleToolTests(StorageMixin, McpCase):
                                     ignore_conflicts=True)
         self.raw = self.token()
         pinned = mid_minute()
-        for target in ('apps.mcp.paid.now_ms', 'apps.mcp_auth.controls.now_ms'):
-            clock = patch(target, return_value=pinned)
-            clock.start()
-            self.addCleanup(clock.stop)
+        clock = patch('apps.mcp_auth.controls.now_ms', return_value=pinned)
+        clock.start()
+        self.addCleanup(clock.stop)
         self.image = self.finished('image', 'generations/still.png', png_bytes(600, 400), 'image/png')
         self.clip = self.finished('video', 'generations/clip.mov', mov_bytes(), 'video/quicktime')
 
@@ -113,18 +112,8 @@ class UpscaleToolTests(StorageMixin, McpCase):
         self.assertEqual((web.model, web.resolution, web.aspect_ratio, web.cost_cents, web.mcp_token_id),
                          (row.model, row.resolution, row.aspect_ratio, row.cost_cents, None))
         self.assertIsNone(web.created_via)
-        # The web names its source by URL; the same generation is recorded, and a regenerate (which sends the reference
-        # copy) keeps it.
-        self.assertEqual(web.submission_input['sourceGenerationId'], str(self.image.id))
-        again = self.client.post('/api/generate/upscale', {'image': web.submission_input['source'], 'model': 'Magnific Creative',
-                                                           'params': web.submission_input['params']},
-                                 content_type='application/json', HTTP_ORIGIN=SITE)
-        self.assertEqual(again.status_code, 200, again.content)
-        self.assertIsNone(again.json()['sourceGenerationId'], 'the web item keeps its draft link column, untouched')
-        regenerated = Generation.objects.get(pk=again.json()['id'])
-        self.assertEqual(regenerated.submission_input['sourceGenerationId'], str(self.image.id))
-        found = self.call(self.raw, 'get_generation', {'id': str(regenerated.id)}).structured_content['generation']
-        self.assertEqual(found['related']['upscaleSourceId'], str(self.image.id))
+        # The web path looks nothing up and records no source generation.
+        self.assertNotIn('sourceGenerationId', web.submission_input)
         audit = ActivityLog.objects.filter(action='mcp_tool_call').order_by('-created_at').first().detail
         self.assertEqual((audit['tool'], audit['generationId'], audit['costCents']), ('upscale_media', str(row.id), 20))
 
@@ -171,8 +160,9 @@ class UpscaleToolTests(StorageMixin, McpCase):
                          {'resolution': '2k', 'enhancementModel': 'starlight_precise_2_5', 'noise': 0, 'targetFps': 30})
         self.assertEqual(topaz.cost_cents, video_upscale_cost('Magnific Video Topaz', {'resolution': '2k', 'targetFps': 30}, meta, pricing))
 
-    def test_the_source_generation_is_recorded_for_agent_and_web_video_upscales(self):
-        # A newer row shares the clip's URL: the agent's chosen id is recorded, and the web's URL names the oldest row.
+    def test_the_agent_records_its_chosen_source_and_a_web_video_upscale_links_by_url(self):
+        # A newer row shares the clip's URL: the agent's chosen id is recorded; a web upscale records none and links to
+        # the oldest row at its reference URL when read.
         copy = Generation.objects.create(id=uuid.uuid4(), kind='video', status='succeeded', prompt='copy', model='Seedance 2.5',
                                          url=self.clip.url, user_id=self.user.id, created_at=now_ms() + 5, updated_at=now_ms() + 5)
         result = self.upscale({'sourceId': str(copy.id).upper()})
@@ -185,7 +175,8 @@ class UpscaleToolTests(StorageMixin, McpCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertIsNone(response.json()['sourceGenerationId'], 'the web item keeps its draft link column, untouched')
         web = Generation.objects.get(pk=response.json()['id'])
-        self.assertEqual((web.submission_input['sourceGenerationId'], web.reference_videos), (str(self.clip.id), [self.clip.url]))
+        self.assertNotIn('sourceGenerationId', web.submission_input)
+        self.assertEqual(web.reference_videos, [self.clip.url])
         found = self.call(self.raw, 'get_generation', {'id': str(web.id)}).structured_content['generation']
         self.assertEqual((found['related']['upscaleSourceId'], found['references']),
                          (str(self.clip.id), [{'role': 'video', 'generationId': str(self.clip.id)}]))
@@ -209,10 +200,10 @@ class UpscaleToolTests(StorageMixin, McpCase):
         self.assertEqual((quoted['outcome'], quoted['quote']['costCents'], quoted['quote']['requiresUserConfirmation']),
                          ('quote_required', 20, False))
         row = self.submitted(self.call(raw, 'upscale_media', quoted['next']['arguments']))
-        # A quote pays for one job: the same quote again (with a new key) is re-quoted, not charged.
+        # A quote pays for one job: the same quote again, even with a new key, returns that job and charges nothing.
         again = self.call(raw, 'upscale_media', {**quoted['next']['arguments'], 'idempotencyKey': 'second-job-01'}).structured_content
-        self.assertEqual(again['outcome'], 'quote_required')
-        self.assertIn('already paid for a job', again['next']['why'])
+        self.assertEqual((again['outcome'], again['generation']['id'], again['quote']['token']),
+                         ('running', str(row.id), quoted['quote']['token']))
         first = self.upscale({'sourceId': str(self.image.id), 'idempotencyKey': 'replay-key-01'})
         replay = self.upscale({'sourceId': str(self.image.id), 'idempotencyKey': 'replay-key-01'})
         self.assertEqual(first.structured_content['generation']['id'], replay.structured_content['generation']['id'])
@@ -230,10 +221,9 @@ class FinalizeToolTests(StorageMixin, McpCase):
         self.use_storage()
         self.raw = self.token()
         pinned = mid_minute()
-        for target in ('apps.mcp.paid.now_ms', 'apps.mcp_auth.controls.now_ms'):
-            clock = patch(target, return_value=pinned)
-            clock.start()
-            self.addCleanup(clock.stop)
+        clock = patch('apps.mcp_auth.controls.now_ms', return_value=pinned)
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def draft(self, **fields):
         values = dict(id=uuid.uuid4(), kind='video', status='succeeded', prompt='river at dawn', model='Seedance 2.5',

@@ -181,10 +181,9 @@ class UploadToolTests(StorageMixin, McpCase):
         self.use_storage()
         self.raw = self.token()
         pinned = mid_minute()
-        for target in ('apps.mcp.paid.now_ms', 'apps.mcp_auth.controls.now_ms'):
-            clock = patch(target, return_value=pinned)
-            clock.start()
-            self.addCleanup(clock.stop)
+        clock = patch('apps.mcp_auth.controls.now_ms', return_value=pinned)
+        clock.start()
+        self.addCleanup(clock.stop)
         self.png = png_bytes(600, 400)
 
     def upload(self, arguments, raw=None, mode='legacy'):
@@ -281,13 +280,14 @@ class UploadToolTests(StorageMixin, McpCase):
                 self.assertIn(text, self.assert_tool_error(self.upload(arguments), 'INVALID_INPUT')['message'])
 
     def test_replays_return_the_same_reference_and_a_reused_key_with_other_bytes_conflicts(self):
+        # Without a key every call stores a new reference, even for the same bytes.
         first = self.ready(self.inline(self.png, 'image/png'))
-        self.assertEqual(self.ready(self.inline(self.png, 'image/png'))['id'], first['id'])
+        self.assertNotEqual(self.ready(self.inline(self.png, 'image/png'))['id'], first['id'])
         keyed = self.ready(self.inline(self.png, 'image/png', idempotencyKey='hero-upload-1'))
         self.assertNotEqual(keyed['id'], first['id'])
         self.assertEqual(self.ready(self.inline(self.png, 'image/png', idempotencyKey='hero-upload-1'))['id'], keyed['id'])
         self.assert_tool_error(self.inline(png_bytes(400, 400), 'image/png', idempotencyKey='hero-upload-1'), 'IDEMPOTENCY_CONFLICT')
-        self.assertEqual(UploadSession.objects.count(), 2)
+        self.assertEqual(UploadSession.objects.count(), 3)
 
     def put(self, upload, data):
         path = upload['url'][len(SITE):]

@@ -21,7 +21,8 @@ from apps.generation.models import Generation
 from apps.generation.services import cancellation, enqueue
 from apps.generation.services.paid_guard import PaidBudgetHold
 from apps.library.models import Folder
-from apps.mcp import hold, paid, quotes, results
+from apps.mcp import hold, quotes, results
+from apps.mcp.runtime import db
 from apps.mcp.tools import generations
 from apps.mcp.tools.generations import CANCEL_SCHEMA
 from apps.mcp.tools.generate import ESTIMATE_SCHEMA
@@ -35,7 +36,7 @@ FOX = {'prompt': 'red fox in snow', 'wait': False}
 
 
 def mid_minute():
-    """Now, moved to the middle of its minute: derived idempotency keys and rate windows cannot roll over mid-test."""
+    """Now, moved to the middle of its minute: rate windows cannot roll over mid-test."""
     now = int(time.time() * 1000)
     return now - now % 60000 + 30000
 
@@ -46,10 +47,9 @@ class PaidToolTests(StorageMixin, McpCase):
         self.use_storage()
         self.raw = self.token()
         pinned = mid_minute()
-        for target in ('apps.mcp.paid.now_ms', 'apps.mcp_auth.controls.now_ms'):
-            clock = patch(target, return_value=pinned)
-            clock.start()
-            self.addCleanup(clock.stop)
+        clock = patch('apps.mcp_auth.controls.now_ms', return_value=pinned)
+        clock.start()
+        self.addCleanup(clock.stop)
 
     def generate(self, arguments=None, tool='generate_image', raw=None, mode='legacy', headers=None):
         return self.call(raw or self.raw, tool, {**FOX, **(arguments or {})}, mode, headers)
@@ -191,20 +191,18 @@ class PaidToolTests(StorageMixin, McpCase):
         self.assertEqual(error['message'], 'Attach a reference clip to edit a video.')
         self.assertEqual(Generation.objects.count(), 0)
 
+    def test_identical_calls_without_a_key_are_separate_jobs(self):
+        # "4 images of X" as four identical wait=false calls in one minute: four jobs, four ids, four charges.
+        made = [self.submitted(self.generate()) for _ in range(4)]
+        self.assertEqual(len({row.id for row in made}), 4)
+        self.assertEqual(sum(row.cost_cents for row in Generation.objects.all()), 4 * made[0].cost_cents)
+
     def test_idempotent_replay_and_conflict(self):
-        first = self.submitted(self.generate())
-        replay = self.submitted(self.generate())             # a transport retry in the same minute: no second job
-        self.assertEqual(first.id, replay.id)
         keyed = self.submitted(self.generate({'idempotencyKey': 'agent-key-0001'}))
-        self.assertNotEqual(keyed.id, first.id)
         self.assertEqual(self.submitted(self.generate({'idempotencyKey': 'agent-key-0001', 'wait': True, 'maxWaitSeconds': 1})).id, keyed.id)
         error = self.assert_tool_error(self.generate({'idempotencyKey': 'agent-key-0001', 'prompt': 'grey wolf'}), 'IDEMPOTENCY_CONFLICT')
         self.assertIn('Use a new key', error['message'])
-        self.assertEqual(Generation.objects.count(), 2)
-        self.assertEqual(paid.derived_key(authenticate_bearer(self.raw), 'generate_image', {'a': 1}, now=60_000),
-                         paid.derived_key(authenticate_bearer(self.raw), 'generate_image', {'a': 1}, now=119_999))
-        self.assertNotEqual(paid.derived_key(authenticate_bearer(self.raw), 'generate_image', {'a': 1}, now=60_000),
-                            paid.derived_key(authenticate_bearer(self.raw), 'generate_image', {'a': 1}, now=120_000))
+        self.assertEqual(Generation.objects.count(), 1)
 
     def test_budget_refusal_names_get_account(self):
         raw = self.token(cap=10)
@@ -253,11 +251,11 @@ class PaidToolTests(StorageMixin, McpCase):
         self.assertEqual(Generation.objects.count(), 0)
 
     def test_wait_false_and_wait_true_return_the_same_result(self):
-        submitted = self.generate().structured_content
+        submitted = self.generate({'idempotencyKey': 'wait-both-01'}).structured_content
         identifier = submitted['generation']['id']
         self.assertEqual(submitted, self.call(self.raw, 'get_generation', {'id': identifier}).structured_content)
         began = time.monotonic()
-        waited = self.generate({'wait': True, 'maxWaitSeconds': 1}).structured_content   # replays the same job, then waits
+        waited = self.generate({'idempotencyKey': 'wait-both-01', 'wait': True, 'maxWaitSeconds': 1}).structured_content
         self.assertGreaterEqual(time.monotonic() - began, 0.9)
         self.assertEqual(waited, submitted)
 
@@ -275,6 +273,34 @@ class PaidToolTests(StorageMixin, McpCase):
         self.assert_structured(result, results.RESULT_SCHEMA)
         self.assertEqual((result.structured_content['outcome'], result.structured_content['next']), ('completed', None))
         self.assertEqual([block.type for block in result.content], ['text', 'image', 'resource_link'])
+
+    def test_a_job_finishing_as_the_wait_ends_answers_without_making_derivatives(self):
+        identifier = uuid.uuid4()
+        url = self.store(f'generations/{identifier}.png', png_bytes(), 'image/png')
+
+        def finish(generation_id):
+            Generation.objects.filter(pk=generation_id).update(status='succeeded', url=url, completed_at=int(time.time() * 1000))
+
+        async def finished_as_the_wait_ran_out(call, generation_id, **options):
+            call.started = time.monotonic() - 45
+            await db(finish, generation_id)
+        with patch.object(hold, 'hold', finished_as_the_wait_ran_out):
+            began = time.monotonic()
+            result = self.generate({'wait': True})
+        self.assertLess(time.monotonic() - began, 5)
+        self.assert_structured(result, results.RESULT_SCHEMA)
+        body = result.structured_content
+        urls = body['generation']['outputs'][0]['urls']
+        self.assertEqual((body['outcome'], urls['thumbnail'], urls['poster']), ('completed', None, None))
+        self.assertIsNotNone(urls['original'])
+        self.assertIsNotNone(urls['preview'])                                 # the master stands in for the preview
+        self.assertEqual([block.type for block in result.content], ['text', 'resource_link'])
+        self.assertFalse(self.storage.exists(f'thumbs/512/generations/{identifier}.png.webp'))
+        # The next call has its own time and makes them.
+        again = self.call(self.raw, 'get_generation', {'id': body['generation']['id']})
+        self.assertIsNotNone(again.structured_content['generation']['outputs'][0]['urls']['thumbnail'])
+        self.assertEqual([block.type for block in again.content], ['text', 'image', 'resource_link'])
+        self.assertTrue(self.storage.exists(f'thumbs/512/generations/{identifier}.png.webp'))
 
     def test_the_hold_stops_45_seconds_after_the_call_began(self):
         clock, real = FakeClock(), hold.hold
@@ -365,21 +391,30 @@ class PaidToolTests(StorageMixin, McpCase):
 
     def test_a_quote_pays_for_one_job(self):
         raw = self.token(auto_approve=0)
-        arguments = self.generate({'idempotencyKey': 'quote-once-1'}, raw=raw).structured_content['next']['arguments']
+        arguments = self.generate(raw=raw).structured_content['next']['arguments']
+        self.assertNotIn('idempotencyKey', arguments)
         # A refused submission leaves its quote unused.
         with patch.dict(policy.RATE_LIMITS, paid_minute=(0, 60)):
             self.assert_tool_error(self.call(raw, 'generate_image', arguments), 'RATE_LIMITED')
         row = self.submitted(self.call(raw, 'generate_image', arguments))
-        self.assertEqual(self.submitted(self.call(raw, 'generate_image', arguments)).id, row.id)    # a retry replays the job
-        again = self.call(raw, 'generate_image', {**arguments, 'idempotencyKey': 'quote-once-2'})
-        self.assert_structured(again, results.RESULT_SCHEMA)
-        body = again.structured_content
-        self.assertEqual((body['outcome'], body['generation']), ('quote_required', None))
-        self.assertNotEqual(body['quote']['token'], arguments['quoteToken'])
-        self.assertTrue(body['next']['why'].startswith('The quoteToken you sent already paid for a job.'))
-        self.assertNotIn('quoteId', self.audits()[-1])
+        # A confirmed job whose reply was lost, retried minutes later with the same quote (with or without a new key):
+        # the job the quote paid for comes back, nothing is re-quoted and nothing more is charged.
+        later = patch('apps.mcp_auth.controls.now_ms', return_value=mid_minute() + 180_000)
+        later.start()
+        self.addCleanup(later.stop)
+        for retry in (arguments, {**arguments, 'idempotencyKey': 'quote-once-2'}):
+            again = self.call(raw, 'generate_image', retry)
+            self.assert_structured(again, results.RESULT_SCHEMA)
+            body = again.structured_content
+            self.assertEqual((body['outcome'], body['generation']['id'], body['quote']['token']),
+                             ('running', str(row.id), arguments['quoteToken']))
+            self.assertEqual(self.audits()[-1]['quoteId'], self.audits()[-2]['quoteId'])
         self.assertEqual(Generation.objects.count(), 1)
-        self.assertNotEqual(self.submitted(self.call(raw, 'generate_image', body['next']['arguments'])).id, row.id)
+        # Another token cannot use the quote, and a new quote pays for a new job.
+        self.assertEqual(self.call(self.token(auto_approve=0), 'generate_image', arguments).structured_content['outcome'],
+                         'quote_required')
+        fresh = self.generate(raw=raw).structured_content['next']['arguments']
+        self.assertNotEqual(self.submitted(self.call(raw, 'generate_image', fresh)).id, row.id)
         self.assertEqual(Generation.objects.count(), 2)
 
     def test_web_submissions_keep_no_agent_origin(self):

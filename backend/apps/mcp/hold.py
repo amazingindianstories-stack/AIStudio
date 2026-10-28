@@ -2,8 +2,9 @@
 
 The hold polls the indexed row on ``asyncio.sleep``: every second for the first 10 s, then every 2 s, until the job is
 terminal or the call's wait budget is spent. The budget is measured from the start of the call and capped by
-``MCP_MAX_HOLD_SECONDS``. Each waiting call takes one of the token's hold slots; when none is free the call returns at
-once with a note. A client that disconnects only stops the waiting; the work itself is never cancelled.
+``MCP_MAX_HOLD_SECONDS`` (at most 45 s), which leaves time to build the result before ``REPLY_SECONDS``. Each waiting
+call takes one of the token's hold slots; when none is free the call returns at once with a note. A client that
+disconnects only stops the waiting; the work itself is never cancelled.
 """
 import asyncio
 import time
@@ -17,6 +18,7 @@ from .results import TERMINAL
 from .runtime import db
 
 FAST_POLL_SECONDS, SLOW_POLL_SECONDS, FAST_PHASE_SECONDS = 1.0, 2.0, 10.0
+REPLY_SECONDS = 50                  # a tool call answers within this many seconds of its start (the gateway waits 55 s)
 BUSY_NOTE = (f'This connection already has {policy.HOLDS_PER_TOKEN} calls waiting, so this one returned at once. '
              'Call get_generation with wait=true once one of them returns.')
 
@@ -25,6 +27,11 @@ def wait_seconds(max_wait_seconds=None):
     """The wait a call asked for, defaulting to and capped by MCP_MAX_HOLD_SECONDS, counted from the call's start."""
     cap = settings.MCP_MAX_HOLD_SECONDS
     return cap if max_wait_seconds is None else min(max_wait_seconds, cap)
+
+
+def reply_deadline(call):
+    """When the call's reply must be ready (monotonic seconds): building the result makes no derivative past it."""
+    return call.started + REPLY_SECONDS
 
 
 @asynccontextmanager

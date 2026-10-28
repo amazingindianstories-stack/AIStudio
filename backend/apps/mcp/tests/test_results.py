@@ -102,10 +102,25 @@ class PosterTests(StorageMixin, SimpleTestCase):
         busy.acquire()
         self.assertIsNone(bounded_poster(self.storage, 'generations/clip.mov', gate=busy))
 
-        def slow(source, protocols):
+        def slow(source, protocols, timeout):
             raise subprocess.TimeoutExpired('ffmpeg', 15)
         self.assertIsNone(bounded_poster(self.storage, 'generations/clip.mov', frame=slow))
         self.assertFalse(self.storage.exists(poster_key('generations/clip.mov')))
+
+    def test_with_no_time_left_an_existing_poster_is_used_and_none_is_made(self):
+        self.store('generations/clip.mov', mov_bytes(), 'video/quicktime')
+        ran = []
+
+        def frame(source, protocols, timeout):
+            ran.append(timeout)
+            raise subprocess.TimeoutExpired('ffmpeg', timeout)
+        self.assertIsNone(bounded_poster(self.storage, 'generations/clip.mov', frame=frame, seconds=0))
+        self.assertEqual((ran, self.storage.exists(poster_key('generations/clip.mov'))), ([], False))
+        target, _ = bounded_poster(self.storage, 'generations/clip.mov')
+        self.assertEqual(bounded_poster(self.storage, 'generations/clip.mov', frame=frame, seconds=0), (target, None))
+        self.store('generations/other.mov', mov_bytes(), 'video/quicktime')
+        self.assertIsNone(bounded_poster(self.storage, 'generations/other.mov', frame=frame, seconds=7))
+        self.assertEqual(ran, [7])                                             # ffmpeg gets the time that is left
 
     def test_poster_keys_unwrap_like_thumbnails(self):
         self.assertTrue(is_export_key('thumbs/poster/exports/a.mov.webp'))
@@ -330,6 +345,15 @@ class ResultTests(StorageMixin, McpCase):
 
     def test_detail_is_none_for_unknown_id(self):
         self.assertIsNone(detail(str(uuid.uuid4())))
+
+    def test_reference_url_lookups_are_served_by_the_url_index(self):
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = 'generations_url_hash_idx'")
+            self.assertIn('USING hash (url)', cursor.fetchone()[0])
+            cursor.execute('SET enable_seqscan = off')
+        self.addCleanup(lambda: connection.cursor().execute('RESET enable_seqscan'))
+        plan = Generation.objects.filter(url__in=['/api/media/generations/a.png', '/api/media/generations/b.mov']).explain()
+        self.assertIn('generations_url_hash_idx', plan)
 
 
 class FakeClock:

@@ -237,14 +237,16 @@ def generation_of(item, found, resolved, *, detail):
     return result
 
 
-def generations(items, *, detail='full'):
-    """``Generation`` objects for public library items, in order. Runs on a database thread."""
+def generations(items, *, detail='full', until=None):
+    """``Generation`` objects for public library items, in order; ``until`` is the call's reply deadline (``links``).
+    Runs on a database thread."""
     if not items:
         return []
     found = context(items, detail=detail)
     ready = [item for item in items if item['status'] == 'succeeded' and item.get('url')]
     resolved = dict(zip([item['id'] for item in ready],
-                        links.resolve_many(ready, FULL_VARIANTS if detail == 'full' else SUMMARY_VARIANTS, measure=detail == 'full')))
+                        links.resolve_many(ready, FULL_VARIANTS if detail == 'full' else SUMMARY_VARIANTS, measure=detail == 'full',
+                                           until=until)))
     return [generation_of(item, found, resolved.get(item['id']), detail=detail) for item in items]
 
 

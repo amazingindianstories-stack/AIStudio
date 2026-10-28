@@ -2,7 +2,7 @@
 
 They call the web's write services (``apps.generation.history_writes``, ``apps.library.services.folder_engine``), so
 folder ids, hierarchy, optimistic versions, serial counters, permanent names and frozen export filenames behave
-exactly as on the web. Folder writes go through the shared idempotency receipts with an explicit or derived key.
+exactly as on the web. Folder writes go through the shared idempotency receipts when the agent sends an idempotencyKey.
 """
 from django.db import transaction
 
@@ -25,7 +25,8 @@ LIST_FOLDERS = results.call('list_folders', {}, 'Shows every folder with its id 
 NOT_FOUND_CODES = ('FOLDER_NOT_FOUND', 'DESTINATION_NOT_FOUND', 'PROJECT_NOT_FOUND')
 CHANGED_CODES = ('VERSION_CONFLICT', 'SCOPE_MISMATCH')
 IDEMPOTENCY_KEY = {**paid.PAID_CONTROLS['idempotencyKey'],
-                   'description': 'Retrying with the same key returns the first result instead of acting twice.'}
+                   'description': 'Retrying with the same key returns the first result instead of acting twice. '
+                                  'Without a key every call acts again.'}
 EXPECTED_VERSION = {'type': 'integer', 'minimum': 1,
                     'description': 'The folder version from list_folders; the call is refused if the folder changed since.'}
 FOLDER_SCHEMA = results.obj({
@@ -78,12 +79,10 @@ def place(destination):
     return 'project', destination['projectId'].lower()
 
 
-def organise(call, tool, operation, arguments):
-    """Run a folder engine write with the caller's key, or one derived from the tool and its arguments."""
-    principal = call.principal
-    key = call.arguments.get('idempotencyKey') or paid.derived_key(principal, tool, arguments)
+def organise(call, tool, operation):
+    """Run a folder engine write; the caller's idempotencyKey, when sent, makes a retry replay the first result."""
     try:
-        return operation(actor_id=str(principal.user.id), idempotency_key=key)
+        return operation(actor_id=str(call.principal.user.id), idempotency_key=call.arguments.get('idempotencyKey'))
     except OrganizationError as error:
         raise refused(error, tool) from None
 
@@ -129,10 +128,9 @@ async def set_favorite(call):
 def create(call):
     arguments = call.arguments
     kind, identifier = place(arguments.get('in', GLOBAL))
-    canonical = {'name': arguments['name'], 'color': arguments.get('color'), 'in': [kind, identifier]}
     found = organise(call, 'create_folder', lambda **common: folder_engine.create_folder(
         name=arguments['name'], color=arguments.get('color'), project_id=identifier if kind == 'project' else None,
-        parent_id=identifier if kind == 'folder' else None, **common), canonical)
+        parent_id=identifier if kind == 'folder' else None, **common))
     return {'folder': folder_of(found['id'])}
 
 
@@ -156,9 +154,8 @@ async def create_folder(call):
 def rename(call):
     arguments = call.arguments
     identifier = arguments['folderId'].lower()
-    canonical = {'folderId': identifier, 'name': arguments['name'], 'expectedVersion': arguments['expectedVersion']}
     found = organise(call, 'rename_folder', lambda **common: folder_engine.rename_folder(
-        folder_id=identifier, name=arguments['name'], expected_version=arguments['expectedVersion'], **common), canonical)
+        folder_id=identifier, name=arguments['name'], expected_version=arguments['expectedVersion'], **common))
     return {'folder': folder_of(found['id'])}
 
 
@@ -184,9 +181,8 @@ def move(call):
     kind, target = place(arguments['destination'])
     destination = ({'type': 'global_root'} if kind == GLOBAL else {'type': 'project_root', 'projectId': target}
                    if kind == 'project' else {'type': 'folder', 'folderId': target})
-    canonical = {'folderId': identifier, 'destination': destination, 'expectedVersion': arguments['expectedVersion']}
     found = organise(call, 'move_folder', lambda **common: folder_engine.move_folder(
-        folder_id=identifier, destination=destination, expected_version=arguments['expectedVersion'], **common), canonical)
+        folder_id=identifier, destination=destination, expected_version=arguments['expectedVersion'], **common))
     return {**found, 'folder': folder_of(found['folder']['id'])}
 
 
@@ -216,12 +212,8 @@ def move_items(call):
     kind, target = place(arguments['destination'])
     destination = ({'type': 'global_unsorted'} if kind == GLOBAL else {'type': 'project_unsorted', 'projectId': target}
                    if kind == 'project' else {'type': 'folder', 'folderId': target})
-    # Each move bumps locationVersion, so a derived key replays a retry but never an older move back to the same place.
-    versions = dict(Generation.objects.filter(pk__in=ids).values_list('id', 'location_version'))
-    canonical = {'ids': sorted(ids), 'destination': destination,
-                 'versions': {str(identifier): version for identifier, version in versions.items()}}
     found = organise(call, 'move_to_folder', lambda **common: folder_engine.move_generations(
-        ids=ids, destination=destination, **common), canonical)
+        ids=ids, destination=destination, **common))
     moved = reads.get_generations(found['updatedIds'])['items']
     location = {'projectId': found['projectId'], 'folderId': found['folderId'],
                 'folderPath': results.folder_paths([found['folderId']]).get(found['folderId']) if found['folderId'] else None}

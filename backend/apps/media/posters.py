@@ -55,8 +55,10 @@ def first_frame(source, protocols, *, timeout=DEADLINE_SECONDS):
     return data
 
 
-def bounded_poster(storage, key, *, frame=first_frame, gate=_GATE):
-    """Return ``(poster_key, fresh_bytes_or_None)`` when a poster exists or was just made, else None; never raises."""
+def bounded_poster(storage, key, *, frame=first_frame, gate=_GATE, seconds=DEADLINE_SECONDS):
+    """Return ``(poster_key, fresh_bytes_or_None)`` when a poster exists or was just made, else None; never raises.
+
+    ``seconds`` bounds ffmpeg; at 0 an existing poster is used and none is made."""
     try:
         validate_key(key)
         if not is_video_key(key) or is_export_key(key):
@@ -66,7 +68,7 @@ def bounded_poster(storage, key, *, frame=first_frame, gate=_GATE):
             return target, None
     except Exception:
         return None
-    if not gate.acquire(blocking=False):
+    if seconds <= 0 or not gate.acquire(blocking=False):
         return None
     try:
         if storage.exists(target):
@@ -74,7 +76,7 @@ def bounded_poster(storage, key, *, frame=first_frame, gate=_GATE):
         source, protocols = _source(storage, key)
         if source is None:
             return None
-        fresh = encode_display(frame(source, protocols), POSTER_WIDTH)
+        fresh = encode_display(frame(source, protocols, timeout=seconds), POSTER_WIDTH)
         put = getattr(storage.primary, 'put_create_only', None)
         if put is None:
             storage.primary.put(target, fresh, 'image/webp', DERIVATIVE_CACHE_CONTROL)

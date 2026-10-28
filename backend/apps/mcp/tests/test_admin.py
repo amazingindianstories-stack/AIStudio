@@ -205,7 +205,6 @@ class AdminToolTests(McpCase):
             self.assertNotIn('gemini', ran)                                   # provider credential checks never run here
             checks[2] = check('storage', 'error')
             AppSetting.objects.create(key=runtime.ADMIN_SWITCH, value='false', updated_at=1)
-            runtime.forget_switch()
             result = self.call(self.raw, 'admin_system_status', {}, headers={'x-veevee-maintenance': '1'})
         report = result.structured_content
         self.assertEqual((report['healthy'], report['agents']['changesEnabled'], report['agents']['maintenance']),

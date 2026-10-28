@@ -4,7 +4,6 @@ The tools call the web's folder engine and history writes, so ids, versions, rec
 are the web's own; these tests pin the agent-facing shapes, errors and idempotency on top.
 """
 import uuid
-from unittest.mock import patch
 
 from apps.common.models import ActivityLog
 from apps.generation.models import Generation
@@ -16,7 +15,6 @@ from apps.mcp.tools.organize import FOLDER_RESULT, MOVE_FOLDER_RESULT
 from apps.mcp.registry import REGISTRY
 from apps.projects.models import Project
 from .support import ERAS, McpCase
-from .test_paid_tools import mid_minute
 from .test_results import StorageMixin
 
 ORGANIZE = ('veevee.read', 'veevee.organize')
@@ -29,9 +27,6 @@ class OrganizeTests(StorageMixin, McpCase):
         self.use_storage()
         self.raw = self.token(scopes=ORGANIZE)
         self.admin_raw = self.token(self.admin, scopes=ORGANIZE)
-        clock = patch('apps.mcp.paid.now_ms', return_value=mid_minute())
-        clock.start()
-        self.addCleanup(clock.stop)
         self.project = Project.objects.create(name='Winter', created_at=1, updated_at=1)
         self.campaign = Folder.objects.create(project=self.project, name='Campaign', name_normalized='campaign', created_at=1)
         self.hero = Folder.objects.create(project=self.project, parent=self.campaign, name='Hero shots',
@@ -103,7 +98,8 @@ class OrganizeTests(StorageMixin, McpCase):
 
     def test_create_folder_in_each_place_with_receipts(self):
         for mode, name in zip(ERAS, ('Moodboard', 'Moodboard 2')):
-            top = self.call(self.raw, 'create_folder', {'name': f'  {name} ', 'color': 'blue'}, mode)
+            keyed = {'name': f'  {name} ', 'color': 'blue', 'idempotencyKey': f'create-{mode}'}
+            top = self.call(self.raw, 'create_folder', keyed, mode)
             self.assert_structured(top, FOLDER_RESULT)
             folder = top.structured_content['folder']
             self.assertEqual({key: folder[key] for key in ('name', 'color', 'projectId', 'parentId', 'path', 'version')},
@@ -111,15 +107,15 @@ class OrganizeTests(StorageMixin, McpCase):
             self.assertEqual(folder['resourceUri'], f"veevee://folder/{folder['id']}")
             stored = Folder.objects.get(pk=folder['id'])
             self.assertEqual((stored.name_normalized, stored.project_id, stored.version), (name.lower(), None, 1))
-            # A transport retry within the minute replays the same folder instead of hitting the duplicate-name refusal.
-            replay = self.call(self.raw, 'create_folder', {'name': f'  {name} ', 'color': 'blue'}, mode)
+            # A retry with the key replays the same folder; without a key a create of the same name is refused.
+            replay = self.call(self.raw, 'create_folder', keyed, mode)
             self.assertEqual(replay.structured_content['folder'], folder)
             duplicate = self.call(self.raw, 'create_folder', {'name': name.lower()}, mode)
             self.assertEqual(self.assert_tool_error(duplicate, errors.INVALID_INPUT)['message'],
                              f'A root folder named "{name.lower()}" already exists in the Global Library.')
         # A replayed receipt reports the folder as it is now, and says so when it has since been deleted.
         Folder.objects.filter(pk=folder['id']).delete()
-        gone = self.call(self.raw, 'create_folder', {'name': '  Moodboard 2 ', 'color': 'blue'})
+        gone = self.call(self.raw, 'create_folder', keyed)
         self.assertIn('pass a new idempotencyKey', self.assert_tool_error(gone, errors.NOT_FOUND)['message'])
         inside = self.call(self.raw, 'create_folder', {'name': 'Selects', 'in': {'folderId': str(self.hero.id)},
                                                        'idempotencyKey': 'selects-0001'})
@@ -218,7 +214,7 @@ class OrganizeTests(StorageMixin, McpCase):
         self.assertEqual(set(names), set(ids))
         self.assertTrue(all(names.values()), names)
         self.assertEqual({str(row.id) for row in Generation.objects.filter(folder_id=self.hero.id)}, set(ids))
-        # Out to the project and back again within one minute: each move is applied, none is replayed from a receipt.
+        # Out to the project and back again without keys: each move is applied, none is replayed from a receipt.
         for mode, destination, folder in zip(ERAS, ({'projectId': str(self.project.id)}, {'folderId': str(self.hero.id)}),
                                              (None, self.hero.id)):
             moved = self.call(self.admin_raw, 'move_to_folder', {'ids': ids, 'destination': destination}, mode)
