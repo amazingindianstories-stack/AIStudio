@@ -1,6 +1,8 @@
 """Agent access: personal access tokens, the OAuth 2.1 server, the bearer principal and the spending controls."""
 import base64
+import functools
 import hashlib
+import http.client
 import io
 import json
 import secrets
@@ -506,6 +508,42 @@ class AuthorizationFlowTests(AgentAccessCase):
             authenticate_bearer(narrowed['access_token'])
         self.assertEqual(self.token(grant_type='refresh_token', refresh_token=narrowed['refresh_token']).json()['error'], 'invalid_grant')
         self.assertTrue(ActivityLog.objects.filter(action='mcp_token_revoked', detail__reason='refresh_token_reuse').exists())
+
+    def test_malformed_metadata_responses_are_refused_as_invalid_client(self):
+        public = lambda host, port, **kwargs: [(2, 1, 6, '', ('93.184.215.14', 443))]
+
+        class Chunked:
+            status = 200
+
+            def read1(self, limit):
+                raise http.client.IncompleteRead(b'')
+
+            read = read1
+
+        def connection_raising(response):
+            class Connection:
+                def __init__(self, host, address, timeout):
+                    pass
+
+                def request(self, *args, **kwargs):
+                    pass
+
+                def getresponse(self):
+                    return response()
+
+                def close(self):
+                    pass
+            return Connection
+
+        def garbage_status():
+            raise http.client.BadStatusLine('HTTX/9 ???')
+        real_fetch = clients.fetch_document
+        for response in (Chunked, garbage_status):
+            fetch = functools.partial(real_fetch, resolver=public, connection=connection_raising(response))
+            with self.subTest(response=response.__name__), patch('apps.mcp_auth.clients.fetch_document', side_effect=fetch):
+                refused = self.client.get('/api/oauth/authorize/request?' + urlencode(self.authorize_params(
+                    client_id='https://apps.example/client.json')))
+                self.assertEqual((refused.status_code, refused.json()['error']), (400, 'invalid_client'))
 
     def test_authorization_errors(self):
         for redirect_uri in ('http://127.0.0.1:1/evil', 'http://evil.com\\@127.0.0.1:33418/callback', 'http://evil.com\\@127.0.0.1/callback',

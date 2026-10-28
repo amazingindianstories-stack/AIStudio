@@ -4,6 +4,7 @@ Only public clients exist (``token_endpoint_auth_method: none``); PKCE S256 prot
 are https or loopback http on any port (Claude Code, Cursor, VS Code). Private-use native schemes are refused:
 no in-scope client documents one for MCP OAuth, and a client without a verified redirect uses a personal access token.
 """
+import http.client
 import ipaddress
 import json
 import secrets
@@ -155,7 +156,7 @@ def fetch_document(url, *, resolver=socket.getaddrinfo, connection=PinnedHTTPSCo
                 if not chunk:
                     break
                 data += chunk
-        except (OSError, ValueError, ProviderError) as error:
+        except (OSError, ValueError, ProviderError, http.client.HTTPException) as error:
             if isinstance(error, ClientError):
                 raise
             raise ClientError('invalid_client', 'The client metadata document could not be read.') from error
