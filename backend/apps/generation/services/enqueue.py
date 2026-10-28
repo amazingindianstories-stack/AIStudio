@@ -16,6 +16,7 @@ from apps.common.javascript import UNDEFINED, truthy, string, utf16_length
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
 from apps.generation import image_limits
+from apps.generation.availability import available
 from apps.generation.model_registry import capability, is_provider_model, model_definition, retirement_message
 from apps.generation.models import Generation
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
@@ -79,9 +80,32 @@ def refuse_retired(model):
     if message: raise InvalidRequest(message)
 
 
+class ModelUnavailable(InvalidRequest):
+    pass
+
+
+# The refusals a switched-off provider has always given (here and in the paid guard); every other model new jobs may
+# not use gets the Kling wording.
+UNAVAILABLE_MESSAGES = {'omnihuman': 'OmniHuman is not enabled. Choose another video model.',
+                        'omni': '{name} is not enabled', 'magnific': 'Magnific upscaling is not enabled'}
+
+
+def refuse_unavailable(model, kind):
+    """New jobs use only models the composer offers (apps.generation.availability): unknown, unoffered and
+    switched-off models are refused before anything is stored or priced, with or without the paid guard."""
+    definition = model_definition(model)
+    if definition is not None and available(definition):
+        return
+    name = definition['name'] if definition else string(model)
+    provider = definition.get('provider') if definition and definition.get('offered') is True else None
+    message = UNAVAILABLE_MESSAGES.get(provider, '{name} is not enabled. Choose another {kind} model.')
+    raise ModelUnavailable(message.format(name=name, kind=kind))
+
+
 def image_input(body, user_id):
     model = default(body.get('model'),'Nano Banana Pro')
     refuse_retired(model)
+    refuse_unavailable(model, 'image')
     resolution = body.get('resolution')
     if resolution is None: resolution = '2K' if is_provider_model(body.get('model'),'seedream') else UNDEFINED
     item = dict(kind='image',prompt=trim(body.get('prompt')),model=model,
@@ -95,6 +119,7 @@ def image_input(body, user_id):
 def video_input(body, user_id=None):
     model = default(body.get('model'),'Higgsfield Seedance 2.0')
     refuse_retired(model)
+    refuse_unavailable(model, 'video')
     prompt, ratio, resolution = trim(body.get('prompt')), default(body.get('aspectRatio'),'16:9'), default(body.get('resolution'),'1080p')
     if 'bitrateMode' in body and body['bitrateMode'] not in ('standard','high'):
         raise InvalidRequest('Bitrate must be either standard or high.')
@@ -127,9 +152,6 @@ def video_input(body, user_id=None):
         raise InvalidRequest(f'{string(model)} accepts at most {max_images} reference images (got {len(images)}).')
     if prompt: validate_prompt(prompt,user_id)
     if is_provider_model(model, 'omnihuman'):
-        from apps.generation.availability import switched_on
-        if not switched_on('omnihuman'):
-            raise InvalidRequest('OmniHuman is not enabled. Choose another video model.')
         if body.get('referenceVideos') or any(body.get(key) for key in ('firstFrame', 'lastFrame', 'continuationFrame')) or mode != 'generate' or body.get('draftMode') or body.get('draftTaskId'):
             raise InvalidRequest('OmniHuman accepts an image and audio only; video references, frames, Draft, Edit and Extend are unavailable.')
         model, ratio, resolution = model_definition(model)['name'], 'Auto', 'Auto'
@@ -185,11 +207,28 @@ def prepare_image(item, body, identifier, user_id):
             prepare_seedream_references(resolved['references'],identifier,user_id=user_id,sign=False,persist=False)
         except ValueError as error:
             raise InvalidRequest(str(error)) from error
-    cost_input = {**item,'hasReferenceImage':has_length(references)}
-    if reference_count is not None: cost_input['referenceCount'] = reference_count
-    prepared = {'costCents':compute_cost(cost_input,read_pricing())}
+    prepared = {'costCents':image_cost(item,references,reference_count)}
     if has_length(references): prepared['referenceImages'] = save_reference_images(references,identifier)
     return prepared
+
+
+def image_cost(item, references, reference_count=None):
+    cost_input = {**item,'hasReferenceImage':has_length(references)}
+    if reference_count is not None: cost_input['referenceCount'] = reference_count
+    return compute_cost(cost_input,read_pricing())
+
+
+def quote_image(item, body):
+    """The estimate prepare_image records, without storing references; their bytes are checked at submission."""
+    references = body.get('referenceImages')
+    reference_count = None
+    if is_provider_model(item['model'],'seedream'):
+        try:
+            seedream_size(item.get('resolution','2K'),item['aspectRatio'])
+            reference_count = len(resolve_seedream_references(item['prompt'],assets(),references if references is not None else [])['references'])
+        except ValueError as error:
+            raise InvalidRequest(str(error)) from error
+    return image_cost(item,references,reference_count)
 
 
 def registered_portrait_ids(item, body):
@@ -389,22 +428,34 @@ def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMA
             raise ReferenceImageRejected(image_limits.seedance_message(label, *size, image_limits.SIZE_TAIL), index)
 
 
+def omnihuman_cost(item, body):
+    """Check OmniHuman's one image and one audio, set the duration from the audio, and price it."""
+    from .omnihuman_inputs import validate
+    from .video_execution import combined_references, read_assets
+    from apps.generation.references import resolve_references
+    combined = combined_references(item['prompt'], read_assets(item.get('projectId')), body.get('referenceImages') or [])
+    audios = resolve_references(item['prompt'], item.get('referenceAudios') or [], 'audio')
+    try:
+        seconds = validate([ref['imageUrl'] for ref in combined], audios)
+    except ValueError as error:
+        raise InvalidRequest(str(error)) from None
+    item['duration'] = math.ceil(seconds)
+    try:
+        return compute_cost(item, read_pricing())
+    except ValueError as error:
+        raise InvalidRequest(str(error)) from None
+
+
+def quote_video(item, body):
+    """The estimate prepare_video records, without its reference checks or storing references."""
+    if is_provider_model(item.get('model'), 'omnihuman'):
+        return omnihuman_cost(item, body)
+    return compute_cost(item, read_pricing())
+
+
 def prepare_video(item, body, identifier):
     if is_provider_model(item.get('model'), 'omnihuman'):
-        from .omnihuman_inputs import validate
-        from .video_execution import combined_references, read_assets
-        from apps.generation.references import resolve_references
-        combined = combined_references(item['prompt'], read_assets(item.get('projectId')), body.get('referenceImages') or [])
-        audios = resolve_references(item['prompt'], item.get('referenceAudios') or [], 'audio')
-        try:
-            seconds = validate([ref['imageUrl'] for ref in combined], audios)
-        except ValueError as error:
-            raise InvalidRequest(str(error)) from None
-        item['duration'] = math.ceil(seconds)
-        try:
-            cost = compute_cost(item, read_pricing())
-        except ValueError as error:
-            raise InvalidRequest(str(error)) from None
+        cost = omnihuman_cost(item, body)
         refs = save_reference_images(body.get('referenceImages') or [], identifier)
         return {'referenceImages': refs, 'costCents': cost}
     verify_reference_audio_durations(item)

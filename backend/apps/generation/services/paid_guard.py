@@ -165,14 +165,23 @@ def validate(config):
  require(config['approved_scope'] in (LIMITED_SCOPE,UNLIMITED_SCOPE))
  unlimited=config['approved_scope']==UNLIMITED_SCOPE
  require(config.get('unlimited_new_jobs') is True if unlimited else config['maximum_total_cents']==CAP)
+class PaidBudgetHold(ValueError):
+ """The guard refused to register a new paid job, so nothing was created and no provider was called.
+
+ The web API answers it as 409 PREVIEW_PAID_BUDGET_HOLD through wrap_wsgi, which reads STATE.api_error;
+ other callers map the exception itself."""
+ code='PREVIEW_PAID_BUDGET_HOLD'
+def hold(message):
+ STATE.api_error=message
+ return PaidBudgetHold(message)
 def register(row):
  from django.db import connection
  row.refresh_from_db();contract=execution_contract(row)
  try:quote=quote_for(contract,configured())
- except ValueError as error:STATE.api_error=str(error);raise
+ except ValueError as error:raise hold(str(error)) from error
  try:
   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.reserve(%s,%s,%s,%s,%s)',[row.id,row.user_id,quote['maximum_cents'],fingerprint(quote),fingerprint(contract)])
- except Exception:STATE.api_error='Paid Preview budget unavailable or exhausted; no provider submission occurred.';raise
+ except Exception as error:raise hold('Paid Preview budget unavailable or exhausted; no provider submission occurred.') from error
  return row
 def persist(create,item):
  """enqueue.persist: the new row is registered in the paid ledger in the transaction that creates it."""

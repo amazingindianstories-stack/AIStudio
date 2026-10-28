@@ -1,40 +1,7 @@
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.authentication.session import lookup
-from apps.projects.models import Project
-from .models import Folder
-
-
-def brief(folder):
-    return {'id': str(folder.id), 'name': folder.name, 'color': folder.color,
-            'projectId': str(folder.project_id) if folder.project_id else None,
-            'parentId': str(folder.parent_id) if folder.parent_id else None}
-
-
-def full(folder):
-    return {**brief(folder), 'nameNormalized': folder.name_normalized,
-            'version': folder.version, 'createdAt': folder.created_at,
-            'updatedAt': folder.updated_at}
-
-
-def tree():
-    folders = list(Folder.objects.order_by('name'))
-    grouped = {}
-    for folder in folders:
-        key = str(folder.parent_id) if folder.parent_id else ('proj:'+str(folder.project_id) if folder.project_id else 'global:root')
-        grouped.setdefault(key, []).append(folder)
-    def build(key, visited=frozenset()):
-        result = []
-        for folder in grouped.get(key, []):
-            identifier = str(folder.id)
-            result.append({**brief(folder), 'version': folder.version,
-                           'children': [] if identifier in visited else build(identifier, visited | {identifier}),
-                           'createdAt': folder.created_at, 'updatedAt': folder.updated_at})
-        return result
-    return {'globalFolders': build('global:root'), 'projects': [
-        {'id': str(project.id), 'name': project.name, 'brief': project.brief,
-         'createdAt': project.created_at, 'updatedAt': project.updated_at,
-         'folders': build('proj:'+str(project.id))} for project in Project.objects.order_by('name')]}
+from .services import folder_reads as folders
 
 
 @api_view(['GET', 'POST', 'PATCH', 'DELETE'])
@@ -56,24 +23,11 @@ def folder_reads(request):
         except OrganizationError as exc:
             return renew(request, Response({'error': str(exc), 'code': exc.code}, status=exc.status))
     if params.get('tree') in ('1', 'true'):
-        result = tree()
+        result = folders.tree()
     elif params.get('ancestry'):
-        identifier = params['ancestry']
-        visited, breadcrumbs = set(), []
-        while identifier and identifier not in visited:
-            visited.add(identifier)
-            folder = Folder.objects.filter(id=identifier).first()
-            if folder is None:
-                break
-            breadcrumbs.insert(0, brief(folder))
-            identifier = str(folder.parent_id) if folder.parent_id else None
-        result = {'breadcrumbs': breadcrumbs}
+        result = folders.ancestry(params['ancestry'])
     else:
-        parent = params.get('parentId') or None
-        query = Folder.objects.filter(parent_id=parent)
-        if not parent:
-            query = query.filter(project_id=params.get('projectId') or None)
-        result = {'folders': [full(folder) for folder in query.order_by('name')]}
+        result = folders.children(params.get('parentId'), params.get('projectId'))
     response = Response(result)
     if hasattr(request, 'renewed_session'):
         from django.conf import settings

@@ -63,9 +63,17 @@ or a portrait asset's `receipt.lastError`. `generation/failure_copy.py` shows th
 that exact detail, and the admin Errors tab reads the same records (older rows are parsed from their raw body).
 
 Model switches (`VEEVEE_OMNIHUMAN`, `VEEVEE_KLING`, `VEEVEE_GEMINI_OMNI`, `VEEVEE_MAGNIFIC_UPSCALE`) live in `generation/availability.py`:
-the paid guard refuses new jobs on a switched-off provider, and signed-in `GET /api/auth/me` returns
-`availability.models` (registry ids of offered, unretired, switched-on models). The frontend pickers filter the
-registry with it (`isModelAvailable`/`pickerModels`), so flipping a switch and redeploying shows or hides a model.
+submission refuses new jobs on an unknown, unoffered, retired or switched-off model (with or without the paid guard),
+and signed-in `GET /api/auth/me` returns `availability.models` (registry ids of offered, unretired, switched-on models).
+The frontend pickers filter the registry with it (`isModelAvailable`/`pickerModels`), so flipping a switch and
+redeploying shows or hides a model.
+
+Submission and library reads are services the views only adapt to HTTP, so other callers reuse them without
+re-implementing a rule. `generation/services/submission.py` validates, prices (quotes), queues and finalizes image,
+video and upscale jobs; a refusal carries the exact web status and body, and a paid-guard refusal raises the typed
+`PaidBudgetHold`, which the web API answers as 409 through `paid_guard.wrap_wsgi`. `generation/services/reads.py`
+serves library search and pages (keyset cursor), counts, and single and batch generation reads;
+`library/services/folder_reads.py` serves the folder tree, ancestry and children.
 
 `backend/testsupport` holds fake providers and the frozen historical Node outputs used as test
 oracles. `backend/parity` pins current production behavior through seams the backend restructure

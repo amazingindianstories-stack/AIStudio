@@ -122,6 +122,9 @@ const results=[];for(const value of JSON.parse(s)){try{const r=await fn(...Objec
                     if value.get('model') == 'Gemini Omni Flash':
                         # Retired 2026-10-18 (Google shuts the preview down 2026-10-22): refused before anything else.
                         self.assertEqual(actual,{'status':400,'body':{'error':'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'}})
+                    elif value.get('model') in ('Higgsfield Seedance 2.0','unknown'):
+                        # Unoffered and unknown models are refused before anything else (the Node route took them).
+                        self.assertEqual(actual,{'status':400,'body':{'error':f"{value['model']} is not enabled. Choose another video model."}})
                     elif len(value.get('referenceAudios',[])) > 10:
                         # Preserve the inert historical oracle: it proves the old
                         # silent source loss. Goal3 intentionally rejects before cost.
@@ -203,7 +206,7 @@ class EnqueueContractTests(TransactionTestCase):
         return Generation.objects.create(**base)
 
     def test_paid_admission_requires_login_before_preparation_or_insertion(self):
-        with patch('apps.generation.enqueue_views.enqueue.prepare_video') as prepare, patch('apps.generation.enqueue_views.magnific.submit_upscale') as submit:
+        with patch('apps.generation.services.enqueue.prepare_video') as prepare, patch('apps.generation.enqueue_views.magnific.submit_upscale') as submit:
             for path in ['image','video','video/finalize','upscale']:
                 response = self.post(path,{'prompt':'paid request','referenceImages':[data_url()]})
                 self.assertEqual(response.status_code,401)
@@ -214,7 +217,7 @@ class EnqueueContractTests(TransactionTestCase):
         self.assertEqual(Generation.objects.count(),0)
         self.assertEqual(GenerationNaming.objects.count(),0)
         self.cookie()
-        response=self.post('video',{'prompt':' authenticated '})
+        response=self.post('video',{'prompt':' authenticated ','model':'Seedance 2.5'})
         self.assertEqual(response.status_code,200)
         item=response.json()
         self.assertEqual(item['userId'],session_fixtures.UID)
@@ -226,11 +229,11 @@ class EnqueueContractTests(TransactionTestCase):
 
     def test_admission_internal_errors_do_not_disclose_credentials(self):
         self.cookie()
-        for kind in ('image','video'):
+        for kind,model in (('image','Nano Banana Pro'),('video','Seedance 2.5')):
             for operation in ('prepare_'+kind,'finish_enqueue'):
                 with self.subTest(kind=kind,operation=operation), patch.object(
                         enqueue,operation,side_effect=RuntimeError('private-fixture-token in storage URL')):
-                    response = self.post(kind,{'prompt':'fixture'})
+                    response = self.post(kind,{'prompt':'fixture','model':model})
                 self.assertEqual(response.status_code,500)
                 self.assertNotIn('private-fixture-token',response.content.decode())
         with patch('apps.generation.services.enqueue.save_reference_images',
@@ -264,7 +267,7 @@ class EnqueueContractTests(TransactionTestCase):
         first=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
         self.assertEqual(first.status_code,200,first.content)
         self.assertEqual(first.json()['filename'].rsplit('.', 1)[0], source_name)
-        with patch('apps.generation.enqueue_views.enqueue.build_final') as build:
+        with patch('apps.generation.services.enqueue.build_final') as build:
             second=self.post('video/finalize',{'sourceGenerationId':str(source.id)})
             build.assert_not_called()
         self.assertEqual(second.status_code,200)
@@ -409,6 +412,7 @@ class EnqueueContractTests(TransactionTestCase):
         response=self.post('image',dict(prompt='lantern at dusk again',model='Nano Banana 2.1',resolution='2K'))
         self.assertEqual(Generation.objects.get(pk=response.json()['id']).cost_cents,8)
 
+    @override_settings(VEEVEE_GEMINI_OMNI=True)
     def test_gemini_omni_flash_1_1_enqueue_stores_its_controls_and_estimate_and_refuses_the_retired_model(self):
         # Default row: 11 estimator cents per second at 720p, a third of that at 360p; no audio field.
         self.cookie()
@@ -529,7 +533,7 @@ class EnqueueContractTests(TransactionTestCase):
         gone='/api/media/uploads/portrait/removed-portrait'
         lookup=lambda ref: {'byteplusAssetId':'a1','status':'PreviewDeleted','name':'R01_SC008_0008 (1)'} if ref==gone else None  # noqa: E731
         before=Generation.objects.count()
-        with patch('apps.generation.enqueue_views.resolve_submission_references',side_effect=lambda data,user: data), \
+        with patch('apps.generation.services.submission.resolve_submission_references',side_effect=lambda data,user: data), \
              patch('apps.assets.portrait_db.get_portrait_asset_by_image_url',side_effect=lookup), \
              patch('apps.generation.services.enqueue.save_reference_images') as save:
             response=self.post('video',dict(prompt='shot',model='Seedance 2.5',referenceImages=['/api/media/uploads/image-reference/a',gone]))
@@ -543,7 +547,7 @@ class EnqueueContractTests(TransactionTestCase):
         self.cookie()
         lengths={'/api/media/uploads/audio-reference/short':12.0,'/api/media/uploads/audio-reference/dialogue':34.6}
         before=Generation.objects.count()
-        with patch('apps.generation.enqueue_views.resolve_submission_references',side_effect=lambda data,user: data), \
+        with patch('apps.generation.services.submission.resolve_submission_references',side_effect=lambda data,user: data), \
              patch('apps.generation.services.enqueue.measure_reference_audio',side_effect=lengths.get), \
              patch('apps.generation.services.enqueue.save_reference_images') as save:
             response=self.post('video',dict(prompt='shot',model='Seedance 2.5',duration=24,referenceAudios=list(lengths)))
@@ -568,6 +572,7 @@ class EnqueueContractTests(TransactionTestCase):
         self.assertEqual(self.post('video/finalize',{'sourceGenerationId':str(uuid.uuid4())}).status_code,404)
         self.assertEqual(self.post('video/finalize',{}).status_code,400)
 
+    @override_settings(VEEVEE_MAGNIFIC_UPSCALE=True)
     def test_upscale_durable_ref_before_single_submit_and_failure_order(self):
         self.cookie()
         storage=StorageService(MemoryAdapter())
@@ -584,7 +589,7 @@ class EnqueueContractTests(TransactionTestCase):
         self.assertEqual((item['status'],item['aspectRatio'],item['resolution']),('queued','16:9','4x'))
         self.assertNotIn('taskId',item)
         self.assertEqual(Generation.objects.get(pk=item['id']).submission_input['params'],payload['params'])
-        with override_settings(VEEVEE_MEDIA_STORAGE=storage),patch('apps.generation.enqueue_views.save_reference_images',side_effect=RuntimeError('synthetic storage unavailable')),patch('apps.generation.enqueue_views.magnific.submit_upscale') as submit:
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage),patch('apps.generation.services.submission.save_reference_images',side_effect=RuntimeError('synthetic storage unavailable')),patch('apps.generation.enqueue_views.magnific.submit_upscale') as submit:
             self.assertEqual(self.post('upscale',payload).status_code,500)
             submit.assert_not_called()
         self.assertEqual(self.post('upscale',{**payload,'image':'https://evil.invalid/a.png'}).status_code,400)

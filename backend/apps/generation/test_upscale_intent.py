@@ -19,7 +19,7 @@ class UpscaleIntentTests(TransactionTestCase):
         user=User.objects.create(email='upscale-intent@example.test',name='Fixture',role='user',password_hash='x',created_at=1)
         self.client.cookies['veevee_session']=sign_session(user)
         self.storage=StorageService(MemoryAdapter())
-        self.override=override_settings(VEEVEE_MEDIA_STORAGE=self.storage)
+        self.override=override_settings(VEEVEE_MEDIA_STORAGE=self.storage,VEEVEE_MAGNIFIC_UPSCALE=True)
         self.override.enable();self.addCleanup(self.override.disable)
         self.payload={'model':'Magnific Precision V2','image':data_url(picture(160,90)),
             'params':{'scaleFactor':'4x','flavor':'photo','sharpen':7,'smartGrain':7,'ultraDetail':30}}
@@ -29,16 +29,16 @@ class UpscaleIntentTests(TransactionTestCase):
 
     def test_pricing_location_and_intent_db_failure_never_submit(self):
         with patch.object(views.magnific,'submit_upscale') as submit:
-            with patch.object(views,'read_pricing',return_value=[]):
+            with patch.object(views.submission,'read_pricing',return_value=[]):
                 self.assertEqual(self.post().status_code,500)
             self.assertEqual(self.post(folderId=str(uuid4())).status_code,500)
-            with patch.object(views.enqueue,'persist',side_effect=OperationalError('synthetic DB unavailable')):
+            with patch.object(views.submission.enqueue,'persist',side_effect=OperationalError('synthetic DB unavailable')):
                 self.assertEqual(self.post().status_code,500)
             submit.assert_not_called()
         self.assertEqual(Generation.objects.count(),0)
 
     def test_internal_admission_error_does_not_disclose_credentials_or_submit(self):
-        with patch.object(views,'read_pricing',side_effect=OperationalError('private-fixture-token')), patch.object(
+        with patch.object(views.submission,'read_pricing',side_effect=OperationalError('private-fixture-token')), patch.object(
                 views.magnific,'submit_upscale') as submit:
             response = self.post()
         self.assertEqual(response.status_code,500)
@@ -79,7 +79,7 @@ class UpscaleIntentTests(TransactionTestCase):
 
     def test_read_capacity_busy_rejects_before_storage_intent_or_paid_call(self):
         from .services.deadline import QueueExecutionCapacityError
-        with patch('apps.generation.enqueue_views.with_queue_execution_deadline',side_effect=QueueExecutionCapacityError()), patch.object(
+        with patch('apps.generation.services.submission.with_queue_execution_deadline',side_effect=QueueExecutionCapacityError()), patch.object(
                 self.storage,'read_as_base64') as read, patch('apps.generation.enqueue_views.magnific.submit_upscale') as submit:
             response=self.post()
         self.assertEqual(response.status_code,429)

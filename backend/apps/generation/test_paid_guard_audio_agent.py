@@ -212,7 +212,7 @@ class AudioGuardFlowTests(TransactionTestCase):
         for fields, message in ((self.fields(model='Gemini (gemini-2.5-pro)'), 'Audio transcription outside the configured model'),
                                 (self.fields(user_id=None), 'New authenticated initial jobs only')):
             with self.subTest(message=message), guard(ledger, sent):
-                with self.assertRaises(ValueError):
+                with self.assertRaises(paid_guard.PaidBudgetHold):
                     audio_submission.persist_audio_intent(fields)
                 self.assertEqual(paid_guard.STATE.api_error, message)
             self.assertFalse(Generation.objects.filter(pk=fields['id']).exists())
@@ -220,7 +220,7 @@ class AudioGuardFlowTests(TransactionTestCase):
         fields = self.fields()
         ledger[str(fields['id'])] = {'state': 'RESERVED', 'input': 'x'}
         with guard(ledger, sent):
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(paid_guard.PaidBudgetHold):
                 audio_submission.persist_audio_intent(fields)
             self.assertEqual(paid_guard.STATE.api_error, 'Paid Preview budget unavailable or exhausted; no provider submission occurred.')
         self.assertFalse(Generation.objects.filter(pk=fields['id']).exists())

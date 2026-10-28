@@ -109,7 +109,7 @@ class DurableUpscaleDatabaseTests(TransactionTestCase):
         storage=StorageService(MemoryAdapter())
         payload={'model':'Magnific Precision V2','image':data_url(),'params':{
             'scaleFactor':'4x','flavor':'photo','sharpen':7,'smartGrain':7,'ultraDetail':30}}
-        with override_settings(VEEVEE_MEDIA_STORAGE=storage),patch('apps.generation.providers.magnific.submit_upscale') as submit:
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage,VEEVEE_MAGNIFIC_UPSCALE=True),patch('apps.generation.providers.magnific.submit_upscale') as submit:
             response=self.client.post('/api/generate/upscale',payload,content_type='application/json')
         self.assertEqual(response.status_code,200,response.content)
         row=Generation.objects.get(pk=response.json()['id'])

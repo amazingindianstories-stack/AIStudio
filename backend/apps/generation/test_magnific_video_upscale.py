@@ -128,7 +128,7 @@ class ValidationTests(SimpleTestCase):
             video_upscale_cost('Magnific Video Creative', CREATIVE, meta, [])
 
 
-@override_settings(PUBLIC_APP_URL='https://veevee.test')
+@override_settings(PUBLIC_APP_URL='https://veevee.test', VEEVEE_MAGNIFIC_UPSCALE=True)
 class EnqueueTests(TransactionTestCase):
     setUp = session_fixtures.SettingsTests.setUp
     cookie = session_fixtures.SettingsTests.cookie
@@ -196,7 +196,7 @@ class EnqueueTests(TransactionTestCase):
         self.cookie()
         storage = self.storage()
         source = self.put(storage, clip())
-        with patch('apps.generation.enqueue_views.read_pricing', lambda: []):
+        with patch('apps.generation.services.submission.read_pricing', lambda: []):
             response = self.post(storage, {'video': source, 'model': 'Magnific Video Creative', 'params': CREATIVE})
         self.assertEqual(response.status_code, 500)
         self.assertFalse(Generation.objects.exists())
@@ -221,7 +221,7 @@ class EnqueueTests(TransactionTestCase):
         self.assertFalse(Generation.objects.exists())
 
 
-@override_settings(PUBLIC_APP_URL='https://veevee.test')
+@override_settings(PUBLIC_APP_URL='https://veevee.test', VEEVEE_MAGNIFIC_UPSCALE=True)
 class WorkerTests(TransactionTestCase):
     setUp = session_fixtures.SettingsTests.setUp
     cookie = session_fixtures.SettingsTests.cookie

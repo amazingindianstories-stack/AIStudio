@@ -352,6 +352,7 @@ class EndToEndTests(TransactionTestCase):
         self.assertEqual(item['error'], 'Seedream stopped the generated image under its content policy. '
                                         f'Provider code: OutputImageSensitiveContentDetected. Request id: {REQUEST_ID}.')
 
+    @override_settings(VEEVEE_KLING=True)
     def test_kling_task_failure_ends_the_job_instead_of_polling_forever(self):
         def configure(fake):
             fake.kling_task_error = 'Image violates the content policy'
@@ -364,6 +365,7 @@ class EndToEndTests(TransactionTestCase):
         self.assertNotIn('may still have been accepted', current.error)
         self.assertEqual(sum(1 for call in fake.calls if call[0] == 'POST'), 1, 'exactly one paid submission')
 
+    @override_settings(VEEVEE_GEMINI_OMNI=True)
     def test_omni_task_failure(self):
         def configure(fake):
             fake.omni_task_error = {'code': 'SAFETY', 'message': 'The output was blocked by safety filters.'}

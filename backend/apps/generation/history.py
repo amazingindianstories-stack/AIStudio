@@ -1,74 +1,13 @@
-"""Current history read, including composite keysets and canonical filenames."""
+"""GET /api/history: a library page from services.reads, including composite keysets and canonical filenames."""
 import logging
 from django.core.exceptions import ValidationError
 from django.db import DataError
 from django.http import HttpResponse
 from django.conf import settings
-from django.db.models import BooleanField, F
-from django.db.models.expressions import RawSQL
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.authentication.session import lookup
-from apps.library.filenames import batch_resolve_generation_filenames
-from .history_counts import filters, first, base_query
-from .history_parameters import decode_cursor, page_limit
-from .serialization import generation_item
-from .updates import operand_text
-from .library_filters import (apply_library_filters, parse_library_filters, library_options,
-    query_fingerprint, decode_library_cursor, encode_library_cursor)
-
-
-def source_history(params, *, search=True):
-    project, kind, query = filters(params)
-    rows = base_query(kind if search else None, query if search else '')
-    if first(params, 'projectId') == 'none' or project:
-        rows = rows.filter(project_id=project)
-    folder = first(params, 'folderId')
-    if folder == 'none':
-        rows = rows.filter(folder_id=None)
-    elif folder:
-        rows = rows.filter(folder_id=folder)
-    favorite = first(params, 'favorite') == '1'
-    if favorite:
-        rows = rows.filter(is_favorite=True)
-    return rows
-
-
-def query_history(params):
-    if first(params, 'options') == '1':
-        return {'options': library_options(source_history(params, search=False))}
-    selected_filters = parse_library_filters(params)
-    rows = apply_library_filters(source_history(params), selected_filters)
-    favorite = first(params, 'favorite') == '1'
-    sort_mode = selected_filters.get('sort', 'starred' if favorite else 'newest')
-    sort = 'favorited_at' if sort_mode == 'starred' else 'created_at'
-    ascending = sort_mode == 'oldest'
-    fingerprint = query_fingerprint(params, selected_filters) if selected_filters else None
-    raw_cursor = first(params, 'cursor')
-    cursor = (decode_library_cursor(raw_cursor, fingerprint) if raw_cursor and (fingerprint or raw_cursor.startswith('v1:'))
-              else decode_cursor(raw_cursor))
-    if cursor:
-        comparator = '>' if ascending else '<'
-        rows = rows.filter(RawSQL(f'("generations"."{sort}", "generations"."id") {comparator} (%s::bigint, %s::uuid)',
-            [operand_text(cursor['sort']), cursor['id']], output_field=BooleanField()))
-    limit = page_limit(first(params, 'limit'))
-    # Match the declared composite indexes. created_at/id cannot be NULL;
-    # a favorite cursor comparison also excludes NULL. The first favorite
-    # page retains the historical NULL-first behavior for legacy rows.
-    ordering = ([F(sort).asc(nulls_last=True), F('id').asc(nulls_last=True)] if ascending else
-                [F(sort).desc(nulls_last=True), F('id').desc(nulls_last=True)] if sort != 'favorited_at' or cursor else ['-'+sort, '-id'])
-    selected = list(rows.order_by(*ordering)[:limit+1])
-    more = len(selected) > limit
-    page = selected[:limit]
-    names = batch_resolve_generation_filenames([row.id for row in page])
-    items = [generation_item(row, names.get(str(row.id), {}).get('filename')) for row in page]
-    next_cursor = None
-    if more and page:
-        last = page[-1]
-        value = last.favorited_at if sort == 'favorited_at' and last.favorited_at is not None else last.created_at
-        next_cursor = (encode_library_cursor(value, last.id, fingerprint) if fingerprint
-                       else f'{operand_text(value)}.{last.id}')
-    return {'items':items, 'nextCursor':next_cursor}
+from .services.reads import query_history
 
 
 @api_view(['GET', 'PATCH', 'DELETE'])
