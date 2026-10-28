@@ -154,7 +154,7 @@ def submit(principal, priced, key, limit, quote=None):
 
 async def run(call, tool, priced):
     """Approve, submit and (unless ``wait`` is false) hold; returns the tool's ``GenerationResult``."""
-    from .tools.generations import detail, generation_reply
+    from .tools.generations import detail, generation_reply, not_found
     call.record['costCents'] = priced.cost_cents
     approved = approval(call, tool, priced)
     if approved is None:
@@ -171,4 +171,6 @@ async def run(call, tool, priced):
     if call.arguments.get('wait', True):
         note = await hold.hold(call, identifier, max_wait_seconds=call.arguments.get('maxWaitSeconds'))
     found = await db(detail, identifier, until=hold.reply_deadline(call))
+    if found is None:
+        raise not_found(identifier)
     return await generation_reply(call, found, quote=quote, note=note, include_preview=call.arguments.get('includePreview', True))

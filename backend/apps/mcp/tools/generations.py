@@ -155,7 +155,10 @@ async def cancel_generation(call):
         # Give the generation worker a few seconds to send it, so the answer is usually final.
         await hold.hold(call, identifier, max_wait_seconds=CANCEL_WAIT_SECONDS, read=deferred, terminal=('settled',))
         state, message = await db(settled, identifier)
-    reply = await generation_reply(call, await db(detail, identifier, until=hold.reply_deadline(call)), include_preview=False)
+    found = await db(detail, identifier, until=hold.reply_deadline(call))
+    if found is None:
+        raise not_found(identifier)
+    reply = await generation_reply(call, found, include_preview=False)
     reply.structured.update(cancellation=state, message=message)
     reply.sentence = f'Cancellation {state.replace("_", " ")}: {message}' if message else reply.sentence
     return reply

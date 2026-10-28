@@ -417,6 +417,15 @@ class PaidToolTests(StorageMixin, McpCase):
         self.assertNotEqual(self.submitted(self.call(raw, 'generate_image', fresh)).id, row.id)
         self.assertEqual(Generation.objects.count(), 2)
 
+    def test_a_quote_whose_job_was_deleted_is_not_found_and_pays_for_nothing_new(self):
+        raw = self.token(auto_approve=0)
+        arguments = self.generate(raw=raw).structured_content['next']['arguments']
+        row = self.submitted(self.call(raw, 'generate_image', arguments))
+        Generation.objects.filter(pk=row.id).delete()
+        error = self.assert_tool_error(self.call(raw, 'generate_image', arguments), 'NOT_FOUND')
+        self.assertIn('search_generations', error['message'])
+        self.assertEqual(Generation.objects.count(), 0)
+
     def test_web_submissions_keep_no_agent_origin(self):
         self.client.cookies['veevee_session'] = sign_session(self.user)
         response = self.client.post('/api/generate/image', {'prompt': 'web fox', 'model': 'Nano Banana 2.1'}, content_type='application/json',
