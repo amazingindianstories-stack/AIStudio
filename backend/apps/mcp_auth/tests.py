@@ -663,6 +663,13 @@ class AuthorizationFlowTests(AgentAccessCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual((response.json()['client']['name'], response.json()['client']['verifiedUrl']), ('Claude Code', CLAUDE_CODE_CIMD))
 
+    def test_cimd_fetch_failure_reports_its_own_reason(self):
+        response = self.client.get('/api/oauth/authorize/request?' + urlencode(self.authorize_params(
+            client_id='https://127.0.0.1/meta.json', redirect_uri='http://localhost:51234/callback')))
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json(), {'error': 'invalid_client',
+                                           'error_description': 'The client metadata document must be on a public address.'})
+
 
 class ControlsTests(AgentAccessCase):
     def principal(self, *, user_cap=None, token_cap=1000, active=None, auto=25):

@@ -95,7 +95,8 @@ for (const width of [1440, 1024, 390]) {
     await expect(limits.getByText('Agent daily spend limit')).toBeVisible();
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    await page.screenshot({ path: info.outputPath('admin-agent-access.png') });
+    // The switch animates its knob and colour; finish that transition so the screenshot shows the settled state.
+    await page.screenshot({ path: info.outputPath('admin-agent-access.png'), animations: 'disabled' });
     await pixelClean(page, limits);
 
     dialog = await openAgentTab(page);
@@ -186,6 +187,12 @@ for (const width of [1440, 1024, 390]) {
       callbacks.push(new URL(route.request().url()));
       return route.fulfill({ status: 200, contentType: 'text/plain', body: 'Signed in. You can close this tab.' });
     });
+    // The route sees the callback before the browser commits that navigation; wait for the commit so the
+    // next page.goto is not interrupted by it.
+    const reachedCallback = async (count) => {
+      await expect.poll(() => callbacks.length).toBe(count);
+      await page.waitForURL((url) => url.origin === 'http://127.0.0.1:47823');
+    };
     await page.goto(authorize);
     const card = page.getByRole('main');
     await expect(card.getByRole('heading', { name: 'Scripted PKCE client wants to use your Veevee account' })).toBeVisible();
@@ -204,7 +211,7 @@ for (const width of [1440, 1024, 390]) {
     await card.getByRole('textbox', { name: 'Daily limit for this app', exact: true }).fill('5');
     await card.getByRole('textbox', { name: 'Auto-approve up to', exact: true }).fill('10');
     await card.getByRole('button', { name: 'Allow' }).click();
-    await expect.poll(() => callbacks.length).toBe(1);
+    await reachedCallback(1);
     const callback = callbacks[0];
     expect(callback.searchParams.get('state')).toBe(state);
     expect(callback.searchParams.get('iss')).toBe(baseURL);
@@ -217,7 +224,7 @@ for (const width of [1440, 1024, 390]) {
     // The failed attempt consumed that code; consent again for a fresh one.
     await page.goto(authorize);
     await card.getByRole('button', { name: 'Allow' }).click();
-    await expect.poll(() => callbacks.length).toBe(2);
+    await reachedCallback(2);
     const issued = await form(baseURL, server.token_endpoint, { grant_type: 'authorization_code', client_id: clientId,
       code: callbacks[1].searchParams.get('code'), redirect_uri: CALLBACK, code_verifier: verifier, resource: resource.resource });
     expect(issued.status).toBe(200);
@@ -250,7 +257,7 @@ for (const width of [1440, 1024, 390]) {
     // A third connection is revoked from Settings, and a denial goes back to the app as access_denied.
     await page.goto(authorize);
     await card.getByRole('button', { name: 'Allow' }).click();
-    await expect.poll(() => callbacks.length).toBe(3);
+    await reachedCallback(3);
     const third = await form(baseURL, server.token_endpoint, { grant_type: 'authorization_code', client_id: clientId,
       code: callbacks[2].searchParams.get('code'), redirect_uri: CALLBACK, code_verifier: verifier });
     expect(third.status).toBe(200);
@@ -263,7 +270,7 @@ for (const width of [1440, 1024, 390]) {
 
     await page.goto(authorize);
     await card.getByRole('button', { name: 'Deny' }).click();
-    await expect.poll(() => callbacks.length).toBe(4);
+    await reachedCallback(4);
     expect(callbacks[3].searchParams.get('error')).toBe('access_denied');
 
     // A request that cannot be trusted never redirects anywhere.

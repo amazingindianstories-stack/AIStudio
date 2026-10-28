@@ -174,8 +174,9 @@ def cimd_client(url, *, fetch=None, now=None):
     cached = McpClient.objects.filter(client_id=url, kind='cimd').first()
     if cached and cached.fetched_at and cached.fetched_at > now - CIMD_CACHE_MS:
         return cached
+    body = fetch(url)
     try:
-        document = json.loads(fetch(url))
+        document = json.loads(body)
     except (ValueError, UnicodeError) as error:
         raise ClientError('invalid_client', 'The client metadata document is not valid JSON.') from error
     if not isinstance(document, dict) or document.get('client_id') != url:
