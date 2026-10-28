@@ -9,9 +9,13 @@ from .models import AppSetting, UserLimit
 from apps.generation.services.admission import LANE_DEFAULT, LANE_MAX, LANE_SETTING, PER_USER_DEFAULT, PER_USER_MAX
 
 LIMITS = {'maxPromptLength': (30000, 1, None), 'maxConcurrentJobs': (PER_USER_DEFAULT, 1, PER_USER_MAX),
-          LANE_SETTING: (LANE_DEFAULT, 1, LANE_MAX)}
+          LANE_SETTING: (LANE_DEFAULT, 1, LANE_MAX),
+          # Agent (MCP) spending: estimator cents per user per trailing day, and queued-or-running agent jobs.
+          'mcpDailyCapCents': (2000, 1, 100000), 'mcpActiveJobs': (4, 1, 8)}
 GLOBAL_ONLY = {LANE_SETTING}        # account-wide provider limits: no per-user override
 USER_LIMITS = {key: value for key, value in LIMITS.items() if key not in GLOBAL_ONLY}
+# What the composer reads back through /api/settings; agent limits are enforced by apps.mcp_auth instead.
+COMPOSER_LIMITS = {key: value for key, value in USER_LIMITS.items() if not key.startswith('mcp')}
 
 def parse(raw, definition):
     fallback, minimum, maximum = definition
@@ -35,9 +39,9 @@ def effective_settings(request):
     user = lookup(request)
     if user is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
-    globals = dict(AppSetting.objects.filter(key__in=USER_LIMITS).values_list('key', 'value'))
-    overrides = dict(UserLimit.objects.filter(user_id=user.id, key__in=USER_LIMITS).values_list('key', 'value'))
-    response = Response({key: parse(overrides[key] if key in overrides else globals.get(key), definition) for key, definition in USER_LIMITS.items()})
+    globals = dict(AppSetting.objects.filter(key__in=COMPOSER_LIMITS).values_list('key', 'value'))
+    overrides = dict(UserLimit.objects.filter(user_id=user.id, key__in=COMPOSER_LIMITS).values_list('key', 'value'))
+    response = Response({key: parse(overrides[key] if key in overrides else globals.get(key), definition) for key, definition in COMPOSER_LIMITS.items()})
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=30*24*60*60, httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')
     return response

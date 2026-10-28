@@ -55,9 +55,11 @@ export function createMiddleware(readToggle) {
     // the session when the page loads data, including disabled/revoked users.
     if (!req.cookies.get("veevee_session")?.value && pathname !== "/login") {
       const url = new URL(req.url);
-      // next.config preserves the incoming URL so the redirect keeps its origin.
+      // next.config preserves the incoming URL so the redirect keeps its origin. The query string is kept
+      // too: the agent consent page (/oauth/authorize) carries its whole request there.
+      const next = pathname + url.search;
       url.pathname = "/login";
-      url.search = `?next=${encodeURIComponent(pathname)}`;
+      url.search = `?next=${encodeURIComponent(next)}`;
       return NextResponse.redirect(url);
     }
     // A stale cookie must be allowed to reach login; its presence cannot prove
@@ -69,5 +71,7 @@ export function createMiddleware(readToggle) {
 export const middleware = createMiddleware(readMaintenance);
 
 export const config = {
-  matcher: ["/api/:path*", "/((?!api(?:/|$)|_next/static|_next/image|.*\\.).*)"],
+  matcher: ["/api/:path*", "/((?!api(?:/|$)|_next/static|_next/image|.*\\.).*)",
+    // Paths with a dot skip the page matcher; the OAuth discovery documents are listed explicitly.
+    "/.well-known/oauth-authorization-server", "/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"],
 };

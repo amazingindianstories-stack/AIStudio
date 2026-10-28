@@ -60,4 +60,5 @@ urlpatterns = [
     path('', include('apps.agents.urls')),
     path('', include('apps.workers.urls')),
     path('', include('apps.generation.enqueue_urls')),
+    path('', include('apps.mcp_auth.urls')),
 ]

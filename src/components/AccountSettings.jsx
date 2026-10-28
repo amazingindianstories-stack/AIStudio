@@ -9,6 +9,7 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  Bot,
   Camera,
   CheckCircle2,
   KeyRound,
@@ -20,6 +21,13 @@ import {
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
+import { AgentAccessPanel } from "./AgentAccessPanel";
+
+const TABS = [
+  ["profile", "Profile", UserRound],
+  ["security", "Security", KeyRound],
+  ["agents", "Agent access", Bot],
+];
 
 const inputClass =
   "w-full rounded-lg border border-line bg-ink-700 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-white/25 focus:ring-2 focus:ring-white/10 disabled:cursor-not-allowed disabled:opacity-55";
@@ -57,12 +65,12 @@ export function AccountSettings({
   const tabRefs = useRef({
     profile: null,
     security: null,
+    agents: null,
   });
   const titleId = useId();
-  const profileTabId = useId();
-  const profilePanelId = useId();
-  const securityTabId = useId();
-  const securityPanelId = useId();
+  const tabIdPrefix = useId();
+  const tabId = (id) => `${tabIdPrefix}-${id}-tab`;
+  const panelId = (id) => `${tabIdPrefix}-${id}-panel`;
 
   useEffect(() => {
     if (!open) return;
@@ -122,7 +130,7 @@ export function AccountSettings({
   };
 
   const moveTabFocus = (currentTab, key) => {
-    const tabs = ["profile", "security"];
+    const tabs = TABS.map(([id]) => id);
     const currentIndex = tabs.indexOf(currentTab);
     const nextTab =
       key === "Home"
@@ -290,7 +298,10 @@ export function AccountSettings({
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className="flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-ink-800 shadow-pop sm:max-w-xl sm:rounded-2xl"
+            className={cn(
+              "flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl border border-line bg-ink-800 shadow-pop sm:rounded-2xl",
+              tab === "agents" ? "sm:max-w-2xl" : "sm:max-w-xl"
+            )}
             initial={{ opacity: 0, y: 28, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 22, scale: 0.985 }}
@@ -315,22 +326,17 @@ export function AccountSettings({
             </div>
 
             <div className="flex shrink-0 gap-1 border-b border-line px-4 pt-2 sm:px-5" role="tablist">
-              {(
-                [
-                  ["profile", "Profile", UserRound],
-                  ["security", "Security", KeyRound],
-                ] 
-              ).map(([id, label, Icon]) => (
+              {TABS.map(([id, label, Icon]) => (
                 <button
                   key={id}
                   ref={(element) => {
                     tabRefs.current[id] = element;
                   }}
-                  id={id === "profile" ? profileTabId : securityTabId}
+                  id={tabId(id)}
                   type="button"
                   role="tab"
                   aria-selected={tab === id}
-                  aria-controls={id === "profile" ? profilePanelId : securityPanelId}
+                  aria-controls={panelId(id)}
                   tabIndex={tab === id ? 0 : -1}
                   onClick={() => selectTab(id)}
                   onKeyDown={(event) => {
@@ -361,9 +367,9 @@ export function AccountSettings({
                 {tab === "profile" ? (
                   <motion.form
                     key="profile"
-                    id={profilePanelId}
+                    id={panelId("profile")}
                     role="tabpanel"
-                    aria-labelledby={profileTabId}
+                    aria-labelledby={tabId("profile")}
                     onSubmit={saveProfile}
                     initial={{ opacity: 0, x: -14 }}
                     animate={{ opacity: 1, x: 0 }}
@@ -450,12 +456,25 @@ export function AccountSettings({
                       </button>
                     </div>
                   </motion.form>
+                ) : tab === "agents" ? (
+                  <motion.div
+                    key="agents"
+                    id={panelId("agents")}
+                    role="tabpanel"
+                    aria-labelledby={tabId("agents")}
+                    initial={{ opacity: 0, x: 14 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 14 }}
+                    transition={{ duration: 0.18 }}
+                  >
+                    <AgentAccessPanel />
+                  </motion.div>
                 ) : (
                   <motion.form
                     key="security"
-                    id={securityPanelId}
+                    id={panelId("security")}
                     role="tabpanel"
-                    aria-labelledby={securityTabId}
+                    aria-labelledby={tabId("security")}
                     onSubmit={changePassword}
                     initial={{ opacity: 0, x: 14 }}
                     animate={{ opacity: 1, x: 0 }}

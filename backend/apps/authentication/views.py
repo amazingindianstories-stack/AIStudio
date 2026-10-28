@@ -148,6 +148,8 @@ def change_password(request):
     if not updated:
         return cleared('Your session changed. Sign in and try again.',409)
     session.auth_version=account.auth_version+1
+    from apps.mcp_auth.tokens import revoke_all_for_user
+    revoke_all_for_user(account.id)
     response=Response({'ok':True})
     response.set_cookie('veevee_session',sign_session(session),max_age=2592000,
                         httponly=True,samesite='Lax',secure=settings.SESSION_COOKIE_SECURE,path='/')

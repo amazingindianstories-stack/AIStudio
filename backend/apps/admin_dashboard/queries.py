@@ -124,10 +124,13 @@ def dashboard(request):
         for row in UserLimit.objects.filter(key__in=USER_LIMITS):
             overrides.setdefault(str(row.user_id), {})[row.key] = parse(row.value, LIMITS[row.key])
         per_user = {str(row['user_id']): row for row in query('SELECT user_id,' + COST + ' FROM generations GROUP BY user_id')}
+        from apps.mcp_auth.views import admin_summary
+        agents = admin_summary()
         users = []
         for user in User.objects.all():
             totals = per_user.get(str(user.id), {})
             users.append({**safe_user(user), 'limits': overrides.get(str(user.id), {}), 'genCount': totals.get('count', 0),
+                          'agentAccess': {'enabled': str(user.id) in agents['enabled'], 'activeGrants': agents['grants'].get(str(user.id), 0)},
                           'costCents': totals.get('cost', 0), 'reconciledCostCents': totals.get('reconciled', 0), 'estimatedCostCents': totals.get('estimated', 0)})
         users.sort(key=lambda row: -row['costCents'])
         return reply(request, {'users': users, 'stats': statistics(), 'pricing': price_rows(), 'limits': limits, 'operations': operations()})

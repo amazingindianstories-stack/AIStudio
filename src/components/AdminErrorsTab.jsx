@@ -15,32 +15,9 @@ import {
   providerShort,
   supportBlock,
 } from "@/lib/admin-errors";
+import { copyText } from "@/lib/copy-text";
 
 const PAGE_SIZE = 50;
-
-async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    // Older browsers and non-secure origins: a hidden textarea and the copy command.
-    const area = document.createElement("textarea");
-    area.value = text;
-    area.setAttribute("readonly", "");
-    area.style.position = "fixed";
-    area.style.opacity = "0";
-    document.body.appendChild(area);
-    area.select();
-    let copied = false;
-    try {
-      copied = document.execCommand("copy");
-    } catch {
-      copied = false;
-    }
-    area.remove();
-    return copied;
-  }
-}
 
 function CopyButton({ row }) {
   const [state, setState] = useState("idle");

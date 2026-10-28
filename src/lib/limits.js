@@ -43,6 +43,26 @@ export const LIMIT_DEFINITIONS = [
     // An account-wide provider limit: set globally, never per user.
     globalOnly: true,
   },
+  {
+    key: "mcpDailyCapCents",
+    label: "Agent daily spend limit",
+    description:
+      "The most a user's AI agents (MCP tokens and connected apps) may spend in any 24 hours, in cents (2000 is $20.00). Each token or app also has its own lower limit, chosen when it is created.",
+    unit: "cents per 24 hours",
+    defaultValue: 2000,
+    min: 1,
+    max: 100000,
+  },
+  {
+    key: "mcpActiveJobs",
+    label: "Agent active jobs",
+    description:
+      "How many queued or running jobs a user's AI agents may have at once. They also count toward Max concurrent jobs.",
+    unit: "agent jobs",
+    defaultValue: 4,
+    min: 1,
+    max: 8,
+  },
 ];
 
 /** Limits an administrator may override for one user. */

@@ -84,6 +84,11 @@ class Generation(models.Model):
     flag_reason = models.TextField(null=True)
     judge_score = models.JSONField(null=True)
     location_version = models.IntegerField(default=1, db_default=1)
+    # Agent provenance (apps.mcp_auth): 'mcp' for agent submissions, null for the web. mcp_token_id is the
+    # token grant (family) id and mcp_client_id the OAuth client row id; both are null for web rows.
+    created_via = models.TextField(null=True)
+    mcp_token_id = models.UUIDField(null=True)
+    mcp_client_id = models.UUIDField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
 
@@ -105,6 +110,8 @@ class Generation(models.Model):
                 condition=models.Q(RawSQL("kind = 'video' and status in ('queued', 'running') and task_id is not null", [], output_field=models.BooleanField()))),
             PostgreSQLIndex(name='generations_coordinator_due_idx', fields=['status','next_poll_at','created_at'],
                 condition=models.Q(RawSQL("(kind = 'video' and status in ('queued', 'running')) or (kind = 'image' and (status = 'queued' or (status = 'running' and model like 'Magnific %%')))", [], output_field=models.BooleanField()))),
+            PostgreSQLIndex(name='generations_mcp_token_created_idx', fields=['mcp_token_id', 'created_at'],
+                condition=models.Q(mcp_token_id__isnull=False)),
         ]
 
 

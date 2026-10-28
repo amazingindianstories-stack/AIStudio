@@ -7,7 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 DEBUG = False
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if host.strip()]
-INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media']
+INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media', 'apps.mcp_auth']
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'apps.common.middleware.RequestLogMiddleware', 'apps.common.middleware.LocalDataModeMiddleware', 'apps.common.origin.BrowserOriginMiddleware', 'apps.common.middleware.SessionRenewalMiddleware']
 
 LOCAL_DATA_MODE = os.environ.get('LOCAL_DATA_MODE', 'fixtures')

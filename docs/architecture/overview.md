@@ -54,6 +54,7 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `workers` | Depth protocol, depth enqueue, cron routes, scheduler |
 | `media` | Storage, uploads, signed grants, downloads, audio transcription |
 | `admin_dashboard` | Admin views, pricing, settings, limits, status checks, provider error log (`/api/admin/errors`) |
+| `mcp_auth` | Agent (MCP) access: hashed tokens, OAuth 2.1 server, per-user opt-in, spend and rate controls (`agent-access.md`) |
 | `common` | Middleware, leases, responses, health, activity log |
 | `integrations` | Model-free outbound HTTP: provider transport and request deadlines, BytePlus client, bounded remote media fetch, DNS resolver |
 

@@ -12,12 +12,20 @@ export function djangoOrigin(configuration = {}) {
   return origin.origin;
 }
 
+// OAuth discovery documents for agent clients live at fixed site paths; Django serves them under /api/oauth.
+export const WELL_KNOWN_DOCUMENTS = {
+  "/.well-known/oauth-authorization-server": "/api/oauth/authorization-server",
+  "/.well-known/oauth-protected-resource": "/api/oauth/protected-resource",
+  "/.well-known/oauth-protected-resource/mcp": "/api/oauth/protected-resource",
+};
+
 export function djangoDestination(requestUrl, _method, configuration = {}) {
   const request = new URL(requestUrl);
-  if (request.pathname !== "/api" && !request.pathname.startsWith("/api/")) return null;
+  const document = Object.hasOwn(WELL_KNOWN_DOCUMENTS, request.pathname) ? WELL_KNOWN_DOCUMENTS[request.pathname] : null;
+  if (!document && request.pathname !== "/api" && !request.pathname.startsWith("/api/")) return null;
   const origin = djangoOrigin(configuration);
   if (origin === request.origin) throw new Error("Django routing would loop");
-  return new URL(request.pathname + request.search, origin);
+  return new URL((document || request.pathname) + request.search, origin);
 }
 
 export async function fetchDjangoSession(cookieHeader, configuration = {}, fetchImpl = fetch) {

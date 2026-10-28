@@ -7,12 +7,15 @@ configures frontend origins. This adds no cross-origin browser API architecture.
 from django.conf import settings
 from django.http import JsonResponse
 
+# OAuth endpoints for agent clients: they never read cookies and answer browser-based clients cross-origin.
+COOKIELESS_OAUTH_POSTS = frozenset(('/api/oauth/register', '/api/oauth/token', '/api/oauth/revoke'))
+
 class BrowserOriginMiddleware:
     def __init__(self,get_response):
         self.get_response=get_response
 
     def __call__(self,request):
-        if request.path.startswith('/api/') and request.method not in ('GET','HEAD','OPTIONS'):
+        if request.path.startswith('/api/') and request.method not in ('GET','HEAD','OPTIONS') and request.path not in COOKIELESS_OAUTH_POSTS:
             origin=request.headers.get('Origin')
             trusted=getattr(settings,'VEEVEE_BROWSER_ORIGINS',())
             if origin is not None:
