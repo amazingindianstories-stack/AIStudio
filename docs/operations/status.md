@@ -14,6 +14,76 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Production release 2026-10-28 - 87688a0 (deployed as 15e25c2)
+
+Owner-approved release of `main` `87688a0` (#108 to #114: Next.js 15.5.28, finals keep draft names, library Filters and
+day dividers, cancellation of in-progress Seedance and Gemini Omni jobs, admin "Rename to match folder", BytePlus
+OmniHuman 2.0 behind its flag, and the pre-deploy fixes). The release gate failed on `87688a0` with one test,
+`test_cancellation...test_api_auth_cancel_history_filter_realtime_and_delete`, which passed only when the runner exported
+`MOCK_GENERATION=1` (as `scripts/dev/test-db.sh` does). Test-only commit `15e25c2` pins mock mode inside the test; its
+gate (1187 backend tests) and 107-check rehearsal passed, and it is what was deployed. Runtime code equals `87688a0`.
+
+Maintenance was ON 05:45:41 to 05:55:02 UTC. Queues were empty before the backup and the migration.
+
+### Migration and backup evidence
+
+A fresh read-only backup (bundle SHA-256 `c56871d19d65c7fd86280d1b6bd8b7aac3f3062c7373ff0a2d2b529e3f51b887`, 19.2 MB)
+is kept privately outside Git. The rehearsal migrated its restored copy from 64 to 68 first. Production then applied
+`library.0006_generation_naming_fallback`, `generation.0005_generation_name_owner`,
+`generation.0006_generation_cancellation_state` and `generation.0007_explicit_folder_name_rename`: 64 -> 68 rows, none
+pending. All 8,132 named generations (of 8,140) own their own name reservation. `audit_generation_names` gave the same
+result before and after: 0 frozen-export disagreements, 1,273 intended new ZIP leaf changes, and 1,151 legacy
+computed-name groups across 3,909 rows (largest 21). These are the pre-permanent-name collisions already handled by
+`legacy_name_duplicate` (1,150 / 3,899 on 2026-10-23); permanent names stay unique by index.
+
+### Deployments
+
+| Service | Deployed | Before this release |
+|---|---|---|
+| api | `45c531f7-0f9f-4896-b3ec-9ef86dedf3a2` | `972195b7-b696-40c6-8ef6-bdabbde5ea64` |
+| generation | `f74d088c-3bb1-41bd-8c66-12fdccc319ce` | `c07cc138-50fb-4ca7-b7cd-fc03f6c67e52` |
+| export | `b14c4a0d-07ca-41dc-9e68-36ada92c14ab` | `f1e4bebd-dd0a-4a50-8f25-1031e72eb9e2` |
+| scheduler | `5fcc4e74-d1ad-48f0-a1cc-b6e2799b1042` | `22aa70ae-53fc-4150-991e-f58f77ddb6a1` |
+| Vercel | `dpl_GwAqxYBnEoXwLPjMFud4cZ6MLazZ` | `dpl_9JvoP2HwmADm8pjhygpipS8cxcy6` |
+
+The first scheduler upload (`ebd0a759`) failed in Railway's builder ("build daemon returned an error"). The automatic
+rollback to `22aa70ae` (as `9ade647b`) crashed because the old image accepts only 60-64 migration rows; the scheduler
+was down about three minutes inside the window until the retried upload succeeded. **The previous Railway images cannot
+start against schema 68, so recovery is forward only** (redeploy the qualified trees; keep the additive schema). The
+previous Vercel deployment is still compatible for a frontend rollback by promotion.
+
+Verified: start commands in each deployment manifest; the frontend deployment's health through `vercel curl` before
+promotion; `/api/health` database ready and empty-input login 400 on veevee.ai, www.veevee.ai and aistudio-v1.vercel.app;
+the three worker entrypoints running; maintenance `enabled:false, available:true` and OPTIONS reaching Django on all
+three origins; the signed-out login page with no banner. Signed-in browsing, cancellation, Filters and the rename action
+were not exercised in production by the release worker.
+
+### BytePlus key pair and OmniHuman
+
+The pasted BytePlus IAM pair was replaced. The new pair answered a read-only `ListAssetGroups` (200) before the swap and
+is now in all three Railway holders (`GOAL4_PREVIEW_PORTRAIT_CONFIGURATION` on api, generation and scheduler) and the two
+legacy Vercel Production variables, and in the owner's private env file. **The old pair still works and must be deleted
+in the BytePlus IAM console by its owner.** OmniHuman stays OFF: `VEEVEE_OMNIHUMAN` is unset on api and generation and no
+per-second price was set.
+
+### Memory (MiB, current / peak / limit)
+
+| Service | Before | After |
+|---|---|---|
+| api | 1516.9 / 1606.1 / 3814.7 | 170.2 / 170.2 / 3814.7 |
+| generation | 276.5 / 861.1 / 1907.3 | 72.8 / 75.3 / 1907.3 |
+| export | 70.1 / 70.9 / 476.8 | 71.5 / 72.5 / 476.8 |
+| scheduler | 124.6 / 476.8 / 476.8 | 78.9 / 81.2 / 476.8 |
+
+The scheduler had reached its 500 MB limit six times since 2026-10-23 (`memory.events` max 6, no OOM kill). Watch it.
+
+### Follow-up
+
+Owner: delete the old BytePlus pair; decide OmniHuman (flag on api and generation plus an admin per-second price); delete
+the stray Vercel project `vercel` that an unlinked staging directory created during this release (two unpromoted
+deployments, no variables); sign-in checks of the new features. Earlier items from 2026-10-23 (old Google AI, ARK,
+Magnific and Kling key revocations, storage key rotation, depth-worker token) remain open unless closed elsewhere.
+
 ## Production release 2026-10-23 - 5968d4c
 
 Owner-approved release of `5968d4c4dc742101ddf0e8f3077d9304d6400027`, following the exact-commit release gate and 107-check rehearsal on 2026-10-22. This includes permanent generation names and admin-only library changes, the composer changes, model-picker filtering, generation worker rolling dispatch with four slots, the maintenance switch, refactors and Cinema Studio style references.
@@ -68,7 +138,7 @@ Pre-window Railway targets were API `e4de5376-81aa-4be9-96d2-50239363a038`, gene
 
 After credential rotation, recover forward using schema64, the qualified release and current credentials. Do not restore old credentials or promote an old-ingress frontend. A day of generation-memory observation remains required.
 
-## Draft names and media cards (code only, not deployed)
+## Draft names and media cards (deployed 2026-10-28)
 
 Seedance 2.5 finals share their draft's immutable name reservation while retaining distinct generation IDs.
 Migration `generation.0005_generation_name_owner` preserves existing names, historical duplicate ordinals,
