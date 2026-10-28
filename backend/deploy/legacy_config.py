@@ -4,7 +4,7 @@ The Green services keep their credentials in one JSON variable per service
 (``GOAL4_PREVIEW_CONFIGURATION`` / ``GOAL4_PREVIEW_WORKER_CONFIGURATION``) that
 the old env-injected launchers decoded. This module maps the same values onto
 the named settings the versioned image uses, so the cutover changes only the
-image and start command — never a variable — and rolling back is a redeploy.
+image and start command - never a variable - and rolling back is a redeploy.
 
 Code blobs embedded in that configuration (overlays, gateway, paid guard) are
 ignored: their behaviour now lives in reviewed source. Values are never logged.
@@ -38,6 +38,10 @@ MAGNIFIC_MEDIA_HOSTS = ('cdn-magnific.freepik.com', 'ai-statics.magnific.com')
 KLING_MEDIA_HOSTS = ('h1.inkwai.com', 'cdn.klingai.com')
 # OmniHuman result host, observed in the approved live canary (task 2072219181, 2026-10-26); signed, expiring links.
 OMNIHUMAN_MEDIA_HOSTS = ('v16m-default.tiktokcdn.com',)
+# The MCP service runs as the API role with the API's storage, never with provider credentials: only the generation
+# worker calls providers. These keys never reach it, whatever the API configuration carries.
+MCP_DENIED = PROVIDER_KEYS | BYTEPLUS_KEYS | {'MAGNIFIC_API_KEY', 'KLING_API'}
+MCP_KEYS = ('VEEVEE_MCP', 'MCP_QUOTE_SECRET', 'MCP_MAX_HOLD_SECONDS')
 # KLING_API_HOST may only name a Kling API origin (the key is sent there); see apps.generation.providers.kling.
 KLING_HOST = re.compile(r'https://(?:[a-z0-9-]+\.)+klingai\.com/?')
 
@@ -143,8 +147,19 @@ def _omnihuman(component, env, out):
     return out
 
 
+def _mcp(env, out):
+    """The API's database role, storage, flags and paid-guard policy, minus every provider credential and the
+    portrait lifecycle and pool (they need BytePlus keys); plus the MCP switch, quote secret and hold limit."""
+    out = {key: value for key, value in out.items() if key not in MCP_DENIED | {'VEEVEE_PORTRAIT_LIFECYCLE', 'VEEVEE_MANAGED_PORTRAITS'}}
+    out.update({key: env[key] for key in MCP_KEYS if env.get(key)})
+    out['PORT'] = env.get('PORT') or out['PORT']
+    return out
+
+
 def translate(component, env):
     """Return the complete, allowlisted environment for ``component``."""
+    if component == 'mcp':
+        return _mcp(env, translate('api', env))
     if component == 'api':
         cfg = json.loads(env[API_VARIABLE])
         need(cfg.get('role') == API_ROLE, 'unexpected API role')
@@ -187,7 +202,7 @@ def translate(component, env):
 
 def preflight_contract(component, env):
     """Database facts every service must observe before it starts (from the old launchers)."""
-    if component == 'api':
+    if component in ('api', 'mcp'):
         return {'role': API_ROLE}
     cfg = json.loads(env[WORKER_VARIABLE])
     return {'role': cfg['role'], 'rls_tables': cfg['rls_tables'], 'hidden_job_contracts': cfg['hidden_job_contracts']}

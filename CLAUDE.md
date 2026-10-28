@@ -9,14 +9,16 @@ or live provider calls; the owner approves each one.
 
 Next.js and React own the interface, Zustand owns client state, and `src/middleware.js` forwards
 same-origin `/api` requests to Django with a server-only ingress header, after enforcing the
-maintenance write freeze and serving its status. Vercel holds `DJANGO_API_ORIGIN`,
-`GOAL4_PRIVATE_INGRESS_SECRET` and optional server-only `GLOBAL_CONFIG` (or `EDGE_CONFIG`);
-no database, storage, provider or session-signing secrets.
+maintenance write freeze and serving its status; it forwards `/mcp` to the MCP service. Vercel holds
+`DJANGO_API_ORIGIN`, `GOAL4_PRIVATE_INGRESS_SECRET`, optional `MCP_API_ORIGIN` and optional server-only
+`GLOBAL_CONFIG` (or `EDGE_CONFIG`); no database, storage, provider or session-signing secrets.
 
 Railway Green runs the Django API behind `backend/deploy/gateway.py`, plus the generation worker,
 export worker and scheduler, all started by `python -m deploy.entrypoint <component>` from
 `backend/Dockerfile`. `docs/operations/status.md` records the commit and deployment each service
-runs and its rollback target. Magnific image/video upscaling is behind `VEEVEE_MAGNIFIC_UPSCALE`,
+runs and its rollback target. The agent (MCP) server `apps/mcp` runs as `python -m deploy.entrypoint mcp` with the API database
+role and no provider keys (`docs/architecture/mcp-server.md`); status.md records whether it is deployed.
+Magnific image/video upscaling is behind `VEEVEE_MAGNIFIC_UPSCALE`,
 Kling images behind `VEEVEE_KLING` (`KLING_API` on the generation worker only).
 The single managed migration graph is under `backend/apps/*/migrations`; PostgreSQL only.
 

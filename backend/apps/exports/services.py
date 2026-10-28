@@ -1,4 +1,5 @@
 """Owned export selections, immutable manifests, and fenced worker transitions."""
+from datetime import datetime, timezone
 from django.conf import settings
 from django.db import transaction
 from django.db.models import Q, F
@@ -32,6 +33,11 @@ def _create_export(user_id, now=None):
     now = now_ms() if now is None else now
     job = MediaExport.objects.create(user_id=user_id, status='draft', created_at=now, updated_at=now)
     return {'id': str(job.id), 'status': 'draft'}
+
+
+def archive_filename(job):
+    """The ZIP's download name, from the day the export was created (UTC)."""
+    return 'Veevee_Assets_' + datetime.fromtimestamp(job.created_at / 1000, timezone.utc).strftime('%Y-%m-%d') + '.zip'
 
 
 def owned_export(export_id, user_id, lock=False):

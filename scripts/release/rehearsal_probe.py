@@ -319,5 +319,58 @@ if admin is not None:
         status, refused, _ = call('POST', path, {}, session=admin_session)
         check(f'admin: {path} stays closed', status == 403 and refused.get('code') == 'PREVIEW_OPERATION_DISABLED', f'{status} {str(refused)[:120]}')
 
+# MCP service (vr-mcp: the real entrypoint, uvicorn behind the gateway in mcp mode, no provider keys). A personal
+# access token for the rehearsal user lists the tools in both protocol eras and runs one paid image through the
+# shared paid path (quote, paid guard ledger, generation worker), then is revoked.
+async def mcp_probe(raw):
+    import httpx2
+    from mcp import Client
+    from mcp.client.streamable_http import streamable_http_client
+    headers = {'authorization': 'Bearer ' + raw, 'x-veevee-g4-ingress': SECRET}
+    async with httpx2.AsyncClient(timeout=30) as http:
+        response = await http.post(MCP_URL, json={'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'},
+                                   headers={'x-veevee-g4-ingress': SECRET, 'accept': 'application/json, text/event-stream'})
+    check('mcp: no bearer token gets 401', response.status_code == 401, response.status_code)
+    for mode in ('legacy', '2026-07-28'):
+        async with httpx2.AsyncClient(timeout=150, headers=headers) as http, \
+                Client(streamable_http_client(MCP_URL, http_client=http), mode=mode) as client:
+            names = {tool.name for tool in (await client.list_tools()).tools}
+            check(f'mcp {mode}: read and generate tools listed', {'get_account', 'list_models', 'generate_image'} <= names
+                  and 'admin_spend_report' not in names, sorted(names))
+            if mode != 'legacy':
+                continue
+            arguments = {'model': 'nano-banana-pro', 'prompt': 'rehearsal: a quiet courtyard at dawn', 'aspectRatio': '1:1',
+                         'projectId': str(project.id), 'wait': False}
+            result = await client.call_tool('generate_image', arguments)
+            found = result.structured_content or {}
+            if not result.is_error and found.get('outcome') == 'quote_required':
+                result = await client.call_tool('generate_image', {**found['next']['arguments'], 'confirmedByUser': True})
+                found = result.structured_content or {}
+            check('mcp: generate_image accepted', not result.is_error and (found.get('generation') or {}).get('id'), str(found)[:300])
+            return (found.get('generation') or {}).get('id')
+
+
+MCP_URL = 'http://vr-mcp:18083/mcp'
+if os.environ.get('REHEARSAL_MCP', '1') == '1':
+    import asyncio
+    from apps.common.leases import now_ms  # noqa: E402
+    from apps.mcp_auth import policy, tokens  # noqa: E402
+    enabled_before = policy.user_limits(user.id)['enabled']
+    policy.set_enabled(user.id, True, now_ms())
+    raw, token = tokens.issue(user, 'pat', scopes=['veevee.read', 'veevee.generate'], daily_cap_cents=1000, auto_approve_cents=25,
+                              expires_at=now_ms() + policy.DAY_MS, name='release rehearsal')
+    try:
+        identifier = asyncio.run(mcp_probe(raw))
+        if identifier:
+            check('mcp: ledger reserved by the MCP service', ledger(identifier) in ('RESERVED', 'ATTEMPTING', 'SUBMITTING'), ledger(identifier))
+            row = wait(identifier)
+            check('mcp: worker completed the agent job', row.status == 'succeeded', f'{row.status} {row.error}')
+            check('mcp: one paid submission claimed', ledger(identifier) == 'SUBMITTING', ledger(identifier))
+            check('mcp: agent origin recorded', (row.created_via, str(row.mcp_token_id)) == ('mcp', str(token.id)),
+                  f'{row.created_via} {row.mcp_token_id}')
+    finally:
+        tokens.revoke_family(token.family_id)
+        policy.set_enabled(user.id, enabled_before, now_ms())
+
 print(json.dumps({'failures': failures, 'checked': len(results)}), flush=True)
 sys.exit(1 if failures else 0)

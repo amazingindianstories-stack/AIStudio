@@ -4,11 +4,17 @@ The library is shared: every signed-in user may read every generation, as GET /a
 and counts take the history query parameters (``params``: a QueryDict, or a mapping of names to a value or a list
 of values) and page with the ``(created_at, id)`` keyset cursor. Single and batch reads return the same public item
 the history list returns.
+
+Agent tools opt in to two extensions the web never sends (``options``): ``names`` also matches the permanent name, and
+``subfolders`` widens a folder scope to its subtree (at most ``MAX_SUBTREE_FOLDERS`` folders). Their cursors always
+carry the query fingerprint.
 """
 from uuid import UUID
-from django.db.models import BooleanField, Count, F
+from django.db import connection
+from django.db.models import BooleanField, Count, F, Q
 from django.db.models.expressions import RawSQL
 from django.http import QueryDict
+from rest_framework.exceptions import ValidationError
 from apps.library.filenames import batch_resolve_generation_filenames
 from ..history_parameters import decode_cursor, page_limit
 from ..library_filters import (apply_library_filters, parse_library_filters, library_options,
@@ -20,6 +26,7 @@ from ..updates import operand_text
 JS_WHITESPACE = '\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
 # One batch read; a history page is at most 100.
 MAX_BATCH = 100
+MAX_SUBTREE_FOLDERS = 500           # like apps/library/services/folder_engine.descendants
 
 
 def query_params(params):
@@ -49,7 +56,7 @@ def filters(params):
     return (None if project == 'none' else project), (kind if kind in ('image', 'video', 'audio') else None), query
 
 
-def base_query(kind, query):
+def base_query(kind, query, *, names=False):
     rows = Generation.objects.all()
     if kind != 'audio':
         rows = rows.exclude(kind='audio')
@@ -58,8 +65,24 @@ def base_query(kind, query):
     if query:
         pattern = '%' + query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_') + '%'
         # Keep PostgreSQL ILIKE semantics (Django icontains uses UPPER/LIKE).
-        rows = rows.filter(RawSQL('"generations"."prompt" ILIKE %s', [pattern], output_field=BooleanField()))
+        match = Q(RawSQL('"generations"."prompt" ILIKE %s', [pattern], output_field=BooleanField()))
+        if names:
+            match |= Q(RawSQL('"generations"."permanent_name" ILIKE %s', [pattern], output_field=BooleanField()))
+        rows = rows.filter(match)
     return rows
+
+
+def subtree(folder_id):
+    """The folder and every folder below it (cycle-safe); refused beyond ``MAX_SUBTREE_FOLDERS`` subfolders."""
+    with connection.cursor() as cursor:
+        cursor.execute('''WITH RECURSIVE tree(id) AS (
+                SELECT id FROM folders WHERE id = %s::uuid
+                UNION SELECT f.id FROM folders f JOIN tree ON f.parent_id = tree.id)
+            SELECT id FROM tree LIMIT %s''', [str(folder_id), MAX_SUBTREE_FOLDERS + 2])
+        ids = [str(row[0]) for row in cursor.fetchall()]
+    if len(ids) > MAX_SUBTREE_FOLDERS + 1:
+        raise ValidationError({'error': f'This folder has more than {MAX_SUBTREE_FOLDERS} subfolders; choose a smaller folder.'})
+    return ids
 
 
 def grouped(rows):
@@ -82,14 +105,23 @@ def count_library(params):
         'allAssets': rows.count(), 'favorites': rows.filter(is_favorite=True).count()}
 
 
-def source_history(params, *, search=True):
+def location_counts():
+    """SQL item counts per ``(project_id, folder_id)`` over the library (audio excluded, as in every scope's default)."""
+    return {(row['project_id'], row['folder_id']): row['n']
+            for row in base_query(None, '').order_by().values('project_id', 'folder_id').annotate(n=Count('*'))}
+
+
+def source_history(params, *, search=True, options=None):
+    options = options or {}
     project, kind, query = filters(params)
-    rows = base_query(kind if search else None, query if search else '')
+    rows = base_query(kind if search else None, query if search else '', names=options.get('names', False))
     if first(params, 'projectId') == 'none' or project:
         rows = rows.filter(project_id=project)
     folder = first(params, 'folderId')
     if folder == 'none':
         rows = rows.filter(folder_id=None)
+    elif folder and options.get('subfolders'):
+        rows = rows.filter(folder_id__in=subtree(folder))
     elif folder:
         rows = rows.filter(folder_id=folder)
     favorite = first(params, 'favorite') == '1'
@@ -98,18 +130,28 @@ def source_history(params, *, search=True):
     return rows
 
 
-def query_history(params):
-    """One page of a library scope or search: ``{'items', 'nextCursor'}``, or ``{'options'}`` with ``options=1``."""
+def count_history(params, *, options=None):
+    """The SQL total of a library scope or search with its filters: every matching row, never a loaded page."""
+    params = query_params(params)
+    return apply_library_filters(source_history(params, options=options), parse_library_filters(params)).count()
+
+
+def query_history(params, *, options=None):
+    """One page of a library scope or search: ``{'items', 'nextCursor'}``, or ``{'options'}`` with ``options=1``.
+
+    ``options`` (agent tools only) is ``{'names': bool, 'subfolders': bool}``; with it, cursors always carry the
+    query fingerprint, so a cursor from another query is refused."""
     params = query_params(params)
     if first(params, 'options') == '1':
         return {'options': library_options(source_history(params, search=False))}
     selected_filters = parse_library_filters(params)
-    rows = apply_library_filters(source_history(params), selected_filters)
+    rows = apply_library_filters(source_history(params, options=options), selected_filters)
     favorite = first(params, 'favorite') == '1'
     sort_mode = selected_filters.get('sort', 'starred' if favorite else 'newest')
     sort = 'favorited_at' if sort_mode == 'starred' else 'created_at'
     ascending = sort_mode == 'oldest'
-    fingerprint = query_fingerprint(params, selected_filters) if selected_filters else None
+    fingerprint = (query_fingerprint(params, {**selected_filters, 'options': options}) if options is not None
+                   else query_fingerprint(params, selected_filters) if selected_filters else None)
     raw_cursor = first(params, 'cursor')
     cursor = (decode_library_cursor(raw_cursor, fingerprint) if raw_cursor and (fingerprint or raw_cursor.startswith('v1:'))
               else decode_cursor(raw_cursor))

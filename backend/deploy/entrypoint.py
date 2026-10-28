@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Container entrypoint for the Veevee Django services (replaces env-injected launchers).
 
-Usage: python -m deploy.entrypoint {api|generation|export|scheduler}
+Usage: python -m deploy.entrypoint {api|generation|export|scheduler|mcp}
 
 Credentials arrive as named environment variables and are written to private
 0600 files only where a library needs a file path (PostgreSQL CA, Google ADC).
 The API runs the private ingress gateway on $PORT in front of gunicorn
 (1 worker x 8 threads on 127.0.0.1:18080, matching the qualified production
-process model). Workers run their management command in this process.
+process model). The MCP service runs the same gateway, in mcp mode, in front of
+one uvicorn process on 127.0.0.1:18082. Workers run their management command
+in this process.
 """
 import json
 import os
@@ -29,6 +31,9 @@ WORKER_COMMANDS = {
 API_THREADS = 8
 GUNICORN = ['--bind', f'127.0.0.1:{UPSTREAM_PORT}', '--workers', '1', '--threads', str(API_THREADS), '--timeout', '25',
             '--graceful-timeout', '5', '--access-logfile', '/dev/null', '--error-logfile', '-']
+MCP_PORT = 18082
+UVICORN = ['apps.mcp.asgi:application', '--host', '127.0.0.1', '--port', str(MCP_PORT), '--workers', '1', '--lifespan', 'on',
+           '--no-access-log', '--log-level', 'warning', '--timeout-graceful-shutdown', '5']
 
 
 def private_file(directory, name, data):
@@ -61,23 +66,42 @@ def prepare_environment(env):
     return env
 
 
-def run_api(env):
+def ingress_secret(env):
     secret = env.pop('VEEVEE_INGRESS_SECRET', '')
     if len(secret) < 48:
         raise SystemExit('VEEVEE_INGRESS_SECRET must be at least 48 characters')
+    return secret
+
+
+def start_gateway(env, config):
+    gateway = subprocess.Popen([sys.executable, str(Path(__file__).with_name('gateway.py')), '--approved-private-stdin'],
+                               env={'PATH': env.get('PATH', '/usr/local/bin:/usr/bin:/bin')}, stdin=subprocess.PIPE)
+    gateway.stdin.write(json.dumps(config).encode())
+    gateway.stdin.close()
+    return gateway
+
+
+def run_api(env):
+    secret = ingress_secret(env)
     port = int(env.get('PORT', '18081'))
     env['VEEVEE_API_THREADS'] = str(API_THREADS)  # config.wsgi sizes slow-call admission from it
-    gateway_config = json.dumps({'secret': secret, 'port': port, 'paid_initial_routes': bool(env.get('VEEVEE_PAID_GUARD')),
-                                 'new_exports': env.get('VEEVEE_EXPORT_ADMISSION') == '1',
-                                 'magnific_upscale': env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'})
-    children = [
-        subprocess.Popen([sys.executable, '-m', 'gunicorn', 'config.wsgi:application', *GUNICORN], env=env),
-        subprocess.Popen([sys.executable, str(Path(__file__).with_name('gateway.py')), '--approved-private-stdin'],
-                         env={'PATH': env.get('PATH', '/usr/local/bin:/usr/bin:/bin')}, stdin=subprocess.PIPE),
-    ]
-    children[1].stdin.write(gateway_config.encode())
-    children[1].stdin.close()
+    server = subprocess.Popen([sys.executable, '-m', 'gunicorn', 'config.wsgi:application', *GUNICORN], env=env)
+    return supervise([server, start_gateway(env, {
+        'secret': secret, 'port': port, 'paid_initial_routes': bool(env.get('VEEVEE_PAID_GUARD')),
+        'new_exports': env.get('VEEVEE_EXPORT_ADMISSION') == '1', 'magnific_upscale': env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'})])
 
+
+def run_mcp(env):
+    """The MCP service: one uvicorn process (Django in-process, async holds) behind the gateway in mcp mode."""
+    if env.get('VEEVEE_MCP') != '1':
+        raise SystemExit('The mcp component needs VEEVEE_MCP=1')
+    secret = ingress_secret(env)
+    port = int(env.get('PORT', '18081'))
+    server = subprocess.Popen([sys.executable, '-m', 'uvicorn', *UVICORN], env=env)
+    return supervise([server, start_gateway(env, {'secret': secret, 'port': port, 'mode': 'mcp'})])
+
+
+def supervise(children):
     def stop(*_):
         for child in children:
             if child.poll() is None:
@@ -121,8 +145,8 @@ def run_worker(component, env):
 
 
 def main(argv):
-    if len(argv) != 2 or argv[1] not in ('api', *WORKER_COMMANDS):
-        raise SystemExit('usage: python -m deploy.entrypoint {api|generation|export|scheduler}')
+    if len(argv) != 2 or argv[1] not in ('api', 'mcp', *WORKER_COMMANDS):
+        raise SystemExit('usage: python -m deploy.entrypoint {api|generation|export|scheduler|mcp}')
     component = argv[1]
     env, contract = dict(os.environ), None
     if legacy_config.present(env):
@@ -133,7 +157,9 @@ def main(argv):
     if contract is not None:
         legacy_config.preflight(env['DATABASE_URL'], contract)
     env['VEEVEE_RUNTIME_COMPONENT'] = component
-    return run_api(env) if component == 'api' else run_worker(component, env)
+    if component in ('api', 'mcp'):
+        return (run_api if component == 'api' else run_mcp)(env)
+    return run_worker(component, env)
 
 
 if __name__ == '__main__':

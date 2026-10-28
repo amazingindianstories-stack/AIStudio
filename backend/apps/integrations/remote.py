@@ -1,7 +1,8 @@
 """Bounded provider-media downloads: allowlisted HTTPS, pinned public DNS addresses.
 
 The connection uses the checked IP while TLS verifies the original hostname.
-Redirects are revalidated and never forward credentials/cookies.
+Redirects are revalidated and never forward credentials/cookies. ``allowed_hosts=None`` is the public-HTTPS mode
+(agent URL imports): any host name, still HTTPS on 443 only and only to public addresses.
 """
 from apps.integrations.errors import MediaTooLargeError
 from apps.integrations.dns import MEDIA_RESOLVER
@@ -21,6 +22,18 @@ class UnsafeMediaURL(ValueError):
     pass
 
 
+# IPv6 ranges that carry an IPv4 address (mapped, compatible, NAT64, 6to4, Teredo); refused outright.
+EMBEDDED_IPV4 = tuple(ipaddress.ip_network(net) for net in
+                      ('::ffff:0:0/96', '::/96', '64:ff9b::/96', '64:ff9b:1::/48', '2002::/16', '2001::/32'))
+
+
+def public_address(address):
+    ip = ipaddress.ip_address(address)
+    if ip.version == 6 and any(ip in net for net in EMBEDDED_IPV4):
+        return False
+    return ip.is_global and not ip.is_multicast
+
+
 def validated_target(url, allowed_hosts, resolver=socket.getaddrinfo):
     try:
         parsed = urlsplit(url)
@@ -28,12 +41,12 @@ def validated_target(url, allowed_hosts, resolver=socket.getaddrinfo):
         if parsed.scheme != 'https' or not hostname or parsed.username or parsed.password or parsed.port not in (None,443):
             raise UnsafeMediaURL('Media URL must be HTTPS without credentials or a custom port.')
         host = hostname.rstrip('.').lower().encode('idna').decode()
-        allowed = any(host == entry.lower() or (entry.startswith('*.') and host.endswith(entry[1:].lower())
+        allowed = allowed_hosts is None or any(host == entry.lower() or (entry.startswith('*.') and host.endswith(entry[1:].lower())
             and host != entry[2:].lower()) for entry in allowed_hosts)
         if not allowed:
             raise UnsafeMediaURL('Media host is not configured for provider downloads.')
         addresses = {entry[4][0] for entry in resolver(host,443,type=socket.SOCK_STREAM)}
-        if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
+        if not addresses or not all(public_address(address) for address in addresses):
             raise UnsafeMediaURL('Media URLs cannot address private or reserved networks.')
         return host, sorted(addresses)[0], (parsed.path or '/') + ('?'+parsed.query if parsed.query else '')
     except (ValueError, UnicodeError, socket.gaierror) as error:
@@ -66,8 +79,9 @@ class PinnedHTTPSConnection(http.client.HTTPSConnection):
 class SafeMediaFetcher:
     def __init__(self, allowed_hosts, *, max_bytes=512*1024*1024, timeout=30,
                  resolver=socket.getaddrinfo, connection= PinnedHTTPSConnection,
-                 total_timeout=270, clock=time.monotonic, dns=None):
-        self.allowed_hosts, self.max_bytes, self.timeout = tuple(allowed_hosts), max_bytes, timeout
+                 total_timeout=270, clock=time.monotonic, dns=None, max_redirects=5):
+        self.allowed_hosts = None if allowed_hosts is None else tuple(allowed_hosts)
+        self.max_bytes, self.timeout, self.max_redirects = max_bytes, timeout, max_redirects
         self.resolver, self.connection = resolver, connection
         self.total_timeout, self.clock = total_timeout, clock
         self.dns = MEDIA_RESOLVER if dns is None else dns
@@ -77,8 +91,11 @@ class SafeMediaFetcher:
             return stream.read(), mime
 
     @contextmanager
-    def open_file(self,url,*,max_bytes=None):
-        """Spool bounded chunks to disk; caller owns no payload-sized chunk list."""
+    def open_file(self,url,*,max_bytes=None,limit_for=None):
+        """Spool bounded chunks to disk; caller owns no payload-sized chunk list.
+
+        ``limit_for(content_type)`` may lower the byte limit (or raise) once the response headers arrive.
+        """
         limit = self.max_bytes if max_bytes is None else min(self.max_bytes,max_bytes)
         deadline = self.clock() + self.total_timeout
         def remaining():
@@ -86,7 +103,7 @@ class SafeMediaFetcher:
             if budget <= 0:
                 raise TimeoutError('Provider media download exceeded its total deadline.')
             return min(self.timeout, budget)
-        for _ in range(6):
+        for _ in range(self.max_redirects+1):
             def resolve(*args,**kwargs):
                 return self.dns.resolve(self.resolver,*args,timeout=remaining(),**kwargs)
             host,address,path = validated_target(url,self.allowed_hosts,resolve)
@@ -112,6 +129,9 @@ class SafeMediaFetcher:
                     continue
                 if response.status < 200 or response.status >= 300:
                     raise ValueError(f'Failed to download media ({response.status})')
+                mime = response.getheader('Content-Type') or 'application/octet-stream'
+                if limit_for is not None:
+                    limit = min(limit,limit_for(mime))
                 declared = response.getheader('Content-Length')
                 if declared is not None and not declared.isdigit():
                     raise ValueError('Provider media exceeds the configured download limit.')
@@ -142,7 +162,7 @@ class SafeMediaFetcher:
                     if guard is not None:
                         guard.__exit__(None,None,None)
                         guard = None
-                    yield incoming,response.getheader('Content-Type') or 'application/octet-stream'
+                    yield incoming,mime
                 return
             except Exception:
                 if guard is not None and (guard.expired.is_set() or time.monotonic() >= guard.deadline):

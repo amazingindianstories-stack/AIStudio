@@ -35,6 +35,17 @@ class ApiAdmissionTests(TransactionTestCase):
                 services.finalize_export(created['id'], uuid.uuid4())
             self.assertEqual(other.exception.args[0], 'EXPORT_NOT_FOUND')
 
+    def test_the_mcp_service_admits_the_exports_it_creates_like_the_api(self):
+        with override_settings(**{**API, 'VEEVEE_RUNTIME_COMPONENT': 'mcp'}):
+            self.assertTrue(admission.api_enabled())
+            actor = uuid.uuid4()
+            created = services.create_export(actor, now=1000)
+            self.assertTrue(admission.admitted(created['id'], actor))
+            legacy = MediaExport.objects.create(user_id=actor, status='draft', created_at=1, updated_at=1)
+            with self.assertRaises(services.ExportError) as hidden:
+                services.finalize_export(str(legacy.id), actor)
+            self.assertEqual(hidden.exception.args[0], 'EXPORT_NOT_FOUND')
+
     def test_other_components_and_the_flag_off_neither_record_nor_check_receipts(self):
         for flags in ({**API, 'VEEVEE_EXPORT_ADMISSION': False}, {**WORKER, 'VEEVEE_RUNTIME_COMPONENT': 'generation'},
                       {**API, 'VEEVEE_RUNTIME_COMPONENT': None}):

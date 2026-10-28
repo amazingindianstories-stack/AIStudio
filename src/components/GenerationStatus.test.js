@@ -19,3 +19,10 @@ test("waitingNote shows the worker slot reason for images and videos", () => {
     assert.equal(waitingNote({ ...item, pollWarning: "Still checking" }), null);
   }
 });
+
+test("waitingNote shows a cancellation in flight, including one an agent asked for", () => {
+  for (const cancellationState of ["pending", "requested", "uncertain"]) {
+    assert.equal(waitingNote({ kind: "video", cancellationState }), "Confirming cancellation with the provider");
+  }
+  assert.equal(waitingNote({ kind: "video", cancellationState: "refused" }), null);
+});

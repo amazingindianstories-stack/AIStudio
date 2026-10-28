@@ -302,7 +302,8 @@ class ProviderPersistenceTests(SimpleTestCase):
                     'https://user:pass@media.example/a','https://attacker.example/a'):
             with self.assertRaises(UnsafeMediaURL):
                 validated_target(url,['media.example'],resolver)
-        for address in ('127.0.0.1','10.1.2.3','169.254.169.254','::1','fc00::1','192.0.2.1'):
+        for address in ('127.0.0.1','10.1.2.3','169.254.169.254','::1','fc00::1','192.0.2.1',
+                        '64:ff9b::a9fe:a9fe','64:ff9b:1::a9fe:a9fe','::127.0.0.1','::ffff:10.1.2.3','2002:a9fe:a9fe::1'):
             with self.assertRaises(UnsafeMediaURL):
                 validated_target('https://media.example/a',['media.example'],lambda *a,**k:[(2,1,6,'',(address,443))])
 

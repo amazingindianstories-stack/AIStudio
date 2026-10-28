@@ -43,6 +43,16 @@ poll-abandonment cap as any other poll. At the cap it settles as failed and keep
 its cancellation state, task receipt, provider evidence and estimated cost; it
 can then be deleted like any failed row. Deletion refuses active work.
 
+The MCP service (`mcp-server.md`) holds no provider credentials, so its
+`cancel_generation` passes `defer=True`: a job that already has a provider task
+is marked `cancellation_state='pending'` and nothing else changes. The
+generation worker picks pending rows before due work on every pass and sends
+the cancel exactly as the web request would (`settle_pending`, acting for the
+row's owner, whose request was authorized when it was made). A busy row or an
+unreachable provider stays pending for a later pass; a task that started in the
+meantime ends the request as `refused`. The web shows a pending cancel like a
+requested one. Queued work without a task settles at once, as on the web.
+
 A confirmed `cancelled` generation is terminal, excluded from worker claims,
 rendered with the existing failure treatment and included in the Failed filter.
 It remains in history/counts and can be deleted under the usual admin rule.

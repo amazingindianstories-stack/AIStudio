@@ -1,6 +1,5 @@
 import hmac
 import uuid
-from datetime import datetime, timezone
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, StreamingHttpResponse
@@ -100,7 +99,7 @@ def download(request, id):
         return Response({'error': 'NOT_READY'}, status=409)
     if not row.expires_at or row.expires_at <= now_ms():
         return Response({'error': 'EXPIRED'}, status=410)
-    filename = 'Veevee_Assets_' + datetime.fromtimestamp(row.created_at / 1000, timezone.utc).strftime('%Y-%m-%d') + '.zip'
+    filename = services.archive_filename(row)
     storage = get_storage()
     try:
         signed = storage.signed_export_download_url(row.output_key, filename)

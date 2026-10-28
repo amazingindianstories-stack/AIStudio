@@ -78,7 +78,7 @@ def authorize_media_key(path):
     """
     key = validate_key(path)
     original_key = key
-    while match := re.fullmatch(r'thumbs/[0-9]+/(.+)\.webp', original_key):
+    while match := re.fullmatch(r'thumbs/(?:[0-9]+|poster)/(.+)\.webp', original_key):
         original_key = match[1]
     if original_key.startswith('uploads/'):
         from .models import UploadSession

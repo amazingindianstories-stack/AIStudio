@@ -13,8 +13,8 @@ A paid tool submits like this, so the checks and the row share one transaction a
 
 Spend is the sum over agent-created rows in the trailing 24 hours of each row's cost (reconciled when known,
 otherwise the estimate). Rows cancelled before submission cost nothing; rows whose billing is unconfirmed
-count. Amounts are estimator cents. For Seedance 2.5 the caller passes the conservative token estimate when it
-is higher than the stored estimate.
+count. Amounts are estimator cents. A Seedance 2.5 job is priced and booked at the higher of its web estimate and the
+paid guard's current token estimate (``booked_cents``) until its provider-reported cost replaces it.
 """
 import math
 from contextlib import contextmanager
@@ -28,6 +28,7 @@ from . import policy
 
 ACTIVE_STATUSES = ('queued', 'running')
 FREE_COST_BASIS = 'cancelled_before_submission'
+SEEDANCE_25 = 'Seedance 2.5'
 
 
 class ControlRefusal(Exception):
@@ -85,12 +86,39 @@ def check_rate(principal, name, *, now=None):
     return result
 
 
+def booked_cents(model, cost_cents, duration=None, resolution=None, reference_videos=None):
+    """What an agent job costs before it reconciles: Seedance 2.5 books at least its current token estimate.
+
+    The web estimate for Seedance 2.5 is a placeholder well below what the provider bills, so agents are quoted, confirmed
+    and capped on the token estimate (not the paid guard's doubled reservation, which would refuse every 1080p clip).
+    """
+    from apps.generation.services.paid_guard import seedance_token_estimate
+    cost = cost_cents or 0
+    if model != SEEDANCE_25 or type(duration) is not int or resolution not in ('480p', '720p', '1080p'):
+        return cost
+    return max(cost, math.ceil(seedance_token_estimate(duration, resolution, bool(reference_videos))))
+
+
+def counted_cents(model, status, cost_basis, cost_cents, duration=None, resolution=None, reference_videos=None):
+    """What one agent-created row adds to ``spent_cents`` now: nothing if cancelled before submission, the booked amount
+    while an estimated job is active, otherwise its stored cost."""
+    if cost_basis == FREE_COST_BASIS:
+        return 0
+    if status in ACTIVE_STATUSES and cost_basis == 'estimated':
+        return booked_cents(model, cost_cents, duration, resolution, reference_videos)
+    return cost_cents or 0
+
+
 def spent_cents(user_id, *, token_id=None, now=None):
     from apps.generation.models import Generation
     now = now_ms() if now is None else now
     rows = Generation.objects.filter(created_via='mcp', created_at__gt=now - policy.DAY_MS).exclude(cost_basis=FREE_COST_BASIS)
     rows = rows.filter(mcp_token_id=token_id) if token_id is not None else rows.filter(user_id=user_id)
-    return rows.aggregate(total=Sum('cost_cents'))['total'] or 0
+    total = rows.aggregate(total=Sum('cost_cents'))['total'] or 0
+    booked = rows.filter(model=SEEDANCE_25, status__in=ACTIVE_STATUSES, cost_basis='estimated').values_list(
+        'cost_cents', 'duration', 'resolution', 'reference_videos')
+    return total + sum(booked_cents(SEEDANCE_25, cost, duration, resolution, videos) - (cost or 0)
+                       for cost, duration, resolution, videos in booked)
 
 
 def active_jobs(user_id):

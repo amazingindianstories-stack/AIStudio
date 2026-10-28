@@ -59,10 +59,7 @@ def quote_for(contract,config):
  if quote.get('reservation_formula')=='seedance_current_token_estimate_times_two_floor_300':
   require(type(contract.get('duration')) is int and 3<=contract['duration']<=15,'Unpriced Seedance duration')
   require(contract.get('resolution') in ('480p','720p','1080p'),'Unpriced Seedance resolution')
-  pixels={'480p':864*480,'720p':1440*810,'1080p':2560*1440}[contract['resolution']]
-  video_input=bool(contract.get('reference_videos'));seconds=contract['duration']+(30 if video_input else 0)
-  rate=(7.0 if video_input else 11.7) if contract['resolution']=='1080p' else (6.4 if video_input else 10.7)
-  estimate=pixels*24*seconds/1024/1000000*rate*100
+  video_input=bool(contract.get('reference_videos'));estimate=seedance_token_estimate(contract['duration'],contract['resolution'],video_input)
   quote['maximum_cents']=max(300,math.ceil(estimate*2));quote['operator_estimate_cents']=math.ceil(estimate);quote['operator_reference_seconds_reserved']=30 if video_input else 0
  require(type(quote['maximum_cents']) is int and 0<quote['maximum_cents']<=CAP,'Conservative paid reservation exceeds the twenty dollar budget; requested quality was preserved')
  require(re.fullmatch('[a-f0-9]{64}',quote['pricing_evidence_sha256']) is not None)
@@ -70,6 +67,14 @@ def quote_for(contract,config):
  require(contract['kind'] in ('image','video') and contract['user_id'] is not None and not contract['draft_task_id'],'New authenticated generation only; finalization separately held')
  if contract['kind']=='video':require(quote.get('provider_payload_allowed_values',{}).get('output_format')==['mov'],'Native MOV payload guard required')
  return quote
+def seedance_token_estimate(duration,resolution,video_input):
+ """Current Seedance 2.5 token cost estimate in cents; a reference clip reserves 30 more seconds."""
+ pixels={'480p':864*480,'720p':1440*810,'1080p':2560*1440}[resolution];seconds=duration+(30 if video_input else 0)
+ rate=(7.0 if video_input else 11.7) if resolution=='1080p' else (6.4 if video_input else 10.7)
+ return pixels*24*seconds/1024/1000000*rate*100
+def seedance_reservation_cents(duration,resolution,video_input):
+ """seedance_current_token_estimate_times_two_floor_300: the conservative booking for one Seedance 2.5 job."""
+ return max(300,math.ceil(seedance_token_estimate(duration,resolution,video_input)*2))
 def omnihuman_quote(contract):
  from apps.generation.availability import switched_on
  from apps.generation.providers import omnihuman

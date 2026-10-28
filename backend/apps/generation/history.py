@@ -2,7 +2,6 @@
 import logging
 from django.core.exceptions import ValidationError
 from django.db import DataError
-from django.http import HttpResponse
 from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
@@ -30,9 +29,7 @@ def history_reads(request):
         if isinstance(error, ValidationError) and error.code != 'invalid':
             raise
         logging.getLogger(__name__).warning('history_parameter_rejected code=%s', code or 'invalid_uuid')
-        response = HttpResponse(b'', status=500)
-        del response['Content-Type']
-        return response
+        return Response({'error': 'Invalid history query.'}, status=400)
     response = Response(page)
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,

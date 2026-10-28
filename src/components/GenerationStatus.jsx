@@ -8,7 +8,8 @@ const WAITING_STATUSES = new Set(["PORTRAIT_WAITING", "SLOT_WAITING"]);
 /** The reason a pending generation is waiting, else null. */
 export function waitingNote(item) {
   if (!item) return null;
-  if (["requested", "uncertain"].includes(item.cancellationState)) return "Confirming cancellation with the provider";
+  // "pending": an agent asked to cancel and the generation worker is about to send it.
+  if (["pending", "requested", "uncertain"].includes(item.cancellationState)) return "Confirming cancellation with the provider";
   if (item.pollWarning) return null;
   if (item.providerStatus === "WORKER_SLOT_WAITING") return item.progressMessage || null;
   if (item.kind !== "video" || !WAITING_STATUSES.has(item.providerStatus)) return null;

@@ -1,4 +1,4 @@
-# Local Veevee stack — every backend service, never deployed.
+# Local Veevee stack - every backend service, never deployed.
 # Managed by local/veevee.sh (generates local/.env with random local-only secrets).
 name: veevee-local
 
@@ -81,6 +81,29 @@ services:
       VEEVEE_PAID_GUARD: ${VEEVEE_PAID_GUARD}
       DEPTH_WORKER_TOKEN: ${DEPTH_WORKER_TOKEN}
     ports: ["127.0.0.1:18081:18081"]
+    networks: [internal, edge]
+
+  # The MCP service (opt-in profile): uvicorn behind the gateway in mcp mode, API database role, no provider keys.
+  # Start it with `docker compose -f local/compose.yaml --env-file local/.env --profile mcp up -d mcp`, then run the
+  # frontend with MCP_API_ORIGIN=http://127.0.0.1:18083 so http://localhost:3000/mcp reaches it.
+  mcp:
+    <<: *backend
+    profiles: [mcp]
+    command: ["python", "-m", "deploy.entrypoint", "mcp"]
+    environment:
+      <<: *backend-env
+      DATABASE_URL: postgresql://goal4_green_preview_api:${API_DB_PASSWORD}@db:5432/railway
+      VEEVEE_INGRESS_SECRET: ${VEEVEE_INGRESS_SECRET}
+      PORT: "18083"
+      VEEVEE_MCP: "1"
+      VEEVEE_LOCAL_PROVIDERS: ""          # no provider calls here; upload_reference URL imports keep the SSRF-safe fetcher
+      MCP_QUOTE_SECRET: ${MCP_QUOTE_SECRET:-local-only-mcp-quote-secret-0000000000000000}
+      VEEVEE_PAID_GUARD: ${VEEVEE_PAID_GUARD}
+      ARK_API_KEY: ""
+      GOOGLE_API_KEY: ""
+      BYTEPLUS_ACCESS_KEY_ID: ""
+      BYTEPLUS_SECRET_ACCESS_KEY: ""
+    ports: ["127.0.0.1:18083:18083"]
     networks: [internal, edge]
 
   generation:

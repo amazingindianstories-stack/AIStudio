@@ -9,12 +9,13 @@ from uuid import uuid4
 from django.db import connections
 from apps.common.resilience import recover
 from .services.admission import reap_stale_running_images, show_worker_slot_wait
+from .services.cancellation import pending_cancellations, settle_pending
 from .services.coordinator import MAX_COORDINATOR_BATCH, select_due_generations, select_unlabelled_short_slot
 from .services.executor import process_generation
 from .services.deadline import Cancellation
 
 logger = logging.getLogger('veevee.generation')
-NO_PROGRESS = frozenset(('not_admitted', 'unclaimed', 'worker_error', 'stopped'))
+NO_PROGRESS = frozenset(('not_admitted', 'unclaimed', 'worker_error', 'stopped', 'cancel_busy'))
 
 
 def release_freed_memory():
@@ -52,10 +53,25 @@ def run_once(*, concurrency=4, limit=25, process=None, stop=None):
     if stop.is_set():
         return {'processed': 0, 'outcomes': {}}
     reap_stale_running_images()
-    due = select_due_generations(limit=limit)
+    cancels = pending_cancellations(limit=limit)
+    due = select_due_generations(limit=limit, exclude_ids=set(cancels))
     with ThreadPoolExecutor(max_workers=max(1, min(8, int(concurrency)))) as pool:
-        results = list(pool.map(lambda item: handle_generation(item, process, stop), due))
+        results = list(pool.map(lambda identifier: handle_cancel(identifier, stop), cancels))
+        results += list(pool.map(lambda item: handle_generation(item, process, stop), due))
     return {'processed': len(results), 'outcomes': {value: results.count(value) for value in set(results)}}
+
+
+def handle_cancel(identifier, stop):
+    """Send a cancel an agent asked for (the MCP service holds no provider credentials)."""
+    try:
+        if stop.is_set():
+            return 'stopped'
+        return settle_pending(identifier)
+    except Exception:
+        logger.error('generation worker cancellation failed; the request stays pending')
+        return 'worker_error'
+    finally:
+        connections.close_all()
 
 
 def handle_generation(item, process, stop):
@@ -117,6 +133,9 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                     next_scan = now + interval
                     reap_stale_running_images()
                     excluded = set(active.values()) | set(cooldown)
+                    for identifier in pending_cancellations(limit=slots - len(active), exclude_ids=excluded):
+                        active[pool.submit(handle_cancel, identifier, stop)] = identifier
+                        excluded.add(identifier)
                     free = slots - len(active)
                     due = select_due_generations(limit=MAX_COORDINATOR_BATCH, exclude_ids=excluded)
                     for item in due[:free]:
