@@ -93,6 +93,10 @@ def client_ip(request):
     return forwarded.strip() or request.META.get('REMOTE_ADDR', '')
 
 
+def address_key(request):
+    return hashlib.sha256(client_ip(request).encode()).hexdigest()[:32]
+
+
 def session_user(request):
     user = lookup(request)
     if user is not None:
@@ -154,8 +158,7 @@ def register(request):
     except clients.ClientError as error:
         return respond({'error': error.error, 'error_description': error.description}, 400)
     limit, window = policy.RATE_LIMITS['register']
-    address = hashlib.sha256(client_ip(request).encode()).hexdigest()[:32]
-    rate = controls.hit('register:' + address, limit, window)
+    rate = controls.hit('register:' + address_key(request), limit, window)
     if not rate.allowed:
         return respond({'error': 'slow_down', 'error_description': 'Too many registrations from this address.'}, 429,
                        {'Retry-After': str(rate.retry_after_seconds)})
@@ -179,7 +182,7 @@ def token(request):
     if client is None:
         return oauth_failure(oauth.OAuthError('invalid_client', 'Unknown client_id.', status=401))
     limit, window = policy.RATE_LIMITS['token']
-    rate = controls.hit(f'token:{client.id}', limit, window)
+    rate = controls.hit(f'token:{client.id}:{address_key(request)}', limit, window)
     if not rate.allowed:
         return respond({'error': 'slow_down', 'error_description': 'Too many token requests.'}, 429, {'Retry-After': str(rate.retry_after_seconds)})
     grant = form.get('grant_type')

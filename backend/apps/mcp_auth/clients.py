@@ -14,7 +14,9 @@ from urllib.parse import urlsplit
 
 from apps.common.leases import now_ms
 from apps.integrations.dns import BoundedMediaResolver
+from apps.integrations.errors import ProviderError
 from apps.integrations.remote import PinnedHTTPSConnection
+from apps.integrations.request_deadline import SocketDeadline
 from .models import McpClient
 
 CIMD_MAX_BYTES = 5 * 1024
@@ -36,7 +38,7 @@ class ClientError(ValueError):
 
 
 def valid_redirect_uri(value):
-    if not isinstance(value, str) or not value or len(value) > MAX_URI_LENGTH or any(ord(char) <= 32 or ord(char) == 127 for char in value):
+    if not isinstance(value, str) or not value or len(value) > MAX_URI_LENGTH or any(ord(char) <= 32 or ord(char) == 127 or char == '\\' for char in value):
         return False
     try:
         parsed = urlsplit(value)
@@ -55,19 +57,15 @@ def valid_redirect_uri(value):
 
 def redirect_matches(registered, supplied):
     """Exact match, except that a loopback http redirect may use any port (RFC 8252 section 7.3)."""
+    if not valid_redirect_uri(supplied):
+        return False
     if supplied in registered:
         return True
-    try:
-        candidate = urlsplit(supplied)
-        if candidate.scheme != 'http' or candidate.hostname not in LOOPBACK_HOSTS:
-            return False
-        for entry in registered:
-            known = urlsplit(entry)
-            if (known.scheme, known.hostname, known.path, known.query) == (candidate.scheme, candidate.hostname, candidate.path, candidate.query):
-                return True
-    except ValueError:
+    candidate = urlsplit(supplied)
+    if candidate.scheme != 'http' or candidate.hostname not in LOOPBACK_HOSTS:
         return False
-    return False
+    return any((known.scheme, known.hostname, known.path, known.query) == (candidate.scheme, candidate.hostname, candidate.path, candidate.query)
+               for known in map(urlsplit, registered))
 
 
 def optional_https(value, field):
@@ -120,33 +118,49 @@ def is_cimd_url(client_id):
 
 
 def fetch_document(url, *, resolver=socket.getaddrinfo, connection=PinnedHTTPSConnection):
-    """GET a client metadata document: https only, public addresses pinned, no redirects, 5 KB, 5 s."""
+    """GET a client metadata document: https only, public addresses pinned, no redirects, 5 KB, 5 s in total."""
     parsed = urlsplit(url)
     if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.port not in (None, 443) or parsed.fragment:
         raise ClientError('invalid_client', 'The client ID must be an https URL without credentials or a custom port.')
     host = parsed.hostname.rstrip('.').lower().encode('idna').decode()
     deadline = time.monotonic() + CIMD_TIMEOUT_SECONDS
+
+    def remaining():
+        budget = deadline - time.monotonic()
+        if budget <= 0:
+            raise TimeoutError('The client metadata document took longer than its deadline.')
+        return budget
     try:
-        addresses = {entry[4][0] for entry in CIMD_DNS.resolve(resolver, host, 443, type=socket.SOCK_STREAM, timeout=CIMD_TIMEOUT_SECONDS)}
+        addresses = {entry[4][0] for entry in CIMD_DNS.resolve(resolver, host, 443, type=socket.SOCK_STREAM, timeout=remaining())}
     except (OSError, TimeoutError, RuntimeError, UnicodeError) as error:
         raise ClientError('invalid_client', 'The client metadata document could not be reached.') from error
     if not addresses or any(not ipaddress.ip_address(address).is_global for address in addresses):
         raise ClientError('invalid_client', 'The client metadata document must be on a public address.')
-    remaining = max(.1, deadline - time.monotonic())
-    client = connection(host, sorted(addresses)[0], remaining)
-    try:
-        client.request('GET', (parsed.path or '/') + ('?' + parsed.query if parsed.query else ''),
-                       headers={'Accept': 'application/json', 'Accept-Encoding': 'identity', 'User-Agent': 'Veevee-OAuth/1'})
-        response = client.getresponse()
-        if response.status != 200:
-            raise ClientError('invalid_client', f'The client metadata document answered {response.status}.')
-        data = response.read(CIMD_MAX_BYTES + 1)
-    except (OSError, TimeoutError, ValueError) as error:
-        if isinstance(error, ClientError):
-            raise
-        raise ClientError('invalid_client', 'The client metadata document could not be read.') from error
-    finally:
-        client.close()
+    data = b''
+    with SocketDeadline(deadline) as guard:
+        client = connection(host, sorted(addresses)[0], CIMD_TIMEOUT_SECONDS)
+        client.deadline_guard = guard
+        try:
+            client.request('GET', (parsed.path or '/') + ('?' + parsed.query if parsed.query else ''),
+                           headers={'Accept': 'application/json', 'Accept-Encoding': 'identity', 'User-Agent': 'Veevee-OAuth/1'})
+            response = client.getresponse()
+            if response.status != 200:
+                raise ClientError('invalid_client', f'The client metadata document answered {response.status}.')
+            read = getattr(response, 'read1', response.read)
+            while len(data) <= CIMD_MAX_BYTES:
+                if getattr(client, 'sock', None) is not None:
+                    client.sock.settimeout(remaining())
+                chunk = read(CIMD_MAX_BYTES + 1 - len(data))
+                remaining()
+                if not chunk:
+                    break
+                data += chunk
+        except (OSError, ValueError, ProviderError) as error:
+            if isinstance(error, ClientError):
+                raise
+            raise ClientError('invalid_client', 'The client metadata document could not be read.') from error
+        finally:
+            client.close()
     if len(data) > CIMD_MAX_BYTES:
         raise ClientError('invalid_client', 'The client metadata document is larger than 5 KB.')
     return data

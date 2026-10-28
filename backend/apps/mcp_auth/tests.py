@@ -1,9 +1,11 @@
 """Agent access: personal access tokens, the OAuth 2.1 server, the bearer principal and the spending controls."""
 import base64
 import hashlib
+import io
 import json
 import secrets
 import threading
+import time
 import uuid
 from unittest.mock import patch
 from urllib.parse import parse_qs, urlencode, urlsplit
@@ -349,10 +351,10 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
 
         class Response:
             def __init__(self, status, data):
-                self.status, self.data = status, data
+                self.status, self.body = status, io.BytesIO(data)
 
             def read(self, limit):
-                return self.data[:limit]
+                return self.body.read(limit)
 
         def connection_for(status, data):
             class Connection:
@@ -373,6 +375,40 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
         for status, data in ((302, b''), (200, b'x' * (clients.CIMD_MAX_BYTES + 1))):
             with self.subTest(status=status), self.assertRaises(clients.ClientError):
                 clients.fetch_document('https://apps.example/client.json', resolver=public, connection=connection_for(status, data))
+
+    def test_metadata_fetch_ends_a_trickling_body_at_the_total_deadline(self):
+        public = lambda host, port, **kwargs: [(2, 1, 6, '', ('93.184.215.14', 443))]
+
+        class Trickle:
+            status = 200
+            body = io.BytesIO(b' ' * 200 + b'{}')
+
+            def read1(self, limit):
+                time.sleep(.01)
+                return self.body.read(1)
+
+            def read(self, limit):
+                data = b''
+                while len(data) < limit and (chunk := self.read1(limit - len(data))):
+                    data += chunk
+                return data
+
+        class Connection:
+            def __init__(self, host, address, timeout):
+                pass
+
+            def request(self, *args, **kwargs):
+                pass
+
+            def getresponse(self):
+                return Trickle()
+
+            def close(self):
+                pass
+        started = time.monotonic()
+        with patch.object(clients, 'CIMD_TIMEOUT_SECONDS', .3), self.assertRaises(clients.ClientError):
+            clients.fetch_document('https://apps.example/client.json', resolver=public, connection=Connection)
+        self.assertLess(time.monotonic() - started, 1)
 
 
 class AuthorizationFlowTests(AgentAccessCase):
@@ -472,9 +508,19 @@ class AuthorizationFlowTests(AgentAccessCase):
         self.assertTrue(ActivityLog.objects.filter(action='mcp_token_revoked', detail__reason='refresh_token_reuse').exists())
 
     def test_authorization_errors(self):
-        bad_redirect = self.client.get('/api/oauth/authorize/request?' + urlencode(self.authorize_params(redirect_uri='http://127.0.0.1:1/evil')))
-        self.assertEqual(bad_redirect.status_code, 400)
-        self.assertNotIn('redirectTo', bad_redirect.json())
+        for redirect_uri in ('http://127.0.0.1:1/evil', 'http://evil.com\\@127.0.0.1:33418/callback', 'http://evil.com\\@127.0.0.1/callback',
+                             'http://user@127.0.0.1:9/callback', 'http://127.0.0.1:33418\\callback'):
+            with self.subTest(redirect_uri=redirect_uri):
+                bad_redirect = self.client.get('/api/oauth/authorize/request?' + urlencode(self.authorize_params(redirect_uri=redirect_uri)))
+                self.assertEqual(bad_redirect.status_code, 400)
+                self.assertNotIn('redirectTo', bad_redirect.json())
+        loopback = self.post_json('/api/oauth/register', {'redirect_uris': ['http://127.0.0.1/cb']}).json()['client_id']
+        for redirect_uri in ('http://evil.com\\@127.0.0.1/cb', 'http://user@127.0.0.1:9/cb'):
+            with self.subTest(redirect_uri=redirect_uri):
+                refused = self.client.get('/api/oauth/authorize/request?' + urlencode(self.authorize_params(client_id=loopback, redirect_uri=redirect_uri)))
+                self.assertEqual((refused.status_code, refused.json()['error']), (400, 'invalid_request'))
+        allowed = self.client.get('/api/oauth/authorize/request?' + urlencode(self.authorize_params(client_id=loopback, redirect_uri='http://127.0.0.1:9/cb')))
+        self.assertEqual(allowed.status_code, 200)
         unknown = self.client.get('/api/oauth/authorize/request?' + urlencode(self.authorize_params(client_id='vvc_unknown')))
         self.assertEqual((unknown.status_code, unknown.json()['error']), (400, 'invalid_client'))
         for overrides, error in (({'code_challenge_method': 'plain'}, 'invalid_request'), ({'code_challenge': ''}, 'invalid_request'),
@@ -523,6 +569,18 @@ class AuthorizationFlowTests(AgentAccessCase):
                                           content_type='application/x-www-form-urlencoded')
         self.assertEqual((unknown_client.status_code, unknown_client.json()['error']), (401, 'invalid_client'))
         self.assertEqual(self.token(grant_type='password').json()['error'], 'unsupported_grant_type')
+
+    def test_token_rate_limit_is_per_client_and_address(self):
+        def attempt(address):
+            return self.client.post('/api/oauth/token', urlencode({'client_id': self.app['client_id'], 'grant_type': 'refresh_token',
+                                    'refresh_token': 'vvr_guess'}), content_type='application/x-www-form-urlencoded', HTTP_X_REAL_IP=address)
+        for _ in range(policy.RATE_LIMITS['token'][0]):
+            self.assertEqual(attempt('203.0.113.9').status_code, 400)
+        limited = attempt('203.0.113.9')
+        self.assertEqual((limited.status_code, limited.json()['error']), (429, 'slow_down'))
+        self.assertTrue(limited['Retry-After'].isdigit())
+        other = attempt('198.51.100.4')
+        self.assertEqual((other.status_code, other.json()['error']), (400, 'invalid_grant'))
 
     def test_refresh_after_account_change_revokes_the_grant(self):
         grant = self.exchange(self.consent()).json()

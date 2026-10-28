@@ -40,7 +40,7 @@ RATE_LIMITS = {
     'paid_day': (200, 86400),      # paid submissions, per token
     'uploads': (30, 3600),         # uploads and imports, per token
     'register': (20, 3600),        # dynamic client registrations, per client IP
-    'token': (60, 60),             # token endpoint, per client
+    'token': (60, 60),             # token endpoint, per client and client IP
 }
 HOLDS_PER_TOKEN = 4                # concurrent waiting calls per token
 HOLD_TTL_MS = 90 * 1000
