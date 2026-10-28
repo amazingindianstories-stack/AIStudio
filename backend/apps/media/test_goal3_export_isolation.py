@@ -29,7 +29,7 @@ class PrivateExportBoundaryTests(TransactionTestCase):
                     body = {'model': 'Seedance 2.5' if kind == 'video' else 'Nano Banana Pro',
                             'prompt': 'A harmless literal scene', 'resolution': '1080p',
                             'duration': 5, 'referenceVideos': [ref]}
-                    with patch('apps.generation.enqueue_views.get_storage', side_effect=AssertionError('Storage reached before denial')):
+                    with patch('apps.generation.services.submission.get_storage', side_effect=AssertionError('Storage reached before denial')):
                         response = self.client.post('/api/generate/' + kind, json.dumps(body), content_type='application/json',
                                                     HTTP_SEC_FETCH_SITE='same-origin')
                     self.assertEqual(response.status_code, 400)

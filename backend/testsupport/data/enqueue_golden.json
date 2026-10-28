@@ -1,0 +1,222 @@
+{
+ "source_revision": "476030cdc2c2521e932066bc3997773ab8e39fc5",
+ "responses": [
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"image\",\"prompt\":\"lantern at dusk\",\"model\":\"Nano Banana Pro\",\"aspectRatio\":\"16:9\",\"resolution\":\"2K\",\"seed\":7,\"costCents\":21,\"id\":\"00000002-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0002.png\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"image\",\"prompt\":\"lantern @img1\",\"model\":\"Nano Banana 2.1\",\"aspectRatio\":\"4:5\",\"resolution\":\"1K\",\"costCents\":4,\"referenceImages\":[\"/api/media/references/00000005-0000-4000-8000-000000000000-0.png\"],\"id\":\"00000005-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0003.png\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"image\",\"prompt\":\"harbour photo\",\"model\":\"Seedream 5.0 Pro\",\"aspectRatio\":\"3:4\",\"resolution\":\"2K\",\"costCents\":9,\"id\":\"00000008-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0004.png\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"image\",\"prompt\":\"paper boat\",\"model\":\"Kling Image 3.0\",\"aspectRatio\":\"1:1\",\"resolution\":\"2K\",\"costCents\":3,\"id\":\"0000000b-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0005.png\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"image\",\"prompt\":\"paper boat\",\"model\":\"kling-image-21\",\"aspectRatio\":\"3:2\",\"resolution\":\"1K\",\"costCents\":3,\"referenceImages\":[\"/api/media/references/0000000e-0000-4000-8000-000000000000-0.png\"],\"id\":\"0000000e-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0006.png\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"video\",\"prompt\":\"river at night\",\"model\":\"Seedance 2.0\",\"aspectRatio\":\"16:9\",\"resolution\":\"720p\",\"duration\":5,\"generateAudio\":true,\"bitrateMode\":\"standard\",\"seed\":11,\"sourceGenerationId\":null,\"draftTaskId\":null,\"costCents\":50,\"id\":\"00000011-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0007.mp4\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"video\",\"prompt\":\"river at night\",\"model\":\"Seedance 2.5\",\"aspectRatio\":\"9:16\",\"resolution\":\"480p\",\"duration\":10,\"generateAudio\":false,\"draftMode\":true,\"bitrateMode\":\"high\",\"sourceGenerationId\":null,\"draftTaskId\":null,\"costCents\":35,\"id\":\"00000014-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0008.mp4\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"video\",\"prompt\":\"edit the clip\",\"model\":\"seedance-25\",\"aspectRatio\":\"adaptive\",\"resolution\":\"1080p\",\"generateAudio\":false,\"referenceVideos\":[\"uploads/native.mov\"],\"draftMode\":false,\"bitrateMode\":\"high\",\"videoTaskMode\":\"edit\",\"sourceGenerationId\":null,\"draftTaskId\":null,\"costCents\":0,\"id\":\"00000017-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0009.mp4\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"video\",\"prompt\":\"river at night\",\"model\":\"Seedance 2.5\",\"aspectRatio\":\"16:9\",\"resolution\":\"720p\",\"duration\":6,\"generateAudio\":false,\"draftMode\":false,\"bitrateMode\":\"high\",\"sourceGenerationId\":null,\"draftTaskId\":null,\"costCents\":48,\"referenceImages\":[\"/api/media/references/0000001a-0000-4000-8000-000000000000-0.png\"],\"continuationFrameUrl\":\"/api/media/references/0000001a-0000-4000-8000-000000000000-firstframe-0.png\",\"lastFrameUrl\":\"/api/media/references/0000001a-0000-4000-8000-000000000000-lastframe-0.png\",\"id\":\"0000001a-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0010.mp4\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"@img1 is 64 x 64 px. Seedance needs at least 300 px on the short side and an aspect ratio between 0.4 and 2.5. Resize it and try again; nothing was queued.\",\"code\":\"REFERENCE_IMAGE_SIZE\",\"referenceIndex\":1}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"video\",\"prompt\":\"lantern river\",\"model\":\"Gemini Omni Flash 1.1\",\"aspectRatio\":\"9:16\",\"resolution\":\"360p\",\"duration\":6,\"generateAudio\":false,\"sourceGenerationId\":null,\"draftTaskId\":null,\"costCents\":22,\"id\":\"0000001f-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0011.mp4\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"kind\":\"image\",\"prompt\":\"keyed lantern\",\"model\":\"Nano Banana Pro\",\"aspectRatio\":\"1:1\",\"costCents\":14,\"id\":\"00000022-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0012.png\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"id\":\"00000022-0000-4000-8000-000000000000\",\"kind\":\"image\",\"status\":\"queued\",\"prompt\":\"keyed lantern\",\"model\":\"Nano Banana Pro\",\"aspectRatio\":\"1:1\",\"depthReapAttempts\":0,\"isFavorite\":false,\"flagged\":false,\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"costCents\":14,\"sourceGenerationId\":null,\"draftTaskId\":null,\"pollAttempts\":0,\"pollErrorCount\":0,\"locationVersion\":1,\"costBasis\":\"estimated\",\"canCancel\":false,\"cancellationState\":null,\"filename\":\"unsorted_0012.png\"}"
+  },
+  {
+   "status": 409,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Idempotency key reuse with different payload.\",\"code\":\"IDEMPOTENCY_PAYLOAD_MISMATCH\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Invalid Idempotency-Key header.\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Prompt is required.\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Prompt is too long (max 30000 characters, this one is 30001). An admin can raise this limit from the dashboard.\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Seedance 2.5 supports 4-30s durations (got 31).\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Seedance 2.0 supports 480p/720p/1080p only (got bad).\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Seedance 2.5 draft generations must use 480p resolution.\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Gemini Omni Flash 1.1 supports 16:9/9:16 aspect ratios only (got 21:9).\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Upscale models run from the Upscale composer.\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Invalid uploaded referenceId.\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"id\":\"00000033-0000-4000-8000-000000000000\",\"kind\":\"video\",\"status\":\"queued\",\"prompt\":\"draft prompt\",\"model\":\"Seedance 2.5\",\"aspectRatio\":\"16:9\",\"depthReapAttempts\":0,\"isFavorite\":false,\"flagged\":false,\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"resolution\":\"1080p\",\"duration\":8,\"generateAudio\":true,\"draftMode\":false,\"bitrateMode\":\"high\",\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"costCents\":157,\"sourceGenerationId\":\"00000000-0000-4000-8000-00000000d4af\",\"draftTaskId\":\"golden-draft-task\",\"pollAttempts\":0,\"pollErrorCount\":0,\"locationVersion\":1,\"costBasis\":\"estimated\",\"canCancel\":true,\"cancellationState\":null,\"filename\":\"unsorted_0001.mp4\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"id\":\"00000033-0000-4000-8000-000000000000\",\"kind\":\"video\",\"status\":\"queued\",\"prompt\":\"draft prompt\",\"model\":\"Seedance 2.5\",\"aspectRatio\":\"16:9\",\"depthReapAttempts\":0,\"isFavorite\":false,\"flagged\":false,\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"resolution\":\"1080p\",\"duration\":8,\"generateAudio\":true,\"draftMode\":false,\"bitrateMode\":\"high\",\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"costCents\":157,\"sourceGenerationId\":\"00000000-0000-4000-8000-00000000d4af\",\"draftTaskId\":\"golden-draft-task\",\"pollAttempts\":0,\"pollErrorCount\":0,\"locationVersion\":1,\"costBasis\":\"estimated\",\"canCancel\":true,\"cancellationState\":null,\"filename\":\"unsorted_0001.mp4\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"sourceGenerationId is required.\"}"
+  },
+  {
+   "status": 404,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Source generation not found.\"}"
+  },
+  {
+   "status": 200,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"id\":\"00000039-0000-4000-8000-000000000000\",\"kind\":\"image\",\"status\":\"queued\",\"prompt\":\"Magnific Precision V2 (4x)\",\"model\":\"Magnific Precision V2\",\"aspectRatio\":\"16:9\",\"depthReapAttempts\":0,\"isFavorite\":false,\"flagged\":false,\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"resolution\":\"4x\",\"referenceImages\":[\"/api/media/references/00000039-0000-4000-8000-000000000000-0.png\"],\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"costCents\":20,\"sourceGenerationId\":null,\"draftTaskId\":null,\"pollAttempts\":0,\"pollErrorCount\":0,\"locationVersion\":1,\"costBasis\":\"estimated\",\"canCancel\":false,\"cancellationState\":null,\"filename\":\"unsorted_0014.png\",\"upscaleParams\":{\"flavor\":\"photo\",\"sharpen\":7,\"smartGrain\":7,\"scaleFactor\":\"4x\",\"ultraDetail\":30}}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Source image must be uploaded to this application.\"}"
+  },
+  {
+   "status": 400,
+   "headers": {
+    "Content-Type": "application/json"
+   },
+   "body": "{\"error\":\"Invalid scaleFactor.\"}"
+  }
+ ]
+}

@@ -19,16 +19,18 @@ class PaidAdmissionParityTests(ParityCase):
         return self.scenario('paid', {'VEEVEE_PAID_GUARD': json.dumps(guard) if guard else '',
             'VEEVEE_RUNTIME_COMPONENT': 'api', **flags}, cases=cases)
 
-    def test_exact_unlimited_flag_refusals(self):
+    def test_switched_off_and_unknown_models_are_refused_at_submission(self):
+        # The paid guard's own wording, now given at submission (400) before the guard is reached, with or without it.
         cases = [case('Kling Image 3.0'), case('Kling Image 2.1'),
                  case('Gemini Omni Flash 1.1', 'video', duration=8), case('Veo 3.1', 'video')]
-        result = self.run_cases(cases, VEEVEE_KLING='0', VEEVEE_GEMINI_OMNI='0')
         messages = ['Kling Image 3.0 is not enabled. Choose another image model.',
                     'Kling Image 2.1 is not enabled. Choose another image model.',
-                    'Gemini Omni Flash 1.1 is not enabled', 'Only Seedance 2.0 or 2.5 video authorized']
-        self.assertEqual(result['responses'], [{'status': 409, 'body': {'error': message,
-            'code': 'PREVIEW_PAID_BUDGET_HOLD'}} for message in messages])
-        self.assertEqual(result['reservations'], 0)
+                    'Gemini Omni Flash 1.1 is not enabled', 'Veo 3.1 is not enabled. Choose another video model.']
+        for guard in (UNLIMITED, None):
+            with self.subTest(guard=bool(guard)):
+                result = self.run_cases(cases, guard=guard, VEEVEE_KLING='0', VEEVEE_GEMINI_OMNI='0')
+                self.assertEqual(result['responses'], [{'status': 400, 'body': {'error': message}} for message in messages])
+                self.assertEqual(result['reservations'], 0)
 
     def test_limited_scope_refuses_unquoted_models(self):
         result = self.run_cases([case('Seedream 5.0 Pro'), case('Kling Image 3.0'),
@@ -54,19 +56,23 @@ class PaidAdmissionParityTests(ParityCase):
     def test_guard_off_accepts_models_without_reservations(self):
         cases = [case('Nano Banana Pro'), case('Kling Image 3.0'), case('Seedance 2.5', 'video'),
                  case('Gemini Omni Flash 1.1', 'video', duration=8)]
-        result = self.run_cases(cases, guard=None, VEEVEE_KLING='0', VEEVEE_GEMINI_OMNI='0')
+        result = self.run_cases(cases, guard=None, VEEVEE_KLING='1', VEEVEE_GEMINI_OMNI='1')
         self.assertEqual([r['status'] for r in result['responses']], [200] * len(cases), result)
         self.assertEqual(result['reservations'], 0)
 
-    def test_legacy_nano_model_still_enqueues_and_retired_omni_refuses(self):
-        result = self.run_cases([case('Nano Banana 2'), case('Gemini Omni Flash', 'video'),
+    def test_unoffered_retired_and_upscale_models_refuse(self):
+        result = self.run_cases([case('Nano Banana 2'), case('Higgsfield Seedance 2.0', 'video'),
+            {'path': '/api/generate/video', 'body': {'prompt': 'A quiet garden'}}, case('Gemini Omni Flash', 'video'),
             case('Magnific Precision V2'), case('Magnific Video Creative', 'video')], guard=None)
-        self.assertEqual(result['responses'][0]['status'], 200)
-        self.assertEqual(result['responses'][0]['body']['model'], 'Nano Banana 2')
-        self.assertEqual(result['responses'][1:], [
+        self.assertEqual(result['responses'], [
             {'status': 400, 'body': {'error': message}} for message in (
+                'Nano Banana 2 is not enabled. Choose another image model.',
+                # The old default video model, used when a request names none.
+                'Higgsfield Seedance 2.0 is not enabled. Choose another video model.',
+                'Higgsfield Seedance 2.0 is not enabled. Choose another video model.',
                 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.',
                 'Upscale models run from the Upscale composer.', 'Upscale models run from the Upscale composer.')])
+        self.assertEqual(result['reservations'], 0)
 
     def test_managed_portrait_stale_reference_messages(self):
         result = self.run_cases([case('Seedance 2.5', 'video', referenceImages=['asset://old']),
@@ -122,8 +128,8 @@ class PaidAdmissionParityTests(ParityCase):
             'image': 'data:image/png;base64,' + base64.b64encode(png_bytes((640, 640))).decode(),
             'model': 'Magnific Precision V2', 'params': {'scaleFactor': '2x', 'flavor': 'photo', 'sharpen': 0, 'smartGrain': 0, 'ultraDetail': 0}}}
         result = self.run_cases([request], VEEVEE_MAGNIFIC_UPSCALE='0')
-        self.assertEqual(result['responses'], [{'status': 409, 'body': {
-            'error': 'Magnific upscaling is not enabled', 'code': 'PREVIEW_PAID_BUDGET_HOLD'}}])
+        self.assertEqual(result['responses'], [{'status': 400, 'body': {'error': 'Magnific upscaling is not enabled'}}])
+        self.assertEqual(result['reservations'], 0)
         result = self.run_cases([request], VEEVEE_MAGNIFIC_UPSCALE='1')
         self.assertEqual(result['responses'][0]['status'], 200, result)
         self.assertEqual(result['reservations'], 1)

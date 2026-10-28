@@ -116,6 +116,7 @@ class WorkerSimulationTests(TransactionTestCase):
         posts = [call for call in fake.calls if call[0] == 'POST' and call[1].endswith('/contents/generations/tasks')]
         self.assertEqual(len(posts), 1, 'the final is one paid submission')
 
+    @override_settings(VEEVEE_GEMINI_OMNI=True)
     def test_gemini_omni_flash_1_1_submits_once_polls_and_stores_the_native_mp4(self):
         row, first, fake, storage = self.run_case('video', {'prompt': 'a lantern drifting over a night river', 'model': 'Gemini Omni Flash 1.1',
                                                             'aspectRatio': '9:16', 'resolution': '360p', 'duration': 10}, polls=2)
@@ -179,7 +180,7 @@ class WorkerSimulationTests(TransactionTestCase):
 MAGNIFIC_ENV = {**ENV, 'MAGNIFIC_API_KEY': 'fake-magnific-key'}
 
 
-@override_settings(PUBLIC_APP_URL='https://veevee.test')
+@override_settings(PUBLIC_APP_URL='https://veevee.test', VEEVEE_MAGNIFIC_UPSCALE=True)
 class MagnificWorkerSimulationTests(TransactionTestCase):
     """Upscale enqueue → real worker → fake Magnific + CDN → stored master."""
     setUp = session_fixtures.SettingsTests.setUp
