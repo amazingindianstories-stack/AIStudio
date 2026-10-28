@@ -352,7 +352,9 @@ class CancellationTests(TransactionTestCase):
         uid = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
         User.objects.filter(pk=uid).update(role='admin')
         row = self.job()
-        response = self.client.post('/api/generate/cancel', {'id': str(row.id)}, content_type='application/json')
+        # The view reads the process environment; the disposable fixture's mock mode must not depend on the runner.
+        with patch.dict('os.environ', {'MOCK_GENERATION': '1'}):
+            response = self.client.post('/api/generate/cancel', {'id': str(row.id)}, content_type='application/json')
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()['item']['status'], 'cancelled')
         self.assertFalse(response.json()['item']['canCancel'])
