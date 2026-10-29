@@ -76,6 +76,7 @@ export function requestFingerprint(boardId, request) {
 const pollTimers = new Map();
 let placing = Promise.resolve();
 let generation = 0;
+let newestFollowed = -Infinity;
 let measureLayout = null;
 
 /**
@@ -122,12 +123,13 @@ function clearPolls() {
 }
 
 /**
- * `state` unless `job` settles in the background: the user did not choose to place it and the panel already follows
- * a newer job.
+ * `state` unless `job` settles in the background: the user did not choose to place it and the panel has followed a
+ * newer job since attaching, even if Start over has cleared it since.
  */
 function panelState(get, job, chosen, state) {
-  const current = get().job;
-  return chosen || !current || current.id === job.id || !(job.createdAt < current.createdAt) ? state : {};
+  if (!chosen && get().job?.id !== job.id && job.createdAt < newestFollowed) return {};
+  if (job.createdAt > newestFollowed) newestFollowed = job.createdAt;
+  return state;
 }
 
 /** Run placements one at a time, so each finds free space after the previous one is on the board. */
@@ -166,6 +168,7 @@ export const useBoardAi = create((set, get) => ({
     if (get().boardId === boardId) return;
     clearPolls();
     generation += 1;
+    newestFollowed = -Infinity;
     const mine = generation;
     set({ boardId, job: null, placed: null, recent: [], submitting: false, error: null, pendingKey: null });
     if (!boardId) return;
@@ -186,6 +189,7 @@ export const useBoardAi = create((set, get) => ({
   detach: () => {
     clearPolls();
     generation += 1;
+    newestFollowed = -Infinity;
     set({ boardId: null, job: null, placed: null, recent: [], submitting: false, error: null, pendingKey: null });
   },
 

@@ -177,6 +177,21 @@ test("a job settling in the background never takes over the panel's job, last re
     "the older result is on the board and the refinement replaced the result it refines");
 });
 
+test("after Start over, an older job settling in the background leaves the fresh prompt alone", async (t) => {
+  loadedBoard();
+  server(t, (call) => (call.method === "PATCH"
+    ? json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } })
+    : json(200, { jobs: [] })));
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().settle(job({ id: "44444444-4444-4444-8444-444444444444", createdAt: 2, status: "succeeded", result: NOTES }));
+  useBoardAi.getState().startOver();
+  await useBoardAi.getState().settle(job({ createdAt: 1, status: "succeeded", result: { notes: [{ text: "Older", color: "blue" }] } }));
+  await useBoardAi.getState().settle(job({ id: "66666666-6666-4666-8666-666666666666", createdAt: 1, status: "failed", error: "Stopped." }));
+  const { job: followed, placed, error } = useBoardAi.getState();
+  assert.deepEqual({ followed, placed, error }, { followed: null, placed: null, error: null }, "nothing to refine and no stale error");
+  assert.ok(useCanvasStore.getState().history.present.nodes.some((node) => node.text === "Older"), "the older result is still placed");
+});
+
 test("results finishing together are placed one after another in free space, never on top of each other", async (t) => {
   loadedBoard();
   server(t, (call) => (call.method === "PATCH"
