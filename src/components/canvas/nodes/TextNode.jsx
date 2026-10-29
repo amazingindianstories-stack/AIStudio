@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import { useFrozenWhile } from "./use-frozen-while";
+import { useTextFrozenWhileEditing } from "./use-frozen-text";
 
 /**
  * Plain text box. `contentEditable` only while `editing` (driven by
@@ -17,7 +17,7 @@ export function TextNode({
 
 ) {
   const ref = useRef(null);
-  const shownText = useFrozenWhile(node.text, editing);
+  const shownText = useTextFrozenWhileEditing(node.text, editing);
 
   useEffect(() => {
     if (!editing) return;
