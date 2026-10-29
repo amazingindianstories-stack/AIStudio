@@ -568,12 +568,9 @@ export const CanvasSurface = forwardRef
   };
 
   const onCommitText = (nodeId, text, marks, contentHeight, from) => {
-    const store = useCanvasStore.getState();
     // Frames commit their label as `name`; text, stickies and shapes commit
     // `text` with its formatting ranges.
-    store.commitNodeText(nodeId, text, marks, contentHeight, from);
-    // An editor can close because editing already moved to another node.
-    if (useCanvasStore.getState().editingTextId === nodeId) store.setEditingTextId(null);
+    useCanvasStore.getState().commitNodeText(nodeId, text, marks, contentHeight, from);
   };
   const onCancelEdit = () => useCanvasStore.getState().setEditingTextId(null);
 
