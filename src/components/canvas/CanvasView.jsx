@@ -212,6 +212,8 @@ export function CanvasView() {
         else canvasState.cancelCrop();
         return;
       }
+      // Any other action ends the crop, applying it as it stands.
+      if (!["Shift", "Meta", "Control", "Alt", " "].includes(e.key)) canvasState.applyCrop();
 
       const mod = e.metaKey || e.ctrlKey;
 
