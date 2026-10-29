@@ -33,6 +33,8 @@ def quote_for(contract,config):
   require(contract['user_id'] is not None and (not contract['draft_task_id'] or draft_final),'New authenticated initial jobs only')
   if contract['kind']=='audio':
    return audio_quote(contract)
+  if contract['kind']=='text':
+   return text_quote(contract)
   from apps.generation.model_registry import model_definition
   definition=model_definition(contract['model']) or {};provider=definition.get('provider')
   if provider=='magnific':
@@ -140,6 +142,23 @@ def audio_payload_matches(body,contract):
   and set(content)=={'role','parts'} and content['role']=='user' and set(inline)=={'inlineData'} and set(data)=={'mimeType','data'}
   and data['mimeType']==value['mimeType'] and text=={'text':TRANSCRIPTION_PROMPT}
   and len(decoded)==value['byteLength'] and hashlib.sha256(decoded).hexdigest()==value['sha256'])
+def text_quote(contract):
+ """Board AI text (unlimited scope only): one generateContent call on the job's own Gemini model, for its own stored
+ conversation. The exact request body is checked by text_payload_matches."""
+ from apps.agents.board import MODEL_CODE,is_board_input
+ from apps.agents.llm import agent_endpoint
+ value=contract.get('submission_input')
+ require(not contract['draft_task_id'] and is_board_input(value),'New board text job only')
+ model=value.get('model')
+ require(isinstance(model,str) and MODEL_CODE.fullmatch(model) is not None and contract['model']==f'Gemini ({model})','Board text outside its Gemini model')
+ return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[agent_endpoint(model)],'provider_payload_allowed_values':{}}
+def text_payload_matches(body,contract):
+ """Exactly the board text request for this job: its own stored turns under its format's prompt, schema and config."""
+ from apps.agents.board import build_body
+ from apps.agents.llm import board_payload_allowed
+ try:expected=build_body(contract['submission_input'])
+ except ValueError:return False
+ return board_payload_allowed(body) and body==expected
 def magnific_quote(contract):
  """Magnific upscales (VEEVEE_MAGNIFIC_UPSCALE): one exact create endpoint per model."""
  from apps.generation.availability import switched_on
@@ -254,6 +273,8 @@ def check_request(transport,method,url,body):
   require(isinstance(body,dict),'Quoted JSON payload required')
   if active['contract']['kind']=='audio' and not audio_payload_matches(body,active['contract']):
    raise ProviderError('Transcription payload is outside the reserved scope.',code='preview_paid_scope',may_have_submitted=False)
+  if active['contract']['kind']=='text' and not text_payload_matches(body,active['contract']):
+   raise ProviderError('Board AI payload is outside the reserved scope.',code='preview_paid_scope',may_have_submitted=False)
   if active['contract']['kind']=='image' and configured()['approved_scope']!=UNLIMITED_SCOPE:
    require(not body.get('tools'),'Paid grounding/tool calls not authorized')
    generation=body.setdefault('generationConfig',{});generation.setdefault('maxOutputTokens',32768);generation.setdefault('candidateCount',1)

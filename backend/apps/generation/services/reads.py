@@ -57,7 +57,8 @@ def filters(params):
 
 
 def base_query(kind, query, *, names=False):
-    rows = Generation.objects.all()
+    # Text jobs (board AI) are not library media: no scope lists them.
+    rows = Generation.objects.exclude(kind='text')
     if kind != 'audio':
         rows = rows.exclude(kind='audio')
     if kind:

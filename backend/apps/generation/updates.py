@@ -32,7 +32,7 @@ def read_generation_updates(since, limit=PAGE_LIMIT, after_id=None):
     hands back an exact cursor instead of silently truncating older changes.
     Active (queued/running) rows are always included.
     """
-    base = Generation.objects.exclude(kind='audio')
+    base = Generation.objects.exclude(kind__in=('audio', 'text'))
     changed = RawSQL('"generations"."updated_at" > %s::bigint', [operand_text(since)], output_field=BooleanField())
     condition = Q(changed)
     if after_id is not None and float(since).is_integer():

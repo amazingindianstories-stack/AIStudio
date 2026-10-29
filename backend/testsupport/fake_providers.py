@@ -37,6 +37,10 @@ PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
 PRIVACY_MESSAGE = 'The request failed because the input image may contain real person.'
 TRANSCRIPT = '[00:00.000 - 00:01.000] Narrator: simulated transcription from the fake provider.'
 AGENT_REPLY = 'Simulated agent reply: tell me more about the scene you want to make.'
+# The board sticky notes every simulated board text job returns (apps/agents/board.py shape).
+BOARD_NOTES = [{'text': 'Simulated idea: open on the empty stage', 'color': 'yellow'},
+               {'text': 'Simulated idea: the lights fail mid-scene', 'color': 'blue'},
+               {'text': 'Simulated idea: end on a single spotlight', 'color': 'pink'}]
 REQUEST_ID = '021760850000000fixture0001'     # BytePlus-style request id (fixture; never a real one)
 
 
@@ -137,6 +141,7 @@ class FakeProviders:
         self.seedance_status = seedance_status
         self.seedance_payloads = []
         self.gemini_payloads = []       # (model code, body) for each generateContent call
+        self.board_payloads = []        # bodies of board sticky-notes text jobs
         self.omni_payloads, self.omni_polls = [], {}    # Interactions create bodies; interaction id -> GETs so far
         self.omni_running_polls = 1     # GETs answered in_progress before an interaction completes
         self.asset_capacity = asset_capacity          # None = unlimited; int = BytePlus shared pool size
@@ -186,6 +191,12 @@ class FakeProviders:
         if host == 'generativelanguage.googleapis.com' and gemini and method == 'POST':
             with self.lock:
                 self.gemini_payloads.append((gemini[1], data))
+            from apps.agents.board import body_format
+            if body_format(data) == 'stickies':     # a board "Create with AI" sticky-notes job
+                with self.lock:
+                    self.board_payloads.append(data)
+                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps({'notes': BOARD_NOTES})}]},
+                                             'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 300, 'candidatesTokenCount': 90}}
             if 'systemInstruction' in data:     # the admin chat agent (apps/agents)
                 return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': AGENT_REPLY}]}, 'finishReason': 'STOP'}],
                              'usageMetadata': {'promptTokenCount': 40, 'candidatesTokenCount': 12}}

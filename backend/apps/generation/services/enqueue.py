@@ -488,7 +488,8 @@ def _persist(item):
     fields = {camel(field.attname):field.attname for field in Generation._meta.concrete_fields}
     values = {fields[key]:value for key,value in item.items() if key in fields}
     row = Generation.objects.create(**values)
-    assign_generation_naming(row.id,row.folder_id,row.project_id,item['createdAt'])
+    if row.kind != 'text':     # a text job (board AI) is not library media and takes no library name
+        assign_generation_naming(row.id,row.folder_id,row.project_id,item['createdAt'])
     row.refresh_from_db()
     return row
 

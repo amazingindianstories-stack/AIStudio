@@ -70,7 +70,7 @@ class Handler(BaseHTTPRequestHandler):
                                         'assets': assets, 'groups': list(FAKE.groups.values()),
                                         'seedance_tasks': FAKE.task_counter, 'kling_tasks': len(FAKE.kling_tasks), 'calls': FAKE.calls[-50:],
                                         'reject_image_sha256': sorted(FAKE.reject_image_sha256), 'reject_mode': FAKE.reject_mode,
-                                        'faults': FAKE.faults})
+                                        'faults': FAKE.faults, 'board_jobs': len(FAKE.board_payloads)})
         if target.path == '/health':
             return self._json(200, {'ok': True})
         self._json(404, {'error': 'not found'})
@@ -88,7 +88,7 @@ class Handler(BaseHTTPRequestHandler):
             change = self._body()
             with FAKE.lock:
                 if change.get('reset'):
-                    FAKE.groups.clear(); FAKE.assets.clear(); FAKE.calls.clear(); FAKE.seedance_payloads.clear()
+                    FAKE.groups.clear(); FAKE.assets.clear(); FAKE.calls.clear(); FAKE.seedance_payloads.clear(); FAKE.board_payloads.clear()
                     FAKE.kling_payloads.clear(); FAKE.kling_tasks.clear(); FAKE.omnihuman_payloads.clear(); FAKE.omnihuman_polls.clear()
                     FAKE.reject_image_sha256.clear(); FAKE.rejected_tasks.clear(); FAKE.reject_mode = 'create'; FAKE.faults.clear()
                     FAKE.seedance_task_error = FAKE.omni_task_error = FAKE.kling_task_error = FAKE.magnific_task_error = None

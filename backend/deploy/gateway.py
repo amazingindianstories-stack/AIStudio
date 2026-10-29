@@ -26,6 +26,8 @@ ADMIN_MUTATIONS={'/api/admin/users':('POST','PATCH','DELETE'),'/api/admin/pricin
 # CORS preflights for the OAuth endpoints browser-based agent clients call (Django answers them).
 OAUTH_PREFLIGHT=frozenset(('/api/oauth/authorization-server','/api/oauth/protected-resource','/api/oauth/register','/api/oauth/token','/api/oauth/revoke'))
 AGENT_MESSAGES=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/messages')
+# Board "Create with AI" submissions queue paid generations, so they open only with the other paid initial routes.
+BOARD_AI_JOBS=re.compile(r'/api/canvas-boards/[0-9a-f-]{36}/ai-jobs')
 DEPTH_POST_ROUTES=frozenset(('/api/generate/depth','/api/worker/depth/claim','/api/worker/depth/heartbeat','/api/worker/depth/progress','/api/worker/depth/upload-url','/api/worker/depth/complete'))
 # Response-header waits beyond the default 25 s: enqueue may normalize large references, transcription
 # waits for its worker result (Django answers 504 itself after 120 s), an agent turn runs a short tool loop.
@@ -36,7 +38,7 @@ MCP_WAIT=55
 def upstream_wait(method,path,mode='api'):
     if mode=='mcp':return MCP_WAIT if method=='POST' else 25
     if method!='POST':return 25
-    return LONG_POSTS.get(path,120 if AGENT_MESSAGES.fullmatch(path) else 25)
+    return LONG_POSTS.get(path,120 if AGENT_MESSAGES.fullmatch(path) or BOARD_AI_JOBS.fullmatch(path) else 25)
 def allowed_mcp(method,path):
     return path=='/mcp' and method in ('POST','GET','DELETE')
 def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
@@ -57,6 +59,8 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     if paid_initial_routes and method=='POST' and path=='/api/audio/transcribe':return True
     # Admin agent chat: its Gemini calls go through the agent transport's exact endpoint and payload allowlist.
     if paid_initial_routes and method=='POST' and AGENT_MESSAGES.fullmatch(path):return True
+    # Board AI: the submission is a paid initial route (an image or text generation); quotes, reads and placement are not.
+    if method=='POST' and BOARD_AI_JOBS.fullmatch(path):return paid_initial_routes
     if method in ('GET','HEAD') and path=='/api/generate/video/status':return True
     # Depth maps: artist enqueue/status and the external GPU worker protocol
     # (Django authenticates the worker with DEPTH_WORKER_TOKEN).

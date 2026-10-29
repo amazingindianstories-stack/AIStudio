@@ -260,3 +260,85 @@ def board_access(request, identifier):
         return reply(request, {'error': str(error)}, error.status)
     except Exception:
         return failure()
+
+
+def ai_board(identifier):
+    import re
+    if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', identifier):
+        return None
+    return CanvasBoard.objects.filter(pk=identifier).first()
+
+
+def ai_failure(request, error):
+    """The answer a refused board AI request gets (the same bodies the generation API gives)."""
+    from apps.generation.services.paid_guard import PaidBudgetHold
+    from apps.generation.services.submission import Refused
+    from .ai_jobs import JobError
+    if isinstance(error, JobError):
+        return reply(request, error.body, error.status)
+    if isinstance(error, Refused):
+        response = reply(request, error.body, error.status) if error.body else failure()
+        for name, value in error.headers.items():
+            response[name] = value
+        return response
+    if isinstance(error, PaidBudgetHold):
+        return reply(request, {'error': str(error), 'code': PaidBudgetHold.code}, 409)
+    raise error
+
+
+@node_route(['GET', 'POST'])
+def board_ai_jobs(request, identifier):
+    from . import ai_jobs
+    actor = lookup(request)
+    if actor is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        board = ai_board(identifier)
+        if board is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        if request.method in ('GET', 'HEAD'):
+            ids = [value for raw in request.query_params.getlist('ids') for value in raw.split(',') if value]
+            return reply(request, {'jobs': ai_jobs.jobs(actor, board, ids)})
+        try:
+            job = ai_jobs.submit(actor, board, body(request), request.headers.get('Idempotency-Key'))
+        except Exception as error:
+            return ai_failure(request, error)
+        return reply(request, {'job': job}, 201)
+    except Exception:
+        return failure()
+
+
+@node_route(['POST'])
+def board_ai_quote(request, identifier):
+    from . import ai_jobs
+    actor = lookup(request)
+    if actor is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        board = ai_board(identifier)
+        if board is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        try:
+            return reply(request, {'quote': ai_jobs.quote(actor, board, body(request))})
+        except Exception as error:
+            return ai_failure(request, error)
+    except Exception:
+        return failure()
+
+
+@node_route(['PATCH'])
+def board_ai_job(request, identifier, job_id):
+    from . import ai_jobs
+    actor = lookup(request)
+    if actor is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        board = ai_board(identifier)
+        if board is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        try:
+            return reply(request, {'job': ai_jobs.mark_placed(actor, board, job_id, body(request))})
+        except Exception as error:
+            return ai_failure(request, error)
+    except Exception:
+        return failure()

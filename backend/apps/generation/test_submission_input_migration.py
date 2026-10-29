@@ -20,7 +20,8 @@ class SubmissionInputMigrationTests(TransactionTestCase):
             plan=executor.migration_plan(final)
             self.assertEqual([(m.app_label,m.name) for m,backward in plan],[('generation','0002_generation_submission_input'), ('generation','0003_generation_permanent_name'),
                 ('generation','0004_generation_unique_permanent_name'), ('generation','0005_generation_name_owner'), ('generation','0006_generation_cancellation_state'),
-                ('generation','0007_explicit_folder_name_rename'), ('generation','0008_generation_mcp_origin'), ('generation','0009_generation_url_lookup')])
+                ('generation','0007_explicit_folder_name_rename'), ('generation','0008_generation_mcp_origin'), ('generation','0009_generation_url_lookup'),
+                ('generation','0010_generation_output')])
             executor.migrate(final)
             from .models import Generation
             row=Generation.objects.get(pk=identifier)
