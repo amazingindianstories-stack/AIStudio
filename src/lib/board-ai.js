@@ -6,8 +6,8 @@ import { useCanvasStore } from "./canvas-store";
 
 // Board "Create with AI" jobs (backend/apps/canvas/ai_jobs.py). The server queues each job on the generation
 // worker; this module quotes, submits (one Idempotency-Key per request, reused on retry, so a double click or a
-// retried request never queues a second paid job), polls until the job ends, then places the result on the board
-// and marks it placed so a reload or another tab never places it twice. The owner's finished results of the last
+// retried request never queues a second paid job), polls each unfinished job until it ends, then places its result on
+// the board and marks it placed so a reload or another tab never places it twice. The owner's finished results of the last
 // day stay listed, so any of them can be placed again without a new job. A placed result is always left in view:
 // the canvas the open panels cover counts as occupied space, and the board pans when the result would still be hidden.
 
@@ -73,7 +73,7 @@ export function requestFingerprint(boardId, request) {
     request.aspectRatio ?? null]);
 }
 
-let pollTimer = null;
+const pollTimers = new Map();
 let generation = 0;
 let measureLayout = null;
 
@@ -115,9 +115,15 @@ function insertVisible(nodes, replaceIds) {
   if (shown !== viewport) canvas.setViewport(shown);
 }
 
-function clearPoll() {
-  if (pollTimer) clearTimeout(pollTimer);
-  pollTimer = null;
+function clearPolls() {
+  for (const timer of pollTimers.values()) clearTimeout(timer);
+  pollTimers.clear();
+}
+
+/** True unless the panel already follows a newer job than `job`. */
+function follows(get, job) {
+  const current = get().job;
+  return !current || current.id === job.id || !(job.createdAt < current.createdAt);
 }
 
 /** True while `job`'s board is the loaded board in the canvas store. */
@@ -147,7 +153,7 @@ export const useBoardAi = create((set, get) => ({
   /** Follow `boardId`: forget the previous board's job and resume this one's unfinished or unplaced jobs. */
   attach: async (boardId) => {
     if (get().boardId === boardId) return;
-    clearPoll();
+    clearPolls();
     generation += 1;
     const mine = generation;
     set({ boardId, job: null, placed: null, recent: [], submitting: false, error: null, pendingKey: null });
@@ -167,7 +173,7 @@ export const useBoardAi = create((set, get) => ({
   },
 
   detach: () => {
-    clearPoll();
+    clearPolls();
     generation += 1;
     set({ boardId: null, job: null, placed: null, recent: [], submitting: false, error: null, pendingKey: null });
   },
@@ -232,7 +238,7 @@ export const useBoardAi = create((set, get) => ({
   settle: async (job, mine = generation) => {
     if (mine !== generation) return;
     if (ACTIVE_STATUSES.includes(job.status)) {
-      set({ job });
+      if (follows(get, job)) set({ job });
       schedulePoll(get, set, job.id, mine);
       return;
     }
@@ -244,15 +250,15 @@ export const useBoardAi = create((set, get) => ({
       // A failed or cancelled job has nothing to place: record that it was seen so a reload does not show it again.
       markBoardAiPlaced(job.boardId, job.id, []).catch(() => {});
     }
-    set({ job, error: job.status === "succeeded" ? null : job.error || "The job did not finish." });
+    set({ job: follows(get, job) ? job : get().job, error: job.status === "succeeded" ? null : job.error || "The job did not finish." });
   },
 }));
 
 function schedulePoll(get, set, jobId, mine) {
-  clearPoll();
+  clearTimeout(pollTimers.get(jobId));
   const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
-  pollTimer = setTimeout(async () => {
-    pollTimer = null;
+  pollTimers.set(jobId, setTimeout(async () => {
+    pollTimers.delete(jobId);
     if (mine !== generation) return;
     const { boardId } = get();
     try {
@@ -262,14 +268,14 @@ function schedulePoll(get, set, jobId, mine) {
     } catch {
       if (mine === generation) schedulePoll(get, set, jobId, mine);
     }
-  }, hidden ? HIDDEN_POLL_MS : POLL_MS);
+  }, hidden ? HIDDEN_POLL_MS : POLL_MS));
 }
 
 async function placeJob(get, set, job, mine) {
   const format = AI_FORMATS[job.format];
   // Place only on the board the job belongs to, once it has loaded; otherwise leave it for that board's next visit.
   if (!format || !onItsBoard(job)) {
-    set({ job });
+    if (follows(get, job)) set({ job });
     return;
   }
   const canvas = useCanvasStore.getState();
@@ -288,13 +294,13 @@ async function placeJob(get, set, job, mine) {
   } catch (error) {
     if (mine !== generation) return;
     if (error?.code === "ALREADY_PLACED") {
-      set({ job: { ...job, placedAt: Date.now() } });
+      if (follows(get, job)) set({ job: { ...job, placedAt: Date.now() } });
       return;
     }
-    set({ job, error: error?.message || "Could not place the result." });
+    set({ job: follows(get, job) ? job : get().job, error: error?.message || "Could not place the result." });
     return;
   }
   if (mine !== generation || !onItsBoard(job)) return;
   insertVisible(nodes, replaceIds);
-  set({ job: marked, error: null, placed: placedResult(job, nodes) });
+  set({ job: follows(get, job) ? marked : get().job, error: null, placed: placedResult(job, nodes) });
 }

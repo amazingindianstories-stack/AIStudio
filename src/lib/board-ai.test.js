@@ -131,6 +131,30 @@ test("resuming a board keeps polling unfinished jobs and dismisses failed ones",
   assert.deepEqual(dismissed.body, { placedNodeIds: [] });
 });
 
+test("every unfinished job is polled, so an older one is placed when it ends while the panel follows the newest", async (t) => {
+  loadedBoard();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const OLDER = "55555555-5555-4555-8555-555555555555";
+  const NEWER = "66666666-6666-4666-8666-666666666666";
+  const calls = server(t, (call) => {
+    if (call.method === "PATCH") return json(200, { job: job({ id: OLDER, status: "succeeded", result: NOTES, placedNodeIds: call.body.placedNodeIds, placedAt: 5 }) });
+    if (call.url.includes(`ids=${OLDER}`)) return json(200, { jobs: [job({ id: OLDER, status: "succeeded", result: NOTES })] });
+    if (call.url.includes(`ids=${NEWER}`)) return json(200, { jobs: [job({ id: NEWER, createdAt: 2, status: "running" })] });
+    return json(200, { jobs: [job({ id: NEWER, createdAt: 2, status: "running" }), job({ id: OLDER, createdAt: 1, status: "running" })] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  assert.equal(useBoardAi.getState().job.id, NEWER);
+  t.mock.timers.tick(1500);
+  for (let i = 0; i < 10; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  const polled = calls.filter((call) => call.method === "GET" && call.url.includes("ids="));
+  assert.deepEqual(polled.map((call) => call.url.split("ids=")[1]).sort(), [OLDER, NEWER]);
+  const patch = calls.find((call) => call.method === "PATCH");
+  assert.ok(patch?.url.endsWith(`/${OLDER}`), "the older job's result is claimed");
+  assert.deepEqual(useCanvasStore.getState().history.present.nodes.map((node) => node.text), ["One", "Two"]);
+  assert.equal(useBoardAi.getState().job.id, NEWER, "the panel keeps following the newest job");
+  assert.equal(useBoardAi.getState().job.status, "running");
+});
+
 test("a result for another board is never placed on the open one", async (t) => {
   loadedBoard();
   const calls = server(t, () => json(200, { jobs: [] }));
