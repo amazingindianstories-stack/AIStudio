@@ -122,3 +122,39 @@ export function placedCenter(nodes, ids) {
   const y1 = Math.max(...present.map((node) => node.y + node.h));
   return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
 }
+
+const FREE_MARGIN = 48;
+const FREE_RINGS = 4;
+
+function boundsOf(nodes) {
+  const x0 = Math.min(...nodes.map((node) => node.x));
+  const y0 = Math.min(...nodes.map((node) => node.y));
+  const x1 = Math.max(...nodes.map((node) => node.x + node.w));
+  const y1 = Math.max(...nodes.map((node) => node.y + node.h));
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
+function overlaps(a, b, margin) {
+  return a.x < b.x + b.w + margin && b.x < a.x + a.w + margin && a.y < b.y + b.h + margin && b.y < a.y + a.h + margin;
+}
+
+/**
+ * `nodes` moved to the free spot nearest where they were built (the viewport centre): the centre itself when it is
+ * clear, else the closest slot one result-width or -height away, ring by ring. A new result never lands on top of
+ * the board's existing content; if every nearby slot is taken it stays at the centre.
+ */
+export function inFreeSpace(nodes, existing) {
+  if (!nodes.length || !existing?.length) return nodes;
+  const box = boundsOf(nodes);
+  const others = existing.map((node) => ({ x: node.x, y: node.y, w: node.w, h: node.h }));
+  const stepX = box.w + FREE_MARGIN;
+  const stepY = box.h + FREE_MARGIN;
+  const slots = [];
+  for (let i = -FREE_RINGS; i <= FREE_RINGS; i += 1) {
+    for (let j = -FREE_RINGS; j <= FREE_RINGS; j += 1) slots.push({ dx: i * stepX, dy: j * stepY });
+  }
+  slots.sort((a, b) => Math.hypot(a.dx, a.dy) - Math.hypot(b.dx, b.dy) || a.dy - b.dy || a.dx - b.dx);
+  const free = slots.find(({ dx, dy }) => !others.some((other) => overlaps({ ...box, x: box.x + dx, y: box.y + dy }, other, FREE_MARGIN / 2)));
+  if (!free || (free.dx === 0 && free.dy === 0)) return nodes;
+  return nodes.map((node) => ({ ...node, x: node.x + free.dx, y: node.y + free.dy }));
+}

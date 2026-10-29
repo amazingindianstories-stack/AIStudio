@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AI_FORMATS, AI_FORMAT_ORDER, STICKY_FILLS, imageNodes, placedCenter, stickyColumns, stickyNodes } from "./ai-formats.js";
+import { AI_FORMATS, AI_FORMAT_ORDER, STICKY_FILLS, imageNodes, inFreeSpace, placedCenter, stickyColumns, stickyNodes } from "./ai-formats.js";
 import { validateCanvasState } from "./serialization.js";
 
 const notes = (count) => ({ notes: Array.from({ length: count }, (_, index) => ({ text: `Idea ${index + 1}`, color: index % 2 ? "blue" : "magenta" })) });
@@ -52,4 +52,17 @@ test("every offered format has panel copy, suggestions and a node builder", () =
   }
   assert.equal(AI_FORMATS.stickies.resultLabel({ notes: [{}] }), "1 sticky note");
   assert.equal(AI_FORMATS.stickies.resultLabel(notes(4)), "4 sticky notes");
+});
+
+test("a new result goes to the free slot nearest the viewport centre, never on top of existing content", () => {
+  const built = stickyNodes(notes(3), { x: 0, y: 0 });                        // 648 x 200 centred on (0, 0)
+  assert.deepEqual(inFreeSpace(built, []), built);
+  assert.deepEqual(inFreeSpace(built, [{ x: 2000, y: 2000, w: 10, h: 10 }]), built, "a clear centre keeps the centre");
+  const blocked = [{ x: -100, y: -100, w: 200, h: 200 }];
+  const moved = inFreeSpace(built, blocked);
+  // The nearest free slot is one result-height (200 + 48) above or below; above wins the tie.
+  assert.deepEqual(moved.map((node) => node.y), [-348, -348, -348]);
+  assert.deepEqual(moved.map((node) => node.x), built.map((node) => node.x));
+  const box = (nodes) => ({ x0: Math.min(...nodes.map((n) => n.x)), y1: Math.max(...nodes.map((n) => n.y + n.h)) });
+  assert.ok(box(moved).y1 <= blocked[0].y, "no overlap");
 });

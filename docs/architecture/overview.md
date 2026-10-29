@@ -52,8 +52,8 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `projects` | Projects, briefs and project roles |
 | `library` | Folder tree, naming counters, filenames, idempotency receipts |
 | `assets` | Material catalog, legacy and managed BytePlus portraits, face detection |
-| `canvas` | Canvas boards, board roles and the effective-role check (`../features/board-roles.md`) |
-| `agents` | Gemini tool-loop chat |
+| `canvas` | Canvas boards, board roles and the effective-role check (`../features/board-roles.md`), and board "Create with AI" jobs (`board-ai.md`) |
+| `agents` | Gemini tool-loop chat; board AI text formats and the agent payload allowlists |
 | `generation` | Enqueue, history and live updates, providers, prompting, worker execution |
 | `exports` | ZIP manifests and the export worker |
 | `workers` | Depth protocol, depth enqueue, cron routes, scheduler |
@@ -83,6 +83,10 @@ paid-guard refusal raises the typed `PaidBudgetHold`, which the web API answers 
 `paid_guard.wrap_wsgi`. `generation/services/reads.py` serves library search and pages (keyset cursor), counts,
 and single and batch generation reads; `library/services/folder_reads.py` serves the folder tree, ancestry and
 children.
+
+Board "Create with AI" jobs (`board-ai.md`) are generation rows: sticky notes run as a text job (`kind = 'text'`,
+not library media) on the agent Gemini model and an image as an ordinary image generation, both under the same
+admission, spend window, paid guard and idempotent submission.
 
 `backend/testsupport` holds fake providers and the frozen historical Node outputs used as test
 oracles. `backend/parity` pins current production behavior through seams the backend restructure

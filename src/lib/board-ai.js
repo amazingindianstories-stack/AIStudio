@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { apiFetch } from "./api";
 import { apiErrorMessage } from "./api-error";
-import { AI_FORMATS, placedCenter } from "./canvas/ai-formats";
+import { AI_FORMATS, inFreeSpace, placedCenter } from "./canvas/ai-formats";
 import { useCanvasStore } from "./canvas-store";
 
 // Board "Create with AI" jobs (backend/apps/canvas/ai_jobs.py). The server queues each job on the generation
@@ -191,8 +191,11 @@ async function placeJob(get, set, job, mine) {
   const previous = get().placed;
   const refines = previous && job.parentJobId === previous.jobId;
   const replaceIds = refines ? previous.nodeIds : [];
-  const center = (refines && placedCenter(canvas.history.present.nodes, replaceIds)) || canvas.viewportCenter();
-  const nodes = format.nodes(job, center);
+  const previousCenter = refines ? placedCenter(canvas.history.present.nodes, replaceIds) : null;
+  // A refinement takes the place of the result it refines; a new result goes to free space near the viewport centre.
+  const nodes = previousCenter
+    ? format.nodes(job, previousCenter)
+    : inFreeSpace(format.nodes(job, canvas.viewportCenter()), canvas.history.present.nodes.filter((node) => !replaceIds.includes(node.id)));
   let marked;
   try {
     // Claim the placement first: only the caller whose mark succeeds inserts the nodes.

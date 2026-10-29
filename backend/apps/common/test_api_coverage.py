@@ -119,6 +119,13 @@ BOARD_ROLES = {
  '/api/projects/[id]/members': ['GET', 'POST'],
 }
 EXPECTED.update(BOARD_ROLES)
+# Board "Create with AI" jobs (apps.canvas.ai_jobs).
+BOARD_AI = {
+ '/api/canvas-boards/[id]/ai-jobs': ['GET', 'POST'],
+ '/api/canvas-boards/[id]/ai-jobs/quote': ['POST'],
+ '/api/canvas-boards/[id]/ai-jobs/[jobId]': ['PATCH'],
+}
+EXPECTED.update(BOARD_AI)
 # Agent OAuth endpoints read no cookies and answer browser-based clients cross-origin (apps.common.origin).
 COOKIELESS_OAUTH = {'/api/oauth/register', '/api/oauth/token', '/api/oauth/revoke'}
 
@@ -149,10 +156,11 @@ def leaves(patterns,prefix=''):
 
 @override_settings(ROOT_URLCONF='config.urls')
 class CompleteApiCoverageTests(SimpleTestCase):
-    def test_all_117_explicit_methods_resolve_to_the_declared_python_handlers(self):
-        # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access and board roles.
-        self.assertEqual(len(EXPECTED),92)
-        self.assertEqual(sum(map(len,EXPECTED.values())),117)
+    def test_all_121_explicit_methods_resolve_to_the_declared_python_handlers(self):
+        # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access,
+        # board roles and board AI jobs.
+        self.assertEqual(len(EXPECTED),95)
+        self.assertEqual(sum(map(len,EXPECTED.values())),121)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -255,6 +263,7 @@ NEGATIVE_STATUS = {
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in GOAL2_UPLOADS.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in MCP_AUTH.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_ROLES.items()})
+NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_AI.items()})
 # Public discovery documents, and machine endpoints refusing an empty body or an unknown client.
 NEGATIVE_STATUS.update({'/api/oauth/authorization-server':{'GET':200},'/api/oauth/protected-resource':{'GET':200},
     '/api/oauth/register':{'POST':400},'/api/oauth/token':{'POST':401},'/api/oauth/revoke':{'POST':400}})
@@ -276,7 +285,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         payload,signature=self.valid.split('.')
         self.forged=payload+'.'+('A' if signature[0]!='A' else 'B')+signature[1:]
         self.tables=sorted({model._meta.db_table for model in apps.get_models() if model._meta.managed})
-        self.assertEqual(len(self.tables),35)
+        self.assertEqual(len(self.tables),36)
         self.assertEqual({path:set(methods) for path,methods in EXPECTED.items()},
             {path:set(methods) for path,methods in NEGATIVE_STATUS.items()})
 
@@ -323,7 +332,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         self.assertEqual(self.write_attempts,[])
         for effect in self.effects: effect.assert_not_called()
 
-    def test_all_117_methods_match_negative_request_contract_without_effects(self):
+    def test_all_121_methods_match_negative_request_contract_without_effects(self):
         # Empty/malformed payload failures on public routes are not proof of
         # account-only authorization. Paid video now requires login; valid-payload
         # zero-effects and owner checks are covered by enqueue contract tests.
