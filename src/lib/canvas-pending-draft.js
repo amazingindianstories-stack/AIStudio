@@ -26,15 +26,16 @@ export function shouldUseKeepalive(body) {
 
 /**
  * `sync` records the server version the edits started from and that version's
- * graph, so a restored draft merges with what other people saved meanwhile.
- * When the base graph does not fit, the draft keeps only its version and the
- * restore falls back to a union that cannot lose anyone's nodes.
+ * graph, so a restored draft merges with what other people saved meanwhile,
+ * and the id of the save sending this content, so a draft whose save landed
+ * is not replayed. When the base graph does not fit, the draft keeps only its
+ * version and the restore keeps the server's copy of everything both have.
  */
 export function savePendingDraft(boardId, data, at = Date.now(), sync = {}) {
   const store = storage();
   if (!store || !boardId) return false;
-  const { baseVersion, base } = sync;
-  for (const draft of [{ at, data, baseVersion, base }, { at, data, baseVersion }]) {
+  const { baseVersion, base, saveId } = sync;
+  for (const draft of [{ at, data, baseVersion, saveId, base }, { at, data, baseVersion, saveId }]) {
     try {
       const serialized = JSON.stringify(draft);
       if (serialized.length > MAX_DRAFT_CHARS) continue;

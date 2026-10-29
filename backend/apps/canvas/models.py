@@ -12,6 +12,8 @@ class CanvasBoard(models.Model):
     updated_at = models.BigIntegerField()
     # Bumped by every graph save; editors send the version they started from.
     version = models.BigIntegerField(db_default=1)
+    # Client ids of the latest saves applied, newest first, so a left-behind draft that already landed is dropped.
+    applied_save_ids = models.JSONField(db_default=[])
 
     class Meta:
         managed = True

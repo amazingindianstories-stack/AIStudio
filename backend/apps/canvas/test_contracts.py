@@ -1,6 +1,7 @@
 from testsupport.frozen_oracle import run as oracle_run
 import json
 import random
+import uuid
 import subprocess
 from pathlib import Path
 from unittest.mock import patch
@@ -93,12 +94,12 @@ class CanvasContractTests(TransactionTestCase):
         self.assertEqual(len(response.json()['boards']), 2)
         self.assertTrue(response.cookies['veevee_session']['httponly'])
         detail = self.client.get('/api/canvas-boards/' + created['id']).json()
-        self.assertEqual(detail, {**created, 'version': 1, 'data': empty_state()})
+        self.assertEqual(detail, {**created, 'version': 1, 'appliedSaveIds': [], 'data': empty_state()})
         renamed = self.send('post', '/api/canvas-boards', {'op': 'renameBoard', 'id': created['id'], 'name': '  '})
         self.assertEqual(renamed.status_code, 200)
         self.assertEqual(CanvasBoard.objects.get(pk=created['id']).name, '')
         with patch('apps.canvas.services.now_ms', return_value=1700000001000):
-            saved = self.send('put', '/api/canvas-boards/' + created['id'], {'data': {'version': 99, 'viewport': {'zoom': -1}}, 'baseVersion': 1})
+            saved = self.send('put', '/api/canvas-boards/' + created['id'], {'data': {'version': 99, 'viewport': {'zoom': -1}}, 'baseVersion': 1, 'saveId': str(uuid.uuid4())})
         # Normalizes to the empty graph it already holds, so the version stays.
         self.assertEqual(saved.json(), {'ok': True, 'updatedAt': 1700000001000, 'version': 1})
         self.assertEqual(CanvasBoard.objects.get(pk=created['id']).data, empty_state())
@@ -112,7 +113,7 @@ class CanvasContractTests(TransactionTestCase):
         for operation in ('renameBoard', 'deleteBoard'):
             response = self.send('post', '/api/canvas-boards', {'op': operation, 'id': self.board, 'name': 'blocked'})
             self.assertEqual((response.status_code, response.json()), (403, {'error': 'FORBIDDEN'}))
-        self.assertEqual(self.send('put', '/api/canvas-boards/' + self.board, {'data': {}, 'baseVersion': 1}).status_code, 200)
+        self.assertEqual(self.send('put', '/api/canvas-boards/' + self.board, {'data': {}, 'baseVersion': 1, 'saveId': str(uuid.uuid4())}).status_code, 200)
         self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).status_code, 200)
         User.objects.filter(pk=session_fixtures.UID).update(role='admin')
         self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': self.board}).json(), {'boards': []})
@@ -146,11 +147,11 @@ class CanvasContractTests(TransactionTestCase):
         units = 2 * 1024 * 1024
         value = {'padding': '😀' * ((units - 14) // 2)}
         self.assertEqual(json_length(value), units)
-        response = self.send('put', '/api/canvas-boards/' + self.board, {'data': value, 'baseVersion': 1})
+        response = self.send('put', '/api/canvas-boards/' + self.board, {'data': value, 'baseVersion': 1, 'saveId': str(uuid.uuid4())})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(CanvasBoard.objects.get(pk=self.board).data, empty_state())
         value['padding'] += 'a'
-        response = self.send('put', '/api/canvas-boards/' + self.board, {'data': value, 'baseVersion': 1})
+        response = self.send('put', '/api/canvas-boards/' + self.board, {'data': value, 'baseVersion': 1, 'saveId': str(uuid.uuid4())})
         self.assertEqual((response.status_code, response.json()), (413, {'error': 'Board is too large to save.'}))
 
     def test_upload_existence_namespace_validation_and_adapter_errors(self):
@@ -205,8 +206,9 @@ class CanvasVersionConflictTests(TransactionTestCase):
         return {**empty_state(), 'nodes': [{'id': node, 'type': 'rect', 'x': 1, 'y': 2, 'w': 3, 'h': 4} for node in ids]}
 
     def put(self, payload, board=None):
-        return self.client.put('/api/canvas-boards/' + (board or self.board), data=json.dumps(payload),
-                               content_type='application/json')
+        """A save as the editor sends it: every attempt carries a fresh save id unless the test sets one."""
+        return self.client.put('/api/canvas-boards/' + (board or self.board),
+                               data=json.dumps({'saveId': str(uuid.uuid4()), **payload}), content_type='application/json')
 
     def test_existing_rows_start_at_version_one_and_every_save_bumps_it(self):
         self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).json()['version'], 1)
@@ -228,15 +230,16 @@ class CanvasVersionConflictTests(TransactionTestCase):
 
     def test_stale_base_version_is_refused_with_the_current_graph(self):
         self.assertEqual(self.put({'data': self.graph('theirs'), 'baseVersion': 1}).status_code, 200)
-        before = CanvasBoard.objects.values('data', 'version', 'updated_at').get(pk=self.board)
+        before = CanvasBoard.objects.values('data', 'version', 'updated_at', 'applied_save_ids').get(pk=self.board)
         self.cookie(age=172800000)
         stale = self.put({'data': self.graph('mine'), 'baseVersion': 1})
         self.assertEqual(stale.status_code, 409)
         self.assertEqual(stale.json(), {'error': 'VERSION_CONFLICT', 'board': {
             'id': self.board, 'projectId': self.project, 'name': 'Shared', 'createdBy': None, 'createdAt': 1,
-            'updatedAt': before['updated_at'], 'version': 2, 'data': validate_state(self.graph('theirs'))}})
+            'updatedAt': before['updated_at'], 'version': 2, 'appliedSaveIds': before['applied_save_ids'],
+            'data': validate_state(self.graph('theirs'))}})
         self.assertIn('veevee_session', stale.cookies)
-        self.assertEqual(CanvasBoard.objects.values('data', 'version', 'updated_at').get(pk=self.board), before)
+        self.assertEqual(CanvasBoard.objects.values('data', 'version', 'updated_at', 'applied_save_ids').get(pk=self.board), before)
         # A base newer than the server is just as stale.
         self.assertEqual(self.put({'data': self.graph('mine'), 'baseVersion': 7}).status_code, 409)
         merged = self.put({'data': self.graph('theirs', 'mine'), 'baseVersion': 2})
@@ -244,15 +247,46 @@ class CanvasVersionConflictTests(TransactionTestCase):
 
     def test_missing_base_version_is_refused_with_the_current_graph_and_never_writes(self):
         self.assertEqual(self.put({'data': self.graph('theirs'), 'baseVersion': 1}).json()['version'], 2)
-        before = CanvasBoard.objects.values('data', 'version', 'updated_at').get(pk=self.board)
-        for payload in ({'data': self.graph('legacy')}, {'data': self.graph('legacy'), 'baseVersion': None}):
+        before = CanvasBoard.objects.values('data', 'version', 'updated_at', 'applied_save_ids').get(pk=self.board)
+        for payload in ({'data': self.graph('legacy'), 'saveId': None}, {'data': self.graph('legacy'), 'baseVersion': None},
+                        {'data': self.graph('legacy'), 'baseVersion': 2, 'saveId': None}):
             with self.subTest(payload=payload):
                 refused = self.put(payload)
                 self.assertEqual(refused.status_code, 409)
                 self.assertEqual(refused.json()['error'], 'VERSION_CONFLICT')
                 self.assertEqual((refused.json()['board']['version'], refused.json()['board']['data']),
                                  (2, validate_state(self.graph('theirs'))))
-        self.assertEqual(CanvasBoard.objects.values('data', 'version', 'updated_at').get(pk=self.board), before)
+        self.assertEqual(CanvasBoard.objects.values('data', 'version', 'updated_at', 'applied_save_ids').get(pk=self.board), before)
+        # What a tab on the previous frontend sends: neither field.
+        legacy = self.client.put('/api/canvas-boards/' + self.board, data=json.dumps({'data': self.graph('legacy')}),
+                                 content_type='application/json')
+        self.assertEqual(legacy.status_code, 409)
+        self.assertEqual(CanvasBoard.objects.values('data', 'version', 'updated_at', 'applied_save_ids').get(pk=self.board), before)
+
+    def test_malformed_save_id_is_refused_before_any_write(self):
+        for value in ['', 'not-a-uuid', str(uuid.uuid4()) + 'x', 7, True, [], {}]:
+            with self.subTest(value=value):
+                response = self.put({'data': self.graph('x'), 'baseVersion': 1, 'saveId': value})
+                self.assertEqual((response.status_code, response.json()), (400, {'error': 'Invalid save id.'}))
+        row = CanvasBoard.objects.get(pk=self.board)
+        self.assertEqual((row.version, row.applied_save_ids), (1, []))
+
+    def test_applied_save_ids_are_recorded_newest_first_and_bounded(self):
+        from . import services
+        sent = [str(uuid.uuid4()) for _ in range(services.APPLIED_SAVE_IDS_KEPT + 3)]
+        for index, save_id in enumerate(sent):
+            response = self.put({'data': self.graph(*[str(n) for n in range(index + 1)]), 'baseVersion': index + 1, 'saveId': save_id})
+            self.assertEqual(response.status_code, 200)
+            if index == 0:
+                self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).json()['appliedSaveIds'], [save_id])
+        kept = list(reversed(sent))[:services.APPLIED_SAVE_IDS_KEPT]
+        self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).json()['appliedSaveIds'], kept)
+        # A refused save records nothing; a save that only pans still landed and is recorded.
+        self.assertEqual(self.put({'data': self.graph('stale'), 'baseVersion': 1}).status_code, 409)
+        pan_id = str(uuid.uuid4())
+        panned = {**self.graph(*[str(n) for n in range(len(sent))]), 'viewport': {'x': 5, 'y': 5, 'zoom': 1}}
+        self.assertEqual(self.put({'data': panned, 'baseVersion': len(sent) + 1, 'saveId': pan_id}).json()['version'], len(sent) + 1)
+        self.assertEqual(CanvasBoard.objects.get(pk=self.board).applied_save_ids, [pan_id] + kept[:-1])
 
     def test_malformed_base_version_is_refused_before_any_write(self):
         for value in ['1', True, False, 1.5, 0, -1, [], {}, 2 ** 53 + 2]:
@@ -277,7 +311,7 @@ class CanvasVersionConflictTests(TransactionTestCase):
         def save(label):
             try:
                 barrier.wait()
-                return services.save_board(self.board, self.graph(label), 1)
+                return services.save_board(self.board, self.graph(label), 1, str(uuid.uuid4()))
             except services.VersionConflict as conflict:
                 return conflict.board
             finally:

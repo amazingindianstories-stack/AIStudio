@@ -296,6 +296,8 @@ function applyRemoteBoard(set, get, board) {
 let debounceTimer = null;
 let retryBackoffMs = DEBOUNCE_MS;
 let saveInFlight = null;
+/** The graph whose draft the latest save attempt stored, with that attempt's save id. */
+let draftedPresent = null;
 
 function clearDebounceTimer() {
   if (debounceTimer) {
@@ -332,9 +334,10 @@ async function flushSaveImpl(
   saveInFlight = (async () => {
     const boardId = state.boardId ;
     const sentPresent = state.history.present;
-    const body = JSON.stringify({ data: sentPresent, baseVersion: state.serverVersion });
+    const saveId = crypto.randomUUID();
+    const body = JSON.stringify({ data: sentPresent, baseVersion: state.serverVersion, saveId });
     // Durable until the server acknowledges exactly this content.
-    savePendingDraft(boardId, sentPresent, Date.now(), syncOf(state));
+    draftedPresent = savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(state), saveId }) ? sentPresent : null;
     set({ saveStatus: "saving" });
     try {
       const res = await apiFetch(`/api/canvas-boards/${boardId}`, {
@@ -393,17 +396,25 @@ async function flushSaveImpl(
 /**
  * Un-acknowledged local edits from an earlier visit, merged with what other
  * people saved meanwhile and ready to re-save, or null when there are none.
- * The merge base is the graph the edits started from; a draft without it
- * (too large to carry it, or saved before versions) merges as a union with
- * an empty base so nobody's nodes are lost.
+ * A draft whose save the server applied already landed and is dropped. The
+ * merge base is the graph the edits started from; a draft without it (too
+ * large to carry it, or saved before versions) keeps the server's copy of
+ * every item both have and adds only the items that exist solely in the draft.
  */
-function restoredDraft(pending, server, serverVersion) {
-  if (!pending) return null;
-  let base = emptyCanvasState();
+function restoredDraft(pending, server, serverVersion, appliedSaveIds) {
+  if (!pending || appliedSaveIds.includes(pending.saveId)) return null;
+  const draft = validateCanvasState(pending.data);
+  let base;
   if (pending.base) base = validateCanvasState(pending.base);
   else if (pending.baseVersion === serverVersion) base = server;
-  const restored = mergeCanvasStates(base, validateCanvasState(pending.data), server);
+  else base = { ...draft, nodes: alsoIn(draft.nodes, server.nodes), connectors: alsoIn(draft.connectors, server.connectors) };
+  const restored = mergeCanvasStates(base, draft, server);
   return sameValue(restored, server) ? null : restored;
+}
+
+function alsoIn(items, others) {
+  const ids = new Set(others.map((item) => item.id));
+  return items.filter((item) => ids.has(item.id));
 }
 
 // Guards against out-of-order GET responses when boards are switched in
@@ -448,7 +459,7 @@ async function loadBoardImpl(set, get, id) {
   if (myGeneration !== loadGeneration) return; // superseded while parsing
 
   const serverVersion = board.version;
-  const restored = restoredDraft(readPendingDraft(board.id), data, serverVersion);
+  const restored = restoredDraft(readPendingDraft(board.id), data, serverVersion, board.appliedSaveIds);
   if (!restored) clearPendingDraft(board.id);
 
   set({
@@ -555,6 +566,8 @@ export const useCanvasStore = create((set, get) => ({
     const state = get();
     if (!state.boardId) return false;
     if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && state.saveStatus !== "saving") return false;
+    // The last save attempt already stored exactly this content with its save id.
+    if (state.history.present === draftedPresent) return true;
     return savePendingDraft(state.boardId, state.history.present, Date.now(), syncOf(state));
   },
 

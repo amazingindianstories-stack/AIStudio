@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { useCanvasStore } from "./canvas-store.js";
-import { savePendingDraft } from "./canvas-pending-draft.js";
+import { readPendingDraft, savePendingDraft } from "./canvas-pending-draft.js";
 import { emptyCanvasState } from "./canvas/serialization.js";
 
 function useStorage(t) {
@@ -24,9 +24,9 @@ const store = useCanvasStore;
 
 /** A board endpoint with the server's conditional-save contract; `edit` is another person's save. */
 function fakeServer(t, data) {
-  const server = { version: 1, data, puts: [], versionReads: 0, boardReads: 0, holdPut: null };
+  const server = { version: 1, data, applied: [], puts: [], versionReads: 0, boardReads: 0, holdPut: null, dropResponse: false };
   const board = () => ({ id: "board-1", projectId: "p", name: "Board", createdBy: null, createdAt: 1, updatedAt: server.version,
-    version: server.version, data: server.data });
+    version: server.version, appliedSaveIds: server.applied, data: server.data });
   server.edit = (next) => { server.data = next; server.version += 1; };
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     if (url.endsWith("/version")) {
@@ -37,10 +37,12 @@ function fakeServer(t, data) {
       const body = JSON.parse(init.body);
       server.puts.push(body);
       if (server.holdPut) await server.holdPut;
-      if (body.baseVersion !== server.version) {
+      if (body.baseVersion !== server.version || typeof body.saveId !== "string") {
         return json(409, { error: "VERSION_CONFLICT", board: board() });
       }
       server.edit(body.data);
+      server.applied = [body.saveId, ...server.applied];
+      if (server.dropResponse) throw new TypeError("Failed to fetch");
       return json(200, { ok: true, updatedAt: server.version, version: server.version });
     }
     server.boardReads += 1;
@@ -68,6 +70,7 @@ test("a save sends the version it started from and adopts the version the server
   addLocalNode("mine");
   await store.getState().flushSave();
   assert.equal(server.puts[0].baseVersion, 1);
+  assert.match(server.puts[0].saveId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   assert.equal(store.getState().serverVersion, 2);
   assert.equal(store.getState().saveStatus, "saved");
 });
@@ -127,6 +130,9 @@ test("a poll leaves the merge to a save that is already in flight", async (t) =>
   server.holdPut = new Promise((resolve) => { release = resolve; });
   addLocalNode("mine");
   const saving = store.getState().flushSave();
+  // Leaving the page mid-save keeps the draft tied to the save that is carrying it.
+  store.getState().persistPendingDraft();
+  assert.equal(readPendingDraft("board-1").saveId, server.puts[0].saveId);
   server.edit(graph(rect("a"), rect("theirs")));
   assert.equal(await store.getState().pollRemote(), false);
   assert.equal(store.getState().serverVersion, 1);
@@ -151,28 +157,55 @@ test("a draft left by a dropped connection merges with what others saved since",
   assert.equal(server.puts[0].baseVersion, 3);
 });
 
-test("a draft too large to carry its base graph restores as a union that drops nobody's nodes", async (t) => {
+test("a draft too large to carry its base graph keeps the server's copy and adds only its own nodes", async (t) => {
   useStorage(t);
-  const server = fakeServer(t, graph(rect("a"), rect("theirs")));
+  const server = fakeServer(t, graph(rect("a", { x: 30 }), rect("theirs")));
   server.version = 2;
-  savePendingDraft("board-1", graph(rect("mine")), 10, { baseVersion: 1 });
+  savePendingDraft("board-1", graph(rect("a"), rect("mine")), 10, { baseVersion: 1 });
   store.getState().reset();
   await store.getState().loadBoard("board-1");
-  assert.deepEqual(ids(store.getState().history.present), ["a", "theirs", "mine"]);
+  const present = store.getState().history.present;
+  assert.deepEqual(ids(present), ["a", "theirs", "mine"]);
+  assert.equal(present.nodes[0].x, 30);
 });
 
-test("a draft from before versions merges as a union even when the server copy is newer", async (t) => {
+test("a draft from before versions never overrides a newer server edit and only adds its own nodes", async (t) => {
   useStorage(t);
-  const server = fakeServer(t, graph(rect("a"), rect("theirs")));
+  const server = fakeServer(t, graph(rect("a", { y: 9 }), rect("theirs")));
   server.version = 3;
   savePendingDraft("board-1", graph(rect("a", { y: 5 }), rect("mine")), 1);
   store.getState().reset();
   await store.getState().loadBoard("board-1");
   const present = store.getState().history.present;
   assert.deepEqual(ids(present), ["a", "theirs", "mine"]);
-  assert.equal(present.nodes[0].y, 5);
+  assert.equal(present.nodes[0].y, 9);
   await until(() => store.getState().saveStatus === "saved");
   assert.deepEqual(ids(server.data), ["a", "theirs", "mine"]);
+  assert.equal(server.data.nodes[0].y, 9);
+});
+
+test("a draft whose save landed before the connection dropped is discarded, keeping a later edit by someone else", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().addNode(rect("mine", { x: 5 }));
+  // The save lands, but its response never arrives.
+  server.dropResponse = true;
+  await store.getState().flushSave();
+  assert.equal(store.getState().saveStatus, "error");
+  assert.equal(readPendingDraft("board-1").saveId, server.puts[0].saveId);
+  server.dropResponse = false;
+  // Leaving the board keeps that draft; someone else then moves the node this person added.
+  store.getState().persistPendingDraft();
+  store.getState().reset();
+  server.edit(graph(rect("a"), rect("mine", { x: 40 })));
+
+  await store.getState().loadBoard("board-1");
+  assert.equal(store.getState().history.present.nodes[1].x, 40);
+  assert.equal(store.getState().saveStatus, "idle");
+  assert.equal(readPendingDraft("board-1"), null);
+  assert.equal(server.puts.length, 1);
 });
 
 test("a draft on the server's current version keeps its deletions without carrying its base graph", async (t) => {

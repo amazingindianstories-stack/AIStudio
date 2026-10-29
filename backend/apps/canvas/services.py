@@ -7,6 +7,7 @@ from .models import CanvasBoard
 from .serialization import empty_state
 
 META_FIELDS = ('id', 'project_id', 'name', 'created_by', 'created_at', 'updated_at')
+APPLIED_SAVE_IDS_KEPT = 50
 
 
 def now_ms():
@@ -24,8 +25,9 @@ def list_boards(project):
 
 
 def get_board(identifier):
-    row = CanvasBoard.objects.filter(pk=identifier).values(*META_FIELDS, 'version', 'data').first()
-    return {**metadata(row), 'version': row['version'], 'data': row['data']} if row else None
+    row = CanvasBoard.objects.filter(pk=identifier).values(*META_FIELDS, 'version', 'applied_save_ids', 'data').first()
+    return {**metadata(row), 'version': row['version'], 'appliedSaveIds': row['applied_save_ids'],
+            'data': row['data']} if row else None
 
 
 def board_version(identifier):
@@ -61,18 +63,24 @@ class VersionConflict(Exception):
         self.board = board
 
 
-def save_board(identifier, data, base_version):
+def save_board(identifier, data, base_version, save_id):
     """Write the graph only over the version the editor loaded, so concurrent editors never overwrite
-    each other. A save without a base version matches no version and is refused like a stale one.
+    each other. A save without a base version or a save id is refused like a stale one. The save id
+    joins the board's latest applied ids in the same statement, so the client can tell whether a
+    draft it left behind already landed.
     The viewport is each editor's own, so a save that only pans or zooms keeps the version and open
     boards polling for changes do not refetch the graph."""
     now = now_ms()
     graph = json.dumps(data)
-    with connection.cursor() as cursor:
-        cursor.execute("UPDATE canvas_boards SET data = %s::jsonb, updated_at = %s, version = version + "
-                       "CASE WHEN data - 'viewport' = %s::jsonb - 'viewport' THEN 0 ELSE 1 END "
-                       'WHERE id = %s AND version = %s RETURNING version', [graph, now, graph, identifier, base_version])
-        row = cursor.fetchone()
+    row = None
+    if base_version is not None and save_id is not None:
+        with connection.cursor() as cursor:
+            cursor.execute("UPDATE canvas_boards SET data = %s::jsonb, updated_at = %s, version = version + "
+                           "CASE WHEN data - 'viewport' = %s::jsonb - 'viewport' THEN 0 ELSE 1 END, "
+                           'applied_save_ids = jsonb_path_query_array(jsonb_build_array(%s::text) || applied_save_ids, '
+                           '%s::jsonpath) WHERE id = %s AND version = %s RETURNING version',
+                           [graph, now, graph, save_id, f'$[0 to {APPLIED_SAVE_IDS_KEPT - 1}]', identifier, base_version])
+            row = cursor.fetchone()
     if row:
         return {'updatedAt': now, 'version': row[0]}
     current = get_board(identifier)

@@ -33,8 +33,8 @@ test("a failed save followed by unmount/reset keeps the edit and restores it on 
   let failSaves = true;
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     calls.push({ url, method: init.method || "GET", keepalive: init.keepalive });
-    if ((init.method || "GET") === "PUT") return failSaves ? json(503, {}) : json(200, { updatedAt: Date.now() });
-    return json(200, { id: "board-1", name: "Board", data: emptyCanvasState(), updatedAt: 1 });
+    if ((init.method || "GET") === "PUT") return failSaves ? json(503, {}) : json(200, { updatedAt: Date.now(), version: 2 });
+    return json(200, { id: "board-1", name: "Board", data: emptyCanvasState(), updatedAt: 1, version: 1, appliedSaveIds: [] });
   });
   const store = useCanvasStore;
   store.getState().reset();
@@ -62,8 +62,8 @@ test("large boards never use keepalive, small ones may", async (t) => {
   useStorage(t, memoryStorage());
   const puts = [];
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
-    if ((init.method || "GET") === "PUT") { puts.push(init); return json(200, { updatedAt: Date.now() }); }
-    return json(200, { id: "board-2", name: "Board", data: emptyCanvasState(), updatedAt: 1 });
+    if ((init.method || "GET") === "PUT") { puts.push(init); return json(200, { updatedAt: Date.now(), version: 2 }); }
+    return json(200, { id: "board-2", name: "Board", data: emptyCanvasState(), updatedAt: 1, version: 1, appliedSaveIds: [] });
   });
   const store = useCanvasStore;
   store.getState().reset();

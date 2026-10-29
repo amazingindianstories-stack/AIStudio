@@ -1,4 +1,5 @@
 import json
+import re
 from django.conf import settings
 from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -8,6 +9,7 @@ from .models import CanvasBoard
 from .serialization import JS_WHITESPACE, js_json, json_length, validate_state
 
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
+UUID_PATTERN = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
 
 
 def node_route(methods):
@@ -158,10 +160,13 @@ def board_detail(request, identifier):
         base_version = base_version_of(payload)
         if base_version is False:
             return reply(request, {'error': 'Invalid base version.'}, 400)
+        save_id = save_id_of(payload)
+        if save_id is False:
+            return reply(request, {'error': 'Invalid save id.'}, 400)
         if json_length(data) > MAX_BOARD_JSON_UNITS:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         try:
-            saved = services.save_board(identifier, validate_state(data), base_version)
+            saved = services.save_board(identifier, validate_state(data), base_version, save_id)
         except services.VersionConflict as conflict:
             return reply(request, {'error': 'VERSION_CONFLICT', 'board': conflict.board}, 409)
         if saved is None:
@@ -182,6 +187,14 @@ def base_version_of(payload):
     return False
 
 
+def save_id_of(payload):
+    """The client's UUID for this save attempt: None when absent (refused as a conflict), False when malformed."""
+    value = payload.get('saveId') if isinstance(payload, dict) else None
+    if value is None:
+        return None
+    return value if isinstance(value, str) and UUID_PATTERN.fullmatch(value) else False
+
+
 @node_route(['GET'])
 def board_version(request, identifier):
     """Polled while a board is open, so it reads two integers and never the graph."""
@@ -200,8 +213,7 @@ def board_upload(request, identifier):
     if actor is None:
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
     try:
-        import re
-        if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', identifier) or not CanvasBoard.objects.filter(pk=identifier).exists():
+        if not UUID_PATTERN.fullmatch(identifier) or not CanvasBoard.objects.filter(pk=identifier).exists():
             return reply(request, {'error': 'Board not found.'}, 404)
         payload = body(request)
         reference_id = property_of(payload, 'referenceId')
