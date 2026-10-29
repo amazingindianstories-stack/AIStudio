@@ -8,6 +8,7 @@
 | [architecture/generation-cancellation.md](architecture/generation-cancellation.md) | Provider-backed generation cancellation, its paid-guard allowance and the provider cancel audit |
 | [architecture/agent-access.md](architecture/agent-access.md) | Agent (MCP) access: tokens, the OAuth 2.1 server, the per-user opt-in, spending controls and the interface for the MCP service |
 | [architecture/mcp-server.md](architecture/mcp-server.md) | The MCP server: request path, access checks and kill switches, every tool, quotes and holds, resources, prompts, the dev harness |
+| [architecture/canvas-board-sync.md](architecture/canvas-board-sync.md) | Conflict-safe board autosave: the versioned save contract, board polling, the client merge and local drafts |
 | [architecture/board-ai.md](architecture/board-ai.md) | Board "Create with AI" jobs: formats, processing tiers, cost and admission, placement and Place again |
 | [features/library-filters.md](features/library-filters.md) | Library Filters dialog, `GET /api/history` filter/sort contract, date sections |
 | [features/board-roles.md](features/board-roles.md) | Board and project roles, the effective-role rule, the share dialog and read-only boards |

@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from threading import Barrier
 from unittest.mock import patch
-from django.db import close_old_connections
+from django.db import close_old_connections, connection
 from django.test import TransactionTestCase, override_settings
 from apps.admin_dashboard import tests as session_fixtures
 from apps.authentication.models import LoginAttempt
@@ -188,7 +188,9 @@ class DepthContractTests(TransactionTestCase):
                 barrier.wait(timeout=5)
                 result = depth.claim_next(f'worker{index}',2)
                 return str(result.id) if result else None
-            finally: close_old_connections()
+            # close_old_connections() keeps a healthy connection open; a thread's own one must be
+            # closed, or the test database cannot be dropped at teardown.
+            finally: connection.close()
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(claim,range(2)))
         self.assertEqual(results.count(str(row.id)),1)

@@ -296,7 +296,18 @@ export const CanvasSurface = forwardRef
     onTransientChange?.(true);
   };
 
+  // Pointer handlers change the selection before the browser moves focus, and
+  // a selection change ends inline editing, so the editor's blur would find
+  // nothing to commit. Blur it first so the typed text is saved.
+  const commitInlineEdit = () => {
+    const active = document.activeElement;
+    if (useCanvasStore.getState().editingTextId && active instanceof HTMLElement && containerRef.current?.contains(active)) {
+      active.blur();
+    }
+  };
+
   const onPointerDownBackground = (e) => {
+    commitInlineEdit();
     (e.target ).setPointerCapture?.(e.pointerId);
     const screen = toScreenLocal(e.clientX, e.clientY);
 
@@ -346,6 +357,7 @@ export const CanvasSurface = forwardRef
 
   const onPointerDownNode = (e, node) => {
     e.stopPropagation();
+    commitInlineEdit();
     (e.target ).setPointerCapture?.(e.pointerId);
     const screen = toScreenLocal(e.clientX, e.clientY);
 
@@ -555,13 +567,10 @@ export const CanvasSurface = forwardRef
     }
   };
 
-  const onCommitText = (nodeId, text, marks, contentHeight) => {
-    const store = useCanvasStore.getState();
+  const onCommitText = (nodeId, text, marks, contentHeight, from) => {
     // Frames commit their label as `name`; text, stickies and shapes commit
     // `text` with its formatting ranges.
-    store.commitNodeText(nodeId, text, marks, contentHeight);
-    // An editor can close because editing already moved to another node.
-    if (useCanvasStore.getState().editingTextId === nodeId) store.setEditingTextId(null);
+    useCanvasStore.getState().commitNodeText(nodeId, text, marks, contentHeight, from);
   };
   const onCancelEdit = () => useCanvasStore.getState().setEditingTextId(null);
 
