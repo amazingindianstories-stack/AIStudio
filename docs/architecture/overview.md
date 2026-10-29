@@ -37,7 +37,7 @@ flowchart LR
 | MCP service | `apps/mcp` | The agent endpoint `/mcp`: one uvicorn process with Django in-process, behind the gateway in mcp mode, started by `python -m deploy.entrypoint mcp`. API database role, no provider credentials (`mcp-server.md`). |
 | Generation worker | `apps/generation` (`generation_worker`) | Admission, provider submission, task receipts, polling and terminal state. |
 | Export worker | `apps/exports` (`media_export_worker`) | Builds private ZIP archives from frozen manifests. |
-| Scheduler | `apps/workers` (`run_scheduler`) | Depth/video reconciliation, export and login-attempt cleanup, portrait janitor. |
+| Scheduler | `apps/workers` (`run_scheduler`) | Depth/video reconciliation, export, login-attempt and canvas save-record cleanup, portrait janitor. |
 | Depth worker | `depth-worker/` | Runs on a GPU machine and talks to the fenced depth HTTP protocol. |
 | Database | `backend/apps/*/migrations` | One Django migration graph; production tables, roles and row-level security are described in `operations/status.md`. |
 
