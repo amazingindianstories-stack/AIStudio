@@ -89,8 +89,26 @@ function validateBase(
   return base;
 }
 
+/**
+ * Who created and last changed an object, and when. The server writes these
+ * on every save (backend/apps/canvas/activity.py) and ignores what a client
+ * sends, so they only ride along here; boards saved before them have none.
+ */
+export const STAMP_KEYS = ["createdBy", "createdAt", "updatedBy", "updatedAt"];
+
+function withStamps(item, r) {
+  if (!item) return null;
+  for (const key of ["createdBy", "updatedBy"]) if (typeof r[key] === "string") item[key] = r[key];
+  for (const key of ["createdAt", "updatedAt"]) if (isFiniteNumber(r[key])) item[key] = r[key];
+  return item;
+}
+
 function validateNode(raw) {
   if (raw == null || typeof raw !== "object") return null;
+  return withStamps(validateNodeContent(raw), raw);
+}
+
+function validateNodeContent(raw) {
   const r = raw ;
   if (!NODE_TYPES.has(r.type )) return null;
   const base = validateBase(r);
@@ -223,7 +241,7 @@ function validateConnector(raw, nodeIds) {
     strokeWidth: num(r.strokeWidth, 2),
   };
   if (isFiniteNumber(r.opacity)) connector.opacity = clamp01(r.opacity);
-  return connector;
+  return withStamps(connector, r);
 }
 
 export function validateCanvasState(raw) {

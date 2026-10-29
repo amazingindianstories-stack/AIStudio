@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Loader2, AlertTriangle, AlertCircle, Monitor, Eye, MessageSquare, Lock, Share2 } from "lucide-react";
+import { Check, Loader2, AlertTriangle, AlertCircle, Monitor, Eye, MessageSquare, Lock, Share2, History } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
@@ -19,6 +19,8 @@ import { BoardSwitcher } from "./BoardSwitcher";
 import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
 import { BoardShareDialog } from "./BoardShareDialog";
+import { BoardHistoryPanel } from "./BoardHistoryPanel";
+import { ObjectInfo } from "./ObjectInfo";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
 const TOOL_SHORTCUTS = {
@@ -41,6 +43,8 @@ export function CanvasView() {
   const [tooSmall, setTooSmall] = useState(false);
   const [importNotice, setImportNotice] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const closeHistory = useCallback(() => setHistoryOpen(false), []);
   const [shapesOpen, setShapesOpen] = useState(false);
   const [boardsReload, setBoardsReload] = useState(0);
   const [noBoards, setNoBoards] = useState(false);
@@ -452,6 +456,20 @@ export function CanvasView() {
               Share
             </button>
           )}
+          {boardId && loaded && !readOnly && (
+            <button
+              type="button"
+              aria-expanded={historyOpen}
+              onClick={() => setHistoryOpen((open) => !open)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/85 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-brand",
+                historyOpen && "bg-ink-600 text-white"
+              )}
+            >
+              <History className="h-3.5 w-3.5" />
+              History
+            </button>
+          )}
         </div>
         {!noBoards && (
           <CanvasToolbar
@@ -501,6 +519,10 @@ export function CanvasView() {
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
       <StyleInspector hidden={transientActive || readOnly || noBoards} />
+      {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
+      {historyOpen && boardId && loaded && !readOnly && (
+        <BoardHistoryPanel key={boardId} boardId={boardId} onClose={closeHistory} />
+      )}
 
       {loadError && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-ink-900/90">

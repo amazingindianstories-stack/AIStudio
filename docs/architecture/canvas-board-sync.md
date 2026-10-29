@@ -16,6 +16,12 @@ merge per node on the client and poll for other people's saves.
 - A graph-changing save records `(board_id, save_id, version, applied_at)` in `canvas_board_saves` in the
   same transaction, unique per board and save id. `run_scheduler` prunes rows older than 30 days daily
   (`board_saves`, the 03:17 UTC slot); deleting a board deletes its rows. Viewport-only saves record nothing.
+- In the same transaction (the board row is locked with `SELECT ... FOR UPDATE`) the server diffs the stored
+  graph against the saved one per node and connector id, stamps each added or edited object with
+  `createdBy`/`createdAt`/`updatedBy`/`updatedAt` and appends `board_activity` rows; stamps a client sends are
+  ignored (`../features/board-history.md`). The reply carries `stamps` for the objects this save added or
+  edited, which the client adopts into its graph, sync base and undo snapshots without an undo step. Stamps
+  can push a graph over the size limit; that save gets 413 and nothing is written.
 - `GET /api/canvas-boards/<id>?saveId=<uuid>` adds `saveVersion`: the version that save landed at, or null.
 - `GET /api/canvas-boards/<id>/version` returns `{version, updatedAt}` without reading the graph. Open boards
   poll it every 3 s, every 15 s after a minute with no input and no remote change, and not while hidden
@@ -27,6 +33,8 @@ merge per node on the client and poll for other people's saves.
   against the graph this tab last synced: one-sided changes apply; when both sides changed an item the
   local unsaved edit wins. The viewport stays local. The result is saved again on the new version.
 - The same merge is applied to every undo and redo snapshot, so undo only reverts this person's own steps.
+- Server stamps are not edits: an item whose local copy differs from the base only in its stamps counts as
+  unchanged locally and takes the remote copy, stamps included.
 - A save whose answer was lost (a dropped connection or a 5xx) is settled before the next save: the client
   asks for its `saveVersion`, and if it landed its graph becomes the merge base, so its changes are not
   replayed over someone's later edit. Polling waits until it is settled.

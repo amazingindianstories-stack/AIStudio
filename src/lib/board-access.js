@@ -37,6 +37,11 @@ export const canEditRole = (role) => role == null || rank(role) >= RANK.edit;
 export const canShareRole = (role) => rank(role) >= RANK.co_owner;
 export const canOwnRole = (role) => rank(role) >= RANK.owner;
 
+/** A person's name, else their email, else a short form of their id. */
+export function displayName(person, fallbackId) {
+  return person?.name || person?.email || `User ${String(fallbackId).slice(0, 8)}`;
+}
+
 async function readJson(res) {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || `Request failed: ${res.status}`);

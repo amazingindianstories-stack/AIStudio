@@ -118,7 +118,7 @@ class CanvasContractTests(TransactionTestCase):
         with patch('apps.canvas.services.now_ms', return_value=1700000001000):
             saved = self.send('put', '/api/canvas-boards/' + created['id'], {'data': {'version': 99, 'viewport': {'zoom': -1}}, 'baseVersion': 1, 'saveId': str(uuid.uuid4())})
         # Normalizes to the empty graph it already holds, so the version stays.
-        self.assertEqual(saved.json(), {'ok': True, 'updatedAt': 1700000001000, 'version': 1})
+        self.assertEqual(saved.json(), {'ok': True, 'updatedAt': 1700000001000, 'version': 1, 'stamps': {}})
         self.assertEqual(CanvasBoard.objects.get(pk=created['id']).data, empty_state())
         deleted = self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': created['id']})
         self.assertEqual([item['id'] for item in deleted.json()['boards']], [self.board])
@@ -231,7 +231,8 @@ class CanvasVersionConflictTests(TransactionTestCase):
         self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).json()['version'], 1)
         with patch('apps.canvas.services.now_ms', return_value=1700000000000):
             first = self.put({'data': self.graph('a'), 'baseVersion': 1})
-        self.assertEqual((first.status_code, first.json()), (200, {'ok': True, 'updatedAt': 1700000000000, 'version': 2}))
+        self.assertEqual((first.status_code, first.json()), (200, {'ok': True, 'updatedAt': 1700000000000, 'version': 2, 'stamps': {
+            'a': {'createdBy': session_fixtures.UID, 'createdAt': 1700000000000, 'updatedBy': session_fixtures.UID, 'updatedAt': 1700000000000}}}))
         self.assertEqual(self.put({'data': self.graph('a', 'b'), 'baseVersion': 2}).json()['version'], 3)
         row = CanvasBoard.objects.get(pk=self.board)
         self.assertEqual((row.version, [node['id'] for node in row.data['nodes']]), (3, ['a', 'b']))
@@ -253,7 +254,8 @@ class CanvasVersionConflictTests(TransactionTestCase):
         self.assertEqual(stale.status_code, 409)
         self.assertEqual(stale.json(), {'error': 'VERSION_CONFLICT', 'board': {
             'id': self.board, 'projectId': self.project, 'name': 'Shared', 'createdBy': None, 'createdAt': 1,
-            'updatedAt': before['updated_at'], 'teamRole': 'edit', 'version': 2, 'data': validate_state(self.graph('theirs'))}})
+            'updatedAt': before['updated_at'], 'teamRole': 'edit', 'version': 2, 'data': before['data']}})
+        self.assertEqual([node['id'] for node in before['data']['nodes']], ['theirs'])
         self.assertIn('veevee_session', stale.cookies)
         self.assertEqual(CanvasBoard.objects.values('data', 'version', 'updated_at').get(pk=self.board), before)
         # A base newer than the server is just as stale.
@@ -270,8 +272,7 @@ class CanvasVersionConflictTests(TransactionTestCase):
                 refused = self.put(payload)
                 self.assertEqual(refused.status_code, 409)
                 self.assertEqual(refused.json()['error'], 'VERSION_CONFLICT')
-                self.assertEqual((refused.json()['board']['version'], refused.json()['board']['data']),
-                                 (2, validate_state(self.graph('theirs'))))
+                self.assertEqual((refused.json()['board']['version'], refused.json()['board']['data']), (2, before['data']))
         self.assertEqual(CanvasBoard.objects.values('data', 'version', 'updated_at').get(pk=self.board), before)
         # What a tab on the previous frontend sends: neither field.
         legacy = self.client.put('/api/canvas-boards/' + self.board, data=json.dumps({'data': self.graph('legacy')}),
@@ -355,7 +356,7 @@ class CanvasVersionConflictTests(TransactionTestCase):
         def save(label):
             try:
                 barrier.wait()
-                return services.save_board(self.board, self.graph(label), 1, str(uuid.uuid4()))
+                return services.save_board(self.board, self.graph(label), 1, str(uuid.uuid4()), session_fixtures.UID)
             except services.VersionConflict as conflict:
                 return conflict.board
             finally:

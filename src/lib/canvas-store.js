@@ -7,12 +7,14 @@ import { apiFetch } from "./api";
 import { canEditRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
+import { unstamped, withServerStamps } from "./canvas/stamps";
 import {
   moveNodesBy,
   resizeNode,
   screenToWorld,
   nodeBounds,
   computeFrameMembership,
+  resolveEndpoint,
 
 } from "./canvas/geometry";
 import {
@@ -218,7 +220,8 @@ function buildClones(
         : keepUnmappedParent
         ? n.parentId ?? null
         : null;
-    clones.push({ ...n, id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId });
+    // A copy is a new object: the server stamps it on save.
+    clones.push({ ...unstamped(n), id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId });
   }
   return { clones, idMap };
 }
@@ -432,6 +435,12 @@ function markDirty(set, get) {
   scheduleFlush(get, DEBOUNCE_MS);
 }
 
+/** Stamps a save returned, on every undo/redo snapshot (stamps are not undoable). */
+function historyWithStamps(history, stamps) {
+  const stamp = (snapshot) => withServerStamps(snapshot, stamps);
+  return { past: history.past.map(stamp), present: stamp(history.present), future: history.future.map(stamp) };
+}
+
 async function flushSaveImpl(
   set,
   get,
@@ -509,16 +518,22 @@ async function flushSaveImpl(
       retryBackoffMs = DEBOUNCE_MS;
       // This person's change to the image was written over the held one, so nothing is held any more.
       if (ownCropEdit && cropHold === hold) cropHold = null;
-      if (get().boardId === boardId) {
-        // What the server now holds, normalized the same way it normalizes saves; an image still held
-        // keeps its base copy.
-        set({ serverVersion: j.version, serverState: validateCanvasState(cropHold ? sentPresent : sent) });
-      }
       // Only mark "saved" if nothing changed while the request was in
       // flight — an edit mid-flight already flipped status back to "dirty"
       // and scheduled its own retry timer; overwriting it here would make
       // that timer's guard wrongly bail and silently drop the edit.
-      if (get().history.present === synced.history.present) {
+      const settled = get().history.present === synced.history.present;
+      if (get().boardId === boardId) {
+        // What the server now holds, normalized the same way it normalizes saves; an image still held
+        // keeps its base copy. The objects this save added or changed carry the server's stamps.
+        if (gestureBaseline) gestureBaseline = historyWithStamps(gestureBaseline, j.stamps);
+        set({
+          serverVersion: j.version,
+          serverState: withServerStamps(validateCanvasState(cropHold ? sentPresent : sent), j.stamps),
+          history: historyWithStamps(get().history, j.stamps),
+        });
+      }
+      if (settled) {
         set({ saveStatus: "saved" });
       }
     } catch {
@@ -793,6 +808,31 @@ export const useCanvasStore = create((set, get) => ({
       y: cy - viewportPx.h / 2 / zoom,
       zoom,
     });
+  },
+
+  /**
+   * Selects the node or connector `id` and centers the view on it, zooming out
+   * only as far as needed to show all of it. False when it is not on the board.
+   */
+  focusObject: (id) => {
+    const { present } = get().history;
+    const node = nodeOf(present, id);
+    const connector = node ? null : present.connectors.find((item) => item.id === id);
+    let bounds;
+    if (node) bounds = nodeBounds(node);
+    else if (connector) {
+      const nodesById = Object.fromEntries(present.nodes.map((item) => [item.id, item]));
+      const [a, b] = [resolveEndpoint(connector.from, nodesById), resolveEndpoint(connector.to, nodesById)];
+      bounds = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
+    } else return false;
+    const PAD = 160;
+    const zoom = clampZoom(Math.min(present.viewport.zoom, viewportPx.w / (bounds.w + PAD), viewportPx.h / (bounds.h + PAD)));
+    const cx = bounds.x + bounds.w / 2;
+    const cy = bounds.y + bounds.h / 2;
+    get().setViewport({ x: cx - viewportPx.w / 2 / zoom, y: cy - viewportPx.h / 2 / zoom, zoom });
+    if (node) get().setSelection([id]);
+    else set({ selection: [], selectedConnectorIds: [id], editingTextId: null });
+    return true;
   },
 
   setViewportSize: (w, h) => {

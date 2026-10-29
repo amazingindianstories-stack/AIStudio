@@ -7,6 +7,7 @@ from pathlib import Path
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 
 from apps.admin_dashboard import tests as session_fixtures
+from .activity import STAMP_KEYS
 from .models import CanvasBoard
 from .serialization import MAX_MARKS, marks, validate_state
 
@@ -48,6 +49,12 @@ class ShapesRichTextSerializationTests(SimpleTestCase):
                 self.assertIsNone(link(href))
 
 
+def unstamped(graph):
+    """The graph without the server's author and time stamps, which the shared fixture leaves out."""
+    return {**graph, **{key: [{k: v for k, v in item.items() if k not in STAMP_KEYS} for item in graph[key]]
+                        for key in ('nodes', 'connectors')}}
+
+
 @override_settings(ROOT_URLCONF='apps.canvas.urls')
 class ShapesRichTextSaveTests(TransactionTestCase):
     cookie = session_fixtures.SettingsTests.cookie
@@ -69,11 +76,11 @@ class ShapesRichTextSaveTests(TransactionTestCase):
         response = self.client.put('/api/canvas-boards/' + self.board, data=json.dumps(self.save(case['input'])),
                                    content_type='application/json')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(CanvasBoard.objects.get(pk=self.board).data, case['expected'])
-        self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).json()['data'], case['expected'])
+        self.assertEqual(unstamped(CanvasBoard.objects.get(pk=self.board).data), case['expected'])
+        self.assertEqual(unstamped(self.client.get('/api/canvas-boards/' + self.board).json()['data']), case['expected'])
         unsafe = FIXTURE['cases']['marks']
         self.client.put('/api/canvas-boards/' + self.board, data=json.dumps(self.save(unsafe['input'])), content_type='application/json')
         stored = json.dumps(CanvasBoard.objects.get(pk=self.board).data)
         self.assertNotIn('javascript:', stored.lower())
         self.assertNotIn('data:text', stored)
-        self.assertEqual(CanvasBoard.objects.get(pk=self.board).data, unsafe['expected'])
+        self.assertEqual(unstamped(CanvasBoard.objects.get(pk=self.board).data), unsafe['expected'])

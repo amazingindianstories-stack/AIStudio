@@ -20,7 +20,7 @@ ranks as co-owner.
 | Action | Needs | Route |
 |---|---|---|
 | List the board, open it, see who has access | view | `GET /api/canvas-boards`, `GET /api/canvas-boards/<id>`, `GET /api/canvas-boards/<id>/version`, `GET /api/canvas-boards/<id>/access` |
-| Save the graph, upload media | edit | `PUT /api/canvas-boards/<id>`, `POST /api/canvas-boards/<id>/upload` |
+| Save the graph, upload media, read the board history | edit | `PUT /api/canvas-boards/<id>`, `POST /api/canvas-boards/<id>/upload`, `GET /api/canvas-boards/<id>/activity` (`board-history.md`) |
 | Rename, add/change/remove board members | co-owner | `renameBoard`; `setMember`, `removeMember` on `/access` |
 | Delete, set team access, transfer ownership | owner | `deleteBoard`; `setTeamRole`, `transferOwner` on `/access` |
 

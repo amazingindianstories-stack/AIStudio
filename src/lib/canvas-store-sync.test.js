@@ -43,7 +43,8 @@ function fakeServer(t, data) {
       server.edit(body.data);
       server.applied.set(body.saveId, server.version);
       if (server.dropResponse) throw new TypeError("Failed to fetch");
-      return json(200, { ok: true, updatedAt: server.version, version: server.version });
+      const stamps = server.stampSave ? server.stampSave(body.data) : {};
+      return json(200, { ok: true, updatedAt: server.version, version: server.version, stamps });
     }
     server.boardReads += 1;
     server.boardUrls.push(url);
@@ -609,4 +610,59 @@ test("an inline text edit commits to its node even after the selection moved on"
   assert.equal(store.getState().saveStatus, "dirty");
   store.getState().commitNodeText("note", "typed", undefined, undefined, { text: "" });
   assert.equal(store.getState().history.past.length, before + 1, "an unchanged commit adds no undo step");
+});
+
+test("a save adopts the server's stamps in the graph, the sync base and undo history, without an undo step", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  const stamps = { createdBy: "me", createdAt: 5, updatedBy: "me", updatedAt: 5 };
+  server.stampSave = (data) => {
+    server.data = { ...data, nodes: data.nodes.map((node) => (node.id === "mine" ? { ...node, ...stamps } : node)) };
+    return { mine: stamps };
+  };
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  // A client cannot forge stamps: whatever it holds, the server's answer replaces them.
+  store.getState().addNode(rect("mine", { createdBy: "forged", createdAt: 1 }));
+  addLocalNode("other");
+  const pastLength = store.getState().history.past.length;
+  const untouched = store.getState().history.present.nodes[0];
+  await store.getState().flushSave();
+  const state = store.getState();
+  assert.equal(state.saveStatus, "saved");
+  assert.equal(state.history.past.length, pastLength);
+  assert.deepEqual(state.history.present.nodes.find((node) => node.id === "mine"), rect("mine", stamps));
+  assert.deepEqual(state.serverState.nodes.find((node) => node.id === "mine"), rect("mine", stamps));
+  assert.equal(state.history.present.nodes[0], untouched);
+
+  // Undo goes back to a snapshot taken before the save, which carries the stamps too.
+  store.getState().undo();
+  assert.deepEqual(ids(store.getState().history.present), ["a", "mine"]);
+  assert.equal(store.getState().history.present.nodes[1].createdBy, "me");
+
+  // A copy is a new object, unstamped until its own save.
+  store.getState().setSelection(["mine"]);
+  store.getState().duplicateSelected();
+  const copy = store.getState().history.present.nodes.find((node) => !["a", "mine"].includes(node.id));
+  assert.ok(copy);
+  assert.ok(!("createdBy" in copy) && !("updatedAt" in copy));
+});
+
+test("an edit made while a save is in flight keeps the board dirty after the save's stamps arrive", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  server.stampSave = () => ({ mine: { createdBy: "me", createdAt: 5, updatedBy: "me", updatedAt: 5 } });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  addLocalNode("mine");
+  let release;
+  server.holdPut = new Promise((resolve) => { release = resolve; });
+  const saving = store.getState().flushSave();
+  await until(() => server.puts.length === 1);
+  addLocalNode("later");
+  release();
+  await saving;
+  assert.equal(store.getState().saveStatus, "dirty");
+  assert.equal(store.getState().history.present.nodes.find((node) => node.id === "mine").updatedBy, "me");
+  assert.ok(store.getState().history.present.nodes.some((node) => node.id === "later"));
 });

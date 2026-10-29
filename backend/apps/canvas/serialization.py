@@ -15,6 +15,8 @@ SIMPLE_MARKS = ('b', 'i', 'u', 's')
 SAFE_HREF = re.compile(r'(?:[hH][tT][tT][pP][sS]?://|[mM][aA][iI][lL][tT][oO]:)[^\x00-\x20\x7f]+')
 HIGHLIGHT = re.compile(r'#[0-9a-fA-F]{6}')
 ANCHORS = {'auto', 'top', 'right', 'bottom', 'left', 'center'}
+# The editor's JSON.stringify(data).length limit for a saved graph, in UTF-16 units.
+MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
 JS_WHITESPACE = '\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
 
 
@@ -81,6 +83,17 @@ def marks(raw, text):
     return result or None
 
 
+def with_stamps(result, raw):
+    """Server stamps (apps.canvas.activity) ride along; a save replaces them with the server's own."""
+    for key in ('createdBy', 'updatedBy'):
+        if isinstance(raw.get(key), str):
+            result[key] = raw[key]
+    for key in ('createdAt', 'updatedAt'):
+        if finite(raw.get(key)):
+            result[key] = raw[key]
+    return result
+
+
 def with_marks(result, raw):
     valid = marks(raw.get('marks'), result['text'])
     if valid:
@@ -139,7 +152,7 @@ def node(raw):
         if isinstance(r.get('crop'), (dict, list)):
             crop = object_value(r['crop'])
             result['crop'] = {'x': clamp(num(crop.get('x'), .5)), 'y': clamp(num(crop.get('y'), .5)), 'zoom': clamp(num(crop.get('zoom'), 1), 1, 8)}
-    return result
+    return with_stamps(result, r)
 
 
 def endpoint(raw, identifiers):
@@ -165,7 +178,7 @@ def connector(raw, identifiers):
               'stroke': string(r.get('stroke'), '#000000'), 'strokeWidth': num(r.get('strokeWidth'), 2)}
     if finite(r.get('opacity')):
         result['opacity'] = clamp(r['opacity'])
-    return result
+    return with_stamps(result, r)
 
 
 def validate_state(raw):

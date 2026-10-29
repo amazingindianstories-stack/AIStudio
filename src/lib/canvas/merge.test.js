@@ -103,3 +103,21 @@ test("undoing a step on a node someone else also changed reveals their version",
   assert.deepEqual(node(history.present, "shared"), rect("shared", { x: 40 }));
   assert.deepEqual(node(undo(history).present, "shared"), rect("shared", { y: 70 }));
 });
+
+test("server stamps are not local edits: a snapshot missing them takes the remote copy", () => {
+  const stamps = { createdBy: "ana", createdAt: 1, updatedBy: "ana", updatedAt: 1 };
+  const base = graph([rect("a", stamps), rect("b", stamps)]);
+  // An undo snapshot taken before this tab adopted the stamps of its own save.
+  const local = graph([rect("a"), rect("b", { x: 4 })]);
+  const remote = graph([rect("a", { fill: "#123", ...stamps, updatedBy: "ben", updatedAt: 2 }), rect("b", { ...stamps, updatedBy: "ben", updatedAt: 2 })]);
+  const merged = mergeCanvasStates(base, local, remote);
+  assert.deepEqual(node(merged, "a"), remote.nodes[0]);
+  assert.equal(node(merged, "b").x, 4);
+});
+
+test("a remote copy that differs only in stamps replaces an unchanged local one", () => {
+  const local = graph([rect("a")]);
+  const remote = graph([rect("a", { createdBy: "ana", createdAt: 1 })]);
+  assert.deepEqual(node(mergeCanvasStates(local, local, remote), "a"), remote.nodes[0]);
+  assert.equal(mergeCanvasStates(local, local, graph([rect("a")])), local);
+});
