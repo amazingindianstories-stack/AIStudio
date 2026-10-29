@@ -14,6 +14,7 @@ export function FrameNode({
   node,
   hasChildren,
   editingLabel,
+  viewOnly = false,
   dropHighlight,
   onCommitLabel,
   onCancelLabelEdit,
@@ -57,7 +58,7 @@ export function FrameNode({
         ) : (
           <span
             onDoubleClick={onLabelDoubleClick}
-            onPointerDown={(e) => e.stopPropagation()}
+            onPointerDown={viewOnly ? undefined : (e) => e.stopPropagation()}
             className="block truncate hover:underline hover:decoration-white/30"
             title={node.name}
           >

@@ -36,6 +36,7 @@ export function NodeView({
   showRing,
   showHandles,
   readOnly,
+  viewOnly = false,
   editingTextId,
   dropHighlight,
   dragging,
@@ -59,7 +60,7 @@ export function NodeView({
   const [hovered, setHovered] = useState(false);
   const editing = editingTextId === node.id;
   const showConnectionHandles =
-    !readOnly && tool === "select" && hovered && !dragging && !editing;
+    !readOnly && !viewOnly && tool === "select" && hovered && !dragging && !editing;
   const pathShape = node.type === "shape";
   // A text box being edited grows with its text (the commit stores that height), so the
   // selection ring and handles stay around every line.
@@ -133,6 +134,7 @@ export function NodeView({
                 node={node}
                 hasChildren={hasChildren}
                 editingLabel={editing}
+                viewOnly={viewOnly}
                 dropHighlight={dropHighlight}
                 onCommitLabel={(name, from) => onCommitText(node.id, name, undefined, undefined, { text: from })}
                 onCancelLabelEdit={() => onCancelEdit(node.id)}

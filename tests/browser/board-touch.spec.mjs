@@ -5,7 +5,8 @@ import { fixtureDatabase } from './fixture-db.mjs';
 // Boards on phones and tablets: touch devices open a board view-only (pan and
 // zoom with one finger, pinch, double tap, double tap and swipe), the owner taps
 // Edit, double taps text or long presses an object to edit, a swipe that starts
-// on a connector still pans, and a view-role teammate never gets an Edit button.
+// on a connector or a frame title still pans, and a view-role teammate never
+// gets an Edit button.
 // Gestures are real touch events dispatched through CDP, so the pointer-event
 // handling in CanvasSurface is exercised the way a phone drives it.
 
@@ -548,7 +549,7 @@ test('Board touch: after a one-finger crop drag, taps select, a double tap opens
   await db.end();
 });
 
-test('Board touch: viewing, a swipe that starts on a connector pans the board and selects nothing', async ({ browser, baseURL }) => {
+test('Board touch: viewing, a swipe that starts on a connector or a frame title pans the board and selects nothing', async ({ browser, baseURL }) => {
   test.setTimeout(120000);
   const db = await seedUsers();
   const project = await createProject(browser, baseURL, 'Board touch connector');
@@ -557,11 +558,13 @@ test('Board touch: viewing, a swipe that starts on a connector pans the board an
   const original = await boardData(desk.context, boardPath);
   const sticky = (id, x) => ({ id, type: 'sticky', x, y: 260, w: 100, h: 100, parentId: null, groupId: null,
     text: '', fill: '#fff59d', fontSize: 16, color: '#000000' });
-  const [leftId, rightId] = [randomUUID(), randomUUID()];
+  const [leftId, rightId, frameId] = [randomUUID(), randomUUID(), randomUUID()];
+  const frame = { id: frameId, type: 'frame', x: 40, y: 540, w: 300, h: 140, parentId: null, groupId: null,
+    name: 'Touch frame', fill: 'transparent', stroke: '#ffffff' };
   const arrow = { id: randomUUID(), from: { nodeId: leftId, anchor: 'right' }, to: { nodeId: rightId, anchor: 'left' },
     kind: 'arrow', stroke: '#ffffff', strokeWidth: 2 };
   const seeded = await desk.context.request.put(boardPath, { data: { data: { ...original,
-    viewport: { x: 0, y: 0, zoom: 1 }, nodes: [sticky(leftId, 30), sticky(rightId, 260)], connectors: [arrow] } },
+    viewport: { x: 0, y: 0, zoom: 1 }, nodes: [sticky(leftId, 30), sticky(rightId, 260), frame], connectors: [arrow] } },
   headers: { Origin: baseURL } });
   expect(seeded.ok()).toBeTruthy();
   await desk.context.close();
@@ -587,7 +590,23 @@ test('Board touch: viewing, a swipe that starts on a connector pans the board an
   expect(Math.abs(after.x - before.x)).toBeLessThan(2);
   expect(await zoomPercent(phone.page)).toBe(100);
 
-  // Nothing was selected: in Edit the arrow shows no endpoint handles.
+  // A finger on the frame title shows no connection handles and swiping it pans the board back up.
+  const title = phone.page.getByText('Touch frame', { exact: true });
+  const named = await title.boundingBox();
+  const onTitle = { x: named.x + named.width / 2, y: named.y + named.height / 2 };
+  const beforeTitle = await left.boundingBox();
+  await touch.start([onTitle]);
+  await expect(phone.page.getByRole('button', { name: /^Draw connector from/ })).toHaveCount(0);
+  for (let i = 1; i <= 10; i += 1) await touch.move([{ x: onTitle.x, y: onTitle.y - 12 * i }]);
+  await touch.end();
+  const afterTitle = await left.boundingBox();
+  expect(beforeTitle.y - afterTitle.y).toBeGreaterThan(100);
+  expect(beforeTitle.y - afterTitle.y).toBeLessThan(140);
+  expect(Math.abs(afterTitle.x - beforeTitle.x)).toBeLessThan(2);
+  expect(await zoomPercent(phone.page)).toBe(100);
+
+  // Nothing was selected: the frame shows no selection ring and, in Edit, the arrow no endpoint handles.
+  await expect(phone.page.locator(`[data-node-id="${frameId}"] .ring-brand`)).toHaveCount(0);
   await phone.page.getByRole('button', { name: 'Edit', exact: true }).tap();
   await expect(phone.page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
   await expect(phone.page.locator('[aria-label^="Connector start endpoint"]')).toHaveCount(0);

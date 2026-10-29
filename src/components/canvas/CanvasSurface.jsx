@@ -1112,8 +1112,9 @@ export const CanvasSurface = forwardRef
             node={n}
             tool={tool}
             showRing={selection.length === 1 && selection[0] === n.id}
-            showHandles={!readOnly && selection.length === 1 && selection[0] === n.id && n.type !== "frame"}
+            showHandles={!readOnly && !touchViewOnly && selection.length === 1 && selection[0] === n.id && n.type !== "frame"}
             readOnly={readOnly}
+            viewOnly={touchViewOnly}
             editingTextId={editingTextId}
             dropHighlight={dropHighlightFrameId === n.id}
             dragging={!!dragRef.current}
