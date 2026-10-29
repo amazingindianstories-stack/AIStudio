@@ -347,108 +347,90 @@ test("a draft written while a save is in flight follows an undo back to the sent
   await saving;
 });
 
-test("a node someone else deleted while it was open for editing goes away unless this person changed it", async (t) => {
-  useStorage(t);
-  const sticky = (id, text) => ({ ...rect(id), type: "sticky", text, fontSize: 16, color: "#000000" });
-  const server = fakeServer(t, graph(rect("a"), sticky("s", "old"), sticky("u", "old")));
-  store.getState().reset();
-  await store.getState().loadBoard("board-1");
-  store.getState().setSelection(["s"]);
-  store.getState().setEditingTextId("s");
-  server.edit(graph(rect("a"), sticky("u", "old")));
-  assert.equal(await store.getState().pollRemote(), true);
-  assert.deepEqual(ids(store.getState().history.present), ["a", "s", "u"], "kept on screen while being edited");
-  // A save while it is still open (here a pan) does not bring it back.
-  store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
-  await store.getState().flushSave();
-  assert.deepEqual(ids(server.data), ["a", "u"]);
-  // Ending the edit without typing follows the delete.
-  store.getState().commitText("s", "old", "old");
-  assert.deepEqual(ids(store.getState().history.present), ["a", "u"]);
-  assert.deepEqual(store.getState().selection, []);
+const sticky = (id, text) => ({ ...rect(id), type: "sticky", text, fontSize: 16, color: "#000000" });
 
-  // Typing into a node someone deleted is this person's change, and it is kept.
-  store.getState().setSelection(["u"]);
-  store.getState().setEditingTextId("u");
-  server.edit(graph(rect("a")));
-  assert.equal(await store.getState().pollRemote(), true);
-  store.getState().commitText("u", "typed", "old");
-  await store.getState().flushSave();
-  await until(() => store.getState().saveStatus === "saved");
-  assert.deepEqual(ids(server.data), ["a", "u"]);
-  assert.equal(server.data.nodes[1].text, "typed");
-});
+function startEditing(id) {
+  store.getState().setSelection([id]);
+  store.getState().setEditingTextId(id);
+}
 
-test("a node deleted and then restored by someone else while it is open for editing stays", async (t) => {
+test("other people's saves wait while a text edit is open and merge as soon as it ends", async (t) => {
   useStorage(t);
-  const sticky = (id, text) => ({ ...rect(id), type: "sticky", text, fontSize: 16, color: "#000000" });
   const server = fakeServer(t, graph(rect("a"), sticky("s", "old")));
   store.getState().reset();
   await store.getState().loadBoard("board-1");
-  store.getState().setSelection(["s"]);
-  store.getState().setEditingTextId("s");
-  server.edit(graph(rect("a")));
-  assert.equal(await store.getState().pollRemote(), true);
-  // The other person undoes their delete.
-  server.edit(graph(rect("a"), sticky("s", "old")));
-  assert.equal(await store.getState().pollRemote(), true);
+  startEditing("s");
+  server.edit(graph(rect("a", { x: 40 }), sticky("s", "old")));
+  assert.equal(await store.getState().pollRemote(), false);
+  assert.equal(store.getState().history.present.nodes[0].x, 0);
+  // A save during the edit (a pan) that conflicts waits too, instead of merging.
   store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
   await store.getState().flushSave();
-  assert.deepEqual(ids(server.data), ["a", "s"]);
+  assert.equal(store.getState().saveStatus, "dirty");
+  assert.equal(store.getState().serverVersion, 1);
+  assert.equal(store.getState().history.present.nodes[0].x, 0);
+
   store.getState().commitText("s", "old", "old");
-  assert.deepEqual(ids(store.getState().history.present), ["a", "s"]);
-  addLocalNode("mine");
-  await store.getState().flushSave();
-  assert.deepEqual(ids(server.data), ["a", "s", "mine"]);
+  await until(() => store.getState().saveStatus === "saved");
+  assert.equal(store.getState().history.present.nodes[0].x, 40);
+  assert.equal(server.data.nodes[0].x, 40);
+  assert.deepEqual(server.data.viewport, { x: 10, y: 10, zoom: 1 });
 });
 
-test("a node someone deleted and brought back changed while it is open keeps their version", async (t) => {
+test("a node someone deleted during an edit without typing follows the delete, and undo never brings it back", async (t) => {
   useStorage(t);
-  const sticky = (id, text, fill) => ({ ...rect(id, { fill }), type: "sticky", text, fontSize: 16, color: "#000000" });
-  const node = (graphState, id) => graphState.nodes.find((item) => item.id === id);
-  for (const typed of [false, true]) {
-    const server = fakeServer(t, graph(rect("a"), sticky("s", "old", "#ff0000")));
-    store.getState().reset();
-    await store.getState().loadBoard("board-1");
-    store.getState().setSelection(["s"]);
-    store.getState().setEditingTextId("s");
-    server.edit(graph(rect("a")));
-    assert.equal(await store.getState().pollRemote(), true);
-    // The other person undoes the delete and recolours the note.
-    server.edit(graph(rect("a"), sticky("s", "old", "#0000ff")));
-    assert.equal(await store.getState().pollRemote(), true);
-    assert.equal(node(store.getState().history.present, "s").fill, "#0000ff");
-    store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
-    await store.getState().flushSave();
-    assert.equal(node(server.data, "s").fill, "#0000ff");
-    store.getState().commitText("s", typed ? "typed" : "old", "old");
-    addLocalNode("mine");
-    await store.getState().flushSave();
-    await until(() => store.getState().saveStatus === "saved");
-    assert.deepEqual(ids(server.data), ["a", "s", "mine"]);
-    assert.equal(node(server.data, "s").fill, "#0000ff");
-    assert.equal(node(server.data, "s").text, typed ? "typed" : "old");
-    t.mock.restoreAll();
-  }
-});
-
-test("a node held open after someone deleted it never undoes their reorder of other nodes", async (t) => {
-  useStorage(t);
-  const server = fakeServer(t, graph(rect("a"), { ...rect("s"), type: "sticky", text: "old", fontSize: 16, color: "#000000" }, rect("x"), rect("b")));
+  const server = fakeServer(t, graph(rect("a"), sticky("s", "old")));
   store.getState().reset();
   await store.getState().loadBoard("board-1");
-  store.getState().setSelection(["s"]);
-  store.getState().setEditingTextId("s");
-  server.edit(graph(rect("a"), rect("x"), rect("b")));
-  assert.equal(await store.getState().pollRemote(), true);
-  // The other person brings x to the front.
-  server.edit(graph(rect("a"), rect("b"), rect("x")));
-  assert.equal(await store.getState().pollRemote(), true);
-  assert.deepEqual(ids(store.getState().history.present), ["a", "b", "s", "x"]);
+  addLocalNode("mine");
+  await store.getState().flushSave();
+  startEditing("s");
+  server.edit(graph(rect("a"), rect("mine")));
+  assert.equal(await store.getState().pollRemote(), false);
+  assert.deepEqual(ids(store.getState().history.present), ["a", "s", "mine"], "kept on screen while being edited");
+
   store.getState().commitText("s", "old", "old");
+  await until(() => !store.getState().history.present.nodes.some((node) => node.id === "s"));
+  store.getState().undo();
+  assert.deepEqual(ids(store.getState().history.present), ["a"]);
+  await store.getState().flushSave();
+  await until(() => store.getState().saveStatus === "saved");
+  assert.deepEqual(ids(server.data), ["a"]);
+  store.getState().redo();
+  assert.deepEqual(ids(store.getState().history.present), ["a", "mine"]);
+});
+
+test("text typed into a node someone deleted during the edit is kept", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a"), sticky("s", "old")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  startEditing("s");
+  server.edit(graph(rect("a")));
+  assert.equal(await store.getState().pollRemote(), false);
+  store.getState().commitText("s", "typed", "old");
+  await until(() => store.getState().saveStatus === "saved");
+  assert.deepEqual(ids(server.data), ["a", "s"]);
+  assert.equal(server.data.nodes[1].text, "typed");
+  // Undoing the typing leaves the other person's delete in place.
+  store.getState().undo();
+  assert.deepEqual(ids(store.getState().history.present), ["a"]);
+});
+
+test("a reorder someone made during an edit is kept after it ends", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a"), sticky("s", "old"), rect("x"), rect("b")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  startEditing("s");
+  server.edit(graph(rect("a"), sticky("s", "old"), rect("b"), rect("x")));
+  assert.equal(await store.getState().pollRemote(), false);
+  store.getState().commitText("s", "old", "old");
+  await until(() => store.getState().serverVersion === 2);
+  assert.deepEqual(ids(store.getState().history.present), ["a", "s", "b", "x"]);
   store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
   await store.getState().flushSave();
-  assert.deepEqual(ids(server.data), ["a", "b", "x"]);
+  assert.deepEqual(ids(server.data), ["a", "s", "b", "x"]);
 });
 
 test("a draft on the server's current version keeps its deletions without carrying its base graph", async (t) => {
@@ -472,10 +454,9 @@ test("ending an inline edit without typing keeps another person's newer text", a
   store.getState().setSelection(["note"]);
   store.getState().setEditingTextId("note");
   server.edit(graph(sticky("new")));
-  assert.equal(await store.getState().pollRemote(), true);
-  // The editor still shows the text it started from, and blurs with it.
+  // The editor blurs with the text it started from.
   store.getState().commitText("note", "old", "old");
-  assert.equal(store.getState().history.present.nodes[0].text, "new");
+  await until(() => store.getState().history.present.nodes[0].text === "new");
   assert.equal(store.getState().editingTextId, null);
   assert.equal(store.getState().saveStatus, "idle");
   await store.getState().flushSave();

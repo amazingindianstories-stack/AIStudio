@@ -279,19 +279,22 @@ test('Two sessions editing one board merge each other\'s work, undo only their o
     await expect.poll(async () => (await serverNodes()).map(row => row.id).sort(), { timeout: 15000 }).toEqual([r1, r2].sort());
     await expect(node(a, r3)).toHaveCount(0, { timeout: 10000 });
 
-    // B types into a new sticky while A's change arrives; the typing survives and both edits save.
+    // B types into a new sticky while A adds a rectangle. A's change waits until B ends the edit,
+    // then it merges, the typing survives and both edits save.
     await b.canvas.click({ position: { x: 1300, y: 700 } });
     await b.page.keyboard.press('s');
     await b.canvas.click({ position: { x: 1000, y: 520 } });
     await b.page.keyboard.type('typed while A edits');
+    const aSavedR4 = a.page.waitForResponse(isSave);
     const r4 = await addRect(a, 1150, 250);
-    await expect(node(b, r4)).toBeVisible({ timeout: 10000 });
+    expect((await aSavedR4).ok()).toBeTruthy();
     const editor = b.page.locator('[contenteditable="true"]');
     await expect(editor).toHaveText('typed while A edits');
     await b.page.keyboard.type(' and after');
     // Clicking empty canvas ends the edit, as a person would.
     await b.canvas.click({ position: { x: 1300, y: 700 } });
     await expect(editor).toHaveCount(0);
+    await expect(node(b, r4)).toBeVisible({ timeout: 10000 });
     await expect.poll(async () => (await serverNodes()).find(row => row.type === 'sticky')?.text, { timeout: 15000 }).toBe('typed while A edits and after');
     expect((await serverNodes()).map(row => row.id)).toEqual(expect.arrayContaining([r1, r2, r4]));
     await expect(a.page.getByText('typed while A edits and after')).toBeVisible({ timeout: 10000 });

@@ -30,9 +30,10 @@ merge per node on the client and poll for other people's saves.
 - A save whose answer was lost (a dropped connection or a 5xx) is settled before the next save: the client
   asks for its `saveVersion`, and if it landed its graph becomes the merge base, so its changes are not
   replayed over someone's later edit. Polling waits until it is settled.
-- Text and labels being edited keep the text they started from; ending an edit without typing writes
-  nothing. A node someone deletes while this person edits or crops it stays on screen until the edit ends,
-  is left out of every save meanwhile, and then follows the delete unless this person changed it.
+- While a text or label edit or an image crop is open, other people's saves wait: polling does not merge,
+  and a save that gets a 409 stays dirty instead of merging. When the edit or crop ends, the tab saves and
+  polls at once and the ordinary merge runs, so an unchanged node follows a remote delete, typed text
+  survives one, and remote re-adds and reorders apply. Ending an edit without typing writes nothing.
 
 ## Local drafts (`src/lib/canvas-pending-draft.js`)
 

@@ -75,14 +75,6 @@ test("unchanged items keep their identity and a no-op merge returns the local gr
   assert.notEqual(merged.nodes[1], b);
 });
 
-test("a node someone is typing in is not deleted under them, but still takes remote edits", () => {
-  const base = graph([rect("typing"), rect("other")]);
-  const deleted = mergeCanvasStates(base, base, graph([rect("other")]), { keepLocal: new Set(["typing"]) });
-  assert.deepEqual(ids(deleted), ["typing", "other"]);
-  const moved = mergeCanvasStates(base, base, graph([rect("typing", { x: 8 }), rect("other")]), { keepLocal: new Set(["typing"]) });
-  assert.equal(node(moved, "typing").x, 8);
-});
-
 test("structural equality ignores key order and undefined keys", () => {
   assert.equal(sameValue({ a: 1, b: [1, { c: 2 }] }, { b: [1, { c: 2 }], a: 1 }), true);
   assert.equal(sameValue({ a: 1, b: undefined }, { a: 1 }), true);

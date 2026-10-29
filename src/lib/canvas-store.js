@@ -282,20 +282,8 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   const version = board?.version;
   if (typeof version !== "number" || version <= state.serverVersion) return false;
   const remote = validateCanvasState(board.data);
-  const keepLocal = new Set([state.editingTextId, state.croppingImageId].filter(Boolean));
-  const history = rebaseHistory(state.history, base, remote, { keepLocal, presentBase: withHeldCopies(base, state.history.present) });
-  if (gestureBaseline) {
-    gestureBaseline = rebaseHistory(gestureBaseline, base, remote, { presentBase: withHeldCopies(base, gestureBaseline.present) });
-  }
-  for (const id of keepLocal) {
-    const held = nodeOf(history.present, id);
-    if (held && !nodeOf(remote, id) && sameValue(nodeOf(state.history.present, id), nodeOf(base, id))) {
-      heldDeletedNodes.set(id, held);
-    }
-  }
-  for (const id of [...heldDeletedNodes.keys()]) {
-    if (nodeOf(remote, id)) heldDeletedNodes.delete(id);
-  }
+  const history = rebaseHistory(state.history, base, remote);
+  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, base, remote);
   set({
     history,
     serverVersion: version,
@@ -305,64 +293,14 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   return true;
 }
 
-function nodeOf(graph, id) {
-  return graph.nodes.find((node) => node.id === id);
-}
-
 /**
- * Nodes someone else deleted while this person had them open for editing or
- * cropping, by id, as they were when the delete arrived. They stay on screen
- * until the edit ends, but only a change by this person brings them back.
+ * While a text or label edit or an image crop is open, other people's saves
+ * wait: the node under the person's hands never changes or disappears. The
+ * merge runs as soon as the edit ends, so an unchanged node follows a remote
+ * delete and a typed change survives it, like any other local edit.
  */
-const heldDeletedNodes = new Map();
-
-function withoutNodes(graph, ids) {
-  if (!ids.length) return graph;
-  // The same merge as a remote delete: attached connectors go, children are released.
-  return mergeCanvasStates(graph, graph, { ...graph, nodes: graph.nodes.filter((node) => !ids.includes(node.id)) });
-}
-
-/**
- * `base` plus the pre-delete copy of every held node `graph` still holds unchanged, so a node another
- * person brings back merges as their change, not as this person's stale copy. Each copy sits just above
- * the node below it in `graph`, so the base and `graph` agree on z-order and nobody's reorder is lost.
- */
-function withHeldCopies(base, graph) {
-  const ids = unchangedHeldDeletes(graph).filter((id) => !nodeOf(base, id));
-  if (!ids.length) return base;
-  const nodes = [...base.nodes];
-  for (const id of ids) {
-    const below = graph.nodes.slice(0, graph.nodes.findIndex((node) => node.id === id))
-      .findLast((node) => nodes.some((item) => item.id === node.id));
-    nodes.splice(below ? nodes.findIndex((item) => item.id === below.id) + 1 : 0, 0, heldDeletedNodes.get(id));
-  }
-  return { ...base, nodes };
-}
-
-/** Ids of held nodes this person has not changed since another person deleted them. */
-function unchangedHeldDeletes(graph) {
-  return [...heldDeletedNodes].filter(([id, node]) => sameValue(nodeOf(graph, id), node)).map(([id]) => id);
-}
-
-/** The graph to save or keep as a draft: the working graph without unchanged nodes others deleted. */
-function savableGraph(graph) {
-  return withoutNodes(graph, unchangedHeldDeletes(graph));
-}
-
-/** When editing or cropping ends, an unchanged held node follows the other person's delete. */
-function releaseHeldDeletes(state) {
-  if (!heldDeletedNodes.size) return;
-  const stillHeld = new Set([state.editingTextId, state.croppingImageId]);
-  const released = [...heldDeletedNodes.keys()].filter((id) => !stillHeld.has(id));
-  if (!released.length) return;
-  const drop = unchangedHeldDeletes(state.history.present).filter((id) => released.includes(id));
-  for (const id of released) heldDeletedNodes.delete(id);
-  if (!drop.length) return;
-  const present = withoutNodes(state.history.present, drop);
-  useCanvasStore.setState({
-    history: { ...state.history, present },
-    ...pruneSelection(present, state.selection, state.selectedConnectorIds),
-  });
+function remoteMergeDeferred(state) {
+  return Boolean(state.editingTextId || state.croppingImageId);
 }
 
 // ---- autosave (module-level debounce/backoff/in-flight guard) ----
@@ -420,6 +358,8 @@ async function flushSaveImpl(
   const state = get();
   if (!state.boardId) return;
   if (state.saveStatus !== "dirty" && state.saveStatus !== "error") return;
+  // Settling an unresolved save merges the board, so it also waits for the edit to end.
+  if (unresolvedSave && remoteMergeDeferred(state)) return;
 
   clearDebounceTimer();
 
@@ -432,7 +372,7 @@ async function flushSaveImpl(
         if (get().boardId !== boardId) return;
       }
       const synced = get();
-      const sentPresent = savableGraph(synced.history.present);
+      const sentPresent = synced.history.present;
       const save = { id: crypto.randomUUID(), data: sentPresent };
       const body = JSON.stringify({ data: sentPresent, baseVersion: synced.serverVersion, saveId: save.id });
       // Durable until the server acknowledges exactly this content.
@@ -454,6 +394,12 @@ async function flushSaveImpl(
         return;
       }
       if (res.status === 409) {
+        if (remoteMergeDeferred(get())) {
+          // Retried when the edit ends, which merges then.
+          retryBackoffMs = DEBOUNCE_MS;
+          set({ saveStatus: "dirty" });
+          return;
+        }
         // Someone else saved first: merge their graph under this tab's edits and save the result.
         const { board } = await res.json();
         if (get().boardId !== boardId || !applyRemoteBoard(set, get, board)) {
@@ -602,7 +548,7 @@ let pollInFlight = false;
 async function pollRemoteImpl(set, get) {
   const { boardId, loaded } = get();
   // An unresolved save is settled by the save retry, which then merges with the right base.
-  if (!boardId || !loaded || pollInFlight || unresolvedSave) return false;
+  if (!boardId || !loaded || pollInFlight || unresolvedSave || remoteMergeDeferred(get())) return false;
   const generation = loadGeneration;
   const current = () => generation === loadGeneration && get().boardId === boardId;
   pollInFlight = true;
@@ -614,7 +560,7 @@ async function pollRemoteImpl(set, get) {
     const full = await apiFetch(`/api/canvas-boards/${boardId}`, { cache: "no-store" });
     if (!full.ok) return false;
     const board = await full.json();
-    return current() && !saveInFlight && !unresolvedSave && applyRemoteBoard(set, get, board);
+    return current() && !saveInFlight && !unresolvedSave && !remoteMergeDeferred(get()) && applyRemoteBoard(set, get, board);
   } catch {
     // Offline or a transient failure: the next poll tries again.
     return false;
@@ -656,7 +602,6 @@ export const useCanvasStore = create((set, get) => ({
     gestureBaseline = null;
     retryBackoffMs = DEBOUNCE_MS;
     unresolvedSave = null;
-    heldDeletedNodes.clear();
     set({
       boardId: null,
       boardName: "",
@@ -681,7 +626,7 @@ export const useCanvasStore = create((set, get) => ({
     const state = get();
     if (!state.boardId) return false;
     if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && state.saveStatus !== "saving") return false;
-    return savePendingDraft(state.boardId, savableGraph(state.history.present), Date.now(), { ...syncOf(state), save: unresolvedSave });
+    return savePendingDraft(state.boardId, state.history.present, Date.now(), { ...syncOf(state), save: unresolvedSave });
   },
 
   setViewport: (vp) => {
@@ -1112,7 +1057,11 @@ export const useCanvasStore = create((set, get) => ({
   setEditingTextId: (id) => set({ editingTextId: id }),
 }));
 
-useCanvasStore.subscribe(releaseHeldDeletes);
+useCanvasStore.subscribe((state, previous) => {
+  if (remoteMergeDeferred(previous) && !remoteMergeDeferred(state) && state.boardId === previous.boardId) {
+    void state.flushSave().then(() => useCanvasStore.getState().pollRemote());
+  }
+});
 
 // Re-exported for consumers that need to build frame-membership candidates
 // (StyleInspector/CanvasSurface) without re-deriving the FrameNode filter.

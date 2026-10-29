@@ -8,9 +8,7 @@
  * - changed (added, edited or deleted) on one side only: that side wins;
  * - changed on both sides: local wins, because it is this person's unsaved work
  *   (so a local delete beats a remote edit, and a local edit survives a remote
- *   delete);
- * - ids in `keepLocal` (the text being typed, the image being cropped) are not
- *   removed under the person working on them when someone else deletes them.
+ *   delete).
  * The array order is the z-order: it follows remote unless only this tab
  * reordered, and items missing from that order are placed below the item
  * that was above them on the other side. The viewport is each person's own and always
@@ -68,7 +66,7 @@ function mergeOrder(baseIds, localIds, remoteIds, keep) {
   return order;
 }
 
-function mergeItems(baseItems, localItems, remoteItems, keepLocal) {
+function mergeItems(baseItems, localItems, remoteItems) {
   const base = byId(baseItems);
   const local = byId(localItems);
   const remote = byId(remoteItems);
@@ -76,9 +74,8 @@ function mergeItems(baseItems, localItems, remoteItems, keepLocal) {
   for (const id of new Set([...base.keys(), ...local.keys(), ...remote.keys()])) {
     const l = local.get(id);
     const r = remote.get(id);
-    const held = keepLocal.has(id) && l !== undefined && r === undefined;
     const b = base.get(id);
-    const localChanged = held || !sameValue(b, l);
+    const localChanged = !sameValue(b, l);
     // Neither side changed it: keep the local object so nothing re-renders.
     const item = localChanged || sameValue(b, r) ? l : r;
     if (item !== undefined) chosen.set(id, item);
@@ -92,13 +89,13 @@ function attachedTo(endpoint, nodeIds) {
 }
 
 /** Merges `remote` into `local` relative to `base`; see the module comment for the rules. */
-export function mergeCanvasStates(base, local, remote, { keepLocal = new Set() } = {}) {
-  const merged = mergeItems(base.nodes, local.nodes, remote.nodes, keepLocal);
+export function mergeCanvasStates(base, local, remote) {
+  const merged = mergeItems(base.nodes, local.nodes, remote.nodes);
   const nodeIds = new Set(merged.map((node) => node.id));
   // A frame deleted on one side releases children kept from the other, as validation does on load.
   const nodes = merged.map((node) => (node.parentId && !nodeIds.has(node.parentId) ? { ...node, parentId: null } : node));
   // A node deleted on one side drops connectors attached to it on the other.
-  const connectors = mergeItems(base.connectors, local.connectors, remote.connectors, keepLocal)
+  const connectors = mergeItems(base.connectors, local.connectors, remote.connectors)
     .filter((connector) => attachedTo(connector.from, nodeIds) && attachedTo(connector.to, nodeIds));
   const unchanged = (next, prev) => next.length === prev.length && next.every((item, index) => item === prev[index]);
   if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors)) return local;
@@ -109,13 +106,12 @@ export function mergeCanvasStates(base, local, remote, { keepLocal = new Set() }
  * Applies the same remote change to every undo/redo snapshot, so undo only
  * reverts this person's own steps: an item someone else changed shows their
  * latest version in every snapshot this person never touched it in.
- * `presentBase`, when given, is the base for the working graph instead of `base`.
  */
-export function rebaseHistory(history, base, remote, { keepLocal, presentBase = base } = {}) {
+export function rebaseHistory(history, base, remote) {
   const rebase = (snapshot) => mergeCanvasStates(base, snapshot, remote);
   return {
     past: history.past.map(rebase),
-    present: mergeCanvasStates(presentBase, history.present, remote, { keepLocal }),
+    present: rebase(history.present),
     future: history.future.map(rebase),
   };
 }
