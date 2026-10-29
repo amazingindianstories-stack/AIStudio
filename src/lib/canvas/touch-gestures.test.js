@@ -11,6 +11,7 @@ import {
   DOUBLE_TAP_ZOOM_FACTOR,
   LONG_PRESS_MS,
   TOUCH_SLOP_PX,
+  doubleTapAction,
   doubleTapViewport,
   isDoubleTap,
   isTap,
@@ -135,4 +136,32 @@ test("isTap is a short press that never moved", () => {
   assert.equal(isTap(1000, 1000 + LONG_PRESS_MS - 1, false), true);
   assert.equal(isTap(1000, 1000 + LONG_PRESS_MS, false), false, "held long enough to be a long press");
   assert.equal(isTap(1000, 1050, true), false, "moved");
+});
+
+test("doubleTapAction: while viewing, text, stickies and shapes switch to editing; frames, images and empty board zoom", () => {
+  const viewing = { viewOnly: true, readOnly: false };
+  for (const type of ["text", "sticky", "rect", "ellipse", "triangle", "diamond"]) {
+    assert.equal(doubleTapAction({ id: "n", type }, viewing), "edit", type);
+  }
+  assert.equal(doubleTapAction({ id: "n", type: "shape", shape: "star" }, viewing), "edit", "generic shape");
+  assert.equal(doubleTapAction({ id: "n", type: "frame" }, viewing), "zoom", "frame");
+  assert.equal(doubleTapAction({ id: "n", type: "image" }, viewing), "zoom", "image");
+  assert.equal(doubleTapAction(null, viewing), "zoom", "empty board");
+});
+
+test("doubleTapAction: while editing, frames edit their label too and images and empty board still zoom", () => {
+  const editing = { viewOnly: false, readOnly: false };
+  for (const type of ["text", "sticky", "frame", "rect", "shape"]) {
+    assert.equal(doubleTapAction({ id: "n", type }, editing), "edit", type);
+  }
+  assert.equal(doubleTapAction({ id: "n", type: "image" }, editing), "zoom", "image");
+  assert.equal(doubleTapAction(null, editing), "zoom", "empty board");
+});
+
+test("doubleTapAction: a read-only board always zooms", () => {
+  for (const viewOnly of [true, false]) {
+    for (const type of ["text", "sticky", "frame", "shape", "image"]) {
+      assert.equal(doubleTapAction({ id: "n", type }, { viewOnly, readOnly: true }), "zoom", `${type} viewOnly=${viewOnly}`);
+    }
+  }
 });

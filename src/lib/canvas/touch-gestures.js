@@ -7,6 +7,7 @@
  * `(x, y)` is the world point shown at the container's top-left corner.
  */
 import { clampZoom, screenToWorld } from "./geometry.js";
+import { isShapeNode } from "./shapes.js";
 
 /** Fingers wobble; a touch counts as moved only past this many pixels. */
 export const TOUCH_SLOP_PX = 8;
@@ -82,4 +83,17 @@ export function isDoubleTap(lastTap, point, now) {
 /** True when a touch that went down at `downTime` and never moved past the slop lifts at `upTime` as a tap. */
 export function isTap(downTime, upTime, moved) {
   return !moved && upTime - downTime < LONG_PRESS_MS;
+}
+
+/**
+ * What a touch double tap on `node` (null for empty board) does: "edit" opens
+ * the node's text for typing, "zoom" zooms in around the tap. While viewing,
+ * text, stickies and shapes switch to editing; frames and images keep zooming
+ * so large areas stay easy to zoom into. While editing, a frame edits its
+ * label as well. A read-only board always zooms.
+ */
+export function doubleTapAction(node, { viewOnly, readOnly }) {
+  if (!node || readOnly) return "zoom";
+  if (node.type === "text" || node.type === "sticky" || isShapeNode(node)) return "edit";
+  return node.type === "frame" && !viewOnly ? "edit" : "zoom";
 }

@@ -30,6 +30,7 @@ import {
 import { isCreateTool, isShapeNode, shapeKindOfTool } from "@/lib/canvas/shapes";
 import {
   LONG_PRESS_MS,
+  doubleTapAction,
   doubleTapViewport,
   isDoubleTap,
   isTap,
@@ -386,15 +387,15 @@ export const CanvasSurface = forwardRef
       e.stopPropagation();
       commitInlineEdit();
       (e.target ).setPointerCapture?.(e.pointerId);
-      if (!touchViewOnly && !readOnly) {
-        // Editing: a double tap on text opens it for typing, like a mouse double click.
-        const nodeId = hitTest(present, screenToWorld(screen, viewport));
-        const node = nodeId ? present.nodes.find((n) => n.id === nodeId) : null;
-        if (node && (node.type === "text" || node.type === "sticky" || node.type === "frame" || isShapeNode(node))) {
-          setSelection([node.id]);
-          useCanvasStore.getState().setEditingTextId(node.id);
-          return;
-        }
+      // A double tap on text opens it for typing, like a mouse double click;
+      // while viewing it switches to Edit first.
+      const nodeId = hitTest(present, screenToWorld(screen, viewport));
+      const node = nodeId ? present.nodes.find((n) => n.id === nodeId) : null;
+      if (doubleTapAction(node, { viewOnly: touchViewOnly, readOnly }) === "edit") {
+        if (touchViewOnly) useCanvasStore.getState().setTouchEditMode(true);
+        setSelection([node.id]);
+        useCanvasStore.getState().setEditingTextId(node.id);
+        return;
       }
       // Otherwise it zooms: lift to zoom in a step, or keep the finger down
       // and swipe up/down to zoom continuously around the tapped point.
@@ -480,8 +481,20 @@ export const CanvasSurface = forwardRef
     const screen = toScreenLocal(e.clientX, e.clientY);
 
     if (isPanning || touchViewOnly) {
-      // View-only on touch: swiping over an object never moves it.
+      // View-only on touch: swiping over an object never moves it, but a long
+      // press switches to Edit and picks the object up to move.
       beginPan(screen);
+      if (!isPanning && !readOnly && e.pointerType === "touch") {
+        const pointerId = e.pointerId;
+        armLongPress(() => {
+          const drag = dragRef.current;
+          if (!drag || drag.kind !== "pan" || drag.moved) return;
+          const at = touchRef.current.pointers.get(pointerId) ?? screen;
+          useCanvasStore.getState().setTouchEditMode(true);
+          setSelection([node.id]);
+          dragRef.current = { kind: "move", startScreen: at, startWorld: screenToWorld(at, viewport), moved: false };
+        });
+      }
       return;
     }
 
@@ -604,7 +617,7 @@ export const CanvasSurface = forwardRef
     e,
     connectorId
   ) => {
-    if (readOnly || touchRef.current.lastPointerType === "touch") {
+    if (readOnly || touchViewOnly || touchRef.current.lastPointerType === "touch") {
       e.preventDefault();
       return;
     }
@@ -618,7 +631,7 @@ export const CanvasSurface = forwardRef
   const onContextMenu = (e) => {
     e.preventDefault();
     // A long press is a touch gesture of its own (marquee), not a menu.
-    if (readOnly || touchRef.current.lastPointerType === "touch") return;
+    if (readOnly || touchViewOnly || touchRef.current.lastPointerType === "touch") return;
     const screen = toScreenLocal(e.clientX, e.clientY);
     const worldPoint = screenToWorld(screen, viewport);
     const nodeId = hitTest(present, worldPoint);
@@ -923,7 +936,6 @@ export const CanvasSurface = forwardRef
     const drag = dragRef.current;
     if (e.pointerType === "touch") {
       const touch = touchRef.current;
-      touch.pointers.delete(e.pointerId);
       clearLongPress();
       if (drag?.kind === "pinch") {
         // Either finger lifting ends the pinch; the other finger is spent.
@@ -974,17 +986,22 @@ export const CanvasSurface = forwardRef
   const onPointerCancel = (e) => {
     if (e.pointerType === "touch") {
       const touch = touchRef.current;
-      touch.pointers.delete(e.pointerId);
       touch.pending = null;
       touch.lastTap = null;
     }
     cancelActiveDrag();
   };
 
+  // A lifted finger leaves the pinch bookkeeping in the capture phase, so a
+  // child that stops the event (the crop drag) cannot leave it behind.
+  const onPointerReleaseCapture = (e) => {
+    if (e.pointerType === "touch") touchRef.current.pointers.delete(e.pointerId);
+  };
+
   const onDrop = (e) => {
     e.preventDefault();
     setDragGhost(null);
-    if (readOnly) return;
+    if (readOnly || touchViewOnly) return;
     const assetPayload = getAssetDragData(e, useStore.getState());
     const rawAssetId = e.dataTransfer.getData("text/assetId");
     const assetIds =
@@ -1027,7 +1044,7 @@ export const CanvasSurface = forwardRef
 
   const onDragOver = (e) => {
     e.preventDefault();
-    if (readOnly) {
+    if (readOnly || touchViewOnly) {
       e.dataTransfer.dropEffect = "none";
       return;
     }
@@ -1071,7 +1088,9 @@ export const CanvasSurface = forwardRef
       onPointerDown={onPointerDownBackground}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerUpCapture={onPointerReleaseCapture}
       onPointerCancel={onPointerCancel}
+      onPointerCancelCapture={onPointerReleaseCapture}
       onContextMenu={onContextMenu}
       onDrop={onDrop}
       onDragOver={onDragOver}
@@ -1129,7 +1148,7 @@ export const CanvasSurface = forwardRef
           }}
           marqueeWorldRect={marqueeWorldRect}
           draftConnector={draftConnector}
-          onEndpointPointerDown={readOnly ? undefined : onEndpointPointerDown}
+          onEndpointPointerDown={readOnly || touchViewOnly ? undefined : onEndpointPointerDown}
           onConnectorContextMenu={onConnectorContextMenu}
         />
 

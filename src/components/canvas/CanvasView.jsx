@@ -199,7 +199,7 @@ export function CanvasView() {
     const onPaste = (event) => {
       const target = event.target;
       if (target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
-      if (selectReadOnly(useCanvasStore.getState())) return;
+      if (touchViewOnly || selectReadOnly(useCanvasStore.getState())) return;
       const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
       event.preventDefault();
       if (files.length) void importImageFiles(files);
@@ -207,7 +207,7 @@ export function CanvasView() {
     };
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
-  }, [importImageFiles, paste]);
+  }, [importImageFiles, paste, touchViewOnly]);
 
   // Single source of truth for "add image" (⇧I shortcut B / toolbar button)
   // — one hidden file input, one code path, so the toolbar's "(⇧I)" tooltip
@@ -235,6 +235,9 @@ export function CanvasView() {
       }
 
       const mod = e.metaKey || e.ctrlKey;
+
+      // View only on touch: a hardware keyboard may move the view, never edit.
+      if (touchViewOnly && !(mod && e.key === "0") && !(e.key === "!" && e.shiftKey)) return;
 
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -392,6 +395,7 @@ export function CanvasView() {
     cut,
     paste,
     openImagePicker,
+    touchViewOnly,
   ]);
 
   // Board AI jobs follow the loaded, editable board: unfinished jobs resume and finished, unplaced results are placed.
@@ -514,7 +518,7 @@ export function CanvasView() {
             <span className="ml-auto">
               {readOnly ? (
                 <AccessChip role={boardRole} accessLost={accessLost} />
-              ) : touchViewOnly ? (
+              ) : touchViewOnly && (saveStatus === "idle" || saveStatus === "saved") ? (
                 <AccessChip role="view" accessLost={false} />
               ) : (
                 <SaveStatusChip status={saveStatus} error={saveError} onRetry={() => flushSave()} />

@@ -4,7 +4,8 @@ import { fixtureDatabase } from './fixture-db.mjs';
 
 // Boards on phones and tablets: touch devices open a board view-only (pan and
 // zoom with one finger, pinch, double tap, double tap and swipe), the owner taps
-// Edit to move things, and a view-role teammate never gets an Edit button.
+// Edit, double taps text or long presses an object to edit, and a view-role
+// teammate never gets an Edit button.
 // Gestures are real touch events dispatched through CDP, so the pointer-event
 // handling in CanvasSurface is exercised the way a phone drives it.
 
@@ -369,5 +370,171 @@ test('Board touch: a tablet lays out every control and a view-role teammate neve
   expect(writes).toEqual([]);
   expect((await (await viewer.context.request.get(`/api/canvas-boards/${boardId}`)).json()).role).toBe('view');
   await viewer.context.close();
+  await db.end();
+});
+
+async function createProject(browser, baseURL, name) {
+  const setup = await signIn(browser, baseURL, OWNER, null);
+  const created = await setup.context.request.post('/api/projects', {
+    data: { op: 'createProject', name: `${name} ${randomUUID()}` }, headers: { Origin: baseURL } });
+  expect(created.ok()).toBeTruthy();
+  const { project } = await created.json();
+  await setup.context.close();
+  return project;
+}
+
+async function boardData(context, boardPath) {
+  return (await (await context.request.get(boardPath)).json()).data;
+}
+
+test('Board touch: viewing, a keyboard cannot edit, save trouble stays visible, and a double tap or long press switches to Edit', async ({ browser, baseURL }) => {
+  test.setTimeout(150000);
+  const db = await seedUsers();
+  const project = await createProject(browser, baseURL, 'Board touch view-only');
+  const desk = await signIn(browser, baseURL, OWNER, project.id);
+  const boardPath = new URL(await addSticky(desk.page, await openBoard(desk.page), { x: 500, y: 300 })).pathname;
+  const original = await boardData(desk.context, boardPath);
+  const stickyId = original.nodes[0].id;
+  await desk.context.close();
+
+  const phone = await signIn(browser, baseURL, OWNER, project.id, PHONE);
+  const canvas = await openBoard(phone.page);
+  const touch = new Touch(await phone.context.newCDPSession(phone.page));
+  const edit = phone.page.getByRole('button', { name: 'Edit', exact: true });
+  const done = phone.page.getByRole('button', { name: 'Done', exact: true });
+  const viewOnly = phone.page.getByRole('status').filter({ hasText: 'View only' });
+  const sticky = phone.page.locator(`[data-node-id="${stickyId}"]`);
+  const editor = sticky.locator('[contenteditable="true"]');
+  const box = await canvas.boundingBox();
+  const at = (x, y) => ({ x: box.x + x, y: box.y + y });
+  await expect(edit).toBeVisible();
+  await expect(viewOnly).toBeVisible();
+
+  // A hardware keyboard, a paste and a file drop change nothing while viewing.
+  let chooserOpened = false;
+  phone.page.on('filechooser', () => { chooserOpened = true; });
+  const nodes = phone.page.locator('[data-node-id]');
+  for (const key of ['Control+a', 'Backspace', 'Control+d', 'Control+g', 'Shift+I']) {
+    await phone.page.keyboard.press(key);
+    await expect(nodes).toHaveCount(1);
+  }
+  await expect(sticky).toHaveCount(1);
+  await phone.page.evaluate(() => {
+    const clipboardData = new DataTransfer();
+    clipboardData.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'pasted.png', { type: 'image/png' }));
+    document.dispatchEvent(new ClipboardEvent('paste', { clipboardData, bubbles: true }));
+  });
+  const dropped = await phone.page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.items.add(new File([new Uint8Array([137, 80, 78, 71])], 'dropped.png', { type: 'image/png' }));
+    return data;
+  });
+  await canvas.dispatchEvent('drop', { dataTransfer: dropped, clientX: box.x + 195, clientY: box.y + 420 });
+  await phone.page.waitForTimeout(2000);
+  await expect(phone.page.getByText(/Uploading \d+ image|images? added/)).toHaveCount(0);
+  expect(chooserOpened).toBe(false);
+  await expect(edit).toBeVisible();
+  expect((await boardData(phone.context, boardPath)).nodes).toEqual(original.nodes);
+
+  // Viewing still autosaves the viewport; a failed save shows the error and Retry in place of View only.
+  const isBoard = (url) => new URL(url).pathname === boardPath;
+  await phone.page.route(isBoard, (route) => (route.request().method() === 'PUT'
+    ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"down"}' })
+    : route.continue()));
+  await touch.drag(at(300, 650), at(120, 650));
+  await expect(phone.page.getByText(/Could not save/)).toBeVisible({ timeout: 10000 });
+  await expect(viewOnly).toHaveCount(0);
+  await phone.page.unroute(isBoard);
+  await phone.page.getByRole('button', { name: 'Retry', exact: true }).tap();
+  await expect(viewOnly).toBeVisible({ timeout: 10000 });
+  await expect(phone.page.getByText(/Could not save/)).toHaveCount(0);
+
+  // A double tap on the sticky switches to Edit and opens its text, without zooming.
+  await centreNode(touch, sticky, box);
+  const zoom = await zoomPercent(phone.page);
+  const tapped = await sticky.boundingBox();
+  const mid = { x: tapped.x + tapped.width / 2, y: tapped.y + tapped.height / 2 };
+  await touch.tap(mid);
+  await touch.tap(mid);
+  await expect(done).toBeVisible();
+  await expect(editor).toBeVisible();
+  expect(await zoomPercent(phone.page)).toBe(zoom);
+  await done.tap();
+  await expect(edit).toBeVisible();
+  await expect(editor).toHaveCount(0);
+
+  // A long press on the sticky switches to Edit and picks it up; the drag moves it and the move is saved.
+  const start = await sticky.boundingBox();
+  const centre = { x: start.x + start.width / 2, y: start.y + start.height / 2 };
+  await touch.drag(centre, { x: centre.x - 80, y: centre.y + 50 }, { holdMs: 650 });
+  await expect(done).toBeVisible();
+  const moved = await sticky.boundingBox();
+  expect(start.x - moved.x).toBeGreaterThan(60);
+  expect(moved.y - start.y).toBeGreaterThan(30);
+  await expect.poll(async () => (await boardData(phone.context, boardPath)).nodes[0].x).toBeLessThan(original.nodes[0].x);
+  expect((await boardData(phone.context, boardPath)).nodes[0].y).toBeGreaterThan(original.nodes[0].y);
+
+  await phone.context.close();
+  await db.end();
+});
+
+test('Board touch: after a one-finger crop drag, taps select and one finger pans without zooming', async ({ browser, baseURL }) => {
+  test.setTimeout(150000);
+  const db = await seedUsers();
+  const project = await createProject(browser, baseURL, 'Board touch crop');
+  const desk = await signIn(browser, baseURL, OWNER, project.id);
+  const boardPath = new URL(await addSticky(desk.page, await openBoard(desk.page), { x: 500, y: 300 })).pathname;
+  const original = await boardData(desk.context, boardPath);
+  const imageId = randomUUID();
+  const image = { id: imageId, type: 'image', x: 100, y: 100, w: 240, h: 160, parentId: null, groupId: null,
+    src: '/api/media/canvas/touch-crop-fixture.png', aspectLocked: false, naturalW: 480, naturalH: 320 };
+  const seeded = await desk.context.request.put(boardPath, { data: { data: { ...original, nodes: [image] } }, headers: { Origin: baseURL } });
+  expect(seeded.ok()).toBeTruthy();
+  await desk.context.close();
+
+  const phone = await signIn(browser, baseURL, OWNER, project.id, PHONE);
+  const canvas = await openBoard(phone.page);
+  const touch = new Touch(await phone.context.newCDPSession(phone.page));
+  const box = await canvas.boundingBox();
+  const at = (x, y) => ({ x: box.x + x, y: box.y + y });
+  const empty = at(330, 560); // below the centred image and above the tool dock
+  const node = phone.page.locator(`[data-node-id="${imageId}"]`);
+  const cropButton = phone.page.getByRole('button', { name: 'Crop image', exact: true });
+  const cropControls = phone.page.locator('[data-crop-controls]');
+  await phone.page.getByRole('button', { name: 'Edit', exact: true }).tap();
+  await expect(phone.page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  await centreNode(touch, node, box);
+  expect(await zoomPercent(phone.page)).toBe(100);
+
+  // Select the image, open Crop and drag the crop with one finger.
+  const placed = await node.boundingBox();
+  const centre = { x: placed.x + placed.width / 2, y: placed.y + placed.height / 3 };
+  await touch.tap(centre);
+  await cropButton.tap();
+  await expect(cropControls).toBeVisible();
+  await phone.page.waitForTimeout(400); // well past the double tap window
+  await touch.drag(centre, { x: centre.x + 40, y: centre.y });
+  await phone.page.getByRole('button', { name: 'Apply crop', exact: true }).tap();
+  await expect(cropControls).toHaveCount(0);
+
+  // The lifted crop finger is gone: a tap on empty space clears the selection and a tap on the image selects it.
+  await expect(cropButton).toBeVisible();
+  await touch.tap(empty);
+  await expect(cropButton).toHaveCount(0);
+  await phone.page.waitForTimeout(400);
+  await touch.tap(centre);
+  await expect(cropButton).toBeVisible();
+
+  // One finger on empty space pans by the finger's travel and leaves the zoom alone.
+  const before = await node.boundingBox();
+  await phone.page.waitForTimeout(400);
+  await touch.drag(empty, at(150, 560));
+  const after = await node.boundingBox();
+  expect(before.x - after.x).toBeGreaterThan(150);
+  expect(before.x - after.x).toBeLessThan(200);
+  expect(Math.abs(after.y - before.y)).toBeLessThan(2);
+  expect(await zoomPercent(phone.page)).toBe(100);
+
+  await phone.context.close();
   await db.end();
 });
