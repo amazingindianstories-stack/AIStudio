@@ -8,6 +8,7 @@ import { TextNode } from "./TextNode";
 import { StickyNode } from "./StickyNode";
 import { FrameNode } from "./FrameNode";
 import { ImageNode } from "./ImageNode";
+import { useFrozenWhile } from "./use-frozen-while";
 
 ;
 
@@ -55,6 +56,7 @@ export function NodeView({
 
 ) {
   const [hovered, setHovered] = useState(false);
+  const shown = useFrozenWhile(node, Boolean(cropMode));
   const editing = editingTextId === node.id;
   const showConnectionHandles =
     tool === "select" && hovered && !dragging && !editing;
@@ -71,11 +73,11 @@ export function NodeView({
         node.type === "frame" ? "z-0" : "z-[1]"
       )}
       style={{
-        left: node.x,
-        top: node.y,
-        width: node.w,
-        height: node.h,
-        opacity: node.opacity ?? 1,
+        left: shown.x,
+        top: shown.y,
+        width: shown.w,
+        height: shown.h,
+        opacity: shown.opacity ?? 1,
         cursor: tool === "select" ? "move" : undefined,
       }}
     >
@@ -120,7 +122,7 @@ export function NodeView({
               />
             );
           case "image":
-            return <ImageNode node={node} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
+            return <ImageNode node={shown} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
         }
       })()}
 

@@ -285,14 +285,10 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   const remote = validateCanvasState(board.data);
   const history = rebaseHistory(state.history, base, remote);
   if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, base, remote);
-  const cropped = croppedImageId(state);
-  const pending = cropped && !sameValue(nodeOf(base, cropped), nodeOf(remote, cropped));
-  cropPending = pending ? { id: cropped, remote: nodeOf(remote, cropped) } : null;
-  if (pending) history.present = withNodeAsIn(history.present, state.history.present, cropped);
   set({
     history,
     serverVersion: version,
-    serverState: pending ? withNodeAsIn(remote, base, cropped) : remote,
+    serverState: remote,
     ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
   });
   return true;
@@ -300,21 +296,6 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
 
 function nodeOf(graph, id) {
   return graph.nodes.find((node) => node.id === id);
-}
-
-/** `graph` with node `id` exactly as in `previous`, just above the node that was below it there. */
-function withNodeAsIn(graph, previous, id) {
-  const node = nodeOf(previous, id);
-  const nodes = graph.nodes.filter((item) => item.id !== id);
-  const below = previous.nodes.slice(0, previous.nodes.indexOf(node)).findLast((item) => nodes.some((other) => other.id === item.id));
-  nodes.splice(below ? nodes.findIndex((item) => item.id === below.id) + 1 : 0, 0, node);
-  return { ...graph, nodes };
-}
-
-/** `graph` with node `id` replaced by `node`, or without it when `node` is undefined. */
-function replaceNode(graph, id, node) {
-  const nodes = node ? graph.nodes.map((item) => (item.id === id ? node : item)) : graph.nodes.filter((item) => item.id !== id);
-  return { ...graph, nodes };
 }
 
 /**
@@ -329,34 +310,6 @@ function textEditOpen(state) {
 
 /** A save refused during a text edit: no more saves until the edit ends. */
 let conflictWaitsForEdit = false;
-
-/** The image being cropped, while it exists. */
-function croppedImageId(state) {
-  return state.croppingImageId && nodeOf(state.history.present, state.croppingImageId) ? state.croppingImageId : null;
-}
-
-/**
- * While an image is being cropped, every remote change merges and is adopted
- * as usual except changes to that image: it stays as it is on screen, and
- * `serverState` keeps its last synced copy. Its latest remote version (or
- * deletion) waits here; saves meanwhile write that version, so nobody's change
- * to it is overwritten, and when the crop ends the normal merge reconciles it.
- */
-let cropPending = null;
-
-function reconcileCrop() {
-  const { id, remote } = cropPending;
-  cropPending = null;
-  const state = useCanvasStore.getState();
-  const server = replaceNode(state.serverState, id, remote);
-  const history = rebaseHistory(state.history, state.serverState, server);
-  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, state.serverState, server);
-  useCanvasStore.setState({
-    history,
-    serverState: server,
-    ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
-  });
-}
 
 // ---- autosave (module-level debounce/backoff/in-flight guard) ----
 let debounceTimer = null;
@@ -427,15 +380,11 @@ async function flushSaveImpl(
         if (get().boardId !== boardId) return;
       }
       const synced = get();
-      const present = synced.history.present;
-      const pending = cropPending;
-      // `save.data` is what the server will hold as this tab's base sees it: the image being cropped stays at
-      // its last synced copy, while the PUT carries its pending remote version.
-      const save = { id: crypto.randomUUID(), data: pending ? replaceNode(present, pending.id, nodeOf(synced.serverState, pending.id)) : present };
-      const sent = pending ? replaceNode(present, pending.id, pending.remote) : present;
-      const body = JSON.stringify({ data: sent, baseVersion: synced.serverVersion, saveId: save.id });
+      const sentPresent = synced.history.present;
+      const save = { id: crypto.randomUUID(), data: sentPresent };
+      const body = JSON.stringify({ data: sentPresent, baseVersion: synced.serverVersion, saveId: save.id });
       // Durable until the server acknowledges exactly this content.
-      savePendingDraft(boardId, present, Date.now(), { ...syncOf(synced), save });
+      savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save });
       unresolvedSave = save;
       const res = await apiFetch(`/api/canvas-boards/${boardId}`, {
         method: "PUT",
@@ -472,11 +421,11 @@ async function flushSaveImpl(
       }
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
       const j = await res.json();
-      clearPendingDraft(boardId, present);
+      clearPendingDraft(boardId, sentPresent);
       retryBackoffMs = DEBOUNCE_MS;
       if (get().boardId === boardId) {
         // What the server now holds, normalized the same way it normalizes saves.
-        set({ serverVersion: j.version, serverState: validateCanvasState(save.data) });
+        set({ serverVersion: j.version, serverState: validateCanvasState(sentPresent) });
       }
       // Only mark "saved" if nothing changed while the request was in
       // flight — an edit mid-flight already flipped status back to "dirty"
@@ -663,7 +612,6 @@ export const useCanvasStore = create((set, get) => ({
     retryBackoffMs = DEBOUNCE_MS;
     unresolvedSave = null;
     conflictWaitsForEdit = false;
-    cropPending = null;
     set({
       boardId: null,
       boardName: "",
@@ -1120,7 +1068,6 @@ export const useCanvasStore = create((set, get) => ({
 }));
 
 useCanvasStore.subscribe((state, previous) => {
-  if (cropPending && croppedImageId(state) !== cropPending.id) reconcileCrop();
   if (textEditOpen(previous) && !textEditOpen(state) && state.boardId === previous.boardId) {
     conflictWaitsForEdit = false;
     void state.flushSave().then(() => useCanvasStore.getState().pollRemote());

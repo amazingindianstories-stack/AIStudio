@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
-import { useTextFrozenWhileEditing } from "./use-frozen-text";
+import { useFrozenWhile } from "./use-frozen-while";
 
 /**
  * Labeled rectangular container. Border is solid `lineStrong` once it has
@@ -22,7 +22,7 @@ export function FrameNode({
 
 ) {
   const labelRef = useRef(null);
-  const startName = useTextFrozenWhileEditing(node.name, editingLabel);
+  const startName = useFrozenWhile(node.name, editingLabel);
 
   useEffect(() => {
     if (editingLabel) labelRef.current?.select();

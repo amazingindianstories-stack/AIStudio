@@ -34,12 +34,11 @@ merge per node on the client and poll for other people's saves.
   with a 409 stays dirty with no further save until the edit ends. When it ends, the tab saves and polls at
   once and the ordinary merge runs, so an unchanged node follows a remote delete and typed text survives one.
   Ending an edit without typing writes nothing.
-- While an image is being cropped, other people's changes merge and are adopted as usual, and saves go out
-  as usual, except for that image: it stays as it is on screen, the sync base keeps its last synced copy,
-  and its latest remote version (or deletion) is held aside. Saves meanwhile write that held version, so
-  nobody's change to the image is overwritten. When the crop ends (Apply, Cancel, Enter, Escape, or the image
-  leaving the board) the normal merge reconciles it: an applied crop is a local edit and wins, otherwise
-  their version is kept.
+- An image crop does not change syncing: other people's changes merge, local changes save, and undo works
+  exactly as for any other node. Only the display holds still: the image being cropped is shown as it was
+  when the crop began, so another person's change does not move it under the crop. When the crop ends it
+  shows the latest version, and an applied crop changes only the image's crop on that latest version. A crop
+  whose image leaves the board ends.
 
 ## Local drafts (`src/lib/canvas-pending-draft.js`)
 
