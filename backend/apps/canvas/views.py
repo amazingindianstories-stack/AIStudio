@@ -5,6 +5,7 @@ from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
 from . import access, services
+from . import patch as board_patch
 from .models import CanvasBoard
 from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, js_json, validate_state
 
@@ -150,8 +151,10 @@ def board_metadata_reads(request):
         return failure()
 
 
-@node_route(['GET', 'PUT'])
+@node_route(['GET', 'PUT', 'PATCH'])
 def board_detail(request, identifier):
+    """GET reads the board; PUT saves the whole graph; PATCH saves only the objects changed since `baseVersion`
+    (apps.canvas.patch), refused with INVALID_PATCH when it does not apply so the editor sends the whole graph."""
     user = lookup(request)
     if user is None:
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
@@ -171,9 +174,10 @@ def board_detail(request, identifier):
         if existing is not None:
             access.require(user, existing, access.WRITE)
         payload = body(request)
-        data = property_of(payload, 'data')
+        patch = property_of(payload, 'patch') if request.method == 'PATCH' else None
+        data = patch if request.method == 'PATCH' else property_of(payload, 'data')
         if not isinstance(data, dict):
-            return reply(request, {'error': 'Invalid board data.'}, 400)
+            return reply(request, {'error': 'INVALID_PATCH'} if request.method == 'PATCH' else {'error': 'Invalid board data.'}, 400)
         base_version = base_version_of(payload)
         if base_version is False:
             return reply(request, {'error': 'Invalid base version.'}, 400)
@@ -183,7 +187,10 @@ def board_detail(request, identifier):
         if content_length(data) > MAX_BOARD_JSON_UNITS:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         try:
-            saved = services.save_board(identifier, validate_state(data), base_version, save_id, user.id)
+            saved = services.save_board(identifier, None if patch is not None else validate_state(data), base_version,
+                                        save_id, user.id, patch=patch)
+        except board_patch.PatchError:
+            return reply(request, {'error': 'INVALID_PATCH'}, 400)
         except services.VersionConflict as conflict:
             return reply(request, {'error': 'VERSION_CONFLICT', 'board': conflict.board}, 409)
         except services.BoardTooLarge:
@@ -229,6 +236,29 @@ def board_version(request, identifier):
             return reply(request, {'error': 'Board not found.'}, 404)
         access.require(user, current, access.READ)
         return reply(request, {'version': current['version'], 'updatedAt': current['updated_at']})
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()
+
+
+@node_route(['GET'])
+def board_changes(request, identifier):
+    """Polled while a board is open, after /version reports a newer one: the objects changed since `since`, or
+    the whole graph when they cannot be told (apps.canvas.services.board_changes)."""
+    user = lookup(request)
+    if user is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        current = services.board_version(identifier)
+        if current is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        access.require(user, current, access.READ)
+        since = request.GET.get('since', '')
+        if not re.fullmatch(r'[0-9]{1,16}', since):
+            return reply(request, {'error': 'Invalid version.'}, 400)
+        changes = services.board_changes(identifier, int(since))
+        return reply(request, changes) if changes else reply(request, {'error': 'Board not found.'}, 404)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
     except Exception:

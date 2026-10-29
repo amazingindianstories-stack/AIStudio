@@ -192,7 +192,7 @@ class CanvasContractTests(TransactionTestCase):
         response = self.client.options('/api/canvas-boards')
         self.assertEqual((response.status_code, response.content, response['Allow']), (204, b'', 'GET, HEAD, OPTIONS, POST'))
         response = self.client.options('/api/canvas-boards/' + self.board)
-        self.assertEqual(response['Allow'], 'GET, HEAD, OPTIONS, PUT')
+        self.assertEqual(response['Allow'], 'GET, HEAD, OPTIONS, PATCH, PUT')
         response = self.client.options('/api/canvas-boards/' + self.board + '/upload')
         self.assertEqual(response['Allow'], 'OPTIONS, POST')
         response = self.client.options('/api/canvas-boards/' + self.board + '/version')

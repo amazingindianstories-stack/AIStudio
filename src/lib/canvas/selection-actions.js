@@ -16,7 +16,8 @@ export function selectionActions(
 ) {
   const hasNodeSelection = selection.length > 0;
   const hasConnectorSelection = selectedConnectorIds.length > 0;
-  const selectedNodes = state.nodes.filter((n) => selection.includes(n.id));
+  const selected = new Set(selection);
+  const selectedNodes = state.nodes.filter((n) => selected.has(n.id));
 
   return {
     hasNodeSelection,

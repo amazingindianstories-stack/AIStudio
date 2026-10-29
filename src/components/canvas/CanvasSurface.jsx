@@ -40,6 +40,7 @@ import {
   swipeZoomViewport,
 } from "@/lib/canvas/touch-gestures";
 import { selectionActions } from "@/lib/canvas/selection-actions";
+import { cullBoard } from "@/lib/canvas/culling";
 import { NodeView, } from "./nodes/NodeView";
 import { ConnectorLayer } from "./ConnectorLayer";
 import { CanvasContextMenu, } from "./CanvasContextMenu";
@@ -205,29 +206,20 @@ export const CanvasSurface = forwardRef
     }
     return counts;
   }, [displayState.nodes]);
-  const renderedNodes = useMemo(() => {
-    // Large storyboard boards can contain thousands of nodes. Mounting every
-    // off-screen image at once floods the authenticated media route and leaves
-    // transiently failed <img> requests behind. Keep a generous screen-space
-    // overscan so panning still feels immediate while only nearby media mounts.
-    const overscanPx = 900;
-    const overscanWorld = overscanPx / viewport.zoom;
-    const left = viewport.x - overscanWorld;
-    const top = viewport.y - overscanWorld;
-    const right = viewport.x + size.w / viewport.zoom + overscanWorld;
-    const bottom = viewport.y + size.h / viewport.zoom + overscanWorld;
+  // Large boards hold thousands of objects: mount only those near the viewport (see cullBoard),
+  // so panning stays smooth and off-screen media never loads.
+  const { nodes: renderedNodes, connectors: renderedConnectors } = useMemo(
+    () =>
+      cullBoard(displayState, nodesById, viewport, size, {
+        nodeIds: [...selection, editingTextId, croppingImageId, connectorHoverTargetId].filter(Boolean),
+        connectorIds: selectedConnectorIds,
+      }),
+    [displayState, nodesById, viewport, size, selection, editingTextId, croppingImageId, connectorHoverTargetId, selectedConnectorIds]
+  );
+  const selectedNodes = useMemo(() => {
     const selected = new Set(selection);
-
-    return displayState.nodes.filter((node) => {
-      if (selected.has(node.id)) return true;
-      return (
-        node.x + node.w >= left &&
-        node.x <= right &&
-        node.y + node.h >= top &&
-        node.y <= bottom
-      );
-    });
-  }, [displayState.nodes, selection, size.h, size.w, viewport.x, viewport.y, viewport.zoom]);
+    return displayState.nodes.filter((n) => selected.has(n.id));
+  }, [displayState.nodes, selection]);
 
   useImperativeHandle(ref, () => ({
     getViewportCenterWorld: () => ({
@@ -1144,11 +1136,11 @@ export const CanvasSurface = forwardRef
         ))}
 
         {selection.length > 1 && (
-          <MultiSelectBox nodes={displayState.nodes.filter((n) => selection.includes(n.id))} />
+          <MultiSelectBox nodes={selectedNodes} />
         )}
 
         <ConnectorLayer
-          connectors={displayState.connectors}
+          connectors={renderedConnectors}
           nodesById={nodesById}
           selectedConnectorIds={selectedConnectorIds}
           onSelectConnector={touchViewOnly ? undefined : (id, additive) => {

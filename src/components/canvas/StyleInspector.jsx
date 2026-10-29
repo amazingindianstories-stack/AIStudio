@@ -84,8 +84,11 @@ export function StyleInspector({ hidden }) {
     el.style.left = `${left}px`;
   });
 
-  const selectedNodes = present.nodes.filter((n) => selection.includes(n.id));
-  const selectedConnectors = present.connectors.filter((c) => selectedConnectorIds.includes(c.id));
+  // Sets, so a select-all on a board of thousands stays linear.
+  const selectedNodeSet = new Set(selection);
+  const selectedConnectorSet = new Set(selectedConnectorIds);
+  const selectedNodes = present.nodes.filter((n) => selectedNodeSet.has(n.id));
+  const selectedConnectors = present.connectors.filter((c) => selectedConnectorSet.has(c.id));
 
   const hasNodes = selectedNodes.length > 0;
   const hasConnectors = selectedConnectors.length > 0;

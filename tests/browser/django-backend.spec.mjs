@@ -187,7 +187,7 @@ test('Canvas browser edits persist through Django after reload', async ({ page, 
   const canvas = page.getByRole('application', { name: 'Board canvas' });
   await expect(canvas).toBeVisible();
   await page.getByRole('button', { name: 'Sticky note', exact: true }).click();
-  const saved = page.waitForResponse(response => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) && response.request().method() === 'PUT');
+  const saved = page.waitForResponse(response => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) && ['PUT', 'PATCH'].includes(response.request().method()));
   await canvas.click({ position: { x: 300, y: 250 } });
   const response = await saved;
   expect(response.ok()).toBeTruthy();
@@ -204,7 +204,7 @@ test('Canvas browser edits persist through Django after reload', async ({ page, 
 
 test('Two sessions editing one board merge each other\'s work, undo only their own and keep in-progress typing', async ({ browser, baseURL }) => {
   const boardPath = /\/api\/canvas-boards\/[^/]+$/;
-  const isSave = response => boardPath.test(new URL(response.url()).pathname) && response.request().method() === 'PUT';
+  const isSave = response => boardPath.test(new URL(response.url()).pathname) && ['PUT', 'PATCH'].includes(response.request().method());
   const sessions = [];
   for (const label of ['A', 'B']) {
     const context = await browser.newContext({ baseURL });
@@ -254,7 +254,7 @@ test('Two sessions editing one board merge each other\'s work, undo only their o
     const bSent = new Promise(resolve => { markBSent = resolve; });
     const boardOrVersion = /\/api\/canvas-boards\/[^/]+(\/version)?$/;
     await b.page.route(boardOrVersion, async route => {
-      if (route.request().method() === 'PUT') { markBSent(); await aLanded; }
+      if (['PUT', 'PATCH'].includes(route.request().method())) { markBSent(); await aLanded; }
       else if (route.request().url().endsWith('/version')) await bSent;
       await route.continue();
     });

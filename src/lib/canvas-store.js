@@ -7,6 +7,7 @@ import { apiFetch } from "./api";
 import { canEditRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
+import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
 import { unstamped, withServerStamps } from "./canvas/stamps";
 import {
   MAX_ZOOM,
@@ -396,6 +397,24 @@ let saveInFlight = null;
 let unresolvedSave = null;
 
 /**
+ * Set once the server answers a patch save with 405 (a backend from before
+ * per-object saves): the board then always sends the whole graph until it is
+ * opened again.
+ */
+let patchSavesUnsupported = false;
+
+/**
+ * The patch to send instead of the whole graph `sent`, or null for a full save:
+ * when there is no synced version to patch, and on unload when the whole graph
+ * still fits a keepalive request (a patch is small enough to fit when it does not).
+ */
+function savePatchOf(synced, sent, fullBody, opts) {
+  if (patchSavesUnsupported || typeof synced.serverVersion !== "number") return null;
+  if (opts?.keepalive && shouldUseKeepalive(fullBody())) return null;
+  return buildBoardPatch(synced.serverState, sent);
+}
+
+/**
  * Asks the server whether the unresolved save landed and merges the board:
  * if it did, its graph is the merge base, so its changes count as already
  * saved rather than as edits to replay over someone else's later change.
@@ -465,18 +484,30 @@ async function flushSaveImpl(
       const ownCropEdit = Boolean(hold) && !sameValue(nodeOf(sentPresent, hold.id), nodeOf(synced.serverState, hold.id));
       const sent = hold && !ownCropEdit ? withNodeFrom(sentPresent, { nodes: hold.remote ? [hold.remote] : [] }, hold.id) : sentPresent;
       const save = { id: crypto.randomUUID(), data: sentPresent };
-      const body = JSON.stringify({ data: sent, baseVersion: synced.serverVersion, saveId: save.id });
+      const fullBody = () => JSON.stringify({ data: sent, baseVersion: synced.serverVersion, saveId: save.id });
+      // Only the objects changed since the synced version; the server applies them to that version's graph.
+      const patch = savePatchOf(synced, sent, fullBody, opts);
+      const send = (patched) => {
+        const body = patched ? JSON.stringify({ patch, baseVersion: synced.serverVersion, saveId: save.id }) : fullBody();
+        return apiFetch(`/api/canvas-boards/${boardId}`, {
+          method: patched ? "PATCH" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body,
+          // Browsers reject oversized keepalive bodies outright; large boards use
+          // a normal request and rely on the pending draft if the page unloads.
+          keepalive: Boolean(opts?.keepalive) && shouldUseKeepalive(body),
+        });
+      };
       // Durable until the server acknowledges exactly this content.
       savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save });
       unresolvedSave = save;
-      const res = await apiFetch(`/api/canvas-boards/${boardId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body,
-        // Browsers reject oversized keepalive bodies outright; large boards use
-        // a normal request and rely on the pending draft if the page unloads.
-        keepalive: Boolean(opts?.keepalive) && shouldUseKeepalive(body),
-      });
+      let res = await send(Boolean(patch));
+      // A patch the server cannot apply (400), or a server without patch saves (405), wrote
+      // nothing: the same save goes again as the whole graph.
+      if (patch && (res.status === 400 || res.status === 405)) {
+        if (res.status === 405) patchSavesUnsupported = true;
+        res = await send(false);
+      }
       // Any answer below 500 is definite: applied, or refused before writing.
       if (unresolvedSave === save && res.status < 500) unresolvedSave = null;
       if (res.status === 401) {
@@ -599,6 +630,7 @@ async function loadBoardImpl(set, get, id) {
   // A failed flush keeps its pending draft; reset() must not be the only copy.
   get().persistPendingDraft();
   get().reset();
+  patchSavesUnsupported = false;
   set({ boardId: id, loaded: false });
 
   const pending = readPendingDraft(id);
@@ -661,8 +693,30 @@ async function loadBoardImpl(set, get, id) {
 let pollInFlight = false;
 
 /**
+ * The newer board ({version, data}) for a poll that saw `version`: only the
+ * objects changed since the synced version, rebuilt over its graph, or the
+ * whole board when they cannot be rebuilt exactly (a reorder, a held image
+ * crop, a server without /changes, or a save that recorded no ids).
+ */
+async function fetchNewerBoard(get, boardId) {
+  const { serverVersion: since, serverState: base } = get();
+  if (!cropHold && typeof since === "number") {
+    const res = await apiFetch(`/api/canvas-boards/${boardId}/changes?since=${since}`, { cache: "no-store" });
+    if (res.ok) {
+      const reply = await res.json();
+      if (reply.data) return reply;
+      const unchanged = get().serverVersion === since && get().serverState === base;
+      const data = reply.changes && unchanged ? boardFromChanges(base, reply.changes) : null;
+      if (data) return { version: reply.version, updatedAt: reply.updatedAt, data };
+    }
+  }
+  const full = await apiFetch(`/api/canvas-boards/${boardId}`, { cache: "no-store" });
+  return full.ok ? full.json() : null;
+}
+
+/**
  * Asks for the board's version (two integers, never the graph) and, only when
- * someone else saved, fetches the board and merges it. A save in flight
+ * someone else saved, fetches what changed and merges it. A save in flight
  * takes precedence: its 409 merges, or the next poll sees the newer version.
  * Resolves true when another person's change was merged.
  */
@@ -678,9 +732,8 @@ async function pollRemoteImpl(set, get) {
     if (!res.ok) return false;
     const { version } = await res.json();
     if (!current() || typeof version !== "number" || version <= get().serverVersion) return false;
-    const full = await apiFetch(`/api/canvas-boards/${boardId}`, { cache: "no-store" });
-    if (!full.ok) return false;
-    const board = await full.json();
+    const board = await fetchNewerBoard(get, boardId);
+    if (!board) return false;
     return current() && !saveInFlight && !unresolvedSave && applyRemoteBoard(set, get, board);
   } catch {
     // Offline or a transient failure: the next poll tries again.
@@ -962,6 +1015,8 @@ export const useCanvasStore = create((set, get) => ({
 
   updateSelectedStyle: (patch) => {
     const { selection, selectedConnectorIds } = get();
+    const selectedIds = new Set(selection);
+    const selectedConnectorSet = new Set(selectedConnectorIds);
     if (!selection.length && !selectedConnectorIds.length) return;
     mutateGraph(
       set,
@@ -969,10 +1024,10 @@ export const useCanvasStore = create((set, get) => ({
       (present) => ({
         ...present,
         nodes: present.nodes.map((n) =>
-          selection.includes(n.id) ? applyStylePatchToNode(n, patch) : n
+          selectedIds.has(n.id) ? applyStylePatchToNode(n, patch) : n
         ),
         connectors: present.connectors.map((c) =>
-          selectedConnectorIds.includes(c.id) ? applyStylePatchToConnector(c, patch) : c
+          selectedConnectorSet.has(c.id) ? applyStylePatchToConnector(c, patch) : c
         ),
       }),
       { coalesce: true }
@@ -992,6 +1047,8 @@ export const useCanvasStore = create((set, get) => ({
 
   moveSelectionBy: (dx, dy) => {
     const { selection, selectedConnectorIds } = get();
+    const selectedIds = new Set(selection);
+    const selectedConnectorSet = new Set(selectedConnectorIds);
     if (!selection.length && !selectedConnectorIds.length) return;
     mutateGraph(
       set,
@@ -1004,7 +1061,7 @@ export const useCanvasStore = create((set, get) => ({
         next = {
           ...next,
           nodes: next.nodes.map((n) => {
-            if (n.type === "frame" || !selection.includes(n.id)) return n;
+            if (n.type === "frame" || !selectedIds.has(n.id)) return n;
             const newParentId = computeFrameMembership(n, frames);
             return newParentId !== (n.parentId ?? null) ? { ...n, parentId: newParentId } : n;
           }),
@@ -1013,7 +1070,7 @@ export const useCanvasStore = create((set, get) => ({
           next = {
             ...next,
             connectors: next.connectors.map((c) =>
-              selectedConnectorIds.includes(c.id)
+              selectedConnectorSet.has(c.id)
                 ? {
                     ...c,
                     from: shiftFreeEndpoint(c.from, dx, dy),
@@ -1035,6 +1092,7 @@ export const useCanvasStore = create((set, get) => ({
 
   resizeSelected: (handle, dx, dy, keepAspect) => {
     const { selection } = get();
+    const selectedIds = new Set(selection);
     if (!selection.length) return;
     mutateGraph(
       set,
@@ -1042,7 +1100,7 @@ export const useCanvasStore = create((set, get) => ({
       (present) => ({
         ...present,
         nodes: present.nodes.map((n) =>
-          selection.includes(n.id) ? resizeNode(n, handle, dx, dy, keepAspect) : n
+          selectedIds.has(n.id) ? resizeNode(n, handle, dx, dy, keepAspect) : n
         ),
       }),
       { coalesce: true }
@@ -1105,20 +1163,22 @@ export const useCanvasStore = create((set, get) => ({
 
   group: () => {
     const { selection } = get();
+    const selectedIds = new Set(selection);
     if (selection.length < 2) return;
     const groupId = crypto.randomUUID();
     mutateGraph(set, get, (present) => ({
       ...present,
-      nodes: present.nodes.map((n) => (selection.includes(n.id) ? { ...n, groupId } : n)),
+      nodes: present.nodes.map((n) => (selectedIds.has(n.id) ? { ...n, groupId } : n)),
     }));
   },
 
   ungroup: () => {
     const { selection } = get();
+    const selectedIds = new Set(selection);
     if (!selection.length) return;
     mutateGraph(set, get, (present) => ({
       ...present,
-      nodes: present.nodes.map((n) => (selection.includes(n.id) ? { ...n, groupId: null } : n)),
+      nodes: present.nodes.map((n) => (selectedIds.has(n.id) ? { ...n, groupId: null } : n)),
     }));
   },
 
