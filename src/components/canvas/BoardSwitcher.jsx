@@ -6,6 +6,7 @@ import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal, AlertCircle }
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
+import { canOwnRole, canShareRole } from "@/lib/board-access";
 
 /**
  * Board dropdown (ui-spec §8): list/create/rename/switch, delete gated
@@ -21,6 +22,7 @@ export function BoardSwitcher({
   boardId,
   onBoardIdChange,
   onLoadingChange,
+  reloadToken = 0,
 }
 
 ) {
@@ -40,7 +42,7 @@ export function BoardSwitcher({
 
   useEffect(() => {
     if (!projectId) return;
-    const requestKey = `${projectId}:${loadAttempt}`;
+    const requestKey = `${projectId}:${loadAttempt}:${reloadToken}`;
     if (initializedRequest.current === requestKey) return;
     initializedRequest.current = requestKey;
     const requestId = ++requestIdRef.current;
@@ -85,7 +87,7 @@ export function BoardSwitcher({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, loadAttempt]);
+  }, [projectId, loadAttempt, reloadToken]);
 
   const current = boards.find((b) => b.id === boardId) ?? null;
 
@@ -109,6 +111,7 @@ export function BoardSwitcher({
   const renameBoard = async (id, name) => {
     const trimmed = name.trim();
     if (!trimmed) return;
+    const previous = boards;
     setBoards((bs) => bs.map((b) => (b.id === id ? { ...b, name: trimmed } : b)));
     const res = await apiFetch("/api/canvas-boards", {
       method: "POST",
@@ -117,6 +120,7 @@ export function BoardSwitcher({
     });
     const json = await res.json().catch(() => ({}));
     if (json.boards) setBoards(json.boards);
+    else if (!res.ok) setBoards(previous);
   };
 
   const deleteBoard = async (id) => {
@@ -125,6 +129,7 @@ export function BoardSwitcher({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "deleteBoard", id }),
     });
+    if (!res.ok) return;
     const json = await res.json().catch(() => ({}));
     const list = json.boards ?? boards.filter((b) => b.id !== id);
     setBoards(list);
@@ -218,6 +223,7 @@ export function BoardSwitcher({
                       <span className="flex-1 truncate">{b.name}</span>
                       {b.id === boardId && <Check className="h-4 w-4 shrink-0 text-brand" />}
                     </MenuItem>
+                    {(canShareRole(b.role) || canOwnRole(b.role)) && (
                     <Dropdown
                       align="right"
                       trigger={(open) => (
@@ -233,27 +239,32 @@ export function BoardSwitcher({
                     >
                       {(closeRow) => (
                         <>
-                          <MenuItem
-                            onClick={() => {
-                              setRenamingRowId(b.id);
-                              closeRow();
-                            }}
-                          >
-                            <Pencil className="h-4 w-4 text-white/50" /> Rename
-                          </MenuItem>
-                          <MenuItem
-                            onClick={() => {
-                              setDeleteTarget(b);
-                              closeRow();
-                              close();
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4 text-red-400/80" />
-                            <span className="text-red-300/90">Delete</span>
-                          </MenuItem>
+                          {canShareRole(b.role) && (
+                            <MenuItem
+                              onClick={() => {
+                                setRenamingRowId(b.id);
+                                closeRow();
+                              }}
+                            >
+                              <Pencil className="h-4 w-4 text-white/50" /> Rename
+                            </MenuItem>
+                          )}
+                          {canOwnRole(b.role) && (
+                            <MenuItem
+                              onClick={() => {
+                                setDeleteTarget(b);
+                                closeRow();
+                                close();
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-400/80" />
+                              <span className="text-red-300/90">Delete</span>
+                            </MenuItem>
+                          )}
                         </>
                       )}
                     </Dropdown>
+                    )}
                   </div>
                 )
               )}

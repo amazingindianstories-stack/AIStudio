@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { useStore } from "@/lib/store";
-import { useCanvasStore, hasClipboard } from "@/lib/canvas-store";
+import { useCanvasStore, hasClipboard, selectReadOnly } from "@/lib/canvas-store";
 import { getAssetDragData } from "@/lib/asset-drag-contract";
 
 import {
@@ -110,6 +110,7 @@ export const CanvasSurface = forwardRef
   const selection = useCanvasStore((s) => s.selection);
   const selectedConnectorIds = useCanvasStore((s) => s.selectedConnectorIds);
   const tool = useCanvasStore((s) => s.tool);
+  const readOnly = useCanvasStore(selectReadOnly);
   const editingTextId = useCanvasStore((s) => s.editingTextId);
   const croppingImageId = useCanvasStore((s) => s.croppingImageId);
   const cropDraft = useCanvasStore((s) => s.cropDraft);
@@ -332,6 +333,12 @@ export const CanvasSurface = forwardRef
       return;
     }
 
+    if (tool === "select" && readOnly) {
+      // View and comment access: selecting is fine, moving is not.
+      if (!selection.includes(node.id)) setSelection([node.id]);
+      return;
+    }
+
     if (tool === "select") {
       // Alt/Option takes precedence over shift's multi-select toggle (C1):
       // ensure the node is part of the selection (adding it if needed, but
@@ -371,6 +378,7 @@ export const CanvasSurface = forwardRef
   };
 
   const onPointerDownHandle = (e, node, handle) => {
+    if (readOnly) return;
     (e.target ).setPointerCapture?.(e.pointerId);
     const screen = toScreenLocal(e.clientX, e.clientY);
     dragRef.current = {
@@ -387,6 +395,7 @@ export const CanvasSurface = forwardRef
 
   const onConnectorHandlePointerDown = (e, node, anchor) => {
     e.stopPropagation();
+    if (readOnly) return;
     (e.target ).setPointerCapture?.(e.pointerId);
     const screen = toScreenLocal(e.clientX, e.clientY);
     const b = nodeBounds(node);
@@ -418,6 +427,7 @@ export const CanvasSurface = forwardRef
     end
   ) => {
     e.stopPropagation();
+    if (readOnly) return;
     (e.target ).setPointerCapture?.(e.pointerId);
     const screen = toScreenLocal(e.clientX, e.clientY);
     dragRef.current = {
@@ -438,6 +448,10 @@ export const CanvasSurface = forwardRef
     e,
     connectorId
   ) => {
+    if (readOnly) {
+      e.preventDefault();
+      return;
+    }
     useCanvasStore.setState({ selectedConnectorIds: [connectorId], selection: [] });
     setContextMenu({ x: e.clientX, y: e.clientY });
   };
@@ -447,6 +461,7 @@ export const CanvasSurface = forwardRef
   // clears selection over empty canvas, then opens the menu there.
   const onContextMenu = (e) => {
     e.preventDefault();
+    if (readOnly) return;
     const screen = toScreenLocal(e.clientX, e.clientY);
     const worldPoint = screenToWorld(screen, viewport);
     const nodeId = hitTest(present, worldPoint);
@@ -505,6 +520,7 @@ export const CanvasSurface = forwardRef
 
   const onDoubleClickBody = (e, node) => {
     e.stopPropagation();
+    if (readOnly) return;
     if (node.type === "text" || node.type === "sticky" || node.type === "frame") {
       setSelection([node.id]);
       useCanvasStore.getState().setEditingTextId(node.id);
@@ -748,6 +764,7 @@ export const CanvasSurface = forwardRef
   const onDrop = (e) => {
     e.preventDefault();
     setDragGhost(null);
+    if (readOnly) return;
     const assetPayload = getAssetDragData(e, useStore.getState());
     const rawAssetId = e.dataTransfer.getData("text/assetId");
     const assetIds =
@@ -790,6 +807,10 @@ export const CanvasSurface = forwardRef
 
   const onDragOver = (e) => {
     e.preventDefault();
+    if (readOnly) {
+      e.dataTransfer.dropEffect = "none";
+      return;
+    }
     setDragGhost(screenToWorld(toScreenLocal(e.clientX, e.clientY), viewport));
   };
 
@@ -846,7 +867,8 @@ export const CanvasSurface = forwardRef
             node={n}
             tool={tool}
             showRing={selection.length === 1 && selection[0] === n.id}
-            showHandles={selection.length === 1 && selection[0] === n.id && n.type !== "frame"}
+            showHandles={!readOnly && selection.length === 1 && selection[0] === n.id && n.type !== "frame"}
+            readOnly={readOnly}
             editingTextId={editingTextId}
             dropHighlight={dropHighlightFrameId === n.id}
             dragging={!!dragRef.current}
@@ -882,7 +904,7 @@ export const CanvasSurface = forwardRef
           }}
           marqueeWorldRect={marqueeWorldRect}
           draftConnector={draftConnector}
-          onEndpointPointerDown={onEndpointPointerDown}
+          onEndpointPointerDown={readOnly ? undefined : onEndpointPointerDown}
           onConnectorContextMenu={onConnectorContextMenu}
         />
 

@@ -40,6 +40,7 @@ const SHAPES = [
  * dedicated component for the zoom control.
  */
 export function CanvasToolbar({
+  readOnly = false,
   toolLocked,
   onToggleLock,
   onAddImageClick,
@@ -85,6 +86,8 @@ export function CanvasToolbar({
           />
         </ToolGroup>
 
+        {/* View and comment access: navigation only, no creation tools. */}
+        {!readOnly && (<>
         <Divider />
 
         <ToolGroup>
@@ -203,6 +206,7 @@ export function CanvasToolbar({
             <ImagePlus className="h-4 w-4" />
           </button>
         </ToolGroup>
+        </>)}
       </div>
 
       <ZoomControl />

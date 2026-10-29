@@ -34,7 +34,7 @@ class BoardMetadataReadTests(TransactionTestCase):
         self.cookie(age=2*86400000)
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get('/api/canvas-boards?projectId='+self.project+'&projectId=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
-        self.assertEqual(response.json(),{'boards':[{'id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc','projectId':self.project,'name':'दृश्य','createdBy':None,'createdAt':1,'updatedAt':2}]})
+        self.assertEqual(response.json(),{'boards':[{'id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc','projectId':self.project,'name':'दृश्य','createdBy':None,'createdAt':1,'updatedAt':2,'teamRole':'edit','role':'edit'}]})
         selects = [query['sql'] for query in queries if 'FROM "canvas_boards"' in query['sql']]
         self.assertEqual(len(selects),1)
         self.assertNotIn('"data"',selects[0])

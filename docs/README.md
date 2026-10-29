@@ -9,6 +9,7 @@
 | [architecture/agent-access.md](architecture/agent-access.md) | Agent (MCP) access: tokens, the OAuth 2.1 server, the per-user opt-in, spending controls and the interface for the MCP service |
 | [architecture/mcp-server.md](architecture/mcp-server.md) | The MCP server: request path, access checks and kill switches, every tool, quotes and holds, resources, prompts, the dev harness |
 | [features/library-filters.md](features/library-filters.md) | Library Filters dialog, `GET /api/history` filter/sort contract, date sections |
+| [features/board-roles.md](features/board-roles.md) | Board and project roles, the effective-role rule, the share dialog and read-only boards |
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |
 | [operations/managed-portraits.md](operations/managed-portraits.md) | Rollout and rollback of the automatic BytePlus portrait pool |

@@ -91,7 +91,7 @@ export function ConnectorLayer({
               markerEnd={c.kind === "arrow" ? "url(#canvas-arrowhead)" : undefined}
               className={cn(selected && "drop-shadow-[0_0_4px_rgba(255,255,255,0.6)]")}
             />
-            {selected && from && to && (
+            {selected && from && to && onEndpointPointerDown && (
               <>
                 <EndpointHandle point={from} connectorId={c.id} end="from" onPointerDown={onEndpointPointerDown} />
                 <EndpointHandle point={to} connectorId={c.id} end="to" onPointerDown={onEndpointPointerDown} />

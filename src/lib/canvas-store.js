@@ -4,6 +4,7 @@ import { create, } from "zustand";
 import { clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
 
 import { apiFetch } from "./api";
+import { canEditRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import {
   moveNodesBy,
@@ -51,6 +52,15 @@ const GESTURE_IDLE_MS = 400;
 // viewportCenterWorld() fallback are pixel-accurate rather than guessed. The
 // 1600x900 default only matters before the first ResizeObserver callback.
 let viewportPx = { w: 1600, h: 900 };
+
+/** View-only and comment-only boards (or a board whose edit access was
+ * revoked mid-session) render read-only: no graph edits and no autosave.
+ * The server refuses those writes too; this keeps the UI honest. */
+export function selectReadOnly(state) {
+  return state.accessLost || !canEditRole(state.boardRole);
+}
+
+const READ_ONLY_TOOLS = ["select", "hand"];
 
 function redirectToLogin() {
   if (typeof window !== "undefined" && window.location.pathname !== "/login") {
@@ -247,6 +257,7 @@ function mutateGraph(
   opts
 ) {
   const state = get();
+  if (selectReadOnly(state)) return;
   const nextPresent = compute(state.history.present);
   if (opts?.coalesce) {
     if (!gestureBaseline) gestureBaseline = state.history;
@@ -280,6 +291,7 @@ function scheduleFlush(get, delay) {
 }
 
 function markDirty(set, get) {
+  if (selectReadOnly(get())) return;
   set({ saveStatus: "dirty" });
   scheduleFlush(get, DEBOUNCE_MS);
 }
@@ -291,7 +303,7 @@ async function flushSaveImpl(
 ) {
   if (saveInFlight) return saveInFlight;
   const state = get();
-  if (!state.boardId) return;
+  if (!state.boardId || selectReadOnly(state)) return;
   if (state.saveStatus !== "dirty" && state.saveStatus !== "error") return;
 
   clearDebounceTimer();
@@ -315,6 +327,12 @@ async function flushSaveImpl(
       if (res.status === 401) {
         redirectToLogin();
         set({ saveStatus: "error" });
+        return;
+      }
+      if (res.status === 403) {
+        // Edit access was removed while the board was open. Retrying cannot
+        // succeed; the pending draft keeps the unsaved edits on this device.
+        set({ saveStatus: "idle", accessLost: true });
         return;
       }
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
@@ -372,7 +390,7 @@ async function loadBoardImpl(set, get, id) {
     redirectToLogin();
     throw new Error("UNAUTHENTICATED");
   }
-  if (res.status === 404) {
+  if (res.status === 404 || res.status === 403) {
     if (myGeneration === loadGeneration) set({ boardId: null, boardName: "", loaded: true });
     throw new Error("NOT_FOUND");
   }
@@ -386,7 +404,10 @@ async function loadBoardImpl(set, get, id) {
   if (myGeneration !== loadGeneration) return; // superseded while parsing
 
   // Un-acknowledged local edits newer than the server copy win and are re-saved.
-  const pending = readPendingDraft(board.id);
+  // A read-only board keeps any such draft untouched for when edit access returns.
+  const boardRole = board.role ?? null;
+  const editable = canEditRole(boardRole);
+  const pending = editable ? readPendingDraft(board.id) : null;
   const serverUpdatedAt = Number(board.updatedAt) || 0;
   let restored = null;
   if (pending && pending.at > serverUpdatedAt) {
@@ -397,6 +418,9 @@ async function loadBoardImpl(set, get, id) {
   set({
     boardId: board.id,
     boardName: board.name,
+    boardRole,
+    accessLost: false,
+    tool: editable ? get().tool : "select",
     history: { past: [], present: restored || data, future: [] },
     selection: [],
     selectedConnectorIds: [],
@@ -416,6 +440,9 @@ let clipboard = [];
 export const useCanvasStore = create((set, get) => ({
   boardId: null,
   boardName: "",
+  // The caller's effective role on the loaded board (null until loaded).
+  boardRole: null,
+  accessLost: false,
   loaded: false,
   history: { past: [], present: emptyCanvasState(), future: [] },
   selection: [],
@@ -439,6 +466,8 @@ export const useCanvasStore = create((set, get) => ({
     set({
       boardId: null,
       boardName: "",
+      boardRole: null,
+      accessLost: false,
       loaded: false,
       history: { past: [], present: emptyCanvasState(), future: [] },
       selection: [],
@@ -456,7 +485,7 @@ export const useCanvasStore = create((set, get) => ({
   /** Keep a durable copy of edits that are not yet acknowledged by the server. */
   persistPendingDraft: () => {
     const state = get();
-    if (!state.boardId) return false;
+    if (!state.boardId || selectReadOnly(state)) return false;
     if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && state.saveStatus !== "saving") return false;
     return savePendingDraft(state.boardId, state.history.present);
   },
@@ -503,7 +532,20 @@ export const useCanvasStore = create((set, get) => ({
     if (w > 0 && h > 0) viewportPx = { w, h };
   },
 
-  setTool: (t) => set({ tool: t }),
+  setTool: (t) => {
+    if (selectReadOnly(get()) && !READ_ONLY_TOOLS.includes(t)) return;
+    set({ tool: t });
+  },
+
+  /** A role change from the share dialog; dropping below edit stops editing at once. */
+  setBoardRole: (role) => {
+    finalizePendingGesture(set, get);
+    set({ boardRole: role });
+    if (selectReadOnly(get())) {
+      clearDebounceTimer();
+      set({ tool: "select", editingTextId: null, croppingImageId: null, cropDraft: null });
+    }
+  },
 
   addNode: (node) => {
     mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, node] }));
@@ -511,6 +553,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   addImageBatch: (images, worldPoint) => {
+    if (selectReadOnly(get())) return;
     if (!images.length) return;
     const vp = get().history.present.viewport;
     const target = worldPoint ?? viewportCenterWorld(vp);
@@ -535,6 +578,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   addImageFromAsset: (a, worldPoint) => {
+    if (selectReadOnly(get())) return;
     const vp = get().history.present.viewport;
     const target = worldPoint ?? viewportCenterWorld(vp);
     const LONG_EDGE = 320;
@@ -656,6 +700,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   duplicateSelected: () => {
+    if (selectReadOnly(get())) return;
     const { selection } = get();
     if (!selection.length) return;
     let idMap = new Map();
@@ -668,6 +713,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   duplicateSelectionInPlace: () => {
+    if (selectReadOnly(get())) return;
     const { selection } = get();
     if (!selection.length) return;
     let idMap = new Map();
@@ -769,11 +815,13 @@ export const useCanvasStore = create((set, get) => ({
     const { selection, history } = get();
     if (!selection.length) return;
     const selected = new Set(selection);
+    if (selectReadOnly(get())) return;
     clipboard = history.present.nodes.filter((node) => selected.has(node.id)).map((node) => ({ ...node }));
     get().deleteSelected();
   },
 
   beginCrop: (id) => {
+    if (selectReadOnly(get())) return;
     const node = get().history.present.nodes.find((item) => item.id === id && item.type === "image");
     if (node) set({ croppingImageId: id, cropDraft: normalizeCrop(node.crop) });
   },
@@ -795,6 +843,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   paste: () => {
+    if (selectReadOnly(get())) return;
     if (!clipboard.length) return;
     let idMap = new Map();
     mutateGraph(set, get, (present) => {
@@ -817,6 +866,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   undo: () => {
+    if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = undoHistory(get().history);
     const { selection, selectedConnectorIds } = get();
@@ -825,6 +875,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   redo: () => {
+    if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = redoHistory(get().history);
     const { selection, selectedConnectorIds } = get();
@@ -869,7 +920,10 @@ export const useCanvasStore = create((set, get) => ({
 
   clearSelection: () => set({ selection: [], selectedConnectorIds: [], editingTextId: null }),
 
-  setEditingTextId: (id) => set({ editingTextId: id }),
+  setEditingTextId: (id) => {
+    if (id && selectReadOnly(get())) return;
+    set({ editingTextId: id });
+  },
 }));
 
 // Re-exported for consumers that need to build frame-membership candidates
