@@ -559,6 +559,37 @@ test('Board touch: after a one-finger crop drag, taps select, a double tap opens
   await db.end();
 });
 
+test('Board touch: a phone that opened the board before still starts with the asset panel collapsed, and desktop keeps its saved choice', async ({ browser, baseURL }) => {
+  const db = await seedUsers();
+  const project = await createProject(browser, baseURL, 'Board touch panel');
+  // The previous release wrote this key on every mount, including on phones behind the desktop-only gate.
+  const legacy = (value) => (context) => context.addInitScript((v) => {
+    localStorage.setItem('veevee-canvas-asset-panel-collapsed-v1', v);
+  }, value);
+  const show = (page) => page.getByRole('button', { name: 'Show asset panel' });
+  const collapse = (page) => page.getByRole('button', { name: 'Collapse asset panel' });
+
+  const phone = await signIn(browser, baseURL, OWNER, project.id, PHONE);
+  await legacy('0')(phone.context);
+  await openBoard(phone.page);
+  await expect(show(phone.page)).toBeVisible();
+  await expect(collapse(phone.page)).toHaveCount(0);
+  // Opening it is a choice, and a choice is remembered.
+  await show(phone.page).tap();
+  await expect(collapse(phone.page)).toBeVisible();
+  await openBoard(phone.page);
+  await expect(collapse(phone.page)).toBeVisible();
+  await phone.context.close();
+
+  const desk = await signIn(browser, baseURL, OWNER, project.id);
+  await legacy('1')(desk.context);
+  await openBoard(desk.page);
+  await expect(show(desk.page)).toBeVisible();
+  await expect(collapse(desk.page)).toHaveCount(0);
+  await desk.context.close();
+  await db.end();
+});
+
 test('Board touch: a double tap inside an open text editor keeps it open and every typed word is saved', async ({ browser, baseURL }) => {
   test.setTimeout(120000);
   const db = await seedUsers();

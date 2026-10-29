@@ -29,7 +29,9 @@ import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { ProgressiveImage } from "@/components/ProgressiveImage";
 import { setAssetDragData } from "@/lib/asset-drag-contract";
 
-const COLLAPSE_KEY = "veevee-canvas-asset-panel-collapsed-v1";
+const COLLAPSE_KEY = "veevee-canvas-asset-panel-collapsed-v2";
+// Written on every mount, chosen or not, so a phone value is not a choice.
+const LEGACY_COLLAPSE_KEY = "veevee-canvas-asset-panel-collapsed-v1";
 const SCOPE_KEY = "veevee-canvas-asset-scope-v1";
 
 /**
@@ -83,9 +85,10 @@ export function CanvasAssetPanel({
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(COLLAPSE_KEY);
+      const phone = window.matchMedia("(max-width: 767px)").matches;
+      const raw = localStorage.getItem(COLLAPSE_KEY) ?? (phone ? null : localStorage.getItem(LEGACY_COLLAPSE_KEY));
       if (raw != null) setCollapsed(raw === "1");
-      else if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
+      else if (phone) setCollapsed(true);
     } catch {
       /* ignore */
     }
