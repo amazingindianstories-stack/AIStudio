@@ -285,9 +285,10 @@ test('Two sessions editing one board merge each other\'s work, undo only their o
     await b.page.keyboard.press('s');
     await b.canvas.click({ position: { x: 1000, y: 520 } });
     await b.page.keyboard.type('typed while A edits');
-    const aSavedR4 = a.page.waitForResponse(isSave);
+    // B's save of the new sticky may land first, so A's save can meet a 409, merge and save again.
+    const aSavedR4 = a.page.waitForResponse(response => isSave(response) && response.ok());
     const r4 = await addRect(a, 1150, 250);
-    expect((await aSavedR4).ok()).toBeTruthy();
+    await aSavedR4;
     const editor = b.page.locator('[contenteditable="true"]');
     await expect(editor).toHaveText('typed while A edits');
     await b.page.keyboard.type(' and after');
