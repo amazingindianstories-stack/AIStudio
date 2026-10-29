@@ -109,12 +109,13 @@ export function mergeCanvasStates(base, local, remote, { keepLocal = new Set() }
  * Applies the same remote change to every undo/redo snapshot, so undo only
  * reverts this person's own steps: an item someone else changed shows their
  * latest version in every snapshot this person never touched it in.
+ * `presentBase`, when given, is the base for the working graph instead of `base`.
  */
-export function rebaseHistory(history, base, remote, { keepLocal } = {}) {
+export function rebaseHistory(history, base, remote, { keepLocal, presentBase = base } = {}) {
   const rebase = (snapshot) => mergeCanvasStates(base, snapshot, remote);
   return {
     past: history.past.map(rebase),
-    present: mergeCanvasStates(base, history.present, remote, { keepLocal }),
+    present: mergeCanvasStates(presentBase, history.present, remote, { keepLocal }),
     future: history.future.map(rebase),
   };
 }

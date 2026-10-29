@@ -283,8 +283,10 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   if (typeof version !== "number" || version <= state.serverVersion) return false;
   const remote = validateCanvasState(board.data);
   const keepLocal = new Set([state.editingTextId, state.croppingImageId].filter(Boolean));
-  const history = rebaseHistory(state.history, base, remote, { keepLocal });
-  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, base, remote);
+  const history = rebaseHistory(state.history, base, remote, { keepLocal, presentBase: withHeldCopies(base, state.history.present) });
+  if (gestureBaseline) {
+    gestureBaseline = rebaseHistory(gestureBaseline, base, remote, { presentBase: withHeldCopies(base, gestureBaseline.present) });
+  }
   for (const id of keepLocal) {
     const held = nodeOf(history.present, id);
     if (held && !nodeOf(remote, id) && sameValue(nodeOf(state.history.present, id), nodeOf(base, id))) {
@@ -318,6 +320,15 @@ function withoutNodes(graph, ids) {
   if (!ids.length) return graph;
   // The same merge as a remote delete: attached connectors go, children are released.
   return mergeCanvasStates(graph, graph, { ...graph, nodes: graph.nodes.filter((node) => !ids.includes(node.id)) });
+}
+
+/**
+ * `base` plus the pre-delete copy of every held node `graph` still holds unchanged, so a node another
+ * person brings back merges as their change, not as this person's stale copy.
+ */
+function withHeldCopies(base, graph) {
+  const copies = unchangedHeldDeletes(graph).filter((id) => !nodeOf(base, id)).map((id) => heldDeletedNodes.get(id));
+  return copies.length ? { ...base, nodes: [...base.nodes, ...copies] } : base;
 }
 
 /** Ids of held nodes this person has not changed since another person deleted them. */

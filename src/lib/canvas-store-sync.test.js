@@ -402,6 +402,36 @@ test("a node deleted and then restored by someone else while it is open for edit
   assert.deepEqual(ids(server.data), ["a", "s", "mine"]);
 });
 
+test("a node someone deleted and brought back changed while it is open keeps their version", async (t) => {
+  useStorage(t);
+  const sticky = (id, text, fill) => ({ ...rect(id, { fill }), type: "sticky", text, fontSize: 16, color: "#000000" });
+  const node = (graphState, id) => graphState.nodes.find((item) => item.id === id);
+  for (const typed of [false, true]) {
+    const server = fakeServer(t, graph(rect("a"), sticky("s", "old", "#ff0000")));
+    store.getState().reset();
+    await store.getState().loadBoard("board-1");
+    store.getState().setSelection(["s"]);
+    store.getState().setEditingTextId("s");
+    server.edit(graph(rect("a")));
+    assert.equal(await store.getState().pollRemote(), true);
+    // The other person undoes the delete and recolours the note.
+    server.edit(graph(rect("a"), sticky("s", "old", "#0000ff")));
+    assert.equal(await store.getState().pollRemote(), true);
+    assert.equal(node(store.getState().history.present, "s").fill, "#0000ff");
+    store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
+    await store.getState().flushSave();
+    assert.equal(node(server.data, "s").fill, "#0000ff");
+    store.getState().commitText("s", typed ? "typed" : "old", "old");
+    addLocalNode("mine");
+    await store.getState().flushSave();
+    await until(() => store.getState().saveStatus === "saved");
+    assert.deepEqual(ids(server.data), ["a", "s", "mine"]);
+    assert.equal(node(server.data, "s").fill, "#0000ff");
+    assert.equal(node(server.data, "s").text, typed ? "typed" : "old");
+    t.mock.restoreAll();
+  }
+});
+
 test("a draft on the server's current version keeps its deletions without carrying its base graph", async (t) => {
   useStorage(t);
   const server = fakeServer(t, graph(rect("a"), rect("b")));
