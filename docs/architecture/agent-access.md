@@ -2,8 +2,9 @@
 
 AI agents (Claude, ChatGPT, Cursor, Claude Code and other MCP clients) act as one Veevee user through
 an opaque bearer token. `backend/apps/mcp_auth` owns the tokens, the OAuth 2.1 authorization server, the
-per-user opt-in and the spending controls. The MCP server itself (`/mcp`, its tools and its Vercel route)
-is a separate service built on this app; it calls the Python interface below, never these HTTP endpoints.
+per-user opt-in and the spending controls. The MCP server itself (`/mcp`, its tools and its Vercel route,
+`mcp-server.md`) is a separate service built on this app; it calls the Python interface below, never these HTTP
+endpoints.
 
 ## Who may connect
 
@@ -79,9 +80,13 @@ with controls.hold_slot(principal):                                    # at most
 
 - `AuthenticationError.www_authenticate()` gives the `WWW-Authenticate` value with `resource_metadata` and
   `scope`; `AgentAccessDisabled` (the user's opt-in is off) is a tool error `MCP_DISABLED`, not an HTTP 401.
+  The MCP service checks scopes with `principal.has_scope` and answers a missing one as the tool error
+  `INSUFFICIENT_SCOPE`.
 - `admit_paid_submission` takes a per-user advisory lock, so parallel calls cannot pass the user or grant cap.
   Spend is the trailing 24 hours of agent-created rows (reconciled cost when known, else the estimate;
-  `cancelled_before_submission` rows are free). Pass the conservative Seedance 2.5 estimate when it is higher.
+  `cancelled_before_submission` rows are free). Pass `controls.booked_cents(...)`: for Seedance 2.5 it is the
+  higher of the estimate and the paid guard's current token estimate, and spend counts an unfinished estimated
+  Seedance 2.5 row at that amount until it reconciles.
 - Rate windows and hold slots live in `mcp_rate_windows` (no Redis). `GET /api/mcp/me` exercises the same
   authentication over HTTP for checks and tests.
 - `apps.mcp_auth.maintenance.purge_expired()` (or `manage.py purge_mcp_auth`) deletes expired codes, rate
@@ -91,4 +96,5 @@ with controls.hold_slot(principal):                                    # at most
 
 One additive migration set: `mcp_auth.0001_initial` (the four tables) and `generation.0008_generation_mcp_origin`
 (nullable `created_via`, `mcp_token_id`, `mcp_client_id`, no backfill, and a partial per-grant spend index).
-`MIGRATION_ROWS` accepts 69 and 70.
+`MIGRATION_ROWS` accepts 69 and 70, and 71 for the MCP service's `generation.0009_generation_url_lookup` (a
+`generations.url` hash index built concurrently, `mcp-server.md`).

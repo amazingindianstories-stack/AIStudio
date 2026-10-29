@@ -8,7 +8,7 @@ from apps.generation import worker
 
 class WorkerMemoryTests(SimpleTestCase):
     def test_heap_is_trimmed_after_every_processed_job(self):
-        with patch.object(worker, 'reap_stale_running_images'), \
+        with patch.object(worker, 'reap_stale_running_images'), patch.object(worker, 'pending_cancellations', return_value=[]), \
                 patch.object(worker, 'select_due_generations', return_value=[SimpleNamespace(id=i, model='Seedance 2.0') for i in range(3)]), \
                 patch.object(worker, 'connections'), patch.object(worker, 'release_freed_memory') as trim:
             worker.run_once(concurrency=2, process=lambda identifier, **kwargs: {'kind': 'succeeded'})

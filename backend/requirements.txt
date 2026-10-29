@@ -11,3 +11,6 @@ requests>=2.32,<3
 
 cryptography>=50,<51
 opencv-python-headless==4.10.0.84
+# The MCP service (apps.mcp): the official SDK, served by one uvicorn process.
+mcp==2.3.0
+uvicorn==0.54.0

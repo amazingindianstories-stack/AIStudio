@@ -95,6 +95,62 @@ class GatewayAllowlistTests(SimpleTestCase):
             self.assertIs(captured['config']['magnific_upscale'], expected)
 
 
+class McpServiceDeployTests(SimpleTestCase):
+    def capture(self, env):
+        import json
+        from unittest.mock import patch
+        launched = []
+
+        class Child:
+            def __init__(self, args, **kwargs):
+                self.stdin, self.returncode, self.args, self.env = self, 0, args, kwargs.get('env')
+                launched.append(self)
+            def write(self, data):
+                self.config = json.loads(data)
+            def close(self):
+                pass
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+            def terminate(self):
+                pass
+        with patch('subprocess.Popen', Child), patch('signal.signal'):
+            entrypoint.run_mcp(env)
+        return launched
+
+    def test_mcp_runs_uvicorn_on_loopback_behind_the_gateway_in_mcp_mode(self):
+        server, gate = self.capture({'VEEVEE_MCP': '1', 'VEEVEE_INGRESS_SECRET': 's' * 64, 'PORT': '8080', 'PATH': '/usr/bin'})
+        self.assertEqual(server.args[1:4], ['-m', 'uvicorn', 'apps.mcp.asgi:application'])
+        self.assertEqual(server.args[server.args.index('--port') + 1], '18082')
+        self.assertEqual(server.args[server.args.index('--host') + 1], '127.0.0.1')
+        self.assertEqual(server.args[server.args.index('--workers') + 1], '1')
+        self.assertNotIn('VEEVEE_INGRESS_SECRET', server.env)
+        self.assertEqual(gate.config, {'secret': 's' * 64, 'port': 8080, 'mode': 'mcp'})
+        self.assertEqual(gate.env, {'PATH': '/usr/bin'})
+
+    def test_mcp_needs_its_switch_and_a_strong_ingress_secret(self):
+        with self.assertRaises(SystemExit):
+            entrypoint.run_mcp({'VEEVEE_INGRESS_SECRET': 's' * 64})
+        with self.assertRaises(SystemExit):
+            entrypoint.run_mcp({'VEEVEE_MCP': '1', 'VEEVEE_INGRESS_SECRET': 'short'})
+
+    def test_gateway_mcp_mode_passes_only_the_mcp_endpoint(self):
+        for method, path, expected in (('POST', '/mcp', True), ('GET', '/mcp', True), ('DELETE', '/mcp', True),
+                                       ('PUT', '/mcp', False), ('POST', '/mcp/', False), ('POST', '/api/history', False),
+                                       ('GET', '/api/health', False), ('POST', '/api/generate/image', False), ('GET', '/healthz', False)):
+            self.assertIs(gateway.allowed_mcp(method, path), expected, (method, path))
+        self.assertEqual(gateway.upstream_wait('POST', '/mcp', 'mcp'), 55)
+        self.assertEqual(gateway.upstream_wait('GET', '/mcp', 'mcp'), 25)
+        self.assertEqual(gateway.upstream_wait('POST', '/mcp'), 25)
+        self.assertEqual(gateway.UPSTREAMS['mcp'], (entrypoint.MCP_PORT, '/healthz'))
+        for port in (18080, 18082):
+            with self.assertRaises(ValueError):
+                gateway.serve('s' * 64, port, mode='mcp')
+        with self.assertRaises(ValueError):
+            gateway.serve('s' * 64, 18081, mode='other')
+
+
 class LegacyConfigTests(SimpleTestCase):
     """The versioned image reads the Green services' existing configuration unchanged."""
     CA = b'-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n'
@@ -288,6 +344,29 @@ class LegacyConfigTests(SimpleTestCase):
         api_without = {key: value for key, value in self.api_env().items() if key != 'GOAL4_PREVIEW_PORTRAIT_CONFIGURATION'}
         with self.assertRaises(SystemExit):
             self.legacy.translate('api', {**api_without, **on})
+
+    def test_mcp_runs_as_the_api_role_without_any_provider_credential(self):
+        import json
+        env = {**self.api_env(), 'MAGNIFIC_API_KEY': 'mk', 'VEEVEE_MAGNIFIC_UPSCALE': '1', 'VEEVEE_KLING': '1', 'KLING_API': 'kk',
+               'KLING_API_HOST': 'https://api-singapore.klingai.com', 'VEEVEE_OMNIHUMAN': '1', 'VEEVEE_MANAGED_PORTRAITS': '1',
+               'VEEVEE_MCP': '1', 'MCP_QUOTE_SECRET': 'q' * 40, 'MCP_MAX_HOLD_SECONDS': '45'}
+        api, mcp = self.legacy.translate('api', env), self.legacy.translate('mcp', env)
+        self.assertEqual(mcp['DATABASE_URL'], api['DATABASE_URL'])
+        self.assertEqual((mcp['VEEVEE_MEDIA_PREFIX'], mcp['GCP_ADC_JSON'], mcp['VEEVEE_INGRESS_SECRET']),
+                         (api['VEEVEE_MEDIA_PREFIX'], api['GCP_ADC_JSON'], api['VEEVEE_INGRESS_SECRET']))
+        for key in ('ARK_API_KEY', 'GOOGLE_API_KEY', 'SEEDANCE_MODEL', 'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY',
+                    'MAGNIFIC_API_KEY', 'KLING_API', 'VEEVEE_PORTRAIT_LIFECYCLE', 'VEEVEE_MANAGED_PORTRAITS'):
+            self.assertNotIn(key, mcp, key)
+        self.assertIn('ARK_API_KEY', api)
+        # The same flags and paid-guard policy as the API, so availability and quotes agree with the web.
+        self.assertEqual(json.loads(mcp['VEEVEE_PAID_GUARD']), json.loads(api['VEEVEE_PAID_GUARD']))
+        self.assertEqual((mcp['MOCK_GENERATION'], mcp['VEEVEE_MAGNIFIC_UPSCALE'], mcp['VEEVEE_KLING'], mcp['VEEVEE_OMNIHUMAN']), ('0', '1', '1', '1'))
+        self.assertEqual(mcp['KLING_API_HOST'], 'https://api-singapore.klingai.com')
+        self.assertEqual((mcp['VEEVEE_MCP'], mcp['MCP_QUOTE_SECRET'], mcp['MCP_MAX_HOLD_SECONDS'], mcp['PORT']), ('1', 'q' * 40, '45', '8080'))
+        self.assertNotIn('MCP_QUOTE_SECRET', api)
+        self.assertEqual(self.legacy.preflight_contract('mcp', env), {'role': 'goal4_green_preview_api'})
+        with self.assertRaises(SystemExit):
+            self.legacy.translate('mcp', self.api_env(role='goal4_green_preview_worker'))
 
     def test_refuses_mismatched_or_unsafe_configuration(self):
         for component, env in (('generation', self.worker_env('export')),

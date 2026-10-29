@@ -1,6 +1,6 @@
 """Shared fake provider server for the local Veevee stack (never deployed).
 
-    python -m testsupport.fake_provider_server [port]
+    python -m testsupport.fake_provider_server [port [host]]
 
 One process holds all fake provider state (Seedance tasks, BytePlus asset pool,
 media) so the API, workers and scheduler see the same world. Containers reach
@@ -89,7 +89,7 @@ class Handler(BaseHTTPRequestHandler):
             with FAKE.lock:
                 if change.get('reset'):
                     FAKE.groups.clear(); FAKE.assets.clear(); FAKE.calls.clear(); FAKE.seedance_payloads.clear()
-                    FAKE.kling_payloads.clear(); FAKE.kling_tasks.clear()
+                    FAKE.kling_payloads.clear(); FAKE.kling_tasks.clear(); FAKE.omnihuman_payloads.clear(); FAKE.omnihuman_polls.clear()
                     FAKE.reject_image_sha256.clear(); FAKE.rejected_tasks.clear(); FAKE.reject_mode = 'create'; FAKE.faults.clear()
                     FAKE.seedance_task_error = FAKE.omni_task_error = FAKE.kling_task_error = FAKE.magnific_task_error = None
                 if 'faults' in change:
@@ -106,7 +106,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main(argv):
     port = int(argv[1]) if len(argv) > 1 else 8099
-    server = ThreadingHTTPServer(('0.0.0.0', port), Handler)
+    server = ThreadingHTTPServer((argv[2] if len(argv) > 2 else '0.0.0.0', port), Handler)
     server.daemon_threads = True
     print(json.dumps({'event': 'fake_provider_server_listening', 'port': port}), flush=True)
     server.serve_forever()

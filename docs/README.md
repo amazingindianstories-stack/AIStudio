@@ -7,6 +7,7 @@
 | [architecture/permanent-generation-names.md](architecture/permanent-generation-names.md) | Permanent generation names, their upgrade, and library delete/move authorization |
 | [architecture/generation-cancellation.md](architecture/generation-cancellation.md) | Provider-backed generation cancellation, its paid-guard allowance and the provider cancel audit |
 | [architecture/agent-access.md](architecture/agent-access.md) | Agent (MCP) access: tokens, the OAuth 2.1 server, the per-user opt-in, spending controls and the interface for the MCP service |
+| [architecture/mcp-server.md](architecture/mcp-server.md) | The MCP server: request path, access checks and kill switches, every tool, quotes and holds, resources, prompts, the dev harness |
 | [features/library-filters.md](features/library-filters.md) | Library Filters dialog, `GET /api/history` filter/sort contract, date sections |
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |

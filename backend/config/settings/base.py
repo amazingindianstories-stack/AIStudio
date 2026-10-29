@@ -7,7 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 SECRET_KEY = os.environ['DJANGO_SECRET_KEY']
 DEBUG = False
 ALLOWED_HOSTS = [host.strip() for host in os.environ.get('DJANGO_ALLOWED_HOSTS', '').split(',') if host.strip()]
-INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media', 'apps.mcp_auth']
+INSTALLED_APPS = ['rest_framework', 'apps.common', 'apps.authentication', 'apps.admin_dashboard', 'apps.library', 'apps.projects', 'apps.assets', 'apps.canvas', 'apps.agents', 'apps.generation', 'apps.workers', 'apps.exports', 'apps.media', 'apps.mcp_auth', 'apps.mcp']
 MIDDLEWARE = ['django.middleware.security.SecurityMiddleware', 'apps.common.middleware.RequestLogMiddleware', 'apps.common.middleware.LocalDataModeMiddleware', 'apps.common.origin.BrowserOriginMiddleware', 'apps.common.middleware.SessionRenewalMiddleware']
 
 LOCAL_DATA_MODE = os.environ.get('LOCAL_DATA_MODE', 'fixtures')
@@ -82,7 +82,8 @@ DATABASES['default']['OPTIONS'].update(DB_URL_OPTIONS)
 LOGGING = {
     'version': 1, 'disable_existing_loggers': False,
     'handlers': {'structured_console': {'class': 'logging.StreamHandler', 'stream': 'ext://sys.stdout'}},
-    'loggers': {'veevee.requests': {'handlers': ['structured_console'], 'level': 'INFO', 'propagate': False}},
+    'loggers': {'veevee.requests': {'handlers': ['structured_console'], 'level': 'INFO', 'propagate': False},
+                'veevee.mcp': {'handlers': ['structured_console'], 'level': 'INFO', 'propagate': False}},
 }
 
 VEEVEE_BROWSER_ORIGINS = tuple(value.strip() for value in os.environ.get('DJANGO_BROWSER_ORIGINS','').split(',') if value.strip())
@@ -111,12 +112,20 @@ if _paid_guard_raw:
     except (KeyError, ValueError) as error:
         raise ImproperlyConfigured(f'VEEVEE_PAID_GUARD rejected: {error}') from None
 
-# Which production process this is (api, generation, export or scheduler). The owning apps read it at
+# Which production process this is (api, generation, export, scheduler or mcp). The owning apps read it at
 # call time to apply their component-specific policies (lease and naming namespaces, read-only pricing,
 # export admission, the portrait lifecycle).
 VEEVEE_RUNTIME_COMPONENT = os.environ.get('VEEVEE_RUNTIME_COMPONENT') or None
-if VEEVEE_RUNTIME_COMPONENT not in (None, 'api', 'generation', 'export', 'scheduler'):
-    raise ImproperlyConfigured('VEEVEE_RUNTIME_COMPONENT must be api, generation, export or scheduler')
+if VEEVEE_RUNTIME_COMPONENT not in (None, 'api', 'generation', 'export', 'scheduler', 'mcp'):
+    raise ImproperlyConfigured('VEEVEE_RUNTIME_COMPONENT must be api, generation, export, scheduler or mcp')
+# The MCP service (apps.mcp, docs/architecture/mcp-server.md): off unless '1'. Quotes are HMACs under their own
+# secret; a held tool call waits at most MCP_MAX_HOLD_SECONDS (clients give up 60 s after the first byte), and at most
+# 45 s, so the result is built inside the gateway's 55 s (apps.mcp.hold.REPLY_SECONDS).
+VEEVEE_MCP = os.environ.get('VEEVEE_MCP') == '1'
+MCP_QUOTE_SECRET = os.environ.get('MCP_QUOTE_SECRET', '')
+MCP_MAX_HOLD_SECONDS = int(os.environ.get('MCP_MAX_HOLD_SECONDS', '45'))
+if VEEVEE_RUNTIME_COMPONENT == 'mcp' and (not VEEVEE_MCP or len(MCP_QUOTE_SECRET) < 32 or not 1 <= MCP_MAX_HOLD_SECONDS <= 45):
+    raise ImproperlyConfigured('The mcp component needs VEEVEE_MCP=1, a 32+ character MCP_QUOTE_SECRET and a 1-45 s hold')
 VEEVEE_EXPORT_ADMISSION = os.environ.get('VEEVEE_EXPORT_ADMISSION') == '1'
 # Magnific image/video upscaling through the gateway and paid guard (off unless '1').
 VEEVEE_MAGNIFIC_UPSCALE = os.environ.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'

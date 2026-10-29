@@ -163,6 +163,7 @@ class EnqueueTests(TransactionTestCase):
         row = Generation.objects.get(pk=item['id'])
         self.assertEqual(row.submission_input['source'], source)
         self.assertEqual(row.submission_input['sourceMeta']['fps'], 24)
+        self.assertNotIn('sourceGenerationId', row.submission_input, 'an upload is no library generation')
         self.assertEqual(row.cost_cents, 44)  # 48 frames at 900/1000 cents (2K)
         self.assertEqual((row.cost_basis, row.task_id), ('estimated', None))
         from .serialization import generation_item

@@ -10,6 +10,7 @@
 # production rollout does. REHEARSAL_MANAGED_PORTRAITS=0 rehearses with the automatic portrait pool off.
 # REHEARSAL_MAGNIFIC=0 rehearses with Magnific upscaling off (the gateway must then refuse it).
 # REHEARSAL_KLING=0 rehearses with Kling images off (the paid guard must then refuse them at enqueue).
+# REHEARSAL_MCP=0 skips the MCP service (vr-mcp: the real entrypoint in mcp mode, API role, no provider keys).
 # API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway); only its Gemini host
 # (the admin chat agent) is answered by the fake provider network (scripts/release/rehearsal_api/sitecustomize.py).
 # Workers run scripts/release/rehearsal_worker.py: the production code with the provider
@@ -20,7 +21,7 @@ ROOT=$(git rev-parse --show-toplevel)
 : "${REHEARSAL_OBSERVER_URL:?}" "${REHEARSAL_DB:?}" "${REHEARSAL_DB_HOST:?}" "${REHEARSAL_API_PASSWORD:?}" "${REHEARSAL_WORKER_PASSWORD:?}" "${REHEARSAL_USER:?}" "${REHEARSAL_PREFIX:?}"
 NET=veevee-rehearsal; IMAGE="veevee-backend:rehearse-$SHORT"; VOL="veevee-rehearsal-media-$SHORT"
 BASE=$(mktemp -d "${TMPDIR:-/tmp}/veevee-rehearse-$SHORT.XXXX"); WORK="$BASE/src"
-NAMES="vr-api vr-gen vr-export vr-sched"
+NAMES="vr-api vr-mcp vr-gen vr-export vr-sched"
 cleanup() { for n in $NAMES; do docker rm -f "$n" >/dev/null 2>&1 || true; done; docker volume rm "$VOL" >/dev/null 2>&1 || true
   git -C "$ROOT" worktree remove --force "$WORK" >/dev/null 2>&1 || true; rm -rf "$BASE"; }
 trap cleanup EXIT INT TERM
@@ -53,6 +54,13 @@ NS="-e VEEVEE_LEASE_PREFIX=lease:g4preview:$REHEARSAL_PREFIX: -e VEEVEE_NAMING_P
 docker run -d --name vr-api --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED -e DATABASE_URL="$API_DB" \
   -e VEEVEE_INGRESS_SECRET="$SECRET" -e PORT=18081 -e VEEVEE_EXPORT_ADMISSION=1 -e VEEVEE_PORTRAIT_LIFECYCLE=1 -e "VEEVEE_PAID_GUARD=$PAID" \
   -e VEEVEE_REHEARSAL=1 -e PYTHONPATH=/scripts/release/rehearsal_api "$IMAGE" python -m deploy.entrypoint api >/dev/null
+MCP=${REHEARSAL_MCP:-1}
+if [ "$MCP" = 1 ]; then
+  # shellcheck disable=SC2086
+  docker run -d --name vr-mcp --network "$NET" -v "$VOL:/media" $COMMON -e ARK_API_KEY= -e GOOGLE_API_KEY= -e MAGNIFIC_API_KEY= \
+    -e DATABASE_URL="$API_DB" -e VEEVEE_INGRESS_SECRET="$SECRET" -e PORT=18083 -e VEEVEE_MCP=1 \
+    -e MCP_QUOTE_SECRET="rehearsal-mcp-quote-$(openssl rand -hex 24)" -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python -m deploy.entrypoint mcp >/dev/null
+fi
 # shellcheck disable=SC2086
 docker run -d --name vr-gen --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED $NS -e DATABASE_URL="$WORKER_DB" \
   -e KLING_API=rehearsal-fake-key -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/release/rehearsal_worker.py generation >/dev/null
@@ -63,11 +71,13 @@ docker run -d --name vr-export --network "$NET" -v "$VOL:/media" -v "$WORK/scrip
 docker run -d --name vr-sched --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED $NS -e DATABASE_URL="$WORKER_DB" \
   -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/release/rehearsal_worker.py scheduler >/dev/null
 until docker exec vr-api python -c "import http.client as h;c=h.HTTPConnection('127.0.0.1',18081,timeout=3);c.request('GET','/__g4_readiness');exit(c.getresponse().status!=200)" 2>/dev/null; do sleep 1; done
+[ "$MCP" != 1 ] || until docker exec vr-mcp python -c "import http.client as h;c=h.HTTPConnection('127.0.0.1',18083,timeout=3);c.request('GET','/__g4_readiness');exit(c.getresponse().status!=200)" 2>/dev/null; do
+  [ "$(docker inspect -f '{{.State.Running}}' vr-mcp)" = true ] || { docker logs vr-mcp 2>&1 | tail -20; echo "== vr-mcp exited"; exit 1; }; sleep 1; done
 STATUS=0
 # shellcheck disable=SC2086
-docker exec $COMMON $MANAGED -e DATABASE_URL="$API_DB" -e REHEARSAL_OBSERVER_URL="$REHEARSAL_OBSERVER_URL" -e PYTHONPATH=/app -w /app vr-api python /scripts/release/rehearsal_probe.py "$SECRET" "$REHEARSAL_USER" > "$BASE/probe.txt" 2>&1 || STATUS=$?
+docker exec $COMMON $MANAGED -e DATABASE_URL="$API_DB" -e REHEARSAL_OBSERVER_URL="$REHEARSAL_OBSERVER_URL" -e REHEARSAL_MCP="$MCP" -e PYTHONPATH=/app -w /app vr-api python /scripts/release/rehearsal_probe.py "$SECRET" "$REHEARSAL_USER" > "$BASE/probe.txt" 2>&1 || STATUS=$?
 grep -v '^{"event": "request"' "$BASE/probe.txt" || true
-for n in vr-gen vr-export vr-sched; do
+for n in vr-gen vr-export vr-sched $([ "$MCP" = 1 ] && echo vr-mcp); do
   if [ "$(docker inspect -f '{{.State.Running}}' "$n")" != true ]; then echo "FAIL $n exited"; STATUS=1; fi
   docker logs "$n" 2>&1 | grep -E "Traceback|Error|rehearsal_worker_ready" | sed "s/^/  [$n] /" | head -5
 done

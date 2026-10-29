@@ -28,6 +28,17 @@ export function djangoDestination(requestUrl, _method, configuration = {}) {
   return new URL((document || request.pathname) + request.search, origin);
 }
 
+// The MCP service (a separate backend behind its own ingress gateway) answers exactly /mcp.
+export const MCP_PATH = "/mcp";
+
+export function mcpDestination(requestUrl, configuration = {}) {
+  const request = new URL(requestUrl);
+  if (request.pathname !== MCP_PATH) return null;
+  const origin = djangoOrigin(configuration);
+  if (origin === request.origin) throw new Error("MCP routing would loop");
+  return new URL(MCP_PATH + request.search, origin);
+}
+
 export async function fetchDjangoSession(cookieHeader, configuration = {}, fetchImpl = fetch) {
   const origin = djangoOrigin(configuration);
   const ingressSecret = configuration.ingressSecret;

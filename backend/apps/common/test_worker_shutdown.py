@@ -5,7 +5,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
 
-from django.db import connections
 from django.test import SimpleTestCase, TransactionTestCase
 from apps.generation import worker
 from apps.generation.models import Generation
@@ -25,7 +24,7 @@ class WorkerShutdownTests(SimpleTestCase):
             started.append(identifier)
             stop.set()
             return {'kind':'pending'}
-        with patch.object(worker,'reap_stale_running_images'),patch.object(worker,'select_due_generations',
+        with patch.object(worker,'reap_stale_running_images'),patch.object(worker,'pending_cancellations',return_value=[]),patch.object(worker,'select_due_generations',
                 return_value=[SimpleNamespace(id=index,model='Seedance 2.0') for index in range(25)]):
             result=worker.run_once(concurrency=1,process=process,stop=stop)
         self.assertEqual(started,[0])
@@ -43,7 +42,7 @@ class WorkerShutdownTests(SimpleTestCase):
             except QueueExecutionDeadlineError:
                 return {'kind':'pending'}
             self.fail('Wait did not observe shutdown')
-        with patch.object(worker,'reap_stale_running_images'),patch.object(worker,'select_due_generations',
+        with patch.object(worker,'reap_stale_running_images'),patch.object(worker,'pending_cancellations',return_value=[]),patch.object(worker,'select_due_generations',
                 return_value=[SimpleNamespace(id=index,model='Seedance 2.0') for index in range(3)]):
             with ThreadPoolExecutor(max_workers=1) as pool:
                 future=pool.submit(worker.run_once,concurrency=1,process=process,stop=stop)

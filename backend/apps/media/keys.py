@@ -34,7 +34,7 @@ def is_protected_key(key):
     for _ in range(20):
         if re.match(r'^(settings|migrations)/', key, re.I):
             return True
-        match = re.fullmatch(r'thumbs/[0-9]+/(.+)\.webp', key, re.I)
+        match = re.fullmatch(r'thumbs/(?:[0-9]+|poster)/(.+)\.webp', key, re.I)
         if not match:
             return False
         key = match[1]
@@ -56,7 +56,7 @@ def is_export_key(key):
             continue
         if re.match(r'^exports/', key, re.I):
             return True
-        match = re.fullmatch(r'thumbs/[0-9]+/(.+)\.webp', key, re.I)
+        match = re.fullmatch(r'thumbs/(?:[0-9]+|poster)/(.+)\.webp', key, re.I)
         if not match:
             return False
         key = match[1]

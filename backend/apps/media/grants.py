@@ -19,7 +19,7 @@ def _signature(payload):
 
 def _upload_session(key):
     import re
-    while match := re.fullmatch(r'thumbs/[0-9]+/(.+)\.webp', key):
+    while match := re.fullmatch(r'thumbs/(?:[0-9]+|poster)/(.+)\.webp', key):
         key = match[1]
     if not key.startswith('uploads/'):
         return None

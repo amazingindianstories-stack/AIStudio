@@ -54,12 +54,15 @@ def _create_only(primary, key, data):
     return True
 
 
-def bounded_derivative(storage, key, width, *, encode=encode_display, gate=_GATE, clock=time.monotonic):
-    """Return ``(target_key, fresh_bytes_or_None)``; never raises for a derivative failure."""
+def bounded_derivative(storage, key, width, *, encode=encode_display, gate=_GATE, clock=time.monotonic,
+                       seconds=READ_DEADLINE_SECONDS):
+    """Return ``(target_key, fresh_bytes_or_None)``; never raises for a derivative failure.
+
+    ``seconds`` bounds reading the original; at 0 an existing derivative is used and none is made."""
     derivative = derivative_key(key, width)
     if storage.exists(derivative):
         return derivative, None
-    if not gate.acquire(blocking=False):
+    if seconds <= 0 or not gate.acquire(blocking=False):
         return key, None
     try:
         if storage.exists(derivative):
@@ -70,7 +73,7 @@ def bounded_derivative(storage, key, width, *, encode=encode_display, gate=_GATE
             if content_type not in IMAGE_TYPES or not 0 < original.content_length <= MAX_INPUT_BYTES:
                 return key, None
             data = bytearray()
-            deadline = clock() + READ_DEADLINE_SECONDS
+            deadline = clock() + seconds
             for chunk in original.stream:
                 if clock() > deadline or len(data) + len(chunk) > MAX_INPUT_BYTES:
                     return key, None

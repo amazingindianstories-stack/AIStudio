@@ -65,6 +65,22 @@ class OmniHumanProtocolTests(SimpleTestCase):
         self.assertEqual(transport.request.call_args.args, ('POST', api.endpoint(api.QUERY)))
         self.assertEqual(json.loads(transport.request.call_args.kwargs['raw_body']), {'req_key': api.REQ_KEY, 'task_id': 'task-1'})
 
+    def test_shared_fake_provider_answers_the_real_adapter_with_a_native_mp4(self):
+        from testsupport.fake_providers import FakeProviders
+        with FakeProviders() as fake:
+            task = api.create_video_task({'imageUrls': ['https://media.invalid/face.png'], 'audioUrls': ['https://media.invalid/voice.wav'],
+                                          'prompt': 'hello'}, env=ENV)
+            self.assertEqual(fake.omnihuman_payloads, [{'req_key': api.REQ_KEY, 'image_urls': ['https://media.invalid/face.png'],
+                                                        'audio_url': 'https://media.invalid/voice.wav', 'enable_watermark': False, 'prompt': 'hello'}])
+            self.assertEqual(api.get_video_task(task, env=ENV)['status'], 'running')
+            done = api.get_video_task(task, env=ENV)
+            api.cancel_video_task(task, env=ENV)
+            unknown = api.get_video_task('unknown-task', env=ENV)
+            data, mime = fake.media(done['videoUrl'])
+        self.assertEqual((done['status'], done['providerStatus'], mime), ('succeeded', 'done', 'video/mp4'))
+        self.assertEqual(api.video_container(io.BytesIO(data)), 'mp4')
+        self.assertEqual((unknown['status'], unknown['providerError']['code']), ('failed', '50215'))
+
     def test_reuses_the_byteplus_key_pair_with_its_volcengine_fallback_and_never_sends_without_it(self):
         for env, ak in [(ENV, 'synthetic-ak'), ({'VOLCENGINE_ACCESS_KEY_ID': 'volc-ak', 'VOLCENGINE_SECRET_ACCESS_KEY': 'volc-sk'}, 'volc-ak')]:
             transport = Mock(request=Mock(return_value=response({'code': 10000, 'data': {'status': 'in_queue'}})))

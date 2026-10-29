@@ -11,7 +11,7 @@ from apps.authentication.models import User
 from apps.authentication.session import sign_session
 from .models import UploadSession
 from .storage import FileSystemAdapter, GCSAdapter, StorageService
-from .uploads import (initialize_upload, finalize_upload, upload_status, stream_local_chunk,
+from .uploads import (initialize_upload, finalize_upload, upload_status, stream_local_chunk, store_upload,
     resolve_ready_upload, cancel_upload, cleanup_expired_uploads, UploadError, CHUNK_BYTES)
 
 PNG = b'\x89PNG\r\n\x1a\n'+b'fixture'
@@ -144,6 +144,28 @@ class ResumableUploadTests(TransactionTestCase):
         self.assertEqual(upload_status(self.user.id, row.id, storage)['uploadUrl'], result['uploadUrl'])
         initialize_upload(self.user.id, body, storage)
         self.assertEqual(blob.create_resumable_upload_session.call_count, 1)
+
+    def test_server_side_store_uses_the_session_checks_replays_and_deletes_rejected_bytes(self):
+        body = {'purpose': 'image-reference', 'contentType': 'image/png', 'byteSize': len(PNG), 'filename': 'image.png',
+                'sha256': hashlib.sha256(PNG).hexdigest(), 'requestKey': 'server-side'}
+        result = store_upload(self.user.id, body, io.BytesIO(PNG), self.storage)
+        self.assertEqual((result['state'], result['byteSize']), ('ready', len(PNG)))
+        self.assertEqual(self.storage.read(result['key']), PNG)
+        self.assertEqual(store_upload(self.user.id, body, io.BytesIO(PNG), self.storage), result)
+        self.assertEqual(UploadSession.objects.count(), 1)
+        bad = {**body, 'requestKey': 'server-side-bad', 'sha256': ''}
+        self.assertCode('UPLOAD_SIGNATURE_MISMATCH', store_upload, self.user.id, {**bad, 'byteSize': 7}, io.BytesIO(b'garbage'), self.storage)
+        row = UploadSession.objects.get(request_key='server-side-bad')
+        self.assertEqual(row.state, 'cancelled')
+        self.assertFalse(self.storage.primary._path(row.key).exists())
+        # On GCS the server writes the object itself: no browser session is opened, and an unfinished replay has no URI.
+        blob, client = Mock(), Mock()
+        client.bucket.return_value.blob.return_value = blob
+        gcs = StorageService(GCSAdapter(client, 'fixture-bucket'))
+        session = initialize_upload(self.user.id, {**body, 'requestKey': 'gcs-server-side'}, gcs, server_side=True)
+        blob.create_resumable_upload_session.assert_not_called()
+        self.assertNotIn('uploadUrl', session)
+        self.assertNotIn('uploadUrl', upload_status(self.user.id, session['uploadId'], gcs))
 
     def test_cancel_and_ttl_collect_only_unpublished_new_objects(self):
         ready, _ = self.begin()

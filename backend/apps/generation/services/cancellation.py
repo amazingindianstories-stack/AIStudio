@@ -2,8 +2,13 @@
 
 The registry is deliberately small: adapters must expose both a cancel operation
 and a status query using the same credentials/task identifiers as submission.
+
+A caller without provider credentials (the MCP service) passes ``defer=True``:
+a job with a provider task is then marked ``pending`` and the generation worker,
+which has the credentials, performs the same cancel (``settle_pending``).
 """
 import os
+from types import SimpleNamespace
 from uuid import uuid4
 
 from django.db import transaction
@@ -18,6 +23,8 @@ from .deadline import Cancellation
 
 ACTIVE = ('queued', 'running')
 UNSETTLED = ('requested', 'uncertain')
+PENDING = 'pending'   # asked by a caller without provider credentials; the generation worker sends it
+DEFERRED = 'Cancellation requested. Veevee is asking the provider to stop this generation.'
 COST_UNCONFIRMED = 'cancelled_billing_unconfirmed'
 COST_UNSUBMITTED = 'cancelled_before_submission'
 ADAPTERS = {'byteplus': (seedance.get_video_task, seedance.cancel_video_task),
@@ -26,9 +33,9 @@ ADAPTERS = {'byteplus': (seedance.get_video_task, seedance.cancel_video_task),
 
 
 class CancelError(Exception):
-    def __init__(self, message, status=409):
+    def __init__(self, message, status=409, *, busy=False):
         super().__init__(message)
-        self.status = status
+        self.status, self.busy = status, busy
 
 
 def provider_for(item, env=None):
@@ -50,7 +57,7 @@ def can_cancel(item, env=None):
     return provider == 'omni' or item.provider_status not in ('running', 'generating', 'done', 'succeeded', 'completed')
 
 
-def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=None):
+def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=None, defer=False):
     """Fence submission/poll workers, then request cancel and let polling settle it.
 
     A provider may finish between preflight and cancel. In particular ModelArk
@@ -79,11 +86,18 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
             return item, 'The generation already finished. Its result has been kept.'
         if item.cancellation_state in UNSETTLED:
             return item, 'Cancellation is being reconciled with the provider.'
+        if defer and item.cancellation_state == PENDING:
+            return item, DEFERRED
         if not can_cancel(item, env):
             raise CancelError('This task has already started or is being submitted and cannot be cancelled.')
+        if defer and item.task_id:
+            Generation.objects.filter(pk=item.id).update(cancellation_state=PENDING, updated_at=max(now, item.updated_at + 1))
+            current = Generation.objects.get(pk=item.id)
+            transaction.on_commit(lambda: publish_best_effort(current))
+            return current, DEFERRED
         claim = coordinator.claim_generation(identifier, owner, now=now, ttl_ms=120000)
         if claim is None:
-            raise CancelError('The generation is being updated. Try cancelling again in a moment.')
+            raise CancelError('The generation is being updated. Try cancelling again in a moment.', busy=True)
         prior = item.cancellation_state
         Generation.objects.filter(pk=item.id, worker_lease_id=owner).update(
             cancellation_state='requested', updated_at=max(now, item.updated_at + 1))
@@ -97,7 +111,7 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
             transaction.on_commit(lambda: publish_best_effort(current))
             return current, None
     publish_best_effort(item)
-    message, state, refused, attempted, accepted = None, None, False, False, 0
+    message, state, refused, attempted, accepted, finished = None, None, False, False, 0, False
     try:
         if env.get('MOCK_GENERATION') == '1':
             # Disposable fixtures never call a real provider.
@@ -125,7 +139,7 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
                     raise
                 accepted += 1
             if not attempted and not refused:
-                message = 'The generation already finished at the provider. Its result is being saved.'
+                finished, message = True, 'The generation already finished at the provider. Its result is being saved.'
             if accepted == len(tasks):
                 # Polling, rather than the cancel HTTP response, owns terminal state.
                 current = Generation.objects.get(pk=item.id)
@@ -137,7 +151,8 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
         else:
             message = 'The provider could not be reached to cancel this generation. Try again in a moment.'
     finally:
-        state = state or ('refused' if refused else 'requested' if accepted else prior)
+        # A deferred request whose task already finished at the provider is moot: clear it so polling saves the result.
+        state = state or ('refused' if refused else 'requested' if accepted else None if finished and prior == PENDING else prior)
         with transaction.atomic():
             current = Generation.objects.select_for_update().get(pk=item.id)
             if current.status in ACTIVE and current.worker_lease_id == owner:
@@ -151,3 +166,31 @@ def cancel_generation(identifier, actor, *, env=None, adapters=None, advance=Non
     if current.status in ('succeeded', 'failed'):
         return current, 'The generation finished before cancellation was confirmed. Its result has been kept.'
     return current, message or 'Cancellation requested. Waiting for the provider to confirm the outcome.'
+
+
+def pending_cancellations(*, limit=8, exclude_ids=()):
+    """Ids of active jobs whose deferred cancel the generation worker still has to send, oldest request first."""
+    rows = Generation.objects.filter(status__in=ACTIVE, cancellation_state=PENDING).exclude(pk__in=list(exclude_ids))
+    return list(rows.order_by('updated_at').values_list('id', flat=True)[:limit])
+
+
+def settle_pending(identifier, *, env=None, adapters=None, advance=None):
+    """Generation worker: send a deferred cancel exactly as the web would, with this process's credentials.
+
+    The request was authorized when it was made. A refusal (the task started) ends the request; a busy row or an
+    unreachable provider leaves it pending for a later pass. Returns a worker outcome label.
+    """
+    row = Generation.objects.filter(pk=identifier, status__in=ACTIVE, cancellation_state=PENDING).values('user_id', 'updated_at').first()
+    if row is None:
+        return 'cancel_settled'
+    try:
+        current, _ = cancel_generation(identifier, SimpleNamespace(id=row['user_id'], role='user'), env=env, adapters=adapters,
+                                       advance=advance)
+    except CancelError as error:
+        if error.busy:
+            return 'cancel_busy'
+        Generation.objects.filter(pk=identifier, cancellation_state=PENDING).update(
+            cancellation_state='refused', updated_at=max(now_ms(), row['updated_at'] + 1))
+        publish_best_effort(Generation.objects.get(pk=identifier))
+        return 'cancel_refused'
+    return 'cancel_busy' if current.cancellation_state == PENDING and current.status in ACTIVE else 'cancel_settled'

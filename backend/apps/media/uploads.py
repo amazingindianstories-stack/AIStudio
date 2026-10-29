@@ -139,12 +139,13 @@ def session_result(row, storage, *, include_uri=False):
                 pass
         if include_uri:
             result['uploadUrl'] = f'/api/uploads/{row.id}/local'
-    elif include_uri:
+    elif include_uri and row.session_uri:     # server-side sessions (``store_upload``) have no browser session
         result['uploadUrl'] = _cipher().decrypt(row.session_uri.encode()).decode()
     return result
 
 
-def initialize_upload(actor_id, body, storage, *, origin=None):
+def initialize_upload(actor_id, body, storage, *, origin=None, server_side=False):
+    """Open an upload session; ``server_side`` sessions are filled by the server (``store_upload``), not a browser."""
     from apps.authentication.models import User
     purpose, mime, size = body.get('purpose'), body.get('contentType'), body.get('byteSize')
     if not isinstance(purpose, str) or purpose not in PURPOSES or not isinstance(mime, str):
@@ -191,13 +192,30 @@ def initialize_upload(actor_id, body, storage, *, origin=None):
             key=f'{PURPOSES[purpose][0]}/{actor_id}-{identifier}', purpose=purpose,
             content_type=mime, byte_size=size, filename=filename, sha256=checksum,
             request_key=request_key, expires_at=timezone.now()+timedelta(hours=24), state='uploading')
-        if isinstance(storage.primary, GCSAdapter):
+        if isinstance(storage.primary, GCSAdapter) and not server_side:
             uri = storage.primary.begin_reference_upload(row.key, mime, size, origin)
             from .storage import validate_gcs_session_uri
             validate_gcs_session_uri(uri)
             row.session_uri = _cipher().encrypt(uri.encode()).decode()
         row.save(force_insert=True)
         return session_result(row, storage, include_uri=True)
+
+
+def store_upload(actor_id, body, stream, storage):
+    """Upload bytes the server already holds (agent URL imports, inline data) through the same session checks.
+
+    The session is created, written and finalized here, so size, signature and checksum checks, quotas and
+    ``requestKey`` replay apply exactly as for browser uploads. Bytes that fail finalization are deleted at once.
+    """
+    session = initialize_upload(actor_id, body, storage, server_side=True)
+    if session['state'] == 'ready':
+        return session
+    storage.primary.put_stream(session['key'], stream, session['contentType'], 'private, no-store')
+    try:
+        return finalize_upload(actor_id, session['uploadId'], storage)
+    except UploadError:
+        cancel_upload(actor_id, session['uploadId'], storage)
+        raise
 
 
 def upload_status(actor_id, session_id, storage):

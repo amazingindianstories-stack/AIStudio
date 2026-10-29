@@ -1,5 +1,4 @@
 """Managed-schema organization contracts and independent-transaction races."""
-import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
 from unittest.mock import patch

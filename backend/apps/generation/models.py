@@ -1,4 +1,5 @@
 from django.contrib.postgres.functions import RandomUUID
+from django.contrib.postgres.indexes import HashIndex
 from django.db import models
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Lower
@@ -112,6 +113,7 @@ class Generation(models.Model):
                 condition=models.Q(RawSQL("(kind = 'video' and status in ('queued', 'running')) or (kind = 'image' and (status = 'queued' or (status = 'running' and model like 'Magnific %%')))", [], output_field=models.BooleanField()))),
             PostgreSQLIndex(name='generations_mcp_token_created_idx', fields=['mcp_token_id', 'created_at'],
                 condition=models.Q(mcp_token_id__isnull=False)),
+            HashIndex(name='generations_url_hash_idx', fields=['url']),
         ]
 
 

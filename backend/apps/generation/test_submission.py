@@ -139,6 +139,63 @@ class QuoteTests(TransactionTestCase):
                     Generation.objects.all().delete()
                     self.storage.primary.objects.clear()
 
+    def test_upscale_and_final_quotes_match_the_recorded_estimate(self):
+        origin = 'http://testserver'
+        precision = dict(model='Magnific Precision V2', image=data_url(picture(160, 90)),
+                         params=dict(scaleFactor='2x', flavor='photo', sharpen=0, smartGrain=0, ultraDetail=0))
+        with override_settings(VEEVEE_MEDIA_STORAGE=self.storage, VEEVEE_MAGNIFIC_UPSCALE=True):
+            quote = submission.quote_upscale(self.actor, json.loads(json.dumps(precision)), origin=origin)
+            self.assertEqual((Generation.objects.count(), self.storage.primary.objects), (0, {}))
+            item = submission.submit_upscale(self.actor, json.loads(json.dumps(precision)), origin=origin)
+            self.assertEqual(quote, {'kind': 'image', 'model': 'Magnific Precision V2', 'costCents': item['costCents']})
+            with self.assertRaises(submission.Refused) as refused:
+                submission.quote_upscale(self.actor, {**precision, 'params': {**precision['params'], 'flavor': 'neon'}}, origin=origin)
+            self.assertEqual((refused.exception.status, refused.exception.body), (400, {'error': 'Invalid flavor.'}))
+        now = enqueue.now_ms()
+        draft = Generation.objects.create(id=uuid.uuid4(), kind='video', status='succeeded', prompt='river', model='Seedance 2.5',
+                                          aspect_ratio='16:9', resolution='480p', duration=10, draft_mode=True, task_id='draft-task',
+                                          created_at=now, updated_at=now)
+        quote = submission.quote_finalize(self.actor, str(draft.id))
+        self.assertEqual(Generation.objects.filter(source_generation_id=draft.id).count(), 0)
+        final = submission.finalize_draft(self.actor, str(draft.id))
+        self.assertEqual(quote, {'kind': 'video', 'model': 'Seedance 2.5', 'costCents': final['costCents'], 'duration': 10,
+                                 'resolution': '1080p', 'referenceVideos': None})
+
+    def test_agent_finals_and_upscales_admit_in_the_row_transaction_and_replay(self):
+        now = enqueue.now_ms()
+        draft = Generation.objects.create(id=uuid.uuid4(), kind='video', status='succeeded', prompt='river', model='Seedance 2.5',
+                                          aspect_ratio='16:9', resolution='480p', duration=5, draft_mode=True, task_id='draft-task',
+                                          created_at=now, updated_at=now)
+        def refuse(values):
+            raise RuntimeError('over budget')
+        with self.assertRaises(submission.AdmissionRefused) as refused:
+            submission.finalize_draft(self.actor, str(draft.id), idempotency_key='final-key-01', admit=refuse)
+        self.assertEqual(str(refused.exception.error), 'over budget')
+        self.assertFalse(Generation.objects.filter(source_generation_id=draft.id).exists())
+        seen = []
+        origin = {'created_via': 'mcp', 'mcp_token_id': None, 'mcp_client_id': None}
+        first = submission.finalize_draft(self.actor, str(draft.id), idempotency_key='final-key-01', origin=origin, admit=seen.append)
+        Generation.objects.filter(pk=first['id']).update(status='succeeded')
+        replay = submission.finalize_draft(self.actor, str(draft.id), idempotency_key='final-key-01', origin=origin, admit=seen.append)
+        self.assertEqual((replay['id'], len(seen), seen[0]['resolution']), (first['id'], 1, '1080p'))
+        self.assertEqual(Generation.objects.get(pk=first['id']).created_via, 'mcp')
+        precision = dict(model='Magnific Precision V2', image=data_url(picture(160, 90)),
+                         params=dict(scaleFactor='2x', flavor='photo', sharpen=0, smartGrain=0, ultraDetail=0))
+        with override_settings(VEEVEE_MEDIA_STORAGE=self.storage, VEEVEE_MAGNIFIC_UPSCALE=True):
+            with self.assertRaises(submission.AdmissionRefused):
+                submission.submit_upscale(self.actor, precision, origin='http://testserver', idempotency_key='upscale-key-01', admit=refuse)
+            self.assertFalse(Generation.objects.filter(model='Magnific Precision V2').exists())
+            item = submission.submit_upscale(self.actor, precision, origin='http://testserver', idempotency_key='upscale-key-01',
+                                             created_by=origin, admit=seen.append)
+            again = submission.submit_upscale(self.actor, precision, origin='http://testserver', idempotency_key='upscale-key-01',
+                                              created_by=origin, admit=seen.append)
+            self.assertEqual((again['id'], len(seen), seen[1]['costCents']), (item['id'], 2, item['costCents']))
+            with self.assertRaises(submission.Refused) as conflict:
+                submission.submit_upscale(self.actor, {**precision, 'params': {**precision['params'], 'sharpen': 5}},
+                                          origin='http://testserver', idempotency_key='upscale-key-01')
+            self.assertEqual((conflict.exception.status, conflict.exception.code), (409, 'IDEMPOTENCY_PAYLOAD_MISMATCH'))
+        self.assertEqual(Generation.objects.filter(model='Magnific Precision V2', created_via='mcp').count(), 1)
+
 
 class ReadTests(TransactionTestCase):
     def setUp(self):

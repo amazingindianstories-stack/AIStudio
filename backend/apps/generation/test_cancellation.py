@@ -231,7 +231,7 @@ class CancellationTests(TransactionTestCase):
 
         seedance_row = self.job(task_id='seedance-task')
         omni_row = self.job(task_id='omni-task', model='Gemini Omni Flash 1.1')
-        held = self.job(task_id='held-task', cancellation_state='requested')
+        self.job(task_id='held-task', cancellation_state='requested')
         actor = SimpleNamespace(id=None, role='admin')
         with override_settings(VEEVEE_PAID_GUARD=UNLIMITED), patch.object(HttpTransport, '_send', send), \
                 patch.dict('os.environ', {'ARK_API_KEY': 'mock', 'GOOGLE_API_KEY': 'mock', 'MOCK_GENERATION': '0'}):
@@ -363,6 +363,99 @@ class CancellationTests(TransactionTestCase):
         from .updates import read_generation_updates
         self.assertIn(str(row.id), [item['id'] for item in read_generation_updates(0)[0]])
         self.assertEqual(self.client.delete('/api/history?id='+str(row.id)).status_code, 200)
+
+    def settle(self, row, get_status, cancel=None):
+        """The generation worker sending a deferred cancel, with fake adapters in place of the provider."""
+        cancel = cancel or Mock()
+        deps = poller.Dependencies(mock=lambda: False, get_video=get_status, get_omni=get_status, publish=lambda row: None,
+            save_url=lambda *args: {'url': '/api/media/generations/native.mov'})
+        with patch.object(cancellation, 'publish_best_effort'):
+            outcome = cancellation.settle_pending(row.id, env={}, adapters={'byteplus': (get_status, cancel), 'omni': (get_status, cancel)},
+                advance=lambda item, **kw: poller.advance(item, dependencies=deps, **kw))
+        return outcome, Generation.objects.get(pk=row.id), cancel
+
+    def defer(self, row, actor=None):
+        with patch.object(cancellation, 'publish_best_effort'):
+            return cancellation.cancel_generation(row.id, actor or SimpleNamespace(id=row.user_id, role='user'), env={}, defer=True,
+                adapters={'byteplus': (Mock(side_effect=AssertionError), Mock(side_effect=AssertionError))})
+
+    def test_a_deferred_cancel_is_only_marked_and_the_worker_sends_it_like_the_web(self):
+        row = self.job(status='queued')
+        current, message = self.defer(row)
+        self.assertEqual((current.status, current.cancellation_state, current.worker_lease_id, message),
+                         ('queued', 'pending', None, cancellation.DEFERRED))
+        self.assertEqual(self.defer(row)[0].cancellation_state, 'pending')     # asking twice changes nothing
+        self.assertEqual(cancellation.pending_cancellations(), [row.id])
+        self.assertEqual(cancellation.pending_cancellations(exclude_ids={row.id}), [])
+        outcome, current, cancel = self.settle(row, Mock(side_effect=[{'status': 'queued'}, {'status': 'cancelled'}]))
+        cancel.assert_called_once()
+        self.assertEqual((outcome, current.status, current.cancellation_state, current.cost_cents, current.cost_basis, current.worker_lease_id),
+                         ('cancel_settled', 'cancelled', 'confirmed', 60, 'cancelled_billing_unconfirmed', None))
+        self.assertEqual(cancellation.pending_cancellations(), [])
+        self.assertEqual(self.settle(current, Mock())[0], 'cancel_settled')   # nothing left to send
+
+    def test_a_deferred_cancel_without_a_provider_task_still_cancels_at_once_for_free(self):
+        row = self.job(status='queued', task_id=None)
+        current, message = self.defer(row)
+        self.assertEqual((current.status, current.cost_cents, current.cost_basis, message), ('cancelled', 0, 'cancelled_before_submission', None))
+
+    def test_the_worker_reports_a_started_task_too_late_and_a_failed_cancel_uncertain(self):
+        started = self.job(status='queued', task_id='started-task')
+        self.defer(started)
+        outcome, current, cancel = self.settle(started, Mock(return_value={'status': 'running'}))
+        cancel.assert_not_called()
+        self.assertEqual((outcome, current.status, current.cancellation_state, current.cost_basis), ('cancel_settled', 'queued', 'refused', 'estimated'))
+        unsure = self.job(status='queued', task_id='unsure-task')
+        self.defer(unsure)
+        outcome, current, cancel = self.settle(unsure, Mock(return_value={'status': 'queued'}), Mock(side_effect=TimeoutError('unknown')))
+        self.assertEqual((outcome, current.status, current.cancellation_state), ('cancel_settled', 'queued', 'uncertain'))
+        cancel.assert_called_once()
+
+    def test_a_deferred_cancel_of_a_task_the_provider_already_finished_lets_polling_save_the_result(self):
+        row = self.job(status='running', task_id='done-task')
+        self.defer(row)
+        outcome, current, cancel = self.settle(row, Mock(return_value={'status': 'succeeded'}))
+        cancel.assert_not_called()
+        self.assertEqual((outcome, current.status, current.cancellation_state, current.worker_lease_id),
+                         ('cancel_settled', 'running', None, None))
+        self.assertEqual(cancellation.pending_cancellations(), [])   # polling owns the row again
+        # The web path keeps its prior state when the task already finished.
+        web = self.job(status='running', task_id='done-web-task', cancellation_state=None)
+        current, message, cancel = self.run_cancel(web, Mock(return_value={'status': 'succeeded'}))
+        self.assertEqual((current.cancellation_state, message), (None, 'The generation already finished at the provider. Its result is being saved.'))
+
+    def test_a_busy_row_or_an_unreachable_provider_keeps_the_request_for_a_later_pass(self):
+        row = self.job(status='queued')
+        self.defer(row)
+        coordinator.claim_generation(row.id, 'poller')
+        outcome, current, cancel = self.settle(row, Mock())
+        self.assertEqual((outcome, current.cancellation_state), ('cancel_busy', 'pending'))
+        coordinator.release_generation(row.id, 'poller')
+        outcome, current, cancel = self.settle(row, Mock(side_effect=ProviderError('down', status=503)))
+        cancel.assert_not_called()
+        self.assertEqual((outcome, current.status, current.cancellation_state, current.worker_lease_id), ('cancel_busy', 'queued', 'pending', None))
+        # A started task the request can no longer stop ends the request instead of retrying forever.
+        Generation.objects.filter(pk=row.id).update(provider_status='running')
+        outcome, current, _ = self.settle(row, Mock())
+        self.assertEqual((outcome, current.cancellation_state), ('cancel_refused', 'refused'))
+
+    def test_the_web_still_cancels_a_pending_row_inline(self):
+        row = self.job(status='queued')
+        self.defer(row)
+        current, message, cancel = self.run_cancel(row, Mock(side_effect=[{'status': 'queued'}, {'status': 'cancelled'}]))
+        self.assertEqual((current.status, current.cancellation_state, message), ('cancelled', 'confirmed', None))
+        cancel.assert_called_once()
+
+    def test_the_generation_worker_sends_pending_cancels_before_polling(self):
+        from . import worker
+        row = self.job(status='queued')
+        self.defer(row)
+        process = Mock(return_value={'kind': 'polled'})
+        with patch.object(worker, 'settle_pending', return_value='cancel_settled') as settle:
+            summary = worker.run_once(process=process)
+        settle.assert_called_once_with(row.id)
+        self.assertNotIn(row.id, [call.args[0] for call in process.call_args_list])
+        self.assertEqual(summary['outcomes'].get('cancel_settled'), 1)
 
     def test_upgrade_from_previous_supported_state_preserves_job(self):
         executor = MigrationExecutor(connection)

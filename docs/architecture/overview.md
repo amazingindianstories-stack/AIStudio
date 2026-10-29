@@ -7,9 +7,13 @@ project/folder library, and export native masters.
 ```mermaid
 flowchart LR
   Browser -->|same-origin /api| Next[Next.js on Vercel]
+  Agent[MCP client] -->|/mcp, bearer token| Next
   Next -->|ingress header| Gateway[Ingress gateway]
+  Next -->|ingress header| McpGateway[Ingress gateway, mcp mode]
   subgraph Railway Green
     Gateway --> API[Django API / gunicorn]
+    McpGateway --> MCP[MCP service / uvicorn]
+    MCP --> PG
     Gen[Generation worker] --> PG[(PostgreSQL 18)]
     Export[Export worker] --> PG
     Sched[Scheduler] --> PG
@@ -27,9 +31,10 @@ flowchart LR
 
 | Piece | Code | Notes |
 |---|---|---|
-| Frontend | `src/` | Next.js App Router, React, Zustand. `src/middleware.js` forwards `/api/*` requests to Django with the server-only ingress header, after enforcing the maintenance write freeze and answering `GET /api/maintenance` itself (see `operations/release-runbook.md`). No route handlers and no backend credentials live here. |
+| Frontend | `src/` | Next.js App Router, React, Zustand. `src/middleware.js` forwards `/api/*` requests to Django with the server-only ingress header, after enforcing the maintenance write freeze and answering `GET /api/maintenance` itself (see `operations/release-runbook.md`). It forwards `/mcp` to the MCP service (`MCP_API_ORIGIN`) with the maintenance state in a header. No route handlers and no backend credentials live here. |
 | Ingress gateway | `backend/deploy/gateway.py` | Runs in front of gunicorn in the API service. Refuses requests without the ingress header and blocks non-allowlisted routes (see F-07 in `operations/status.md`). |
 | API | `backend/config`, `backend/apps/*` | Django + DRF. Started by `python -m deploy.entrypoint api`. |
+| MCP service | `apps/mcp` | The agent endpoint `/mcp`: one uvicorn process with Django in-process, behind the gateway in mcp mode, started by `python -m deploy.entrypoint mcp`. API database role, no provider credentials (`mcp-server.md`). |
 | Generation worker | `apps/generation` (`generation_worker`) | Admission, provider submission, task receipts, polling and terminal state. |
 | Export worker | `apps/exports` (`media_export_worker`) | Builds private ZIP archives from frozen manifests. |
 | Scheduler | `apps/workers` (`run_scheduler`) | Depth/video reconciliation, export and login-attempt cleanup, portrait janitor. |
@@ -55,6 +60,7 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `media` | Storage, uploads, signed grants, downloads, audio transcription |
 | `admin_dashboard` | Admin views, pricing, settings, limits, status checks, provider error log (`/api/admin/errors`) |
 | `mcp_auth` | Agent (MCP) access: hashed tokens, OAuth 2.1 server, per-user opt-in, spend and rate controls (`agent-access.md`) |
+| `mcp` | The MCP server: tools, resources, prompts, quotes and holds over the shared services (`mcp-server.md`) |
 | `common` | Middleware, leases, responses, health, activity log |
 | `integrations` | Model-free outbound HTTP: provider transport and request deadlines, BytePlus client, bounded remote media fetch, DNS resolver |
 
@@ -71,7 +77,8 @@ redeploying shows or hides a model.
 
 Submission and library reads are services the views only adapt to HTTP, so other callers reuse them without
 re-implementing a rule. `generation/services/submission.py` validates and queues image, video and upscale jobs,
-finalizes drafts, and quotes image and video requests; a refusal carries the exact web status and body, and a
+finalizes drafts, and quotes image, video, upscale and finalize requests; agent callers also pass the row's origin
+and an admission callback that runs in the creating transaction. A refusal carries the exact web status and body, and a
 paid-guard refusal raises the typed `PaidBudgetHold`, which the web API answers as 409 through
 `paid_guard.wrap_wsgi`. `generation/services/reads.py` serves library search and pages (keyset cursor), counts,
 and single and batch generation reads; `library/services/folder_reads.py` serves the folder tree, ancestry and
@@ -92,7 +99,7 @@ reader.
 | `tests/browser/` | Playwright specs run through Django by `scripts/dev/browser-harness.py` |
 | `local/` | Full local stack (Docker Compose, fake providers, restored Green copy) |
 | `scripts/release/` | Release gate, local rehearsal, Railway staging |
-| `scripts/dev/` | Disposable test database runner and the browser harness |
+| `scripts/dev/` | Disposable test database runner, the browser harness and the MCP harness |
 | `depth-worker/` | GPU depth worker |
 | `infra/gcp/` | Media bucket CORS and lifecycle configuration |
 | `docs/` | This documentation |

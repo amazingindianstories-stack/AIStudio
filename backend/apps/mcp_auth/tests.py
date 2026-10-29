@@ -16,7 +16,7 @@ from django.db import connection, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase, override_settings
 
-from apps.admin_dashboard.models import AppSetting, UserLimit
+from apps.admin_dashboard.models import UserLimit
 from apps.authentication.models import User
 from apps.authentication.password import hash_password
 from apps.authentication.session import sign_session
@@ -854,7 +854,8 @@ class MigrationTests(TransactionTestCase):
             executor = MigrationExecutor(connection)
             plan = executor.migration_plan(final)
             self.assertEqual(sorted((migration.app_label, migration.name) for migration, backward in plan),
-                             [('generation', '0008_generation_mcp_origin'), ('mcp_auth', '0001_initial')])
+                             [('generation', '0008_generation_mcp_origin'), ('generation', '0009_generation_url_lookup'),
+                              ('mcp_auth', '0001_initial')])
             executor.migrate(final)
             row = Generation.objects.get(pk=identifier)
             self.assertEqual((row.created_via, row.mcp_token_id, row.mcp_client_id, row.cost_cents), (None, None, None, 4))

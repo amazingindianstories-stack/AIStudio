@@ -5,6 +5,9 @@ Only requests carrying the server-only ingress header (set by the Vercel
 middleware) reach Django, and only allowlisted routes. ``/__g4_readiness`` is
 the Railway health check. Configuration, including the secret, arrives as JSON
 on stdin so it never appears in process arguments.
+
+In ``mcp`` mode the same gateway fronts the MCP service (uvicorn on 18082) and
+passes only ``/mcp``: POST, plus GET and DELETE, which the service answers 405.
 """
 import hmac, http.client, json, re, socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,9 +30,15 @@ DEPTH_POST_ROUTES=frozenset(('/api/generate/depth','/api/worker/depth/claim','/a
 # Response-header waits beyond the default 25 s: enqueue may normalize large references, transcription
 # waits for its worker result (Django answers 504 itself after 120 s), an agent turn runs a short tool loop.
 LONG_POSTS={'/api/generate/cancel':55,'/api/generate/image':120,'/api/generate/video':120,'/api/audio/transcribe':125}
-def upstream_wait(method,path):
+# Upstream (port, readiness path) per mode. An MCP tool call holds at most 45 s, so its answer arrives within 55 s.
+UPSTREAMS={'api':(18080,'/api/health'),'mcp':(18082,'/healthz')}
+MCP_WAIT=55
+def upstream_wait(method,path,mode='api'):
+    if mode=='mcp':return MCP_WAIT if method=='POST' else 25
     if method!='POST':return 25
     return LONG_POSTS.get(path,120 if AGENT_MESSAGES.fullmatch(path) else 25)
+def allowed_mcp(method,path):
+    return path=='/mcp' and method in ('POST','GET','DELETE')
 def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
     # Exact DB-backed Django admin reads plus the read-only dependency status; Django still checks the session role.
     # Runtime audit stays closed: it writes (rolled-back) fixtures into the live database and runs the executor.
@@ -57,7 +66,8 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     if not path.startswith('/api/') or path.startswith(('/api/generate/','/api/admin/','/api/worker/','/api/workers/','/api/webhooks/','/api/depth/','/api/audio/transcribe','/api/queue/execute')):return False
     if method not in ('GET','HEAD') and (path.startswith('/api/agent-conversations/') and path.endswith('/messages') or path.startswith('/api/history/exports')):return False
     return method in ('GET','HEAD','POST','PUT','PATCH','DELETE')
-def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
+def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=False,mode='api'):
+    upstream_port,readiness_path=UPSTREAMS[mode]
     class Gate(BaseHTTPRequestHandler):
         operations=0
         total_bytes=0
@@ -72,10 +82,10 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
             if (self.command=='GET' and path=='/__g4_readiness' and not target.query
                 and self.headers.get('Content-Length') in (None,'0')
                 and not self.headers.get('Transfer-Encoding')):
-                conn=http.client.HTTPConnection('127.0.0.1',18080,timeout=2)
+                conn=http.client.HTTPConnection('127.0.0.1',upstream_port,timeout=2)
                 ready=False
                 try:
-                    conn.request('GET','/api/health',headers={'Host':'127.0.0.1:18080','Accept':'application/json'})
+                    conn.request('GET',readiness_path,headers={'Host':f'127.0.0.1:{upstream_port}','Accept':'application/json'})
                     response=conn.getresponse();data=response.read(513)
                     if response.status==200 and len(data)<=512:
                         value=json.loads(data)
@@ -93,8 +103,8 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
                 self.wfile.write(data);self.close_connection=True;return
             if not hmac.compare_digest(self.headers.get(HEADER,''),secret):
                 self.send_error(403);return
-            if not allowed(self.command,path,paid_initial_routes,new_exports,magnific_upscale):
-                paid=path.startswith(('/api/generate/','/api/audio/transcribe')) or (path.startswith('/api/agent-conversations/') and path.endswith('/messages') and self.command not in ('GET','HEAD'))
+            if not (allowed_mcp(self.command,path) if mode=='mcp' else allowed(self.command,path,paid_initial_routes,new_exports,magnific_upscale)):
+                paid=mode=='api' and (path.startswith(('/api/generate/','/api/audio/transcribe')) or (path.startswith('/api/agent-conversations/') and path.endswith('/messages') and self.command not in ('GET','HEAD')))
                 message='This generation route is not available.' if paid else 'This operation is not available.'
                 data=json.dumps({'error':message,'code':'PREVIEW_PAID_PROVIDER_DISABLED' if paid else 'PREVIEW_OPERATION_DISABLED'}).encode()
                 self.send_response(403);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.send_header('Vary','Cookie');self.end_headers()
@@ -111,14 +121,14 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
             for key in list(headers):
                 if key.lower()=='cookie':
                     headers[key]=';'.join(part for part in headers[key].split(';') if part.strip().split('=')[0] not in {'_vercel_jwt','_vercel_protection_bypass'})
-            headers['Host']='127.0.0.1:18080'
-            conn=http.client.HTTPConnection('127.0.0.1',18080,timeout=25)
+            headers['Host']=f'127.0.0.1:{upstream_port}'
+            conn=http.client.HTTPConnection('127.0.0.1',upstream_port,timeout=25)
             headers_sent=False
             try:
                 conn.request(self.command,path + ('?' + target.query if target.query else ''),body=body,headers=headers)
                 upstream_socket=conn.sock
                 # Only response headers get the longer wait; streaming the body stays on 25 s.
-                upstream_socket.settimeout(upstream_wait(self.command,path))
+                upstream_socket.settimeout(upstream_wait(self.command,path,mode))
                 response=conn.getresponse()
                 if upstream_socket is not None:upstream_socket.settimeout(25)
                 length=response.getheader('Content-Length')
@@ -135,7 +145,7 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
                 self.close_connection=True
             except socket.timeout:
                 if not headers_sent:
-                    submission=self.command=='POST' and path in LONG_POSTS
+                    submission=self.command=='POST' and (path in LONG_POSTS or mode=='mcp')
                     message=('The upstream request timed out and may still have been accepted. Check your library/status before trying again.' if submission else 'The upstream request timed out. Its completion could not be verified.')
                     data=json.dumps({'error':message,'code':'UPSTREAM_TIMEOUT_SUBMISSION_UNCERTAIN' if submission else 'UPSTREAM_TIMEOUT'}).encode()
                     self.send_response(502);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.send_header('Vary','Cookie');self.end_headers()
@@ -149,12 +159,13 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
         do_GET=do_HEAD=do_POST=do_PUT=do_PATCH=do_DELETE=run
     return Gate
 
-def serve(secret,port,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
-    if len(secret)<48 or not (1024<=int(port)<=65535) or int(port)==18080:raise ValueError('Ingress binding invalid')
-    server=ThreadingHTTPServer(('0.0.0.0',port),handler(secret,paid_initial_routes,new_exports,magnific_upscale))
+def serve(secret,port,paid_initial_routes=False,new_exports=False,magnific_upscale=False,mode='api'):
+    if mode not in UPSTREAMS:raise ValueError('Gateway mode rejected')
+    if len(secret)<48 or not (1024<=int(port)<=65535) or int(port) in {upstream for upstream,_ in UPSTREAMS.values()}:raise ValueError('Ingress binding invalid')
+    server=ThreadingHTTPServer(('0.0.0.0',port),handler(secret,paid_initial_routes,new_exports,magnific_upscale,mode))
     server.daemon_threads=True
     import sys
-    print(json.dumps({'event':'gateway_listening','port':int(port),'paid_routes':paid_initial_routes,'new_exports':new_exports,'magnific_upscale':magnific_upscale}),file=sys.stderr,flush=True)
+    print(json.dumps({'event':'gateway_listening','port':int(port),'mode':mode,'paid_routes':paid_initial_routes,'new_exports':new_exports,'magnific_upscale':magnific_upscale}),file=sys.stderr,flush=True)
     try:server.serve_forever()
     finally:server.server_close()
 if __name__=='__main__':
@@ -167,4 +178,6 @@ if __name__=='__main__':
         if type(exports) is not bool:raise ValueError('Export activation rejected')
         magnific=value.get('magnific_upscale',False)
         if type(magnific) is not bool:raise ValueError('Magnific activation rejected')
-        serve(value['secret'],value['port'],paid,exports,magnific)
+        mode=value.get('mode','api')
+        if mode not in UPSTREAMS:raise ValueError('Gateway mode rejected')
+        serve(value['secret'],value['port'],paid,exports,magnific,mode)

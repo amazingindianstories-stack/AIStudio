@@ -33,7 +33,7 @@ class LoopResilienceTests(SimpleTestCase):
         return connections
 
     def test_generation_worker_survives_a_database_error_and_reconnects(self):
-        with patch.object(generation_worker, 'reap_stale_running_images'):
+        with patch.object(generation_worker, 'reap_stale_running_images'), patch.object(generation_worker, 'pending_cancellations', lambda **_: []):
             connections = self.survives(generation_worker, 'select_due_generations',
                                        generation_worker.run_worker, interval=.1)
         connections.close_all.assert_called_once()
@@ -46,7 +46,8 @@ class LoopResilienceTests(SimpleTestCase):
             if len(calls) == 1:
                 raise OperationalError('connection lost')
             stop.set()
-        with patch.object(generation_worker, 'reap_stale_running_images', reap), patch.object(generation_worker, 'select_due_generations', lambda **_: []):
+        with patch.object(generation_worker, 'reap_stale_running_images', reap), patch.object(generation_worker, 'pending_cancellations', lambda **_: []), \
+                patch.object(generation_worker, 'select_due_generations', lambda **_: []):
             generation_worker.run_worker(interval=.1, stop=stop)
         self.assertEqual(len(calls), 2)
 

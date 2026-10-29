@@ -69,13 +69,13 @@ def where(clauses):
 
 
 def price_rows():
-    """Deployed processes only read prices; the API also lists default models that have no stored price yet."""
+    """Deployed processes only read prices; the API and MCP services also list default models that have no stored price yet."""
     from django.conf import settings
     component = getattr(settings, 'VEEVEE_RUNTIME_COMPONENT', None)
     if component:
         result = [{'model': row.model, 'unitCostCents': row.unit_cost_cents, 'unit': row.unit, 'notes': row.notes}
                   for row in Pricing.objects.all()]
-        if component == 'api':
+        if component in ('api', 'mcp'):
             present = {row['model'] for row in result}
             for default in DEFAULT_PRICING:
                 if default['model'] not in present:

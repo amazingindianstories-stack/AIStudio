@@ -32,6 +32,7 @@ MAGNIFIC_IMAGE_CDN = 'https://ai-statics.magnific.com/'
 KLING_CDN = 'https://h1.inkwai.com/'
 KLING_MODELS = {'kling-v3': 8, 'kling-v2-1': 4}     # model_name -> list-price units per text-to-image result
 ASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
+OMNIHUMAN_HOST = 'cv.byteplusapi.com'
 PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
 PRIVACY_MESSAGE = 'The request failed because the input image may contain real person.'
 TRANSCRIPT = '[00:00.000 - 00:01.000] Narrator: simulated transcription from the fake provider.'
@@ -152,6 +153,7 @@ class FakeProviders:
         self.magnific_tasks = {}
         self.kling_payloads, self.kling_tasks = [], {}  # create bodies; task id -> {'body', 'polls'}
         self.kling_running_polls = 1    # GETs answered 'processing' before a Kling task succeeds
+        self.omnihuman_payloads, self.omnihuman_polls = [], {}     # submit bodies; task id -> result queries so far
         self.faults = []        # [{'match': regex on 'METHOD host/path' or 'FETCH url', 'status', 'payload', 'count'}]: the next N matching calls fail
         # Accepted tasks that the provider then fails (each provider's own failed-task shape): None = tasks succeed.
         self.seedance_task_error = None     # {'code', 'message'}: every polled Seedance task fails with it
@@ -301,6 +303,8 @@ class FakeProviders:
         if host == ASSET_HOST and method == 'POST' and path == '/':
             action = (parse_qs(parts.query).get('Action') or [''])[0]
             return self.asset_api(action, data)
+        if host == OMNIHUMAN_HOST and method == 'POST' and path == '/':
+            return self.omnihuman_api((parse_qs(parts.query).get('Action') or [''])[0], data)
         raise AssertionError(f'Unexpected provider request {method} {host}{path}')
 
     def refused_inline(self, data):
@@ -394,6 +398,27 @@ class FakeProviders:
                 return ok({})
         return error(400, 'InvalidAction', f'Fake does not implement {action}')
 
+    def omnihuman_api(self, action, body):
+        """BytePlus Vision OmniHuman 2.0 (CVSync2Async*): one 'generating' result query, then done with an MP4 URL."""
+        if action == 'CVSync2AsyncSubmitTask':
+            if len(body.get('image_urls') or []) != 1 or not body.get('audio_url'):
+                return 400, {'code': 50200, 'message': 'Invalid request parameters', 'data': None}
+            with self.lock:
+                self.task_counter += 1
+                task = f'omnihuman-sim-{self.task_counter}'
+                self.omnihuman_payloads.append(body)
+                self.omnihuman_polls[task] = 0
+            return 200, {'code': 10000, 'message': 'Success', 'data': {'task_id': task}}
+        if action in ('CVSync2AsyncGetResult', 'CVCancelTask') and body.get('task_id') in self.omnihuman_polls:
+            if action == 'CVCancelTask':
+                return 200, {'code': 10000, 'message': 'Success'}
+            with self.lock:
+                self.omnihuman_polls[body['task_id']] += 1
+                done = self.omnihuman_polls[body['task_id']] > 1
+            data = {'status': 'done', 'video_url': FAKE_MEDIA + 'omnihuman/' + body['task_id'] + '.mp4'} if done else {'status': 'generating'}
+            return 200, {'code': 10000, 'message': 'Success', 'data': data}
+        return 200, {'code': 50215, 'message': 'Task not found', 'data': None}
+
     def live_asset_count(self):
         with self.lock:
             return sum(1 for a in self.assets.values() if a['Status'] != 'Deleted')
@@ -408,6 +433,8 @@ class FakeProviders:
             return self.png, 'image/png'
         if url == FAKE_MEDIA + 'video.mov':
             return self.mov, 'video/quicktime'
+        if url.startswith(FAKE_MEDIA + 'omnihuman/omnihuman-sim-') and url.endswith('.mp4'):
+            return self.mp4, 'video/mp4'
         if url.startswith(KLING_CDN + 'bs2/upload-kling-api/sim/kling-sim-') and url.endswith('.png'):
             return self.png, 'image/png'
         if url.startswith((MAGNIFIC_CDN, MAGNIFIC_IMAGE_CDN)):
