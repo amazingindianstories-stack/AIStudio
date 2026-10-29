@@ -93,7 +93,10 @@ The board owns its graph and autosave, so the browser places the result (`src/li
    current zoom. The pan is not an undo step.
 
 When a board reloads, the panel resumes the user's unfinished jobs and places finished, unplaced ones. Failed jobs
-are dismissed with an empty claim.
+are dismissed with an empty claim. Every unfinished job is polled, and the panel follows the newest. An older job
+that finishes in the background is placed but leaves the panel (its job, result, refine target and error) alone,
+even after **Start over**. Placements run one at a time, so results that finish together each find free space
+after the previous one is on the board.
 
 A claim is sent only while the panel still follows the job's board and that board is loaded. If the user leaves the
 board while the claim is in flight, or the tab closes before autosave stores the nodes, the result is claimed but
