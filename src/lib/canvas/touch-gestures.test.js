@@ -149,12 +149,12 @@ test("doubleTapAction: while viewing, text, stickies and shapes switch to editin
   assert.equal(doubleTapAction(null, viewing), "zoom", "empty board");
 });
 
-test("doubleTapAction: while editing, frames edit their label too and images and empty board still zoom", () => {
+test("doubleTapAction: while editing, frames edit their label too, images open their crop and empty board still zooms", () => {
   const editing = { viewOnly: false, readOnly: false };
   for (const type of ["text", "sticky", "frame", "rect", "shape"]) {
     assert.equal(doubleTapAction({ id: "n", type }, editing), "edit", type);
   }
-  assert.equal(doubleTapAction({ id: "n", type: "image" }, editing), "zoom", "image");
+  assert.equal(doubleTapAction({ id: "n", type: "image" }, editing), "crop", "image");
   assert.equal(doubleTapAction(null, editing), "zoom", "empty board");
 });
 

@@ -65,7 +65,7 @@ export function ConnectorLayer({
         return (
           <g key={c.id}>
             {/* fat invisible hit-target so thin strokes stay easy to click */}
-            <path
+            {onSelectConnector && <path
               d={d}
               fill="none"
               stroke="transparent"
@@ -80,7 +80,7 @@ export function ConnectorLayer({
                 e.stopPropagation();
                 onConnectorContextMenu?.(e, c.id);
               }}
-            />
+            />}
             <path
               d={d}
               fill="none"

@@ -86,14 +86,17 @@ export function isTap(downTime, upTime, moved) {
 }
 
 /**
- * What a touch double tap on `node` (null for empty board) does: "edit" opens
- * the node's text for typing, "zoom" zooms in around the tap. While viewing,
- * text, stickies and shapes switch to editing; frames and images keep zooming
- * so large areas stay easy to zoom into. While editing, a frame edits its
- * label as well. A read-only board always zooms.
+ * What a double tap on `node` (null for empty board) does: "edit" opens the
+ * node's text for typing, "crop" opens an image's crop, "zoom" zooms in around
+ * the tap. While viewing, text, stickies and shapes switch to editing; frames
+ * and images keep zooming so large areas stay easy to zoom into. While
+ * editing, a frame edits its label and an image opens its crop, as a mouse
+ * double click does. A read-only board always zooms.
  */
 export function doubleTapAction(node, { viewOnly, readOnly }) {
   if (!node || readOnly) return "zoom";
   if (node.type === "text" || node.type === "sticky" || isShapeNode(node)) return "edit";
-  return node.type === "frame" && !viewOnly ? "edit" : "zoom";
+  if (viewOnly) return "zoom";
+  if (node.type === "frame") return "edit";
+  return node.type === "image" ? "crop" : "zoom";
 }

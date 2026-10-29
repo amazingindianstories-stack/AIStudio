@@ -27,7 +27,7 @@ import {
   resizeNode,
   screenToWorld,
 } from "@/lib/canvas/geometry";
-import { isCreateTool, isShapeNode, shapeKindOfTool } from "@/lib/canvas/shapes";
+import { isCreateTool, shapeKindOfTool } from "@/lib/canvas/shapes";
 import {
   LONG_PRESS_MS,
   doubleTapAction,
@@ -387,14 +387,14 @@ export const CanvasSurface = forwardRef
       e.stopPropagation();
       commitInlineEdit();
       (e.target ).setPointerCapture?.(e.pointerId);
-      // A double tap on text opens it for typing, like a mouse double click;
-      // while viewing it switches to Edit first.
+      // A double tap on text opens it for typing and on an image opens its
+      // crop, like a mouse double click; while viewing it switches to Edit first.
       const nodeId = hitTest(present, screenToWorld(screen, viewport));
       const node = nodeId ? present.nodes.find((n) => n.id === nodeId) : null;
-      if (doubleTapAction(node, { viewOnly: touchViewOnly, readOnly }) === "edit") {
+      const action = doubleTapAction(node, { viewOnly: touchViewOnly, readOnly });
+      if (action !== "zoom") {
         if (touchViewOnly) useCanvasStore.getState().setTouchEditMode(true);
-        setSelection([node.id]);
-        useCanvasStore.getState().setEditingTextId(node.id);
+        openNodeEditor(node, action);
         return;
       }
       // Otherwise it zooms: lift to zoom in a step, or keep the finger down
@@ -693,13 +693,14 @@ export const CanvasSurface = forwardRef
     // Touch double taps are recognised in onPointerDownCapture; the dblclick
     // the browser synthesises for them must not run this a second time.
     if (readOnly || touchViewOnly || touchRef.current.lastPointerType === "touch") return;
-    if (node.type === "text" || node.type === "sticky" || node.type === "frame" || isShapeNode(node)) {
-      setSelection([node.id]);
-      useCanvasStore.getState().setEditingTextId(node.id);
-    } else if (node.type === "image") {
-      setSelection([node.id]);
-      useCanvasStore.getState().beginCrop(node.id);
-    }
+    const action = doubleTapAction(node, { viewOnly: false, readOnly });
+    if (action !== "zoom") openNodeEditor(node, action);
+  };
+
+  const openNodeEditor = (node, action) => {
+    setSelection([node.id]);
+    if (action === "crop") useCanvasStore.getState().beginCrop(node.id);
+    else useCanvasStore.getState().setEditingTextId(node.id);
   };
 
   const onCommitText = (nodeId, text, marks, contentHeight, from) => {
@@ -1141,7 +1142,7 @@ export const CanvasSurface = forwardRef
           connectors={displayState.connectors}
           nodesById={nodesById}
           selectedConnectorIds={selectedConnectorIds}
-          onSelectConnector={(id, additive) => {
+          onSelectConnector={touchViewOnly ? undefined : (id, additive) => {
             // toggleSelect already branches on node-vs-connector id internally.
             if (additive) toggleSelect(id);
             else useCanvasStore.setState({ selectedConnectorIds: [id], selection: [] });

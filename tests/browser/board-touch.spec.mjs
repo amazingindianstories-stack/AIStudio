@@ -4,8 +4,8 @@ import { fixtureDatabase } from './fixture-db.mjs';
 
 // Boards on phones and tablets: touch devices open a board view-only (pan and
 // zoom with one finger, pinch, double tap, double tap and swipe), the owner taps
-// Edit, double taps text or long presses an object to edit, and a view-role
-// teammate never gets an Edit button.
+// Edit, double taps text or long presses an object to edit, a swipe that starts
+// on a connector still pans, and a view-role teammate never gets an Edit button.
 // Gestures are real touch events dispatched through CDP, so the pointer-event
 // handling in CanvasSurface is exercised the way a phone drives it.
 
@@ -478,7 +478,7 @@ test('Board touch: viewing, a keyboard cannot edit, save trouble stays visible, 
   await db.end();
 });
 
-test('Board touch: after a one-finger crop drag, taps select and one finger pans without zooming', async ({ browser, baseURL }) => {
+test('Board touch: after a one-finger crop drag, taps select, a double tap opens Crop and one finger pans without zooming', async ({ browser, baseURL }) => {
   test.setTimeout(150000);
   const db = await seedUsers();
   const project = await createProject(browser, baseURL, 'Board touch crop');
@@ -525,6 +525,15 @@ test('Board touch: after a one-finger crop drag, taps select and one finger pans
   await touch.tap(centre);
   await expect(cropButton).toBeVisible();
 
+  // While editing, a double tap on the image opens its crop, as a mouse double click does, without zooming.
+  await phone.page.waitForTimeout(400);
+  await touch.tap(centre);
+  await touch.tap(centre);
+  await expect(cropControls).toBeVisible();
+  expect(await zoomPercent(phone.page)).toBe(100);
+  await phone.page.getByRole('button', { name: 'Apply crop', exact: true }).tap();
+  await expect(cropControls).toHaveCount(0);
+
   // One finger on empty space pans by the finger's travel and leaves the zoom alone.
   const before = await node.boundingBox();
   await phone.page.waitForTimeout(400);
@@ -534,6 +543,54 @@ test('Board touch: after a one-finger crop drag, taps select and one finger pans
   expect(before.x - after.x).toBeLessThan(200);
   expect(Math.abs(after.y - before.y)).toBeLessThan(2);
   expect(await zoomPercent(phone.page)).toBe(100);
+
+  await phone.context.close();
+  await db.end();
+});
+
+test('Board touch: viewing, a swipe that starts on a connector pans the board and selects nothing', async ({ browser, baseURL }) => {
+  test.setTimeout(120000);
+  const db = await seedUsers();
+  const project = await createProject(browser, baseURL, 'Board touch connector');
+  const desk = await signIn(browser, baseURL, OWNER, project.id);
+  const boardPath = new URL(await addSticky(desk.page, await openBoard(desk.page), { x: 500, y: 300 })).pathname;
+  const original = await boardData(desk.context, boardPath);
+  const sticky = (id, x) => ({ id, type: 'sticky', x, y: 260, w: 100, h: 100, parentId: null, groupId: null,
+    text: '', fill: '#fff59d', fontSize: 16, color: '#000000' });
+  const [leftId, rightId] = [randomUUID(), randomUUID()];
+  const arrow = { id: randomUUID(), from: { nodeId: leftId, anchor: 'right' }, to: { nodeId: rightId, anchor: 'left' },
+    kind: 'arrow', stroke: '#ffffff', strokeWidth: 2 };
+  const seeded = await desk.context.request.put(boardPath, { data: { data: { ...original,
+    viewport: { x: 0, y: 0, zoom: 1 }, nodes: [sticky(leftId, 30), sticky(rightId, 260)], connectors: [arrow] } },
+  headers: { Origin: baseURL } });
+  expect(seeded.ok()).toBeTruthy();
+  await desk.context.close();
+
+  const phone = await signIn(browser, baseURL, OWNER, project.id, PHONE);
+  await openBoard(phone.page);
+  const touch = new Touch(await phone.context.newCDPSession(phone.page));
+  const left = phone.page.locator(`[data-node-id="${leftId}"]`);
+  await expect(phone.page.getByRole('status').filter({ hasText: 'View only' })).toBeVisible();
+  await expect(left).toBeVisible();
+
+  // The middle of the arrow on screen, from its drawn path.
+  const onArrow = await phone.page.locator('path[marker-end]').evaluate((path) => {
+    const p = path.getPointAtLength(path.getTotalLength() / 2);
+    const m = path.getScreenCTM();
+    return { x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f };
+  });
+  const before = await left.boundingBox();
+  await touch.drag(onArrow, { x: onArrow.x, y: onArrow.y + 120 }, { steps: 10 });
+  const after = await left.boundingBox();
+  expect(after.y - before.y).toBeGreaterThan(100);
+  expect(after.y - before.y).toBeLessThan(140);
+  expect(Math.abs(after.x - before.x)).toBeLessThan(2);
+  expect(await zoomPercent(phone.page)).toBe(100);
+
+  // Nothing was selected: in Edit the arrow shows no endpoint handles.
+  await phone.page.getByRole('button', { name: 'Edit', exact: true }).tap();
+  await expect(phone.page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
+  await expect(phone.page.locator('[aria-label^="Connector start endpoint"]')).toHaveCount(0);
 
   await phone.context.close();
   await db.end();
