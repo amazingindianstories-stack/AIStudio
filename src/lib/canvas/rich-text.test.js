@@ -102,6 +102,9 @@ test("readRichDom reads browser editing markup and sanitizes it", () => {
   assert.deepEqual(readRichDom(editor("<div>a</div><div>b<br></div>")).text, "a\nb");
   assert.deepEqual(readRichDom(editor("<div><br></div><div>a</div>")).text, "\na");
   assert.deepEqual(readRichDom(editor("abc<div><br></div>")).text, "abc\n");
+  assert.deepEqual(readRichDom(editor("<br>")), { text: "", marks: [] });
+  assert.deepEqual(readRichDom(editor("abc<br>")).text, "abc");
+  assert.deepEqual(readRichDom(editor("abc<br><br>")).text, "abc\n");
 });
 
 test("readRichDom drops scripts, unsafe links, attributes and embedded content", () => {

@@ -120,3 +120,11 @@ test("text and sticky nodes render marks and keep plain text unchanged", () => {
   const html = renderToStaticMarkup(React.createElement(StickyNode, { node: { ...sticky, text: "mark me", marks: [[0, 4, "h", "#86efac"], [5, 7, "s"]] } }));
   assert.match(html, /<span class="rounded-\[2px\]" style="background-color:#86efac8c">mark<\/span> <s>me<\/s>/);
 });
+
+test("an empty edit on a shape without text is a no-op", async (t) => {
+  const store = await editableBoard(t, [star]);
+  store.getState().commitNodeText("s1", "", []);
+  assert.equal("text" in nodeById(store, "s1"), false);
+  assert.equal(store.getState().history.past.length, 0);
+  assert.notEqual(store.getState().saveStatus, "dirty");
+});

@@ -154,6 +154,7 @@ export function readRichDom(root) {
     const tag = el.tagName;
     if (tag === "BR") {
       const parent = el.parentNode;
+      if (parent === root && el === root.lastChild && !BLOCK_TAGS.has(el.previousSibling?.tagName)) return;
       const inBlock = parent !== root && BLOCK_TAGS.has(parent?.tagName);
       // <div><br></div> is the browser's empty line: it holds a line, no character.
       if (inBlock && parent.childNodes.length === 1) {

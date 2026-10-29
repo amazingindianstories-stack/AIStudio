@@ -642,7 +642,7 @@ export const useCanvasStore = create((set, get) => ({
     const h = node.type === "text" && Number.isFinite(contentHeight) && contentHeight > node.h ? contentHeight : node.h;
     if (node.type === "frame") {
       if (node.name === text) return;
-    } else if (node.text === text && h === node.h && JSON.stringify(node.marks ?? null) === JSON.stringify(marks?.length ? marks : null)) {
+    } else if ((node.text ?? "") === text && h === node.h && JSON.stringify(node.marks ?? null) === JSON.stringify(marks?.length ? marks : null)) {
       return;
     }
     mutateGraph(set, get, (present) => ({
