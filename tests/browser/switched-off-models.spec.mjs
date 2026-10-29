@@ -45,6 +45,8 @@ test('switched-off Kling leaves the pickers, while its history still shows and C
     const picker = page.getByRole('button', { name: /^Model:/ });
     await expect(picker).toContainText('Nano Banana Pro');
     await picker.click();
+    // The menu renders after the click; snapshot its items only once it is open.
+    await expect(page.getByRole('menuitem', { name: /^Nano Banana Pro/ })).toBeVisible();
     const images = await page.getByRole('menuitem').allInnerTexts();
     expect(images.some(text => text.startsWith('Nano Banana Pro'))).toBeTruthy();
     expect(images.filter(text => /Kling/.test(text))).toEqual([]);
