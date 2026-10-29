@@ -316,7 +316,7 @@
   {"method":"DELETE","path":"/api/canvas-boards","allow":[true,true,true,true,true,true,true,true],"status":{"out":405,"user":405,"admin":405}},
   {"method":"OPTIONS","path":"/api/canvas-boards","allow":[false,false,false,false,false,false,false,false],"status":{"out":204,"user":204,"admin":204}},
   {"method":"POST","path":"/api/canvas-boards/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","allow":[true,true,true,true,true,true,true,true],"status":{"out":405,"user":405,"admin":405}},
-  {"method":"PATCH","path":"/api/canvas-boards/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","allow":[true,true,true,true,true,true,true,true],"status":{"out":405,"user":405,"admin":405}},
+  {"method":"PATCH","path":"/api/canvas-boards/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","allow":[true,true,true,true,true,true,true,true],"status":{"out":401,"user":400,"admin":400}},
   {"method":"DELETE","path":"/api/canvas-boards/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","allow":[true,true,true,true,true,true,true,true],"status":{"out":405,"user":405,"admin":405}},
   {"method":"OPTIONS","path":"/api/canvas-boards/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","allow":[false,false,false,false,false,false,false,false],"status":{"out":204,"user":204,"admin":204}},
   {"method":"GET","path":"/api/canvas-boards/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/upload","allow":[true,true,true,true,true,true,true,true],"status":{"out":405,"user":405,"admin":405}},

@@ -25,6 +25,7 @@ async function openBoard(page) {
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
   const canvas = page.getByRole('application', { name: 'Board canvas' });
   await expect(canvas).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Share', exact: true })).toBeVisible();
   return canvas;
 }
 
@@ -88,7 +89,16 @@ test('Board scale: a 2,000-sticky, 1,960-arrow board mounts only what is near th
   await owner.page.mouse.move(720, 450);
   const panStart = Date.now();
   for (let step = 0; step < 8; step += 1) {
+    // mouse.wheel returns before the board applies it: wait until a mounted sticky moves or unmounts.
+    const reference = await owner.page.evaluate(() => {
+      const node = document.querySelector('[data-node-id]');
+      return { id: node.dataset.nodeId, x: node.getBoundingClientRect().x };
+    });
     await owner.page.mouse.wheel(500, 300);
+    await expect.poll(() => owner.page.evaluate(({ id, x }) => {
+      const node = document.querySelector(`[data-node-id="${id}"]`);
+      return !node || node.getBoundingClientRect().x !== x;
+    }, reference)).toBeTruthy();
     await expect.poll(() => owner.page.evaluate(() => {
       return [...document.querySelectorAll('[data-node-id]')].some((node) => {
         const box = node.getBoundingClientRect();

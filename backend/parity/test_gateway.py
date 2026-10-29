@@ -5,6 +5,8 @@ using test-db.sh, empty JSON bodies, explicit mock providers and same-origin
 session clients. Each allow array indexes the paid/export/Magnific bit mask
 (4/2/1). Expectations are committed evidence, never recomputed by tests.
 Generation delete and move were updated to the admin-only 403 for users.
+Board PATCH was updated from 405 to the board save's 401/400 when per-object
+saves were added.
 """
 import json
 from pathlib import Path

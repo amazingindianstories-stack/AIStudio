@@ -186,6 +186,8 @@ test('Canvas browser edits persist through Django after reload', async ({ page, 
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
   const canvas = page.getByRole('application', { name: 'Board canvas' });
   await expect(canvas).toBeVisible();
+  // The canvas shows before the project's first board exists; edit once it has loaded.
+  await expect(page.getByRole('button', { name: 'Share', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Sticky note', exact: true }).click();
   const saved = page.waitForResponse(response => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) && ['PUT', 'PATCH'].includes(response.request().method()));
   await canvas.click({ position: { x: 300, y: 250 } });
