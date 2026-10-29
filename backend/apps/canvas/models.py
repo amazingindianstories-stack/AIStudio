@@ -10,6 +10,8 @@ class CanvasBoard(models.Model):
     created_by = models.UUIDField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
+    # Bumped by every graph save; editors send the version they started from.
+    version = models.BigIntegerField(db_default=1)
 
     class Meta:
         managed = True

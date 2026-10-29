@@ -151,15 +151,45 @@ def board_detail(request, identifier):
         if request.method in ('GET', 'HEAD'):
             board = services.get_board(identifier)
             return reply(request, board) if board else reply(request, {'error': 'Board not found.'}, 404)
-        data = property_of(body(request), 'data')
+        payload = body(request)
+        data = property_of(payload, 'data')
         if not isinstance(data, dict):
             return reply(request, {'error': 'Invalid board data.'}, 400)
+        base_version = base_version_of(payload)
+        if base_version is False:
+            return reply(request, {'error': 'Invalid base version.'}, 400)
         if json_length(data) > MAX_BOARD_JSON_UNITS:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
-        updated = services.save_board(identifier, validate_state(data))
-        if updated is None:
+        try:
+            saved = services.save_board(identifier, validate_state(data), base_version)
+        except services.VersionConflict as conflict:
+            return reply(request, {'error': 'VERSION_CONFLICT', 'board': conflict.board}, 409)
+        if saved is None:
             return reply(request, {'error': 'Board not found.'}, 404)
-        return reply(request, {'ok': True, 'updatedAt': updated})
+        return reply(request, {'ok': True, **saved})
+    except Exception:
+        return failure()
+
+
+def base_version_of(payload):
+    """None when absent (pre-version clients write unconditionally), False when malformed."""
+    value = payload.get('baseVersion') if isinstance(payload, dict) else None
+    if value is None:
+        return None
+    # body() parses every JSON number as a float.
+    if isinstance(value, float) and value.is_integer() and 1 <= value <= 2 ** 53:
+        return int(value)
+    return False
+
+
+@node_route(['GET'])
+def board_version(request, identifier):
+    """Polled while a board is open, so it reads two integers and never the graph."""
+    if lookup(request) is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        current = services.board_version(identifier)
+        return reply(request, current) if current else reply(request, {'error': 'Board not found.'}, 404)
     except Exception:
         return failure()
 

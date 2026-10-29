@@ -112,6 +112,10 @@ MCP_AUTH = {
  '/api/admin/agent-access/revoke': ['POST'],
 }
 EXPECTED.update(MCP_AUTH)
+
+# Reviewed board-sync addition: the cheap version read that open boards poll.
+BOARD_SYNC = {'/api/canvas-boards/[id]/version': ['GET']}
+EXPECTED.update(BOARD_SYNC)
 # Agent OAuth endpoints read no cookies and answer browser-based clients cross-origin (apps.common.origin).
 COOKIELESS_OAUTH = {'/api/oauth/register', '/api/oauth/token', '/api/oauth/revoke'}
 
@@ -142,10 +146,10 @@ def leaves(patterns,prefix=''):
 
 @override_settings(ROOT_URLCONF='config.urls')
 class CompleteApiCoverageTests(SimpleTestCase):
-    def test_all_113_explicit_methods_resolve_to_the_declared_python_handlers(self):
-        # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log and agent access.
-        self.assertEqual(len(EXPECTED),90)
-        self.assertEqual(sum(map(len,EXPECTED.values())),113)
+    def test_all_114_explicit_methods_resolve_to_the_declared_python_handlers(self):
+        # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access and board sync.
+        self.assertEqual(len(EXPECTED),91)
+        self.assertEqual(sum(map(len,EXPECTED.values())),114)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -247,6 +251,7 @@ NEGATIVE_STATUS = {
 
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in GOAL2_UPLOADS.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in MCP_AUTH.items()})
+NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_SYNC.items()})
 # Public discovery documents, and machine endpoints refusing an empty body or an unknown client.
 NEGATIVE_STATUS.update({'/api/oauth/authorization-server':{'GET':200},'/api/oauth/protected-resource':{'GET':200},
     '/api/oauth/register':{'POST':400},'/api/oauth/token':{'POST':401},'/api/oauth/revoke':{'POST':400}})
@@ -315,7 +320,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         self.assertEqual(self.write_attempts,[])
         for effect in self.effects: effect.assert_not_called()
 
-    def test_all_113_methods_match_negative_request_contract_without_effects(self):
+    def test_all_114_methods_match_negative_request_contract_without_effects(self):
         # Empty/malformed payload failures on public routes are not proof of
         # account-only authorization. Paid video now requires login; valid-payload
         # zero-effects and owner checks are covered by enqueue contract tests.
@@ -335,7 +340,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*113)
+            self.assertEqual(len(seen),3*114)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):

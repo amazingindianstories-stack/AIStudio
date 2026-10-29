@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTextFrozenWhileEditing } from "./use-frozen-text";
 
 /**
  * Plain text box. `contentEditable` only while `editing` (driven by
@@ -16,6 +17,7 @@ export function TextNode({
 
 ) {
   const ref = useRef(null);
+  const shownText = useTextFrozenWhileEditing(node.text, editing);
 
   useEffect(() => {
     if (!editing) return;
@@ -56,7 +58,7 @@ export function TextNode({
         cursor: editing ? "text" : undefined,
       }}
     >
-      {node.text ||
+      {shownText ||
         (editing ? "" : <span className="text-white/25">Text</span>)}
     </div>
   );

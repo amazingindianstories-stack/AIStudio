@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useTextFrozenWhileEditing } from "./use-frozen-text";
 
 /** FigJam-signature colored note block with editable text. */
 export function StickyNode({
@@ -12,6 +13,7 @@ export function StickyNode({
 
 ) {
   const ref = useRef(null);
+  const shownText = useTextFrozenWhileEditing(node.text, editing);
 
   useEffect(() => {
     if (!editing) return;
@@ -51,7 +53,7 @@ export function StickyNode({
           cursor: editing ? "text" : undefined,
         }}
       >
-        {node.text || (editing ? "" : <span className="opacity-40">Sticky note</span>)}
+        {shownText || (editing ? "" : <span className="opacity-40">Sticky note</span>)}
       </div>
     </div>
   );

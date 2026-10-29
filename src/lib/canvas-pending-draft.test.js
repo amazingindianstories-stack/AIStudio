@@ -58,3 +58,16 @@ test("storage failures never throw into the editor", (t) => {
   assert.equal(readPendingDraft("b"), null);
   assert.doesNotThrow(() => clearPendingDraft("b", { a: 1 }));
 });
+
+test("a draft keeps its sync base when it fits and falls back to only the base version", (t) => {
+  const store = memoryStorage();
+  useStorage(t, store);
+  assert.equal(savePendingDraft("board-1", { nodes: [1] }, 100, { baseVersion: 4, base: { nodes: [] } }), true);
+  assert.deepEqual(readPendingDraft("board-1"), { at: 100, data: { nodes: [1] }, baseVersion: 4, base: { nodes: [] } });
+  const big = { nodes: ["x".repeat(4 * 1024 * 1024)] };
+  assert.equal(savePendingDraft("board-1", { nodes: [2] }, 200, { baseVersion: 5, base: big }), true);
+  assert.deepEqual(readPendingDraft("board-1"), { at: 200, data: { nodes: [2] }, baseVersion: 5 });
+  // Without a known server version the draft has the pre-version shape.
+  savePendingDraft("board-1", { nodes: [3] }, 300, { baseVersion: null, base: {} });
+  assert.deepEqual(readPendingDraft("board-1"), { at: 300, data: { nodes: [3] } });
+});

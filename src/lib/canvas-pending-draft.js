@@ -24,14 +24,27 @@ export function shouldUseKeepalive(body) {
   return typeof body === "string" && new TextEncoder().encode(body).length < KEEPALIVE_MAX_BYTES;
 }
 
-export function savePendingDraft(boardId, data, at = Date.now()) {
+/**
+ * `sync` records the server version the edits started from and that version's
+ * graph, so a restored draft merges with what other people saved meanwhile.
+ * When the base graph does not fit, the draft keeps only its version and the
+ * restore falls back to a union that cannot lose anyone's nodes.
+ */
+export function savePendingDraft(boardId, data, at = Date.now(), sync = null) {
   const store = storage();
   if (!store || !boardId) return false;
   try {
-    const serialized = JSON.stringify({ at, data });
-    if (serialized.length > MAX_DRAFT_CHARS) return false;
-    store.setItem(PREFIX + boardId, serialized);
-    return true;
+    const versioned = sync && typeof sync.baseVersion === "number" ? { baseVersion: sync.baseVersion } : null;
+    const candidates = versioned
+      ? [{ at, data, ...versioned, base: sync.base }, { at, data, ...versioned }]
+      : [{ at, data }];
+    for (const draft of candidates) {
+      const serialized = JSON.stringify(draft);
+      if (serialized.length > MAX_DRAFT_CHARS) continue;
+      store.setItem(PREFIX + boardId, serialized);
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }
