@@ -18,6 +18,8 @@ import { BoardSwitcher } from "./BoardSwitcher";
 import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
 import { BoardShareDialog } from "./BoardShareDialog";
+import { CanvasAiPanel } from "./CanvasAiPanel";
+import { useBoardAi } from "@/lib/board-ai";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
 const TOOL_SHORTCUTS = {
@@ -43,6 +45,7 @@ export function CanvasView() {
   const [shapesOpen, setShapesOpen] = useState(false);
   const [boardsReload, setBoardsReload] = useState(0);
   const [noBoards, setNoBoards] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
 
   const surfaceRef = useRef(null);
 
@@ -381,6 +384,13 @@ export function CanvasView() {
     openImagePicker,
   ]);
 
+  // Board AI jobs follow the loaded board: unfinished jobs resume and finished, unplaced results are placed.
+  const loadedBoardId = useCanvasStore((s) => s.boardId);
+  useEffect(() => {
+    if (boardId && loaded && loadedBoardId === boardId) void useBoardAi.getState().attach(boardId);
+  }, [boardId, loaded, loadedBoardId]);
+  useEffect(() => () => useBoardAi.getState().detach(), []);
+
   const assetPanelWidth = assetPanelCollapsed ? 44 : 300;
 
   return (
@@ -456,8 +466,11 @@ export function CanvasView() {
             onShapesOpenChange={setShapesOpen}
             onToggleLock={() => setToolLocked((v) => !v)}
             onAddImageClick={openImagePicker}
+            aiOpen={aiOpen && Boolean(boardId)}
+            onAiClick={() => setAiOpen((v) => !v)}
           />
         )}
+        {aiOpen && boardId && !readOnly && <CanvasAiPanel boardId={boardId} onClose={() => setAiOpen(false)} />}
       </div>
 
       <input

@@ -1,0 +1,55 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { AI_FORMATS, AI_FORMAT_ORDER, STICKY_FILLS, imageNodes, placedCenter, stickyColumns, stickyNodes } from "./ai-formats.js";
+import { validateCanvasState } from "./serialization.js";
+
+const notes = (count) => ({ notes: Array.from({ length: count }, (_, index) => ({ text: `Idea ${index + 1}`, color: index % 2 ? "blue" : "magenta" })) });
+
+test("sticky notes are laid out in reading order on a grid centred on the target", () => {
+  assert.deepEqual([1, 3, 4, 5, 6, 9, 24].map(stickyColumns), [1, 3, 4, 3, 3, 4, 6]);
+  const nodes = stickyNodes(notes(6), { x: 1000, y: 500 });
+  assert.equal(nodes.length, 6);
+  assert.deepEqual(nodes.map((node) => node.text), ["Idea 1", "Idea 2", "Idea 3", "Idea 4", "Idea 5", "Idea 6"]);
+  // 3 columns x 2 rows of 200 px with 24 px gaps: 648 x 424, centred on (1000, 500).
+  assert.deepEqual(nodes.map((node) => [node.x, node.y]), [[676, 288], [900, 288], [1124, 288], [676, 512], [900, 512], [1124, 512]]);
+  assert.equal(new Set(nodes.map((node) => node.id)).size, 6);
+  // Unknown colors fall back to yellow; known ones use the board palette.
+  assert.deepEqual(nodes.slice(0, 2).map((node) => node.fill), [STICKY_FILLS.yellow, STICKY_FILLS.blue]);
+  assert.deepEqual(stickyNodes({ notes: [] }, { x: 0, y: 0 }), []);
+  assert.deepEqual(stickyNodes(null, { x: 0, y: 0 }), []);
+});
+
+test("generated nodes survive the board's own validation unchanged", () => {
+  const nodes = [...stickyNodes(notes(3), { x: 0, y: 0 }), ...imageNodes({ url: "/api/media/generations/a/master.png", aspectRatio: "16:9" }, { x: 0, y: 0 }, "a lantern")];
+  const state = validateCanvasState({ version: 1, viewport: { x: 0, y: 0, zoom: 1 }, nodes, connectors: [] });
+  assert.equal(state.nodes.length, 4);
+  for (const node of nodes) assert.deepEqual(state.nodes.find((entry) => entry.id === node.id), node);
+});
+
+test("an image result becomes one 320 px node, and only a stored media source is placed", () => {
+  const [wide] = imageNodes({ url: "/api/media/x.png", aspectRatio: "16:9" }, { x: 100, y: 100 }, "prompt");
+  assert.deepEqual([wide.w, wide.h, wide.x, wide.y, wide.src, wide.alt], [320, 180, -60, 10, "/api/media/x.png", "prompt"]);
+  const [tall] = imageNodes({ url: "/api/media/y.png", aspectRatio: "9:16" }, { x: 0, y: 0 });
+  assert.deepEqual([tall.w, tall.h], [180, 320]);
+  assert.deepEqual(imageNodes({ url: "https://elsewhere.example/x.png" }, { x: 0, y: 0 }), []);
+});
+
+test("a refinement is placed where the result it replaces still is", () => {
+  const nodes = [{ id: "a", x: 0, y: 0, w: 200, h: 200 }, { id: "b", x: 300, y: 100, w: 200, h: 200 }, { id: "c", x: 900, y: 900, w: 10, h: 10 }];
+  assert.deepEqual(placedCenter(nodes, ["a", "b", "gone"]), { x: 250, y: 150 });
+  assert.equal(placedCenter(nodes, ["gone"]), null);
+  assert.equal(placedCenter(nodes, []), null);
+});
+
+test("every offered format has panel copy, suggestions and a node builder", () => {
+  assert.deepEqual(AI_FORMAT_ORDER, ["stickies", "image"]);
+  for (const id of AI_FORMAT_ORDER) {
+    const format = AI_FORMATS[id];
+    assert.equal(format.id, id);
+    assert.ok(format.label && format.placeholder && format.refinePlaceholder);
+    assert.ok(format.suggestions.length >= 3);
+    assert.equal(typeof format.nodes, "function");
+  }
+  assert.equal(AI_FORMATS.stickies.resultLabel({ notes: [{}] }), "1 sticky note");
+  assert.equal(AI_FORMATS.stickies.resultLabel(notes(4)), "4 sticky notes");
+});

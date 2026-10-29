@@ -16,6 +16,7 @@ import {
   Plus,
   ZoomIn,
   ZoomOut,
+  Sparkles,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
@@ -23,6 +24,7 @@ import { nodeBounds } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { BASIC_SHAPES, isShapeTool } from "@/lib/canvas/shapes";
 import { ShapeGlyph } from "./ShapeGlyph";
+import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 
 /**
  * Bottom-center floating tool dock (ui-spec §3) + bottom-right zoom control
@@ -37,10 +39,13 @@ export function CanvasToolbar({
   onShapesOpenChange,
   onToggleLock,
   onAddImageClick,
+  aiOpen,
+  onAiClick,
 }
 
 ) {
   const tool = useCanvasStore((s) => s.tool);
+  const aiRunning = useBoardAi((s) => Boolean(s.job && ACTIVE_STATUSES.includes(s.job.status)));
   const setTool = useCanvasStore((s) => s.setTool);
   const [lastShape, setLastShape] = useState("rect");
 
@@ -207,6 +212,25 @@ export function CanvasToolbar({
             onClick={onAddImageClick}
           >
             <ImagePlus className="h-4 w-4" />
+          </button>
+        </ToolGroup>
+
+        <Divider />
+
+        <ToolGroup>
+          <button
+            type="button"
+            className={cn(
+              "relative grid h-9 w-9 cursor-pointer place-items-center rounded-lg transition-colors",
+              aiOpen ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
+            )}
+            title="Create with AI"
+            aria-label="Create with AI"
+            aria-pressed={Boolean(aiOpen)}
+            onClick={onAiClick}
+          >
+            <Sparkles className="h-4 w-4" />
+            {aiRunning && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-brand" aria-hidden />}
           </button>
         </ToolGroup>
         </>)}
