@@ -118,6 +118,7 @@ def board_metadata_reads(request):
             project = property_of(data, 'projectId')
             if not truthy(project):
                 return reply(request, {'error': 'projectId required.'}, 400)
+            access.require_board_creator(user, project)
             if not name:
                 return reply(request, {'error': 'Name required.'}, 400)
             board = services.create_board(project, name, user)

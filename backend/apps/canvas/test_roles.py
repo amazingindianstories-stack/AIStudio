@@ -235,6 +235,36 @@ class BoardRoleTests(TransactionTestCase):
         board = CanvasBoard.objects.create(project_id=created['id'], name='Theirs', created_by=self.other.id, data={}, created_at=1, updated_at=1, team_role='view')
         self.assertEqual(self.client.get(f'/api/canvas-boards/{board.id}').json()['role'], 'owner')
 
+    def test_board_creation_follows_project_roles(self):
+        def create(user):
+            self.as_user(user)
+            return self.send('post', '/api/canvas-boards', {'op': 'createBoard', 'projectId': PROJECT, 'name': 'New'})
+
+        # A project without explicit members stays team-wide.
+        for user in (self.mate, self.other, self.admin):
+            with self.subTest(members=False, user=user.name):
+                self.assertEqual(create(user).status_code, 200)
+        self.grant_project(self.owner, 'owner')
+        before = CanvasBoard.objects.count()
+        for role in ('commenter', 'viewer', None):
+            with self.subTest(role=role):
+                ProjectMember.objects.filter(user_id=self.mate.id).delete()
+                if role:
+                    self.grant_project(self.mate, role)
+                response = create(self.mate)
+                self.assertEqual((response.status_code, response.json()), (403, {'error': 'FORBIDDEN'}))
+        self.assertEqual(CanvasBoard.objects.count(), before)
+        # Board membership and team access do not grant creation in a project with members.
+        self.grant_board(self.other, 'edit')
+        self.assertEqual(create(self.other).status_code, 403)
+        for role in ('owner', 'co_owner', 'editor'):
+            with self.subTest(role=role):
+                self.grant_project(self.mate, role)
+                response = create(self.mate)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()['board']['role'], 'owner')
+        self.assertEqual(create(self.admin).status_code, 200)
+
     def test_deleting_a_user_removes_their_memberships(self):
         self.grant_board(self.mate, 'edit')
         self.grant_project(self.mate, 'editor')

@@ -66,6 +66,12 @@ def project_level(user, project_id):
     return PROJECT_LEVELS.get(role, NONE)
 
 
+def require_board_creator(user, project_id):
+    """A project with explicit members takes boards from editors and above; one without stays team-wide."""
+    if ProjectMember.objects.filter(project_id=project_id).exists() and project_level(user, project_id) < EDIT:
+        raise AccessError('FORBIDDEN', 403)
+
+
 def active_user(identifier):
     if not isinstance(identifier, str):
         raise AccessError('userId required.', 400)

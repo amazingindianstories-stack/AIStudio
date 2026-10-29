@@ -390,7 +390,7 @@ async function loadBoardImpl(set, get, id) {
     redirectToLogin();
     throw new Error("UNAUTHENTICATED");
   }
-  if (res.status === 404 || res.status === 403) {
+  if (res.status === 404) {
     if (myGeneration === loadGeneration) set({ boardId: null, boardName: "", loaded: true });
     throw new Error("NOT_FOUND");
   }

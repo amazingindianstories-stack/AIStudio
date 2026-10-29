@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { Crown, Loader2, Users, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -51,10 +51,22 @@ export function BoardShareDialog({ boardId, boardName, projectName, onClose, onA
   useEffect(() => {
     const previousFocus = document.activeElement;
     const frame = requestAnimationFrame(() => closeRef.current?.focus());
+    return () => {
+      cancelAnimationFrame(frame);
+      previousFocus?.focus?.();
+    };
+  }, []);
+
+  const closeConfirm = useCallback(() => {
+    flushSync(() => setConfirmOwner(null));
+    closeRef.current?.focus();
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event) => {
       if (event.key === "Escape") {
         event.stopPropagation();
-        if (confirmOwner) setConfirmOwner(null);
+        if (confirmOwner) closeConfirm();
         else onClose();
         return;
       }
@@ -74,17 +86,14 @@ export function BoardShareDialog({ boardId, boardName, projectName, onClose, onA
       }
     };
     document.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKeyDown, true);
-      previousFocus?.focus?.();
-    };
-  }, [confirmOwner, onClose]);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [closeConfirm, confirmOwner, onClose]);
 
   const people = useMemo(() => new Map(teammates.map((user) => [user.id, user])), [teammates]);
 
   const run = useCallback(
     async (action) => {
+      const focused = document.activeElement;
       setBusy(true);
       setError("");
       try {
@@ -95,7 +104,8 @@ export function BoardShareDialog({ boardId, boardName, projectName, onClose, onA
       } catch (err) {
         setError(err.message || "Could not update sharing.");
       } finally {
-        setBusy(false);
+        flushSync(() => setBusy(false));
+        if (document.activeElement === document.body) (focused?.isConnected ? focused : closeRef.current)?.focus();
       }
     },
     [boardId, onAccessChange]
@@ -106,8 +116,9 @@ export function BoardShareDialog({ boardId, boardName, projectName, onClose, onA
 
   const memberIds = new Set((access?.members ?? []).map((member) => member.userId));
   const projectMemberIds = new Set((access?.projectMembers ?? []).map((member) => member.userId));
-  const boardCandidates = teammates.filter((user) => user.id !== access?.ownerId && !memberIds.has(user.id));
-  const projectCandidates = teammates.filter((user) => !projectMemberIds.has(user.id));
+  const activeTeammates = teammates.filter((user) => user.isActive);
+  const boardCandidates = activeTeammates.filter((user) => user.id !== access?.ownerId && !memberIds.has(user.id));
+  const projectCandidates = activeTeammates.filter((user) => !projectMemberIds.has(user.id));
 
   if (typeof document === "undefined") return null;
 
@@ -317,7 +328,7 @@ export function BoardShareDialog({ boardId, boardName, projectName, onClose, onA
                 <button
                   type="button"
                   autoFocus
-                  onClick={() => setConfirmOwner(null)}
+                  onClick={closeConfirm}
                   className="rounded-lg px-3 py-1.5 text-sm font-medium text-white/70 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand"
                 >
                   Cancel
