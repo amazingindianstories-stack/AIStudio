@@ -594,6 +594,9 @@ export const useCanvasStore = create((set, get) => ({
   /** The board point at the centre of the visible canvas. */
   viewportCenter: () => viewportCenterWorld(get().history.present.viewport),
 
+  /** The visible canvas's measured size in pixels. */
+  viewportSize: () => ({ ...viewportPx }),
+
   /** Insert generated nodes (a "Create with AI" result) as one undo step and select them. `replaceIds` are the
    * nodes of the result this one refines: they leave in the same step (with connectors that referenced them), so
    * one undo restores the previous result. */

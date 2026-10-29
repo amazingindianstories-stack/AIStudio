@@ -160,3 +160,44 @@ export function inFreeSpace(nodes, existing) {
   if (!free || (free.dx === 0 && free.dy === 0)) return nodes;
   return nodes.map((node) => ({ ...node, x: node.x + free.dx, y: node.y + free.dy }));
 }
+
+/** `rect`, in canvas pixels, as a board rect under viewport `vp`. */
+export function screenRectToBoard(rect, vp) {
+  return { x: rect.x / vp.zoom + vp.x, y: rect.y / vp.zoom + vp.y, w: rect.w / vp.zoom, h: rect.h / vp.zoom };
+}
+
+const VIEW_PAD = 24;
+
+/**
+ * The viewport that shows `nodes` whole in the `visible` canvas area (a rect in canvas pixels) and clear of `panel`
+ * (a rect in the same pixels, or null): `vp` itself when they already are, else `vp` panned so they sit centred in
+ * the largest clear band beside the panel that fits them. When no band fits them at this zoom, it zooms out just
+ * enough to fit the band that needs the least zooming out.
+ */
+export function viewportShowing(nodes, vp, visible, panel) {
+  if (!nodes.length) return vp;
+  const box = boundsOf(nodes);
+  const shown = { x: (box.x - vp.x) * vp.zoom, y: (box.y - vp.y) * vp.zoom, w: box.w * vp.zoom, h: box.h * vp.zoom };
+  const right = visible.x + visible.w;
+  const bottom = visible.y + visible.h;
+  const inside = shown.x >= visible.x && shown.y >= visible.y && shown.x + shown.w <= right && shown.y + shown.h <= bottom;
+  if (inside && !(panel && overlaps(shown, panel, 0))) return vp;
+  const bands = (panel
+    ? [
+      { x: visible.x, y: visible.y, w: visible.w, h: panel.y - visible.y },
+      { x: visible.x, y: panel.y + panel.h, w: visible.w, h: bottom - panel.y - panel.h },
+      { x: visible.x, y: visible.y, w: panel.x - visible.x, h: visible.h },
+      { x: panel.x + panel.w, y: visible.y, w: right - panel.x - panel.w, h: visible.h },
+    ]
+    : [visible]).filter((band) => band.w > 2 * VIEW_PAD && band.h > 2 * VIEW_PAD);
+  if (!bands.length) return vp;
+  const fitZoom = (band) => Math.min((band.w - 2 * VIEW_PAD) / Math.max(box.w, 1), (band.h - 2 * VIEW_PAD) / Math.max(box.h, 1));
+  const fitting = bands.filter((band) => band.w >= shown.w && band.h >= shown.h).sort((a, b) => b.w * b.h - a.w * a.h);
+  const band = fitting[0] ?? [...bands].sort((a, b) => fitZoom(b) - fitZoom(a))[0];
+  const zoom = fitting.length ? vp.zoom : Math.max(fitZoom(band), 0.1);
+  return {
+    x: box.x + box.w / 2 - (band.x + band.w / 2) / zoom,
+    y: box.y + box.h / 2 - (band.y + band.h / 2) / zoom,
+    zoom,
+  };
+}

@@ -470,7 +470,7 @@ export function CanvasView() {
             onAiClick={() => setAiOpen((v) => !v)}
           />
         )}
-        {aiOpen && boardId && !readOnly && <CanvasAiPanel boardId={boardId} onClose={() => setAiOpen(false)} />}
+        {aiOpen && boardId && !readOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
       </div>
 
       <input

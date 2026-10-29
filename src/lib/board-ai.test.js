@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { useBoardAi, requestFingerprint } from "./board-ai.js";
+import { useBoardAi, requestFingerprint, trackPanelLayout } from "./board-ai.js";
 import { useCanvasStore } from "./canvas-store.js";
 import { emptyCanvasState } from "./canvas/serialization.js";
 
@@ -194,4 +194,78 @@ test("placing a result again adds a fresh copy in free space as one undo step, a
   assert.deepEqual(useBoardAi.getState().placed.nodeIds, copies.map((node) => node.id));
   canvas.undo();
   assert.equal(useCanvasStore.getState().history.present.nodes.length, first.length);
+});
+
+// The open panel floats over the bottom centre of a 1600 x 900 canvas, in canvas pixels; nothing else covers it.
+const PANEL = { x: 520, y: 588, w: 560, h: 240 };
+const LAYOUT = { panel: PANEL, visible: { x: 0, y: 0, w: 1600, h: 900 } };
+const sticky = (id, x, y, w, h) => ({ id, type: "sticky", x, y, w, h, text: "", fill: "#fff", fontSize: 16, color: "#000", parentId: null, groupId: null });
+const intersects = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+function onScreen(nodes, vp) {
+  const x0 = Math.min(...nodes.map((n) => n.x));
+  const y0 = Math.min(...nodes.map((n) => n.y));
+  const x1 = Math.max(...nodes.map((n) => n.x + n.w));
+  const y1 = Math.max(...nodes.map((n) => n.y + n.h));
+  return { x: (x0 - vp.x) * vp.zoom, y: (y0 - vp.y) * vp.zoom, w: (x1 - x0) * vp.zoom, h: (y1 - y0) * vp.zoom };
+}
+
+test("a new result avoids the board area under the open panel", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  t.after(trackPanelLayout(() => LAYOUT));
+  // The viewport centre and the slot above it are taken; the slot below is under the panel, so the result goes beside.
+  loadedBoard([sticky("tall", 588, 0, 424, 560)]);
+  server(t, (call) => (call.method === "PATCH"
+    ? json(200, { job: job({ status: "succeeded", result: NOTES, placedNodeIds: call.body.placedNodeIds, placedAt: 5 }) })
+    : json(200, { jobs: [] })));
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().settle(job({ status: "succeeded", result: NOTES }));
+  const { nodes, viewport } = useCanvasStore.getState().history.present;
+  const added = nodes.filter((node) => node.id !== "tall");
+  assert.deepEqual(added.map((node) => node.text), ["One", "Two"]);
+  const shown = onScreen(added, viewport);
+  assert.ok(!intersects(shown, PANEL), `the result is not under the panel: ${JSON.stringify(shown)}`);
+  assert.ok(shown.x >= 0 && shown.y >= 0 && shown.x + shown.w <= 1600 && shown.y + shown.h <= 900, "fully on screen");
+  assert.deepEqual(viewport, { x: 0, y: 0, zoom: 1 }, "no pan needed");
+});
+
+test("a result placed again where it would be hidden pans the board into view, without a new job or undo step", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  t.after(trackPanelLayout(() => LAYOUT));
+  // Content fills the whole visible canvas, so the nearest free slot is off screen, above it.
+  const wall = { x: -100, y: -100, w: 1800, h: 1100 };
+  loadedBoard([sticky("wall", wall.x, wall.y, wall.w, wall.h)]);
+  const calls = server(t, () => json(200, { jobs: [] }));
+  await useBoardAi.getState().attach(BOARD);
+  const pastBefore = useCanvasStore.getState().history.past.length;
+  await useBoardAi.getState().placeAgain(job({ status: "succeeded", result: NOTES, placedAt: 5 }));
+  const canvas = useCanvasStore.getState();
+  const added = canvas.history.present.nodes.filter((node) => node.id !== "wall");
+  assert.equal(added.length, 2);
+  assert.ok(!added.some((node) => intersects(node, wall)), "in free space");
+  const { viewport } = canvas.history.present;
+  assert.equal(viewport.zoom, 1, "panned, not zoomed");
+  assert.ok(viewport.y < 0, "the board pans up to the result");
+  const shown = onScreen(added, viewport);
+  assert.ok(shown.x >= 0 && shown.y >= 0 && shown.x + shown.w <= 1600 && shown.y + shown.h <= 900, `fully on screen: ${JSON.stringify(shown)}`);
+  assert.ok(!intersects(shown, PANEL), "clear of the panel");
+  assert.equal(canvas.history.past.length, pastBefore + 1, "the placement is one undo step; the pan adds none");
+  assert.deepEqual(calls.map((call) => call.method), ["GET"], "placing again never submits, bills or claims");
+});
+
+test("a result never lands under the asset panel either, and is panned out from under it", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  // The asset panel covers the canvas's left 300 px.
+  const visible = { x: 300, y: 0, w: 1300, h: 900 };
+  t.after(trackPanelLayout(() => ({ panel: PANEL, visible })));
+  // The centre, the slots above and below it, and the right are taken; the left slot is under the asset panel.
+  loadedBoard([sticky("block", 300, -400, 2000, 1400)]);
+  server(t, () => json(200, { jobs: [] }));
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().placeAgain(job({ status: "succeeded", result: NOTES, placedAt: 5 }));
+  const { nodes, viewport } = useCanvasStore.getState().history.present;
+  const added = nodes.filter((node) => node.id !== "block");
+  assert.equal(added.length, 2);
+  const shown = onScreen(added, viewport);
+  assert.ok(shown.x >= 300 && shown.y >= 0 && shown.x + shown.w <= 1600 && shown.y + shown.h <= 900, `beside the asset panel: ${JSON.stringify(shown)}`);
+  assert.ok(!intersects(shown, PANEL), "clear of the AI panel");
 });

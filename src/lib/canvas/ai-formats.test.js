@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AI_FORMATS, AI_FORMAT_ORDER, STICKY_FILLS, imageNodes, inFreeSpace, placedCenter, stickyColumns, stickyNodes } from "./ai-formats.js";
+import { AI_FORMATS, AI_FORMAT_ORDER, STICKY_FILLS, imageNodes, inFreeSpace, placedCenter, screenRectToBoard, stickyColumns, stickyNodes,
+  viewportShowing } from "./ai-formats.js";
 import { validateCanvasState } from "./serialization.js";
 
 const notes = (count) => ({ notes: Array.from({ length: count }, (_, index) => ({ text: `Idea ${index + 1}`, color: index % 2 ? "blue" : "magenta" })) });
@@ -65,4 +66,36 @@ test("a new result goes to the free slot nearest the viewport centre, never on t
   assert.deepEqual(moved.map((node) => node.x), built.map((node) => node.x));
   const box = (nodes) => ({ x0: Math.min(...nodes.map((n) => n.x)), y1: Math.max(...nodes.map((n) => n.y + n.h)) });
   assert.ok(box(moved).y1 <= blocked[0].y, "no overlap");
+});
+
+test("a canvas-pixel rect maps to the board rect under the viewport", () => {
+  assert.deepEqual(screenRectToBoard({ x: 100, y: 50, w: 200, h: 80 }, { x: 1000, y: -500, zoom: 2 }), { x: 1050, y: -475, w: 100, h: 40 });
+});
+
+test("the viewport pans (zooming out only when it must) when a placed result is not fully visible outside the panel", () => {
+  const size = { x: 0, y: 0, w: 1600, h: 900 };
+  const panel = { x: 520, y: 588, w: 560, h: 240 };
+  const vp = { x: 0, y: 0, zoom: 1 };
+  const at = (x, y) => [{ x, y, w: 424, h: 200 }];
+  assert.equal(viewportShowing(at(100, 100), vp, size, panel), vp, "already in view: unchanged");
+  assert.equal(viewportShowing([], vp, size, panel), vp);
+  // Under the panel: centred in the band above it (1600 x 588), at the same zoom.
+  assert.deepEqual(viewportShowing(at(588, 600), vp, size, panel), { x: 0, y: 406, zoom: 1 });
+  // Off screen with no panel: centred on the canvas.
+  assert.deepEqual(viewportShowing(at(3000, 0), { x: 0, y: 0, zoom: 0.5 }, size, null), { x: 1612, y: -800, zoom: 0.5 });
+  // Too tall for the band above a tall panel: the largest band beside it that fits (the right one, 640 x 900).
+  const tallPanel = { x: 400, y: 100, w: 560, h: 800 };
+  const tall = [{ x: 5000, y: 0, w: 300, h: 600 }];
+  assert.deepEqual(viewportShowing(tall, vp, size, tallPanel), { x: 5150 - (960 + 320), y: 300 - 450, zoom: 1 });
+  // Larger than any clear band at this zoom: zoomed out just enough to fit the band above the panel, with a margin.
+  const wide = [{ x: 0, y: 0, w: 2784 / 4, h: 200 }];
+  const fitted = viewportShowing(wide, { x: 540, y: -800, zoom: 4 }, size, panel);
+  assert.equal(fitted.zoom, (1600 - 48) / 696);
+  const onScreen = { x: (0 - fitted.x) * fitted.zoom, y: (0 - fitted.y) * fitted.zoom, w: 696 * fitted.zoom, h: 200 * fitted.zoom };
+  assert.ok(Math.abs(onScreen.x - 24) < 1e-9 && Math.abs(onScreen.x + onScreen.w - 1576) < 1e-9, "fills the band width less the margin");
+  assert.ok(onScreen.y >= 0 && onScreen.y + onScreen.h <= panel.y, "above the panel");
+  // A side panel covering the left 300 px narrows the visible area: a result under it is panned out.
+  const besideAssets = { x: 300, y: 0, w: 1300, h: 900 };
+  assert.deepEqual(viewportShowing(at(100, 100), vp, besideAssets, panel), { x: 312 - 950, y: 200 - 294, zoom: 1 });
+  assert.equal(viewportShowing(at(400, 100), vp, besideAssets, panel), vp);
 });

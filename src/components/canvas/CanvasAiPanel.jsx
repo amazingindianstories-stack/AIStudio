@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { fallbackModel, pickerModels } from "@/lib/config";
 import { capability } from "@/lib/model-registry";
 import { formatCost } from "@/lib/format-cost";
-import { ACTIVE_STATUSES, quoteBoardAi, requestFingerprint, useBoardAi } from "@/lib/board-ai";
+import { ACTIVE_STATUSES, quoteBoardAi, requestFingerprint, trackPanelLayout, useBoardAi } from "@/lib/board-ai";
 import { AI_FORMATS, AI_FORMAT_ORDER } from "@/lib/canvas/ai-formats";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 
@@ -43,10 +43,11 @@ function statusLine(job) {
 /**
  * "Create with AI" (Miro's Create with AI panel): pick a format, write a prompt or pick a suggestion, choose basic or
  * advanced processing, see the estimated cost, run it, and keep refining. It floats above the board toolbar; the
- * result lands on the board near the viewport centre (a refinement replaces the result it refines, in place, as one
- * undo step). Recent results lists the last day's finished results so any of them can be placed again.
+ * result lands on the board near the viewport centre, clear of the panel and in view (a refinement replaces the result
+ * it refines, in place, as one undo step). Recent results lists the last day's finished results so any of them can be
+ * placed again.
  */
-export function CanvasAiPanel({ boardId, onClose }) {
+export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const job = useBoardAi((s) => s.job);
   const placed = useBoardAi((s) => s.placed);
   const submitting = useBoardAi((s) => s.submitting);
@@ -66,6 +67,7 @@ export function CanvasAiPanel({ boardId, onClose }) {
   const [chosenModel, setChosenModel] = useState(null);
   const [quote, setQuote] = useState({ state: "idle" });
   const textareaRef = useRef(null);
+  const panelRef = useRef(null);
 
   const imageModels = useMemo(() => pickerModels(availableModelIds, "image"), [availableModelIds]);
   const model = format === "image"
@@ -88,6 +90,20 @@ export function CanvasAiPanel({ boardId, onClose }) {
   useEffect(() => {
     textareaRef.current?.focus();
   }, [refining, activeFormat]);
+
+  // Placement keeps results in view: report this panel's rect and the canvas left visible beside the asset panel
+  // (`leftInset` wide), relative to the canvas, which shares the panel's positioned parent.
+  useEffect(() => trackPanelLayout(() => {
+    const panel = panelRef.current;
+    const canvas = panel?.offsetParent;
+    if (!panel || !canvas) return null;
+    const rect = panel.getBoundingClientRect();
+    const origin = canvas.getBoundingClientRect();
+    return {
+      panel: { x: rect.left - origin.left, y: rect.top - origin.top, w: rect.width, h: rect.height },
+      visible: { x: leftInset, y: 0, w: Math.max(origin.width - leftInset, 0), h: origin.height },
+    };
+  }), [leftInset]);
 
   // Reload when board AI attaches a board (after the board loads, not when the prop changes), since attaching
   // clears the list.
@@ -144,6 +160,7 @@ export function CanvasAiPanel({ boardId, onClose }) {
 
   return (
     <section
+      ref={panelRef}
       aria-label="Create with AI"
       className="absolute bottom-[72px] left-1/2 z-[45] w-[min(560px,calc(100%-32px))] -translate-x-1/2 rounded-2xl border border-line bg-ink-750/95 p-3 shadow-pop backdrop-blur-xl"
     >

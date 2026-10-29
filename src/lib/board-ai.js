@@ -1,14 +1,15 @@
 import { create } from "zustand";
 import { apiFetch } from "./api";
 import { apiErrorMessage } from "./api-error";
-import { AI_FORMATS, inFreeSpace, placedCenter } from "./canvas/ai-formats";
+import { AI_FORMATS, inFreeSpace, placedCenter, screenRectToBoard, viewportShowing } from "./canvas/ai-formats";
 import { useCanvasStore } from "./canvas-store";
 
 // Board "Create with AI" jobs (backend/apps/canvas/ai_jobs.py). The server queues each job on the generation
 // worker; this module quotes, submits (one Idempotency-Key per request, reused on retry, so a double click or a
 // retried request never queues a second paid job), polls until the job ends, then places the result on the board
 // and marks it placed so a reload or another tab never places it twice. The owner's finished results of the last
-// day stay listed, so any of them can be placed again without a new job.
+// day stay listed, so any of them can be placed again without a new job. A placed result is always left in view:
+// the canvas the open panels cover counts as occupied space, and the board pans when the result would still be hidden.
 
 export const ACTIVE_STATUSES = ["queued", "running"];
 const POLL_MS = 1500;
@@ -74,6 +75,45 @@ export function requestFingerprint(boardId, request) {
 
 let pollTimer = null;
 let generation = 0;
+let measureLayout = null;
+
+/**
+ * The open panel reports, in canvas pixels, its own rect (`panel`) and the canvas area side panels leave visible
+ * (`visible`) through `measure`; the returned function stops reporting.
+ */
+export function trackPanelLayout(measure) {
+  measureLayout = measure;
+  return () => {
+    if (measureLayout === measure) measureLayout = null;
+  };
+}
+
+/** The panel's layout, or the whole canvas with no panel while it is closed. */
+function layout(canvas) {
+  const measured = measureLayout?.();
+  if (measured) return measured;
+  const size = canvas.viewportSize();
+  return { panel: null, visible: { x: 0, y: 0, w: size.w, h: size.h } };
+}
+
+/** Board space a new result must avoid: the board's nodes (less `exclude`) and the board area the panels cover. */
+function occupied(canvas, exclude = []) {
+  const nodes = canvas.history.present.nodes.filter((node) => !exclude.includes(node.id));
+  const { panel, visible } = layout(canvas);
+  const { viewport } = canvas.history.present;
+  const covered = [panel, visible.x > 0 ? { x: 0, y: visible.y, w: visible.x, h: visible.h } : null].filter(Boolean);
+  return [...nodes, ...covered.map((rect) => screenRectToBoard(rect, viewport))];
+}
+
+/** Insert `nodes` as one undo step, then pan (instantly) if they are not fully visible outside the panels. */
+function insertVisible(nodes, replaceIds) {
+  const canvas = useCanvasStore.getState();
+  canvas.placeGeneratedNodes(nodes, replaceIds);
+  const { viewport } = useCanvasStore.getState().history.present;
+  const { panel, visible } = layout(canvas);
+  const shown = viewportShowing(nodes, viewport, visible, panel);
+  if (shown !== viewport) canvas.setViewport(shown);
+}
 
 function clearPoll() {
   if (pollTimer) clearTimeout(pollTimer);
@@ -157,9 +197,9 @@ export const useBoardAi = create((set, get) => ({
       return;
     }
     const canvas = useCanvasStore.getState();
-    const nodes = inFreeSpace(format.nodes(job, canvas.viewportCenter()), canvas.history.present.nodes);
+    const nodes = inFreeSpace(format.nodes(job, canvas.viewportCenter()), occupied(canvas));
     if (!nodes.length) return;
-    canvas.placeGeneratedNodes(nodes, []);
+    insertVisible(nodes, []);
     set({ error: null, placed: placedResult(job, nodes) });
   },
 
@@ -240,7 +280,7 @@ async function placeJob(get, set, job, mine) {
   // A refinement takes the place of the result it refines; a new result goes to free space near the viewport centre.
   const nodes = previousCenter
     ? format.nodes(job, previousCenter)
-    : inFreeSpace(format.nodes(job, canvas.viewportCenter()), canvas.history.present.nodes.filter((node) => !replaceIds.includes(node.id)));
+    : inFreeSpace(format.nodes(job, canvas.viewportCenter()), occupied(canvas, replaceIds));
   let marked;
   try {
     // Claim the placement first: only the caller whose mark succeeds inserts the nodes.
@@ -255,6 +295,6 @@ async function placeJob(get, set, job, mine) {
     return;
   }
   if (mine !== generation || !onItsBoard(job)) return;
-  useCanvasStore.getState().placeGeneratedNodes(nodes, replaceIds);
+  insertVisible(nodes, replaceIds);
   set({ job: marked, error: null, placed: placedResult(job, nodes) });
 }
