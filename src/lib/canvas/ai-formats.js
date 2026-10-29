@@ -81,6 +81,7 @@ export const AI_FORMATS = {
     label: "Sticky notes",
     placeholder: "Describe the sticky notes you want, e.g. ten shot ideas for a rainy night chase",
     refinePlaceholder: "How should the notes change? e.g. make them shorter, add three more",
+    advancedHint: "A stronger text model, for more considered notes",
     suggestions: [
       "Brainstorm 8 shot ideas for a 30-second product teaser",
       "List the story beats of a three-act short film about a lost dog",
@@ -98,6 +99,7 @@ export const AI_FORMATS = {
     label: "Image",
     placeholder: "Describe the image, e.g. a lighthouse at dusk in heavy fog",
     refinePlaceholder: "How should the image change? e.g. make it night, add rain",
+    advancedHint: "Renders at 2K where the model offers it",
     suggestions: [
       "A moody storyboard frame of a detective in a neon alley",
       "A clean product shot of a ceramic mug on linen",

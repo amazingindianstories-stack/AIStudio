@@ -5,6 +5,10 @@ later) queues a text job whose prompt shape lives in ``apps.agents.board``; the 
 image generation in the board's project. Both run on the generation worker under its admission, per-user limit,
 Gemini spend window and paid guard; this module never calls a provider.
 
+Processing is ``basic`` (the default) or ``advanced``. Advanced text runs on the stronger Gemini model
+(``AGENT_LLM_MODEL_ADVANCED``) at its own estimator rate; an advanced image renders at 2K where the model offers it,
+priced by the model's own resolution pricing.
+
 A submission needs an Idempotency-Key. The key's receipt, the generation row and the job row commit in one
 transaction, so a double click, a retried request or a second tab with the same key returns the first job and never
 queues a second billed generation. The board places a result itself (it owns the graph and its autosave) and then
@@ -14,6 +18,7 @@ import re
 import uuid
 
 from apps.common.leases import now_ms
+from apps.generation.model_registry import capability
 from apps.generation.models import Generation
 from apps.generation.serialization import generation_item
 from apps.generation.services import submission, text_submission
@@ -21,6 +26,8 @@ from apps.library.services import idempotency
 from .models import BoardAiJob
 
 ENGINES = {'stickies': 'text', 'image': 'image'}
+PROCESSING = ('basic', 'advanced')
+ADVANCED_RESOLUTION = '2K'
 OPERATION = 'BOARD_AI_JOB'
 ORIGIN = {'created_via': 'board'}
 UUID = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
@@ -37,7 +44,7 @@ class JobError(Exception):
 
 
 def request_values(body):
-    """The validated job request: format, prompt, optional parent job, and the image's model and aspect ratio."""
+    """The validated job request: format, prompt, processing, optional parent job, and the image's model and aspect ratio."""
     if not isinstance(body, dict):
         raise JobError(400, 'Invalid request.')
     name = body.get('format')
@@ -46,7 +53,10 @@ def request_values(body):
     prompt = body.get('prompt')
     if not isinstance(prompt, str) or not prompt.strip():
         raise JobError(400, 'Prompt is required.')
-    values = {'format': name, 'prompt': prompt.strip()}
+    processing = body.get('processing', 'basic')
+    if processing not in PROCESSING:
+        raise JobError(400, 'Unknown processing.', 'UNKNOWN_PROCESSING')
+    values = {'format': name, 'prompt': prompt.strip(), 'processing': processing}
     parent = body.get('parentJobId')
     if parent is not None:
         if not isinstance(parent, str) or not UUID.fullmatch(parent):
@@ -86,11 +96,17 @@ def text_turns(values, parent, generation):
 
 
 def image_body(board, values, generation):
-    body = {'prompt': values['prompt'], 'model': values.get('model'), 'aspectRatio': values.get('aspectRatio', '1:1'),
-            'projectId': str(board.project_id)}
+    """The image generation request. A refinement edits the previous image: it is the reference the new prompt describes
+    changes to, and the new image keeps its model and aspect ratio unless the request names others."""
+    model = values.get('model') or (generation.model if generation is not None else None)
+    ratio = values.get('aspectRatio') or (generation.aspect_ratio if generation is not None else None) or '1:1'
+    body = {'prompt': values['prompt'], 'model': model, 'aspectRatio': ratio, 'projectId': str(board.project_id)}
     if generation is not None:
-        # A refinement edits the previous image: it is the reference the new prompt describes changes to.
         body['referenceImages'] = [generation.url]
+    if values['processing'] == 'advanced':
+        resolutions = (capability(model, 'referenceResolutions', None) if generation is not None else None) or capability(model, 'resolutions', [])
+        if ADVANCED_RESOLUTION in resolutions:
+            body['resolution'] = ADVANCED_RESOLUTION
     return {key: value for key, value in body.items() if value is not None}
 
 
@@ -98,10 +114,10 @@ def quote(actor, board, body):
     values = request_values(body)
     parent, generation = parent_job(board, actor, values)
     if ENGINES[values['format']] == 'text':
-        result = text_submission.quote_text(actor, values['format'], text_turns(values, parent, generation))
+        result = text_submission.quote_text(actor, values['format'], text_turns(values, parent, generation), values['processing'])
     else:
         result = submission.quote_generation(actor, 'image', image_body(board, values, generation))
-    return {'format': values['format'], 'model': result['model'], 'costCents': result['costCents']}
+    return {'format': values['format'], 'processing': values['processing'], 'model': result['model'], 'costCents': result['costCents']}
 
 
 def receipt_key(raw, actor):
@@ -128,7 +144,8 @@ def submit(actor, board, body, idempotency_key):
                 prompt=values['prompt'], generation_id=item['id'], parent_job=parent, created_at=now, updated_at=now)
 
         if ENGINES[values['format']] == 'text':
-            text_submission.submit_text(actor, values['format'], text_turns(values, parent, generation), origin=ORIGIN, admit=admit)
+            text_submission.submit_text(actor, values['format'], text_turns(values, parent, generation), processing=values['processing'],
+                                        origin=ORIGIN, admit=admit)
         else:
             submission.submit_generation(actor, 'image', image_body(board, values, generation), origin=ORIGIN, admit=admit)
         return {'jobId': str(created['job'].id)}
@@ -141,11 +158,15 @@ def submit(actor, board, body, idempotency_key):
     return job_json(BoardAiJob.objects.get(pk=receipt['jobId']))
 
 
-def jobs(actor, board, ids=None):
-    """The actor's jobs on this board: the named ones, else the recent ones not yet placed (newest first)."""
+def jobs(actor, board, ids=None, recent=False):
+    """The actor's jobs on this board (newest first): the named ones; with ``recent`` the finished results of the last
+    day, placed or not, which the panel offers to place again; else the recent ones not yet placed."""
     rows = BoardAiJob.objects.filter(board=board, user_id=actor.id)
     if ids:
         rows = rows.filter(pk__in=[value for value in ids if UUID.fullmatch(value)][:LIST_LIMIT])
+    elif recent:
+        rows = rows.filter(created_at__gt=now_ms() - RECENT_MS,
+                           generation_id__in=Generation.objects.filter(status='succeeded').values('id'))
     else:
         rows = rows.filter(placed_at__isnull=True, created_at__gt=now_ms() - RECENT_MS)
     rows = list(rows.order_by('-created_at', '-id')[:LIST_LIMIT])

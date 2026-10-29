@@ -7,7 +7,8 @@ import { useCanvasStore } from "./canvas-store";
 // Board "Create with AI" jobs (backend/apps/canvas/ai_jobs.py). The server queues each job on the generation
 // worker; this module quotes, submits (one Idempotency-Key per request, reused on retry, so a double click or a
 // retried request never queues a second paid job), polls until the job ends, then places the result on the board
-// and marks it placed so a reload or another tab never places it twice.
+// and marks it placed so a reload or another tab never places it twice. The owner's finished results of the last
+// day stay listed, so any of them can be placed again without a new job.
 
 export const ACTIVE_STATUSES = ["queued", "running"];
 const POLL_MS = 1500;
@@ -53,8 +54,8 @@ export async function submitBoardAi(boardId, request, idempotencyKey) {
   return (await send(jobsPath(boardId), "POST", request, { "Idempotency-Key": idempotencyKey })).job;
 }
 
-export async function fetchBoardAiJobs(boardId, ids = []) {
-  const query = ids.length ? `?ids=${encodeURIComponent(ids.join(","))}` : "";
+export async function fetchBoardAiJobs(boardId, ids = [], { recent = false } = {}) {
+  const query = ids.length ? `?ids=${encodeURIComponent(ids.join(","))}` : recent ? "?recent=1" : "";
   const response = await apiFetch(jobsPath(boardId) + query);
   const json = await readJson(response);
   if (!response.ok) throw new Error(apiErrorMessage(json, response.status));
@@ -67,7 +68,8 @@ export async function markBoardAiPlaced(boardId, jobId, nodeIds) {
 
 /** The request fields a job is submitted with; equal requests reuse one idempotency key. */
 export function requestFingerprint(boardId, request) {
-  return JSON.stringify([boardId, request.format, request.prompt, request.parentJobId ?? null, request.model ?? null, request.aspectRatio ?? null]);
+  return JSON.stringify([boardId, request.format, request.prompt, request.processing ?? null, request.parentJobId ?? null, request.model ?? null,
+    request.aspectRatio ?? null]);
 }
 
 let pollTimer = null;
@@ -78,14 +80,26 @@ function clearPoll() {
   pollTimer = null;
 }
 
+/** True while `job`'s board is the loaded board in the canvas store. */
+function onItsBoard(job) {
+  const canvas = useCanvasStore.getState();
+  return canvas.boardId === job.boardId && canvas.loaded;
+}
+
+function placedResult(job, nodes) {
+  return { jobId: job.id, format: job.format, prompt: job.prompt, nodeIds: nodes.map((node) => node.id), result: job.result };
+}
+
 /**
  * `job` is the job the panel follows; `placed` is the last result this tab placed (the one Refine builds on);
- * `pendingKey` keeps the key of a submission whose answer never arrived, so retrying the same request reuses it.
+ * `recent` is the owner's finished results on this board from the last day; `pendingKey` keeps the key of a
+ * submission whose answer never arrived, so retrying the same request reuses it.
  */
 export const useBoardAi = create((set, get) => ({
   boardId: null,
   job: null,
   placed: null,
+  recent: [],
   submitting: false,
   error: null,
   pendingKey: null,
@@ -96,7 +110,7 @@ export const useBoardAi = create((set, get) => ({
     clearPoll();
     generation += 1;
     const mine = generation;
-    set({ boardId, job: null, placed: null, submitting: false, error: null, pendingKey: null });
+    set({ boardId, job: null, placed: null, recent: [], submitting: false, error: null, pendingKey: null });
     if (!boardId) return;
     let jobs = [];
     try {
@@ -115,7 +129,38 @@ export const useBoardAi = create((set, get) => ({
   detach: () => {
     clearPoll();
     generation += 1;
-    set({ boardId: null, job: null, placed: null, submitting: false, error: null, pendingKey: null });
+    set({ boardId: null, job: null, placed: null, recent: [], submitting: false, error: null, pendingKey: null });
+  },
+
+  /** Refresh the owner's finished results on this board from the last day (placed or not). */
+  loadRecent: async () => {
+    const { boardId } = get();
+    if (!boardId) return;
+    const mine = generation;
+    try {
+      const recent = await fetchBoardAiJobs(boardId, [], { recent: true });
+      if (mine === generation) set({ recent });
+    } catch {
+      // The list is a convenience; the next refresh tries again.
+    }
+  },
+
+  /**
+   * Put a finished result on the board again, in free space near the viewport centre, as one undo step. It never
+   * submits or bills a job; a result that was never placed is claimed first, like any first placement.
+   */
+  placeAgain: async (job) => {
+    const format = AI_FORMATS[job.format];
+    if (!format || job.status !== "succeeded" || !onItsBoard(job)) return;
+    if (!job.placedAt) {
+      await placeJob(get, set, job, generation);
+      return;
+    }
+    const canvas = useCanvasStore.getState();
+    const nodes = inFreeSpace(format.nodes(job, canvas.viewportCenter()), canvas.history.present.nodes);
+    if (!nodes.length) return;
+    canvas.placeGeneratedNodes(nodes, []);
+    set({ error: null, placed: placedResult(job, nodes) });
   },
 
   /** Start a fresh prompt: the next job is not a refinement of the last result. */
@@ -182,12 +227,12 @@ function schedulePoll(get, set, jobId, mine) {
 
 async function placeJob(get, set, job, mine) {
   const format = AI_FORMATS[job.format];
-  const canvas = useCanvasStore.getState();
   // Place only on the board the job belongs to, once it has loaded; otherwise leave it for that board's next visit.
-  if (!format || canvas.boardId !== job.boardId || !canvas.loaded) {
+  if (!format || !onItsBoard(job)) {
     set({ job });
     return;
   }
+  const canvas = useCanvasStore.getState();
   const previous = get().placed;
   const refines = previous && job.parentJobId === previous.jobId;
   const replaceIds = refines ? previous.nodeIds : [];
@@ -209,7 +254,7 @@ async function placeJob(get, set, job, mine) {
     set({ job, error: error?.message || "Could not place the result." });
     return;
   }
-  if (mine !== generation || useCanvasStore.getState().boardId !== job.boardId) return;
+  if (mine !== generation || !onItsBoard(job)) return;
   useCanvasStore.getState().placeGeneratedNodes(nodes, replaceIds);
-  set({ job: marked, error: null, placed: { jobId: job.id, format: job.format, prompt: job.prompt, nodeIds: nodes.map((node) => node.id), result: job.result } });
+  set({ job: marked, error: null, placed: placedResult(job, nodes) });
 }

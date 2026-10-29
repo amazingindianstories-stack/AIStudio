@@ -28,6 +28,7 @@ from testsupport.fake_providers import BOARD_NOTES, FakeProviders
 from .models import BoardAiJob, CanvasBoard
 
 MODEL = 'gemini-flash-latest'
+ADVANCED_MODEL = 'gemini-pro-latest'
 ENDPOINT = agent_endpoint(MODEL)
 WORKER_ENV = {'GOOGLE_API_KEY': 'fixture-google-key'}
 GEMINI_PATH = r'POST generativelanguage\.googleapis\.com/v1beta/models/gemini-flash-latest:generateContent'
@@ -101,7 +102,12 @@ class BoardPayloadAllowlistTests(SimpleTestCase):
                     transport.request(method, url, body=body)
                 self.assertEqual((raised.exception.code, raised.exception.may_have_submitted), ('agent_scope', False))
             transport.request('POST', ENDPOINT, body=stickies_body())
-        self.assertEqual(sent, [ENDPOINT])
+            # Advanced processing sends the same allowlisted body to the stronger model's endpoint, and only there.
+            advanced = BoardTextTransport(ADVANCED_MODEL)
+            with self.assertRaises(ProviderError):
+                advanced.request('POST', ENDPOINT, body=stickies_body())
+            advanced.request('POST', agent_endpoint(ADVANCED_MODEL), body=stickies_body())
+        self.assertEqual(sent, [ENDPOINT, agent_endpoint(ADVANCED_MODEL)])
         # The admin chat's exempt transport does not accept a board body: each caller has its own allowlist.
         from apps.agents.llm import agent_payload_allowed
         self.assertFalse(agent_payload_allowed(stickies_body()))
@@ -122,6 +128,13 @@ class BoardPayloadAllowlistTests(SimpleTestCase):
         self.assertTrue(paid_guard.text_payload_matches(board_formats.build_body(contract['submission_input']), contract))
         self.assertFalse(paid_guard.text_payload_matches(stickies_body('another prompt'), contract))
         self.assertFalse(paid_guard.text_payload_matches({**board_formats.build_body(contract['submission_input']), 'tools': []}, contract))
+        # An advanced job is pinned to the stronger model it stored, never to the basic one.
+        value = board_formats.submission_input('stickies', ADVANCED_MODEL, board_formats.conversation('ideas'))
+        advanced = text_contract(model=f'Gemini ({ADVANCED_MODEL})', submission_input=value)
+        self.assertEqual(paid_guard.quote_for(advanced, UNLIMITED)['allowed_paid_endpoints'], [agent_endpoint(ADVANCED_MODEL)])
+        with self.assertRaisesRegex(ValueError, 'outside its Gemini model'):
+            paid_guard.quote_for(text_contract(submission_input=value), UNLIMITED)
+        self.assertTrue(paid_guard.text_payload_matches(board_formats.build_body(value), advanced))
 
     def test_results_are_validated_before_the_board_sees_them(self):
         parsed = board_formats.parse_output('stickies', json.dumps({'notes': [
@@ -134,10 +147,15 @@ class BoardPayloadAllowlistTests(SimpleTestCase):
                 board_formats.parse_output('stickies', text)
 
     def test_the_gateway_opens_board_submissions_only_with_the_paid_initial_routes(self):
-        path = f'/api/canvas-boards/{uuid.uuid4()}/ai-jobs'
-        self.assertFalse(gateway.allowed('POST', path))
-        self.assertTrue(gateway.allowed('POST', path, paid_initial_routes=True))
-        self.assertEqual(gateway.upstream_wait('POST', path), 120)
+        board = uuid.uuid4()
+        path = f'/api/canvas-boards/{board}/ai-jobs'
+        # Django resolves an uppercase board id and the decoded path, so every spelling of the route is the paid route.
+        for spelling in (path, path + '/', f'/api/canvas-boards/{str(board).upper()}/ai-jobs', f'/api/canvas-boards/{board}/ai-job%73',
+                         f'/api/canvas-boards/{board}/%61i-jobs', f'/api/canvas-boards/{board}/AI-JOBS'):
+            with self.subTest(spelling=spelling):
+                self.assertFalse(gateway.allowed('POST', spelling))
+                self.assertTrue(gateway.allowed('POST', spelling, paid_initial_routes=True))
+                self.assertEqual(gateway.upstream_wait('POST', spelling), 120)
         for method, route in (('POST', path + '/quote'), ('GET', path), ('PATCH', path + '/' + str(uuid.uuid4()))):
             with self.subTest(method=method, route=route):
                 self.assertTrue(gateway.allowed(method, route))
@@ -170,16 +188,16 @@ class BoardFixture(TransactionTestCase):
         return process_generation(generation_id, owner='board-test:' + uuid.uuid4().hex, signal=Cancellation(), env=WORKER_ENV,
                                   heartbeat=False)
 
-    def expected_cost(self, prompt):
-        value = board_formats.submission_input('stickies', MODEL, board_formats.conversation(prompt))
-        return -(-250 * board_formats.estimated_tokens(value) // 1000000)
+    def expected_cost(self, prompt, model=MODEL, rate=250):
+        value = board_formats.submission_input('stickies', model, board_formats.conversation(prompt))
+        return -(-rate * board_formats.estimated_tokens(value) // 1000000)
 
 
 class BoardAiJobTests(BoardFixture):
     def test_a_quote_prices_the_job_and_stores_nothing(self):
         response = self.quote({'format': 'stickies', 'prompt': 'ideas for a teaser'})
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['quote'], {'format': 'stickies', 'model': f'Gemini ({MODEL})',
+        self.assertEqual(response.json()['quote'], {'format': 'stickies', 'processing': 'basic', 'model': f'Gemini ({MODEL})',
                                                     'costCents': self.expected_cost('ideas for a teaser')})
         self.assertGreaterEqual(response.json()['quote']['costCents'], 1)
         image = self.quote({'format': 'image', 'prompt': 'a lantern', 'model': 'Nano Banana 2.1'}).json()['quote']
@@ -187,9 +205,35 @@ class BoardAiJobTests(BoardFixture):
         self.assertGreater(image['costCents'], 0)
         self.assertEqual((Generation.objects.count(), BoardAiJob.objects.count()), (0, 0))
         for body, status in (({'format': 'doc', 'prompt': 'x'}, 400), ({'format': 'stickies', 'prompt': ' '}, 400),
+                             ({'format': 'stickies', 'prompt': 'x', 'processing': 'turbo'}, 400),
                              ({'format': 'image', 'prompt': 'x', 'model': 'Retired Model'}, 400)):
             with self.subTest(body=body):
                 self.assertEqual(self.quote(body).status_code, status)
+
+    def test_advanced_processing_runs_text_on_the_stronger_model_and_images_at_2k_at_their_own_price(self):
+        text = {'format': 'stickies', 'prompt': 'ideas for a teaser'}
+        basic = self.quote({**text, 'processing': 'basic'}).json()['quote']
+        advanced = self.quote({**text, 'processing': 'advanced'}).json()['quote']
+        self.assertEqual(basic, self.quote(text).json()['quote'])      # basic is the default
+        self.assertEqual(advanced, {'format': 'stickies', 'processing': 'advanced', 'model': f'Gemini ({ADVANCED_MODEL})',
+                                    'costCents': self.expected_cost('ideas for a teaser', ADVANCED_MODEL, 1000)})
+        self.assertGreater(advanced['costCents'], basic['costCents'])
+        with patch.dict('os.environ', {'AGENT_LLM_MODEL_ADVANCED': 'gemini-3-pro'}):
+            self.assertEqual(self.quote({**text, 'processing': 'advanced'}).json()['quote']['model'], 'Gemini (gemini-3-pro)')
+        image = {'format': 'image', 'prompt': 'a lantern', 'model': 'Nano Banana 2.1'}
+        image_basic = self.quote(image).json()['quote']['costCents']
+        self.assertEqual(self.quote({**image, 'processing': 'advanced'}).json()['quote']['costCents'], int(image_basic * 1.5 + .5))
+
+        job = self.submit({**text, 'processing': 'advanced'}).json()['job']
+        row = Generation.objects.get(pk=job['generationId'])
+        self.assertEqual((row.model, row.cost_cents, row.submission_input['model']), (f'Gemini ({ADVANCED_MODEL})', advanced['costCents'], ADVANCED_MODEL))
+        with FakeProviders() as fake:
+            self.assertEqual(self.run_worker(job['generationId'])['kind'], 'succeeded')
+        self.assertEqual([call for call in fake.calls if 'generateContent' in call[1]],
+                         [('POST', f'generativelanguage.googleapis.com/v1beta/models/{ADVANCED_MODEL}:generateContent')])
+        self.assertEqual(fake.board_payloads, [stickies_body('ideas for a teaser')])
+        picture = self.submit({**image, 'processing': 'advanced'}, key='board-key-advanced-image').json()['job']
+        self.assertEqual(Generation.objects.get(pk=picture['generationId']).resolution, '2K')
 
     def test_a_submission_queues_one_text_job_and_a_replayed_key_returns_it(self):
         first = self.submit({'format': 'stickies', 'prompt': 'five ideas for a teaser'})
@@ -285,7 +329,14 @@ class BoardAiJobTests(BoardFixture):
         refined = self.submit({'format': 'image', 'prompt': 'make it night', 'parentJobId': job['id']}, key='board-key-image-refine')
         self.assertEqual(refined.status_code, 201, refined.content)
         edit = Generation.objects.get(pk=refined.json()['job']['generationId'])
-        self.assertEqual((edit.kind, edit.prompt, len(edit.reference_images or [])), ('image', 'make it night', 1))
+        # The refinement edits that image: same model and shape, the image as its reference.
+        self.assertEqual((edit.kind, edit.prompt, edit.model, edit.aspect_ratio, len(edit.reference_images or [])),
+                         ('image', 'make it night', 'Nano Banana 2.1', '16:9', 1))
+        quoted = self.quote({'format': 'image', 'prompt': 'make it night', 'parentJobId': job['id']}).json()['quote']
+        self.assertEqual((quoted['model'], quoted['costCents']), ('Nano Banana 2.1', edit.cost_cents))
+        explicit = self.submit({'format': 'image', 'prompt': 'square it', 'parentJobId': job['id'], 'aspectRatio': '1:1'},
+                               key='board-key-image-square').json()['job']
+        self.assertEqual(Generation.objects.get(pk=explicit['generationId']).aspect_ratio, '1:1')
 
     def test_placing_a_result_is_recorded_once(self):
         job = self.submit({'format': 'stickies', 'prompt': 'ideas'}).json()['job']
@@ -301,10 +352,17 @@ class BoardAiJobTests(BoardFixture):
         self.assertEqual((again.status_code, again.json()['code']), (409, 'ALREADY_PLACED'))
         self.assertEqual(self.jobs(), [])
         self.assertEqual(self.client.patch(path, {'placedNodeIds': 'n1'}, content_type='application/json').status_code, 400)
+        # The owner's finished results of the last day stay listed, placed or not, so the board can place them again.
+        pending = self.submit({'format': 'stickies', 'prompt': 'more ideas'}, key='board-key-pending').json()['job']
+        recent = self.client.get(self.base, {'recent': '1'}).json()['jobs']
+        self.assertEqual([(item['id'], item['status'], item['result']) for item in recent], [(job['id'], 'succeeded', {'notes': BOARD_NOTES})])
+        self.assertNotIn(pending['id'], [item['id'] for item in recent])
+        BoardAiJob.objects.filter(pk=job['id']).update(created_at=now() - 25 * 60 * 60 * 1000)
+        self.assertEqual(self.client.get(self.base, {'recent': '1'}).json()['jobs'], [])
         self.assertEqual(self.client.patch(f'{self.base}/{uuid.uuid4()}', {'placedNodeIds': []}, content_type='application/json').status_code, 404)
         # Deleting the board deletes its jobs; the generation stays.
         self.board.delete()
-        self.assertEqual((BoardAiJob.objects.count(), Generation.objects.count()), (0, 1))
+        self.assertEqual((BoardAiJob.objects.count(), Generation.objects.count()), (0, 2))
 
     def test_signed_out_and_unknown_board_requests_are_refused(self):
         self.assertEqual(self.client.post(f'/api/canvas-boards/{uuid.uuid4()}/ai-jobs', {}, content_type='application/json',

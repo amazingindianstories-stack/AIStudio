@@ -122,7 +122,7 @@ class AdminContractTests(TransactionTestCase):
         self.assertEqual(result['users'][0]['genCount'],4)
         self.assertEqual(result['users'][0]['costCents'],50)
         self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':8,'seedanceConcurrency':3,'mcpDailyCapCents':2000,'mcpActiveJobs':4})
-        self.assertEqual(len(result['pricing']),31)  # 23 frozen rows + 4 Magnific video rows + Nano Banana 2.1 + Gemini Omni Flash 1.1 + Board AI text
+        self.assertEqual(len(result['pricing']),32)  # 23 frozen rows + 4 Magnific video rows + Nano Banana 2.1 + Gemini Omni Flash 1.1 + 2 Board AI text
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(Pricing.objects.get(pk='Nano Banana Pro').unit_cost_cents,777)
 
@@ -234,11 +234,11 @@ class AdminPureParityTests(SimpleTestCase):
         result=oracle_run(['node','--import','tsx','--input-type=module','-e',code],capture_output=True,text=True,check=True,cwd=Path(__file__).resolve().parents[3])
         from .default_pricing import DEFAULT_PRICING
         # Magnific video upscaler rates (2026-10-14), Nano Banana 2.1 (2026-10-16), Gemini Omni Flash 1.1 (2026-10-18) and
-        # Board AI text (2026-10-29) postdate the frozen Node table. The retired Gemini Omni Flash row stays for its historical rows.
-        added = [row for row in DEFAULT_PRICING if row['unit'] == 'per_1000_frames' or row['model'] in ('Nano Banana 2.1', 'Gemini Omni Flash 1.1', 'OmniHuman 2.0', 'Board AI text')]
+        # Board AI text rows (2026-10-29) postdate the frozen Node table. The retired Gemini Omni Flash row stays for its historical rows.
+        added = [row for row in DEFAULT_PRICING if row['unit'] == 'per_1000_frames' or row['model'] in ('Nano Banana 2.1', 'Gemini Omni Flash 1.1', 'OmniHuman 2.0', 'Board AI text', 'Board AI text (advanced)')]
         self.assertEqual([row['model'] for row in added], ['OmniHuman 2.0', 'Nano Banana 2.1', 'Gemini Omni Flash 1.1', 'Magnific Video Creative',
                                                            'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz',
-                                                           'Board AI text'])
+                                                           'Board AI text', 'Board AI text (advanced)'])
         self.assertEqual(json.loads(result.stdout), [row for row in DEFAULT_PRICING if row not in added])
         omni = next(row for row in added if row['model'] == 'Gemini Omni Flash 1.1')
         self.assertEqual((omni['unitCostCents'], omni['unit']), (11, 'per_second'))

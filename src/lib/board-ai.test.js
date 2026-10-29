@@ -139,3 +139,59 @@ test("a result for another board is never placed on the open one", async (t) => 
   assert.equal(useCanvasStore.getState().history.present.nodes.length, 0);
   assert.equal(calls.filter((call) => call.method === "PATCH").length, 0);
 });
+
+test("a board switch while the claim is in flight leaves the result listed, to be placed again", async (t) => {
+  loadedBoard();
+  let release;
+  const calls = server(t, (call) => {
+    if (call.method === "PATCH") {
+      return new Promise((resolve) => {
+        release = () => resolve(json(200, { job: job({ status: "succeeded", result: NOTES, placedNodeIds: call.body.placedNodeIds, placedAt: 5 }) }));
+      });
+    }
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  const placing = useBoardAi.getState().settle(job({ status: "succeeded", result: NOTES }));
+  await new Promise((resolve) => setImmediate(resolve));
+  useCanvasStore.setState({ boardId: "88888888-8888-4888-8888-888888888888" });
+  await useBoardAi.getState().attach("88888888-8888-4888-8888-888888888888");
+  release();
+  await placing;
+  assert.equal(calls.filter((call) => call.method === "PATCH").length, 1);
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, 0, "claimed, but the board had changed");
+
+  // Back on the board, the claimed result is listed and placed again without a new job or a second claim.
+  loadedBoard();
+  await useBoardAi.getState().attach(BOARD);
+  t.mock.reset();
+  const later = server(t, (call) => json(200, { jobs: call.url.endsWith("?recent=1")
+    ? [job({ status: "succeeded", result: NOTES, placedNodeIds: ["gone-1", "gone-2"], placedAt: 5 })] : [] }));
+  await useBoardAi.getState().loadRecent();
+  const [recent] = useBoardAi.getState().recent;
+  assert.equal(recent.placedAt, 5);
+  await useBoardAi.getState().placeAgain(recent);
+  assert.deepEqual(useCanvasStore.getState().history.present.nodes.map((node) => node.text), ["One", "Two"]);
+  assert.deepEqual(later.map((call) => call.method), ["GET"], "placing again never submits, bills or claims");
+});
+
+test("placing a result again adds a fresh copy in free space as one undo step, and it can be refined", async (t) => {
+  loadedBoard();
+  server(t, (call) => (call.method === "PATCH"
+    ? json(200, { job: job({ status: "succeeded", result: NOTES, placedNodeIds: call.body.placedNodeIds, placedAt: 5 }) })
+    : json(200, { jobs: [] })));
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().settle(job({ status: "succeeded", result: NOTES }));
+  const first = useCanvasStore.getState().history.present.nodes;
+  const pastBefore = useCanvasStore.getState().history.past.length;
+  await useBoardAi.getState().placeAgain(job({ status: "succeeded", result: NOTES, placedAt: 5 }));
+  const canvas = useCanvasStore.getState();
+  const copies = canvas.history.present.nodes.filter((node) => !first.some((old) => old.id === node.id));
+  assert.deepEqual(copies.map((node) => node.text), ["One", "Two"]);
+  assert.equal(canvas.history.past.length, pastBefore + 1, "one undo step");
+  const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  assert.ok(!copies.some((copy) => first.some((old) => overlaps(copy, old))), "in free space, not on the first copy");
+  assert.deepEqual(useBoardAi.getState().placed.nodeIds, copies.map((node) => node.id));
+  canvas.undo();
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, first.length);
+});

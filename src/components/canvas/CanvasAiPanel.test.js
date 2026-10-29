@@ -35,13 +35,16 @@ async function createRoot(container) {
   return (await import("react-dom/client")).createRoot(container);
 }
 
-function serve(calls, { job } = {}) {
+function serve(calls, { job, recent = [] } = {}) {
   return async (url, init = {}) => {
     const call = { url, method: init.method || "GET", headers: init.headers || {}, body: init.body ? JSON.parse(init.body) : null };
     calls.push(call);
-    if (url.endsWith("/ai-jobs/quote")) return json(200, { quote: { format: call.body.format, model: "m", costCents: call.body.format === "image" ? 24 : 3 } });
+    if (url.endsWith("/ai-jobs/quote")) {
+      const costCents = (call.body.format === "image" ? 24 : 3) * (call.body.processing === "advanced" ? 4 : 1);
+      return json(200, { quote: { format: call.body.format, processing: call.body.processing, model: "m", costCents } });
+    }
     if (call.method === "POST") return json(201, { job: job ?? { id: "j1", boardId: BOARD, format: call.body.format, prompt: call.body.prompt, status: "queued", costCents: 3 } });
-    return json(200, { jobs: [] });
+    return json(200, { jobs: url.endsWith("?recent=1") ? recent : [] });
   };
 }
 
@@ -55,12 +58,13 @@ const buttonByText = (text) => [...document.querySelectorAll("button")].find((el
 
 test("panelRequest sends only what the format needs", () => {
   assert.equal(panelRequest({ format: "stickies", prompt: "  " }), null);
-  assert.deepEqual(panelRequest({ format: "stickies", prompt: " ideas ", model: "x", aspectRatio: "1:1" }), { format: "stickies", prompt: "ideas" });
-  assert.deepEqual(panelRequest({ format: "image", prompt: "lamp", model: "Nano Banana Pro", aspectRatio: "16:9" }),
-    { format: "image", prompt: "lamp", model: "Nano Banana Pro", aspectRatio: "16:9" });
-  // A refinement keeps the image's own aspect ratio (it edits that image).
-  assert.deepEqual(panelRequest({ format: "image", prompt: "night", model: "Nano Banana Pro", aspectRatio: "16:9", parentJobId: "p" }),
-    { format: "image", prompt: "night", parentJobId: "p", model: "Nano Banana Pro" });
+  assert.deepEqual(panelRequest({ format: "stickies", prompt: " ideas ", model: "x", aspectRatio: "1:1" }), { format: "stickies", prompt: "ideas", processing: "basic" });
+  assert.deepEqual(panelRequest({ format: "stickies", prompt: "ideas", processing: "advanced" }), { format: "stickies", prompt: "ideas", processing: "advanced" });
+  assert.deepEqual(panelRequest({ format: "image", prompt: "lamp", processing: "basic", model: "Nano Banana Pro", aspectRatio: "16:9" }),
+    { format: "image", prompt: "lamp", processing: "basic", model: "Nano Banana Pro", aspectRatio: "16:9" });
+  // A refinement keeps the image's own model and aspect ratio (it edits that image).
+  assert.deepEqual(panelRequest({ format: "image", prompt: "night", processing: "advanced", model: "Nano Banana Pro", aspectRatio: "16:9", parentJobId: "p" }),
+    { format: "image", prompt: "night", processing: "advanced", parentJobId: "p" });
 });
 
 test("the panel shows suggestions, quotes the cost before running and submits one keyed job", async (t) => {
@@ -87,18 +91,26 @@ test("the panel shows suggestions, quotes the cost before running and submits on
     assert.match(document.querySelector("[aria-live]").textContent, /Estimated cost ≈\$0\.03/);
     assert.equal(generate().disabled, false);
     const quote = calls.find((call) => call.url.endsWith("/quote"));
-    assert.deepEqual(quote.body, { format: "stickies", prompt: AI_FORMATS.stickies.suggestions[0] });
+    assert.deepEqual(quote.body, { format: "stickies", prompt: AI_FORMATS.stickies.suggestions[0], processing: "basic" });
+
+    // Advanced processing is quoted at its own price before it can run.
+    await act(async () => document.querySelector("[aria-label='Processing'] button[aria-checked=false]").click());
+    assert.equal(document.querySelector("[aria-label='Processing'] [aria-checked=true]").textContent, "Advanced");
+    await act(async () => sleep(450));
+    assert.deepEqual(calls.filter((call) => call.url.endsWith("/quote")).at(-1).body,
+      { format: "stickies", prompt: AI_FORMATS.stickies.suggestions[0], processing: "advanced" });
+    assert.match(document.querySelector("[aria-live]").textContent, /Estimated cost ≈\$0\.12/);
 
     await act(async () => generate().click());
     const posts = calls.filter((call) => call.method === "POST" && call.url.endsWith("/ai-jobs"));
     assert.equal(posts.length, 1);
     assert.match(posts[0].headers["Idempotency-Key"], /^[0-9a-f-]{36}$/);
-    assert.deepEqual(posts[0].body, { format: "stickies", prompt: AI_FORMATS.stickies.suggestions[0] });
+    assert.deepEqual(posts[0].body, { format: "stickies", prompt: AI_FORMATS.stickies.suggestions[0], processing: "advanced" });
     assert.equal(textarea.value, "");
     assert.match(document.querySelector("[aria-live]").textContent, /Queued/);
 
     // The image format offers a model and aspect ratio, and quotes them.
-    await act(async () => document.querySelector("button[role=radio][aria-checked=false]").click());
+    await act(async () => document.querySelector("[aria-label='Format'] button[aria-checked=false]").click());
     assert.ok(document.querySelector("[aria-label='Aspect ratio']"));
     await act(async () => typeInto(document.querySelector("textarea"), "a lighthouse at dusk"));
     await act(async () => buttonByText("16:9").click());
@@ -134,14 +146,41 @@ test("after a result is placed the panel refines it", async (t) => {
     await act(async () => typeInto(document.querySelector("textarea"), "make them shorter"));
     await act(async () => sleep(450));
     assert.deepEqual(calls.filter((call) => call.url.endsWith("/quote")).at(-1).body,
-      { format: "stickies", prompt: "make them shorter", parentJobId: "parent-job" });
+      { format: "stickies", prompt: "make them shorter", processing: "basic", parentJobId: "parent-job" });
     await act(async () => buttonByText("Refine").click());
     assert.deepEqual(calls.filter((call) => call.method === "POST" && call.url.endsWith("/ai-jobs")).at(-1).body,
-      { format: "stickies", prompt: "make them shorter", parentJobId: "parent-job" });
+      { format: "stickies", prompt: "make them shorter", processing: "basic", parentJobId: "parent-job" });
     await act(async () => buttonByText("New prompt").click());
     assert.ok(document.querySelector("[aria-label='Format']"));
   } finally {
     await act(async () => root.unmount());
     useBoardAi.getState().detach();
+  }
+});
+
+test("recent results list the last day's finished results and place one again without a new job", async (t) => {
+  setupDom(t);
+  const calls = [];
+  const finished = { id: "j9", boardId: BOARD, format: "stickies", prompt: "ten shot ideas", status: "succeeded", costCents: 3,
+    placedAt: 5, placedNodeIds: ["gone"], result: { notes: [{ text: "Wide shot", color: "blue" }] } };
+  globalThis.fetch = serve(calls, { recent: [finished] });
+  useStore.setState({ availableModelIds: null });
+  useCanvasStore.setState({ boardId: BOARD, loaded: true, history: { past: [], present: emptyCanvasState(), future: [] } });
+  await useBoardAi.getState().attach(BOARD);
+  const root = await createRoot(document.querySelector("#root"));
+  try {
+    await act(async () => root.render(React.createElement(CanvasAiPanel, { boardId: BOARD, onClose() {} })));
+    assert.equal(document.querySelector("ul[aria-label='Recent results']"), null);
+    await act(async () => document.querySelector("button[aria-label='Recent results']").click());
+    const list = document.querySelector("ul[aria-label='Recent results']");
+    assert.match(list.textContent, /ten shot ideas/);
+    await act(async () => document.querySelector("button[aria-label='Place again: ten shot ideas']").click());
+    assert.deepEqual(useCanvasStore.getState().history.present.nodes.map((node) => node.text), ["Wide shot"]);
+    assert.equal(calls.filter((call) => call.method !== "GET").length, 0, "no job, quote or claim");
+    assert.match(document.querySelector("section").textContent, /Refining 1 sticky note: ten shot ideas/);
+  } finally {
+    await act(async () => root.unmount());
+    useBoardAi.getState().detach();
+    useCanvasStore.getState().reset();
   }
 });

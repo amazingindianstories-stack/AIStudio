@@ -136,4 +136,8 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
  {'model': 'Board AI text',
   'unitCostCents': 250,
   'unit': 'per_million_tokens',
-  'notes': 'Veevee estimate for board "Create with AI" text jobs on the agent Gemini model: input characters / 4 plus the whole output budget, all at this rate. Calibrate from the Gemini dashboard'}]
+  'notes': 'Veevee estimate for board "Create with AI" text jobs on the agent Gemini model: input characters / 4 plus the whole output budget, all at this rate. Calibrate from the Gemini dashboard'},
+ {'model': 'Board AI text (advanced)',
+  'unitCostCents': 1000,
+  'unit': 'per_million_tokens',
+  'notes': 'Veevee estimate for board "Create with AI" text jobs with advanced processing, on the stronger Gemini model (AGENT_LLM_MODEL_ADVANCED): input characters / 4 plus the whole output budget, all at this rate. Calibrate from the Gemini dashboard'}]

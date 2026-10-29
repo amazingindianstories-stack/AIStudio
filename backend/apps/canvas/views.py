@@ -298,7 +298,8 @@ def board_ai_jobs(request, identifier):
             return reply(request, {'error': 'Board not found.'}, 404)
         if request.method in ('GET', 'HEAD'):
             ids = [value for raw in request.query_params.getlist('ids') for value in raw.split(',') if value]
-            return reply(request, {'jobs': ai_jobs.jobs(actor, board, ids)})
+            recent = request.query_params.get('recent') == '1'
+            return reply(request, {'jobs': ai_jobs.jobs(actor, board, ids, recent)})
         try:
             job = ai_jobs.submit(actor, board, body(request), request.headers.get('Idempotency-Key'))
         except Exception as error:

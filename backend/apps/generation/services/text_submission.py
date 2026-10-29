@@ -18,53 +18,57 @@ from .paid_guard import PaidBudgetHold
 from .pricing import read_pricing
 from .submission import AdmissionRefused, Refused, admitted, invalid, origin_values
 
-PRICING_KEY = 'Board AI text'
+# Each processing level has its own model and its own estimator rate.
+PRICING_KEYS = {'basic': 'Board AI text', 'advanced': 'Board AI text (advanced)'}
 
 
-def text_model(env=None):
-    """The Gemini model code text jobs run on: the configured agent model (``AGENT_LLM_MODEL``)."""
-    from apps.agents.llm import agent_model
-    return agent_model(os.environ if env is None else env)
+def text_model(processing='basic', env=None):
+    """The Gemini model code text jobs run on: the agent model (``AGENT_LLM_MODEL``), or with advanced processing the
+    stronger ``AGENT_LLM_MODEL_ADVANCED``."""
+    from apps.agents.llm import advanced_agent_model, agent_model
+    env = os.environ if env is None else env
+    return advanced_agent_model(env) if processing == 'advanced' else agent_model(env)
 
 
 def model_name(code):
     return f'Gemini ({code})'
 
 
-def text_cost(value, pricing):
+def text_cost(value, pricing, processing='basic'):
     from apps.agents.board import estimated_tokens
-    row = next((row for row in pricing if row['model'] == PRICING_KEY), None)
+    key = PRICING_KEYS[processing]
+    row = next((row for row in pricing if row['model'] == key), None)
     if row is None or row['unit'] != 'per_million_tokens' or not enqueue.integer(row['unitCostCents']) or row['unitCostCents'] < 0:
-        raise enqueue.InvalidRequest('Board AI pricing is not configured. Ask an administrator to set the "Board AI text" rate.')
+        raise enqueue.InvalidRequest(f'Board AI pricing is not configured. Ask an administrator to set the "{key}" rate.')
     return max(1, math.ceil(row['unitCostCents'] * estimated_tokens(value) / 1000000))
 
 
-def text_request(actor, name, turns):
+def text_request(actor, name, turns, processing):
     """The validated stored input and estimated cost of a text job: (submission input, cost cents)."""
     from apps.agents.board import submission_input
     try:
         enqueue.validate_prompt(turns[-1]['text'] if turns else '', actor.id)
-        value = submission_input(name, text_model(), turns)
-        return value, text_cost(value, read_pricing())
+        value = submission_input(name, text_model(processing), turns)
+        return value, text_cost(value, read_pricing(), processing)
     except enqueue.InvalidRequest as error:
         raise invalid(error) from None
     except ValueError as error:
         raise Refused(400, {'error': str(error)}) from None
 
 
-def quote_text(actor, name, turns):
+def quote_text(actor, name, turns, processing='basic'):
     """Price a text job exactly as ``submit_text`` would queue it; nothing is stored or queued."""
-    value, cost = text_request(actor, name, turns)
+    value, cost = text_request(actor, name, turns, processing)
     return {'kind': 'text', 'model': model_name(value['model']), 'costCents': cost}
 
 
-def submit_text(actor, name, turns, *, project_id=None, origin=None, admit=None):
+def submit_text(actor, name, turns, *, processing='basic', project_id=None, origin=None, admit=None):
     """Queue a text job for ``actor`` and return its generation row.
 
     ``admit(values)`` runs with the priced values and new ``id`` in the transaction that creates the row (the board
     creates its job row there); whatever it raises comes back as ``AdmissionRefused`` and nothing is stored.
     """
-    value, cost = text_request(actor, name, turns)
+    value, cost = text_request(actor, name, turns, processing)
     identifier, now = uuid.uuid4(), now_ms()
     item = dict(id=str(identifier), kind='text', status='queued', prompt=turns[-1]['text'], model=model_name(value['model']),
                 aspectRatio='', userId=str(actor.id), costCents=cost, costBasis='estimated', submissionInput=value,

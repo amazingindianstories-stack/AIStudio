@@ -6,6 +6,8 @@ from apps.integrations.transport import HttpTransport, ProviderError
 
 API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
 DEFAULT_MODEL = 'gemini-flash-latest'
+# The stronger model board "Create with AI" text jobs run on with advanced processing.
+DEFAULT_ADVANCED_MODEL = 'gemini-pro-latest'
 IMAGE_MIME = frozenset(('image/jpeg', 'image/png', 'image/webp', 'image/gif'))
 PART_KEYS = frozenset(('text', 'inlineData', 'functionCall', 'functionResponse'))
 # A model turn may echo Gemini's own thought metadata next to its text or functionCall part.
@@ -15,6 +17,10 @@ MAX_BODY_BYTES = 24 * 1024 * 1024
 
 def agent_model(env):
     return env.get('AGENT_LLM_MODEL') or DEFAULT_MODEL
+
+
+def advanced_agent_model(env):
+    return env.get('AGENT_LLM_MODEL_ADVANCED') or DEFAULT_ADVANCED_MODEL
 
 
 def agent_endpoint(model):
