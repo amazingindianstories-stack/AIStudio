@@ -1034,15 +1034,19 @@ export const useCanvasStore = create((set, get) => ({
   },
   resetCropDraft: () => set({ cropDraft: { x: 0.5, y: 0.5, zoom: 1 } }),
   cancelCrop: () => set({ croppingImageId: null, cropDraft: null }),
+  /**
+   * Ends the crop first, so another person's held change to the image merges
+   * in, then sets only the crop on the image's current version. An image they
+   * deleted meanwhile comes back with the crop, as typed text survives a delete.
+   */
   applyCrop: () => {
-    const { croppingImageId, cropDraft } = get();
-    if (!croppingImageId || !cropDraft) return;
+    const { croppingImageId: id, cropDraft, history } = get();
+    if (!id || !cropDraft) return;
     const crop = normalizeCrop(cropDraft);
-    mutateGraph(set, get, (present) => ({
-      ...present,
-      nodes: present.nodes.map((node) => node.id === croppingImageId ? { ...node, crop } : node),
-    }));
+    const withCrop = (graph) => ({ ...graph, nodes: graph.nodes.map((node) => (node.id === id ? { ...node, crop } : node)) });
+    const cropped = withCrop(history.present);
     set({ croppingImageId: null, cropDraft: null });
+    mutateGraph(set, get, (present) => (nodeOf(present, id) ? withCrop(present) : withNodeFrom(present, cropped, id)));
   },
 
   paste: () => {

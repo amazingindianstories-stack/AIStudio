@@ -40,7 +40,8 @@ merge per node on the client and poll for other people's saves.
   show and save at once. A save during the crop writes this person's version of the image if they changed it,
   otherwise the held version, so no save reverts anyone. When the crop ends (Apply, Cancel, Enter, Escape, or
   the image leaving the board) the ordinary merge applies the held version: this person's change to the image
-  wins, otherwise theirs is kept.
+  wins, otherwise theirs is kept. An applied crop is set after that merge, on the image's current version, so
+  it keeps their change too; an image they deleted comes back with the crop.
 
 ## Local drafts (`src/lib/canvas-pending-draft.js`)
 

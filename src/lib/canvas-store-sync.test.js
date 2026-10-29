@@ -493,6 +493,28 @@ test("a nudge of the image during a crop shows, saves and survives a reload, win
   assert.equal(nodeById(store.getState().history.present, "c").x, 5);
 });
 
+test("applying a crop keeps another person's held change to the image, or brings back an image they deleted", async (t) => {
+  useStorage(t);
+  for (const theirs of [graph(image("c", { x: 60 }), rect("a")), graph(rect("a"))]) {
+    const server = fakeServer(t, graph(image("c"), rect("a")));
+    store.getState().reset();
+    await store.getState().loadBoard("board-1");
+    startCrop("c");
+    server.edit(theirs);
+    assert.equal(await store.getState().pollRemote(), true);
+    assert.equal(nodeById(store.getState().history.present, "c").x, 0, "held back during the crop");
+    store.getState().updateCropDraft({ zoom: 2 });
+    store.getState().applyCrop();
+    await store.getState().flushSave();
+    await until(() => store.getState().saveStatus === "saved");
+    const saved = nodeById(server.data, "c");
+    assert.equal(saved.x, nodeById(theirs, "c") ? 60 : 0);
+    assert.equal(saved.crop.zoom, 2);
+    assert.deepEqual(ids(server.data).sort(), ["a", "c"]);
+    t.mock.restoreAll();
+  }
+});
+
 test("undo during and after a crop never reverts another person's move of the image", async (t) => {
   useStorage(t);
   const server = fakeServer(t, graph(image("c"), rect("a")));
