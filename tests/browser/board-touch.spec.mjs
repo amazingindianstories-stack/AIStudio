@@ -388,6 +388,12 @@ async function boardData(context, boardPath) {
   return (await (await context.request.get(boardPath)).json()).data;
 }
 
+/** Replaces the board's graph the way autosave does: against the version it read, under a fresh save id. */
+async function seedBoard(context, boardPath, data, baseURL) {
+  const { version } = await (await context.request.get(boardPath)).json();
+  return context.request.put(boardPath, { data: { data, baseVersion: version, saveId: randomUUID() }, headers: { Origin: baseURL } });
+}
+
 test('Board touch: viewing, a keyboard cannot edit, save trouble stays visible, and a double tap or long press switches to Edit', async ({ browser, baseURL }) => {
   test.setTimeout(150000);
   const db = await seedUsers();
@@ -489,7 +495,7 @@ test('Board touch: after a one-finger crop drag, taps select, a double tap opens
   const imageId = randomUUID();
   const image = { id: imageId, type: 'image', x: 100, y: 100, w: 240, h: 160, parentId: null, groupId: null,
     src: '/api/media/canvas/touch-crop-fixture.png', aspectLocked: false, naturalW: 480, naturalH: 320 };
-  const seeded = await desk.context.request.put(boardPath, { data: { data: { ...original, nodes: [image] } }, headers: { Origin: baseURL } });
+  const seeded = await seedBoard(desk.context, boardPath, { ...original, nodes: [image] }, baseURL);
   expect(seeded.ok()).toBeTruthy();
   await desk.context.close();
 
@@ -612,9 +618,8 @@ test('Board touch: viewing, a swipe that starts on a connector or a frame title 
     name: 'Touch frame', fill: 'transparent', stroke: '#ffffff' };
   const arrow = { id: randomUUID(), from: { nodeId: leftId, anchor: 'right' }, to: { nodeId: rightId, anchor: 'left' },
     kind: 'arrow', stroke: '#ffffff', strokeWidth: 2 };
-  const seeded = await desk.context.request.put(boardPath, { data: { data: { ...original,
-    viewport: { x: 0, y: 0, zoom: 1 }, nodes: [sticky(leftId, 30), sticky(rightId, 260), frame], connectors: [arrow] } },
-  headers: { Origin: baseURL } });
+  const seeded = await seedBoard(desk.context, boardPath, { ...original,
+    viewport: { x: 0, y: 0, zoom: 1 }, nodes: [sticky(leftId, 30), sticky(rightId, 260), frame], connectors: [arrow] }, baseURL);
   expect(seeded.ok()).toBeTruthy();
   await desk.context.close();
 
