@@ -123,11 +123,13 @@ function clearPolls() {
 }
 
 /**
- * `state` unless `job` settles in the background: the user did not choose to place it and the panel has followed a
- * newer job since attaching, even if Start over has cleared it since.
+ * `state` unless `job` settles in the background: the user did not choose to place it, and the panel follows a newer
+ * job, or follows none since Start over and has followed this job or a newer one since attaching.
  */
 function panelState(get, job, chosen, state) {
-  if (!chosen && get().job?.id !== job.id && job.createdAt < newestFollowed) return {};
+  const current = get().job;
+  const background = current ? current.id !== job.id && job.createdAt < newestFollowed : job.createdAt <= newestFollowed;
+  if (!chosen && background) return {};
   if (job.createdAt > newestFollowed) newestFollowed = job.createdAt;
   return state;
 }
@@ -228,8 +230,11 @@ export const useBoardAi = create((set, get) => ({
     });
   },
 
-  /** Start a fresh prompt: the next job is not a refinement of the last result. */
-  startOver: () => set({ placed: null, error: null, job: get().job && ACTIVE_STATUSES.includes(get().job.status) ? get().job : null }),
+  /**
+   * Start a fresh prompt: the next job is not a refinement of the last result. A job still running carries on in the
+   * background: its result is placed when it ends, but it never becomes the panel's job or refine target again.
+   */
+  startOver: () => set({ job: null, placed: null, error: null }),
 
   submit: async (request) => {
     const { boardId, submitting, pendingKey } = get();

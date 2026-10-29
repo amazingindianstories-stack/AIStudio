@@ -192,6 +192,37 @@ test("after Start over, an older job settling in the background leaves the fresh
   assert.ok(useCanvasStore.getState().history.present.nodes.some((node) => node.text === "Older"), "the older result is still placed");
 });
 
+test("New prompt while a refinement runs: the refinement is still placed once, but the panel stays fresh", async (t) => {
+  loadedBoard();
+  const PLACED = "44444444-4444-4444-8444-444444444444";
+  const REFINING = "55555555-5555-4555-8555-555555555555";
+  const FRESH = "66666666-6666-4666-8666-666666666666";
+  const calls = server(t, (call) => {
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    if (call.method === "POST") {
+      return json(201, { job: call.body.parentJobId
+        ? job({ id: REFINING, createdAt: 2, parentJobId: PLACED, status: "running" })
+        : job({ id: FRESH, createdAt: 3, status: "running" }) });
+    }
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().settle(job({ id: PLACED, status: "succeeded", result: NOTES }));
+  await useBoardAi.getState().submit({ format: "stickies", prompt: "shorter", parentJobId: PLACED });
+  assert.equal(useBoardAi.getState().job.id, REFINING);
+  useBoardAi.getState().startOver();
+  await useBoardAi.getState().settle(job({ id: REFINING, createdAt: 2, parentJobId: PLACED, status: "succeeded",
+    result: { notes: [{ text: "Refined", color: "green" }] } }));
+  const { job: followed, placed, error } = useBoardAi.getState();
+  assert.deepEqual({ followed, placed, error }, { followed: null, placed: null, error: null }, "nothing to refine");
+  assert.deepEqual(useCanvasStore.getState().history.present.nodes.map((node) => node.text).sort(), ["One", "Refined", "Two"],
+    "the refinement is placed beside the result, which stays");
+  assert.equal(calls.filter((call) => call.method === "PATCH" && call.url.endsWith(`/${REFINING}`)).length, 1, "claimed once");
+  await useBoardAi.getState().submit({ format: "stickies", prompt: "fresh" });
+  assert.equal(useBoardAi.getState().job.id, FRESH);
+  assert.equal(calls.filter((call) => call.method === "POST").length, 2, "no extra job for the refinement");
+});
+
 test("results finishing together are placed one after another in free space, never on top of each other", async (t) => {
   loadedBoard();
   server(t, (call) => (call.method === "PATCH"
