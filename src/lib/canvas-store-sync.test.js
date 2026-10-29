@@ -370,7 +370,7 @@ test("other people's saves wait while a text edit is open and merge as soon as i
   assert.equal(store.getState().serverVersion, 1);
   assert.equal(store.getState().history.present.nodes[0].x, 0);
 
-  store.getState().commitText("s", "old", "old");
+  store.getState().commitNodeText("s", "old", undefined, undefined, { text: "old" });
   await until(() => store.getState().saveStatus === "saved");
   assert.equal(store.getState().history.present.nodes[0].x, 40);
   assert.equal(server.data.nodes[0].x, 40);
@@ -389,7 +389,7 @@ test("a node someone deleted during an edit without typing follows the delete, a
   assert.equal(await store.getState().pollRemote(), false);
   assert.deepEqual(ids(store.getState().history.present), ["a", "s", "mine"], "kept on screen while being edited");
 
-  store.getState().commitText("s", "old", "old");
+  store.getState().commitNodeText("s", "old", undefined, undefined, { text: "old" });
   await until(() => !store.getState().history.present.nodes.some((node) => node.id === "s"));
   store.getState().undo();
   assert.deepEqual(ids(store.getState().history.present), ["a"]);
@@ -408,7 +408,7 @@ test("text typed into a node someone deleted during the edit is kept", async (t)
   startEditing("s");
   server.edit(graph(rect("a")));
   assert.equal(await store.getState().pollRemote(), false);
-  store.getState().commitText("s", "typed", "old");
+  store.getState().commitNodeText("s", "typed", undefined, undefined, { text: "old" });
   await until(() => store.getState().saveStatus === "saved");
   assert.deepEqual(ids(server.data), ["a", "s"]);
   assert.equal(server.data.nodes[1].text, "typed");
@@ -425,7 +425,7 @@ test("a reorder someone made during an edit is kept after it ends", async (t) =>
   startEditing("s");
   server.edit(graph(rect("a"), sticky("s", "old"), rect("b"), rect("x")));
   assert.equal(await store.getState().pollRemote(), false);
-  store.getState().commitText("s", "old", "old");
+  store.getState().commitNodeText("s", "old", undefined, undefined, { text: "old" });
   await until(() => store.getState().serverVersion === 2);
   assert.deepEqual(ids(store.getState().history.present), ["a", "s", "b", "x"]);
   store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
@@ -586,7 +586,7 @@ test("ending an inline edit without typing keeps another person's newer text", a
   store.getState().setEditingTextId("note");
   server.edit(graph(sticky("new")));
   // The editor blurs with the text it started from.
-  store.getState().commitText("note", "old", "old");
+  store.getState().commitNodeText("note", "old", undefined, undefined, { text: "old" });
   await until(() => store.getState().history.present.nodes[0].text === "new");
   assert.equal(store.getState().editingTextId, null);
   assert.equal(store.getState().saveStatus, "idle");
@@ -597,15 +597,16 @@ test("ending an inline edit without typing keeps another person's newer text", a
 test("an inline text edit commits to its node even after the selection moved on", (t) => {
   t.after(() => store.getState().reset());
   store.getState().reset();
+  store.setState({ boardId: "board-1" });
   store.getState().addNode({ ...rect("note"), type: "sticky", text: "", fontSize: 16, color: "#000000" });
   store.getState().setEditingTextId("note");
   const before = store.getState().history.past.length;
   // A click on empty canvas clears the selection (and the editing id) before the editor blurs.
   store.getState().clearSelection();
-  store.getState().commitText("note", "typed", "");
+  store.getState().commitNodeText("note", "typed", undefined, undefined, { text: "" });
   assert.equal(store.getState().history.present.nodes[0].text, "typed");
   assert.equal(store.getState().history.past.length, before + 1);
   assert.equal(store.getState().saveStatus, "dirty");
-  store.getState().commitText("note", "typed", "");
+  store.getState().commitNodeText("note", "typed", undefined, undefined, { text: "" });
   assert.equal(store.getState().history.past.length, before + 1, "an unchanged commit adds no undo step");
 });

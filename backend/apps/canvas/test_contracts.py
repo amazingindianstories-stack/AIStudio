@@ -10,7 +10,24 @@ from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.admin_dashboard import tests as session_fixtures
 from apps.authentication.models import User
 from .models import CanvasBoard, CanvasBoardSave
-from .serialization import empty_state, js_json, json_length, validate_state
+from .serialization import SHAPE_TYPES, empty_state, finite, js_json, json_length, validate_state
+
+
+def with_shape_text(oracle_state, value):
+    """The historical oracle predates text inside shapes; shapes now also keep text, fontSize and color."""
+    nodes = value.get('nodes') if isinstance(value, dict) else None
+    sources = {node.get('id'): node for node in nodes if isinstance(node, dict)} if isinstance(nodes, list) else {}
+    for node in oracle_state['nodes']:
+        source = sources[node['id']]
+        if node['type'] not in SHAPE_TYPES:
+            continue
+        if isinstance(source.get('text'), str):
+            node['text'] = source['text']
+        if finite(source.get('fontSize')):
+            node['fontSize'] = source['fontSize']
+        if isinstance(source.get('color'), str):
+            node['color'] = source['color']
+    return oracle_state
 
 
 class CanvasSerializationParityTests(SimpleTestCase):
@@ -42,7 +59,7 @@ console.log(JSON.stringify(JSON.parse(input).map(value=>({state:validateCanvasSt
         expected = json.loads(result.stdout)
         for value, oracle in zip(cases, expected):
             with self.subTest(value=value):
-                self.assertEqual(validate_state(value), oracle['state'])
+                self.assertEqual(validate_state(value), with_shape_text(oracle['state'], value))
                 self.assertEqual(json_length(value), oracle['length'])
 
     def test_json_number_unicode_size_matches_node(self):
@@ -116,7 +133,7 @@ class CanvasContractTests(TransactionTestCase):
         self.assertEqual(self.send('put', '/api/canvas-boards/' + self.board, {'data': {}, 'baseVersion': 1, 'saveId': str(uuid.uuid4())}).status_code, 200)
         self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).status_code, 200)
         User.objects.filter(pk=session_fixtures.UID).update(role='admin')
-        self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': self.board}).json(), {'boards': []})
+        self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': self.board}).json(), {'boards': [], 'canCreate': True})
 
     def test_validation_missing_rows_and_uncaught_source_failures(self):
         self.cookie()
@@ -236,7 +253,7 @@ class CanvasVersionConflictTests(TransactionTestCase):
         self.assertEqual(stale.status_code, 409)
         self.assertEqual(stale.json(), {'error': 'VERSION_CONFLICT', 'board': {
             'id': self.board, 'projectId': self.project, 'name': 'Shared', 'createdBy': None, 'createdAt': 1,
-            'updatedAt': before['updated_at'], 'version': 2, 'data': validate_state(self.graph('theirs'))}})
+            'updatedAt': before['updated_at'], 'teamRole': 'edit', 'version': 2, 'data': validate_state(self.graph('theirs'))}})
         self.assertIn('veevee_session', stale.cookies)
         self.assertEqual(CanvasBoard.objects.values('data', 'version', 'updated_at').get(pk=self.board), before)
         # A base newer than the server is just as stale.

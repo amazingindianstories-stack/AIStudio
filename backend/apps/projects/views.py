@@ -53,3 +53,31 @@ def project_reads(request):
         return renew(request, Response({'error': str(exc), 'code': exc.code}, status=exc.status))
     except Exception:
         return renew(request, Response({'error': 'Failed to process project operation.'}, status=500))
+
+
+@api_view(['GET', 'POST'])
+@authentication_classes([])
+@permission_classes([])
+def project_members(request, project_id):
+    """Project roles apply to every board in the project; owners and co-owners change them."""
+    from apps.canvas import access
+    user = lookup(request)
+    if user is None:
+        return Response({'error': 'UNAUTHENTICATED'}, status=401)
+    try:
+        if not access.project_exists(project_id):
+            return renew(request, Response({'error': 'Project not found.'}, status=404))
+        if request.method == 'POST':
+            body = body_or_empty(request)
+            operation = body.get('op')
+            if operation == 'setMember':
+                access.set_project_member(user, project_id, body.get('userId'), body.get('role'))
+            elif operation == 'removeMember':
+                access.remove_project_member(user, project_id, body.get('userId'))
+            else:
+                return renew(request, Response({'error': 'Unknown op.'}, status=400))
+        return renew(request, Response(access.describe_project(user, project_id)))
+    except access.AccessError as exc:
+        return renew(request, Response({'error': str(exc)}, status=exc.status))
+    except Exception:
+        return renew(request, Response({'error': 'Failed to process project members.'}, status=500))

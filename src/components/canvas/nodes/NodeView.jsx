@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { nodeAnchorPoint } from "@/lib/canvas/geometry";
 
 import { ShapeNode } from "./ShapeNode";
 import { TextNode } from "./TextNode";
@@ -34,6 +35,7 @@ export function NodeView({
   tool,
   showRing,
   showHandles,
+  readOnly,
   editingTextId,
   dropHighlight,
   dragging,
@@ -57,7 +59,11 @@ export function NodeView({
   const [hovered, setHovered] = useState(false);
   const editing = editingTextId === node.id;
   const showConnectionHandles =
-    tool === "select" && hovered && !dragging && !editing;
+    !readOnly && tool === "select" && hovered && !dragging && !editing;
+  const pathShape = node.type === "shape";
+  // A text box being edited grows with its text (the commit stores that height), so the
+  // selection ring and handles stay around every line.
+  const growing = editing && node.type === "text";
 
   return (
     <div
@@ -68,13 +74,16 @@ export function NodeView({
       onPointerLeave={() => setHovered(false)}
       className={cn(
         "absolute select-none",
-        node.type === "frame" ? "z-0" : "z-[1]"
+        node.type === "frame" ? "z-0" : "z-[1]",
+        // Path shapes take pointer events on their outline only (ShapeNode).
+        pathShape && "pointer-events-none"
       )}
       style={{
         left: node.x,
         top: node.y,
         width: node.w,
-        height: node.h,
+        height: growing ? "auto" : node.h,
+        minHeight: growing ? node.h : undefined,
         opacity: node.opacity ?? 1,
         cursor: tool === "select" ? "move" : undefined,
       }}
@@ -88,13 +97,23 @@ export function NodeView({
           case "ellipse":
           case "triangle":
           case "diamond":
-            return <ShapeNode node={node} />;
+          case "shape":
+            return (
+              <ShapeNode
+                node={node}
+                editing={editing}
+                readOnly={readOnly}
+                onCommit={(text, marks, height, from) => onCommitText(node.id, text, marks, height, from)}
+                onCancel={() => onCancelEdit(node.id)}
+              />
+            );
           case "text":
             return (
               <TextNode
                 node={node}
                 editing={editing}
-                onCommit={(text, from) => onCommitText(node.id, text, from)}
+                readOnly={readOnly}
+                onCommit={(text, marks, height, from) => onCommitText(node.id, text, marks, height, from)}
                 onCancel={() => onCancelEdit(node.id)}
               />
             );
@@ -103,7 +122,8 @@ export function NodeView({
               <StickyNode
                 node={node}
                 editing={editing}
-                onCommit={(text, from) => onCommitText(node.id, text, from)}
+                readOnly={readOnly}
+                onCommit={(text, marks, height, from) => onCommitText(node.id, text, marks, height, from)}
                 onCancel={() => onCancelEdit(node.id)}
               />
             );
@@ -114,7 +134,7 @@ export function NodeView({
                 hasChildren={hasChildren}
                 editingLabel={editing}
                 dropHighlight={dropHighlight}
-                onCommitLabel={(name, from) => onCommitText(node.id, name, from)}
+                onCommitLabel={(name, from) => onCommitText(node.id, name, undefined, undefined, { text: from })}
                 onCancelLabelEdit={() => onCancelEdit(node.id)}
                 onLabelDoubleClick={(e) => onDoubleClickBody(e, node)}
               />
@@ -144,7 +164,7 @@ export function NodeView({
               onPointerDownHandle(e, node, h.id);
             }}
             className={cn(
-              "absolute z-20 h-[9px] w-[9px] rounded-[1px] border border-ink-900 bg-white ring-1 ring-ink-900",
+              "pointer-events-auto absolute z-20 h-[9px] w-[9px] rounded-[1px] border border-ink-900 bg-white ring-1 ring-ink-900",
               h.cls
             )}
             style={{ cursor: h.cursor }}
@@ -162,10 +182,10 @@ export function NodeView({
               onConnectorHandlePointerDown(e, node, a.anchor);
             }}
             className={cn(
-              "absolute z-20 h-2 w-2 animate-[floatUp_0.15s_ease-both] rounded-full border border-ink-900 bg-white",
-              a.cls
+              "pointer-events-auto absolute z-20 h-2 w-2 animate-[floatUp_0.15s_ease-both] rounded-full border border-ink-900 bg-white",
+              !pathShape && a.cls
             )}
-            style={{ cursor: "crosshair" }}
+            style={pathShape ? { cursor: "crosshair", ...outlineHandlePosition(node, a.anchor) } : { cursor: "crosshair" }}
           />
         ))}
 
@@ -174,4 +194,15 @@ export function NodeView({
       )}
     </div>
   );
+}
+
+/** A connection handle centered just outside a path shape's outline anchor,
+ * touching the outline so the pointer can travel onto it without leaving. */
+function outlineHandlePosition(node, anchor) {
+  const point = nodeAnchorPoint(node, anchor);
+  const OFFSET = { top: [0, -4], right: [4, 0], bottom: [0, 4], left: [-4, 0] }[anchor];
+  return {
+    left: point.x - node.x + OFFSET[0] - 4,
+    top: point.y - node.y + OFFSET[1] - 4,
+  };
 }

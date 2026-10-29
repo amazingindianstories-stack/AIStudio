@@ -4,6 +4,7 @@ import { create, } from "zustand";
 import { DRAFT_SYNC_MAX_AGE_MS, clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
 
 import { apiFetch } from "./api";
+import { canEditRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import {
@@ -53,6 +54,15 @@ const GESTURE_IDLE_MS = 400;
 // 1600x900 default only matters before the first ResizeObserver callback.
 let viewportPx = { w: 1600, h: 900 };
 
+/** View-only and comment-only boards (or a board whose edit access was
+ * revoked mid-session) render read-only: no graph edits and no autosave.
+ * The server refuses those writes too; this keeps the UI honest. */
+export function selectReadOnly(state) {
+  return state.accessLost || !canEditRole(state.boardRole);
+}
+
+const READ_ONLY_TOOLS = ["select", "hand"];
+
 function redirectToLogin() {
   if (typeof window !== "undefined" && window.location.pathname !== "/login") {
     window.location.replace("/login");
@@ -97,7 +107,8 @@ function applyStylePatchToNode(n, patch) {
     case "ellipse":
     case "triangle":
     case "diamond":
-      return {
+    case "shape": {
+      const next = {
         ...n,
         opacity,
         fill: patch.fill ?? n.fill,
@@ -108,6 +119,11 @@ function applyStylePatchToNode(n, patch) {
             ? patch.cornerRadius
             : n.cornerRadius,
       };
+      // Text styling inside a shape is only stored once it is set.
+      if (patch.fontSize !== undefined) next.fontSize = patch.fontSize;
+      if (patch.color !== undefined) next.color = patch.color;
+      return next;
+    }
     case "text":
       return {
         ...n,
@@ -137,6 +153,14 @@ function applyStylePatchToNode(n, patch) {
     case "image":
       return { ...n, opacity };
   }
+}
+
+/** A node with new text content; formatting ranges travel with the text. */
+function withText(n, text, marks) {
+  const next = { ...n, text };
+  if (marks?.length) next.marks = marks;
+  else delete next.marks;
+  return next;
 }
 
 function applyStylePatchToConnector(c, patch) {
@@ -248,6 +272,7 @@ function mutateGraph(
   opts
 ) {
   const state = get();
+  if (!state.boardId || selectReadOnly(state)) return;
   const nextPresent = compute(state.history.present);
   if (opts?.coalesce) {
     if (!gestureBaseline) gestureBaseline = state.history;
@@ -402,6 +427,7 @@ function scheduleFlush(get, delay) {
 }
 
 function markDirty(set, get) {
+  if (!get().boardId || selectReadOnly(get())) return;
   set({ saveStatus: "dirty" });
   scheduleFlush(get, DEBOUNCE_MS);
 }
@@ -413,7 +439,7 @@ async function flushSaveImpl(
 ) {
   if (saveInFlight) return saveInFlight;
   const state = get();
-  if (!state.boardId) return;
+  if (!state.boardId || selectReadOnly(state)) return;
   if (state.saveStatus !== "dirty" && state.saveStatus !== "error") return;
   // Settling an unresolved save merges the board, so it also waits for the edit to end.
   if (textEditOpen(state) && (unresolvedSave || conflictWaitsForEdit)) return;
@@ -451,6 +477,12 @@ async function flushSaveImpl(
       if (res.status === 401) {
         redirectToLogin();
         set({ saveStatus: "error" });
+        return;
+      }
+      if (res.status === 403) {
+        // Edit access was removed while the board was open. Retrying cannot
+        // succeed; the pending draft keeps the unsaved edits on this device.
+        set({ saveStatus: "idle", accessLost: true });
         return;
       }
       if (res.status === 409) {
@@ -580,13 +612,19 @@ async function loadBoardImpl(set, get, id) {
   const data = validateCanvasState(board.data);
   if (myGeneration !== loadGeneration) return; // superseded while parsing
 
+  // A read-only board keeps any unsaved draft untouched for when edit access returns.
+  const boardRole = board.role ?? null;
+  const editable = canEditRole(boardRole);
   const serverVersion = board.version;
-  const restored = restoredDraft(pending, data, serverVersion, typeof board.saveVersion === "number");
-  if (!restored) clearPendingDraft(board.id);
+  const restored = editable ? restoredDraft(pending, data, serverVersion, typeof board.saveVersion === "number") : null;
+  if (editable && !restored) clearPendingDraft(board.id);
 
   set({
     boardId: board.id,
     boardName: board.name,
+    boardRole,
+    accessLost: false,
+    tool: editable ? get().tool : "select",
     history: { past: [], present: restored || data, future: [] },
     serverVersion,
     serverState: data,
@@ -633,6 +671,25 @@ async function pollRemoteImpl(set, get) {
   }
 }
 
+function writeNodeText(set, get, id, text, marks, contentHeight, from) {
+  const node = get().history.present.nodes.find((n) => n.id === id);
+  if (!node) return;
+  if (from && from.text === text && sameValue(from.marks?.length ? from.marks : null, marks?.length ? marks : null)) return;
+  const h = node.type === "text" && Number.isFinite(contentHeight) && contentHeight > node.h ? contentHeight : node.h;
+  if (node.type === "frame") {
+    if (node.name === text) return;
+  } else if ((node.text ?? "") === text && h === node.h && JSON.stringify(node.marks ?? null) === JSON.stringify(marks?.length ? marks : null)) {
+    return;
+  }
+  mutateGraph(set, get, (present) => ({
+    ...present,
+    nodes: present.nodes.map((n) => {
+      if (n.id !== id) return n;
+      return n.type === "frame" ? { ...n, name: text } : { ...withText(n, text, marks), h };
+    }),
+  }));
+}
+
 // Clipboard (spec: "copy/paste within a board and across boards"). Kept as
 // a module variable, NOT store state, so it survives loadBoard()/reset().
 let clipboard = [];
@@ -640,6 +697,9 @@ let clipboard = [];
 export const useCanvasStore = create((set, get) => ({
   boardId: null,
   boardName: "",
+  // The caller's effective role on the loaded board (null until loaded).
+  boardRole: null,
+  accessLost: false,
   loaded: false,
   history: { past: [], present: emptyCanvasState(), future: [] },
   serverVersion: null,
@@ -671,6 +731,8 @@ export const useCanvasStore = create((set, get) => ({
     set({
       boardId: null,
       boardName: "",
+      boardRole: null,
+      accessLost: false,
       loaded: false,
       history: { past: [], present: emptyCanvasState(), future: [] },
       serverVersion: null,
@@ -690,7 +752,7 @@ export const useCanvasStore = create((set, get) => ({
   /** Keep a durable copy of edits that are not yet acknowledged by the server. */
   persistPendingDraft: () => {
     const state = get();
-    if (!state.boardId) return false;
+    if (!state.boardId || selectReadOnly(state)) return false;
     if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && state.saveStatus !== "saving") return false;
     return savePendingDraft(state.boardId, state.history.present, Date.now(), { ...syncOf(state), save: unresolvedSave });
   },
@@ -737,7 +799,20 @@ export const useCanvasStore = create((set, get) => ({
     if (w > 0 && h > 0) viewportPx = { w, h };
   },
 
-  setTool: (t) => set({ tool: t }),
+  setTool: (t) => {
+    if (selectReadOnly(get()) && !READ_ONLY_TOOLS.includes(t)) return;
+    set({ tool: t });
+  },
+
+  /** A role change from the share dialog; dropping below edit stops editing at once. */
+  setBoardRole: (role) => {
+    finalizePendingGesture(set, get);
+    set({ boardRole: role });
+    if (selectReadOnly(get())) {
+      clearDebounceTimer();
+      set({ tool: "select", editingTextId: null, croppingImageId: null, cropDraft: null });
+    }
+  },
 
   addNode: (node) => {
     mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, node] }));
@@ -745,6 +820,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   addImageBatch: (images, worldPoint) => {
+    if (selectReadOnly(get())) return;
     if (!images.length) return;
     const vp = get().history.present.viewport;
     const target = worldPoint ?? viewportCenterWorld(vp);
@@ -769,6 +845,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   addImageFromAsset: (a, worldPoint) => {
+    if (selectReadOnly(get())) return;
     const vp = get().history.present.viewport;
     const target = worldPoint ?? viewportCenterWorld(vp);
     const LONG_EDGE = 320;
@@ -809,20 +886,14 @@ export const useCanvasStore = create((set, get) => ({
     );
   },
 
-  /**
-   * Writes an inline text/label edit to its node by id, as one undo step.
-   * `from` is the text the editor started from: an edit that typed nothing
-   * keeps whatever the node holds now, including another person's newer text.
-   */
-  commitText: (id, text, from) => {
-    const node = get().history.present.nodes.find((item) => item.id === id);
-    const patch = node?.type === "frame" ? { name: text } : { text };
-    if (node && text !== (from ?? "") && !sameValue(applyStylePatchToNode(node, patch), node)) {
-      mutateGraph(set, get, (present) => ({
-        ...present,
-        nodes: present.nodes.map((item) => (item.id === id ? applyStylePatchToNode(item, patch) : item)),
-      }));
-    }
+  /** Commits an in-place text edit to node `id` (not the selection, which
+   * may already have moved on when an editor closes). Frames take `name`. A
+   * text box grows (never shrinks) to `contentHeight`, so no line is clipped.
+   * `from` is what the editor opened with: an edit that typed nothing keeps
+   * the node as it is now, including another person's newer text. */
+  commitNodeText: (id, text, marks, contentHeight, from) => {
+    writeNodeText(set, get, id, text, marks, contentHeight, from);
+    // Ending the edit here (not only in the editor) also releases remote merges held for it.
     if (get().editingTextId === id) set({ editingTextId: null });
   },
 
@@ -907,6 +978,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   duplicateSelected: () => {
+    if (selectReadOnly(get())) return;
     const { selection } = get();
     if (!selection.length) return;
     let idMap = new Map();
@@ -919,6 +991,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   duplicateSelectionInPlace: () => {
+    if (selectReadOnly(get())) return;
     const { selection } = get();
     if (!selection.length) return;
     let idMap = new Map();
@@ -1020,11 +1093,13 @@ export const useCanvasStore = create((set, get) => ({
     const { selection, history } = get();
     if (!selection.length) return;
     const selected = new Set(selection);
+    if (selectReadOnly(get())) return;
     clipboard = history.present.nodes.filter((node) => selected.has(node.id)).map((node) => ({ ...node }));
     get().deleteSelected();
   },
 
   beginCrop: (id) => {
+    if (selectReadOnly(get())) return;
     const node = get().history.present.nodes.find((item) => item.id === id && item.type === "image");
     if (node) set({ croppingImageId: id, cropDraft: normalizeCrop(node.crop) });
   },
@@ -1050,6 +1125,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   paste: () => {
+    if (selectReadOnly(get())) return;
     if (!clipboard.length) return;
     let idMap = new Map();
     mutateGraph(set, get, (present) => {
@@ -1072,6 +1148,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   undo: () => {
+    if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = undoHistory(get().history);
     const { selection, selectedConnectorIds } = get();
@@ -1080,6 +1157,7 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   redo: () => {
+    if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = redoHistory(get().history);
     const { selection, selectedConnectorIds } = get();
@@ -1124,7 +1202,10 @@ export const useCanvasStore = create((set, get) => ({
 
   clearSelection: () => set({ selection: [], selectedConnectorIds: [], editingTextId: null }),
 
-  setEditingTextId: (id) => set({ editingTextId: id }),
+  setEditingTextId: (id) => {
+    if (id && selectReadOnly(get())) return;
+    set({ editingTextId: id });
+  },
 }));
 
 useCanvasStore.subscribe((state, previous) => {

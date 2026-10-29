@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Loader2, AlertTriangle, AlertCircle, Monitor } from "lucide-react";
+import { Check, Loader2, AlertTriangle, AlertCircle, Monitor, Eye, MessageSquare, Lock, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { useCanvasStore } from "@/lib/canvas-store";
+import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
+import { isCreateTool } from "@/lib/canvas/shapes";
 import { useBoardPolling } from "@/lib/canvas/use-board-polling";
 import {
   CanvasSurface,
@@ -17,10 +18,11 @@ import { StyleInspector } from "./StyleInspector";
 import { BoardSwitcher } from "./BoardSwitcher";
 import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
+import { BoardShareDialog } from "./BoardShareDialog";
 
-const CREATE_TOOLS = ["rect", "ellipse", "triangle", "diamond", "text", "sticky", "frame"];
-const SHAPE_SHORTCUTS = {
-  s: "sticky",
+// Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
+const TOOL_SHORTCUTS = {
+  n: "sticky",
   t: "text",
   f: "frame",
 };
@@ -38,11 +40,19 @@ export function CanvasView() {
   const [transientActive, setTransientActive] = useState(false);
   const [tooSmall, setTooSmall] = useState(false);
   const [importNotice, setImportNotice] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shapesOpen, setShapesOpen] = useState(false);
+  const [boardsReload, setBoardsReload] = useState(0);
+  const [noBoards, setNoBoards] = useState(false);
 
   const surfaceRef = useRef(null);
 
   const loaded = useCanvasStore((s) => s.loaded);
   const saveStatus = useCanvasStore((s) => s.saveStatus);
+  const readOnly = useCanvasStore(selectReadOnly);
+  const boardRole = useCanvasStore((s) => s.boardRole);
+  const accessLost = useCanvasStore((s) => s.accessLost);
+  const boardName = useCanvasStore((s) => s.boardName);
   const loadBoard = useCanvasStore((s) => s.loadBoard);
   const reset = useCanvasStore((s) => s.reset);
   const flushSave = useCanvasStore((s) => s.flushSave);
@@ -160,7 +170,7 @@ export function CanvasView() {
 
   const importImageFiles = useCallback(
     async (files, worldPoint) => {
-      if (!boardId) return;
+      if (!boardId || selectReadOnly(useCanvasStore.getState())) return;
       const accepted = Array.from(files).filter((file) => file.type.startsWith("image/"));
       if (!accepted.length) return;
       setImportNotice(`Uploading ${accepted.length} image${accepted.length === 1 ? "" : "s"}…`);
@@ -181,6 +191,7 @@ export function CanvasView() {
     const onPaste = (event) => {
       const target = event.target;
       if (target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
+      if (selectReadOnly(useCanvasStore.getState())) return;
       const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
       event.preventDefault();
       if (files.length) void importImageFiles(files);
@@ -194,6 +205,7 @@ export function CanvasView() {
   // — one hidden file input, one code path, so the toolbar's "(⇧I)" tooltip
   // is finally accurate (spec.md §B gap #1).
   const openImagePicker = useCallback(() => {
+    if (selectReadOnly(useCanvasStore.getState())) return;
     imageFileInputRef.current?.click();
   }, []);
 
@@ -202,7 +214,8 @@ export function CanvasView() {
     const onKeyDown = (e) => {
       const target = e.target ;
       const editing =
-        target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.closest?.("[data-crop-controls]");
+        target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT" ||
+        target?.closest?.('[data-crop-controls], [role="dialog"], [role="alertdialog"]');
       if (editing) return;
 
       const canvasState = useCanvasStore.getState();
@@ -315,7 +328,7 @@ export function CanvasView() {
       }
       if (e.key === "Enter") {
         const tool = useCanvasStore.getState().tool;
-        if (CREATE_TOOLS.includes(tool )) {
+        if (isCreateTool(tool)) {
           const center = surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
           const node = buildDefaultNode(tool , center);
           addNode(node);
@@ -342,7 +355,9 @@ export function CanvasView() {
       else if (key === "h") setTool("hand");
       else if (key === "r") setTool("rect");
       else if (key === "c") setTool("connector");
-      else if (SHAPE_SHORTCUTS[key]) setTool(SHAPE_SHORTCUTS[key]);
+      else if (key === "s") {
+        if (!selectReadOnly(useCanvasStore.getState())) setShapesOpen(true);
+      } else if (TOOL_SHORTCUTS[key]) setTool(TOOL_SHORTCUTS[key]);
     };
 
     document.addEventListener("keydown", onKeyDown);
@@ -384,9 +399,25 @@ export function CanvasView() {
         onImportFiles={importImageFiles}
       />
 
+      {noBoards && (
+        <div
+          role="status"
+          className="absolute inset-y-0 right-0 z-10 grid place-items-center bg-ink-900 px-6 text-center"
+          style={{ left: assetPanelWidth }}
+        >
+          <div className="flex max-w-xs flex-col items-center gap-3">
+            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-ink-700 ring-1 ring-line">
+              <Lock className="h-6 w-6 text-white/40" />
+            </div>
+            <p className="text-sm font-medium text-white/80">No boards yet</p>
+            <p className="text-sm text-white/55">Only project editors can add boards to this project.</p>
+          </div>
+        </div>
+      )}
+
       <CanvasAssetPanel
         projectId={activeProjectId}
-        onPlaceAtCenter={placeAsset}
+        onPlaceAtCenter={readOnly || noBoards ? undefined : placeAsset}
         onCollapsedChange={setAssetPanelCollapsed}
       />
 
@@ -408,13 +439,30 @@ export function CanvasView() {
             boardId={boardId}
             onBoardIdChange={setBoardId}
             onLoadingChange={setBoardsLoading}
+            onEmptyChange={setNoBoards}
+            reloadToken={boardsReload}
           />
+          {boardId && loaded && (
+            <button
+              type="button"
+              onClick={() => setShareOpen(true)}
+              className="flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/85 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+              Share
+            </button>
+          )}
         </div>
-        <CanvasToolbar
-          toolLocked={toolLocked}
-          onToggleLock={() => setToolLocked((v) => !v)}
-          onAddImageClick={openImagePicker}
-        />
+        {!noBoards && (
+          <CanvasToolbar
+            readOnly={readOnly}
+            toolLocked={toolLocked}
+            shapesOpen={shapesOpen}
+            onShapesOpenChange={setShapesOpen}
+            onToggleLock={() => setToolLocked((v) => !v)}
+            onAddImageClick={openImagePicker}
+          />
+        )}
       </div>
 
       <input
@@ -431,11 +479,28 @@ export function CanvasView() {
         }}
       />
 
-      <SaveStatusChip status={saveStatus} onRetry={() => flushSave()} />
+      {noBoards ? null : readOnly ? (
+        <AccessChip role={boardRole} accessLost={accessLost} />
+      ) : (
+        <SaveStatusChip status={saveStatus} onRetry={() => flushSave()} />
+      )}
+
+      {shareOpen && boardId && (
+        <BoardShareDialog
+          boardId={boardId}
+          boardName={boardName}
+          projectName={projects.find((project) => project.id === activeProjectId)?.name}
+          onClose={() => setShareOpen(false)}
+          onAccessChange={(access) => {
+            useCanvasStore.getState().setBoardRole(access.role);
+            setBoardsReload((count) => count + 1);
+          }}
+        />
+      )}
 
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
-      <StyleInspector hidden={transientActive} />
+      <StyleInspector hidden={transientActive || readOnly || noBoards} />
 
       {loadError && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-ink-900/90">
@@ -464,6 +529,24 @@ export function CanvasView() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AccessChip({ role, accessLost }) {
+  const Icon = accessLost ? Lock : role === "comment" ? MessageSquare : Eye;
+  const label = accessLost
+    ? "You can no longer edit this board"
+    : role === "comment"
+    ? "Comment only"
+    : "View only";
+  return (
+    <div
+      role="status"
+      className="absolute right-4 top-4 z-30 flex items-center gap-1.5 rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/60 shadow-pop backdrop-blur-xl"
+    >
+      <Icon className="h-3.5 w-3.5" />
+      {label}
     </div>
   );
 }

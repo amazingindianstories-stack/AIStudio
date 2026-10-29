@@ -12,6 +12,8 @@ import {
   CANVAS_STATE_VERSION,
 
 } from "./types";
+import { validateMarks } from "./rich-text";
+import { SHAPE_KIND_PATTERN } from "./shapes";
 
 export function emptyCanvasState() {
   return {
@@ -27,6 +29,7 @@ const NODE_TYPES = new Set([
   "ellipse",
   "triangle",
   "diamond",
+  "shape",
   "text",
   "sticky",
   "frame",
@@ -98,10 +101,16 @@ function validateNode(raw) {
     case "rect":
     case "ellipse":
     case "triangle":
-    case "diamond": {
+    case "diamond":
+    case "shape": {
+      // A path shape names its outline from the catalogue in ./shapes; an
+      // unknown but well-formed kind is kept so a newer pack survives an
+      // older client's autosave.
+      if (type === "shape" && !(typeof r.shape === "string" && SHAPE_KIND_PATTERN.test(r.shape))) return null;
       const node = {
         ...base,
         type,
+        ...(type === "shape" ? { shape: r.shape } : {}),
         fill: str(r.fill, "#ffffff"),
         stroke: str(r.stroke, "#000000"),
         strokeWidth: num(r.strokeWidth, 1),
@@ -109,6 +118,14 @@ function validateNode(raw) {
       if (type === "rect" && isFiniteNumber(r.cornerRadius)) {
         node.cornerRadius = r.cornerRadius;
       }
+      // Text inside a shape is optional; shapes without it load unchanged.
+      if (typeof r.text === "string") {
+        node.text = r.text;
+        const marks = validateMarks(r.marks, r.text);
+        if (marks) node.marks = marks;
+      }
+      if (isFiniteNumber(r.fontSize)) node.fontSize = r.fontSize;
+      if (typeof r.color === "string") node.color = r.color;
       return node;
     }
     case "text": {
@@ -121,6 +138,8 @@ function validateNode(raw) {
         align,
         color: str(r.color, "#000000"),
       };
+      const marks = validateMarks(r.marks, node.text);
+      if (marks) node.marks = marks;
       return node;
     }
     case "sticky": {
@@ -132,6 +151,8 @@ function validateNode(raw) {
         fontSize: num(r.fontSize, 16),
         color: str(r.color, "#000000"),
       };
+      const marks = validateMarks(r.marks, node.text);
+      if (marks) node.marks = marks;
       return node;
     }
     case "frame": {

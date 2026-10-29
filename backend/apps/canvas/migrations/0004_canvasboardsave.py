@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [('canvas', '0002_canvasboard_version')]
+    dependencies = [('canvas', '0003_canvasboard_version')]
     operations = [
         migrations.CreateModel(
             name='CanvasBoardSave',

@@ -7,7 +7,7 @@ from django.db import connection, transaction
 from .models import CanvasBoard, CanvasBoardSave
 from .serialization import empty_state
 
-META_FIELDS = ('id', 'project_id', 'name', 'created_by', 'created_at', 'updated_at')
+META_FIELDS = ('id', 'project_id', 'name', 'created_by', 'created_at', 'updated_at', 'team_role')
 # Applied save ids are kept this long; the editor treats older drafts as having no usable base.
 SAVE_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 
@@ -21,11 +21,16 @@ def now_ms():
 def metadata(row):
     return {'id': str(row['id']), 'projectId': str(row['project_id']), 'name': row['name'],
             'createdBy': str(row['created_by']) if row['created_by'] else None,
-            'createdAt': row['created_at'], 'updatedAt': row['updated_at']}
+            'createdAt': row['created_at'], 'updatedAt': row['updated_at'], 'teamRole': row['team_role']}
 
 
-def list_boards(project):
-    return [metadata(row) for row in CanvasBoard.objects.filter(project_id=project).values(*META_FIELDS)]
+def list_boards(project, user):
+    """The project's boards the user may at least view, each carrying the user's effective role."""
+    from . import access
+    rows = list(CanvasBoard.objects.filter(project_id=project).values(*META_FIELDS))
+    levels = access.roles_for(user, rows)
+    return [{**metadata(row), 'role': access.LEVEL_NAMES[levels[str(row['id'])]]}
+            for row in rows if levels[str(row['id'])] >= access.READ]
 
 
 def get_board(identifier, save_id=None):
@@ -41,20 +46,16 @@ def get_board(identifier, save_id=None):
 
 
 def board_version(identifier):
-    """The cheap poll read: never loads the graph."""
-    row = CanvasBoard.objects.filter(pk=identifier).values('version', 'updated_at').first()
-    return {'version': row['version'], 'updatedAt': row['updated_at']} if row else None
-
-
-def can_manage(user, owner):
-    return user.role == 'admin' or bool(owner) and str(user.id) == owner
+    """The cheap poll read: one row with the fields the role check needs, never the graph."""
+    return CanvasBoard.objects.filter(pk=identifier).values(
+        'id', 'project_id', 'created_by', 'team_role', 'version', 'updated_at').first()
 
 
 def create_board(project, name, user):
     now = now_ms()
     row = CanvasBoard.objects.create(id=uuid.uuid4(), project_id=project, name=name, data=empty_state(),
                                      created_by=user.id, created_at=now, updated_at=now, version=1)
-    return metadata({field: getattr(row, field) for field in META_FIELDS})
+    return {**metadata({**{field: getattr(row, field) for field in META_FIELDS}, 'team_role': 'edit'}), 'role': 'owner'}
 
 
 def rename_board(identifier, name):

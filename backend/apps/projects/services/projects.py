@@ -2,7 +2,7 @@ from django.db import connection, transaction
 from apps.library.models import Folder
 from apps.library.services import folder_engine as folders
 from apps.library.services.idempotency import OrganizationError, now_ms
-from apps.projects.models import Project
+from apps.projects.models import Project, ProjectMember
 
 
 def read_projects():
@@ -31,7 +31,11 @@ def ensure_default_project():
 
 def create_project(name, actor_id=None):
     now = now_ms()
-    row = Project.objects.create(name=name, created_by=actor_id, created_at=now, updated_at=now)
+    with transaction.atomic():
+        row = Project.objects.create(name=name, created_by=actor_id, created_at=now, updated_at=now)
+        if actor_id:
+            # The creator owns a new project; existing projects keep only explicit members.
+            ProjectMember.objects.create(project=row, user_id=actor_id, role='owner', added_by=actor_id, created_at=now, updated_at=now)
     return {'projects': read_projects(), 'project': {'id': str(row.id), 'name': row.name,
         'folders': [], 'createdAt': now, 'updatedAt': now}}
 

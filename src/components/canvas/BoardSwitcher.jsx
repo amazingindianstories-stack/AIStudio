@@ -6,6 +6,22 @@ import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal, AlertCircle }
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
+import { canOwnRole, canShareRole } from "@/lib/board-access";
+import { useCanvasStore } from "@/lib/canvas-store";
+
+/** The create reply, or null when the caller may not add boards to the project. */
+async function postCreateBoard(projectId) {
+  const created = await apiFetch("/api/canvas-boards", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ op: "createBoard", projectId, name: "Untitled board" }),
+  });
+  if (created.status === 403) return null;
+  if (!created.ok) throw new Error("Could not create a board");
+  const json = await created.json().catch(() => ({}));
+  if (!json.boards) throw new Error("Could not create a board");
+  return json;
+}
 
 /**
  * Board dropdown (ui-spec §8): list/create/rename/switch, delete gated
@@ -21,6 +37,8 @@ export function BoardSwitcher({
   boardId,
   onBoardIdChange,
   onLoadingChange,
+  onEmptyChange,
+  reloadToken = 0,
 }
 
 ) {
@@ -31,6 +49,8 @@ export function BoardSwitcher({
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [boardsError, setBoardsError] = useState(false);
+  const [canCreate, setCanCreate] = useState(true);
+  const [notice, setNotice] = useState("");
   const initializedRequest = useRef(null);
   // Guards against an in-flight fetch for a project the user has since
   // switched away from landing its (stale) result into state — the same
@@ -40,7 +60,7 @@ export function BoardSwitcher({
 
   useEffect(() => {
     if (!projectId) return;
-    const requestKey = `${projectId}:${loadAttempt}`;
+    const requestKey = `${projectId}:${loadAttempt}:${reloadToken}`;
     if (initializedRequest.current === requestKey) return;
     initializedRequest.current = requestKey;
     const requestId = ++requestIdRef.current;
@@ -56,20 +76,19 @@ export function BoardSwitcher({
         const json = await res.json().catch(() => ({}));
         if (requestIdRef.current !== requestId) return; // superseded — a newer project switch happened
         let list = json.boards ?? [];
-        if (list.length === 0) {
-          const created = await apiFetch("/api/canvas-boards", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ op: "createBoard", projectId, name: "Untitled board" }),
-          });
-          if (!created.ok) throw new Error("Could not create a board");
-          const createdJson = await created.json().catch(() => ({}));
+        let creatable = json.canCreate === true;
+        if (list.length === 0 && creatable) {
+          const created = await postCreateBoard(projectId);
           if (requestIdRef.current !== requestId) return; // superseded mid-auto-create
-          list = createdJson.boards ?? [];
+          list = created?.boards ?? [];
+          creatable = Boolean(created?.canCreate);
         }
-        if (list.length === 0) throw new Error("No board was returned");
+        if (list.length === 0 && creatable) throw new Error("No board was returned");
         setBoards(list);
-        if (!boardId || !list.some((b) => b.id === boardId)) {
+        setCanCreate(creatable);
+        if (list.length === 0) {
+          onBoardIdChange(null);
+        } else if (!boardId || !list.some((b) => b.id === boardId)) {
           onBoardIdChange(list[0].id);
         }
       } catch {
@@ -85,30 +104,48 @@ export function BoardSwitcher({
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, loadAttempt]);
+  }, [projectId, loadAttempt, reloadToken]);
 
   const current = boards.find((b) => b.id === boardId) ?? null;
+  const empty = !boardsLoading && !boardsError && boards.length === 0 && !canCreate;
+
+  useEffect(() => {
+    onEmptyChange?.(empty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empty]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(""), 5000);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   const createBoard = async () => {
     if (!projectId) return;
-    const res = await apiFetch("/api/canvas-boards", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "createBoard", projectId, name: "Untitled board" }),
-    });
-    const json = await res.json().catch(() => ({}));
-    if (json.boards) {
-      setBoards(json.boards);
-      if (json.board?.id) {
-        onBoardIdChange(json.board.id);
-        setRenamingTrigger(true);
-      }
+    let json;
+    try {
+      json = await postCreateBoard(projectId);
+    } catch {
+      setNotice("Could not create a board. Try again.");
+      return;
+    }
+    if (!json) {
+      setCanCreate(false);
+      setNotice("Only project editors can add boards to this project.");
+      return;
+    }
+    setBoards(json.boards);
+    setCanCreate(json.canCreate);
+    if (json.board?.id) {
+      onBoardIdChange(json.board.id);
+      setRenamingTrigger(true);
     }
   };
 
   const renameBoard = async (id, name) => {
     const trimmed = name.trim();
     if (!trimmed) return;
+    const previous = boards;
     setBoards((bs) => bs.map((b) => (b.id === id ? { ...b, name: trimmed } : b)));
     const res = await apiFetch("/api/canvas-boards", {
       method: "POST",
@@ -117,6 +154,7 @@ export function BoardSwitcher({
     });
     const json = await res.json().catch(() => ({}));
     if (json.boards) setBoards(json.boards);
+    else if (!res.ok) setBoards(previous);
   };
 
   const deleteBoard = async (id) => {
@@ -125,22 +163,18 @@ export function BoardSwitcher({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ op: "deleteBoard", id }),
     });
+    if (!res.ok) return;
     const json = await res.json().catch(() => ({}));
     const list = json.boards ?? boards.filter((b) => b.id !== id);
     setBoards(list);
     if (boardId === id) {
+      useCanvasStore.getState().reset();
       if (list[0]) {
         onBoardIdChange(list[0].id);
-      } else if (projectId) {
-        // last board deleted — auto-create a fresh one so a board is always open
-        const created = await apiFetch("/api/canvas-boards", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ op: "createBoard", projectId, name: "Untitled board" }),
-        });
-        const createdJson = await created.json().catch(() => ({}));
-        setBoards(createdJson.boards ?? []);
-        if (createdJson.board?.id) onBoardIdChange(createdJson.board.id);
+      } else {
+        // last board deleted — reload, which adds a fresh board when the caller may
+        onBoardIdChange(null);
+        setLoadAttempt((attempt) => attempt + 1);
       }
     }
   };
@@ -156,6 +190,8 @@ export function BoardSwitcher({
           <AlertCircle className="h-3.5 w-3.5" />
           Could not load boards — Retry
         </button>
+      ) : empty ? (
+        <p className="rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/60">No boards</p>
       ) : renamingTrigger ? (
         <input
           autoFocus
@@ -218,6 +254,7 @@ export function BoardSwitcher({
                       <span className="flex-1 truncate">{b.name}</span>
                       {b.id === boardId && <Check className="h-4 w-4 shrink-0 text-brand" />}
                     </MenuItem>
+                    {(canShareRole(b.role) || canOwnRole(b.role)) && (
                     <Dropdown
                       align="right"
                       trigger={(open) => (
@@ -233,42 +270,57 @@ export function BoardSwitcher({
                     >
                       {(closeRow) => (
                         <>
-                          <MenuItem
-                            onClick={() => {
-                              setRenamingRowId(b.id);
-                              closeRow();
-                            }}
-                          >
-                            <Pencil className="h-4 w-4 text-white/50" /> Rename
-                          </MenuItem>
-                          <MenuItem
-                            onClick={() => {
-                              setDeleteTarget(b);
-                              closeRow();
-                              close();
-                            }}
-                          >
-                            <Trash2 className="h-4 w-4 text-red-400/80" />
-                            <span className="text-red-300/90">Delete</span>
-                          </MenuItem>
+                          {canShareRole(b.role) && (
+                            <MenuItem
+                              onClick={() => {
+                                setRenamingRowId(b.id);
+                                closeRow();
+                              }}
+                            >
+                              <Pencil className="h-4 w-4 text-white/50" /> Rename
+                            </MenuItem>
+                          )}
+                          {canOwnRole(b.role) && (
+                            <MenuItem
+                              onClick={() => {
+                                setDeleteTarget(b);
+                                closeRow();
+                                close();
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4 text-red-400/80" />
+                              <span className="text-red-300/90">Delete</span>
+                            </MenuItem>
+                          )}
                         </>
                       )}
                     </Dropdown>
+                    )}
                   </div>
                 )
               )}
-              <div className="my-1 h-px bg-line" />
-              <MenuItem
-                onClick={() => {
-                  createBoard();
-                  close();
-                }}
-              >
-                <Plus className="h-4 w-4 text-white/60" /> New board
-              </MenuItem>
+              {canCreate && (
+                <>
+                  <div className="my-1 h-px bg-line" />
+                  <MenuItem
+                    onClick={() => {
+                      createBoard();
+                      close();
+                    }}
+                  >
+                    <Plus className="h-4 w-4 text-white/60" /> New board
+                  </MenuItem>
+                </>
+              )}
             </div>
           )}
         </Dropdown>
+      )}
+
+      {notice && (
+        <p role="status" className="rounded-full border border-line bg-ink-700 px-3 py-1.5 text-xs text-white/70">
+          {notice}
+        </p>
       )}
 
       {deleteTarget &&

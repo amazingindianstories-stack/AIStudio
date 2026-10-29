@@ -282,7 +282,7 @@ test('Two sessions editing one board merge each other\'s work, undo only their o
     // B types into a new sticky while A adds a rectangle. A's change waits until B ends the edit,
     // then it merges, the typing survives and both edits save.
     await b.canvas.click({ position: { x: 1300, y: 700 } });
-    await b.page.keyboard.press('s');
+    await b.page.getByRole('button', { name: 'Sticky note', exact: true }).click();
     await b.canvas.click({ position: { x: 1000, y: 520 } });
     await b.page.keyboard.type('typed while A edits');
     // B's save of the new sticky may land first, so A's save can meet a 409, merge and save again.

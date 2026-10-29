@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [('canvas', '0001_railway_v2_canvasboard')]
+    dependencies = [('canvas', '0002_board_roles')]
     operations = [
         migrations.AddField(model_name='canvasboard', name='version', field=models.BigIntegerField(db_default=1)),
     ]
