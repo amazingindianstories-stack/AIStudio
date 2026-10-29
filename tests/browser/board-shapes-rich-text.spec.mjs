@@ -191,6 +191,15 @@ test('Board shapes and rich text: every basic shape, outline hit-testing and anc
   await page.keyboard.press('ControlOrMeta+k');
   const linkField = formatBar.getByLabel('Link address');
   await expect(linkField).toBeFocused();
+  // The wrapped text stays fully in view while editing: the box and its selection ring grow
+  // instead of scrolling the first line up under the format bar.
+  expect(await editor.evaluate((el) => ({ scrollTop: el.scrollTop, clipped: el.scrollHeight > el.clientHeight })))
+    .toEqual({ scrollTop: 0, clipped: false });
+  const editorBox = await editor.boundingBox();
+  const barBox = await formatBar.boundingBox();
+  const nodeBox = await editor.locator('xpath=ancestor::*[@data-node-id][1]').boundingBox();
+  expect(barBox.y + barBox.height).toBeLessThanOrEqual(editorBox.y);
+  expect(nodeBox.y + nodeBox.height).toBeGreaterThanOrEqual(editorBox.y + editorBox.height);
   await info.attach('format-bar-link', { body: await page.screenshot(), contentType: 'image/png' });
   await linkField.fill('example.com/docs');
   await linkField.press('Enter');
@@ -236,9 +245,15 @@ test('Board shapes and rich text: every basic shape, outline hit-testing and anc
   expect(await editor.locator('img, a, b').count()).toBe(0);
   await selectText(page, 0, 6);
   await page.keyboard.press('ControlOrMeta+i');
-  board = await saved(page, () => canvas.click({ position: { x: 1300, y: 860 } }));
-  const sticky = board.data.nodes.find((node) => node.type === 'sticky');
-  expect([sticky.text, sticky.marks]).toEqual(['Sticky pasted', [[0, 6, 'i']]]);
+  // Placing the sticky queued a debounced autosave of the empty note, which can land after this
+  // commit starts; wait for the stored board to carry the committed text rather than the next save.
+  await canvas.click({ position: { x: 1300, y: 860 } });
+  let sticky;
+  await expect.poll(async () => {
+    board = await (await context.request.get(`/api/canvas-boards/${board.id}`)).json();
+    sticky = board.data.nodes.find((node) => node.type === 'sticky');
+    return [sticky?.text, sticky?.marks];
+  }).toEqual(['Sticky pasted', [[0, 6, 'i']]]);
   expect(await page.evaluate(() => window.__pasted)).toBeUndefined();
   await info.attach('formatted-text', { body: await page.screenshot(), contentType: 'image/png' });
   expect(errors).toEqual([]);

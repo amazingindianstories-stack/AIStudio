@@ -61,6 +61,9 @@ export function NodeView({
   const showConnectionHandles =
     !readOnly && tool === "select" && hovered && !dragging && !editing;
   const pathShape = node.type === "shape";
+  // A text box being edited grows with its text (the commit stores that height), so the
+  // selection ring and handles stay around every line.
+  const growing = editing && node.type === "text";
 
   return (
     <div
@@ -79,7 +82,8 @@ export function NodeView({
         left: node.x,
         top: node.y,
         width: node.w,
-        height: node.h,
+        height: growing ? "auto" : node.h,
+        minHeight: growing ? node.h : undefined,
         opacity: node.opacity ?? 1,
         cursor: tool === "select" ? "move" : undefined,
       }}

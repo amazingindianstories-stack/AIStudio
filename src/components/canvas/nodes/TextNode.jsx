@@ -3,6 +3,9 @@
 import { RichTextContent, RichTextEditor } from "./RichText";
 
 const TEXT_CLASS = "h-full w-full overflow-hidden whitespace-pre-wrap break-words outline-none";
+// While editing, the box grows to its content (NodeView) instead of scrolling wrapped lines
+// out of view; the commit then grows the node to the same height.
+const EDITOR_CLASS = "w-full whitespace-pre-wrap break-words outline-none";
 
 /**
  * Text box. Editable only while `editing` (driven by `canvas-store`'s
@@ -18,8 +21,8 @@ export function TextNode({ node, editing, readOnly, onCommit, onCancel }) {
         marks={node.marks}
         onCommit={onCommit}
         onCancel={onCancel}
-        className={TEXT_CLASS}
-        style={{ ...style, cursor: "text" }}
+        className={EDITOR_CLASS}
+        style={{ ...style, minHeight: node.h, cursor: "text" }}
       />
     );
   }
