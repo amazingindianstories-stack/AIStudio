@@ -74,6 +74,7 @@ export function requestFingerprint(boardId, request) {
 }
 
 const pollTimers = new Map();
+let placing = Promise.resolve();
 let generation = 0;
 let measureLayout = null;
 
@@ -120,10 +121,20 @@ function clearPolls() {
   pollTimers.clear();
 }
 
-/** True unless the panel already follows a newer job than `job`. */
-function follows(get, job) {
+/**
+ * `state` unless `job` settles in the background: the user did not choose to place it and the panel already follows
+ * a newer job.
+ */
+function panelState(get, job, chosen, state) {
   const current = get().job;
-  return !current || current.id === job.id || !(job.createdAt < current.createdAt);
+  return chosen || !current || current.id === job.id || !(job.createdAt < current.createdAt) ? state : {};
+}
+
+/** Run placements one at a time, so each finds free space after the previous one is on the board. */
+function oneAtATime(place) {
+  const run = placing.then(place);
+  placing = run.catch(() => {});
+  return run;
 }
 
 /** True while `job`'s board is the loaded board in the canvas store. */
@@ -199,14 +210,18 @@ export const useBoardAi = create((set, get) => ({
     const format = AI_FORMATS[job.format];
     if (!format || job.status !== "succeeded" || !onItsBoard(job)) return;
     if (!job.placedAt) {
-      await placeJob(get, set, job, generation);
+      await placeJob(get, set, job, generation, true);
       return;
     }
-    const canvas = useCanvasStore.getState();
-    const nodes = inFreeSpace(format.nodes(job, canvas.viewportCenter()), occupied(canvas));
-    if (!nodes.length) return;
-    insertVisible(nodes, []);
-    set({ error: null, placed: placedResult(job, nodes) });
+    const mine = generation;
+    await oneAtATime(() => {
+      if (mine !== generation || !onItsBoard(job)) return;
+      const canvas = useCanvasStore.getState();
+      const nodes = inFreeSpace(format.nodes(job, canvas.viewportCenter()), occupied(canvas));
+      if (!nodes.length) return;
+      insertVisible(nodes, []);
+      set({ error: null, placed: placedResult(job, nodes) });
+    });
   },
 
   /** Start a fresh prompt: the next job is not a refinement of the last result. */
@@ -238,7 +253,7 @@ export const useBoardAi = create((set, get) => ({
   settle: async (job, mine = generation) => {
     if (mine !== generation) return;
     if (ACTIVE_STATUSES.includes(job.status)) {
-      if (follows(get, job)) set({ job });
+      set(panelState(get, job, false, { job }));
       schedulePoll(get, set, job.id, mine);
       return;
     }
@@ -250,7 +265,7 @@ export const useBoardAi = create((set, get) => ({
       // A failed or cancelled job has nothing to place: record that it was seen so a reload does not show it again.
       markBoardAiPlaced(job.boardId, job.id, []).catch(() => {});
     }
-    set({ job: follows(get, job) ? job : get().job, error: job.status === "succeeded" ? null : job.error || "The job did not finish." });
+    set(panelState(get, job, false, { job, error: job.status === "succeeded" ? null : job.error || "The job did not finish." }));
   },
 }));
 
@@ -271,11 +286,16 @@ function schedulePoll(get, set, jobId, mine) {
   }, hidden ? HIDDEN_POLL_MS : POLL_MS));
 }
 
-async function placeJob(get, set, job, mine) {
+function placeJob(get, set, job, mine, chosen = false) {
+  return oneAtATime(() => claimAndInsert(get, set, job, mine, chosen));
+}
+
+async function claimAndInsert(get, set, job, mine, chosen) {
+  if (mine !== generation) return;
   const format = AI_FORMATS[job.format];
   // Place only on the board the job belongs to, once it has loaded; otherwise leave it for that board's next visit.
   if (!format || !onItsBoard(job)) {
-    if (follows(get, job)) set({ job });
+    set(panelState(get, job, chosen, { job }));
     return;
   }
   const canvas = useCanvasStore.getState();
@@ -294,13 +314,13 @@ async function placeJob(get, set, job, mine) {
   } catch (error) {
     if (mine !== generation) return;
     if (error?.code === "ALREADY_PLACED") {
-      if (follows(get, job)) set({ job: { ...job, placedAt: Date.now() } });
+      set(panelState(get, job, chosen, { job: { ...job, placedAt: Date.now() } }));
       return;
     }
-    set({ job: follows(get, job) ? job : get().job, error: error?.message || "Could not place the result." });
+    set(panelState(get, job, chosen, { job, error: error?.message || "Could not place the result." }));
     return;
   }
   if (mine !== generation || !onItsBoard(job)) return;
   insertVisible(nodes, replaceIds);
-  set({ job: follows(get, job) ? marked : get().job, error: null, placed: placedResult(job, nodes) });
+  set(panelState(get, job, chosen, { job: marked, error: null, placed: placedResult(job, nodes) }));
 }

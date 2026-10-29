@@ -155,6 +155,44 @@ test("every unfinished job is polled, so an older one is placed when it ends whi
   assert.equal(useBoardAi.getState().job.status, "running");
 });
 
+test("a job settling in the background never takes over the panel's job, last result or error", async (t) => {
+  loadedBoard();
+  server(t, (call) => (call.method === "PATCH"
+    ? json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } })
+    : json(200, { jobs: [] })));
+  await useBoardAi.getState().attach(BOARD);
+  const NEWER = "44444444-4444-4444-8444-444444444444";
+  const REFINING = "55555555-5555-4555-8555-555555555555";
+  await useBoardAi.getState().settle(job({ id: NEWER, createdAt: 2, status: "succeeded", result: NOTES }));
+  await useBoardAi.getState().settle(job({ id: REFINING, createdAt: 3, parentJobId: NEWER, status: "running" }));
+  // An older job, started elsewhere, finishes while the refinement runs; another older one fails.
+  await useBoardAi.getState().settle(job({ createdAt: 1, status: "succeeded", result: { notes: [{ text: "Older", color: "blue" }] } }));
+  await useBoardAi.getState().settle(job({ id: "66666666-6666-4666-8666-666666666666", createdAt: 1, status: "failed", error: "Stopped." }));
+  assert.equal(useBoardAi.getState().job.id, REFINING);
+  assert.equal(useBoardAi.getState().placed.jobId, NEWER);
+  assert.equal(useBoardAi.getState().error, null);
+  await useBoardAi.getState().settle(job({ id: REFINING, createdAt: 3, parentJobId: NEWER, status: "succeeded",
+    result: { notes: [{ text: "Refined", color: "green" }] } }));
+  assert.deepEqual(useCanvasStore.getState().history.present.nodes.map((node) => node.text).sort(), ["Older", "Refined"],
+    "the older result is on the board and the refinement replaced the result it refines");
+});
+
+test("results finishing together are placed one after another in free space, never on top of each other", async (t) => {
+  loadedBoard();
+  server(t, (call) => (call.method === "PATCH"
+    ? json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } })
+    : json(200, { jobs: [] })));
+  await useBoardAi.getState().attach(BOARD);
+  const first = job({ status: "succeeded", result: NOTES });
+  const second = job({ id: "44444444-4444-4444-8444-444444444444", status: "succeeded", result: NOTES });
+  await Promise.all([useBoardAi.getState().settle(first), useBoardAi.getState().settle(second),
+    useBoardAi.getState().placeAgain({ ...first, placedAt: 5 })]);
+  const nodes = useCanvasStore.getState().history.present.nodes;
+  assert.equal(nodes.length, 6);
+  const overlaps = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+  assert.ok(!nodes.some((a, i) => nodes.some((b, j) => i !== j && overlaps(a, b))), "no two placed notes overlap");
+});
+
 test("a result for another board is never placed on the open one", async (t) => {
   loadedBoard();
   const calls = server(t, () => json(200, { jobs: [] }));
