@@ -67,9 +67,13 @@ async function zoomPercent(page) {
 /** Real multi-touch through CDP; Playwright's `tap` is single-finger only. */
 class Touch {
   constructor(session) { this.session = session; }
-  async start(points) { await this.session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points.map(({ x, y }, id) => ({ x, y, id })) }); }
-  async move(points) { await this.session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points.map(({ x, y }, id) => ({ x, y, id })) }); }
-  async end() { await this.session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); }
+  async start(points) { this.moved = false; await this.session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: points.map(({ x, y }, id) => ({ x, y, id })) }); }
+  async move(points) { this.moved = true; await this.session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: points.map(({ x, y }, id) => ({ x, y, id })) }); }
+  /** Lifts every finger. A finger that moved rests first: lifting mid-swipe starts a browser fling, and Chromium swallows the next tap to stop it. */
+  async end() {
+    if (this.moved) await new Promise((resolve) => setTimeout(resolve, 120));
+    await this.session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  }
   async tap(point) { await this.start([point]); await this.end(); }
   /** Pinch from `from` to `to` (each a pair of points) in `steps` moves. */
   async pinch(from, to, steps = 8) {
