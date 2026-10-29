@@ -527,7 +527,7 @@ export const CanvasSurface = forwardRef
   };
 
   // By node id: the selection may already have moved on when the editor blurs.
-  const onCommitText = (nodeId, text) => useCanvasStore.getState().commitText(nodeId, text);
+  const onCommitText = (nodeId, text, from) => useCanvasStore.getState().commitText(nodeId, text, from);
   const onCancelEdit = () => useCanvasStore.getState().setEditingTextId(null);
 
   const onPointerMove = (e) => {

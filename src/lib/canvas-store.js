@@ -278,7 +278,7 @@ function syncOf(state) {
 function applyRemoteBoard(set, get, board) {
   const state = get();
   const version = board?.version;
-  if (typeof version !== "number" || (state.serverVersion !== null && version <= state.serverVersion)) return false;
+  if (typeof version !== "number" || version <= state.serverVersion) return false;
   const remote = validateCanvasState(board.data);
   const keepLocal = new Set([state.editingTextId, state.croppingImageId].filter(Boolean));
   const history = rebaseHistory(state.history, state.serverState, remote, { keepLocal });
@@ -332,9 +332,7 @@ async function flushSaveImpl(
   saveInFlight = (async () => {
     const boardId = state.boardId ;
     const sentPresent = state.history.present;
-    const baseVersion = state.serverVersion;
-    // Without a known version (a backend that predates versions) the save stays unconditional.
-    const body = JSON.stringify(baseVersion === null ? { data: sentPresent } : { data: sentPresent, baseVersion });
+    const body = JSON.stringify({ data: sentPresent, baseVersion: state.serverVersion });
     // Durable until the server acknowledges exactly this content.
     savePendingDraft(boardId, sentPresent, Date.now(), syncOf(state));
     set({ saveStatus: "saving" });
@@ -367,7 +365,7 @@ async function flushSaveImpl(
       const j = await res.json();
       clearPendingDraft(boardId, sentPresent);
       retryBackoffMs = DEBOUNCE_MS;
-      if (get().boardId === boardId && typeof j.version === "number") {
+      if (get().boardId === boardId) {
         // What the server now holds, normalized the same way it normalizes saves.
         set({ serverVersion: j.version, serverState: validateCanvasState(sentPresent) });
       }
@@ -393,24 +391,19 @@ async function flushSaveImpl(
 }
 
 /**
- * Un-acknowledged local edits from an earlier visit, ready to re-save, or
- * null when there are none. A draft whose base version is older than the
- * server's merges with what other people saved meanwhile; a draft without its
- * base graph merges as a union so nobody's nodes are lost; a draft from
- * before versions keeps the old rule (it wins only if newer than the server).
+ * Un-acknowledged local edits from an earlier visit, merged with what other
+ * people saved meanwhile and ready to re-save, or null when there are none.
+ * The merge base is the graph the edits started from; a draft without it
+ * (too large to carry it, or saved before versions) merges as a union with
+ * an empty base so nobody's nodes are lost.
  */
-function restoredDraft(pending, server, serverVersion, serverUpdatedAt) {
+function restoredDraft(pending, server, serverVersion) {
   if (!pending) return null;
-  const draft = validateCanvasState(pending.data);
-  let restored = null;
-  if (typeof pending.baseVersion === "number" && serverVersion !== null) {
-    restored = pending.baseVersion === serverVersion
-      ? draft
-      : mergeCanvasStates(pending.base ? validateCanvasState(pending.base) : emptyCanvasState(), draft, server);
-  } else if (pending.at > serverUpdatedAt) {
-    restored = draft;
-  }
-  return restored && !sameValue(restored, server) ? restored : null;
+  let base = emptyCanvasState();
+  if (pending.base) base = validateCanvasState(pending.base);
+  else if (pending.baseVersion === serverVersion) base = server;
+  const restored = mergeCanvasStates(base, validateCanvasState(pending.data), server);
+  return sameValue(restored, server) ? null : restored;
 }
 
 // Guards against out-of-order GET responses when boards are switched in
@@ -454,8 +447,8 @@ async function loadBoardImpl(set, get, id) {
   const data = validateCanvasState(board.data);
   if (myGeneration !== loadGeneration) return; // superseded while parsing
 
-  const serverVersion = typeof board.version === "number" ? board.version : null;
-  const restored = restoredDraft(readPendingDraft(board.id), data, serverVersion, Number(board.updatedAt) || 0);
+  const serverVersion = board.version;
+  const restored = restoredDraft(readPendingDraft(board.id), data, serverVersion);
   if (!restored) clearPendingDraft(board.id);
 
   set({
@@ -484,8 +477,8 @@ let pollInFlight = false;
  * Resolves true when another person's change was merged.
  */
 async function pollRemoteImpl(set, get) {
-  const { boardId, loaded, serverVersion } = get();
-  if (!boardId || !loaded || serverVersion === null || pollInFlight) return false;
+  const { boardId, loaded } = get();
+  if (!boardId || !loaded || pollInFlight) return false;
   const generation = loadGeneration;
   const current = () => generation === loadGeneration && get().boardId === boardId;
   pollInFlight = true;
@@ -679,11 +672,15 @@ export const useCanvasStore = create((set, get) => ({
     );
   },
 
-  /** Writes an inline text/label edit to its node by id, as one undo step. */
-  commitText: (id, text) => {
+  /**
+   * Writes an inline text/label edit to its node by id, as one undo step.
+   * `from` is the text the editor started from: an edit that typed nothing
+   * keeps whatever the node holds now, including another person's newer text.
+   */
+  commitText: (id, text, from) => {
     const node = get().history.present.nodes.find((item) => item.id === id);
     const patch = node?.type === "frame" ? { name: text } : { text };
-    if (node && !sameValue(applyStylePatchToNode(node, patch), node)) {
+    if (node && text !== (from ?? "") && !sameValue(applyStylePatchToNode(node, patch), node)) {
       mutateGraph(set, get, (present) => ({
         ...present,
         nodes: present.nodes.map((item) => (item.id === id ? applyStylePatchToNode(item, patch) : item)),

@@ -94,7 +94,7 @@ export function NodeView({
               <TextNode
                 node={node}
                 editing={editing}
-                onCommit={(text) => onCommitText(node.id, text)}
+                onCommit={(text, from) => onCommitText(node.id, text, from)}
                 onCancel={() => onCancelEdit(node.id)}
               />
             );
@@ -103,7 +103,7 @@ export function NodeView({
               <StickyNode
                 node={node}
                 editing={editing}
-                onCommit={(text) => onCommitText(node.id, text)}
+                onCommit={(text, from) => onCommitText(node.id, text, from)}
                 onCancel={() => onCancelEdit(node.id)}
               />
             );
@@ -114,7 +114,7 @@ export function NodeView({
                 hasChildren={hasChildren}
                 editingLabel={editing}
                 dropHighlight={dropHighlight}
-                onCommitLabel={(name) => onCommitText(node.id, name)}
+                onCommitLabel={(name, from) => onCommitText(node.id, name, from)}
                 onCancelLabelEdit={() => onCancelEdit(node.id)}
                 onLabelDoubleClick={(e) => onDoubleClickBody(e, node)}
               />

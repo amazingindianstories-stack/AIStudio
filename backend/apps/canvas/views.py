@@ -172,7 +172,7 @@ def board_detail(request, identifier):
 
 
 def base_version_of(payload):
-    """None when absent (pre-version clients write unconditionally), False when malformed."""
+    """None when absent (refused as a conflict, so no client writes over a version it never saw), False when malformed."""
     value = payload.get('baseVersion') if isinstance(payload, dict) else None
     if value is None:
         return None

@@ -30,24 +30,21 @@ export function shouldUseKeepalive(body) {
  * When the base graph does not fit, the draft keeps only its version and the
  * restore falls back to a union that cannot lose anyone's nodes.
  */
-export function savePendingDraft(boardId, data, at = Date.now(), sync = null) {
+export function savePendingDraft(boardId, data, at = Date.now(), sync = {}) {
   const store = storage();
   if (!store || !boardId) return false;
-  try {
-    const versioned = sync && typeof sync.baseVersion === "number" ? { baseVersion: sync.baseVersion } : null;
-    const candidates = versioned
-      ? [{ at, data, ...versioned, base: sync.base }, { at, data, ...versioned }]
-      : [{ at, data }];
-    for (const draft of candidates) {
+  const { baseVersion, base } = sync;
+  for (const draft of [{ at, data, baseVersion, base }, { at, data, baseVersion }]) {
+    try {
       const serialized = JSON.stringify(draft);
       if (serialized.length > MAX_DRAFT_CHARS) continue;
       store.setItem(PREFIX + boardId, serialized);
       return true;
+    } catch {
+      /* over the browser's quota: try the smaller draft */
     }
-    return false;
-  } catch {
-    return false;
   }
+  return false;
 }
 
 export function readPendingDraft(boardId) {

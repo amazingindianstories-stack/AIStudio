@@ -23,25 +23,25 @@ const ids = (state) => state.nodes.map((node) => node.id);
 const store = useCanvasStore;
 
 /** A board endpoint with the server's conditional-save contract; `edit` is another person's save. */
-function fakeServer(t, data, { versioned = true } = {}) {
+function fakeServer(t, data) {
   const server = { version: 1, data, puts: [], versionReads: 0, boardReads: 0, holdPut: null };
   const board = () => ({ id: "board-1", projectId: "p", name: "Board", createdBy: null, createdAt: 1, updatedAt: server.version,
-    ...(versioned ? { version: server.version } : {}), data: server.data });
+    version: server.version, data: server.data });
   server.edit = (next) => { server.data = next; server.version += 1; };
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     if (url.endsWith("/version")) {
       server.versionReads += 1;
-      return versioned ? json(200, { version: server.version, updatedAt: server.version }) : json(404, {});
+      return json(200, { version: server.version, updatedAt: server.version });
     }
     if (init.method === "PUT") {
       const body = JSON.parse(init.body);
       server.puts.push(body);
       if (server.holdPut) await server.holdPut;
-      if (body.baseVersion !== undefined && body.baseVersion !== server.version) {
+      if (body.baseVersion !== server.version) {
         return json(409, { error: "VERSION_CONFLICT", board: board() });
       }
       server.edit(body.data);
-      return json(200, { ok: true, updatedAt: server.version, ...(versioned ? { version: server.version } : {}) });
+      return json(200, { ok: true, updatedAt: server.version, version: server.version });
     }
     server.boardReads += 1;
     return json(200, board());
@@ -161,18 +161,49 @@ test("a draft too large to carry its base graph restores as a union that drops n
   assert.deepEqual(ids(store.getState().history.present), ["a", "theirs", "mine"]);
 });
 
-test("a backend without versions keeps unconditional saves and is never polled", async (t) => {
+test("a draft from before versions merges as a union even when the server copy is newer", async (t) => {
   useStorage(t);
-  const server = fakeServer(t, graph(rect("a")), { versioned: false });
+  const server = fakeServer(t, graph(rect("a"), rect("theirs")));
+  server.version = 3;
+  savePendingDraft("board-1", graph(rect("a", { y: 5 }), rect("mine")), 1);
   store.getState().reset();
   await store.getState().loadBoard("board-1");
-  assert.equal(store.getState().serverVersion, null);
-  addLocalNode("mine");
+  const present = store.getState().history.present;
+  assert.deepEqual(ids(present), ["a", "theirs", "mine"]);
+  assert.equal(present.nodes[0].y, 5);
+  await until(() => store.getState().saveStatus === "saved");
+  assert.deepEqual(ids(server.data), ["a", "theirs", "mine"]);
+});
+
+test("a draft on the server's current version keeps its deletions without carrying its base graph", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a"), rect("b")));
+  server.version = 2;
+  savePendingDraft("board-1", graph(rect("a")), 10, { baseVersion: 2 });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  assert.deepEqual(ids(store.getState().history.present), ["a"]);
+  await until(() => store.getState().saveStatus === "saved");
+  assert.deepEqual(ids(server.data), ["a"]);
+});
+
+test("ending an inline edit without typing keeps another person's newer text", async (t) => {
+  useStorage(t);
+  const sticky = (text) => ({ ...rect("note"), type: "sticky", text, fontSize: 16, color: "#000000" });
+  const server = fakeServer(t, graph(sticky("old")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["note"]);
+  store.getState().setEditingTextId("note");
+  server.edit(graph(sticky("new")));
+  assert.equal(await store.getState().pollRemote(), true);
+  // The editor still shows the text it started from, and blurs with it.
+  store.getState().commitText("note", "old", "old");
+  assert.equal(store.getState().history.present.nodes[0].text, "new");
+  assert.equal(store.getState().editingTextId, null);
+  assert.equal(store.getState().saveStatus, "idle");
   await store.getState().flushSave();
-  assert.equal("baseVersion" in server.puts[0], false);
-  assert.equal(store.getState().saveStatus, "saved");
-  assert.equal(await store.getState().pollRemote(), false);
-  assert.equal(server.versionReads, 0);
+  assert.deepEqual(server.puts, []);
 });
 
 test("an inline text edit commits to its node even after the selection moved on", (t) => {
@@ -183,10 +214,10 @@ test("an inline text edit commits to its node even after the selection moved on"
   const before = store.getState().history.past.length;
   // A click on empty canvas clears the selection (and the editing id) before the editor blurs.
   store.getState().clearSelection();
-  store.getState().commitText("note", "typed");
+  store.getState().commitText("note", "typed", "");
   assert.equal(store.getState().history.present.nodes[0].text, "typed");
   assert.equal(store.getState().history.past.length, before + 1);
   assert.equal(store.getState().saveStatus, "dirty");
-  store.getState().commitText("note", "typed");
+  store.getState().commitText("note", "typed", "");
   assert.equal(store.getState().history.past.length, before + 1, "an unchanged commit adds no undo step");
 });

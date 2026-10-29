@@ -38,7 +38,7 @@ export function TextNode({
       contentEditable={editing}
       suppressContentEditableWarning
       onPointerDown={(e) => editing && e.stopPropagation()}
-      onBlur={(e) => editing && onCommit(e.currentTarget.textContent ?? "")}
+      onBlur={(e) => editing && onCommit(e.currentTarget.textContent ?? "", shownText)}
       onKeyDown={(e) => {
         if (!editing) return;
         if (e.key === "Escape") {

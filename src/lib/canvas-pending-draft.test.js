@@ -67,7 +67,18 @@ test("a draft keeps its sync base when it fits and falls back to only the base v
   const big = { nodes: ["x".repeat(4 * 1024 * 1024)] };
   assert.equal(savePendingDraft("board-1", { nodes: [2] }, 200, { baseVersion: 5, base: big }), true);
   assert.deepEqual(readPendingDraft("board-1"), { at: 200, data: { nodes: [2] }, baseVersion: 5 });
-  // Without a known server version the draft has the pre-version shape.
-  savePendingDraft("board-1", { nodes: [3] }, 300, { baseVersion: null, base: {} });
-  assert.deepEqual(readPendingDraft("board-1"), { at: 300, data: { nodes: [3] } });
+});
+
+test("a draft over the browser's storage quota falls back to the draft without its base graph", (t) => {
+  const store = memoryStorage();
+  const setItem = store.setItem.bind(store);
+  store.setItem = (key, value) => {
+    if (value.length > 100) throw new DOMException("quota", "QuotaExceededError");
+    setItem(key, value);
+  };
+  useStorage(t, store);
+  assert.equal(savePendingDraft("board-1", { nodes: [1] }, 100, { baseVersion: 4, base: { nodes: ["x".repeat(200)] } }), true);
+  assert.deepEqual(readPendingDraft("board-1"), { at: 100, data: { nodes: [1] }, baseVersion: 4 });
+  assert.equal(savePendingDraft("board-1", { nodes: ["y".repeat(200)] }, 200, { baseVersion: 5, base: { nodes: [] } }), false);
+  assert.deepEqual(readPendingDraft("board-1"), { at: 100, data: { nodes: [1] }, baseVersion: 4 });
 });

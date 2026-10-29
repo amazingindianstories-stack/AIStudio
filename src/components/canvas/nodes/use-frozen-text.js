@@ -7,7 +7,8 @@ import { useState } from "react";
  * a contentEditable's text whenever its children change, which would replace
  * what the person is typing when another editor's change to the same node
  * arrives. While editing, keep showing the text from when editing began; the
- * commit then writes the typed text onto the node's latest version.
+ * commit writes the typed text onto the node's latest version only when it
+ * differs from that starting text.
  */
 export function useTextFrozenWhileEditing(text, editing) {
   const [frozen, setFrozen] = useState({ editing, text });

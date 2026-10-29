@@ -61,23 +61,21 @@ class VersionConflict(Exception):
         self.board = board
 
 
-def save_board(identifier, data, base_version=None):
+def save_board(identifier, data, base_version):
     """Write the graph only over the version the editor loaded, so concurrent editors never overwrite
-    each other. A missing base version is an unconditional write from a client that predates versions.
+    each other. A save without a base version matches no version and is refused like a stale one.
     The viewport is each editor's own, so a save that only pans or zooms keeps the version and open
     boards polling for changes do not refetch the graph."""
     now = now_ms()
     graph = json.dumps(data)
-    condition = '' if base_version is None else ' AND version = %s'
-    params = [graph, now, graph, identifier] + ([] if base_version is None else [base_version])
     with connection.cursor() as cursor:
         cursor.execute("UPDATE canvas_boards SET data = %s::jsonb, updated_at = %s, version = version + "
                        "CASE WHEN data - 'viewport' = %s::jsonb - 'viewport' THEN 0 ELSE 1 END "
-                       'WHERE id = %s' + condition + ' RETURNING version', params)
+                       'WHERE id = %s AND version = %s RETURNING version', [graph, now, graph, identifier, base_version])
         row = cursor.fetchone()
     if row:
         return {'updatedAt': now, 'version': row[0]}
-    current = None if base_version is None else get_board(identifier)
+    current = get_board(identifier)
     if current is None:
         return None
     raise VersionConflict(current)

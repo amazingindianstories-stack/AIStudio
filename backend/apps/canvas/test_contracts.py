@@ -98,7 +98,7 @@ class CanvasContractTests(TransactionTestCase):
         self.assertEqual(renamed.status_code, 200)
         self.assertEqual(CanvasBoard.objects.get(pk=created['id']).name, '')
         with patch('apps.canvas.services.now_ms', return_value=1700000001000):
-            saved = self.send('put', '/api/canvas-boards/' + created['id'], {'data': {'version': 99, 'viewport': {'zoom': -1}}})
+            saved = self.send('put', '/api/canvas-boards/' + created['id'], {'data': {'version': 99, 'viewport': {'zoom': -1}}, 'baseVersion': 1})
         # Normalizes to the empty graph it already holds, so the version stays.
         self.assertEqual(saved.json(), {'ok': True, 'updatedAt': 1700000001000, 'version': 1})
         self.assertEqual(CanvasBoard.objects.get(pk=created['id']).data, empty_state())
@@ -112,7 +112,7 @@ class CanvasContractTests(TransactionTestCase):
         for operation in ('renameBoard', 'deleteBoard'):
             response = self.send('post', '/api/canvas-boards', {'op': operation, 'id': self.board, 'name': 'blocked'})
             self.assertEqual((response.status_code, response.json()), (403, {'error': 'FORBIDDEN'}))
-        self.assertEqual(self.send('put', '/api/canvas-boards/' + self.board, {'data': {}}).status_code, 200)
+        self.assertEqual(self.send('put', '/api/canvas-boards/' + self.board, {'data': {}, 'baseVersion': 1}).status_code, 200)
         self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).status_code, 200)
         User.objects.filter(pk=session_fixtures.UID).update(role='admin')
         self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': self.board}).json(), {'boards': []})
@@ -146,11 +146,11 @@ class CanvasContractTests(TransactionTestCase):
         units = 2 * 1024 * 1024
         value = {'padding': '😀' * ((units - 14) // 2)}
         self.assertEqual(json_length(value), units)
-        response = self.send('put', '/api/canvas-boards/' + self.board, {'data': value})
+        response = self.send('put', '/api/canvas-boards/' + self.board, {'data': value, 'baseVersion': 1})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(CanvasBoard.objects.get(pk=self.board).data, empty_state())
         value['padding'] += 'a'
-        response = self.send('put', '/api/canvas-boards/' + self.board, {'data': value})
+        response = self.send('put', '/api/canvas-boards/' + self.board, {'data': value, 'baseVersion': 1})
         self.assertEqual((response.status_code, response.json()), (413, {'error': 'Board is too large to save.'}))
 
     def test_upload_existence_namespace_validation_and_adapter_errors(self):
@@ -242,12 +242,17 @@ class CanvasVersionConflictTests(TransactionTestCase):
         merged = self.put({'data': self.graph('theirs', 'mine'), 'baseVersion': 2})
         self.assertEqual((merged.status_code, merged.json()['version']), (200, 3))
 
-    def test_missing_base_version_keeps_the_pre_version_unconditional_write(self):
-        self.assertEqual(self.put({'data': self.graph('new'), 'baseVersion': 1}).json()['version'], 2)
-        legacy = self.put({'data': self.graph('legacy')})
-        self.assertEqual((legacy.status_code, legacy.json()['version']), (200, 3))
-        self.assertEqual(self.put({'data': self.graph('legacy', 'null'), 'baseVersion': None}).json()['version'], 4)
-        self.assertEqual(CanvasBoard.objects.get(pk=self.board).data['nodes'][0]['id'], 'legacy')
+    def test_missing_base_version_is_refused_with_the_current_graph_and_never_writes(self):
+        self.assertEqual(self.put({'data': self.graph('theirs'), 'baseVersion': 1}).json()['version'], 2)
+        before = CanvasBoard.objects.values('data', 'version', 'updated_at').get(pk=self.board)
+        for payload in ({'data': self.graph('legacy')}, {'data': self.graph('legacy'), 'baseVersion': None}):
+            with self.subTest(payload=payload):
+                refused = self.put(payload)
+                self.assertEqual(refused.status_code, 409)
+                self.assertEqual(refused.json()['error'], 'VERSION_CONFLICT')
+                self.assertEqual((refused.json()['board']['version'], refused.json()['board']['data']),
+                                 (2, validate_state(self.graph('theirs'))))
+        self.assertEqual(CanvasBoard.objects.values('data', 'version', 'updated_at').get(pk=self.board), before)
 
     def test_malformed_base_version_is_refused_before_any_write(self):
         for value in ['1', True, False, 1.5, 0, -1, [], {}, 2 ** 53 + 2]:
