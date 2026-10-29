@@ -457,7 +457,7 @@ async function flushSaveImpl(
 
   saveInFlight = (async () => {
     const boardId = state.boardId ;
-    set({ saveStatus: "saving" });
+    set({ saveStatus: "saving", saveError: null });
     try {
       if (unresolvedSave) {
         await settleUnresolvedSave(set, get, boardId);
@@ -496,8 +496,8 @@ async function flushSaveImpl(
       }
       if (res.status === 413) {
         // Over the board size limit: resending the same graph cannot succeed, so the
-        // next edit (or Retry) saves again; the pending draft keeps the unsaved edits.
-        set({ saveStatus: "error" });
+        // next edit saves again; the pending draft keeps the unsaved edits.
+        set({ saveStatus: "error", saveError: "tooLarge" });
         return;
       }
       if (res.status === 409) {
@@ -655,6 +655,7 @@ async function loadBoardImpl(set, get, id) {
     croppingImageId: null,
     cropDraft: null,
     saveStatus: restored ? "dirty" : "idle",
+    saveError: null,
     loaded: true,
   });
   if (restored) scheduleFlush(get, 0);
@@ -730,6 +731,8 @@ export const useCanvasStore = create((set, get) => ({
   tool: "select",
   editingTextId: null,
   saveStatus: "idle",
+  // Why the last save failed for good: "tooLarge" when the board is over the size limit.
+  saveError: null,
   croppingImageId: null,
   cropDraft: null,
 
@@ -763,6 +766,7 @@ export const useCanvasStore = create((set, get) => ({
       tool: "select",
       editingTextId: null,
       saveStatus: "idle",
+      saveError: null,
       croppingImageId: null,
       cropDraft: null,
     });

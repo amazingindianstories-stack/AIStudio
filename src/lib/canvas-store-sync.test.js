@@ -267,6 +267,7 @@ test("a save refused as too large shows the error and waits for the next edit in
   t.mock.method(globalThis, "fetch", async () => json(413, { error: "Board is too large to save." }), { times: 1 });
   await store.getState().flushSave();
   assert.equal(store.getState().saveStatus, "error");
+  assert.equal(store.getState().saveError, "tooLarge");
   assert.deepEqual(ids(readPendingDraft("board-1").data), ["a", "big"]);
   t.mock.timers.tick(60_000);
   await drain();
@@ -276,6 +277,7 @@ test("a save refused as too large shows the error and waits for the next edit in
   t.mock.timers.tick(1500);
   await drain();
   assert.equal(store.getState().saveStatus, "saved");
+  assert.equal(store.getState().saveError, null);
   assert.deepEqual(ids(server.data), ["a", "big", "next"]);
 });
 

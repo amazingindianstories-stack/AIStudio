@@ -53,6 +53,7 @@ export function CanvasView() {
 
   const loaded = useCanvasStore((s) => s.loaded);
   const saveStatus = useCanvasStore((s) => s.saveStatus);
+  const saveError = useCanvasStore((s) => s.saveError);
   const readOnly = useCanvasStore(selectReadOnly);
   const boardRole = useCanvasStore((s) => s.boardRole);
   const accessLost = useCanvasStore((s) => s.accessLost);
@@ -500,7 +501,7 @@ export function CanvasView() {
       {noBoards ? null : readOnly ? (
         <AccessChip role={boardRole} accessLost={accessLost} />
       ) : (
-        <SaveStatusChip status={saveStatus} onRetry={() => flushSave()} />
+        <SaveStatusChip status={saveStatus} error={saveError} onRetry={() => flushSave()} />
       )}
 
       {shareOpen && boardId && (
@@ -573,17 +574,27 @@ function AccessChip({ role, accessLost }) {
   );
 }
 
-function SaveStatusChip({
+export function SaveStatusChip({
   status,
+  error,
   onRetry,
 }
 
 ) {
+  if (status === "error" && error === "tooLarge") {
+    // Resending the same board cannot succeed; the next edit that makes it smaller saves.
+    return (
+      <div role="alert" className="absolute right-4 top-4 z-30 flex items-center gap-2 rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
+        <AlertTriangle className="h-3.5 w-3.5" />
+        Board too large to save - remove some items and try again
+      </div>
+    );
+  }
   if (status === "error") {
     return (
       <div className="absolute right-4 top-4 z-30 flex items-center gap-2 rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
         <AlertTriangle className="h-3.5 w-3.5" />
-        Could not save — retrying
+        Could not save - retrying
         <button
           type="button"
           onClick={onRetry}
