@@ -101,6 +101,7 @@ test('Board roles: an owner shares a board and a teammate gets comment, edit and
   await expect(mate.page.getByRole('status').filter({ hasText: 'Comment only' })).toBeVisible();
   await expect(mate.page.getByRole('button', { name: 'Sticky note', exact: true })).toHaveCount(0);
   await expect(mate.page.getByRole('button', { name: 'Add image', exact: true })).toHaveCount(0);
+  await expect(mate.page.getByRole('button', { name: 'Create with AI', exact: true })).toHaveCount(0);
   await expect(mate.page.getByRole('button', { name: 'Zoom in', exact: true })).toBeVisible();
   const before = await (await mate.context.request.get(boardPath)).json();
   expect(before.role).toBe('comment');

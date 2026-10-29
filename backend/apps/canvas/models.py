@@ -58,6 +58,32 @@ class CanvasBoardSave(models.Model):
         constraints = [models.UniqueConstraint(fields=('board_id', 'save_id'), name='canvas_board_saves_board_save_key')]
 
 
+class BoardAiJob(models.Model):
+    """One "Create with AI" request on a board: the format asked for and the generation that runs it.
+
+    The generation worker executes the generation row (a text job for sticky notes, an image job for an image) under
+    the usual admission, spend window and paid guard; this row only ties it to the board, the refine chain and the
+    nodes the board placed for it. ``generation_id`` has no foreign key, so deleting the image from the library
+    leaves the job (and its placed node) alone."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE, db_column='board_id', db_index=False)
+    user_id = models.UUIDField()
+    format = models.TextField()
+    prompt = models.TextField()
+    generation_id = models.UUIDField(unique=True)
+    parent_job = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, db_column='parent_job_id', db_index=False)
+    placed_node_ids = models.JSONField(null=True)
+    placed_at = models.BigIntegerField(null=True)
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_board_ai_jobs'
+        indexes = [models.Index(fields=['board', 'user_id', 'created_at'], name='canvas_ai_jobs_board_user_idx'),
+                   models.Index(fields=['parent_job'], name='canvas_ai_jobs_parent_idx')]
+
+
 ACTIVITY_ACTIONS = ('add', 'edit', 'delete')
 
 

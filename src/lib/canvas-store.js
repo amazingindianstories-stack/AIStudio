@@ -894,6 +894,29 @@ export const useCanvasStore = create((set, get) => ({
     set({ selection: nodes.map((node) => node.id), selectedConnectorIds: [] });
   },
 
+  /** The board point at the centre of the visible canvas. */
+  viewportCenter: () => viewportCenterWorld(get().history.present.viewport),
+
+  /** The visible canvas's measured size in pixels. */
+  viewportSize: () => ({ ...viewportPx }),
+
+  /** Insert generated nodes (a "Create with AI" result) as one undo step and select them. `replaceIds` are the
+   * nodes of the result this one refines: they leave in the same step (with connectors that referenced them), so
+   * one undo restores the previous result. */
+  placeGeneratedNodes: (nodes, replaceIds = []) => {
+    if (!nodes.length) return;
+    const replaced = new Set(replaceIds);
+    mutateGraph(set, get, (present) => {
+      const kept = present.nodes
+        .filter((n) => !replaced.has(n.id))
+        .map((n) => (n.parentId && replaced.has(n.parentId) ? { ...n, parentId: null } : n));
+      const connectors = present.connectors.filter((c) =>
+        !("nodeId" in c.from && replaced.has(c.from.nodeId)) && !("nodeId" in c.to && replaced.has(c.to.nodeId)));
+      return { ...present, nodes: [...kept, ...nodes], connectors };
+    });
+    set({ selection: nodes.map((node) => node.id), selectedConnectorIds: [] });
+  },
+
   addImageFromAsset: (a, worldPoint) => {
     if (selectReadOnly(get())) return;
     const vp = get().history.present.viewport;

@@ -82,6 +82,15 @@ async function openPanel(page) {
 
 const shown = (page) => page.locator('[data-viewer-item-id]').first();
 
+// The seeded rows point at media that does not exist, so each thumbnail swaps from its loading image
+// to the failed state when its request settles. A press on the loading image whose release lands on
+// its replacement is not a click on the card, so wait for that final state before clicking.
+async function openFromGrid(panel, id) {
+  const card = panel.locator(`[data-asset-card-id="${id}"]`);
+  await expect(card.getByRole('group', { name: 'Media failed to load' })).toBeVisible();
+  await card.click({ position: { x: 88, y: 24 } });
+}
+
 scoped('arrow keys inside a folder walk only that folder, in grid order, across page boundaries', async ({ page, scope }, testInfo) => {
   const expected = await scope.rows(`folderId=${scope.target.id}`);
   expect(expected).toHaveLength(IN_FOLDER);
@@ -95,7 +104,7 @@ scoped('arrow keys inside a folder walk only that folder, in grid order, across 
     const query = request.url().includes('/api/history?') ? new URL(request.url()).searchParams : null;
     if (query?.has('cursor')) requested.push(query);
   });
-  await panel.locator(`[data-asset-card-id="${expected[0]}"]`).click({ position: { x: 88, y: 24 } });
+  await openFromGrid(panel, expected[0]);
   await expect(shown(page)).toHaveAttribute('data-viewer-item-id', expected[0]);
 
   // Right walks reading order. 44 presses cross the page 1 -> 2 and 2 -> 3 boundaries.
@@ -144,7 +153,7 @@ scoped('Up and Down walk the card column the user sees', async ({ page, scope })
   expect(columns.length).toBeGreaterThan(1);
   const column = columns[0];
   expect(column.length).toBeGreaterThan(3);
-  await panel.locator(`[data-asset-card-id="${column[0]}"]`).click({ position: { x: 88, y: 24 } });
+  await openFromGrid(panel, column[0]);
   await expect(shown(page)).toHaveAttribute('data-viewer-item-id', column[0]);
   for (let index = 1; index < 4; index += 1) {
     await page.keyboard.press('ArrowDown');
@@ -160,7 +169,7 @@ scoped("Unsorted steps through the project's Unsorted rows only", async ({ page,
   await panel.getByRole('button', { name: /Unsorted$/ }).first().click();
   await expect.poll(() => panel.locator('[data-asset-card-id]').count()).toBe(UNSORTED);
   const first = await panel.locator('[data-asset-card-id]').first().getAttribute('data-asset-card-id');
-  await panel.locator(`[data-asset-card-id="${first}"]`).click({ position: { x: 88, y: 24 } });
+  await openFromGrid(panel, first);
   const seen = new Set();
   for (let step = 0; step < UNSORTED + 2; step += 1) {
     await expect(shown(page)).toHaveAttribute('data-viewer-item-id', /.+/);
@@ -198,7 +207,7 @@ scoped('while maintenance is ON the viewer covers the banner and its close butto
   const panel = await openPanel(page);
   await expect(page.getByRole('status').filter({ hasText: 'Veevee is being updated' })).toBeVisible();
   await openTreeFolder(panel, `${scope.tag} Target`);
-  await panel.locator(`[data-asset-card-id="${expected[0]}"]`).click({ position: { x: 88, y: 24 } });
+  await openFromGrid(panel, expected[0]);
   await expect(shown(page)).toHaveAttribute('data-viewer-item-id', expected[0]);
   const close = page.getByRole('button', { name: 'Close viewer' });
   const topmost = await close.evaluate((button) => {

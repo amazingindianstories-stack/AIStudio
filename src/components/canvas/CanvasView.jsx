@@ -19,6 +19,8 @@ import { BoardSwitcher } from "./BoardSwitcher";
 import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
 import { BoardShareDialog } from "./BoardShareDialog";
+import { CanvasAiPanel } from "./CanvasAiPanel";
+import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { ObjectInfo } from "./ObjectInfo";
 
@@ -48,6 +50,7 @@ export function CanvasView() {
   const [shapesOpen, setShapesOpen] = useState(false);
   const [boardsReload, setBoardsReload] = useState(0);
   const [noBoards, setNoBoards] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
 
   const surfaceRef = useRef(null);
 
@@ -391,6 +394,15 @@ export function CanvasView() {
     openImagePicker,
   ]);
 
+  // Board AI jobs follow the loaded, editable board: unfinished jobs resume and finished, unplaced results are placed.
+  const loadedBoardId = useCanvasStore((s) => s.boardId);
+  useEffect(() => {
+    if (!boardId || !loaded || loadedBoardId !== boardId) return;
+    if (readOnly) useBoardAi.getState().detach();
+    else void useBoardAi.getState().attach(boardId);
+  }, [boardId, loaded, loadedBoardId, readOnly]);
+  useEffect(() => () => useBoardAi.getState().detach(), []);
+
   const assetPanelWidth = assetPanelCollapsed ? 44 : 300;
 
   return (
@@ -480,8 +492,11 @@ export function CanvasView() {
             onShapesOpenChange={setShapesOpen}
             onToggleLock={() => setToolLocked((v) => !v)}
             onAddImageClick={openImagePicker}
+            aiOpen={aiOpen && Boolean(boardId)}
+            onAiClick={() => setAiOpen((v) => !v)}
           />
         )}
+        {aiOpen && boardId && !readOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
       </div>
 
       <input

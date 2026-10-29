@@ -39,6 +39,8 @@ class Generation(models.Model):
     error = models.TextField(null=True)
     provider_responses = models.JSONField(null=True)
     submission_input = models.JSONField(null=True)
+    # The validated result of a text job (kind 'text'), e.g. a board's AI sticky notes; null for media.
+    output = models.JSONField(null=True)
     moderation_blocked = models.BooleanField(null=True)
     reference_images = models.JSONField(null=True)
     reference_videos = models.JSONField(null=True)

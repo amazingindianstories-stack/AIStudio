@@ -18,7 +18,7 @@ MAX_COORDINATOR_BATCH = 25
 def eligible():
     owned = Q(user_id__isnull=False)
     accepted = Q(task_id__isnull=False) & ~Q(task_id='')
-    queued = Q(status='queued',kind__in=('image','video')) & owned
+    queued = Q(status='queued',kind__in=('image','video','text')) & owned
     asynchronous_image = Q(kind='image',model__in=('Kling Image 3.0','Kling Image 2.1',
         'Higgsfield Nano Banana Pro','Higgsfield Soul')) & accepted
     running = ((Q(kind='video') | Q(model__startswith='Magnific ')) & (owned | accepted)) | asynchronous_image

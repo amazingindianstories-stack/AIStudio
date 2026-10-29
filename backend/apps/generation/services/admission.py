@@ -10,8 +10,8 @@ from apps.generation.models import Generation
 from apps.generation.serialization import generation_item
 from .queue_snapshot import SQL as SNAPSHOT_SQL
 
-MAX_CONCURRENT = {'image': 10, 'video': 8}    # running jobs across everyone
-PER_USER_DEFAULT = PER_USER_MAX = 8                # maxConcurrentJobs: running image/video jobs per user
+MAX_CONCURRENT = {'image': 10, 'video': 8, 'text': 4}    # running jobs across everyone
+PER_USER_DEFAULT = PER_USER_MAX = 8                # maxConcurrentJobs: running image/video/text jobs per user
 # BytePlus runs at most this many tasks per Seedance model per account (3 Individual, 10 Enterprise) and silently
 # queues the rest on its side; keeping the excess in our queue keeps the order fair and visible.
 LANE_SETTING, LANE_DEFAULT, LANE_MAX = 'seedanceConcurrency', 3, 50
@@ -57,7 +57,8 @@ def non_gemini_image_models():
 
 
 def bills_gemini(item):
-    return (item.kind == 'image' and item.model not in non_gemini_image_models()) or item.model in gemini_video_models()
+    # Text jobs (board AI) call Gemini text models on the same key, so they share its spend window.
+    return (item.kind == 'image' and item.model not in non_gemini_image_models()) or item.kind == 'text' or item.model in gemini_video_models()
 
 
 def lane_models(item):
@@ -105,7 +106,7 @@ def reap_stale_running_images(*, now=None):
     now = now_ms() if now is None else now
     return Generation.objects.filter(status='running', updated_at__lt=now - 420000, task_id__isnull=True).filter(
         Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)).filter(
-        Q(kind='image') | Q(kind='video')).update(
+        Q(kind__in=('image', 'video', 'text'))).update(
         status='failed', error='Generation timed out — the server process was interrupted.', updated_at=now)
 
 

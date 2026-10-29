@@ -93,7 +93,8 @@ def _persist_task_receipt(item,owner,updates):
 def _persist_completion(item,owner,updates,timestamp):
     with transaction.atomic():
         current=_fenced_completion_update(item,owner,updates)
-        if current.status=='succeeded':
+        # A text job's result lives on the row (output); it is not library media and takes no library name.
+        if current.status=='succeeded' and current.kind!='text':
             assign_generation_naming(current.id,current.folder_id,current.project_id,now=timestamp)
         return current
 
@@ -120,7 +121,7 @@ def execute_admitted(item, **kwargs):
     return paid_guard.execute(_execute_admitted, item, **kwargs)
 
 
-def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_submit=None, env=None):
+def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_submit=None, text_execute=None, env=None):
     """Run on a worker thread with its own DB connection, never a detached task.
 
     All provider I/O receives the same bounded cancellation object. Persistence
@@ -129,7 +130,10 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
     env = os.environ if env is None else env
     signal = signal or Cancellation()
     video_submit = video_submit or submit_video
-    if item.kind != 'video' and image_execute is None:
+    if item.kind == 'text' and text_execute is None:
+        from .text_execution import execute_text
+        text_execute = execute_text
+    elif item.kind == 'image' and image_execute is None:
         from .image_execution import execute_image
         image_execute = execute_image
     count = video_best_of(item, env)
@@ -184,6 +188,8 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
     try:
         if item.kind == 'video':
             updates = video_submit(item, signal=signal, on_task=on_task, count=count, env=env)
+        elif item.kind == 'text':
+            updates = text_execute(item, signal=signal, on_task=on_task, env=env)
         else:
             updates = image_execute(item, signal=signal, on_task=on_task, env=env)
         signal.check()
@@ -206,7 +212,7 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
             bounded_event(current, phase='accepted_task_recovery', error_code=getattr(error, 'code', 'provider_poll_error'), persisted=True,
                           event='generation_execution_deferred')
             return {'kind': 'pending', 'item': current}
-        failure = {'status': 'failed', 'error': str(error) or ('Video task creation failed.' if item.kind == 'video' else 'Image generation failed.'),
+        failure = {'status': 'failed', 'error': str(error) or {'video': 'Video task creation failed.', 'text': 'Text generation failed.'}.get(item.kind, 'Image generation failed.'),
             'moderation_blocked': getattr(error, 'code', None) == 'moderation', 'completed_at': now_ms(), 'updated_at': now_ms()}
         responses = provider_responses(error, item)
         if getattr(error, 'code', None) == 'moderation' and portrait_prepare.privacy_rejection(str(error), {'error': {'code': getattr(error, 'upstream_code', '')}}) and portrait_prepare.learn_from_rejection(item):

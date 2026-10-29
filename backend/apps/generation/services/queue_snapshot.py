@@ -3,7 +3,8 @@
 lane_running skips video jobs whose provider task has finished (poller.DOWNLOAD_PENDING, or the provider reported
 succeeded) and only our download is left: BytePlus no longer runs them. Spend skips failures marked unbilled (a throttle)
 and images billed outside the Gemini key (admission.non_gemini_image_models: Seedream, Kling), and work cancelled before
-any provider task existed.
+any provider task existed. Text jobs (board AI) call Gemini on the same key: they count toward per-user concurrency and
+the spend window like Gemini images.
 """
 SQL = r'''
 with global_user_limit as (
@@ -15,7 +16,7 @@ with global_user_limit as (
     ), running_by_user as (
       select user_id, count(*)::int as n
       from generations
-      where status = 'running' and kind in ('image', 'video') and user_id is not null
+      where status = 'running' and kind in ('image', 'video', 'text') and user_id is not null
       group by user_id
     ), ranked_queue as (
       select q.id, q.kind, q.model, q.created_at,
@@ -32,7 +33,7 @@ with global_user_limit as (
       cross join global_user_limit gl
       left join running_by_user r on r.user_id = q.user_id
       left join user_limits ul on ul.user_id = q.user_id and ul.key = 'maxConcurrentJobs'
-      where q.status = 'queued' and q.kind in ('image', 'video') and q.user_id is not null
+      where q.status = 'queued' and q.kind in ('image', 'video', 'text') and q.user_id is not null
     ), eligible_queue as (
       select * from ranked_queue
       where user_rank <= greatest(user_cap - user_running, 0)
@@ -57,7 +58,7 @@ with global_user_limit as (
           and updated_at >= %(window_start)s
           and status in ('running', 'succeeded', 'failed', 'cancelled')
           and not (status = 'cancelled' and task_id is null)
-          and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or model = any(%(gemini_video_models)s::text[]))
+          and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or kind = 'text' or model = any(%(gemini_video_models)s::text[]))
           and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as window_cents,
       (select count(*) from generations
@@ -65,7 +66,7 @@ with global_user_limit as (
           and updated_at >= %(window_start)s
           and status in ('running', 'succeeded', 'failed', 'cancelled')
           and not (status = 'cancelled' and task_id is null)
-          and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or model = any(%(gemini_video_models)s::text[]))
+          and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or kind = 'text' or model = any(%(gemini_video_models)s::text[]))
           and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as window_rows,
       (select min(updated_at) from generations
@@ -73,7 +74,7 @@ with global_user_limit as (
           and updated_at >= %(window_start)s
           and status in ('running', 'succeeded', 'failed', 'cancelled')
           and not (status = 'cancelled' and task_id is null)
-          and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or model = any(%(gemini_video_models)s::text[]))
+          and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or kind = 'text' or model = any(%(gemini_video_models)s::text[]))
           and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as oldest_updated_at
 '''

@@ -3,6 +3,10 @@
 Run through scripts/dev/test-db.sh (locally) or the CI browser job, which supply
 a disposable loopback database and an allowlisted environment. Next receives no
 database, cloud, provider or session-signing credentials.
+
+Provider jobs end through MOCK_GENERATION placeholders. With --fake-providers the generation worker and the
+scheduler instead run the real adapters against testsupport.fake_provider_server (local/runtime/sitecustomize.py),
+and specs read its state from E2E_FAKE_PROVIDER_URL; nothing leaves this machine either way.
 """
 import argparse
 import io
@@ -20,6 +24,14 @@ import urllib.request
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[2]
+# --fake-providers: only the generation worker and the scheduler (the processes that call providers) get these fixed
+# fake credentials and are routed to testsupport.fake_provider_server, as scripts/dev/mcp-harness.py does. The real
+# adapters, executor and persistence run; only the network call and the media download are faked. Never real keys.
+FAKE_PROVIDER_ENV = {'VEEVEE_LOCAL_PROVIDERS': 'fake', 'MOCK_GENERATION': '0', 'ARK_API_KEY': 'local-fake-ark-key',
+                     'GOOGLE_API_KEY': 'local-fake-google-key', 'BYTEPLUS_ACCESS_KEY_ID': 'local-fake-ak',
+                     'BYTEPLUS_SECRET_ACCESS_KEY': 'local-fake-sk', 'KLING_API': 'local-fake-kling-key',
+                     'MAGNIFIC_API_KEY': 'local-fake-magnific-key', 'VEEVEE_PROVIDER_MEDIA_HOSTS': 'fake-media.invalid',
+                     'PUBLIC_APP_URL': 'https://browser-harness.invalid'}
 
 
 def available_port():
@@ -90,6 +102,8 @@ def main():
     parser.add_argument('--grep')
     parser.add_argument('--list', action='store_true')
     parser.add_argument('--trace', choices=['on', 'retain-on-failure'], default='retain-on-failure')
+    parser.add_argument('--fake-providers', action='store_true',
+                        help='run provider jobs through the fake provider server instead of MOCK_GENERATION placeholders')
     args = parser.parse_args()
     target = urlsplit(os.environ.get('DATABASE_URL', ''))
     if os.environ.get('MIGRATION_TEST_ISOLATED') != '1' or target.hostname != '127.0.0.1' or target.path != '/veevee_django_migration':
@@ -143,21 +157,31 @@ VEEVEE_KLING = False
     frontend_env.update(DJANGO_API_ORIGIN=backend, DJANGO_API_ALLOW_LOCAL='1',
         GOAL4_PRIVATE_INGRESS_SECRET='browser-suite-ingress-' + secrets.token_hex(24))
     processes, streams = [], []
-    def launch(command, name, environment):
+    def launch(command, name, environment, cwd=ROOT):
         stream = (artifact / (name + '.log')).open('w')
         streams.append(stream)
-        process = subprocess.Popen(command, cwd=ROOT, env=environment, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
+        process = subprocess.Popen(command, cwd=cwd, env=environment, stdout=stream, stderr=subprocess.STDOUT, start_new_session=True)
         processes.append(process)
         return process
+    provider_env = env
+    if args.fake_providers:
+        fake_url = f'http://127.0.0.1:{available_port()}'
+        env['E2E_FAKE_PROVIDER_URL'] = fake_url
+        provider_env = {**env, **FAKE_PROVIDER_ENV, 'VEEVEE_FAKE_PROVIDER_URL': fake_url,
+                        'PYTHONPATH': os.pathsep.join(str(path) for path in (artifact, ROOT / 'local' / 'runtime', ROOT / 'backend'))}
     try:
+        if args.fake_providers:
+            fake = launch([sys.executable, '-m', 'testsupport.fake_provider_server', fake_url.rsplit(':', 1)[1], '127.0.0.1'],
+                          'fake-providers', env, cwd=ROOT / 'backend')
+            wait_ready(fake_url + '/health', fake)
         django = launch([sys.executable, '-m', 'gunicorn', '--chdir', 'backend', 'config.wsgi:application',
             '--bind', f'127.0.0.1:{backend_port}', '--workers', '2', '--threads', '4'], 'django', env)
         wait_ready(backend + '/api/health', django)
         next_process = launch(['node', 'node_modules/next/dist/bin/next', 'dev', '--hostname', '127.0.0.1', '--port', str(frontend_port)], 'next', frontend_env)
         wait_ready(frontend + '/login', next_process)
-        launch([sys.executable, 'backend/manage.py', 'generation_worker', '--interval', '.2'], 'generation-worker', env)
+        launch([sys.executable, 'backend/manage.py', 'generation_worker', '--interval', '.2'], 'generation-worker', provider_env)
         launch([sys.executable, 'backend/manage.py', 'media_export_worker', '--interval', '.2'], 'export-worker', env)
-        launch([sys.executable, 'backend/manage.py', 'run_scheduler'], 'scheduler', env)
+        launch([sys.executable, 'backend/manage.py', 'run_scheduler'], 'scheduler', provider_env)
         command = ['node', 'node_modules/@playwright/test/cli.js', 'test']
         command.extend(['--trace', args.trace, '--output', str(artifact / 'test-results')])
         env['PLAYWRIGHT_HTML_OUTPUT_DIR'] = str(artifact / 'playwright-report')
@@ -169,7 +193,8 @@ VEEVEE_KLING = False
         processes.append(browser_process)
         browser_process.wait()
         print(json.dumps({'browser_exit_code': browser_process.returncode, 'frontend': 'Next transport only; no backend credentials',
-            'backend': 'Django Gunicorn', 'workers': ['Python generation', 'Python export', 'Python scheduler'], 'logs': str(artifact)}), flush=True)
+            'backend': 'Django Gunicorn', 'workers': ['Python generation', 'Python export', 'Python scheduler'],
+            'providers': 'fake provider server' if args.fake_providers else 'MOCK_GENERATION', 'logs': str(artifact)}), flush=True)
         return browser_process.returncode
     except KeyboardInterrupt:
         print("Browser qualification interrupted; stopping its owned process groups.", flush=True)

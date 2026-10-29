@@ -38,12 +38,14 @@ CLIP_PREPARE = 'A reference clip could not be prepared for the provider. Try a d
 UPSCALE_FAILED = 'The upscaler could not process this file. Try different settings or another source, or retry later.'
 UPSCALE_BUSY = 'The upscale service is busy right now. Nothing was charged. Try again in a few minutes.'
 AUDIO_REJECTED = 'The transcription service rejected this audio. Try a different or shorter clip.'
+TEXT_UNUSABLE = 'The AI answered, but not in a form the board can place. Try again or rephrase the prompt.'
 GENERIC = {
     'video': 'Something went wrong on our side and this video stopped. Retry it; if it keeps failing, let the team know.',
     'image': 'Something went wrong on our side and this image stopped. Retry it; if it keeps failing, let the team know.',
     'audio': 'Something went wrong on our side and this transcription stopped. Retry it; if it keeps failing, let the team know.',
     'depth': 'Something went wrong on our side and this depth map stopped. Retry it; if it keeps failing, let the team know.',
     'upscale': 'Something went wrong on our side and this upscale stopped. Retry it; if it keeps failing, let the team know.',
+    'text': 'Something went wrong on our side and this AI result stopped. Retry it; if it keeps failing, let the team know.',
 }
 AUDIO_INPUT_INVALID = 'Audio input is invalid or unavailable.'
 # The provider answered with an error we have no plainer sentence for: the exact detail follows, so never "our side".
@@ -53,6 +55,7 @@ PROVIDER_ERROR = {
     'audio': 'The transcription service returned an error, so this transcription stopped.',
     'depth': 'The depth service returned an error, so this depth map stopped.',
     'upscale': 'The upscaler returned an error, so this upscale stopped.',
+    'text': 'The AI provider returned an error, so this AI result stopped.',
 }
 
 _MODEL = r'[\w .\-()]{1,60}'
@@ -107,7 +110,7 @@ def _curated():
         'All candidates failed to generate.', AUDIO_INPUT_INVALID, *audio_submission.INVALID_INPUT_MESSAGES,
         FACE_GALLERY, COPYRIGHT, POLICY, MODERATION_BLOCKED, AUDIO, BUSY, UNAVAILABLE, DROPPED, INTERRUPTED, PORTRAIT_ASSET,
         PORTRAIT_UNREGISTERED, DRAFT, RATIO_DURATION, IMAGE_REJECTED, NO_IMAGE, NO_VIDEO, CLIP_PREPARE, UPSCALE_FAILED,
-        UPSCALE_BUSY, AUDIO_REJECTED,
+        UPSCALE_BUSY, AUDIO_REJECTED, TEXT_UNUSABLE,
         *GENERIC.values(), *PROVIDER_ERROR.values(),
     }
     busy = managed_pool.PORTRAIT_BUSY.format(minutes='\0')

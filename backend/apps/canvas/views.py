@@ -5,6 +5,7 @@ from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
 from . import access, services
+from .models import CanvasBoard
 from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, js_json, validate_state
 
 UUID_PATTERN = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
@@ -335,6 +336,100 @@ def board_access(request, identifier):
             operation(user, existing, data)
             existing = access.board_row(identifier)
         return reply(request, access.describe(user, existing))
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()
+
+
+def ai_board(user, identifier):
+    """The board for a board AI route, once the user may edit it: the panel creates and places board content."""
+    import re
+    if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', identifier):
+        return None
+    existing = access.board_row(identifier)
+    if existing is None:
+        return None
+    access.require(user, existing, access.WRITE)
+    return CanvasBoard.objects.filter(pk=identifier).first()
+
+
+def ai_failure(request, error):
+    """The answer a refused board AI request gets (the same bodies the generation API gives)."""
+    from apps.generation.services.paid_guard import PaidBudgetHold
+    from apps.generation.services.submission import Refused
+    from .ai_jobs import JobError
+    if isinstance(error, JobError):
+        return reply(request, error.body, error.status)
+    if isinstance(error, Refused):
+        response = reply(request, error.body, error.status) if error.body else failure()
+        for name, value in error.headers.items():
+            response[name] = value
+        return response
+    if isinstance(error, PaidBudgetHold):
+        return reply(request, {'error': str(error), 'code': PaidBudgetHold.code}, 409)
+    raise error
+
+
+@node_route(['GET', 'POST'])
+def board_ai_jobs(request, identifier):
+    from . import ai_jobs
+    actor = lookup(request)
+    if actor is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        board = ai_board(actor, identifier)
+        if board is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        if request.method in ('GET', 'HEAD'):
+            ids = [value for raw in request.query_params.getlist('ids') for value in raw.split(',') if value]
+            recent = request.query_params.get('recent') == '1'
+            return reply(request, {'jobs': ai_jobs.jobs(actor, board, ids, recent)})
+        try:
+            job = ai_jobs.submit(actor, board, body(request), request.headers.get('Idempotency-Key'))
+        except Exception as error:
+            return ai_failure(request, error)
+        return reply(request, {'job': job}, 201)
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()
+
+
+@node_route(['POST'])
+def board_ai_quote(request, identifier):
+    from . import ai_jobs
+    actor = lookup(request)
+    if actor is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        board = ai_board(actor, identifier)
+        if board is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        try:
+            return reply(request, {'quote': ai_jobs.quote(actor, board, body(request))})
+        except Exception as error:
+            return ai_failure(request, error)
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()
+
+
+@node_route(['PATCH'])
+def board_ai_job(request, identifier, job_id):
+    from . import ai_jobs
+    actor = lookup(request)
+    if actor is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        board = ai_board(actor, identifier)
+        if board is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        try:
+            return reply(request, {'job': ai_jobs.mark_placed(actor, board, job_id, body(request))})
+        except Exception as error:
+            return ai_failure(request, error)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
     except Exception:

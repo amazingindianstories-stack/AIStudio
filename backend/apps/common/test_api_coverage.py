@@ -123,6 +123,13 @@ EXPECTED.update(BOARD_ROLES)
 # Reviewed board-sync addition: the cheap version read that open boards poll.
 BOARD_SYNC = {'/api/canvas-boards/[id]/version': ['GET']}
 EXPECTED.update(BOARD_SYNC)
+# Board "Create with AI" jobs (apps.canvas.ai_jobs).
+BOARD_AI = {
+ '/api/canvas-boards/[id]/ai-jobs': ['GET', 'POST'],
+ '/api/canvas-boards/[id]/ai-jobs/quote': ['POST'],
+ '/api/canvas-boards/[id]/ai-jobs/[jobId]': ['PATCH'],
+}
+EXPECTED.update(BOARD_AI)
 # Reviewed board-history addition: what each save added, edited and deleted, for editors.
 BOARD_ACTIVITY = {'/api/canvas-boards/[id]/activity': ['GET']}
 EXPECTED.update(BOARD_ACTIVITY)
@@ -156,10 +163,11 @@ def leaves(patterns,prefix=''):
 
 @override_settings(ROOT_URLCONF='config.urls')
 class CompleteApiCoverageTests(SimpleTestCase):
-    def test_all_119_explicit_methods_resolve_to_the_declared_python_handlers(self):
-        # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access, board roles, board sync and board history.
-        self.assertEqual(len(EXPECTED),94)
-        self.assertEqual(sum(map(len,EXPECTED.values())),119)
+    def test_all_123_explicit_methods_resolve_to_the_declared_python_handlers(self):
+        # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access,
+        # board roles, board sync, board AI jobs and board history.
+        self.assertEqual(len(EXPECTED),97)
+        self.assertEqual(sum(map(len,EXPECTED.values())),123)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -263,6 +271,7 @@ NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in MCP_AUTH.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_ROLES.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_SYNC.items()})
+NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_AI.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_ACTIVITY.items()})
 # Public discovery documents, and machine endpoints refusing an empty body or an unknown client.
 NEGATIVE_STATUS.update({'/api/oauth/authorization-server':{'GET':200},'/api/oauth/protected-resource':{'GET':200},
@@ -285,7 +294,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         payload,signature=self.valid.split('.')
         self.forged=payload+'.'+('A' if signature[0]!='A' else 'B')+signature[1:]
         self.tables=sorted({model._meta.db_table for model in apps.get_models() if model._meta.managed})
-        self.assertEqual(len(self.tables),37)
+        self.assertEqual(len(self.tables),38)
         self.assertEqual({path:set(methods) for path,methods in EXPECTED.items()},
             {path:set(methods) for path,methods in NEGATIVE_STATUS.items()})
 
@@ -332,7 +341,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         self.assertEqual(self.write_attempts,[])
         for effect in self.effects: effect.assert_not_called()
 
-    def test_all_119_methods_match_negative_request_contract_without_effects(self):
+    def test_all_123_methods_match_negative_request_contract_without_effects(self):
         # Empty/malformed payload failures on public routes are not proof of
         # account-only authorization. Paid video now requires login; valid-payload
         # zero-effects and owner checks are covered by enqueue contract tests.
@@ -352,7 +361,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*119)
+            self.assertEqual(len(seen),3*123)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):

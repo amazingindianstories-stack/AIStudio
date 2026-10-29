@@ -132,4 +132,12 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
  {'model': 'Magnific Video Topaz',
   'unitCostCents': 900,
   'unit': 'per_1000_frames',
-  'notes': 'Veevee estimate per 1000 output frames at 2K (720p/1K x0.78, 4K x1.33). Magnific bills credits per frame by resolution and publishes no rates; calibrate from the dashboard'}]
+  'notes': 'Veevee estimate per 1000 output frames at 2K (720p/1K x0.78, 4K x1.33). Magnific bills credits per frame by resolution and publishes no rates; calibrate from the dashboard'},
+ {'model': 'Board AI text',
+  'unitCostCents': 250,
+  'unit': 'per_million_tokens',
+  'notes': 'Veevee estimate for board "Create with AI" text jobs on the agent Gemini model: input characters / 4 plus the whole output budget, all at this rate. Calibrate from the Gemini dashboard'},
+ {'model': 'Board AI text (advanced)',
+  'unitCostCents': 1000,
+  'unit': 'per_million_tokens',
+  'notes': 'Veevee estimate for board "Create with AI" text jobs with advanced processing, on the stronger Gemini model (AGENT_LLM_MODEL_ADVANCED): input characters / 4 plus the whole output budget, all at this rate. Calibrate from the Gemini dashboard'}]
