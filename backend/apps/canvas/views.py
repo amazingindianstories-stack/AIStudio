@@ -3,8 +3,7 @@ from django.conf import settings
 from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
-from . import services
-from .models import CanvasBoard
+from . import access, services
 from .serialization import JS_WHITESPACE, js_json, json_length, validate_state
 
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
@@ -100,6 +99,10 @@ def name_value(value):
     return value.strip(JS_WHITESPACE)
 
 
+def board_list(project, user):
+    return {'boards': services.list_boards(project, user), 'canCreate': access.can_create_board(user, project)}
+
+
 @node_route(['GET', 'POST'])
 def board_metadata_reads(request):
     user = lookup(request)
@@ -111,7 +114,7 @@ def board_metadata_reads(request):
             project = values[0] if values else None
             if not project:
                 return reply(request, {'error': 'projectId required.'}, 400)
-            return reply(request, {'boards': services.list_boards(project)})
+            return reply(request, board_list(project, user))
         data = body(request)
         operation = property_of(data, 'op')
         if operation == 'createBoard':
@@ -119,25 +122,27 @@ def board_metadata_reads(request):
             project = property_of(data, 'projectId')
             if not truthy(project):
                 return reply(request, {'error': 'projectId required.'}, 400)
+            access.require_board_creator(user, project)
             if not name:
                 return reply(request, {'error': 'Name required.'}, 400)
             board = services.create_board(project, name, user)
-            return reply(request, {'boards': services.list_boards(project), 'board': board})
+            return reply(request, {**board_list(project, user), 'board': board})
         if operation in ('renameBoard', 'deleteBoard'):
             identifier = property_of(data, 'id')
             if not truthy(identifier):
                 return reply(request, {'error': 'id required.'}, 400)
-            existing = services.get_board(identifier)
+            existing = access.board_row(identifier)
             if existing is None:
                 return reply(request, {'error': 'Board not found.'}, 404)
-            if not services.can_manage(user, existing['createdBy']):
-                return reply(request, {'error': 'FORBIDDEN'}, 403)
+            access.require(user, existing, access.SHARE if operation == 'renameBoard' else access.OWN)
             if operation == 'renameBoard':
                 services.rename_board(identifier, name_value(property_of(data, 'name')))
             else:
                 services.delete_board(identifier)
-            return reply(request, {'boards': services.list_boards(existing['projectId'])})
+            return reply(request, board_list(existing['project_id'], user))
         return reply(request, {'error': 'Unknown op.'}, 400)
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
     except Exception:
         # Next returns an empty 500 for uncaught DB/body-type failures.
         return failure()
@@ -145,12 +150,20 @@ def board_metadata_reads(request):
 
 @node_route(['GET', 'PUT'])
 def board_detail(request, identifier):
-    if lookup(request) is None:
+    user = lookup(request)
+    if user is None:
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
     try:
+        existing = access.board_row(identifier)
         if request.method in ('GET', 'HEAD'):
+            if existing is None:
+                return reply(request, {'error': 'Board not found.'}, 404)
+            level = access.require(user, existing, access.READ)
             board = services.get_board(identifier)
-            return reply(request, board) if board else reply(request, {'error': 'Board not found.'}, 404)
+            return reply(request, {**board, 'role': access.LEVEL_NAMES[level]}) if board else reply(request, {'error': 'Board not found.'}, 404)
+        # A missing board keeps the frozen validate-then-404 order; an existing one checks the role first.
+        if existing is not None:
+            access.require(user, existing, access.WRITE)
         data = property_of(body(request), 'data')
         if not isinstance(data, dict):
             return reply(request, {'error': 'Invalid board data.'}, 400)
@@ -160,6 +173,8 @@ def board_detail(request, identifier):
         if updated is None:
             return reply(request, {'error': 'Board not found.'}, 404)
         return reply(request, {'ok': True, 'updatedAt': updated})
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
     except Exception:
         return failure()
 
@@ -171,8 +186,10 @@ def board_upload(request, identifier):
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
     try:
         import re
-        if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', identifier) or not CanvasBoard.objects.filter(pk=identifier).exists():
+        existing = access.board_row(identifier) if re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', identifier) else None
+        if existing is None:
             return reply(request, {'error': 'Board not found.'}, 404)
+        access.require(actor, existing, access.WRITE)
         payload = body(request)
         reference_id = property_of(payload, 'referenceId')
         if reference_id:
@@ -206,5 +223,40 @@ def board_upload(request, identifier):
         except Exception:
             return reply(request, {'error': 'Upload failed.'}, 400)
         return reply(request, {'url': url})
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()
+
+
+BOARD_ACCESS_OPERATIONS = {
+    'setMember': lambda user, board, data: access.set_board_member(user, board, property_of(data, 'userId'), property_of(data, 'role')),
+    'removeMember': lambda user, board, data: access.remove_board_member(user, board, property_of(data, 'userId')),
+    'setTeamRole': lambda user, board, data: access.set_team_role(user, board, property_of(data, 'role')),
+    'transferOwner': lambda user, board, data: access.transfer_owner(user, board, property_of(data, 'userId')),
+}
+
+
+@node_route(['GET', 'POST'])
+def board_access(request, identifier):
+    """Who has access to a board, and the owner's and sharers' changes to it."""
+    user = lookup(request)
+    if user is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        existing = access.board_row(identifier)
+        if existing is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        access.require(user, existing, access.READ)
+        if request.method == 'POST':
+            data = body(request)
+            operation = BOARD_ACCESS_OPERATIONS.get(property_of(data, 'op'))
+            if operation is None:
+                return reply(request, {'error': 'Unknown op.'}, 400)
+            operation(user, existing, data)
+            existing = access.board_row(identifier)
+        return reply(request, access.describe(user, existing))
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
     except Exception:
         return failure()

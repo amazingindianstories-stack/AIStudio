@@ -4,7 +4,7 @@ import uuid
 from .models import CanvasBoard
 from .serialization import empty_state
 
-META_FIELDS = ('id', 'project_id', 'name', 'created_by', 'created_at', 'updated_at')
+META_FIELDS = ('id', 'project_id', 'name', 'created_by', 'created_at', 'updated_at', 'team_role')
 
 
 def now_ms():
@@ -14,11 +14,16 @@ def now_ms():
 def metadata(row):
     return {'id': str(row['id']), 'projectId': str(row['project_id']), 'name': row['name'],
             'createdBy': str(row['created_by']) if row['created_by'] else None,
-            'createdAt': row['created_at'], 'updatedAt': row['updated_at']}
+            'createdAt': row['created_at'], 'updatedAt': row['updated_at'], 'teamRole': row['team_role']}
 
 
-def list_boards(project):
-    return [metadata(row) for row in CanvasBoard.objects.filter(project_id=project).values(*META_FIELDS)]
+def list_boards(project, user):
+    """The project's boards the user may at least view, each carrying the user's effective role."""
+    from . import access
+    rows = list(CanvasBoard.objects.filter(project_id=project).values(*META_FIELDS))
+    levels = access.roles_for(user, rows)
+    return [{**metadata(row), 'role': access.LEVEL_NAMES[levels[str(row['id'])]]}
+            for row in rows if levels[str(row['id'])] >= access.READ]
 
 
 def get_board(identifier):
@@ -26,15 +31,11 @@ def get_board(identifier):
     return {**metadata(row), 'data': row['data']} if row else None
 
 
-def can_manage(user, owner):
-    return user.role == 'admin' or bool(owner) and str(user.id) == owner
-
-
 def create_board(project, name, user):
     now = now_ms()
     row = CanvasBoard.objects.create(id=uuid.uuid4(), project_id=project, name=name, data=empty_state(),
                                      created_by=user.id, created_at=now, updated_at=now)
-    return metadata({field: getattr(row, field) for field in META_FIELDS})
+    return {**metadata({**{field: getattr(row, field) for field in META_FIELDS}, 'team_role': 'edit'}), 'role': 'owner'}
 
 
 def rename_board(identifier, name):

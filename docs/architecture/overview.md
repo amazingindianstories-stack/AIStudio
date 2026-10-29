@@ -49,10 +49,10 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | App | Responsibility |
 |---|---|
 | `authentication` | Sessions, passwords, login throttling, profile |
-| `projects` | Projects and briefs |
+| `projects` | Projects, briefs and project roles |
 | `library` | Folder tree, naming counters, filenames, idempotency receipts |
 | `assets` | Material catalog, legacy and managed BytePlus portraits, face detection |
-| `canvas` | Canvas boards |
+| `canvas` | Canvas boards, board roles and the effective-role check (`../features/board-roles.md`) |
 | `agents` | Gemini tool-loop chat |
 | `generation` | Enqueue, history and live updates, providers, prompting, worker execution |
 | `exports` | ZIP manifests and the export worker |

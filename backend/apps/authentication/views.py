@@ -36,10 +36,10 @@ def list_users(request):
     from apps.common.responses import renew_session
     if lookup(request) is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
-    rows = User.objects.values('id', 'email', 'name', 'color', 'avatar_url')
+    rows = User.objects.values('id', 'email', 'name', 'color', 'avatar_url', 'is_active')
     return renew_session(request, Response({'users': [
         {'id': str(row['id']), 'email': row['email'], 'name': row['name'],
-         'color': row['color'], 'avatarUrl': row['avatar_url']} for row in rows]}))
+         'color': row['color'], 'avatarUrl': row['avatar_url'], 'isActive': row['is_active']} for row in rows]}))
 
 @api_view(['POST'])
 @authentication_classes([])

@@ -34,6 +34,7 @@ export function NodeView({
   tool,
   showRing,
   showHandles,
+  readOnly,
   editingTextId,
   dropHighlight,
   dragging,
@@ -57,7 +58,7 @@ export function NodeView({
   const [hovered, setHovered] = useState(false);
   const editing = editingTextId === node.id;
   const showConnectionHandles =
-    tool === "select" && hovered && !dragging && !editing;
+    !readOnly && tool === "select" && hovered && !dragging && !editing;
 
   return (
     <div

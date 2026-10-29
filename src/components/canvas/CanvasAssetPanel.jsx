@@ -284,20 +284,25 @@ function AssetThumb({
 
 ) {
   const src = item.kind === "video" ? item.poster ?? item.url : item.url;
+  // Without a place handler the board is read-only: browse, but do not place.
+  const placeable = Boolean(onPlaceAtCenter);
 
   return (
     <div
-      draggable
+      draggable={placeable}
       onDragStart={(e) => {
         setAssetDragData(e.dataTransfer, [item], item);
         e.dataTransfer.setData("text/assetId", item.id);
         e.dataTransfer.effectAllowed = "copy";
       }}
       onClick={() => {
-        if (src) onPlaceAtCenter({ url: src, aspectRatio: item.aspectRatio, kind: item.kind });
+        if (src && placeable) onPlaceAtCenter({ url: src, aspectRatio: item.aspectRatio, kind: item.kind });
       }}
-      title="Drag onto the board · or click to place"
-      className="group relative cursor-grab overflow-hidden rounded-lg bg-ink-750 ring-1 ring-line transition hover:shadow-pop hover:ring-lineStrong active:cursor-grabbing"
+      title={placeable ? "Drag onto the board · or click to place" : "You can view this board but not add to it"}
+      className={cn(
+        "group relative overflow-hidden rounded-lg bg-ink-750 ring-1 ring-line transition hover:ring-lineStrong",
+        placeable && "cursor-grab hover:shadow-pop active:cursor-grabbing"
+      )}
     >
       <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
         {src && (

@@ -138,7 +138,9 @@ class ProfileTests(TransactionTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()['users']), 2)
         for row in response.json()['users']:
-            self.assertEqual(set(row), {'id', 'email', 'name', 'color', 'avatarUrl'})
+            self.assertEqual(set(row), {'id', 'email', 'name', 'color', 'avatarUrl', 'isActive'})
+        self.assertEqual({row['email']: row['isActive'] for row in response.json()['users']},
+                         {account.email: True, 'disabled@example.invalid': False})
         self.assertEqual(User.objects.get(id=account.id).name, 'Fixture')
 
 
