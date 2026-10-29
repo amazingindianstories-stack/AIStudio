@@ -432,6 +432,25 @@ test("a node someone deleted and brought back changed while it is open keeps the
   }
 });
 
+test("a node held open after someone deleted it never undoes their reorder of other nodes", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a"), { ...rect("s"), type: "sticky", text: "old", fontSize: 16, color: "#000000" }, rect("x"), rect("b")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["s"]);
+  store.getState().setEditingTextId("s");
+  server.edit(graph(rect("a"), rect("x"), rect("b")));
+  assert.equal(await store.getState().pollRemote(), true);
+  // The other person brings x to the front.
+  server.edit(graph(rect("a"), rect("b"), rect("x")));
+  assert.equal(await store.getState().pollRemote(), true);
+  assert.deepEqual(ids(store.getState().history.present), ["a", "b", "s", "x"]);
+  store.getState().commitText("s", "old", "old");
+  store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
+  await store.getState().flushSave();
+  assert.deepEqual(ids(server.data), ["a", "b", "x"]);
+});
+
 test("a draft on the server's current version keeps its deletions without carrying its base graph", async (t) => {
   useStorage(t);
   const server = fakeServer(t, graph(rect("a"), rect("b")));

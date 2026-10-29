@@ -324,11 +324,19 @@ function withoutNodes(graph, ids) {
 
 /**
  * `base` plus the pre-delete copy of every held node `graph` still holds unchanged, so a node another
- * person brings back merges as their change, not as this person's stale copy.
+ * person brings back merges as their change, not as this person's stale copy. Each copy sits just above
+ * the node below it in `graph`, so the base and `graph` agree on z-order and nobody's reorder is lost.
  */
 function withHeldCopies(base, graph) {
-  const copies = unchangedHeldDeletes(graph).filter((id) => !nodeOf(base, id)).map((id) => heldDeletedNodes.get(id));
-  return copies.length ? { ...base, nodes: [...base.nodes, ...copies] } : base;
+  const ids = unchangedHeldDeletes(graph).filter((id) => !nodeOf(base, id));
+  if (!ids.length) return base;
+  const nodes = [...base.nodes];
+  for (const id of ids) {
+    const below = graph.nodes.slice(0, graph.nodes.findIndex((node) => node.id === id))
+      .findLast((node) => nodes.some((item) => item.id === node.id));
+    nodes.splice(below ? nodes.findIndex((item) => item.id === below.id) + 1 : 0, 0, heldDeletedNodes.get(id));
+  }
+  return { ...base, nodes };
 }
 
 /** Ids of held nodes this person has not changed since another person deleted them. */
