@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AlignLeft,
   AlignCenter,
@@ -69,6 +69,18 @@ export function StyleInspector({ hidden }) {
   const deleteSelected = useCanvasStore((s) => s.deleteSelected);
   const beginCrop = useCanvasStore((s) => s.beginCrop);
   const editingTextId = useCanvasStore((s) => s.editingTextId);
+  const panelRef = useRef(null);
+  // Keep the panel inside its container on narrow screens: it is centred on the
+  // selection, which can sit near either edge, so clamp after layout.
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    const parent = el?.offsetParent;
+    if (!el || !parent) return;
+    const half = el.offsetWidth / 2;
+    const desired = Number.parseFloat(el.dataset.centerX ?? "0");
+    const left = Math.min(Math.max(desired, half + 8), Math.max(parent.clientWidth - half - 8, half + 8));
+    el.style.left = `${left}px`;
+  });
 
   const selectedNodes = present.nodes.filter((n) => selection.includes(n.id));
   const selectedConnectors = present.connectors.filter((c) => selectedConnectorIds.includes(c.id));
@@ -138,7 +150,9 @@ export function StyleInspector({ hidden }) {
 
   return (
     <div
-      className="absolute z-40 flex h-11 items-center gap-1 rounded-2xl border border-line bg-ink-750/95 p-1 shadow-pop backdrop-blur-xl"
+      ref={panelRef}
+      data-center-x={centerX}
+      className="absolute z-40 flex h-11 max-w-[calc(100%-1rem)] items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1 shadow-pop backdrop-blur-xl"
       style={{ left: centerX, top, transform: "translateX(-50%)" }}
     >
       {editingRichText && <TextFormatControls popoverBelow={flipBelow} />}

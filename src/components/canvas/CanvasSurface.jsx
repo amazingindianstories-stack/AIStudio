@@ -28,6 +28,16 @@ import {
   screenToWorld,
 } from "@/lib/canvas/geometry";
 import { isCreateTool, isShapeNode, shapeKindOfTool } from "@/lib/canvas/shapes";
+import {
+  LONG_PRESS_MS,
+  doubleTapViewport,
+  isDoubleTap,
+  isTap,
+  movedPastSlop,
+  pinchOf,
+  pinchViewport,
+  swipeZoomViewport,
+} from "@/lib/canvas/touch-gestures";
 import { selectionActions } from "@/lib/canvas/selection-actions";
 import { NodeView, } from "./nodes/NodeView";
 import { ConnectorLayer } from "./ConnectorLayer";
@@ -135,7 +145,7 @@ export function buildDefaultNode(tool, center) {
 
 export const CanvasSurface = forwardRef
 
-(function CanvasSurface({ toolLocked, onAfterSingleShotPlace, boardId, onTransientChange, onImportFiles }, ref) {
+(function CanvasSurface({ toolLocked, onAfterSingleShotPlace, boardId, onTransientChange, onImportFiles, touchViewOnly = false }, ref) {
   const containerRef = useRef(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
 
@@ -174,6 +184,12 @@ export const CanvasSurface = forwardRef
   const [connectorHoverTargetId, setConnectorHoverTargetId] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const dragRef = useRef(null);
+  // Touch bookkeeping: live finger positions (screen-local) for pinch, the
+  // last completed tap for double-tap detection, the tap in progress, and the
+  // pointer type of the latest press so touch-synthesised dblclick/contextmenu
+  // events can be told apart from real mouse ones.
+  const touchRef = useRef({ pointers: new Map(), lastTap: null, pending: null, lastPointerType: "mouse" });
+  const longPressRef = useRef(null);
 
   const displayState = preview ?? present;
   const nodesById = useMemo(() => {
@@ -260,6 +276,37 @@ export const CanvasSurface = forwardRef
 
   const isPanning = tool === "hand" || spaceHeld;
 
+  const clearLongPress = () => {
+    if (longPressRef.current) {
+      clearTimeout(longPressRef.current);
+      longPressRef.current = null;
+    }
+  };
+  const armLongPress = (fire) => {
+    clearLongPress();
+    longPressRef.current = setTimeout(() => {
+      longPressRef.current = null;
+      fire();
+    }, LONG_PRESS_MS);
+  };
+  useEffect(() => clearLongPress, []);
+
+  // Drops whatever gesture is in flight without committing it (a second
+  // finger arrived, or the browser cancelled the pointer).
+  const cancelActiveDrag = () => {
+    clearLongPress();
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (!drag) return;
+    setPreview(null);
+    setMarqueeScreen(null);
+    setDragGhost(null);
+    setDraftConnector(null);
+    setConnectorHoverTargetId(null);
+    setDropHighlightFrameId(null);
+    onTransientChange?.(false);
+  };
+
   const onWheel = useCallback(
     (e) => {
       e.preventDefault();
@@ -306,12 +353,65 @@ export const CanvasSurface = forwardRef
     }
   };
 
+  // Runs before the node and background handlers for every press. Touch
+  // gestures that must win over them (a second finger, a double tap) start
+  // here and stop the event; everything else falls through unchanged.
+  const onPointerDownCapture = (e) => {
+    const touch = touchRef.current;
+    touch.lastPointerType = e.pointerType;
+    if (e.pointerType !== "touch") return;
+    const screen = toScreenLocal(e.clientX, e.clientY);
+    touch.pointers.set(e.pointerId, screen);
+
+    if (touch.pointers.size === 2) {
+      // Second finger: whatever the first finger was doing becomes a pinch
+      // that zooms around the fingers' centre and pans with them.
+      e.stopPropagation();
+      cancelActiveDrag();
+      touch.pending = null;
+      touch.lastTap = null;
+      const [a, b] = [...touch.pointers.values()];
+      dragRef.current = { kind: "pinch", startViewport: viewport, startPinch: pinchOf(a, b), startScreen: screen, moved: true };
+      onTransientChange?.(true);
+      return;
+    }
+    if (touch.pointers.size > 2) {
+      e.stopPropagation();
+      return;
+    }
+
+    if (isDoubleTap(touch.lastTap, screen, e.timeStamp)) {
+      touch.lastTap = null;
+      touch.pending = null;
+      e.stopPropagation();
+      commitInlineEdit();
+      (e.target ).setPointerCapture?.(e.pointerId);
+      if (!touchViewOnly && !readOnly) {
+        // Editing: a double tap on text opens it for typing, like a mouse double click.
+        const nodeId = hitTest(present, screenToWorld(screen, viewport));
+        const node = nodeId ? present.nodes.find((n) => n.id === nodeId) : null;
+        if (node && (node.type === "text" || node.type === "sticky" || node.type === "frame" || isShapeNode(node))) {
+          setSelection([node.id]);
+          useCanvasStore.getState().setEditingTextId(node.id);
+          return;
+        }
+      }
+      // Otherwise it zooms: lift to zoom in a step, or keep the finger down
+      // and swipe up/down to zoom continuously around the tapped point.
+      cancelActiveDrag();
+      dragRef.current = { kind: "tapzoom", startViewport: viewport, startScreen: screen, moved: false };
+      onTransientChange?.(true);
+      return;
+    }
+    touch.pending = { id: e.pointerId, screen, time: e.timeStamp };
+  };
+
   const onPointerDownBackground = (e) => {
     commitInlineEdit();
     (e.target ).setPointerCapture?.(e.pointerId);
     const screen = toScreenLocal(e.clientX, e.clientY);
 
-    if (isPanning) {
+    if (isPanning || touchViewOnly) {
       beginPan(screen);
       return;
     }
@@ -344,6 +444,24 @@ export const CanvasSurface = forwardRef
     }
 
     if (tool === "select") {
+      if (e.pointerType === "touch") {
+        // A finger on empty board pans; holding it still for a long press
+        // turns the gesture into a marquee selection, and a plain tap clears
+        // the selection like a click does.
+        beginPan(screen);
+        dragRef.current.touchTap = true;
+        const pointerId = e.pointerId;
+        armLongPress(() => {
+          const drag = dragRef.current;
+          if (!drag || drag.kind !== "pan" || drag.moved) return;
+          const at = touchRef.current.pointers.get(pointerId) ?? screen;
+          clearSelection();
+          dragRef.current = { kind: "marquee", startScreen: at, startWorld: screenToWorld(at, viewport), moved: false };
+          setMarqueeScreen({ x0: at.x, y0: at.y, x1: at.x, y1: at.y });
+          onTransientChange?.(false);
+        });
+        return;
+      }
       if (!e.shiftKey) clearSelection();
       dragRef.current = {
         kind: "marquee",
@@ -361,7 +479,8 @@ export const CanvasSurface = forwardRef
     (e.target ).setPointerCapture?.(e.pointerId);
     const screen = toScreenLocal(e.clientX, e.clientY);
 
-    if (isPanning) {
+    if (isPanning || touchViewOnly) {
+      // View-only on touch: swiping over an object never moves it.
       beginPan(screen);
       return;
     }
@@ -485,7 +604,7 @@ export const CanvasSurface = forwardRef
     e,
     connectorId
   ) => {
-    if (readOnly) {
+    if (readOnly || touchRef.current.lastPointerType === "touch") {
       e.preventDefault();
       return;
     }
@@ -498,7 +617,8 @@ export const CanvasSurface = forwardRef
   // clears selection over empty canvas, then opens the menu there.
   const onContextMenu = (e) => {
     e.preventDefault();
-    if (readOnly) return;
+    // A long press is a touch gesture of its own (marquee), not a menu.
+    if (readOnly || touchRef.current.lastPointerType === "touch") return;
     const screen = toScreenLocal(e.clientX, e.clientY);
     const worldPoint = screenToWorld(screen, viewport);
     const nodeId = hitTest(present, worldPoint);
@@ -557,7 +677,9 @@ export const CanvasSurface = forwardRef
 
   const onDoubleClickBody = (e, node) => {
     e.stopPropagation();
-    if (readOnly) return;
+    // Touch double taps are recognised in onPointerDownCapture; the dblclick
+    // the browser synthesises for them must not run this a second time.
+    if (readOnly || touchViewOnly || touchRef.current.lastPointerType === "touch") return;
     if (node.type === "text" || node.type === "sticky" || node.type === "frame" || isShapeNode(node)) {
       setSelection([node.id]);
       useCanvasStore.getState().setEditingTextId(node.id);
@@ -575,14 +697,37 @@ export const CanvasSurface = forwardRef
   const onCancelEdit = () => useCanvasStore.getState().setEditingTextId(null);
 
   const onPointerMove = (e) => {
+    const isTouch = e.pointerType === "touch";
+    const touch = touchRef.current;
+    const screen = toScreenLocal(e.clientX, e.clientY);
+    if (isTouch && touch.pointers.has(e.pointerId)) touch.pointers.set(e.pointerId, screen);
     const drag = dragRef.current;
     if (!drag) return;
-    const screen = toScreenLocal(e.clientX, e.clientY);
+
+    if (drag.kind === "pinch") {
+      if (touch.pointers.size < 2) return;
+      const [a, b] = [...touch.pointers.values()];
+      setViewport(pinchViewport(drag.startViewport, drag.startPinch, pinchOf(a, b)));
+      return;
+    }
+
     const dx = screen.x - drag.startScreen.x;
     const dy = screen.y - drag.startScreen.y;
-    if (Math.abs(dx) > 2 || Math.abs(dy) > 2) drag.moved = true;
+    // Fingers wobble, so a touch needs a wider dead zone than a mouse.
+    const moved = isTouch ? movedPastSlop(drag.startScreen, screen) : Math.abs(dx) > 2 || Math.abs(dy) > 2;
+    if (moved && !drag.moved) {
+      drag.moved = true;
+      clearLongPress();
+    }
+
+    if (drag.kind === "tapzoom") {
+      if (drag.moved) setViewport(swipeZoomViewport(drag.startViewport, drag.startScreen, dy));
+      return;
+    }
 
     if (drag.kind === "pan") {
+      // A touch pan waits for the slop so a tap or long press stays still.
+      if (isTouch && !drag.moved) return;
       const worldDx = dx / viewport.zoom;
       const worldDy = dy / viewport.zoom;
       setViewport({ ...viewport, x: viewport.x - worldDx, y: viewport.y - worldDy });
@@ -776,6 +921,35 @@ export const CanvasSurface = forwardRef
   // resize commit needs the exact screen delta at release; recompute cleanly
   const onPointerUp = (e) => {
     const drag = dragRef.current;
+    if (e.pointerType === "touch") {
+      const touch = touchRef.current;
+      touch.pointers.delete(e.pointerId);
+      clearLongPress();
+      if (drag?.kind === "pinch") {
+        // Either finger lifting ends the pinch; the other finger is spent.
+        dragRef.current = null;
+        onTransientChange?.(false);
+        return;
+      }
+      if (drag?.kind === "tapzoom") {
+        if (!drag.moved) setViewport(doubleTapViewport(drag.startViewport, drag.startScreen));
+        dragRef.current = null;
+        onTransientChange?.(false);
+        return;
+      }
+      const pending = touch.pending;
+      if (pending && pending.id === e.pointerId) {
+        touch.pending = null;
+        const screen = toScreenLocal(e.clientX, e.clientY);
+        if (isTap(pending.time, e.timeStamp, movedPastSlop(pending.screen, screen))) {
+          touch.lastTap = { point: screen, time: e.timeStamp };
+          if (drag?.kind === "pan" && drag.touchTap) clearSelection();
+        } else {
+          touch.lastTap = null;
+        }
+      }
+      if (!drag) return;
+    }
     if (drag?.kind === "resize" && drag.resizeStartNode && drag.resizeHandle && drag.resizeNodeId) {
       const screen = toScreenLocal(e.clientX, e.clientY);
       const worldDx = (screen.x - drag.startScreen.x) / viewport.zoom;
@@ -793,6 +967,18 @@ export const CanvasSurface = forwardRef
       onTransientChange?.(false);
     }
     endDrag();
+  };
+
+  // The browser took the pointer away (a system gesture, a lost finger): drop
+  // the gesture rather than committing a half-made edit.
+  const onPointerCancel = (e) => {
+    if (e.pointerType === "touch") {
+      const touch = touchRef.current;
+      touch.pointers.delete(e.pointerId);
+      touch.pending = null;
+      touch.lastTap = null;
+    }
+    cancelActiveDrag();
   };
 
   const onDrop = (e) => {
@@ -881,13 +1067,18 @@ export const CanvasSurface = forwardRef
       aria-label="Board canvas"
       tabIndex={0}
       onWheel={onWheel}
+      onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onPointerDownBackground}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onContextMenu={onContextMenu}
       onDrop={onDrop}
       onDragOver={onDragOver}
-      className={cn("absolute inset-0 touch-none overflow-hidden bg-ink-900 outline-none", cursorClass)}
+      className={cn(
+        "absolute inset-0 touch-none select-none overflow-hidden bg-ink-900 outline-none [-webkit-touch-callout:none]",
+        cursorClass
+      )}
       style={{
         backgroundImage: "radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)",
         backgroundSize: `${24 * viewport.zoom}px ${24 * viewport.zoom}px`,

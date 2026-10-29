@@ -9,13 +9,15 @@ import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import { unstamped, withServerStamps } from "./canvas/stamps";
 import {
+  MAX_ZOOM,
+  MIN_ZOOM,
+  clampZoom,
   moveNodesBy,
   resizeNode,
   screenToWorld,
   nodeBounds,
   computeFrameMembership,
   resolveEndpoint,
-
 } from "./canvas/geometry";
 import {
   bringToFront as zBringToFront,
@@ -39,11 +41,9 @@ import {
 
  
 
-// Reasonable, defensible bounds for AC #2's "min/max zoom bounds"; design.md
-// doesn't pin exact numbers. Exported so CanvasToolbar/CanvasSurface can
-// share the same clamp for scroll-zoom and the % readout.
-export const MIN_ZOOM = 0.1;
-export const MAX_ZOOM = 4;
+// The zoom bounds live in canvas/geometry with the other pure viewport maths;
+// re-exported so CanvasToolbar/CanvasSurface keep sharing one clamp.
+export { MAX_ZOOM, MIN_ZOOM };
 
 const DEBOUNCE_MS = 1500;
 const MAX_RETRY_MS = 15000;
@@ -69,10 +69,6 @@ function redirectToLogin() {
   if (typeof window !== "undefined" && window.location.pathname !== "/login") {
     window.location.replace("/login");
   }
-}
-
-function clampZoom(z) {
-  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 }
 
 function viewportCenterWorld(vp) {
@@ -491,7 +487,7 @@ async function flushSaveImpl(
       if (res.status === 403) {
         // Edit access was removed while the board was open. Retrying cannot
         // succeed; the pending draft keeps the unsaved edits on this device.
-        set({ saveStatus: "idle", accessLost: true });
+        set({ saveStatus: "idle", accessLost: true, touchEditMode: false });
         return;
       }
       if (res.status === 413) {
@@ -646,6 +642,7 @@ async function loadBoardImpl(set, get, id) {
     boardRole,
     accessLost: false,
     tool: editable ? get().tool : "select",
+    touchEditMode: false,
     history: { past: [], present: restored || data, future: [] },
     serverVersion,
     serverState: data,
@@ -729,6 +726,9 @@ export const useCanvasStore = create((set, get) => ({
   selection: [],
   selectedConnectorIds: [],
   tool: "select",
+  // Touch devices open a board pan-and-zoom only; the Edit button turns this on
+  // for the session. Never true on a read-only board.
+  touchEditMode: false,
   editingTextId: null,
   saveStatus: "idle",
   // Why the last save failed for good: "tooLarge" when the board is over the size limit.
@@ -764,6 +764,7 @@ export const useCanvasStore = create((set, get) => ({
       selection: [],
       selectedConnectorIds: [],
       tool: "select",
+      touchEditMode: false,
       editingTextId: null,
       saveStatus: "idle",
       saveError: null,
@@ -854,13 +855,32 @@ export const useCanvasStore = create((set, get) => ({
     set({ tool: t });
   },
 
+  /** The touch Edit/Done toggle. Leaving edit mode ends any open edit and selection. */
+  setTouchEditMode: (on) => {
+    if (on) {
+      if (selectReadOnly(get())) return;
+      set({ touchEditMode: true });
+      return;
+    }
+    finalizePendingGesture(set, get);
+    set({
+      touchEditMode: false,
+      tool: "select",
+      selection: [],
+      selectedConnectorIds: [],
+      editingTextId: null,
+      croppingImageId: null,
+      cropDraft: null,
+    });
+  },
+
   /** A role change from the share dialog; dropping below edit stops editing at once. */
   setBoardRole: (role) => {
     finalizePendingGesture(set, get);
     set({ boardRole: role });
     if (selectReadOnly(get())) {
       clearDebounceTimer();
-      set({ tool: "select", editingTextId: null, croppingImageId: null, cropDraft: null });
+      set({ tool: "select", touchEditMode: false, editingTextId: null, croppingImageId: null, cropDraft: null });
     }
   },
 

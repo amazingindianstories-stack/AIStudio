@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { motion } from "framer-motion";
 import {
   Search,
@@ -50,6 +51,9 @@ export function CanvasAssetPanel({
   const [tab, setTab] = useState("assets");
   const [scope, setScope] = useState(() => projectId ?? "all");
   const [search, setSearch] = useState("");
+  // Phones start collapsed (the open panel would cover the whole board) and
+  // the open panel overlays the board as a drawer instead of taking a column.
+  const narrow = useMediaQuery("(max-width: 767px)");
   const [collapsed, setCollapsed] = useState(false);
   const observerTarget = useRef(null);
 
@@ -81,6 +85,7 @@ export function CanvasAssetPanel({
     try {
       const raw = localStorage.getItem(COLLAPSE_KEY);
       if (raw != null) setCollapsed(raw === "1");
+      else if (window.matchMedia("(max-width: 767px)").matches) setCollapsed(true);
     } catch {
       /* ignore */
     }
@@ -88,12 +93,17 @@ export function CanvasAssetPanel({
 
   useEffect(() => {
     onCollapsedChange?.(collapsed);
+  }, [collapsed, onCollapsedChange]);
+
+  // Only an explicit choice is remembered; the phone default above is not.
+  const chooseCollapsed = (next) => {
+    setCollapsed(next);
     try {
-      localStorage.setItem(COLLAPSE_KEY, collapsed ? "1" : "0");
+      localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
     } catch {
       /* ignore */
     }
-  }, [collapsed, onCollapsedChange]);
+  };
 
   useEffect(() => {
     try {
@@ -164,10 +174,10 @@ export function CanvasAssetPanel({
     return (
       <button
         type="button"
-        onClick={() => setCollapsed(false)}
+        onClick={() => chooseCollapsed(false)}
         aria-label="Show asset panel"
         title="Show asset panel"
-        className="absolute left-4 top-4 z-30 grid h-9 w-9 place-items-center rounded-full border border-line bg-ink-750/95 text-white/70 shadow-pop backdrop-blur-xl transition hover:text-white"
+        className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 grid h-9 w-9 place-items-center rounded-full border border-line bg-ink-750/95 text-white/70 shadow-pop backdrop-blur-xl transition hover:text-white"
       >
         <ChevronsRight className="h-4 w-4" />
       </button>
@@ -175,7 +185,14 @@ export function CanvasAssetPanel({
   }
 
   return (
-    <div className="absolute inset-y-0 left-0 z-20 flex w-[300px] flex-col border-r border-line bg-ink-850">
+    <div
+      role="complementary"
+      aria-label="Asset panel"
+      className={cn(
+        "absolute inset-y-0 left-0 flex w-[300px] max-w-full flex-col border-r border-line bg-ink-850",
+        narrow ? "z-40 shadow-pop" : "z-20"
+      )}
+    >
       <div className="flex items-center gap-1 border-b border-line px-3 py-2.5">
         <div className="flex flex-1 items-center gap-1 rounded-full bg-ink-700 p-1">
           <AssetTabBtn active={tab === "assets"} onClick={() => setTab("assets")}>
@@ -187,7 +204,7 @@ export function CanvasAssetPanel({
         </div>
         <button
           type="button"
-          onClick={() => setCollapsed(true)}
+          onClick={() => chooseCollapsed(true)}
           aria-label="Collapse asset panel"
           title="Collapse asset panel"
           className="grid h-7 w-7 shrink-0 place-items-center rounded-lg text-white/50 hover:bg-white/10 hover:text-white"

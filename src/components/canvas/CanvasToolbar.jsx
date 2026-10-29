@@ -34,6 +34,10 @@ import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
  */
 export function CanvasToolbar({
   readOnly = false,
+  /** Touch view-only mode: the board pans and zooms but shows no creation tools. */
+  viewOnly = false,
+  /** Width of the asset panel column on the left; the dock centres on the canvas beside it. */
+  insetLeft = 0,
   toolLocked,
   shapesOpen,
   onShapesOpenChange,
@@ -59,10 +63,17 @@ export function CanvasToolbar({
 
   return (
     <>
+      {/* The dock centres in the free strip between the asset panel and the
+          zoom control; below the desktop width it sits above the zoom control. */}
+      {!viewOnly && (
+      <div
+        className="pointer-events-none absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(11rem,calc(env(safe-area-inset-right)+10rem))] z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[max(4.25rem,calc(env(safe-area-inset-bottom)+3.25rem))] max-lg:right-[max(1rem,env(safe-area-inset-right))]"
+        style={{ left: `max(${insetLeft + 16}px, calc(env(safe-area-inset-left) + ${insetLeft + 16}px))` }}
+      >
       <div
         role="toolbar"
         aria-label="Board tools"
-        className="absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl"
+        className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl"
       >
         <ToolGroup>
           <ToolButton
@@ -235,6 +246,8 @@ export function CanvasToolbar({
         </ToolGroup>
         </>)}
       </div>
+      </div>
+      )}
 
       <ZoomControl />
     </>
@@ -325,7 +338,11 @@ function ZoomControl() {
   };
 
   return (
-    <div className="absolute bottom-4 right-4 z-30 flex items-center gap-1 rounded-lg border border-line bg-ink-800 p-1 shadow-pop">
+    <div
+      role="group"
+      aria-label="Zoom"
+      className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center gap-1 rounded-lg border border-line bg-ink-800 p-1 shadow-pop"
+    >
       <button
         type="button"
         aria-label="Zoom out"
