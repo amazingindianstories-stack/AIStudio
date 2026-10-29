@@ -9,7 +9,24 @@ from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.admin_dashboard import tests as session_fixtures
 from apps.authentication.models import User
 from .models import CanvasBoard
-from .serialization import empty_state, js_json, json_length, validate_state
+from .serialization import SHAPE_TYPES, empty_state, finite, js_json, json_length, validate_state
+
+
+def with_shape_text(oracle_state, value):
+    """The historical oracle predates text inside shapes; shapes now also keep text, fontSize and color."""
+    nodes = value.get('nodes') if isinstance(value, dict) else None
+    sources = {node.get('id'): node for node in nodes if isinstance(node, dict)} if isinstance(nodes, list) else {}
+    for node in oracle_state['nodes']:
+        source = sources[node['id']]
+        if node['type'] not in SHAPE_TYPES:
+            continue
+        if isinstance(source.get('text'), str):
+            node['text'] = source['text']
+        if finite(source.get('fontSize')):
+            node['fontSize'] = source['fontSize']
+        if isinstance(source.get('color'), str):
+            node['color'] = source['color']
+    return oracle_state
 
 
 class CanvasSerializationParityTests(SimpleTestCase):
@@ -41,7 +58,7 @@ console.log(JSON.stringify(JSON.parse(input).map(value=>({state:validateCanvasSt
         expected = json.loads(result.stdout)
         for value, oracle in zip(cases, expected):
             with self.subTest(value=value):
-                self.assertEqual(validate_state(value), oracle['state'])
+                self.assertEqual(validate_state(value), with_shape_text(oracle['state'], value))
                 self.assertEqual(json_length(value), oracle['length'])
 
     def test_json_number_unicode_size_matches_node(self):

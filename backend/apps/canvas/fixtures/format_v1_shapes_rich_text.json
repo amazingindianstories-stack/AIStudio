@@ -1,0 +1,1791 @@
+{
+ "_comment": "Format v1 cases both board serializers must agree on (src/lib/canvas/serialization.js and backend/apps/canvas/serialization.py). The legacy case expectation is the output of the serializer before path shapes and rich text existed.",
+ "cases": {
+  "legacy": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": -40,
+     "y": 12.5,
+     "zoom": 0.75
+    },
+    "nodes": [
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "r",
+      "type": "rect",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2,
+      "cornerRadius": 12,
+      "opacity": 0.5
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "e",
+      "type": "ellipse",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 1
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "t",
+      "type": "triangle",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 1
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "d",
+      "type": "diamond",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 1
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "tx",
+      "type": "text",
+      "text": "Plain <b>not bold</b>",
+      "fontSize": 18,
+      "align": "center",
+      "color": "#fff"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "st",
+      "type": "sticky",
+      "text": "Line one\nline two",
+      "fill": "#e3c56a",
+      "fontSize": 16,
+      "color": "#1c1a12"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "f",
+      "type": "frame",
+      "name": "Frame",
+      "fill": "transparent",
+      "stroke": "#000"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "i",
+      "type": "image",
+      "src": "/api/media/a.png",
+      "aspectLocked": true,
+      "crop": {
+       "x": 0.2,
+       "y": 0.4,
+       "zoom": 2
+      }
+     }
+    ],
+    "connectors": [
+     {
+      "id": "c1",
+      "from": {
+       "nodeId": "r",
+       "anchor": "right"
+      },
+      "to": {
+       "nodeId": "e",
+       "anchor": "auto"
+      },
+      "kind": "arrow",
+      "stroke": "#000",
+      "strokeWidth": 2
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": -40,
+     "y": 12.5,
+     "zoom": 0.75
+    },
+    "nodes": [
+     {
+      "id": "r",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "opacity": 0.5,
+      "type": "rect",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2,
+      "cornerRadius": 12
+     },
+     {
+      "id": "e",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "ellipse",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "t",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "triangle",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "d",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "diamond",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "tx",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "Plain <b>not bold</b>",
+      "fontSize": 18,
+      "align": "center",
+      "color": "#fff"
+     },
+     {
+      "id": "st",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "Line one\nline two",
+      "fill": "#e3c56a",
+      "fontSize": 16,
+      "color": "#1c1a12"
+     },
+     {
+      "id": "f",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "frame",
+      "name": "Frame",
+      "fill": "transparent",
+      "stroke": "#000"
+     },
+     {
+      "id": "i",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "image",
+      "src": "/api/media/a.png",
+      "aspectLocked": true,
+      "crop": {
+       "x": 0.2,
+       "y": 0.4,
+       "zoom": 2
+      }
+     }
+    ],
+    "connectors": [
+     {
+      "id": "c1",
+      "from": {
+       "nodeId": "r",
+       "anchor": "right"
+      },
+      "to": {
+       "nodeId": "e",
+       "anchor": "auto"
+      },
+      "kind": "arrow",
+      "stroke": "#000",
+      "strokeWidth": 2
+     }
+    ]
+   }
+  },
+  "shapes": {
+   "input": {
+    "nodes": [
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-parallelogram",
+      "type": "shape",
+      "shape": "parallelogram",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-trapezoid",
+      "type": "shape",
+      "shape": "trapezoid",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-pentagon",
+      "type": "shape",
+      "shape": "pentagon",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-hexagon",
+      "type": "shape",
+      "shape": "hexagon",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-octagon",
+      "type": "shape",
+      "shape": "octagon",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-star",
+      "type": "shape",
+      "shape": "star",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-cross",
+      "type": "shape",
+      "shape": "cross",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-cylinder",
+      "type": "shape",
+      "shape": "cylinder",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-arrow-left",
+      "type": "shape",
+      "shape": "arrow-left",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-arrow-right",
+      "type": "shape",
+      "shape": "arrow-right",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-arrow-both",
+      "type": "shape",
+      "shape": "arrow-both",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-chevron",
+      "type": "shape",
+      "shape": "chevron",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-callout",
+      "type": "shape",
+      "shape": "callout",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-cloud",
+      "type": "shape",
+      "shape": "cloud",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-future",
+      "type": "shape",
+      "shape": "flowchart-process"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-upper",
+      "type": "shape",
+      "shape": "Star"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-empty",
+      "type": "shape",
+      "shape": ""
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-number",
+      "type": "shape",
+      "shape": 5
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-missing",
+      "type": "shape"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-long",
+      "type": "shape",
+      "shape": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-max",
+      "type": "shape",
+      "shape": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-dash",
+      "type": "shape",
+      "shape": "-star"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-newline",
+      "type": "shape",
+      "shape": "star\n"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-text",
+      "type": "shape",
+      "shape": "star",
+      "text": "Hi there",
+      "marks": [
+       [
+        0,
+        2,
+        "b"
+       ],
+       [
+        3,
+        8,
+        "a",
+        "https://example.com/x?y=1"
+       ]
+      ],
+      "fontSize": 20,
+      "color": "#ffffff",
+      "cornerRadius": 9
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "s-marks-no-text",
+      "type": "shape",
+      "shape": "hexagon",
+      "marks": [
+       [
+        0,
+        2,
+        "b"
+       ]
+      ],
+      "fontSize": "big",
+      "color": 7
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "legacy-text",
+      "type": "rect",
+      "text": "In a rect",
+      "marks": [
+       [
+        3,
+        4,
+        "i"
+       ]
+      ],
+      "cornerRadius": 4
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "legacy-empty-text",
+      "type": "ellipse",
+      "text": "",
+      "marks": [
+       [
+        0,
+        1,
+        "b"
+       ]
+      ]
+     }
+    ],
+    "connectors": [
+     {
+      "id": "to-star",
+      "from": {
+       "nodeId": "s-star",
+       "anchor": "top"
+      },
+      "to": {
+       "nodeId": "s-cloud",
+       "anchor": "auto"
+      }
+     },
+     {
+      "id": "to-dropped",
+      "from": {
+       "nodeId": "s-upper"
+      },
+      "to": {
+       "x": 1,
+       "y": 2
+      }
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "s-parallelogram",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "parallelogram",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-trapezoid",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "trapezoid",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-pentagon",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "pentagon",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-hexagon",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "hexagon",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-octagon",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "octagon",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-star",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "star",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-cross",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "cross",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-cylinder",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "cylinder",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-arrow-left",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "arrow-left",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-arrow-right",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "arrow-right",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-arrow-both",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "arrow-both",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-chevron",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "chevron",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-callout",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "callout",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-cloud",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "cloud",
+      "fill": "#fff",
+      "stroke": "#000",
+      "strokeWidth": 2
+     },
+     {
+      "id": "s-future",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "flowchart-process",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "s-max",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "s-text",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "star",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "text": "Hi there",
+      "marks": [
+       [
+        0,
+        2,
+        "b"
+       ],
+       [
+        3,
+        8,
+        "a",
+        "https://example.com/x?y=1"
+       ]
+      ],
+      "fontSize": 20,
+      "color": "#ffffff"
+     },
+     {
+      "id": "s-marks-no-text",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "shape",
+      "shape": "hexagon",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "legacy-text",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "cornerRadius": 4,
+      "text": "In a rect",
+      "marks": [
+       [
+        3,
+        4,
+        "i"
+       ]
+      ]
+     },
+     {
+      "id": "legacy-empty-text",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "ellipse",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "text": ""
+     }
+    ],
+    "connectors": [
+     {
+      "id": "to-star",
+      "from": {
+       "nodeId": "s-star",
+       "anchor": "top"
+      },
+      "to": {
+       "nodeId": "s-cloud",
+       "anchor": "auto"
+      },
+      "kind": "arrow",
+      "stroke": "#000000",
+      "strokeWidth": 2
+     }
+    ]
+   }
+  },
+  "marks": {
+   "input": {
+    "nodes": [
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "all",
+      "type": "text",
+      "text": "Bold italic under strike mark link",
+      "marks": [
+       [
+        0,
+        4,
+        "b"
+       ],
+       [
+        5,
+        11,
+        "i"
+       ],
+       [
+        12,
+        17,
+        "u"
+       ],
+       [
+        18,
+        24,
+        "s"
+       ],
+       [
+        25,
+        29,
+        "h",
+        "#fde047"
+       ],
+       [
+        30,
+        34,
+        "a",
+        "mailto:team@example.com"
+       ]
+      ]
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "clamp",
+      "type": "text",
+      "text": "short",
+      "marks": [
+       [
+        -5,
+        2,
+        "b"
+       ],
+       [
+        3,
+        99,
+        "i"
+       ],
+       [
+        4,
+        4,
+        "u"
+       ],
+       [
+        5,
+        2,
+        "s"
+       ],
+       [
+        9,
+        12,
+        "b"
+       ]
+      ]
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "numbers",
+      "type": "text",
+      "text": "numbers here",
+      "marks": [
+       [
+        1,
+        3,
+        "b"
+       ],
+       [
+        1.5,
+        3,
+        "i"
+       ],
+       [
+        true,
+        3,
+        "u"
+       ],
+       [
+        "1",
+        3,
+        "s"
+       ],
+       [
+        null,
+        3,
+        "b"
+       ],
+       [
+        1,
+        1e+300,
+        "u"
+       ],
+       [
+        0,
+        2,
+        "s"
+       ]
+      ]
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "shape-of-entries",
+      "type": "sticky",
+      "text": "entries",
+      "marks": [
+       [
+        0,
+        1
+       ],
+       [
+        0,
+        1,
+        "x"
+       ],
+       [
+        0,
+        1,
+        5
+       ],
+       "b",
+       {
+        "0": 0,
+        "1": 1,
+        "2": "b"
+       },
+       null,
+       [
+        0,
+        1,
+        "b",
+        "extra",
+        9
+       ],
+       [
+        0,
+        1,
+        "B"
+       ]
+      ]
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "colors",
+      "type": "text",
+      "text": "colors here",
+      "marks": [
+       [
+        0,
+        1,
+        "h",
+        "#FDE047"
+       ],
+       [
+        0,
+        1,
+        "h",
+        "#fff"
+       ],
+       [
+        0,
+        1,
+        "h",
+        "red"
+       ],
+       [
+        0,
+        1,
+        "h",
+        "#GGGGGG"
+       ],
+       [
+        0,
+        1,
+        "h",
+        "#fde047 "
+       ],
+       [
+        0,
+        1,
+        "h"
+       ],
+       [
+        0,
+        1,
+        "h",
+        16
+       ]
+      ]
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "links",
+      "type": "text",
+      "text": "links everywhere",
+      "marks": [
+       [
+        0,
+        1,
+        "a",
+        "javascript:alert(1)"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "JAVASCRIPT:alert(1)"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "data:text/html,<script>"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "https://"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "https://x y"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "https://x\n"
+       ],
+       [
+        0,
+        1,
+        "a",
+        " https://x"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "HTTPS://Example.com"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "http://example.com/\u017f"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "http\u017f://x"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "//x.com"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "ftp://x.com"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "vbscript:x"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "https://x\u007f"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "https://x\u2028y"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "https://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "https://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "MailTo:a@b.c"
+       ],
+       [
+        0,
+        1,
+        "a"
+       ],
+       [
+        0,
+        1,
+        "a",
+        null
+       ]
+      ]
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "utf16",
+      "type": "text",
+      "text": "\ud83d\ude00a",
+      "marks": [
+       [
+        0,
+        10,
+        "b"
+       ],
+       [
+        2,
+        3,
+        "i"
+       ]
+      ]
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "not-a-list",
+      "type": "text",
+      "text": "x",
+      "marks": {
+       "0": [
+        0,
+        1,
+        "b"
+       ]
+      }
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "string-marks",
+      "type": "sticky",
+      "text": "x",
+      "marks": "b"
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "empty-marks",
+      "type": "text",
+      "text": "x",
+      "marks": []
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "frame-marks",
+      "type": "frame",
+      "name": "Frame",
+      "marks": [
+       [
+        0,
+        1,
+        "b"
+       ]
+      ]
+     },
+     {
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "id": "non-string-text",
+      "type": "text",
+      "text": 5,
+      "marks": [
+       [
+        0,
+        1,
+        "b"
+       ]
+      ]
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "all",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "Bold italic under strike mark link",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "marks": [
+       [
+        0,
+        4,
+        "b"
+       ],
+       [
+        5,
+        11,
+        "i"
+       ],
+       [
+        12,
+        17,
+        "u"
+       ],
+       [
+        18,
+        24,
+        "s"
+       ],
+       [
+        25,
+        29,
+        "h",
+        "#fde047"
+       ],
+       [
+        30,
+        34,
+        "a",
+        "mailto:team@example.com"
+       ]
+      ]
+     },
+     {
+      "id": "clamp",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "short",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "marks": [
+       [
+        0,
+        2,
+        "b"
+       ],
+       [
+        3,
+        5,
+        "i"
+       ]
+      ]
+     },
+     {
+      "id": "numbers",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "numbers here",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "marks": [
+       [
+        1,
+        3,
+        "b"
+       ],
+       [
+        1,
+        12,
+        "u"
+       ],
+       [
+        0,
+        2,
+        "s"
+       ]
+      ]
+     },
+     {
+      "id": "shape-of-entries",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "entries",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000",
+      "marks": [
+       [
+        0,
+        1,
+        "b"
+       ]
+      ]
+     },
+     {
+      "id": "colors",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "colors here",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "marks": [
+       [
+        0,
+        1,
+        "h",
+        "#FDE047"
+       ]
+      ]
+     },
+     {
+      "id": "links",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "links everywhere",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "marks": [
+       [
+        0,
+        1,
+        "a",
+        "HTTPS://Example.com"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "http://example.com/\u017f"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "https://x\u2028y"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "https://example.com/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+       ],
+       [
+        0,
+        1,
+        "a",
+        "MailTo:a@b.c"
+       ]
+      ]
+     },
+     {
+      "id": "utf16",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "\ud83d\ude00a",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "marks": [
+       [
+        0,
+        3,
+        "b"
+       ],
+       [
+        2,
+        3,
+        "i"
+       ]
+      ]
+     },
+     {
+      "id": "not-a-list",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "x",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000"
+     },
+     {
+      "id": "string-marks",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "x",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000"
+     },
+     {
+      "id": "empty-marks",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "x",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000"
+     },
+     {
+      "id": "frame-marks",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "frame",
+      "name": "Frame",
+      "fill": "transparent",
+      "stroke": "#000000"
+     },
+     {
+      "id": "non-string-text",
+      "x": 10,
+      "y": 20,
+      "w": 160,
+      "h": 120,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000"
+     }
+    ],
+    "connectors": []
+   }
+  }
+ }
+}

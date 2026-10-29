@@ -106,7 +106,8 @@ function applyStylePatchToNode(n, patch) {
     case "ellipse":
     case "triangle":
     case "diamond":
-      return {
+    case "shape": {
+      const next = {
         ...n,
         opacity,
         fill: patch.fill ?? n.fill,
@@ -117,6 +118,11 @@ function applyStylePatchToNode(n, patch) {
             ? patch.cornerRadius
             : n.cornerRadius,
       };
+      // Text styling inside a shape is only stored once it is set.
+      if (patch.fontSize !== undefined) next.fontSize = patch.fontSize;
+      if (patch.color !== undefined) next.color = patch.color;
+      return next;
+    }
     case "text":
       return {
         ...n,
@@ -146,6 +152,14 @@ function applyStylePatchToNode(n, patch) {
     case "image":
       return { ...n, opacity };
   }
+}
+
+/** A node with new text content; formatting ranges travel with the text. */
+function withText(n, text, marks) {
+  const next = { ...n, text };
+  if (marks?.length) next.marks = marks;
+  else delete next.marks;
+  return next;
 }
 
 function applyStylePatchToConnector(c, patch) {
@@ -617,6 +631,27 @@ export const useCanvasStore = create((set, get) => ({
       }),
       { coalesce: true }
     );
+  },
+
+  /** Commits an in-place text edit to node `id` (not the selection, which
+   * may already have moved on when an editor closes). Frames take `name`. A
+   * text box grows (never shrinks) to `contentHeight`, so no line is clipped. */
+  commitNodeText: (id, text, marks, contentHeight) => {
+    const node = get().history.present.nodes.find((n) => n.id === id);
+    if (!node) return;
+    const h = node.type === "text" && Number.isFinite(contentHeight) && contentHeight > node.h ? contentHeight : node.h;
+    if (node.type === "frame") {
+      if (node.name === text) return;
+    } else if (node.text === text && h === node.h && JSON.stringify(node.marks ?? null) === JSON.stringify(marks?.length ? marks : null)) {
+      return;
+    }
+    mutateGraph(set, get, (present) => ({
+      ...present,
+      nodes: present.nodes.map((n) => {
+        if (n.id !== id) return n;
+        return n.type === "frame" ? { ...n, name: text } : { ...withText(n, text, marks), h };
+      }),
+    }));
   },
 
   moveSelectionBy: (dx, dy) => {

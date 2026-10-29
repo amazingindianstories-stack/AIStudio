@@ -1,8 +1,19 @@
 """Canvas v1 coercion ported from src/lib/canvas/serialization.js."""
 import json
 import math
+import re
 
-NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'text', 'sticky', 'frame', 'image'}
+NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'frame', 'image'}
+SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
+# Mirrors src/lib/canvas/shapes.js and src/lib/canvas/rich-text.js.
+SHAPE_KIND = re.compile(r'[a-z][a-z0-9-]{0,39}')
+MAX_MARKS = 4000
+MAX_HREF_LENGTH = 2048
+SIMPLE_MARKS = ('b', 'i', 'u', 's')
+# ASCII-only scheme letters without re.IGNORECASE, which folds some non-ASCII
+# letters onto ASCII ones where JavaScript does not.
+SAFE_HREF = re.compile(r'(?:[hH][tT][tT][pP][sS]?://|[mM][aA][iI][lL][tT][oO]:)[^\x00-\x20\x7f]+')
+HIGHLIGHT = re.compile(r'#[0-9a-fA-F]{6}')
 ANCHORS = {'auto', 'top', 'right', 'bottom', 'left', 'center'}
 JS_WHITESPACE = '\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
 
@@ -32,6 +43,50 @@ def clamp(value, lower=0, upper=1):
     return min(upper, max(lower, value))
 
 
+def utf16_length(text):
+    return len(text.encode('utf-16-le', 'surrogatepass')) // 2
+
+
+def integer(value):
+    """A JSON number that JavaScript's Number.isInteger accepts, as an int."""
+    if type(value) is int:
+        return value
+    if type(value) is float and math.isfinite(value) and value.is_integer():
+        return int(value)
+    return None
+
+
+def marks(raw, text):
+    """Rich-text ranges over `text` in UTF-16 code units; see rich-text.js."""
+    if not isinstance(raw, list):
+        return None
+    limit = utf16_length(text)
+    result = []
+    for entry in raw[:MAX_MARKS]:
+        if not isinstance(entry, list) or len(entry) < 3:
+            continue
+        start, end, kind = integer(entry[0]), integer(entry[1]), entry[2]
+        if start is None or end is None:
+            continue
+        start, end = max(0, start), min(limit, end)
+        if start >= end or not isinstance(kind, str):
+            continue
+        value = entry[3] if len(entry) > 3 else None
+        if kind in SIMPLE_MARKS:
+            result.append([start, end, kind])
+        elif kind == 'h' and isinstance(value, str) and HIGHLIGHT.fullmatch(value):
+            result.append([start, end, 'h', value])
+        elif kind == 'a' and isinstance(value, str) and len(value) <= MAX_HREF_LENGTH and SAFE_HREF.fullmatch(value):
+            result.append([start, end, 'a', value])
+    return result or None
+
+
+def with_marks(result, raw):
+    valid = marks(raw.get('marks'), result['text'])
+    if valid:
+        result['marks'] = valid
+
+
 def node(raw):
     r = object_value(raw)
     kind = r.get('type')
@@ -46,15 +101,29 @@ def node(raw):
     if finite(r.get('opacity')):
         result['opacity'] = clamp(r['opacity'])
     result['type'] = kind
-    if kind in ('rect', 'ellipse', 'triangle', 'diamond'):
+    if kind in SHAPE_TYPES:
+        # Path shapes name a catalogue outline; unknown well-formed kinds are kept.
+        if kind == 'shape':
+            if not isinstance(r.get('shape'), str) or not SHAPE_KIND.fullmatch(r['shape']):
+                return None
+            result['shape'] = r['shape']
         result.update(fill=string(r.get('fill'), '#ffffff'), stroke=string(r.get('stroke'), '#000000'), strokeWidth=num(r.get('strokeWidth'), 1))
         if kind == 'rect' and finite(r.get('cornerRadius')):
             result['cornerRadius'] = r['cornerRadius']
+        if isinstance(r.get('text'), str):
+            result['text'] = r['text']
+            with_marks(result, r)
+        if finite(r.get('fontSize')):
+            result['fontSize'] = r['fontSize']
+        if isinstance(r.get('color'), str):
+            result['color'] = r['color']
     elif kind == 'text':
         result.update(text=string(r.get('text'), ''), fontSize=num(r.get('fontSize'), 16),
                       align=r.get('align') if r.get('align') in ('center', 'right') else 'left', color=string(r.get('color'), '#000000'))
+        with_marks(result, r)
     elif kind == 'sticky':
         result.update(text=string(r.get('text'), ''), fill=string(r.get('fill'), '#fff59d'), fontSize=num(r.get('fontSize'), 16), color=string(r.get('color'), '#000000'))
+        with_marks(result, r)
     elif kind == 'frame':
         result.update(name=string(r.get('name'), 'Frame'), fill=string(r.get('fill'), 'transparent'), stroke=string(r.get('stroke'), '#000000'))
     elif kind == 'image':

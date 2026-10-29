@@ -45,6 +45,7 @@ function tryEveryEdit(store) {
   s.moveSelectionBy(10, 10);
   s.resizeSelected("se", 10, 10, false);
   s.updateSelectedStyle({ text: "changed" });
+  s.commitNodeText("n1", "changed", [[0, 1, "b"]]);
   s.duplicateSelected();
   s.duplicateSelectionInPlace();
   s.copy();

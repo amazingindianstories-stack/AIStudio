@@ -5,6 +5,7 @@ import { Check, Loader2, AlertTriangle, AlertCircle, Monitor, Eye, MessageSquare
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
+import { isCreateTool } from "@/lib/canvas/shapes";
 import {
   CanvasSurface,
   buildDefaultNode,
@@ -18,9 +19,9 @@ import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
 import { BoardShareDialog } from "./BoardShareDialog";
 
-const CREATE_TOOLS = ["rect", "ellipse", "triangle", "diamond", "text", "sticky", "frame"];
-const SHAPE_SHORTCUTS = {
-  s: "sticky",
+// Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
+const TOOL_SHORTCUTS = {
+  n: "sticky",
   t: "text",
   f: "frame",
 };
@@ -39,6 +40,7 @@ export function CanvasView() {
   const [tooSmall, setTooSmall] = useState(false);
   const [importNotice, setImportNotice] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
+  const [shapesOpen, setShapesOpen] = useState(false);
   const [boardsReload, setBoardsReload] = useState(0);
   const [noBoards, setNoBoards] = useState(false);
 
@@ -321,7 +323,7 @@ export function CanvasView() {
       }
       if (e.key === "Enter") {
         const tool = useCanvasStore.getState().tool;
-        if (CREATE_TOOLS.includes(tool )) {
+        if (isCreateTool(tool)) {
           const center = surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
           const node = buildDefaultNode(tool , center);
           addNode(node);
@@ -348,7 +350,9 @@ export function CanvasView() {
       else if (key === "h") setTool("hand");
       else if (key === "r") setTool("rect");
       else if (key === "c") setTool("connector");
-      else if (SHAPE_SHORTCUTS[key]) setTool(SHAPE_SHORTCUTS[key]);
+      else if (key === "s") {
+        if (!selectReadOnly(useCanvasStore.getState())) setShapesOpen(true);
+      } else if (TOOL_SHORTCUTS[key]) setTool(TOOL_SHORTCUTS[key]);
     };
 
     document.addEventListener("keydown", onKeyDown);
@@ -448,6 +452,8 @@ export function CanvasView() {
           <CanvasToolbar
             readOnly={readOnly}
             toolLocked={toolLocked}
+            shapesOpen={shapesOpen}
+            onShapesOpenChange={setShapesOpen}
             onToggleLock={() => setToolLocked((v) => !v)}
             onAddImageClick={openImagePicker}
           />
