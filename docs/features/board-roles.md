@@ -19,14 +19,15 @@ ranks as co-owner.
 
 | Action | Needs | Route |
 |---|---|---|
-| List the board, open it, see who has access | view | `GET /api/canvas-boards`, `GET /api/canvas-boards/<id>`, `GET /api/canvas-boards/<id>/access` |
+| List the board, open it, see who has access | view | `GET /api/canvas-boards`, `GET /api/canvas-boards/<id>`, `GET /api/canvas-boards/<id>/version`, `GET /api/canvas-boards/<id>/access` |
 | Save the graph, upload media | edit | `PUT /api/canvas-boards/<id>`, `POST /api/canvas-boards/<id>/upload` |
 | Rename, add/change/remove board members | co-owner | `renameBoard`; `setMember`, `removeMember` on `/access` |
 | Delete, set team access, transfer ownership | owner | `deleteBoard`; `setTeamRole`, `transferOwner` on `/access` |
 
 A user below view gets 404 for the board; a user below the needed role gets 403 `FORBIDDEN`.
-Role checks run before body validation. Access changes do not touch `updated_at`, which versions
-the graph. Board list and detail responses carry the caller's `role`.
+Role checks run before body validation and the version check, so a refused save never gets a 409
+with the graph (`../architecture/canvas-board-sync.md`). Access changes touch neither `updated_at` nor
+the board `version`. Board list and detail responses carry the caller's `role`.
 
 Transferring ownership sets `created_by` to the new owner, drops the new owner's board membership
 and keeps the previous owner on the board as an editor.

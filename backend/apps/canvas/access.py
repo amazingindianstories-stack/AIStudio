@@ -132,7 +132,7 @@ def set_team_role(actor, board, role):
     require(actor, board, OWN)
     if role not in BOARD_ROLES:
         raise AccessError('Invalid role.', 400)
-    # Access changes leave updated_at alone: it versions the graph, not its sharing.
+    # Access changes leave updated_at and version alone: they track the graph, not its sharing.
     CanvasBoard.objects.filter(pk=board['id']).update(team_role=role)
 
 
