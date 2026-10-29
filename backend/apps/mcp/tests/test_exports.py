@@ -266,8 +266,10 @@ class ExportTests(StorageMixin, McpCase):
         self.assertEqual((body['outcome'], body['export']['status']), ('completed', 'ready'))
         self.assertIsNotNone(body['export']['download'])
         worker.join()
-        waited = self.get(body['export']['id'], wait=True, maxWaitSeconds=1).structured_content
-        self.assertEqual(waited, self.get(body['export']['id']).structured_content)
+        # Each call signs a fresh 5-minute link, so one clock keeps both calls' download.expiresAt equal.
+        with patch('apps.mcp.tools.exports.now_ms', return_value=now_ms()):
+            waited = self.get(body['export']['id'], wait=True, maxWaitSeconds=1).structured_content
+            self.assertEqual(waited, self.get(body['export']['id']).structured_content)
 
     def test_wait_stops_at_max_wait_with_the_running_shape(self):
         image = self.row()

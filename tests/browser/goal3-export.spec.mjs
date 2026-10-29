@@ -98,7 +98,10 @@ test('Goal3 ZIP actual Chromium download preserves exact nested scopes, CRC and 
     if (job) await db`DELETE FROM media_exports WHERE id=${job.id}`;
     if (generationIds.length) await db`DELETE FROM generations WHERE id IN ${db(generationIds)}`;
     for (const id of folderIds.reverse()) await db`DELETE FROM folders WHERE id=${id}`;
-    if (projectIds.length) await db`DELETE FROM projects WHERE id IN ${db(projectIds)}`;
+    if (projectIds.length) {
+      await db`DELETE FROM project_members WHERE project_id IN ${db(projectIds)}`;
+      await db`DELETE FROM projects WHERE id IN ${db(projectIds)}`;
+    }
   }
 });
 

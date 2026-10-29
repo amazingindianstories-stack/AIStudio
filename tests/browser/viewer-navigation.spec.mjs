@@ -65,6 +65,7 @@ const scoped = test.extend({
     } finally {
       await db`DELETE FROM generations WHERE project_id = ${project.id}`;
       await db`DELETE FROM folders WHERE project_id = ${project.id}`;
+      await db`DELETE FROM project_members WHERE project_id = ${project.id}`;
       await db`DELETE FROM projects WHERE id = ${project.id}`;
     }
   },

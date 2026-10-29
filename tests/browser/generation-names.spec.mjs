@@ -86,6 +86,7 @@ test(`overlay names preserve suffixes and accessibility at thumbnail size ${zoom
     }
   } finally {
     await db`DELETE FROM generations WHERE project_id = ${project.id}`;
+    await db`DELETE FROM project_members WHERE project_id = ${project.id}`;
     await db`DELETE FROM projects WHERE id = ${project.id}`;
   }
 });
@@ -129,6 +130,7 @@ test('main chat follows folder switches and Unsorted with the same membership as
   } finally {
     await db`DELETE FROM generations WHERE project_id=${project.id}`;
     for (const folder of folders) await db`DELETE FROM folders WHERE id=${folder.id}`;
+    await db`DELETE FROM project_members WHERE project_id=${project.id}`;
     await db`DELETE FROM projects WHERE id=${project.id}`;
   }
 });
@@ -238,6 +240,7 @@ test('ZIPs from All generations, folder views and a cross-folder selection name 
     if (exports.length) await db`DELETE FROM media_exports WHERE id IN ${db(exports)}`;
     await db`DELETE FROM generations WHERE project_id=${project.id}`;
     for (const folder of folders.reverse()) await db`DELETE FROM folders WHERE id=${folder.id}`;
+    await db`DELETE FROM project_members WHERE project_id=${project.id}`;
     await db`DELETE FROM projects WHERE id=${project.id}`;
   }
 });

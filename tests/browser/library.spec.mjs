@@ -73,6 +73,7 @@ const test = base.extend({
         db.statement`DELETE FROM managed_portrait_assets WHERE name LIKE ${`${prefix}%`}`,
       ]);
       await db`DELETE FROM folders WHERE name LIKE ${`${prefix}%`} OR project_id IN ${db(projectIds)}`;
+      await db`DELETE FROM project_members WHERE project_id IN ${db(projectIds)}`;
       await db`DELETE FROM projects WHERE id IN ${db(projectIds)}`;
       await db`DELETE FROM activity_logs WHERE user_id = ${userId}`;
       await db`DELETE FROM users WHERE id = ${userId}`;
