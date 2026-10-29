@@ -5,6 +5,8 @@ format, writes a prompt or picks a suggestion, chooses basic or advanced process
 it, and can keep refining the result. The result lands on the board near the viewport centre, in free space. A
 refinement replaces the result it refines, in place. Both are one undo step. **Recent results** lists the user's
 finished results on the board from the last 24 hours, so any of them can be placed again.
+The panel and its routes need edit access to the board (`../features/board-roles.md`); a view or comment
+role gets 403 and no panel.
 
 Two formats ship today:
 

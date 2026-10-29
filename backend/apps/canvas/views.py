@@ -4,6 +4,7 @@ from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
 from . import access, services
+from .models import CanvasBoard
 from .serialization import JS_WHITESPACE, js_json, json_length, validate_state
 
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
@@ -262,10 +263,15 @@ def board_access(request, identifier):
         return failure()
 
 
-def ai_board(identifier):
+def ai_board(user, identifier):
+    """The board for a board AI route, once the user may edit it: the panel creates and places board content."""
     import re
     if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', identifier):
         return None
+    existing = access.board_row(identifier)
+    if existing is None:
+        return None
+    access.require(user, existing, access.WRITE)
     return CanvasBoard.objects.filter(pk=identifier).first()
 
 
@@ -293,7 +299,7 @@ def board_ai_jobs(request, identifier):
     if actor is None:
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
     try:
-        board = ai_board(identifier)
+        board = ai_board(actor, identifier)
         if board is None:
             return reply(request, {'error': 'Board not found.'}, 404)
         if request.method in ('GET', 'HEAD'):
@@ -305,6 +311,8 @@ def board_ai_jobs(request, identifier):
         except Exception as error:
             return ai_failure(request, error)
         return reply(request, {'job': job}, 201)
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
     except Exception:
         return failure()
 
@@ -316,13 +324,15 @@ def board_ai_quote(request, identifier):
     if actor is None:
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
     try:
-        board = ai_board(identifier)
+        board = ai_board(actor, identifier)
         if board is None:
             return reply(request, {'error': 'Board not found.'}, 404)
         try:
             return reply(request, {'quote': ai_jobs.quote(actor, board, body(request))})
         except Exception as error:
             return ai_failure(request, error)
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
     except Exception:
         return failure()
 
@@ -334,12 +344,14 @@ def board_ai_job(request, identifier, job_id):
     if actor is None:
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
     try:
-        board = ai_board(identifier)
+        board = ai_board(actor, identifier)
         if board is None:
             return reply(request, {'error': 'Board not found.'}, 404)
         try:
             return reply(request, {'job': ai_jobs.mark_placed(actor, board, job_id, body(request))})
         except Exception as error:
             return ai_failure(request, error)
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
     except Exception:
         return failure()

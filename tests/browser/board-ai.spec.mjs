@@ -88,7 +88,7 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
     await expect(swatch).toBeVisible();
     const panelBox = await panel.boundingBox();
     const swatchBefore = await swatch.boundingBox();
-    await page.mouse.move(panelBox.x + panelBox.width / 2, 120);
+    await page.mouse.move(panelBox.x + panelBox.width / 2, panelBox.y - 40);
     await page.mouse.wheel(0, swatchBefore.y - (panelBox.y + 40));
     await expect.poll(async () => Math.round((await swatch.boundingBox()).y)).toBe(Math.round(panelBox.y + 40));
     const swatchBox = await swatch.boundingBox();

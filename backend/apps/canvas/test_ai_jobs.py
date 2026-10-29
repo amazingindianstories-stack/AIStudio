@@ -372,6 +372,28 @@ class BoardAiJobTests(BoardFixture):
         self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'x'}).status_code, 401)
         self.assertEqual(self.client.get(self.base).status_code, 401)
 
+    def test_only_a_user_who_can_edit_the_board_may_use_its_ai_jobs(self):
+        job = self.submit({'format': 'stickies', 'prompt': 'ideas'}).json()['job']
+        # Another user owns the board and gives the team view or comment access only.
+        for team_role in ('view', 'comment'):
+            CanvasBoard.objects.filter(pk=self.board.pk).update(team_role=team_role, created_by=uuid.uuid4())
+            with self.subTest(team_role=team_role):
+                self.assertEqual(self.quote({'format': 'stickies', 'prompt': 'x'}).status_code, 403)
+                self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'x'}, key='board-key-viewer').status_code, 403)
+                self.assertEqual(self.client.get(self.base).status_code, 403)
+                self.assertEqual(self.client.patch(f"{self.base}/{job['id']}", {'placedNodeIds': []},
+                                                   content_type='application/json').status_code, 403)
+        # A teammate added as a board editor gets the panel back.
+        from .models import BoardMember
+        self.assertEqual(BoardAiJob.objects.count(), 1)
+        BoardMember.objects.create(board_id=self.board.pk, user_id=self.actor_id, role='edit', created_at=1, updated_at=1)
+        self.assertEqual(self.quote({'format': 'stickies', 'prompt': 'x'}).status_code, 200)
+        self.assertEqual([item['id'] for item in self.jobs(job['id'])], [job['id']])
+        self.assertEqual(self.client.patch(f"{self.base}/{job['id']}", {'placedNodeIds': []},
+                                           content_type='application/json').status_code, 200)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'x'}, key='board-key-editor').status_code, 201)
+        self.assertEqual(BoardAiJob.objects.count(), 2)
+
 
 class BoardAiAdmissionTests(BoardFixture):
     """A board text job is admitted like a Gemini image: per-user concurrency and the Gemini spend window apply."""

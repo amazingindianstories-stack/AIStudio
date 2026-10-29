@@ -384,11 +384,13 @@ export function CanvasView() {
     openImagePicker,
   ]);
 
-  // Board AI jobs follow the loaded board: unfinished jobs resume and finished, unplaced results are placed.
+  // Board AI jobs follow the loaded, editable board: unfinished jobs resume and finished, unplaced results are placed.
   const loadedBoardId = useCanvasStore((s) => s.boardId);
   useEffect(() => {
-    if (boardId && loaded && loadedBoardId === boardId) void useBoardAi.getState().attach(boardId);
-  }, [boardId, loaded, loadedBoardId]);
+    if (!boardId || !loaded || loadedBoardId !== boardId) return;
+    if (readOnly) useBoardAi.getState().detach();
+    else void useBoardAi.getState().attach(boardId);
+  }, [boardId, loaded, loadedBoardId, readOnly]);
   useEffect(() => () => useBoardAi.getState().detach(), []);
 
   const assetPanelWidth = assetPanelCollapsed ? 44 : 300;
