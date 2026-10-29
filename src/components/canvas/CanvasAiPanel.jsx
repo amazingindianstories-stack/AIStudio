@@ -89,11 +89,14 @@ export function CanvasAiPanel({ boardId, onClose }) {
     textareaRef.current?.focus();
   }, [refining, activeFormat]);
 
+  // Reload when board AI attaches a board (after the board loads, not when the prop changes), since attaching
+  // clears the list.
+  const attachedBoardId = useBoardAi((s) => s.boardId);
   const jobId = job?.id;
   const jobStatus = job?.status;
   useEffect(() => {
     void loadRecent();
-  }, [boardId, jobId, jobStatus, loadRecent]);
+  }, [attachedBoardId, jobId, jobStatus, loadRecent]);
 
   useEffect(() => {
     if (!request || !boardId) {

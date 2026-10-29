@@ -184,3 +184,35 @@ test("recent results list the last day's finished results and place one again wi
     useCanvasStore.getState().reset();
   }
 });
+
+test("an open recent results list follows the board after switching away and back", async (t) => {
+  setupDom(t);
+  const OTHER = "22222222-2222-4222-8222-222222222222";
+  const finished = { id: "j9", boardId: BOARD, format: "stickies", prompt: "ten shot ideas", status: "succeeded", costCents: 3,
+    placedAt: 5, placedNodeIds: ["gone"], result: { notes: [{ text: "Wide shot", color: "blue" }] } };
+  globalThis.fetch = async (url) => json(200, { jobs: url.includes(BOARD) && url.endsWith("?recent=1") ? [finished] : [] });
+  useStore.setState({ availableModelIds: null });
+  // The board view attaches board AI only once the board has loaded, so the panel's board changes first.
+  const show = async (boardId) => {
+    await act(async () => root.render(React.createElement(CanvasAiPanel, { boardId, onClose() {} })));
+    useCanvasStore.setState({ boardId, loaded: true, history: { past: [], present: emptyCanvasState(), future: [] } });
+    await act(async () => useBoardAi.getState().attach(boardId));
+    await act(async () => sleep(0));
+  };
+  useCanvasStore.setState({ boardId: BOARD, loaded: true, history: { past: [], present: emptyCanvasState(), future: [] } });
+  await useBoardAi.getState().attach(BOARD);
+  const root = await createRoot(document.querySelector("#root"));
+  try {
+    await show(BOARD);
+    await act(async () => document.querySelector("button[aria-label='Recent results']").click());
+    assert.ok(document.querySelector("button[aria-label='Place again: ten shot ideas']"));
+    await show(OTHER);
+    assert.match(document.querySelector("section").textContent, /No finished results/);
+    await show(BOARD);
+    assert.ok(document.querySelector("button[aria-label='Place again: ten shot ideas']"), "back on the board, its results are listed again");
+  } finally {
+    await act(async () => root.unmount());
+    useBoardAi.getState().detach();
+    useCanvasStore.getState().reset();
+  }
+});
