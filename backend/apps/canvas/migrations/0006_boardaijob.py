@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [('canvas', '0004_canvasboardsave')]
+    dependencies = [('canvas', '0005_boardactivity')]
     operations = [
         migrations.CreateModel(
             name='BoardAiJob',

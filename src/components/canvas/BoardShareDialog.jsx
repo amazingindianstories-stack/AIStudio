@@ -10,6 +10,7 @@ import {
   ROLE_LABELS,
   changeBoardAccess,
   changeProjectMembers,
+  displayName,
   fetchBoardAccess,
   fetchTeammates,
 } from "@/lib/board-access";
@@ -352,10 +353,6 @@ export function BoardShareDialog({ boardId, boardName, projectName, onClose, onA
     </div>,
     document.body
   );
-}
-
-function displayName(person, fallbackId) {
-  return person?.name || person?.email || `User ${String(fallbackId).slice(0, 8)}`;
 }
 
 function PersonRow({ person, fallbackId, children }) {

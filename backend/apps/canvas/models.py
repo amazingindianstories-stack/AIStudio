@@ -82,3 +82,28 @@ class BoardAiJob(models.Model):
         db_table = 'canvas_board_ai_jobs'
         indexes = [models.Index(fields=['board', 'user_id', 'created_at'], name='canvas_ai_jobs_board_user_idx'),
                    models.Index(fields=['parent_job'], name='canvas_ai_jobs_parent_idx')]
+
+
+ACTIVITY_ACTIONS = ('add', 'edit', 'delete')
+
+
+class BoardActivity(models.Model):
+    """One object a graph save added, edited or deleted (moves are not recorded), kept
+    ACTIVITY_RETENTION_MS; written in the save's transaction by apps.canvas.activity."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board_id = models.UUIDField()
+    actor_id = models.UUIDField(null=True)
+    action = models.TextField()
+    node_id = models.TextField()
+    node_type = models.TextField()
+    snippet = models.TextField(null=True)
+    # The save's time and the change's position in that save, the History panel's keyset.
+    created_at = models.BigIntegerField()
+    ordinal = models.IntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'board_activity'
+        indexes = [models.Index(fields=['board_id', '-created_at', '-ordinal'], name='board_activity_board_idx'),
+                   models.Index(fields=['created_at'], name='board_activity_created_idx')]
+        constraints = [models.CheckConstraint(condition=models.Q(action__in=ACTIVITY_ACTIONS), name='board_activity_action_check')]

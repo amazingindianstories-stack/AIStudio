@@ -36,11 +36,16 @@ def prune_board_saves():
     return prune()
 
 
+def prune_board_activity():
+    from apps.canvas.services import prune_board_activity as prune
+    return prune()
+
+
 def default_handlers():
     from django.conf import settings
     handlers = {'depth': maintenance.reconcile_depth, 'video': maintenance.reconcile_videos,
                 'login': maintenance.cleanup_login_attempts, 'exports': cleanup_exports,
-                'board_saves': prune_board_saves}
+                'board_saves': prune_board_saves, 'board_activity': prune_board_activity}
     if getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):
         handlers['portraits'] = maintain_portraits
         handlers['portrait_uploads'] = process_portrait_uploads
@@ -54,6 +59,7 @@ def tick(*, now=None, handlers=None):
     # minute. Daily slots start at 03:17 UTC; other slots align to the epoch.
     periods = {'depth': (60000, 0), 'video': (900000, 0), 'exports': (900000, 0),
                'login': (86400000, (3*60+17)*60000), 'board_saves': (86400000, (3*60+17)*60000),
+               'board_activity': (86400000, (3*60+17)*60000),
                'portraits': (60000, 0), 'portrait_uploads': (3000, 0)}
     results = {}
     for name, (period, offset) in periods.items():

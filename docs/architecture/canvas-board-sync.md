@@ -7,8 +7,8 @@ merge per node on the client and poll for other people's saves.
 ## Save contract (`PUT /api/canvas-boards/<id>`)
 
 - The body carries `data` (the graph), `baseVersion` (the board version the edits started from) and
-  `saveId` (a fresh client UUID for each save attempt). The write is one conditional
-  `UPDATE ... WHERE version = baseVersion`. There is no unconditional write: a missing or stale
+  `saveId` (a fresh client UUID for each save attempt). The write locks the board row and applies only
+  when its version equals `baseVersion`. There is no unconditional write: a missing or stale
   `baseVersion`, or a missing `saveId`, gets `409 {error: "VERSION_CONFLICT", board}` with the current
   board (graph and version), and nothing is written. A malformed `baseVersion` or `saveId` gets 400.
 - A save that changes nodes or connectors bumps `version`. A save that only changes the viewport (each
@@ -16,6 +16,15 @@ merge per node on the client and poll for other people's saves.
 - A graph-changing save records `(board_id, save_id, version, applied_at)` in `canvas_board_saves` in the
   same transaction, unique per board and save id. `run_scheduler` prunes rows older than 30 days daily
   (`board_saves`, the 03:17 UTC slot); deleting a board deletes its rows. Viewport-only saves record nothing.
+- In the same transaction (the board row is locked with `SELECT ... FOR UPDATE`) the server diffs the stored
+  graph against the saved one per node and connector id, stamps each added or edited object with
+  `createdBy`/`createdAt`/`updatedBy`/`updatedAt` and appends `board_activity` rows; stamps a client sends are
+  ignored (`../features/board-history.md`). The reply carries `stamps` for the objects this save added or
+  edited, which the client adopts into its graph, sync base and undo snapshots without an undo step.
+- The size limit (2,097,152 UTF-16 units of the graph's JSON) counts content only: both the request check and
+  the check on the normalized graph leave out the stamps, so stamping never costs a board room. A save over it
+  gets 413 and nothing is written; the editor says the board is too large to save and does not retry until the
+  next edit, and the pending draft keeps the unsaved edits.
 - `GET /api/canvas-boards/<id>?saveId=<uuid>` adds `saveVersion`: the version that save landed at, or null.
 - `GET /api/canvas-boards/<id>/version` returns `{version, updatedAt}` without reading the graph. Open boards
   poll it every 3 s, every 15 s after a minute with no input and no remote change, and not while hidden
@@ -27,6 +36,8 @@ merge per node on the client and poll for other people's saves.
   against the graph this tab last synced: one-sided changes apply; when both sides changed an item the
   local unsaved edit wins. The viewport stays local. The result is saved again on the new version.
 - The same merge is applied to every undo and redo snapshot, so undo only reverts this person's own steps.
+- Server stamps are not edits: an item whose local copy differs from the base only in its stamps counts as
+  unchanged locally and takes the remote copy, stamps included.
 - A save whose answer was lost (a dropped connection or a 5xx) is settled before the next save: the client
   asks for its `saveVersion`, and if it landed its graph becomes the merge base, so its changes are not
   replayed over someone's later edit. Polling waits until it is settled.
