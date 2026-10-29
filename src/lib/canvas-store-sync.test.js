@@ -327,6 +327,58 @@ test("a draft older than the save-id retention never asks about its save and let
   assert.deepEqual(ids(present), ["a", "theirs", "mine"]);
 });
 
+test("a draft written while a save is in flight follows an undo back to the sent graph", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  addLocalNode("sent");
+  let release;
+  server.holdPut = new Promise((resolve) => { release = resolve; });
+  const saving = store.getState().flushSave();
+  addLocalNode("undone");
+  store.getState().persistPendingDraft();
+  store.getState().undo();
+  store.getState().persistPendingDraft();
+  const draft = readPendingDraft("board-1");
+  assert.deepEqual(ids(draft.data), ["a", "sent"]);
+  assert.deepEqual(draft.save, { id: server.puts[0].saveId });
+  release();
+  await saving;
+});
+
+test("a node someone else deleted while it was open for editing goes away unless this person changed it", async (t) => {
+  useStorage(t);
+  const sticky = (id, text) => ({ ...rect(id), type: "sticky", text, fontSize: 16, color: "#000000" });
+  const server = fakeServer(t, graph(rect("a"), sticky("s", "old"), sticky("u", "old")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["s"]);
+  store.getState().setEditingTextId("s");
+  server.edit(graph(rect("a"), sticky("u", "old")));
+  assert.equal(await store.getState().pollRemote(), true);
+  assert.deepEqual(ids(store.getState().history.present), ["a", "s", "u"], "kept on screen while being edited");
+  // A save while it is still open (here a pan) does not bring it back.
+  store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
+  await store.getState().flushSave();
+  assert.deepEqual(ids(server.data), ["a", "u"]);
+  // Ending the edit without typing follows the delete.
+  store.getState().commitText("s", "old", "old");
+  assert.deepEqual(ids(store.getState().history.present), ["a", "u"]);
+  assert.deepEqual(store.getState().selection, []);
+
+  // Typing into a node someone deleted is this person's change, and it is kept.
+  store.getState().setSelection(["u"]);
+  store.getState().setEditingTextId("u");
+  server.edit(graph(rect("a")));
+  assert.equal(await store.getState().pollRemote(), true);
+  store.getState().commitText("u", "typed", "old");
+  await store.getState().flushSave();
+  await until(() => store.getState().saveStatus === "saved");
+  assert.deepEqual(ids(server.data), ["a", "u"]);
+  assert.equal(server.data.nodes[1].text, "typed");
+});
+
 test("a draft on the server's current version keeps its deletions without carrying its base graph", async (t) => {
   useStorage(t);
   const server = fakeServer(t, graph(rect("a"), rect("b")));

@@ -34,26 +34,57 @@ export function shouldUseKeepalive(body) {
  * graph, so a restored draft merges with what other people saved meanwhile,
  * and `save` ({id, data}), the latest save attempt whose outcome is unknown,
  * so a restore can ask whether it landed instead of replaying it. A draft that
- * is itself that attempt stores only `save.id`. When the base graph does not
- * fit, the draft keeps only its version (and the id of a save of exactly this
- * content), and the restore keeps the server's copy of everything both have.
+ * is itself that attempt stores only `save.id`.
+ *
+ * Drafts are never swept by age. When the browser's storage is full, other
+ * boards' drafts are evicted, oldest first, until this one fits; if it still
+ * does not, the draft keeps only its version (and the id of a save of exactly
+ * this content), and the restore keeps the server's copy of everything both have.
  */
 export function savePendingDraft(boardId, data, at = Date.now(), sync = {}) {
   const store = storage();
   if (!store || !boardId) return false;
+  const key = PREFIX + boardId;
   const { baseVersion, base, save } = sync;
   const ownSave = save && save.data === data ? { id: save.id } : undefined;
-  for (const draft of [{ at, data, baseVersion, base, save: ownSave ?? save }, { at, data, baseVersion, save: ownSave }]) {
-    try {
+  let evictable = null;
+  try {
+    for (const draft of [{ at, data, baseVersion, base, save: ownSave ?? save }, { at, data, baseVersion, save: ownSave }]) {
       const serialized = JSON.stringify(draft);
       if (serialized.length > MAX_DRAFT_CHARS) continue;
-      store.setItem(PREFIX + boardId, serialized);
-      return true;
-    } catch {
-      /* over the browser's quota: try the smaller draft */
+      for (;;) {
+        try {
+          store.setItem(key, serialized);
+          return true;
+        } catch (error) {
+          if (!isQuotaError(error)) break;
+        }
+        evictable ??= otherDraftsOldestFirst(store, key);
+        if (!evictable.length) break;
+        store.removeItem(evictable.shift());
+      }
     }
+  } catch {
+    /* storage unavailable: the edit stays in memory and the next save retries */
   }
   return false;
+}
+
+function isQuotaError(error) {
+  return error?.name === "QuotaExceededError" || error?.name === "NS_ERROR_DOM_QUOTA_REACHED";
+}
+
+function otherDraftsOldestFirst(store, key) {
+  const drafts = [];
+  for (let index = 0; index < store.length; index += 1) {
+    const other = store.key(index);
+    if (other?.startsWith(PREFIX) && other !== key) {
+      let at = 0;
+      try { at = Number(JSON.parse(store.getItem(other))?.at) || 0; } catch { /* unreadable: evict first */ }
+      drafts.push({ key: other, at });
+    }
+  }
+  return drafts.sort((a, b) => a.at - b.at).map((draft) => draft.key);
 }
 
 export function readPendingDraft(boardId) {

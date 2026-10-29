@@ -52,7 +52,7 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `projects` | Projects and briefs |
 | `library` | Folder tree, naming counters, filenames, idempotency receipts |
 | `assets` | Material catalog, legacy and managed BytePlus portraits, face detection |
-| `canvas` | Canvas boards |
+| `canvas` | Canvas boards and their conflict-safe autosave (`canvas-board-sync.md`) |
 | `agents` | Gemini tool-loop chat |
 | `generation` | Enqueue, history and live updates, providers, prompting, worker execution |
 | `exports` | ZIP manifests and the export worker |

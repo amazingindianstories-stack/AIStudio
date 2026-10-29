@@ -96,3 +96,32 @@ test("a draft names the unresolved save: by id when it is that save, with its gr
   savePendingDraft("board-1", { nodes: [3] }, 300, { baseVersion: 5, base: big, save: { id: "s2", data: big } });
   assert.deepEqual(readPendingDraft("board-1"), { at: 300, data: { nodes: [3] }, baseVersion: 5 });
 });
+
+test("a full storage evicts other boards' drafts oldest first, never this board's or other data", (t) => {
+  const map = new Map();
+  const capacity = 400;
+  const used = () => [...map].reduce((sum, [key, value]) => sum + key.length + value.length, 0);
+  const store = {
+    get length() { return map.size; },
+    key: (index) => [...map.keys()][index] ?? null,
+    getItem: (key) => (map.has(key) ? map.get(key) : null),
+    setItem: (key, value) => {
+      const before = map.get(key);
+      map.set(key, String(value));
+      if (used() > capacity) {
+        if (before === undefined) map.delete(key); else map.set(key, before);
+        throw new DOMException("full", "QuotaExceededError");
+      }
+    },
+    removeItem: (key) => map.delete(key),
+  };
+  useStorage(t, store);
+  map.set("unrelated-app-setting", "keep");
+  for (const [board, at] of [["mid", 20], ["old", 10], ["new", 30]]) savePendingDraft(board, { nodes: ["x".repeat(40)] }, at);
+  assert.equal(savePendingDraft("board-1", { nodes: ["y".repeat(150)] }, 40), true);
+  assert.deepEqual(readPendingDraft("old"), null);
+  assert.deepEqual(readPendingDraft("mid"), null);
+  assert.equal(readPendingDraft("new").at, 30);
+  assert.equal(readPendingDraft("board-1").at, 40);
+  assert.equal(map.get("unrelated-app-setting"), "keep");
+});

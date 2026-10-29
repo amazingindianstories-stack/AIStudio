@@ -285,6 +285,12 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   const keepLocal = new Set([state.editingTextId, state.croppingImageId].filter(Boolean));
   const history = rebaseHistory(state.history, base, remote, { keepLocal });
   if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, base, remote);
+  for (const id of keepLocal) {
+    const held = nodeOf(history.present, id);
+    if (held && !nodeOf(remote, id) && sameValue(nodeOf(state.history.present, id), nodeOf(base, id))) {
+      heldDeletedNodes.set(id, held);
+    }
+  }
   set({
     history,
     serverVersion: version,
@@ -294,12 +300,53 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   return true;
 }
 
+function nodeOf(graph, id) {
+  return graph.nodes.find((node) => node.id === id);
+}
+
+/**
+ * Nodes someone else deleted while this person had them open for editing or
+ * cropping, by id, as they were when the delete arrived. They stay on screen
+ * until the edit ends, but only a change by this person brings them back.
+ */
+const heldDeletedNodes = new Map();
+
+function withoutNodes(graph, ids) {
+  if (!ids.length) return graph;
+  // The same merge as a remote delete: attached connectors go, children are released.
+  return mergeCanvasStates(graph, graph, { ...graph, nodes: graph.nodes.filter((node) => !ids.includes(node.id)) });
+}
+
+/** Ids of held nodes this person has not changed since another person deleted them. */
+function unchangedHeldDeletes(graph) {
+  return [...heldDeletedNodes].filter(([id, node]) => sameValue(nodeOf(graph, id), node)).map(([id]) => id);
+}
+
+/** The graph to save or keep as a draft: the working graph without unchanged nodes others deleted. */
+function savableGraph(graph) {
+  return withoutNodes(graph, unchangedHeldDeletes(graph));
+}
+
+/** When editing or cropping ends, an unchanged held node follows the other person's delete. */
+function releaseHeldDeletes(state) {
+  if (!heldDeletedNodes.size) return;
+  const stillHeld = new Set([state.editingTextId, state.croppingImageId]);
+  const released = [...heldDeletedNodes.keys()].filter((id) => !stillHeld.has(id));
+  if (!released.length) return;
+  const drop = unchangedHeldDeletes(state.history.present).filter((id) => released.includes(id));
+  for (const id of released) heldDeletedNodes.delete(id);
+  if (!drop.length) return;
+  const present = withoutNodes(state.history.present, drop);
+  useCanvasStore.setState({
+    history: { ...state.history, present },
+    ...pruneSelection(present, state.selection, state.selectedConnectorIds),
+  });
+}
+
 // ---- autosave (module-level debounce/backoff/in-flight guard) ----
 let debounceTimer = null;
 let retryBackoffMs = DEBOUNCE_MS;
 let saveInFlight = null;
-/** The graph whose draft the latest save attempt stored, with that attempt's save id. */
-let draftedPresent = null;
 /**
  * The latest save attempt ({id, data}) without a definite answer: in flight,
  * or failed in a way that may have landed (a dropped connection, a 5xx).
@@ -363,11 +410,11 @@ async function flushSaveImpl(
         if (get().boardId !== boardId) return;
       }
       const synced = get();
-      const sentPresent = synced.history.present;
+      const sentPresent = savableGraph(synced.history.present);
       const save = { id: crypto.randomUUID(), data: sentPresent };
       const body = JSON.stringify({ data: sentPresent, baseVersion: synced.serverVersion, saveId: save.id });
       // Durable until the server acknowledges exactly this content.
-      draftedPresent = savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save }) ? sentPresent : null;
+      savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save });
       unresolvedSave = save;
       const res = await apiFetch(`/api/canvas-boards/${boardId}`, {
         method: "PUT",
@@ -407,7 +454,7 @@ async function flushSaveImpl(
       // flight — an edit mid-flight already flipped status back to "dirty"
       // and scheduled its own retry timer; overwriting it here would make
       // that timer's guard wrongly bail and silently drop the edit.
-      if (get().history.present === sentPresent) {
+      if (get().history.present === synced.history.present) {
         set({ saveStatus: "saved" });
       }
     } catch {
@@ -587,6 +634,7 @@ export const useCanvasStore = create((set, get) => ({
     gestureBaseline = null;
     retryBackoffMs = DEBOUNCE_MS;
     unresolvedSave = null;
+    heldDeletedNodes.clear();
     set({
       boardId: null,
       boardName: "",
@@ -611,9 +659,7 @@ export const useCanvasStore = create((set, get) => ({
     const state = get();
     if (!state.boardId) return false;
     if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && state.saveStatus !== "saving") return false;
-    // The last save attempt already stored exactly this content with its save id.
-    if (state.history.present === draftedPresent) return true;
-    return savePendingDraft(state.boardId, state.history.present, Date.now(), { ...syncOf(state), save: unresolvedSave });
+    return savePendingDraft(state.boardId, savableGraph(state.history.present), Date.now(), { ...syncOf(state), save: unresolvedSave });
   },
 
   setViewport: (vp) => {
@@ -1043,6 +1089,8 @@ export const useCanvasStore = create((set, get) => ({
 
   setEditingTextId: (id) => set({ editingTextId: id }),
 }));
+
+useCanvasStore.subscribe(releaseHeldDeletes);
 
 // Re-exported for consumers that need to build frame-membership candidates
 // (StyleInspector/CanvasSurface) without re-deriving the FrameNode filter.
