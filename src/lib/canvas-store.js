@@ -257,7 +257,7 @@ function mutateGraph(
   opts
 ) {
   const state = get();
-  if (selectReadOnly(state)) return;
+  if (!state.boardId || selectReadOnly(state)) return;
   const nextPresent = compute(state.history.present);
   if (opts?.coalesce) {
     if (!gestureBaseline) gestureBaseline = state.history;
@@ -291,7 +291,7 @@ function scheduleFlush(get, delay) {
 }
 
 function markDirty(set, get) {
-  if (selectReadOnly(get())) return;
+  if (!get().boardId || selectReadOnly(get())) return;
   set({ saveStatus: "dirty" });
   scheduleFlush(get, DEBOUNCE_MS);
 }

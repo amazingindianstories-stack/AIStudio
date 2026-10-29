@@ -40,6 +40,7 @@ export function CanvasView() {
   const [importNotice, setImportNotice] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [boardsReload, setBoardsReload] = useState(0);
+  const [noBoards, setNoBoards] = useState(false);
 
   const surfaceRef = useRef(null);
 
@@ -389,9 +390,25 @@ export function CanvasView() {
         onImportFiles={importImageFiles}
       />
 
+      {noBoards && (
+        <div
+          role="status"
+          className="absolute inset-y-0 right-0 z-10 grid place-items-center bg-ink-900 px-6 text-center"
+          style={{ left: assetPanelWidth }}
+        >
+          <div className="flex max-w-xs flex-col items-center gap-3">
+            <div className="grid h-14 w-14 place-items-center rounded-2xl bg-ink-700 ring-1 ring-line">
+              <Lock className="h-6 w-6 text-white/40" />
+            </div>
+            <p className="text-sm font-medium text-white/80">No boards yet</p>
+            <p className="text-sm text-white/55">Only project editors can add boards to this project.</p>
+          </div>
+        </div>
+      )}
+
       <CanvasAssetPanel
         projectId={activeProjectId}
-        onPlaceAtCenter={readOnly ? undefined : placeAsset}
+        onPlaceAtCenter={readOnly || noBoards ? undefined : placeAsset}
         onCollapsedChange={setAssetPanelCollapsed}
       />
 
@@ -413,6 +430,7 @@ export function CanvasView() {
             boardId={boardId}
             onBoardIdChange={setBoardId}
             onLoadingChange={setBoardsLoading}
+            onEmptyChange={setNoBoards}
             reloadToken={boardsReload}
           />
           {boardId && loaded && (
@@ -426,12 +444,14 @@ export function CanvasView() {
             </button>
           )}
         </div>
-        <CanvasToolbar
-          readOnly={readOnly}
-          toolLocked={toolLocked}
-          onToggleLock={() => setToolLocked((v) => !v)}
-          onAddImageClick={openImagePicker}
-        />
+        {!noBoards && (
+          <CanvasToolbar
+            readOnly={readOnly}
+            toolLocked={toolLocked}
+            onToggleLock={() => setToolLocked((v) => !v)}
+            onAddImageClick={openImagePicker}
+          />
+        )}
       </div>
 
       <input
@@ -448,7 +468,7 @@ export function CanvasView() {
         }}
       />
 
-      {readOnly ? (
+      {noBoards ? null : readOnly ? (
         <AccessChip role={boardRole} accessLost={accessLost} />
       ) : (
         <SaveStatusChip status={saveStatus} onRetry={() => flushSave()} />
@@ -469,7 +489,7 @@ export function CanvasView() {
 
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
-      <StyleInspector hidden={transientActive || readOnly} />
+      <StyleInspector hidden={transientActive || readOnly || noBoards} />
 
       {loadError && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-ink-900/90">

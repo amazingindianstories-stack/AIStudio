@@ -37,6 +37,7 @@ export function BoardSwitcher({
   boardId,
   onBoardIdChange,
   onLoadingChange,
+  onEmptyChange,
   reloadToken = 0,
 }
 
@@ -106,6 +107,12 @@ export function BoardSwitcher({
   }, [projectId, loadAttempt, reloadToken]);
 
   const current = boards.find((b) => b.id === boardId) ?? null;
+  const empty = !boardsLoading && !boardsError && boards.length === 0 && !canCreate;
+
+  useEffect(() => {
+    onEmptyChange?.(empty);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [empty]);
 
   useEffect(() => {
     if (!notice) return;
@@ -183,13 +190,8 @@ export function BoardSwitcher({
           <AlertCircle className="h-3.5 w-3.5" />
           Could not load boards — Retry
         </button>
-      ) : !boardsLoading && boards.length === 0 && !canCreate ? (
-        <p
-          role="status"
-          className="rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/60"
-        >
-          No boards yet. Only project editors can add one.
-        </p>
+      ) : empty ? (
+        <p className="rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/60">No boards</p>
       ) : renamingTrigger ? (
         <input
           autoFocus

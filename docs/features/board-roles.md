@@ -59,5 +59,7 @@ comment-only users get a read-only canvas: navigation and zoom only, no creation
 inspector, drops, pastes, text or crop editing, and no autosave (`selectReadOnly` in
 `src/lib/canvas-store.js`). A save refused with 403 turns the open board
 read-only and keeps the unsaved edits in the local pending draft. The board switcher
-(`src/components/canvas/BoardSwitcher.jsx`) offers New board only with `canCreate`, and a project with no
-boards that the caller cannot add to shows an empty state instead of creating one.
+(`src/components/canvas/BoardSwitcher.jsx`) offers New board only with `canCreate` and says why when a
+creation is refused. A project with no boards that the caller cannot add to, including after they delete
+its last board, shows one empty state on the canvas instead of creating a board, with the toolbar, Share
+and save status hidden. The canvas store ignores graph edits while no board is open.
