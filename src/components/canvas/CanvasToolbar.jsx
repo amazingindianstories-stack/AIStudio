@@ -67,8 +67,8 @@ export function CanvasToolbar({
           zoom control; below the desktop width it sits above the zoom control. */}
       {!viewOnly && (
       <div
-        className="pointer-events-none absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(11rem,calc(env(safe-area-inset-right)+10rem))] z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[max(4.25rem,calc(env(safe-area-inset-bottom)+3.25rem))] max-lg:right-[max(1rem,env(safe-area-inset-right))]"
-        style={{ left: `max(${insetLeft + 16}px, calc(env(safe-area-inset-left) + ${insetLeft + 16}px))` }}
+        className="pointer-events-none absolute bottom-4 right-44 z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[4.25rem] max-lg:right-4"
+        style={{ left: insetLeft + 16 }}
       >
       <div
         role="toolbar"
@@ -341,7 +341,7 @@ function ZoomControl() {
     <div
       role="group"
       aria-label="Zoom"
-      className="absolute bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-30 flex items-center gap-1 rounded-lg border border-line bg-ink-800 p-1 shadow-pop"
+      className="absolute bottom-4 right-4 z-30 flex items-center gap-1 rounded-lg border border-line bg-ink-800 p-1 shadow-pop"
     >
       <button
         type="button"

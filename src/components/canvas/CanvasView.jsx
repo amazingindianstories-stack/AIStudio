@@ -107,18 +107,6 @@ export function CanvasView() {
   // other people's saves appear within seconds while this tab is visible
   useBoardPolling(boardId, pollRemote);
 
-  // The board runs edge to edge under the notch and home indicator (its
-  // controls pad for the safe area); the rest of the app stays letterboxed.
-  useEffect(() => {
-    const meta = document.querySelector('meta[name="viewport"]');
-    if (!meta) return;
-    const previous = meta.content;
-    meta.content = `${previous}, viewport-fit=cover`;
-    return () => {
-      meta.content = previous;
-    };
-  }, []);
-
   // reset canvas-store when leaving the board view entirely (unmount)
   useEffect(() => {
     return () => {
@@ -468,10 +456,7 @@ export function CanvasView() {
             "pointer-events-none absolute top-4 z-30 flex flex-wrap items-center gap-2 transition-[left] duration-200",
             !(boardsLoading || (!loaded && boardId)) && "[&>*]:pointer-events-auto"
           )}
-          style={{
-            left: `max(${assetPanelWidth + 16}px, calc(env(safe-area-inset-left) + ${assetPanelWidth + 16}px))`,
-            right: "max(1rem, env(safe-area-inset-right))",
-          }}
+          style={{ left: assetPanelWidth + 16, right: "1rem" }}
         >
           <BoardProjectSelector
             activeProjectId={activeProjectId}

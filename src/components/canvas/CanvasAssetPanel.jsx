@@ -180,7 +180,7 @@ export function CanvasAssetPanel({
         onClick={() => chooseCollapsed(false)}
         aria-label="Show asset panel"
         title="Show asset panel"
-        className="absolute left-[max(1rem,env(safe-area-inset-left))] top-4 z-30 grid h-9 w-9 place-items-center rounded-full border border-line bg-ink-750/95 text-white/70 shadow-pop backdrop-blur-xl transition hover:text-white"
+        className="absolute left-4 top-4 z-30 grid h-9 w-9 place-items-center rounded-full border border-line bg-ink-750/95 text-white/70 shadow-pop backdrop-blur-xl transition hover:text-white"
       >
         <ChevronsRight className="h-4 w-4" />
       </button>

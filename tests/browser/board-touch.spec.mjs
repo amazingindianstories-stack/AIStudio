@@ -590,27 +590,6 @@ test('Board touch: a phone that opened the board before still starts with the as
   await db.end();
 });
 
-test('Board touch: only the board runs edge to edge under the notch; the rest of the app stays inside the safe area', async ({ browser, baseURL }) => {
-  const db = await seedUsers();
-  const project = await createProject(browser, baseURL, 'Board touch viewport');
-  const phone = await signIn(browser, baseURL, OWNER, project.id, PHONE);
-  const viewport = () => phone.page.locator('meta[name="viewport"]').getAttribute('content');
-  const sections = phone.page.getByRole('navigation', { name: 'Sections' });
-
-  await phone.page.goto('/');
-  await sections.getByRole('button', { name: 'Image', exact: true }).click();
-  await expect.poll(viewport).not.toContain('viewport-fit=cover');
-  await openBoard(phone.page);
-  await expect.poll(viewport).toContain('viewport-fit=cover');
-  await sections.getByRole('button', { name: 'Image', exact: true }).click();
-  await expect(phone.page.getByRole('application', { name: 'Board canvas' })).toHaveCount(0);
-  await expect.poll(viewport).not.toContain('viewport-fit=cover');
-  await expect.poll(viewport).toContain('width=device-width');
-
-  await phone.context.close();
-  await db.end();
-});
-
 test('Board touch: a double tap inside an open text editor keeps it open and every typed word is saved', async ({ browser, baseURL }) => {
   test.setTimeout(120000);
   const db = await seedUsers();
