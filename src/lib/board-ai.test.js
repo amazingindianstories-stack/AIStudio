@@ -223,6 +223,57 @@ test("New prompt while a refinement runs: the refinement is still placed once, b
   assert.equal(calls.filter((call) => call.method === "POST").length, 2, "no extra job for the refinement");
 });
 
+test("New prompt before a refinement's submission answers: the refinement is placed once, but never refined from", async (t) => {
+  loadedBoard();
+  const PLACED = "44444444-4444-4444-8444-444444444444";
+  const REFINING = "55555555-5555-4555-8555-555555555555";
+  let answer;
+  const calls = server(t, (call) => {
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    if (call.method === "POST") {
+      return new Promise((resolve) => {
+        answer = () => resolve(json(201, { job: job({ id: REFINING, createdAt: 2, parentJobId: PLACED, status: "running" }) }));
+      });
+    }
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().settle(job({ id: PLACED, status: "succeeded", result: NOTES }));
+  const submitting = useBoardAi.getState().submit({ format: "stickies", prompt: "shorter", parentJobId: PLACED });
+  await new Promise((resolve) => setImmediate(resolve));
+  useBoardAi.getState().startOver();
+  answer();
+  await submitting;
+  assert.equal(useBoardAi.getState().job, null, "the answered refinement is not followed");
+  assert.equal(useBoardAi.getState().submitting, false);
+  await useBoardAi.getState().settle(job({ id: REFINING, createdAt: 2, parentJobId: PLACED, status: "succeeded",
+    result: { notes: [{ text: "Refined", color: "green" }] } }));
+  const { job: followed, placed, error } = useBoardAi.getState();
+  assert.deepEqual({ followed, placed, error }, { followed: null, placed: null, error: null }, "nothing to refine");
+  assert.deepEqual(useCanvasStore.getState().history.present.nodes.map((node) => node.text).sort(), ["One", "Refined", "Two"]);
+  assert.equal(calls.filter((call) => call.method === "PATCH" && call.url.endsWith(`/${REFINING}`)).length, 1, "claimed once");
+});
+
+test("New prompt while a reload is still placing results: the later ones are placed, but never refined from", async (t) => {
+  loadedBoard();
+  const OLDER = "44444444-4444-4444-8444-444444444444";
+  const NEWER = "55555555-5555-4555-8555-555555555555";
+  server(t, (call) => {
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    return json(200, { jobs: [job({ id: NEWER, createdAt: 2, status: "succeeded", result: { notes: [{ text: "Newer", color: "green" }] } }),
+      job({ id: OLDER, createdAt: 1, status: "succeeded", result: NOTES })] });
+  });
+  // The artist presses New prompt as soon as the older result shows as the one to refine.
+  const stop = useBoardAi.subscribe((state) => {
+    if (state.placed?.jobId === OLDER) useBoardAi.getState().startOver();
+  });
+  t.after(stop);
+  await useBoardAi.getState().attach(BOARD);
+  const { job: followed, placed } = useBoardAi.getState();
+  assert.deepEqual({ followed, placed }, { followed: null, placed: null }, "nothing to refine");
+  assert.deepEqual(useCanvasStore.getState().history.present.nodes.map((node) => node.text).sort(), ["Newer", "One", "Two"]);
+});
+
 test("results finishing together are placed one after another in free space, never on top of each other", async (t) => {
   loadedBoard();
   server(t, (call) => (call.method === "PATCH"

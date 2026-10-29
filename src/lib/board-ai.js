@@ -77,6 +77,7 @@ const pollTimers = new Map();
 let placing = Promise.resolve();
 let generation = 0;
 let newestFollowed = -Infinity;
+let newPrompts = 0;
 let measureLayout = null;
 
 /**
@@ -134,6 +135,11 @@ function panelState(get, job, chosen, state) {
   return state;
 }
 
+/** Settle `job` in the background from now on: New prompt was pressed after it was submitted or listed. */
+function toBackground(job) {
+  if (job.createdAt > newestFollowed) newestFollowed = job.createdAt;
+}
+
 /** Run placements one at a time, so each finds free space after the previous one is on the board. */
 function oneAtATime(place) {
   const run = placing.then(place);
@@ -181,8 +187,10 @@ export const useBoardAi = create((set, get) => ({
       return;
     }
     if (mine !== generation) return;
+    const prompts = newPrompts;
     // Oldest first, so the newest active or finished job ends up as the one the panel follows.
     for (const job of [...jobs].reverse()) {
+      if (prompts !== newPrompts) toBackground(job);
       await get().settle(job, mine);
       if (mine !== generation) return;
     }
@@ -234,7 +242,10 @@ export const useBoardAi = create((set, get) => ({
    * Start a fresh prompt: the next job is not a refinement of the last result. A job still running carries on in the
    * background: its result is placed when it ends, but it never becomes the panel's job or refine target again.
    */
-  startOver: () => set({ job: null, placed: null, error: null }),
+  startOver: () => {
+    newPrompts += 1;
+    set({ job: null, placed: null, error: null });
+  },
 
   submit: async (request) => {
     const { boardId, submitting, pendingKey } = get();
@@ -243,10 +254,16 @@ export const useBoardAi = create((set, get) => ({
     const key = pendingKey?.fingerprint === fingerprint ? pendingKey.key : crypto.randomUUID();
     set({ submitting: true, error: null, pendingKey: { fingerprint, key } });
     const mine = generation;
+    const prompts = newPrompts;
     try {
       const job = await submitBoardAi(boardId, request, key);
       if (mine !== generation) return job;
-      set({ submitting: false, pendingKey: null, job });
+      if (prompts === newPrompts) {
+        set({ submitting: false, pendingKey: null, job });
+      } else {
+        toBackground(job);
+        set({ submitting: false, pendingKey: null });
+      }
       await get().settle(job, mine);
       return job;
     } catch (error) {
