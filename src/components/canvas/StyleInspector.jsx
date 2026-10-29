@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   AlignLeft,
   AlignCenter,
@@ -14,11 +14,32 @@ import {
   Minus,
   Square,
   Crop,
+  Bold,
+  Italic,
+  Underline,
+  Strikethrough,
+  Highlighter,
+  Link2,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
 import { nodeBounds, resolveEndpoint, worldToScreen } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
+import { isShapeNode } from "@/lib/canvas/shapes";
+import { HIGHLIGHT_COLORS } from "@/lib/canvas/rich-text";
+import {
+  activeFormats,
+  applyHighlight,
+  applyLink,
+  normalizeHref,
+  onLinkRequest,
+  restoreSelection,
+  saveSelection,
+  toggleFormat,
+} from "@/lib/canvas/rich-text-commands";
+
+const RICH_TEXT_TYPES = new Set(["text", "sticky"]);
 
 // ~12 monochrome-plus-FigJam-ish swatches — the only saturated color in the
 // board's chrome, and it only ever comes from user choice (ui-spec §5).
@@ -47,6 +68,7 @@ export function StyleInspector({ hidden }) {
   const duplicateSelected = useCanvasStore((s) => s.duplicateSelected);
   const deleteSelected = useCanvasStore((s) => s.deleteSelected);
   const beginCrop = useCanvasStore((s) => s.beginCrop);
+  const editingTextId = useCanvasStore((s) => s.editingTextId);
 
   const selectedNodes = present.nodes.filter((n) => selection.includes(n.id));
   const selectedConnectors = present.connectors.filter((c) => selectedConnectorIds.includes(c.id));
@@ -96,11 +118,12 @@ export function StyleInspector({ hidden }) {
   const soleType = homogeneous ? selectedNodes[0]?.type : undefined;
   const onlyConnectors = hasConnectors && !hasNodes;
 
-  const isShape = soleType === "rect" || soleType === "ellipse" || soleType === "triangle" || soleType === "diamond";
-  const showFill = homogeneous && (isShape || soleType === "sticky" || soleType === "frame");
-  const showStroke = homogeneous && isShape;
+  const isShape = selectedNodes.length > 0 && selectedNodes.every(isShapeNode);
+  const showFill = isShape || (homogeneous && (soleType === "sticky" || soleType === "frame"));
+  const showStroke = isShape;
   const showCornerRadius = homogeneous && soleType === "rect";
-  const showTextColor = homogeneous && (soleType === "text" || soleType === "sticky");
+  const shapeText = isShape && selectedNodes.every((n) => n.text || n.id === editingTextId);
+  const showTextColor = shapeText || (homogeneous && (soleType === "text" || soleType === "sticky"));
   const showFontSize = showTextColor;
   const showTextAlign = homogeneous && soleType === "text";
   const showFrameLabel = homogeneous && soleType === "frame";
@@ -110,12 +133,16 @@ export function StyleInspector({ hidden }) {
   // `NodeStyleProps`/`applyStylePatchToConnector`), so a connector-only
   // selection is patched through the same call.
   const patch = (p) => updateSelectedStyle(p);
+  const editingRichText =
+    selection.length === 1 && editingTextId === selection[0] && (RICH_TEXT_TYPES.has(soleType) || isShape);
 
   return (
     <div
       className="absolute z-40 flex h-11 items-center gap-1 rounded-2xl border border-line bg-ink-750/95 p-1 shadow-pop backdrop-blur-xl"
       style={{ left: centerX, top, transform: "translateX(-50%)" }}
     >
+      {editingRichText && <TextFormatControls popoverBelow={flipBelow} />}
+
       {showFill && (
         <ColorSwatchButton
           label="Fill"
@@ -508,6 +535,193 @@ function OpacityControl({ value, onChange }) {
       <span className="w-8 text-right text-[11px] tabular-nums text-white/50">
         {Math.round(value * 100)}%
       </span>
+    </div>
+  );
+}
+
+const FORMAT_BUTTONS = [
+  { kind: "b", icon: Bold, label: "Bold", shortcut: "⌘B" },
+  { kind: "i", icon: Italic, label: "Italic", shortcut: "⌘I" },
+  { kind: "u", icon: Underline, label: "Underline", shortcut: "⌘U" },
+  { kind: "s", icon: Strikethrough, label: "Strikethrough", shortcut: "⌘⇧X" },
+];
+
+/** Keeps focus (and the text selection) in the open editor. */
+function keepEditorFocus(e) {
+  e.preventDefault();
+}
+
+/**
+ * Bold, italic, underline, strikethrough, highlight and link for the text
+ * selection inside the open editor. Buttons never take focus; the link field
+ * does, so it is marked `data-rich-format` and the editor stays open while
+ * it is in use, then restores the saved selection to apply the link.
+ */
+function TextFormatControls({ popoverBelow }) {
+  const [formats, setFormats] = useState({});
+  const [panel, setPanel] = useState(null);
+  const [linkDraft, setLinkDraft] = useState("");
+  const [savedSelection, setSavedSelection] = useState(null);
+  const [hadLink, setHadLink] = useState(false);
+  // Popovers open away from the node so they never cover the text being edited.
+  const popoverSide = popoverBelow ? "top-full mt-2" : "bottom-full mb-2";
+
+  useEffect(() => {
+    const update = () => setFormats(activeFormats());
+    update();
+    document.addEventListener("selectionchange", update);
+    return () => document.removeEventListener("selectionchange", update);
+  }, []);
+
+  const openLink = () => {
+    const saved = saveSelection();
+    if (!saved) return;
+    setSavedSelection(saved);
+    const existing = activeFormats().a ?? "";
+    setLinkDraft(existing);
+    setHadLink(!!existing);
+    setPanel("link");
+  };
+
+  useEffect(() => onLinkRequest(openLink));
+
+  const run = (action) => {
+    action();
+    setFormats(activeFormats());
+  };
+
+  const closeLink = () => {
+    setPanel(null);
+    restoreSelection(savedSelection);
+  };
+
+  const submitLink = () => {
+    const href = normalizeHref(linkDraft);
+    setPanel(null);
+    run(() => applyLink(savedSelection, href));
+  };
+
+  return (
+    <div data-rich-format="" role="group" aria-label="Text formatting" className="relative flex items-center gap-0.5 rounded-lg bg-ink-800 p-0.5">
+      {FORMAT_BUTTONS.map(({ kind, icon: Icon, label, shortcut }) => (
+        <button
+          key={kind}
+          type="button"
+          aria-label={label}
+          aria-pressed={!!formats[kind]}
+          title={`${label} (${shortcut})`}
+          onMouseDown={keepEditorFocus}
+          onClick={() => run(() => toggleFormat(kind))}
+          className={cn(
+            "grid h-7 w-7 place-items-center rounded-md transition",
+            formats[kind] ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:text-white"
+          )}
+        >
+          <Icon className="h-3.5 w-3.5" />
+        </button>
+      ))}
+      <button
+        type="button"
+        aria-label="Highlight"
+        aria-pressed={!!formats.h}
+        aria-expanded={panel === "highlight"}
+        title="Highlight"
+        onMouseDown={keepEditorFocus}
+        onClick={() => setPanel(panel === "highlight" ? null : "highlight")}
+        className={cn(
+          "grid h-7 w-7 place-items-center rounded-md transition",
+          formats.h || panel === "highlight" ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:text-white"
+        )}
+      >
+        <Highlighter className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        aria-label="Link"
+        aria-pressed={!!formats.a}
+        aria-expanded={panel === "link"}
+        title="Link (⌘K)"
+        onMouseDown={keepEditorFocus}
+        onClick={() => (panel === "link" ? closeLink() : openLink())}
+        className={cn(
+          "grid h-7 w-7 place-items-center rounded-md transition",
+          formats.a || panel === "link" ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:text-white"
+        )}
+      >
+        <Link2 className="h-3.5 w-3.5" />
+      </button>
+
+      {panel === "highlight" && (
+        <div
+          role="group"
+          aria-label="Highlight colors"
+          className={cn("absolute left-0 flex items-center gap-1 rounded-xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl", popoverSide)}
+        >
+          {HIGHLIGHT_COLORS.map((color) => (
+            <button
+              key={color.value}
+              type="button"
+              aria-label={`${color.name} highlight`}
+              title={color.name}
+              onMouseDown={keepEditorFocus}
+              onClick={() => {
+                setPanel(null);
+                run(() => applyHighlight(color.value));
+              }}
+              className="relative grid h-6 w-6 place-items-center rounded-md border border-white/15"
+              style={{ backgroundColor: color.value }}
+            >
+              {formats.h === color.value && <Check className="h-3 w-3 text-ink-900" />}
+            </button>
+          ))}
+          <button
+            type="button"
+            aria-label="Remove highlight"
+            title="Remove highlight"
+            onMouseDown={keepEditorFocus}
+            onClick={() => {
+              setPanel(null);
+              run(() => applyHighlight(null));
+            }}
+            className="grid h-6 w-6 place-items-center rounded-md border border-white/15 text-white/60 hover:text-white"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
+      {panel === "link" && (
+        <form
+          className={cn("absolute left-0 flex items-center gap-1.5 rounded-xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl", popoverSide)}
+          onSubmit={(e) => {
+            e.preventDefault();
+            submitLink();
+          }}
+        >
+          <input
+            autoFocus
+            value={linkDraft}
+            onChange={(e) => setLinkDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                closeLink();
+              }
+            }}
+            aria-label="Link address"
+            placeholder="https://"
+            className="h-7 w-56 rounded-md border border-line bg-ink-800 px-2 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
+          />
+          <button
+            type="submit"
+            disabled={!linkDraft.trim() && !hadLink}
+            className="rounded-md bg-brand/20 px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/30 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-brand/20"
+          >
+            {linkDraft.trim() || !hadLink ? "Apply" : "Remove link"}
+          </button>
+        </form>
+      )}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 
 
+import { nodeOutline, pointInPolygon, rayExit } from "./shapes";
+
 const MIN_NODE_SIZE = 4;
 
 // ---- coord transforms ----
@@ -202,6 +204,36 @@ function clamp(v, lo, hi) {
   return Math.min(hi, Math.max(lo, v));
 }
 
+const ANCHOR_DIRECTIONS = {
+  top: { x: 0, y: -1 },
+  right: { x: 1, y: 0 },
+  bottom: { x: 0, y: 1 },
+  left: { x: -1, y: 0 },
+};
+
+/**
+ * Where an endpoint attaches to `node`. Path shapes attach to their outline:
+ * a side anchor is where the ray from the center towards that box side leaves
+ * the silhouette, and "auto" is where the ray towards the other end does.
+ * Every other node keeps its bounding-box anchors unchanged.
+ */
+export function nodeAnchorPoint(node, anchor, towards) {
+  const bounds = nodeBounds(node);
+  const outline = nodeOutline(node);
+  if (!outline || anchor === "center") return anchorPoint(bounds, anchor, towards ?? boundsCenter(bounds));
+  const center = boundsCenter(bounds);
+  const direction = ANCHOR_DIRECTIONS[anchor];
+  const target = direction
+    ? { x: center.x + direction.x * bounds.w, y: center.y + direction.y * bounds.h }
+    : towards;
+  if (!target) return center;
+  return rayExit(outline, center, target) ?? anchorPoint(bounds, anchor, target);
+}
+
+function boundsCenter(b) {
+  return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+}
+
 /**
  * Resolves a single endpoint to world pixels. For an attached endpoint with
  * anchor "auto" this is context-free (no opposite point available) and
@@ -216,8 +248,9 @@ export function resolveEndpoint(
   const node = nodesById[ep.nodeId];
   if (!node) return { x: 0, y: 0 }; // dangling ref — caller should have dropped the connector
   const bounds = nodeBounds(node);
-  const center = { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2 };
-  return anchorPoint(bounds, ep.anchor, center);
+  if (!nodeOutline(node)) return anchorPoint(bounds, ep.anchor, boundsCenter(bounds));
+  // A path shape's "auto" has no opposite point here, so it is the center.
+  return ep.anchor === "auto" ? boundsCenter(bounds) : nodeAnchorPoint(node, ep.anchor);
 }
 
 function resolveTowards(
@@ -228,7 +261,7 @@ function resolveTowards(
   if (!("nodeId" in ep)) return { x: ep.x, y: ep.y };
   const node = nodesById[ep.nodeId];
   if (!node) return { x: 0, y: 0 };
-  return anchorPoint(nodeBounds(node), ep.anchor, towards);
+  return nodeAnchorPoint(node, ep.anchor, towards);
 }
 
 /** SVG path `d` for a connector, resolving "auto" anchors against each
@@ -260,17 +293,20 @@ export function connectorPath(
 
 // ---- hit testing ----
 
-/** Top-most node id whose bounding box contains `worldPoint`, or null. */
+/** Top-most node id under `worldPoint`, or null: path shapes count only
+ * inside their outline, every other node inside its bounding box. */
 export function hitTest(state, worldPoint) {
   for (let i = state.nodes.length - 1; i >= 0; i--) {
-    const b = nodeBounds(state.nodes[i]);
+    const node = state.nodes[i];
+    const b = nodeBounds(node);
     if (
       worldPoint.x >= b.x &&
       worldPoint.x <= b.x + b.w &&
       worldPoint.y >= b.y &&
       worldPoint.y <= b.y + b.h
     ) {
-      return state.nodes[i].id;
+      const outline = nodeOutline(node);
+      if (!outline || pointInPolygon(worldPoint, outline)) return node.id;
     }
   }
   return null;

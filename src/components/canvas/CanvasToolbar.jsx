@@ -7,10 +7,6 @@ import {
   Hand,
   StickyNote,
   Type,
-  Square,
-  Circle,
-  Triangle,
-  Diamond,
   MoveRight,
   Frame,
   Spline,
@@ -25,13 +21,8 @@ import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
 import { nodeBounds } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
-
-const SHAPES = [
-  { id: "rect", icon: Square, label: "Rectangle" },
-  { id: "ellipse", icon: Circle, label: "Ellipse" },
-  { id: "triangle", icon: Triangle, label: "Triangle" },
-  { id: "diamond", icon: Diamond, label: "Diamond" },
-];
+import { BASIC_SHAPES, isShapeTool } from "@/lib/canvas/shapes";
+import { ShapeGlyph } from "./ShapeGlyph";
 
 /**
  * Bottom-center floating tool dock (ui-spec §3) + bottom-right zoom control
@@ -42,6 +33,8 @@ const SHAPES = [
 export function CanvasToolbar({
   readOnly = false,
   toolLocked,
+  shapesOpen,
+  onShapesOpenChange,
   onToggleLock,
   onAddImageClick,
 }
@@ -51,9 +44,8 @@ export function CanvasToolbar({
   const setTool = useCanvasStore((s) => s.setTool);
   const [lastShape, setLastShape] = useState("rect");
 
-  const isShapeTool = tool === "rect" || tool === "ellipse" || tool === "triangle" || tool === "diamond";
-  const shapeButtonIcon = isShapeTool ? (tool ) : lastShape;
-  const ShapeIcon = SHAPES.find((s) => s.id === shapeButtonIcon)?.icon ?? Square;
+  const shapeToolActive = isShapeTool(tool);
+  const shapeButtonTool = shapeToolActive ? tool : lastShape;
 
   const arm = (id, e) => {
     setTool(id);
@@ -96,7 +88,7 @@ export function CanvasToolbar({
             active={tool === "sticky"}
             icon={StickyNote}
             label="Sticky note"
-            shortcut="S"
+            shortcut="N"
             locked={toolLocked && tool === "sticky"}
             onClick={(e) => arm("sticky", e)}
           />
@@ -112,63 +104,74 @@ export function CanvasToolbar({
 
           <Dropdown
             side="top"
-            label="Shapes (R)"
+            label="Shapes"
+            open={shapesOpen}
+            onOpenChange={onShapesOpenChange}
+            panelClassName="min-w-0"
             trigger={(open) => (
               <span
                 className={cn(
                   "relative grid h-9 w-9 place-items-center rounded-lg transition-colors",
-                  isShapeTool
+                  shapeToolActive
                     ? "bg-ink-600 ring-1 ring-line text-white"
                     : "text-white/55 hover:bg-white/[0.07] hover:text-white",
                   open && "bg-white/[0.07]"
                 )}
-                title="Shapes (R)"
-                aria-label="Shapes"
+                title="Shapes (S)"
               >
-                <ShapeIcon className="h-4 w-4" />
+                <ShapeGlyph tool={shapeButtonTool} className="h-[18px] w-[18px]" />
+                {toolLocked && shapeToolActive && (
+                  <span className="absolute bottom-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-brand" />
+                )}
               </span>
             )}
           >
             {(close) => (
-              <div className="flex items-center gap-1 p-0.5">
-                {SHAPES.map((s) => (
+              <div className="w-[212px] p-0.5">
+                <p className="px-1.5 pb-1.5 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-white/40">Basic shapes</p>
+                <div role="group" aria-label="Basic shapes" className="grid grid-cols-5 gap-1">
+                  {BASIC_SHAPES.map((s) => (
+                    <button
+                      key={s.tool}
+                      type="button"
+                      role="menuitem"
+                      aria-label={s.label}
+                      title={s.tool === "rect" ? `${s.label} (R)` : s.label}
+                      onClick={(e) => {
+                        setLastShape(s.tool);
+                        setTool(s.tool);
+                        if (e.detail === 2) onToggleLock();
+                        close({ restoreFocus: false });
+                      }}
+                      className={cn(
+                        "grid h-9 w-9 place-items-center rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand",
+                        tool === s.tool
+                          ? "bg-ink-600 ring-1 ring-line text-white"
+                          : "text-white/60 hover:bg-white/[0.07] hover:text-white"
+                      )}
+                    >
+                      <ShapeGlyph tool={s.tool} className="h-[18px] w-[18px]" />
+                    </button>
+                  ))}
                   <button
-                    key={s.id}
                     type="button"
-                    aria-label={s.label}
-                    title={s.label}
+                    role="menuitem"
+                    aria-label="Line / arrow"
+                    title="Line / arrow (connector)"
                     onClick={() => {
-                      setLastShape(s.id);
-                      setTool(s.id);
-                      close();
+                      setTool("connector");
+                      close({ restoreFocus: false });
                     }}
                     className={cn(
-                      "grid h-9 w-9 place-items-center rounded-lg transition-colors",
-                      tool === s.id
+                      "grid h-9 w-9 place-items-center rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand",
+                      tool === "connector"
                         ? "bg-ink-600 ring-1 ring-line text-white"
                         : "text-white/60 hover:bg-white/[0.07] hover:text-white"
                     )}
                   >
-                    <s.icon className="h-4 w-4" />
+                    <MoveRight className="h-4 w-4" />
                   </button>
-                ))}
-                <button
-                  type="button"
-                  aria-label="Line / arrow"
-                  title="Line / arrow (connector)"
-                  onClick={() => {
-                    setTool("connector");
-                    close();
-                  }}
-                  className={cn(
-                    "grid h-9 w-9 place-items-center rounded-lg transition-colors",
-                    tool === "connector"
-                      ? "bg-ink-600 ring-1 ring-line text-white"
-                      : "text-white/60 hover:bg-white/[0.07] hover:text-white"
-                  )}
-                >
-                  <MoveRight className="h-4 w-4" />
-                </button>
+                </div>
               </div>
             )}
           </Dropdown>

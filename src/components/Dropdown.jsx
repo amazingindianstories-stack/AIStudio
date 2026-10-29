@@ -48,10 +48,21 @@ export function Dropdown({
   label,
   onOpen,
   maintenanceWrite = false,
+  open: controlledOpen,
+  onOpenChange,
 }) {
   const maintenance = useMaintenance((s) => s.enabled);
   const disabled = maintenanceWrite && maintenance;
-  const [open, setOpen] = useState(false);
+  // Uncontrolled by default; `open` + `onOpenChange` let a parent open the
+  // panel from elsewhere (for example a keyboard shortcut).
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const onOpenChangeRef = useRef(onOpenChange);
+  onOpenChangeRef.current = onOpenChange;
+  const setOpen = useCallback((next) => {
+    setUncontrolledOpen(next);
+    onOpenChangeRef.current?.(next);
+  }, []);
   const [position, setPosition] = useState(null);
   const ref = useRef(null);
   const triggerRef = useRef(null);
@@ -59,13 +70,13 @@ export function Dropdown({
   const keyboardFocusRef = useRef(null);
   const panelId = useId();
 
-  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  useEffect(() => { if (disabled) setOpen(false); }, [disabled, setOpen]);
 
   const closeAndRestore = useCallback(({ restoreFocus = true } = {}) => {
     keyboardFocusRef.current = null;
     setOpen(false);
     if (restoreFocus) requestAnimationFrame(() => triggerRef.current?.focus());
-  }, []);
+  }, [setOpen]);
 
   // Opening via the keyboard (ArrowDown/ArrowUp on the trigger) lands focus
   // on the first/last menuitem, mirroring native <select>/menu conventions
@@ -75,7 +86,7 @@ export function Dropdown({
     keyboardFocusRef.current = { fromEnd };
     onOpen?.();
     setOpen(true);
-  }, [onOpen]);
+  }, [onOpen, setOpen]);
 
   // The positioned portal must be visible before focusing; focusing a hidden
   // menu on the opening animation frame silently fails in real browsers.
@@ -154,7 +165,7 @@ export function Dropdown({
       document.removeEventListener("mousedown", onDown);
       document.removeEventListener("keydown", onEsc);
     };
-  }, [open, closeAndRestore]);
+  }, [open, closeAndRestore, setOpen]);
 
   useLayoutEffect(() => {
     if (!open) return;

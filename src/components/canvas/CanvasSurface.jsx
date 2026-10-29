@@ -22,10 +22,12 @@ import {
   hitTest,
   marqueeHits,
   moveNodesBy,
+  nodeAnchorPoint,
   nodeBounds,
   resizeNode,
   screenToWorld,
 } from "@/lib/canvas/geometry";
+import { isCreateTool, isShapeNode, shapeKindOfTool } from "@/lib/canvas/shapes";
 import { selectionActions } from "@/lib/canvas/selection-actions";
 import { NodeView, } from "./nodes/NodeView";
 import { ConnectorLayer } from "./ConnectorLayer";
@@ -33,7 +35,22 @@ import { CanvasContextMenu, } from "./CanvasContextMenu";
 
  
 
-const CREATE_TOOLS = ["rect", "ellipse", "triangle", "diamond", "text", "sticky", "frame"];
+
+// Kinds that read best near their natural proportions; others use 160x120.
+const SHAPE_DEFAULT_SIZE = {
+  pentagon: { w: 140, h: 134 },
+  hexagon: { w: 160, h: 140 },
+  octagon: { w: 140, h: 140 },
+  star: { w: 150, h: 143 },
+  cross: { w: 130, h: 130 },
+  cylinder: { w: 120, h: 150 },
+  "arrow-left": { w: 180, h: 100 },
+  "arrow-right": { w: 180, h: 100 },
+  "arrow-both": { w: 200, h: 100 },
+  chevron: { w: 160, h: 110 },
+  callout: { w: 180, h: 140 },
+  cloud: { w: 190, h: 130 },
+};
 
 /** Builds a fully-formed default-sized node centered at `center` (world
  *  coords), ready for `addNode`. Shared by canvas click-to-place and the
@@ -41,22 +58,39 @@ const CREATE_TOOLS = ["rect", "ellipse", "triangle", "diamond", "text", "sticky"
 export function buildDefaultNode(tool, center) {
   const id = crypto.randomUUID();
   const base = { id, opacity: 1, parentId: null, groupId: null };
+  const shapeStyle = {
+    fill: "rgba(255,255,255,0.06)",
+    stroke: "rgba(255,255,255,0.55)",
+    strokeWidth: 2,
+  };
+  if (typeof tool === "string" && tool.startsWith("shape:")) {
+    const kind = shapeKindOfTool(tool);
+    const size = SHAPE_DEFAULT_SIZE[kind] ?? { w: 160, h: 120 };
+    return {
+      ...base,
+      type: "shape",
+      shape: kind,
+      x: center.x - size.w / 2,
+      y: center.y - size.h / 2,
+      ...size,
+      ...shapeStyle,
+    };
+  }
   switch (tool) {
     case "rect":
+    case "rect-rounded":
     case "ellipse":
     case "triangle":
     case "diamond":
       return {
         ...base,
-        type: tool,
+        type: tool === "rect-rounded" ? "rect" : tool,
         x: center.x - 80,
         y: center.y - 60,
         w: 160,
         h: 120,
-        fill: "rgba(255,255,255,0.06)",
-        stroke: "rgba(255,255,255,0.55)",
-        strokeWidth: 2,
-        cornerRadius: tool === "rect" ? 0 : undefined,
+        ...shapeStyle,
+        cornerRadius: tool === "rect" ? 0 : tool === "rect-rounded" ? 16 : undefined,
       };
     case "text":
       return {
@@ -271,7 +305,7 @@ export const CanvasSurface = forwardRef
       return;
     }
 
-    if (CREATE_TOOLS.includes(tool )) {
+    if (isCreateTool(tool)) {
       dragRef.current = {
         kind: "create",
         startScreen: screen,
@@ -398,16 +432,7 @@ export const CanvasSurface = forwardRef
     if (readOnly) return;
     (e.target ).setPointerCapture?.(e.pointerId);
     const screen = toScreenLocal(e.clientX, e.clientY);
-    const b = nodeBounds(node);
-    const anchorPoint =
-      anchor === "top"
-        ? { x: b.x + b.w / 2, y: b.y }
-        : anchor === "bottom"
-        ? { x: b.x + b.w / 2, y: b.y + b.h }
-        : anchor === "left"
-        ? { x: b.x, y: b.y + b.h / 2 }
-        : { x: b.x + b.w, y: b.y + b.h / 2 };
-    setDraftConnector({ fromPoint: anchorPoint, toPoint: screenToWorld(screen, viewport) });
+    setDraftConnector({ fromPoint: nodeAnchorPoint(node, anchor), toPoint: screenToWorld(screen, viewport) });
     dragRef.current = {
       kind: "connector",
       startScreen: screen,
@@ -521,7 +546,7 @@ export const CanvasSurface = forwardRef
   const onDoubleClickBody = (e, node) => {
     e.stopPropagation();
     if (readOnly) return;
-    if (node.type === "text" || node.type === "sticky" || node.type === "frame") {
+    if (node.type === "text" || node.type === "sticky" || node.type === "frame" || isShapeNode(node)) {
       setSelection([node.id]);
       useCanvasStore.getState().setEditingTextId(node.id);
     } else if (node.type === "image") {
@@ -530,13 +555,13 @@ export const CanvasSurface = forwardRef
     }
   };
 
-  const onCommitText = (nodeId, text) => {
-    const node = nodesById[nodeId];
-    if (!node) return;
-    // `name` is the FrameNode label field, `text` is TextNode/StickyNode content.
-    const patch = node.type === "frame" ? { name: text } : { text };
-    useCanvasStore.getState().updateSelectedStyle(patch);
-    useCanvasStore.getState().setEditingTextId(null);
+  const onCommitText = (nodeId, text, marks, contentHeight) => {
+    const store = useCanvasStore.getState();
+    // Frames commit their label as `name`; text, stickies and shapes commit
+    // `text` with its formatting ranges.
+    store.commitNodeText(nodeId, text, marks, contentHeight);
+    // An editor can close because editing already moved to another node.
+    if (useCanvasStore.getState().editingTextId === nodeId) store.setEditingTextId(null);
   };
   const onCancelEdit = () => useCanvasStore.getState().setEditingTextId(null);
 
@@ -834,7 +859,7 @@ export const CanvasSurface = forwardRef
     ? "cursor-copy" // C1: the standard, universally-recognized "you are duplicating" affordance
     : dragRef.current?.kind === "connector-endpoint"
     ? "cursor-grabbing"
-    : CREATE_TOOLS.includes(tool ) || tool === "connector"
+    : isCreateTool(tool) || tool === "connector"
     ? "cursor-crosshair"
     : "cursor-default";
 
@@ -908,7 +933,7 @@ export const CanvasSurface = forwardRef
           onConnectorContextMenu={onConnectorContextMenu}
         />
 
-        {dragGhost && CREATE_TOOLS.includes(tool ) && (
+        {dragGhost && isCreateTool(tool) && (
           <div
             className="pointer-events-none absolute rounded-md border border-dashed border-white/40"
             style={{ left: dragGhost.x - 30, top: dragGhost.y - 22, width: 60, height: 44 }}
